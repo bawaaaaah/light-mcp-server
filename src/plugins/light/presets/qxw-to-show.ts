@@ -91,7 +91,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   for (const fn of sequences) {
     if (!canvas) break;
     const written = new Set<number>(fn.steps.flatMap((s) => [...s.values.keys()]));
-    const steps = fn.steps.map((s) => stepColors(s, cells, written).map(hex));
+    let steps = fn.steps.map((s) => stepColors(s, cells, written).map(hex));
+    // « Pas 0 d'entrée »: a first step with a fade much longer than the others is an entry fade.
+    const entry = entryStep(fn);
+    if (entry > 0) steps = steps.slice(1);
     if (steps.every((row) => row.every((c) => c === ""))) {
       warnings.push(`« ${fn.name} » : aucune cellule couleur décodée (machine, gradateur ?) — non importée`);
       continue;
@@ -104,7 +107,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       name: fn.name,
       canvas: "qlc",
       technique: { kind: "pas", steps },
-      timing: timingOf(fn, dialed.get(fn.id)),
+      timing: { ...timingOf(fn, dialed.get(fn.id), entry > 0), entryFade: entry },
       manualOnly: false,
       noCut: false,
       danger: false,
@@ -169,14 +172,24 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   return { fixtures, canvas, looks, groups, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
 }
 
-function timingOf(fn: QxwFunction, dial?: { fadeIn: number; duration: number }): Look["timing"] {
+/** Entry fade in seconds when step 0 is a soft entry (fade ≥ 1 s and ≥ 3× the other steps' fades), else 0. */
+export function entryStep(fn: QxwFunction): number {
+  if (fn.steps.length < 3) return 0;
+  const first = fn.steps[0]!.fadeIn;
+  const others = fn.steps.slice(1).map((s) => s.fadeIn).sort((a, b) => a - b);
+  const median = others[Math.floor(others.length / 2)] ?? 0;
+  return first >= 1000 && first >= 3 * Math.max(median, 1) ? first / 1000 : 0;
+}
+
+function timingOf(fn: QxwFunction, dial?: { fadeIn: number; duration: number }, skipFirst = false): Look["timing"] {
   const order = fn.runOrder === "Random" ? "random" : fn.runOrder === "PingPong" ? "pingpong" : "loop";
   if (dial && dial.duration > 0) {
     return { every: { beats: dial.duration }, attack: Math.min(1, dial.fadeIn / dial.duration), order, entryFade: 0 };
   }
-  const durations = fn.steps.map((s) => (fn.speedModes?.duration === "PerStep" ? s.fadeIn + s.hold : fn.speed.duration)).filter((d) => d > 0);
+  const loopSteps = skipFirst ? fn.steps.slice(1) : fn.steps;
+  const durations = loopSteps.map((s) => (fn.speedModes?.duration === "PerStep" ? s.fadeIn + s.hold : fn.speed.duration)).filter((d) => d > 0);
   const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 1000;
-  const fade = fn.speedModes?.fadeIn === "PerStep" ? fn.steps.reduce((a, s) => a + s.fadeIn, 0) / Math.max(1, fn.steps.length) : fn.speed.fadeIn;
+  const fade = fn.speedModes?.fadeIn === "PerStep" ? loopSteps.reduce((a, s) => a + s.fadeIn, 0) / Math.max(1, loopSteps.length) : fn.speed.fadeIn;
   return { every: { seconds: Math.max(0.01, avg / 1000) }, attack: Math.min(1, fade / Math.max(1, avg)), order, entryFade: 0 };
 }
 

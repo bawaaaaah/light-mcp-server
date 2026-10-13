@@ -8,6 +8,12 @@ interface Proposal {
   counts: Record<string, number>;
   collisions?: string[];
 }
+interface Rebuild {
+  saved: boolean;
+  rebuilt: number;
+  total: number;
+  results: { id: string; name: string; recognised: string; fidelity: number; accepted: boolean; reason: string }[];
+}
 interface Selftest {
   total: number;
   passed: number;
@@ -21,6 +27,7 @@ export function ImportPage() {
   const [xml, setXml] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [selftest, setSelftest] = useState<Selftest | null>(null);
+  const [rebuild, setRebuild] = useState<Rebuild | null>(null);
   const [error, setError] = useState("");
 
   const pick = async (file: File | undefined) => {
@@ -65,6 +72,35 @@ export function ImportPage() {
                 {t.apply}
               </button>
             )}
+          </div>
+        )}
+      </section>
+      <section>
+        <h2>{t.rebuild}</h2>
+        <p className="hint">{t.rebuildHelp}</p>
+        <button onClick={() => void cmd<Rebuild>("look.rebuild").then(setRebuild).catch((e: Error) => setError(e.message))}>{t.dryRun}</button>
+        {rebuild && !rebuild.saved && rebuild.rebuilt > 0 && (
+          <button className="primary" onClick={() => void cmd<Rebuild>("look.rebuild", { save: true }).then(setRebuild).catch((e: Error) => setError(e.message))}>
+            {t.apply} ({rebuild.rebuilt})
+          </button>
+        )}
+        {rebuild && (
+          <div className="report">
+            <p>
+              {rebuild.rebuilt}/{rebuild.total}
+            </p>
+            <table>
+              <tbody>
+                {rebuild.results.map((r) => (
+                  <tr key={r.id} className={r.accepted ? "" : "muted"}>
+                    <td>{r.name}</td>
+                    <td>{r.recognised}</td>
+                    <td>{Math.round(r.fidelity * 100)} %</td>
+                    <td>{r.accepted ? "✔" : r.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

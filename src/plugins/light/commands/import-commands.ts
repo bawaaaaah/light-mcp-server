@@ -13,6 +13,7 @@ import { parseQxw } from "../presets/qxw-import.js";
 import { qxwToShow } from "../presets/qxw-to-show.js";
 import { NoteRegistry, NoteRegistrySchema } from "../midi/note-registry.js";
 import type { TempoClock } from "../timing/tempo.js";
+import { rebuild } from "../presets/rebuild.js";
 
 export interface ImportServices {
   runtime: ShowRuntime;
@@ -69,6 +70,31 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       s.show.writeManifest("notes-registry.json", registry.data);
       if (p.tempoFromMidiClock) s.tempo.setSource("midi");
       return { applied: true, ...summary, collisions };
+    },
+  });
+
+  reg.register({
+    name: "look.rebuild",
+    title: "Reconstruire en technique",
+    description:
+      "Rebuilds imported looks (exact steps) into editable parametric techniques (plat, damier, palette, creux, masques) when the recognised technique allows it and the re-rendered result matches the original (fidelity ≥ minFidelity). Dry run unless save is true; the previous version is kept in the backups.",
+    right: "show:write",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({ id: z.string().optional(), minFidelity: z.number().min(0).max(1).default(0.9), save: z.boolean().default(false) }),
+    run: ({ id, minFidelity, save }) => {
+      const looks = s.runtime.looks.list().filter((l) => l.technique.kind === "pas" && (!id || l.id === id));
+      const results = looks.map((l) => {
+        const recognised = (l.tags.find((t) => t.startsWith("technique:")) ?? "").slice("technique:".length);
+        const steps = (l.technique as { steps: string[][] }).steps;
+        const a = rebuild(steps, recognised, false);
+        const b = rebuild(steps, recognised, true);
+        const best = b.fidelity > a.fidelity ? { ...b, mirror: true } : { ...a, mirror: false };
+        const accepted = Boolean(best.technique) && best.fidelity >= minFidelity;
+        if (accepted && save) s.runtime.looks.put({ ...l, technique: best.technique!, mirror: best.mirror, tags: [...l.tags.filter((t) => t !== "reconstruit"), "reconstruit"] });
+        return { id: l.id, name: l.name, recognised, fidelity: Math.round(best.fidelity * 100) / 100, mirror: best.mirror, accepted, reason: best.reason, technique: best.technique?.kind };
+      });
+      return { saved: save, rebuilt: results.filter((r) => r.accepted).length, total: results.length, results };
     },
   });
 }

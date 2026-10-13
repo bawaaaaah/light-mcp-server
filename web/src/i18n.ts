@@ -1,5 +1,7 @@
 /** UI texts, FR + EN (docs/specs/ui-dashboards.md). */
 const fr = {
+  rebuild: "Reconstruire en techniques éditables",
+  rebuildHelp: "Transforme les looks importés (pas exacts) en techniques paramétriques quand le rendu reste fidèle (≥ 90 %). Les autres restent en pas exacts.",
   songs: "Chants",
   show: "Show",
   setlist: "Setlist",
@@ -59,6 +61,8 @@ const fr = {
   language: "Langue",
 };
 const en: typeof fr = {
+  rebuild: "Rebuild into editable techniques",
+  rebuildHelp: "Turns imported looks (exact steps) into parametric techniques when the render stays faithful (≥ 90 %). The others keep their exact steps.",
   songs: "Songs",
   show: "Show",
   setlist: "Setlist",

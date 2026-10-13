@@ -100,7 +100,7 @@ export class ShowRuntime {
   private build(look: Look): LookPlayer {
     const canvas = this.venue.canvases.get(look.canvas);
     if (!canvas) throw new Error(`canevas inconnu : ${look.canvas}`);
-    const steps = generateSteps(this.resolvedTechnique(look), canvas.cells, canvas.topology === "line-mirror");
+    const steps = generateSteps(this.resolvedTechnique(look), canvas.cells, look.mirror ?? canvas.topology === "line-mirror");
     return new LookPlayer(steps, look.timing, seedOf(look.id));
   }
 

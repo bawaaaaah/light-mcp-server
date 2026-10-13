@@ -22,6 +22,8 @@ export const LookSchema = z.object({
   /** By reference: the technique's colours come from this palette (changing it updates the look). */
   palette: z.string().optional(),
   timing: TimingSchema.default({}),
+  /** Mirrored composition (paint the left half, fold it); default: the canvas topology. */
+  mirror: z.boolean().optional(),
   /** Section safety flags (docs/specs/rules-limits.md). */
   manualOnly: z.boolean().default(false),
   noCut: z.boolean().default(false),
