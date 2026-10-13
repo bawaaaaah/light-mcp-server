@@ -11,6 +11,12 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | P4 | **Clock et SPP depuis Ableton** | BPM suivi à ±0,5 ; position retrouvée après un saut dans l'arrangement |
 | P5 | **Aftertouch dans un clip Ableton** | Pression reçue pendant une note tenue (mode Momentané) |
 | P6 | **Découverte Art-Net** sur le réseau réel | ArtPollReply des nodes reçus et décodés |
+| P7 | **RTP-MIDI en pur Node** (sans démon) | Session avec le Mac : invitation, synchro, notes dans les deux sens |
+| P8 | **Génération de Live Set** | Le `.als` généré s'ouvre dans Live sans plantage ; repères, clips et tempo corrects |
+| P9 | **Flux WebSocket** 16 univers vers N écrans | 25 Hz par client ; un client lent n'affecte pas les autres |
+| P10 | **sACN** | Multicast reçu sans perte |
+| P11 | **OSC** | Routes, `/light/help`, latence |
+| P12 | **Import `.qxw` et reconnaissance des techniques** | Techniques reconnues sur un vrai workspace (cible : ≥ 90 %) |
 
 ## Étape 1 : v0 « prochain culte »
 **Objectif** : remplacer le pipeline QLC+ actuel de l'utilisateur sur **un vrai événement**.

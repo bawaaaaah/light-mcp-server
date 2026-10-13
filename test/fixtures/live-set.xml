@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12402" Creator="Synthetic test set">
+	<LiveSet>
+		<Tracks>
+			<MidiTrack Id="10">
+				<Name>
+					<EffectiveName Value="Lights" />
+					<UserName Value="Lights" />
+				</Name>
+				<DeviceChain>
+					<MainSequencer>
+						<ClipTimeable>
+							<ArrangerAutomation>
+								<Events>
+									<MidiClip Id="0" Time="0">
+										<CurrentStart Value="0" />
+										<CurrentEnd Value="4" />
+										<Loop>
+											<LoopStart Value="0" />
+											<LoopEnd Value="4" />
+											<StartRelative Value="0" />
+											<LoopOn Value="true" />
+											<OutMarker Value="4" />
+											<HiddenLoopStart Value="0" />
+											<HiddenLoopEnd Value="4" />
+										</Loop>
+										<Name Value="hand-drawn" />
+										<TakeId Value="2" />
+										<Notes>
+											<KeyTracks />
+											<NoteIdGenerator>
+												<NextId Value="1" />
+											</NoteIdGenerator>
+										</Notes>
+									</MidiClip>
+								</Events>
+							</ArrangerAutomation>
+						</ClipTimeable>
+					</MainSequencer>
+				</DeviceChain>
+			</MidiTrack>
+			<MidiTrack Id="11">
+				<Name>
+					<EffectiveName Value="Other" />
+					<UserName Value="Other" />
+				</Name>
+				<DeviceChain>
+					<MainSequencer>
+						<ClipTimeable>
+							<ArrangerAutomation>
+								<Events />
+							</ArrangerAutomation>
+						</ClipTimeable>
+					</MainSequencer>
+				</DeviceChain>
+			</MidiTrack>
+		</Tracks>
+		<MainTrack>
+			<AutomationEnvelopes>
+				<Envelopes>
+					<AutomationEnvelope Id="1">
+						<EnvelopeTarget>
+							<PointeeId Value="8" />
+						</EnvelopeTarget>
+						<Automation>
+							<Events>
+								<FloatEvent Id="0" Time="-63072000" Value="120" />
+							</Events>
+						</Automation>
+					</AutomationEnvelope>
+				</Envelopes>
+			</AutomationEnvelopes>
+		</MainTrack>
+		<Locators>
+			<Locators />
+		</Locators>
+	</LiveSet>
+</Ableton>

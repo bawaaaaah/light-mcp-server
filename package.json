@@ -20,7 +20,8 @@
     "proto:ws": "tsx prototypes/p9-ws-stream.ts",
     "proto:sacn": "tsx prototypes/p10-sacn.ts",
     "proto:osc": "tsx prototypes/p11-osc.ts",
-    "proto:qxw": "tsx prototypes/p12-qxw-import.ts"
+    "proto:qxw": "tsx prototypes/p12-qxw-import.ts",
+    "proto:liveset": "tsx prototypes/p8-live-set.ts"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",

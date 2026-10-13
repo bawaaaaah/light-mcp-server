@@ -16,6 +16,12 @@ npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julus
 | P4 | Clock et SPP depuis Ableton | **Mac**, Live en lecture | `npm run proto:midi -- --in "IAC"` |
 | P5 | Aftertouch dans un clip | **Mac**, clip avec pression | `npm run proto:midi -- --in "IAC"` |
 | P6 | Découverte Art-Net | **sur le réseau lumière** (QLC+ fermé) | `npm run proto:artnet -- --seconds 5` |
+| P7 | RTP-MIDI pur Node | local, puis **avec le Mac** | `npm run proto:rtp -- --bench` · `-- --listen` |
+| P8 | Live Set (`.als`) | n'importe où, **validation dans Live** | `npm run proto:liveset -- --als <set.als> --track "<piste>"` |
+| P9 | Flux WebSocket | n'importe où | `npm run proto:ws -- --clients 8 --slow 1` |
+| P10 | sACN multicast | n'importe où | `npm run proto:sacn -- --interface <ip>` |
+| P11 | OSC | n'importe où | `npm run proto:osc -- --bench` · `-- --listen` |
+| P12 | Import `.qxw` | n'importe où | `npm run proto:qxw -- --qxw <fichier> --fixtures <dossier .qxf> [--details]` |
 | — | Faux node Art-Net | local | `npm run proto:fake-node -- --bind 127.0.0.2` |
 
 ## Sur le Mac de régie (P1, P4, P5)
@@ -27,8 +33,12 @@ npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julus
 6. **P4** : `npm run proto:midi -- --in "IAC"`, puis lancer la lecture dans Live, changer le tempo et sauter dans l'arrangement. Vérifier le BPM affiché (±0,5) et la position (mesure.temps) après le saut.
 7. **P5** : jouer un clip qui contient de l'aftertouch (enveloppe de pression dans le clip). Des lignes `polyAT` ou `chanAT` doivent apparaître entre la note on et la note off.
 
+8. **P7 avec le Mac** : sur la machine qui fait tourner le prototype, `npm run proto:rtp -- --listen`. Sur le Mac : Configuration audio et MIDI → Fenêtre → Configuration du réseau MIDI → Annuaire « + », saisir l'IP et le port 5004, puis Connecter. Router une piste de Live vers cette session et jouer quelques notes, avec Sync activé pour l'horloge.
+9. **P3 et P8 dans Live** : ouvrir `prototypes/out/test-rack.adg` et `prototypes/out/test-set.als` (générés depuis tes fichiers, avec Live fermé pendant la génération).
+10. **P12** : copier tes `.qxf` personnels (Bibliothèque QLC+ → Fixtures) dans `data/fixtures/` pour décoder tous les appareils.
+
 Noter les résultats (copier la sortie) dans `docs/research/proto-resultats.md`.
 
 ## Sur Linux
 - MIDI local : `sudo modprobe snd-seq` (et l'ajouter dans `/etc/modules-load.d/` pour le rendre permanent).
-- RTP-MIDI : le démon **rtpmidid** expose les sessions réseau comme des ports ALSA, et P1 les voit comme les autres.
+- RTP-MIDI : intégré en pur Node (P7), sans démon. En alternative, rtpmidid expose les sessions comme des ports ALSA, visibles par P1.

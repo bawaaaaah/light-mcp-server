@@ -10,7 +10,15 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - parseur MIDI, suivi de MIDI clock et SPP ;
   - ticker du moteur avec rendu immédiat ;
   - générateur de MIDI Effect Rack.
-- Résultats des prototypes : [research/proto-resultats.md](research/proto-resultats.md). **P2 est validé.** P3 et P6 sont à confirmer en conditions réelles. **P1, P4 et P5 attendent le Mac de régie.**
+- Prototypes P1 à P12 : [research/proto-resultats.md](research/proto-resultats.md).
+  - **Validés** : P2 (tick), P7 (RTP-MIDI en local), P9 (WebSocket), P10 (sACN), P11 (OSC), P12 (import QLC+, 97 %).
+  - **À confirmer en conditions réelles** : P3 et P8 (dans Live), P6 (réseau lumière), P7 avec le Mac.
+  - **Restent à faire sur le Mac** : P1, P4, P5.
+- Modules réels déjà écrits et testés (59 tests) :
+  - codecs Art-Net, sACN, OSC, AppleMIDI, WebSocket ;
+  - parseur MIDI, suivi de clock et SPP, ticker ;
+  - rack Ableton, éditeur de Live Set ;
+  - imports `.qxf` et `.qxw` avec analyse.
 
 ## Prochaines étapes
 1. L'utilisateur lance P1, P4 et P5 sur le Mac, P3 dans Live et P6 sur le réseau lumière ([prototypes/README.md](../prototypes/README.md)), puis on reporte les résultats.

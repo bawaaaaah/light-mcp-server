@@ -46,4 +46,8 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-13 | Panic neutre | Il rappelle un **preset de scène choisi à l'avance pour le show** (le « look de secours » du show) ; **si aucun n'est défini, il fait un Blackout** | [mcp](specs/mcp.md) |
 | 2026-10-13 | Moteur | Rendu immédiat à chaque changement d'état (`requestFrame`), en plus du tick à 44 Hz : nécessaire pour MIDI → DMX < 10 ms (mesure P2) | [moteur](specs/engine-effects-timing.md) |
 | 2026-10-13 | MIDI Linux | MIDI local via ALSA (`snd-seq` requis), RTP-MIDI via le démon rtpmidid (ports ALSA) ; sur macOS, les sessions RTP sont des ports CoreMIDI | [proto](research/proto-resultats.md) |
+| 2026-10-13 | RTP-MIDI | Implémentation AppleMIDI maison en pur Node (P7) : le paquet `rtpmidi` est abandonné ; plus besoin de rtpmidid sous Linux, Pi ou Docker | [proto](research/proto-resultats.md) |
+| 2026-10-13 | OSC | Codec OSC maison (pas de dépendance) | [proto](research/proto-resultats.md) |
+| 2026-10-13 | Flux WS | Canal stream : un client avec plus de 256 Kio en attente est sauté (la dernière trame remplace) | [proto](research/proto-resultats.md) |
+| 2026-10-13 | Import QLC+ | Valeurs absentes d'un pas = 0 ; noms de modes comparés de façon tolérante ; reconnaissance des techniques validée à 97 % | [proto](research/proto-resultats.md) |
 | 2026-10-13 | Développement | **Réutiliser le code existant**, sans duplication (règle pour les agents qui implémentent) | [HANDOFF](HANDOFF.md) |

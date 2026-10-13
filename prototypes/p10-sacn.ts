@@ -4,7 +4,7 @@
  * Sends N universes by multicast at 44 Hz for a few seconds and receives them in-process (joined
  * multicast groups, loopback enabled): checks packet layout on the wire, rate and loss.
  *
- * Usage: npm run proto:sacn -- [--universes 16] [--seconds 5] [--interface 192.168.1.10]
+ * Usage: npm run proto:sacn -- [--universes 16] [--seconds 5] [--interface 10.0.0.10]
  * To check against third-party software, run it with --seconds 60 and open a sACN viewer.
  */
 import { createSocket } from "node:dgram";
