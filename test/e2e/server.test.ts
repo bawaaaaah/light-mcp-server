@@ -49,6 +49,8 @@ describe("server end to end", function () {
     );
     mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));
+    mkdirSync(join(dir, "data", "imports"), { recursive: true });
+    copyFileSync(new URL("../fixtures/synthetic.qxw", import.meta.url), join(dir, "data", "imports", "workspace.qxw"));
     node = await fakeNode();
     running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     base = `http://127.0.0.1:${running.gateway!.address!.port}`;
@@ -215,5 +217,27 @@ describe("server end to end", function () {
     await safe;
     const looks = (await ok("look.list", {})) as { id: string; active: boolean }[];
     expect(looks.filter((l) => l.active).map((l) => l.id)).to.deep.equal(["secours"]);
+  });
+
+  it("imports a QLC+ workspace and passes the self-test", async () => {
+    const token = await login("1234");
+    const call = async (name: string, body: unknown) => {
+      const res = await command(token, name, body);
+      const json = (await res.json()) as { result: Record<string, unknown>; error?: string };
+      expect(res.status, json.error).to.equal(200);
+      return json.result;
+    };
+    const dry = await call("import.qxw", { file: "workspace.qxw" });
+    expect(dry.applied).to.equal(false);
+    expect(dry.counts).to.deep.equal({ fixtures: 2, cells: 8, looks: 5, groups: 2, mappings: 3 });
+    expect(running.light.runtime.looks.get("checker")).to.equal(undefined); // dry run wrote nothing
+    const applied = await call("import.qxw", { file: "workspace.qxw", apply: true });
+    expect(applied.collisions).to.deep.equal([]);
+    expect((await command(token, "import.qxw", { file: "../../etc/passwd" })).status).to.equal(422);
+    const result = (await call("selftest.run", {})) as { total: number; passed: number; failed: unknown[]; exclusivity: { ok: boolean }[]; latencyMs: { max: number } };
+    expect(result.failed, JSON.stringify(result.failed)).to.deep.equal([]);
+    expect(result.passed).to.equal(result.total);
+    expect(result.exclusivity.every((e) => e.ok)).to.equal(true);
+    expect(result.latencyMs.max).to.be.below(50);
   });
 });
