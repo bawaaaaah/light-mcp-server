@@ -25,7 +25,9 @@
     "light": "tsx src/cli/main.ts",
     "serve": "tsx src/cli/main.ts serve",
     "build:web": "npm --prefix web run build",
-    "dev:web": "npm --prefix web run dev"
+    "dev:web": "npm --prefix web run dev",
+    "build": "tsc -p tsconfig.build.json && cp src/plugins/light/knowledge/generic.json dist/plugins/light/knowledge/ && npm --prefix web run build",
+    "start": "node dist/cli/main.js serve"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
@@ -51,5 +53,8 @@
   "allowScripts": {
     "esbuild@0.28.2": true,
     "@julusian/midi@3.8.1": true
+  },
+  "bin": {
+    "light": "dist/cli/main.js"
   }
 }

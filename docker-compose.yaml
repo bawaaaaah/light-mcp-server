@@ -1,0 +1,11 @@
+# Host networking: Art-Net discovery uses UDP broadcast, and RTP-MIDI/OSC/sACN need real ports.
+services:
+  light:
+    build: .
+    image: light-mcp-server:local
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8790
