@@ -21,12 +21,55 @@ interface Mapping {
   on: { command: string; args: Record<string, unknown> };
 }
 
+/** Web MIDI: a controller plugged into this browser's device relays its messages to the server. */
+function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
+  const [inputs, setInputs] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!enabled) return;
+    const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<MIDIAccess> };
+    if (!nav.requestMIDIAccess) {
+      setError("Web MIDI indisponible dans ce navigateur (Safari, iPad) : utiliser Chrome ou Edge");
+      return;
+    }
+    let access: MIDIAccess | undefined;
+    const bind = () => {
+      if (!access) return;
+      const names: string[] = [];
+      access.inputs.forEach((input) => {
+        names.push(input.name ?? input.id);
+        input.onmidimessage = (e) => {
+          const data = e.data;
+          if (!data || data.length === 0 || data[0] === 0xf8 || data[0] === 0xfe) return; // clock/active sensing stay local
+          void cmd("midi.in", { port: `Web MIDI · ${input.name ?? input.id}`, bytes: Array.from(data).slice(0, 3) }).catch(() => undefined);
+        };
+      });
+      setInputs(names);
+    };
+    void nav
+      .requestMIDIAccess()
+      .then((a) => {
+        access = a;
+        a.onstatechange = bind;
+        bind();
+      })
+      .catch((e: Error) => setError(e.message));
+    return () => {
+      access?.inputs.forEach((input) => (input.onmidimessage = null));
+      if (access) access.onstatechange = null;
+    };
+  }, [enabled]);
+  return { inputs, error };
+}
+
 export function MidiPage() {
   const t = useT();
   const [status, setStatus] = useState<Status | null>(null);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [monitor, setMonitor] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [webMidi, setWebMidi] = useState(false);
+  const web = useWebMidi(webMidi);
 
   useEffect(() => {
     const load = () => void cmd<Status>("midi.status").then(setStatus).catch(() => undefined);
@@ -60,6 +103,10 @@ export function MidiPage() {
         </label>
         {status && !status.localAvailable && <span className="warn">{t.localMidiMissing} : {status.localError}</span>}
         {status?.rtp.enabled && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
+        <label className="row">
+          <input type="checkbox" checked={webMidi} onChange={(e) => setWebMidi(e.target.checked)} /> {t.webMidi}
+        </label>
+        {webMidi && <span className="hint">{web.error || web.inputs.join(", ") || "—"}</span>}
       </section>
       <div className="cols">
         <section>
