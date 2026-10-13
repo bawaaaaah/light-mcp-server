@@ -1,0 +1,169 @@
+/**
+ * Parametric techniques (docs/specs/engine-effects-timing.md, « Bibliothèque de techniques »):
+ * each one generates the sequence of canvas states (one colour per cell, per step). Pure
+ * functions — the player handles timing, attack and order.
+ *
+ * Mirror: on a `line-mirror` canvas, techniques paint the left half and fold it (cell k = cell
+ * n-1-k), so colour radiates from the centre, like the user's own generator.
+ */
+import { z } from "zod";
+import type { Color } from "../venue/venue.js";
+
+export type CellState = Color | null; // null: cell not driven by this technique
+export type Step = CellState[];
+
+export const TechniqueSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("plat"), color: z.string() }),
+  z.object({ kind: z.literal("damier"), colors: z.tuple([z.string(), z.string()]), block: z.number().int().min(1).default(4) }),
+  z.object({ kind: z.literal("palette"), colors: z.array(z.string()).min(3), block: z.number().int().min(1).default(4) }),
+  z.object({ kind: z.literal("creux"), colors: z.tuple([z.string(), z.string()]), block: z.number().int().min(1).default(4), width: z.number().int().min(1).default(1), floor: z.number().min(0).max(1).default(0) }),
+  z.object({
+    kind: z.literal("masques"),
+    colors: z.tuple([z.string(), z.string()]),
+    block: z.number().int().min(1).default(4),
+    /** One string per step: "#" lit, "-" off, one char per block (or per cell). */
+    masks: z.array(z.string()).min(1),
+    floor: z.number().min(0).max(1).default(0),
+  }),
+  z.object({
+    kind: z.literal("masques-colores"),
+    block: z.number().int().min(1).default(4),
+    /** Letter → colour (or null = off). */
+    map: z.record(z.string(), z.string().nullable()),
+    patterns: z.array(z.string()).min(1),
+  }),
+  z.object({ kind: z.literal("respiration"), colors: z.array(z.string()).min(1), steps: z.number().int().min(2).default(4), depth: z.number().min(0).max(1).default(0.3) }),
+  z.object({ kind: z.literal("orage"), base: z.string(), flash: z.string().default("#ffff28"), calm: z.number().int().min(1).default(30), strikes: z.number().int().min(1).default(12) }),
+  z.object({ kind: z.literal("flamme"), colors: z.array(z.string()).min(1), steps: z.number().int().min(2).default(9) }),
+  z.object({ kind: z.literal("flash"), color: z.string().default("#ffffff"), steps: z.number().int().min(1).default(4) }),
+  /** Imported or hand-made raw steps (hex per cell, "-" for off, "" for untouched). */
+  z.object({ kind: z.literal("pas"), steps: z.array(z.array(z.string())).min(1) }),
+]);
+export type Technique = z.infer<typeof TechniqueSchema>;
+
+/** "#ff960f" or "#ff960f+w40" → colour (0..1 components). */
+export function hexToColor(hex: string): Color {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})(?:\+w(\d{1,3}))?$/i.exec(hex.trim());
+  if (!m) throw new Error(`couleur invalide : ${hex}`);
+  const c: Color = { red: parseInt(m[1]!, 16) / 255, green: parseInt(m[2]!, 16) / 255, blue: parseInt(m[3]!, 16) / 255 };
+  if (m[4]) c.white = Number(m[4]) / 255;
+  return c;
+}
+
+export const OFF: Color = { red: 0, green: 0, blue: 0, white: 0 };
+
+export function scaleColor(c: Color, k: number): Color {
+  return Object.fromEntries(Object.entries(c).map(([key, v]) => [key, (v ?? 0) * k])) as Color;
+}
+
+/** Deterministic pseudo-random (mulberry32) so a technique renders the same steps every time. */
+export function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function fold(half: CellState[], cells: number): Step {
+  return Array.from({ length: cells }, (_, k) => half[k < cells / 2 ? k : cells - 1 - k] ?? null);
+}
+
+/** Paints one value per block across `n` cells. */
+function byBlock(n: number, block: number, colorOfBlock: (b: number) => CellState): CellState[] {
+  return Array.from({ length: n }, (_, k) => colorOfBlock(Math.floor(k / block)));
+}
+
+/** Generates the steps of a technique for a canvas of `cells` cells. */
+export function generateSteps(t: Technique, cells: number, mirror: boolean): Step[] {
+  const span = mirror ? Math.ceil(cells / 2) : cells;
+  const out = (half: CellState[]): Step => (mirror ? fold(half, cells) : half);
+  switch (t.kind) {
+    case "plat":
+      return [Array.from({ length: cells }, () => hexToColor(t.color))];
+    case "damier": {
+      const [a, b] = t.colors.map(hexToColor) as [Color, Color];
+      return [0, 1].map((swap) => out(byBlock(span, t.block, (blk) => ((blk + swap) % 2 === 0 ? a : b))));
+    }
+    case "palette": {
+      // Each block takes a hue shifted by one per step; nothing ever goes dark.
+      const cols = t.colors.map(hexToColor);
+      return cols.map((_, step) => out(byBlock(span, t.block, (blk) => cols[(blk + step) % cols.length]!)));
+    }
+    case "creux": {
+      // Rotation breaks the mirror on purpose: the travelling hole carries the energy.
+      const [a, b] = t.colors.map(hexToColor) as [Color, Color];
+      const blocks = Math.ceil(cells / t.block);
+      return Array.from({ length: blocks }, (_, step) =>
+        byBlock(cells, t.block, (blk) => {
+          const base = blk % 2 === 0 ? a : b;
+          return (blk - step + blocks) % blocks < t.width ? scaleColor(base, t.floor) : base;
+        }),
+      );
+    }
+    case "masques": {
+      const [a, b] = t.colors.map(hexToColor) as [Color, Color];
+      return t.masks.map((mask) => {
+        const m = mask.replace(/\s/g, "");
+        const perCell = m.length >= span;
+        return out(
+          Array.from({ length: span }, (_, k) => {
+            const blk = Math.floor(k / t.block);
+            const lit = (perCell ? m[k] : m[blk]) !== "-";
+            const base = blk % 2 === 0 ? a : b;
+            return lit ? base : scaleColor(base, t.floor);
+          }),
+        );
+      });
+    }
+    case "masques-colores":
+      return t.patterns.map((pattern) => {
+        const p = pattern.replace(/\s/g, "");
+        return byBlock(cells, t.block, (blk) => {
+          const hex = t.map[p[blk % p.length] ?? ""];
+          return hex ? hexToColor(hex) : OFF;
+        });
+      });
+    case "respiration": {
+      const cols = t.colors.map(hexToColor);
+      return Array.from({ length: t.steps }, (_, step) => {
+        const phase = step / t.steps;
+        return out(
+          Array.from({ length: span }, (_, k) => {
+            const c = cols[(k + step) % cols.length]!;
+            const level = 1 - t.depth * (0.5 + 0.5 * Math.cos(2 * Math.PI * (phase + k / Math.max(1, span))));
+            return scaleColor(c, level);
+          }),
+        );
+      });
+    }
+    case "orage": {
+      const base = hexToColor(t.base);
+      const flash = hexToColor(t.flash);
+      const calmStep: Step = Array.from({ length: cells }, () => base);
+      const r = rng(cells * 7919 + t.strikes);
+      const strikes = Array.from({ length: t.strikes }, () => {
+        const target = Math.floor(r() * cells);
+        return calmStep.map((c, k) => (k === target ? flash : c));
+      });
+      return [...Array.from({ length: t.calm }, () => calmStep), ...strikes];
+    }
+    case "flamme": {
+      const cols = t.colors.map(hexToColor);
+      const r = rng(cells * 104729 + t.steps);
+      return Array.from({ length: t.steps }, () => Array.from({ length: cells }, () => scaleColor(cols[Math.floor(r() * cols.length)]!, 0.55 + 0.45 * r())));
+    }
+    case "flash": {
+      const c = hexToColor(t.color);
+      return Array.from({ length: t.steps }, (_, s) => Array.from({ length: cells }, () => (s % 2 === 0 ? c : OFF)));
+    }
+    case "pas":
+      return t.steps.map((row) => Array.from({ length: cells }, (_, k) => {
+        const v = row[k] ?? "";
+        return v === "" ? null : v === "-" ? OFF : hexToColor(v);
+      }));
+  }
+}
