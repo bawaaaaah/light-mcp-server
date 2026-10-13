@@ -18,6 +18,22 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | P11 | **OSC** | Routes, `/light/help`, latence |
 | P12 | **Import `.qxw` et reconnaissance des techniques** | Techniques reconnues sur un vrai workspace (cible : ≥ 90 %) |
 
+## Avancement (2026-10-13)
+| Chantier | État |
+|---|---|
+| Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
+| Socle serveur (cœur wing, rôles PIN, MCP, WebSocket) | ✅ |
+| Sortie Art-Net/sACN, découverte | ✅ (à valider sur le réseau lumière) |
+| Lieu, canevas, scène, règles | ✅ v1 |
+| Techniques, lecteur, groupes, panic | ✅ |
+| MIDI (modes, retour, registre), OSC, tempo | ✅ (MIDI local à valider sur le Mac) |
+| Chants, setlist, suivi SPP | ✅ |
+| Import QLC+ + auto-test (critère v0) | ✅ (à rejouer sur le vrai workspace avec les `.qxf` de l'utilisateur) |
+| Exports Ableton (rack, Live Set), conduite | ✅ (à ouvrir dans Live) |
+| Conception assistée + ressources MCP | ✅ v1 |
+| Interface web | 🟡 v0 (dashboards, console, MIDI, import) |
+| Docker / Pi / serveur distant | ⏳ |
+
 ## Étape 1 : v0 « prochain culte »
 **Objectif** : remplacer le pipeline QLC+ actuel de l'utilisateur sur **un vrai événement**.
 

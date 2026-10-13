@@ -2,20 +2,19 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-13, fin de journée)
-- **Développement en cours** (feu vert de l'utilisateur, qui fera les tests matériel en fin de semaine).
+## Où on en est (2026-10-13, soir)
+- **Développement en cours** ; l'utilisateur fera les tests matériel en fin de semaine.
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). P2, P7, P9, P10, P11, P12 validés ; P3/P8 à ouvrir dans Live ; P6 sur le réseau lumière ; P1/P4/P5 sur le Mac.
-- **Serveur (TypeScript, `npm test` = 126 tests verts)** :
-  - cœur repris de wing (`src/core`) : config machine, bus, hub WebSocket, MCP HTTP + stdio, visibilité des outils, **rôles + PIN** (`auth.ts`), passerelle (`gateway.ts`) ;
-  - plugin `light` (`src/plugins/light`) : **registre de commandes unique** (outils MCP, routes HTTP, adresses OSC générés depuis lui), sortie Art-Net/sACN + découverte, moteur (ticker 44 Hz + rendu immédiat), lieu (patch, canevas, rendu, `.qxf`), show (palettes par référence, looks = techniques + lecteur, groupes unifiés façon DCA, réglages), **masque de règles**, MIDI (hub local/RTP/Web MIDI, mappings Déclencher/Latch/Momentané, retour, registre de notes), tempo (tap, MIDI clock), OSC, **import QLC+ → lieu + show**, **auto-test**, exports Ableton (rack, table des notes) ;
-  - données en dossiers texte (`data/`, hors git) ; CLI `npm run light -- serve | token | pin | roles`.
-- **Interface web v0** (`web/`, Vite + React, FR/EN) : connexion PIN, Live, console DMX, MIDI, Import + auto-test. Construite par `npm run build:web`, servie par la passerelle. Pas encore vérifiée dans un vrai navigateur (aucun navigateur sur la machine de dev).
+- **Serveur** (`npm test` : 140 tests verts) — voir [roadmap.md](roadmap.md) pour l'avancement détaillé :
+  - cœur repris de wing (`src/core`) : config machine, bus, hub WebSocket, MCP HTTP + stdio, visibilité des outils, rôles + PIN, passerelle ;
+  - plugin `light` : registre de commandes unique (MCP, HTTP, OSC générés), sortie Art-Net/sACN + découverte, moteur (44 Hz + rendu immédiat), lieu (patch, canevas, `.qxf`), **scène** (zones, cibles, zones protégées), show (palettes, looks = techniques + lecteur, groupes unifiés façon DCA), **règles** (type/lieu/show, zones), MIDI (hub local/RTP/Web MIDI, modes, retour sur tout changement, registre de notes), tempo (tap, MIDI clock), OSC, **chants et setlist** (suivi de position SPP), **import QLC+**, **auto-test**, exports (rack Ableton, table des notes, feuille de conduite, Live Set), **conception assistée** (look par intention, grille de chant, lint, base de connaissances), ressources MCP.
+- **Interface web v0** (`web/`) : PIN, dashboards modulables, console DMX, MIDI, Import + auto-test, FR/EN. Pas encore vue dans un vrai navigateur (pas de navigateur sur la machine de dev).
 
 ## Prochaines étapes
-1. Chants et setlist (sections → looks, boutons, timeline en temps, suivi SPP) et export Live Set depuis les chants.
-2. Dashboards modulables (modèle serveur + grille éditable, groupes de widgets).
-3. Scène virtuelle (zones, positions, rôles) et zones protégées ; MCP de conception (look par intention, lint, ressources).
-4. Validation matérielle par l'utilisateur (prototypes Mac/Live/réseau), puis répétition v0 avec QLC+ en secours.
+1. L'utilisateur : tests matériel (prototypes), dépôt de ses `.qxf` personnels et de son workspace dans `data/`, import puis auto-test, répétition v0 avec QLC+ en secours.
+2. Interface : pages Chants, Lieu/Scène/Canevas, Groupes, Règles, rôles ; vérification dans un navigateur.
+3. Reconstruction paramétrique des looks importés (techniques reconnues → paramètres éditables).
+4. Plus tard (roadmap) : IA en live, Max for Live, AbleSet, audio, 3D.
 
 ## Démarrer
 ```bash

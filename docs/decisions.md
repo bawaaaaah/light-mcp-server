@@ -51,3 +51,8 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-13 | Flux WS | Canal stream : un client avec plus de 256 Kio en attente est sauté (la dernière trame remplace) | [proto](research/proto-resultats.md) |
 | 2026-10-13 | Import QLC+ | Valeurs absentes d'un pas = 0 ; noms de modes comparés de façon tolérante ; reconnaissance des techniques validée à 97 % | [proto](research/proto-resultats.md) |
 | 2026-10-13 | Développement | **Réutiliser le code existant**, sans duplication (règle pour les agents qui implémentent) | [HANDOFF](HANDOFF.md) |
+| 2026-10-13 | Commandes | Toutes les actions passent par un registre de commandes ; outils MCP, routes HTTP et adresses OSC en sont générés (aucune logique dans les adaptateurs) | [architecture](architecture.md) |
+| 2026-10-13 | Forçage console | Les forçages de la console DMX (programmer) s'appliquent après le masque de règles : c'est le « forçage technicien » | [règles](specs/rules-limits.md) |
+| 2026-10-13 | Import QLC+ | Les séquences sont importées à l'identique (pas exacts) et étiquetées avec la technique reconnue ; la reconstruction paramétrique viendra ensuite, look par look | [chants](specs/presets-songs-notes.md) |
+| 2026-10-13 | Interface | Interface v0 : dashboards modulables (grille, édition), console DMX, MIDI, Import + auto-test ; FR/EN | [ui](specs/ui-dashboards.md) |
+
