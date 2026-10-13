@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Test</Manufacturer>
+ <Model>Bar 4</Model>
+ <Type>LED Bar (Pixels)</Type>
+ <Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>
+ <Channel Name="Strobe">
+  <Group Byte="0">Shutter</Group>
+  <Capability Min="0" Max="10" Preset="ShutterOpen">Strobe Off</Capability>
+  <Capability Min="11" Max="255" Preset="StrobeSlowToFast">Strobe</Capability>
+ </Channel>
+ <Channel Name="Program">
+  <Group Byte="0">Effect</Group>
+  <Capability Min="0" Max="127">Manual</Capability>
+  <Capability Min="128" Max="191">Pre-Programmed Automatic Show</Capability>
+  <Capability Min="192" Max="255">Sound Control</Capability>
+ </Channel>
+ <Channel Name="R1" Preset="IntensityRed"/>
+ <Channel Name="G1" Preset="IntensityGreen"/>
+ <Channel Name="B1" Preset="IntensityBlue"/>
+ <Channel Name="R2" Preset="IntensityRed"/>
+ <Channel Name="G2" Preset="IntensityGreen"/>
+ <Channel Name="B2" Preset="IntensityBlue"/>
+ <Channel Name="R3" Preset="IntensityRed"/>
+ <Channel Name="G3" Preset="IntensityGreen"/>
+ <Channel Name="B3" Preset="IntensityBlue"/>
+ <Channel Name="R4" Preset="IntensityRed"/>
+ <Channel Name="G4" Preset="IntensityGreen"/>
+ <Channel Name="B4" Preset="IntensityBlue"/>
+ <Mode Name="15 Channel">
+  <Channel Number="0">Dimmer</Channel>
+  <Channel Number="1">Strobe</Channel>
+  <Channel Number="2">Program</Channel>
+  <Channel Number="3">R1</Channel><Channel Number="4">G1</Channel><Channel Number="5">B1</Channel>
+  <Channel Number="6">R2</Channel><Channel Number="7">G2</Channel><Channel Number="8">B2</Channel>
+  <Channel Number="9">R3</Channel><Channel Number="10">G3</Channel><Channel Number="11">B3</Channel>
+  <Channel Number="12">R4</Channel><Channel Number="13">G4</Channel><Channel Number="14">B4</Channel>
+  <Head><Channel>3</Channel><Channel>4</Channel><Channel>5</Channel></Head>
+  <Head><Channel>6</Channel><Channel>7</Channel><Channel>8</Channel></Head>
+  <Head><Channel>9</Channel><Channel>10</Channel><Channel>11</Channel></Head>
+  <Head><Channel>12</Channel><Channel>13</Channel><Channel>14</Channel></Head>
+ </Mode>
+</FixtureDefinition>

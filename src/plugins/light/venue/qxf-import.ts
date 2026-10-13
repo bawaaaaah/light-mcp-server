@@ -1,0 +1,167 @@
+/**
+ * QLC+ fixture definition (.qxf) import → internal fixture model (aligned on OFL ideas:
+ * channels with typed attributes and capabilities, modes with heads = cells).
+ * Pure: takes the XML text.
+ */
+import { XMLParser } from "fast-xml-parser";
+
+export type ColorComponent = "red" | "green" | "blue" | "white" | "amber" | "uv" | "cyan" | "magenta" | "yellow" | "lime" | "warmWhite" | "coldWhite";
+
+export type CapabilityTag = "soundActive" | "autoProgram" | "builtinMacro" | "strobe" | "reset" | "uv";
+
+export interface FixtureCapability {
+  min: number;
+  max: number;
+  name: string;
+  preset?: string;
+  tags: CapabilityTag[];
+}
+
+export interface FixtureChannel {
+  name: string;
+  /** Normalised meaning used by the engine. */
+  attribute: "intensity" | "color" | "colorWheel" | "pan" | "tilt" | "strobe" | "effect" | "speed" | "maintenance" | "other";
+  color?: ColorComponent;
+  fine?: boolean;
+  capabilities: FixtureCapability[];
+  tags: CapabilityTag[];
+}
+
+export interface FixtureMode {
+  name: string;
+  channels: string[]; // channel names, by DMX offset
+  /** Cells: each head lists the DMX offsets of its channels. */
+  heads: number[][];
+}
+
+export interface FixtureDefinition {
+  manufacturer: string;
+  model: string;
+  type: string;
+  channels: Map<string, FixtureChannel>;
+  modes: FixtureMode[];
+}
+
+const ARRAYS = new Set(["Channel", "Capability", "Mode", "Head"]);
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  textNodeName: "#text",
+  parseTagValue: false,
+  isArray: (name) => ARRAYS.has(name),
+});
+
+const PRESET_COLORS: Record<string, ColorComponent> = {
+  IntensityRed: "red",
+  IntensityGreen: "green",
+  IntensityBlue: "blue",
+  IntensityWhite: "white",
+  IntensityAmber: "amber",
+  IntensityUV: "uv",
+  IntensityCyan: "cyan",
+  IntensityMagenta: "magenta",
+  IntensityYellow: "yellow",
+  IntensityLime: "lime",
+  IntensityWarmWhite: "warmWhite",
+  IntensityColdWhite: "coldWhite",
+  IntensityRedFine: "red",
+  IntensityGreenFine: "green",
+  IntensityBlueFine: "blue",
+  IntensityWhiteFine: "white",
+};
+const NAME_COLORS: [RegExp, ColorComponent][] = [
+  [/\b(uv|ultra ?violet)\b/i, "uv"],
+  [/\bwarm ?white\b/i, "warmWhite"],
+  [/\bcold ?white\b/i, "coldWhite"],
+  [/\bred\b/i, "red"],
+  [/\bgreen\b/i, "green"],
+  [/\bblue\b/i, "blue"],
+  [/\bwhite\b/i, "white"],
+  [/\bamber\b/i, "amber"],
+  [/\bcyan\b/i, "cyan"],
+  [/\bmagenta\b/i, "magenta"],
+  [/\byellow\b/i, "yellow"],
+  [/\blime\b/i, "lime"],
+];
+
+/** Deduces capability tags from names and presets; the user can correct them later. */
+export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
+  const tags = new Set<CapabilityTag>();
+  const text = `${name} ${preset ?? ""}`;
+  if (/sound|music|audio/i.test(text)) tags.add("soundActive");
+  if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(text) && !/manual/i.test(text)) tags.add("autoProgram");
+  if (/macro|built-?in/i.test(text)) tags.add("builtinMacro");
+  if (/strobe/i.test(text) && !/off|open/i.test(name)) tags.add("strobe");
+  if (/reset/i.test(text)) tags.add("reset");
+  if (/\buv\b|ultra ?violet/i.test(text)) tags.add("uv");
+  return [...tags];
+}
+
+function text(node: unknown): string {
+  if (node === undefined || node === null) return "";
+  if (typeof node === "string") return node.trim();
+  if (typeof node === "object" && "#text" in (node as Record<string, unknown>)) return String((node as Record<string, unknown>)["#text"]).trim();
+  return String(node).trim();
+}
+
+function channelFrom(node: Record<string, unknown>): FixtureChannel {
+  const name = String(node["@_Name"]);
+  const preset = node["@_Preset"] as string | undefined;
+  const group = text(node["Group"]);
+  const colourNode = text(node["Colour"]);
+  const capabilities: FixtureCapability[] = ((node["Capability"] as Record<string, unknown>[] | undefined) ?? []).map((c) => {
+    const capName = text(c);
+    const capPreset = c["@_Preset"] as string | undefined;
+    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, tags: capabilityTags(capName, capPreset) };
+  });
+
+  let attribute: FixtureChannel["attribute"] = "other";
+  let color: ColorComponent | undefined;
+  if (preset && PRESET_COLORS[preset]) {
+    attribute = "color";
+    color = PRESET_COLORS[preset];
+  } else if (preset && /^Intensity(Master)?Dimmer/.test(preset)) attribute = "intensity";
+  else if (preset && /^Position(Pan)/.test(preset)) attribute = "pan";
+  else if (preset && /^Position(Tilt)/.test(preset)) attribute = "tilt";
+  else if (group === "Intensity") {
+    const c = colourNode ? NAME_COLORS.find(([re]) => re.test(colourNode))?.[1] : NAME_COLORS.find(([re]) => re.test(name))?.[1];
+    if (c) {
+      attribute = "color";
+      color = c;
+    } else attribute = "intensity";
+  } else if (group === "Colour") attribute = "colorWheel";
+  else if (group === "Pan") attribute = "pan";
+  else if (group === "Tilt") attribute = "tilt";
+  else if (group === "Shutter") attribute = "strobe";
+  else if (group === "Effect") attribute = "effect";
+  else if (group === "Speed") attribute = "speed";
+  else if (group === "Maintenance") attribute = "maintenance";
+
+  const tags = new Set<CapabilityTag>(capabilities.flatMap((c) => c.tags));
+  if (attribute === "strobe") tags.add("strobe");
+  if (color === "uv") tags.add("uv");
+  return { name, attribute, color, fine: /Fine$/.test(preset ?? "") || /fine/i.test(name), capabilities, tags: [...tags] };
+}
+
+export function parseQxf(xml: string): FixtureDefinition {
+  const root = parser.parse(xml).FixtureDefinition as Record<string, unknown>;
+  if (!root) throw new Error("not a QLC+ fixture definition");
+  const channels = new Map<string, FixtureChannel>();
+  for (const ch of (root["Channel"] as Record<string, unknown>[]) ?? []) {
+    const c = channelFrom(ch);
+    channels.set(c.name, c);
+  }
+  const modes: FixtureMode[] = ((root["Mode"] as Record<string, unknown>[]) ?? []).map((m) => {
+    const chans = ((m["Channel"] as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
+    chans.sort((a, b) => a.n - b.n);
+    const heads = ((m["Head"] as Record<string, unknown>[]) ?? []).map((h) => ((h["Channel"] as unknown[]) ?? []).map((x) => Number(text(x))));
+    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads };
+  });
+  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes };
+}
+
+/** Mode names differ between QLC+ versions ("39-channel" vs "39 Channel"): compare loosely. */
+export function findMode(def: FixtureDefinition, name: string): FixtureMode | undefined {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/channels?$/, "ch").replace(/ch$/, "");
+  return def.modes.find((m) => m.name === name) ?? def.modes.find((m) => norm(m.name) === norm(name));
+}
