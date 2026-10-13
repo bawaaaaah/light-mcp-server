@@ -18,7 +18,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | P11 | **OSC** | Routes, `/light/help`, latence |
 | P12 | **Import `.qxw` et reconnaissance des techniques** | Techniques reconnues sur un vrai workspace (cible : ≥ 90 %) |
 
-## Avancement (2026-10-13)
+## Avancement (2026-10-14)
 | Chantier | État |
 |---|---|
 | Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
@@ -31,8 +31,10 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Import QLC+ + auto-test (critère v0) | ✅ (à rejouer sur le vrai workspace avec les `.qxf` de l'utilisateur) |
 | Exports Ableton (rack, Live Set), conduite | ✅ (à ouvrir dans Live) |
 | Conception assistée + ressources MCP | ✅ v1 |
-| Interface web | 🟡 v0 (dashboards, console, MIDI, import) |
-| Docker / Pi / serveur distant | ⏳ |
+| Interface web | 🟡 v0 complète (10 pages) mais pas encore vue dans un navigateur |
+| Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
+| Archives `.lightshow`, notes partout, Web MIDI, explorateur OSC | ✅ |
+| Lyres (pan/tilt, Move FX, pad XY) | ⏳ |
 
 ## Étape 1 : v0 « prochain culte »
 **Objectif** : remplacer le pipeline QLC+ actuel de l'utilisateur sur **un vrai événement**.
