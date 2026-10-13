@@ -15,19 +15,26 @@
     "proto:tick": "tsx prototypes/p2-tick-bench.ts",
     "proto:adg": "tsx prototypes/p3-adg-rack.ts",
     "proto:artnet": "tsx prototypes/p6-artnet-discover.ts",
-    "proto:fake-node": "tsx prototypes/fake-artnet-node.ts"
+    "proto:fake-node": "tsx prototypes/fake-artnet-node.ts",
+    "proto:rtp": "tsx prototypes/p7-rtp-midi.ts",
+    "proto:ws": "tsx prototypes/p9-ws-stream.ts",
+    "proto:sacn": "tsx prototypes/p10-sacn.ts",
+    "proto:osc": "tsx prototypes/p11-osc.ts"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
     "chai": "^6.3.0",
     "mocha": "^12.0.3",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@julusian/midi": "^3.8.1"
+    "@julusian/midi": "^3.8.1",
+    "@msgpack/msgpack": "^3.1.3",
+    "ws": "^8.22.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
