@@ -1,0 +1,114 @@
+# MIDI, OSC et Ableton
+
+## Périmètre
+| v1 | Plus tard |
+|---|---|
+| Entrées locales (IAC, USB), RTP-MIDI, Web MIDI ; choix des entrées, auto-détection, profils d'entrées | MIDI clock en sortie |
+| Modes Déclencher / Latch / Momentané, learn, retour MIDI, profils de contrôleurs | Device Max for Live |
+| Clock, SPP et suivi de position ; registre de notes | Connecteur AbleSet |
+| Export MIDI Effect Rack, table des notes, `.mid`, générateur de Live Set | |
+| Pilotage OSC avec explorateur d'adresses | |
+
+## Entrées MIDI
+| Source | Implémentation | Usage |
+|---|---|---|
+| Local | `@julusian/midi` (CoreMIDI sur macOS, ALSA sur Linux) | bus IAC depuis Ableton sur le même Mac, contrôleurs USB |
+| RTP-MIDI | lib AppleMIDI | Ableton sur un autre poste, serveur distant (Pi, Docker, Linux) |
+| Web MIDI | navigateur, puis `req POST /api/midi/in` | contrôleur branché sur un poste de dashboard (Chrome/Edge ; **pas Safari ni iPad**) |
+
+- **Choix des entrées surveillées** : la page MIDI liste tous les ports et sessions, et l'utilisateur coche ceux à écouter.
+- **Auto-détection** : hotplug des ports locaux, découverte des sessions RTP-MIDI (Bonjour/mDNS), notification « nouvelle entrée détectée ».
+- **Profils d'entrées** par événement ou par lieu, stockés dans la config machine. Par exemple « local IAC » ou « RTP régie ». On **bascule d'un clic** entre MIDI local et RTP-MIDI.
+- **Indicateur d'activité** par entrée (reçoit, ou silencieuse) et moniteur MIDI (`light:midi`), avec la latence mesurée.
+- Chaque message est normalisé en `{source, port, type, ch, num, val, ts}`. Le chemin MIDI → commande → moteur ne passe jamais par l'UI.
+
+## Mapping
+Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, canal, numéro) à une **action** (commande serveur), avec un **mode**.
+
+- **Le canal MIDI fait partie du mapping et est stocké dans le show**, jamais dans un réglage machine (retour d'expérience).
+- **Actions** :
+  - look, technique ou section (lancer, stopper) ;
+  - niveau d'un groupe et grand master, mute et flash de groupe ;
+  - GO et BACK de cue stack ;
+  - tap tempo ;
+  - chant et section (sélection, suivant, précédent) ;
+  - dashboard ou page ;
+  - palette ;
+  - **Panic neutre**, **Blackout**, freeze ;
+  - attribut du programmer.
+
+### Modes de déclenchement
+> Règle commune : **une note on à vélocité 0 vaut une note off.**
+
+| Mode | Comportement | Usage type |
+|---|---|---|
+| **Déclencher** | Une note on **active toujours** et ne coupe jamais. Rejouer la même note est sans effet. Le relâchement vient du **groupe exclusif**. | Sections de chant. Il évite le piège Toggle de QLC+ et rend inoffensive une note dupliquée par Ableton. |
+| **Latch** | Une note on active, la note on suivante sur la même note désactive. Les note off sont ignorées. | Boutons marche/arrêt |
+| **Momentané** | Actif **tant que la note est tenue**. Le niveau d'un fader suit la vélocité. **Une nouvelle note on sur la même note pendant l'appui met le niveau à jour** (rejeu avec une autre pression), sans basculer. Option **« suivre l'aftertouch »** (poly ou canal). Note off ou vélocité 0 : coupe, fader à 0. | Flashs (la longueur de la note dans le clip fait la durée), faders joués en notes |
+
+- **Mode par défaut** des nouveaux boutons : réglable dans l'UI, au niveau du show ou du dashboard. Déclencher est proposé par défaut pour les sections.
+- **Mise à l'échelle** par mapping : plage d'entrée, plage de sortie, courbe (linéaire, log, exp, easing).
+- **CC et pitch bend** : valeur absolue, **NRPN et CC 14 bits** (DMXIS), option **pickup** (soft takeover).
+- **Canal réservé** (option, convention DMXIS) : un canal MIDI dédié à la sélection de chant, section ou preset par numéro de note ou Program Change.
+- **Learn** : on clique un widget, on bouge le contrôleur, et le mapping est créé.
+- **Profils de contrôleurs** (JSON, comme les input profiles de QLC+) : noms des contrôles et couleurs de LED selon la vélocité. Les messages d'init sont **explicites et optionnels**, rien n'est envoyé par défaut.
+
+### Registre de notes (retour d'expérience)
+- Une note attribuée à une action **ne change jamais de sens**. Un clip Ableton déjà posé déclenche toujours la même chose.
+- Une note libérée reste **réservée**. Une collision ou une réattribution passe par une **proposition** validée par un humain, jamais en silence.
+- **Bandes de notes** configurables par show, avec une **bande commune** (bibliothèque partagée) identique d'un show à l'autre pour permettre un rack Ableton commun.
+
+## Retour MIDI (feedback)
+- Chaque mapping peut renvoyer son état : une note on dont la vélocité égale le niveau (ou vaut 127/0), une note off, ou un CC miroir. Le profil traduit l'état en couleur ou clignotement de LED.
+- Le retour est émis à **chaque changement d'état, quelle que soit l'origine** : UI, MIDI, OSC, MCP, timeline.
+- **Port de sortie distinct obligatoire.** Le serveur **refuse** un port de sortie identique à une entrée surveillée et **détecte les boucles**. QLC+ renvoyait l'état sur le bus d'entrée, et ses Toggle basculaient tout seuls.
+- La page MIDI contient un **testeur de feedback** : allumer chaque LED et tester les couleurs.
+
+## Horloge et position
+- **MIDI clock** en entrée (24 ppqn), avec un asservissement logiciel (PLL), un lissage réglable et la détection d'arrêt. Start, Stop, Continue.
+- **Song Position Pointer** : recalage de la position. Le serveur **rétablit la section courante** d'après la timeline du chant, ce qui permet une reprise en *scrub* au milieu d'une section.
+- **Alerte « horloge attendue mais absente »** : sans le réglage Sync d'Ableton, rien ne suit le tempo et rien ne le signale. On rend donc ce cas visible.
+
+## Contrôle externe : OSC
+- **Serveur OSC** (UDP, port configurable). Toutes les adresses passent par la couche de commandes et les droits du rôle. Exemples d'adresses :
+  - `/light/song/{id}/select` ;
+  - `/light/section/{id}/go` ;
+  - `/light/group/{id}/level f` ;
+  - `/light/button/{id}/press` ;
+  - `/light/panic` ;
+  - `/light/blackout` ;
+  - `/light/tempo/tap`.
+- **Explorateur OSC** : chaque objet (widget, chant, section, groupe) affiche son adresse avec un bouton **copier**. Une page liste toutes les adresses avec recherche.
+- **Export de la table** OSC en Markdown, CSV ou JSON. La requête `/light/help` renvoie la liste.
+- L'**API HTTP** équivalente (`POST /api/trigger/...`) sert à Companion et aux scripts.
+
+## Ableton
+### Export MIDI Effect Rack (v1)
+- **Une chaîne par action**, nommée comme elle, avec une **key zone d'une seule touche** (`KeyRange` Min = Max = note, crossfades idem). La chaîne s'allume quand sa note passe : c'est une légende vivante dans Live.
+- `DocumentColorIndex` par bande, **rouge pour les actions danger ou manuelles**. `UserName` du device = « show · bande · canal », `Annotation` = légende des CC.
+- **Méthode** : cloner `<MidiEffectBranchPreset>` depuis une **coquille** `.adg` exportée par la version de Live de l'utilisateur, non modifiée, et vérifier que tout le reste ressort octet pour octet. **On ne fabrique jamais le XML Live à la main.**
+- Avertissement à l'export : **un rack = une piste**. Une note couverte par deux racks est dupliquée. Le mode Déclencher rend cette duplication inoffensive.
+- Également exportés : la **table des notes** (CSV/Markdown) et un **`.mid` par chant** (la timeline en notes et CC).
+
+### Générateur de Live Set (v1)
+- Il pose la setlist dans un `.als` existant :
+  - un repère par chant ;
+  - un clip vide par section sur une piste « Sections » ;
+  - un clip de notes autonome par section ;
+  - un palier de tempo par chant.
+- Les pistes sont trouvées **par nom**. Le reste du set ressort intact.
+- **Mode hybride** : un élément déjà posé à la main garde sa position.
+- Règles d'espacement entre sections et entre chants, configurables.
+- Live doit être **fermé** pendant l'écriture. Une copie de sauvegarde est faite avant.
+
+### Plus tard
+- **Device Max for Live** : liste les actions du serveur et permet de les glisser sur la timeline (façon « Live Triggers » de Lightkey). Il nécessite Live Suite ou l'option Max for Live.
+- **Connecteur AbleSet** (OSC/HTTP) : chant et section courants, sauts, injection de notes pour l'auto-test.
+
+## Tests
+- Chaque mode avec des séquences de messages : note on à 0, rejeu pendant l'appui, aftertouch, note off orpheline, duplication.
+- Retour sur port distinct et détection de boucle.
+- Clock, PLL et SPP avec une horloge simulée.
+- Registre : épinglage, réservation, collision bloquante.
+- `.adg` généré : gunzip, XML valide, relecture des **noms de chaînes** et des key zones, et tout le reste identique à la coquille.
+- `light selftest` : balayage de tous les mappings, relecture du DMX, cadence, exclusivité.

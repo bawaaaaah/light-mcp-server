@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12402" Creator="Synthetic test shell">
+	<GroupDevicePreset>
+		<Device>
+			<MidiEffectGroupDevice Id="0">
+				<UserName Value="SHELL" />
+				<Annotation Value="" />
+				<Branches />
+			</MidiEffectGroupDevice>
+		</Device>
+		<BranchPresets>
+			<MidiEffectBranchPreset Id="0">
+				<Name Value="template" />
+				<MixerPreset>
+					<Device>
+						<MidiBranchMixerDevice Id="0">
+							<UserName Value="" />
+							<Annotation Value="" />
+						</MidiBranchMixerDevice>
+					</Device>
+				</MixerPreset>
+				<BranchSelectorRange>
+					<Min Value="0" />
+					<Max Value="0" />
+					<CrossfadeMin Value="0" />
+					<CrossfadeMax Value="0" />
+				</BranchSelectorRange>
+				<DocumentColorIndex Value="10" />
+				<AutoColored Value="true" />
+				<ZoneSettings>
+					<KeyRange>
+						<Min Value="0" />
+						<Max Value="0" />
+						<CrossfadeMin Value="0" />
+						<CrossfadeMax Value="0" />
+					</KeyRange>
+					<VelocityRange>
+						<Min Value="1" />
+						<Max Value="127" />
+						<CrossfadeMin Value="1" />
+						<CrossfadeMax Value="127" />
+					</VelocityRange>
+				</ZoneSettings>
+			</MidiEffectBranchPreset>
+		</BranchPresets>
+		<ReturnBranchPresets />
+	</GroupDevicePreset>
+</Ableton>

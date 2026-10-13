@@ -1,0 +1,36 @@
+{
+  "name": "light-mcp-server",
+  "version": "0.0.1",
+  "description": "Contrôleur lumière DMX (Art-Net / sACN) piloté en web, MIDI, OSC et MCP",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "mocha --import=tsx --require test/setup/no-unhandled-errors.ts 'test/**/*.test.ts' --recursive --timeout 20000",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "proto:midi": "tsx prototypes/p1-midi-monitor.ts",
+    "proto:tick": "tsx prototypes/p2-tick-bench.ts",
+    "proto:adg": "tsx prototypes/p3-adg-rack.ts",
+    "proto:artnet": "tsx prototypes/p6-artnet-discover.ts",
+    "proto:fake-node": "tsx prototypes/fake-artnet-node.ts"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.5",
+    "chai": "^6.3.0",
+    "mocha": "^12.0.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@julusian/midi": "^3.8.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "@julusian/midi@3.8.1": true
+  }
+}
