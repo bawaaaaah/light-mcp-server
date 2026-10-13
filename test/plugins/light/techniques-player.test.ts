@@ -32,6 +32,20 @@ describe("techniques", () => {
     expect(row(steps[1]!)).to.equal("#ff0000 #ff0000 #000000 #000000 #000000 #000000 #ff0000 #ff0000");
   });
 
+  it("onde: a sine travels along the canvas with phase spread, wings mirror it", () => {
+    const steps = generateSteps(tech({ kind: "onde", colors: ["#ff0000"], wave: "sine", spread: 1, resolution: 4 }), 4, false);
+    expect(steps).to.have.length(4);
+    const levels = steps.map((s) => s.map((c) => Math.round((c?.red ?? 0) * 100) / 100));
+    expect(levels[0]).to.deep.equal([0, 0.5, 1, 0.5]); // cell k lags by k/4 of a cycle
+    expect(levels[1]).to.deep.equal([0.5, 0, 0.5, 1]);
+    const wings = generateSteps(tech({ kind: "onde", colors: ["#ff0000"], spread: 1, wings: true, resolution: 4 }), 4, false);
+    const w0 = wings[1]!.map((c) => Math.round((c?.red ?? 0) * 100) / 100);
+    expect(w0[0]).to.equal(w0[3]);
+    expect(w0[1]).to.equal(w0[2]);
+    const shallow = generateSteps(tech({ kind: "onde", colors: ["#ff0000"], depth: 0.25, resolution: 4 }), 2, false);
+    expect(Math.min(...shallow.flat().map((c) => c!.red!))).to.be.closeTo(0.75, 1e-9);
+  });
+
   it("orage is a weighted pool of calm and single-cell strike steps", () => {
     const steps = generateSteps(tech({ kind: "orage", base: "#000080", calm: 3, strikes: 2 }), 4, false);
     expect(steps).to.have.length(5);

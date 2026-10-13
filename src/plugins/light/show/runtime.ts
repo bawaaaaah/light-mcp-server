@@ -89,6 +89,7 @@ export class ShowRuntime {
       case "palette":
       case "respiration":
       case "flamme":
+      case "onde":
         return { ...t, colors: cols.length >= (t.kind === "palette" ? 3 : 1) ? cols : t.colors } as Technique;
       case "orage":
         return { ...t, base: cols[0]!, flash: cols[1] ?? t.flash };

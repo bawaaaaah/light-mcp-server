@@ -79,7 +79,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, pas), canvas, palette, timing (every beats|seconds, attack 0 claque..1 respire, order).",
+    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas), canvas, palette, timing (every beats|seconds, attack 0 claque..1 respire, order).",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ look: LookSchema }),

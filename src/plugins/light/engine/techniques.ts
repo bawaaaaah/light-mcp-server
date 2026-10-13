@@ -36,6 +36,23 @@ export const TechniqueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("orage"), base: z.string(), flash: z.string().default("#ffff28"), calm: z.number().int().min(1).default(30), strikes: z.number().int().min(1).default(12) }),
   z.object({ kind: z.literal("flamme"), colors: z.array(z.string()).min(1), steps: z.number().int().min(2).default(9) }),
   z.object({ kind: z.literal("flash"), color: z.string().default("#ffffff"), steps: z.number().int().min(1).default(4) }),
+  /**
+   * Waveform effect (grandMA-like phaser on colour level): each cell's level follows a waveform;
+   * `spread` = phase spread across the canvas in cycles, `blocks` groups cells, `wings` mirrors the
+   * phase from the centre. `resolution` frames per cycle — the player's cadence sets the speed
+   * (e.g. every 1/4 beat × 16 frames = one cycle per 4 beats).
+   */
+  z.object({
+    kind: z.literal("onde"),
+    colors: z.array(z.string()).min(1),
+    wave: z.enum(["sine", "triangle", "saw", "ramp", "square", "random"]).default("sine"),
+    depth: z.number().min(0).max(1).default(1),
+    spread: z.number().min(0).max(4).default(1),
+    blocks: z.number().int().min(1).default(1),
+    wings: z.boolean().default(false),
+    reverse: z.boolean().default(false),
+    resolution: z.number().int().min(2).max(64).default(16),
+  }),
   /** Imported or hand-made raw steps (hex per cell, "-" for off, "" for untouched). */
   z.object({ kind: z.literal("pas"), steps: z.array(z.array(z.string())).min(1) }),
 ]);
@@ -159,6 +176,39 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
     case "flash": {
       const c = hexToColor(t.color);
       return Array.from({ length: t.steps }, (_, s) => Array.from({ length: cells }, () => (s % 2 === 0 ? c : OFF)));
+    }
+    case "onde": {
+      const cols = t.colors.map(hexToColor);
+      const r = rng(cells * 31 + t.resolution);
+      const randomTable = Array.from({ length: t.resolution }, () => r());
+      const wave = (phase: number): number => {
+        const p = ((phase % 1) + 1) % 1;
+        switch (t.wave) {
+          case "sine":
+            return 0.5 - 0.5 * Math.cos(2 * Math.PI * p);
+          case "triangle":
+            return p < 0.5 ? p * 2 : 2 - p * 2;
+          case "saw":
+            return 1 - p;
+          case "ramp":
+            return p;
+          case "square":
+            return p < 0.5 ? 1 : 0;
+          case "random":
+            return randomTable[Math.floor(p * t.resolution)]!;
+        }
+      };
+      const groups = Math.ceil(cells / t.blocks);
+      return Array.from({ length: t.resolution }, (_, frame) =>
+        Array.from({ length: cells }, (_, k) => {
+          let g = Math.floor(k / t.blocks);
+          if (t.wings) g = Math.min(g, groups - 1 - g);
+          const offset = (g / Math.max(1, t.wings ? Math.ceil(groups / 2) : groups)) * t.spread;
+          const phase = frame / t.resolution + (t.reverse ? offset : -offset);
+          const level = 1 - t.depth + t.depth * wave(phase);
+          return scaleColor(cols[g % cols.length]!, level);
+        }),
+      );
     }
     case "pas":
       return t.steps.map((row) => Array.from({ length: cells }, (_, k) => {
