@@ -68,6 +68,7 @@ Le journal complet et daté est dans [decisions.md](decisions.md). Résumé :
 Aucune. Toutes les décisions de conception sont prises ([decisions.md](decisions.md)). La suite attend le feu vert de l'utilisateur pour l'étape 0.
 
 ## Carte de la documentation
+- [install.md](install.md) : **installation et premiers pas** (Mac, Docker/Pi, import QLC+, MIDI, Ableton, IA).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [decisions.md](decisions.md) : journal daté des décisions.
 - [glossaire.md](glossaire.md) : vocabulaire du projet.

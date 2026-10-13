@@ -2,8 +2,8 @@
 
 Contrôleur lumière DMX (Art-Net / sACN) open source. On le pilote depuis une interface web temps réel (WebSocket), en MIDI ou OSC depuis Ableton et les contrôleurs, ou par une IA via MCP.
 
-> **Statut : conception terminée, aucun code écrit.** Toute la conception est dans [`docs/`](docs/).
-> Point d'entrée pour reprendre le projet : [`docs/HANDOFF.md`](docs/HANDOFF.md). Feuille de route : [`docs/roadmap.md`](docs/roadmap.md).
+> **Statut : en développement (v0).** Installation et premiers pas : [`docs/install.md`](docs/install.md).
+> Reprendre le projet : [`docs/HANDOFF.md`](docs/HANDOFF.md). Feuille de route : [`docs/roadmap.md`](docs/roadmap.md).
 
 ## En bref
 - Architecture inspirée de [bawaaaaah/wing-mcp-server](https://github.com/bawaaaaah/wing-mcp-server) : Node/TypeScript, un `core/` générique et un plugin `light`, avec **une seule couche de commandes** pour l'UI, le MIDI, l'OSC, le MCP, la timeline et la CLI.
