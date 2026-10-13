@@ -8,6 +8,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
+import { RuleSchema } from "../rules/rules.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -100,6 +101,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
   reg.register({ name: "group.mute", title: "Mute de groupe", description: "Mutes or unmutes a group master (the level is kept).", right: "commands:level", profiles: ["live"], schema: z.object({ id: z.string(), mute: z.boolean() }), run: ({ id: i, mute }) => withMaster(i, { mute }) });
   reg.register({ name: "group.flash", title: "Flash de groupe", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
+
+  // ---- rules
+  const where = z.enum(["venue", "show"]).default("show");
+  const coll = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
+  reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
+  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
+  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: coll(w).delete(i) }) });
 
   // ---- show settings & safety
   reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe look recalled by « Panic neutre », grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });

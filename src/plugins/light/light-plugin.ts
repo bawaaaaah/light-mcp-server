@@ -143,9 +143,16 @@ export class LightPlugin implements McpPlugin {
       (xs) => xs[xs.length - 1]!,
       (now) => this.publish("frame", { now, buffers: this.engine.output.buffers }),
     );
+    let lastClampKey = "";
     this.engine.onFrame((buffers, now) => {
       this.router.sendFrame(buffers);
       publishFrame(now);
+      const clamps = this.runtime?.lastClamps ?? [];
+      const key = clamps.map((c) => `${c.fixture}/${c.channel}/${c.to}`).join("|");
+      if (key !== lastClampKey) {
+        lastClampKey = key;
+        this.publish("rules", { clamps });
+      }
     });
     this.router.onNodesChanged(() => this.publish("nodes", this.router.registry.list()));
   }
@@ -311,6 +318,7 @@ export class LightPlugin implements McpPlugin {
       command: { channel: "control" },
       midi: { channel: "control" },
       tempo: { channel: "control" },
+      rules: { channel: "control" },
     };
   }
 }

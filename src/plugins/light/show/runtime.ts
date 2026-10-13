@@ -9,6 +9,7 @@ import type { Collection, FolderStore } from "../data/store.js";
 import { LookPlayer } from "../engine/player.js";
 import { generateSteps, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
+import { applyRules, RuleSchema, type Clamp, type Rule } from "../rules/rules.js";
 import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
 
 export interface TempoSource {
@@ -31,7 +32,12 @@ export class ShowRuntime {
   readonly palettes: Collection<Palette>;
   readonly looks: Collection<Look>;
   readonly groups: Collection<Group>;
+  /** Show-level rules; venue/type rules live in the venue store. */
+  readonly rules: Collection<Rule>;
+  readonly venueRules: Collection<Rule>;
   settings: ShowSettings;
+  /** Values moved by the rules on the last frame (for the UI and the AI). */
+  lastClamps: Clamp[] = [];
   private readonly active = new Map<string, ActiveLook>();
   /** group id → flash held */
   private readonly flashes = new Set<string>();
@@ -46,6 +52,8 @@ export class ShowRuntime {
     this.palettes = store.collection("palettes", PaletteSchema);
     this.looks = store.collection("looks", LookSchema);
     this.groups = store.collection("groups", GroupSchema);
+    this.rules = store.collection("rules", RuleSchema);
+    this.venueRules = venue.store.collection("rules", RuleSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     store.onChange((e) => {
       // A look or palette edited while playing restarts with the new definition (effects stay editable live).
@@ -220,6 +228,18 @@ export class ShowRuntime {
     }
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));
     errors.push(...this.venue.toDmx(frame, buffers));
+    // Rules mask: last stage of the show's output.
+    const rules = [...this.venueRules.list(), ...this.rules.list()];
+    const clamps: Clamp[] = [];
+    if (rules.length) {
+      for (const f of this.venue.fixtures.list()) {
+        const r = this.venue.resolve(f.id);
+        const buf = buffers[f.universe - 1];
+        if ("error" in r || !buf) continue;
+        clamps.push(...applyRules(rules, r, buf));
+      }
+    }
+    this.lastClamps = clamps;
     this.lastErrors = errors;
   }
 }
