@@ -9,6 +9,7 @@ import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { RuleSchema } from "../rules/rules.js";
+import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -108,6 +109,33 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
   reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
   reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: coll(w).delete(i) }) });
+
+  // ---- dashboards
+  const dashboards = show.store.collection("dashboards", DashboardSchema);
+  reg.register({
+    name: "dashboard.list",
+    title: "Dashboards",
+    description: "Dashboards of the show (grid of widgets bound to looks, groups, songs, actions). Creates a default one from the show when none exists.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design", "live"],
+    schema: z.object({}),
+    run: () => {
+      if (dashboards.list().length === 0) return [defaultDashboard(show.looks.list(), show.groups.list())];
+      return dashboards.list();
+    },
+  });
+  reg.register({ name: "dashboard.put", title: "Dashboard", description: "Creates or updates a dashboard (columns, widgets with grid position, target, mode, roles allowed).", right: "show:write", profiles: ["design"], schema: z.object({ dashboard: DashboardSchema }), run: ({ dashboard }) => dashboards.put(dashboard) });
+  reg.register({ name: "dashboard.delete", title: "Supprimer un dashboard", description: "Deletes a dashboard.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => ({ deleted: dashboards.delete(i) }) });
+  reg.register({
+    name: "dashboard.generate",
+    title: "Générer un dashboard",
+    description: "Builds a dashboard from the show (safety bar, one row of buttons per exclusive group, group faders) and saves it.",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ id: z.string().default("principal"), name: z.string().default("Principal") }),
+    run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list()), id: i, name }),
+  });
 
   // ---- show settings & safety
   reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe look recalled by « Panic neutre », grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });

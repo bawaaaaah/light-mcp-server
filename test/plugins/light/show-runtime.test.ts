@@ -108,3 +108,23 @@ describe("show runtime", () => {
     expect(b[15 + 3]).to.equal(0); // bar-r untouched by fx
   });
 });
+
+describe("dashboards", () => {
+  it("generates a default dashboard from the show", async () => {
+    const { defaultDashboard } = await import("../../../src/plugins/light/dashboards/dashboards.js");
+    const looks = [
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+      { id: "c", name: "C" },
+    ] as never[];
+    const groups = [
+      { id: "sec", name: "Sections", exclusive: true, members: { looks: ["a", "b"], fixtures: [], groups: [] } },
+      { id: "amb", name: "Ambiance", exclusive: false, master: { level: 1, mute: false }, members: { looks: [], fixtures: [], groups: [] } },
+    ] as never[];
+    const d = defaultDashboard(looks, groups);
+    expect(d.widgets.filter((w) => w.kind === "look").map((w) => w.target)).to.deep.equal(["a", "b", "c"]);
+    expect(d.widgets.filter((w) => w.kind === "label").map((w) => w.label)).to.deep.equal(["Sections", "Looks"]);
+    expect(d.widgets.find((w) => w.kind === "group-fader")!.target).to.equal("amb");
+    expect(d.widgets.some((w) => w.kind === "panic")).to.equal(true);
+  });
+});

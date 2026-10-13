@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { login, logout, me, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
-import { LivePage } from "./pages/Live";
+import { DashboardsPage } from "./pages/Dashboards";
 import { ConsolePage } from "./pages/Console";
 import { MidiPage } from "./pages/Midi";
 import { ImportPage } from "./pages/Import";
@@ -103,7 +103,7 @@ export function App() {
         </div>
       </header>
       <main>
-        {page === "live" && <LivePage />}
+        {page === "live" && <DashboardsPage />}
         {page === "console" && <ConsolePage />}
         {page === "midi" && <MidiPage />}
         {page === "import" && <ImportPage />}
