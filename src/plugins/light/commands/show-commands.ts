@@ -10,6 +10,7 @@ import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../s
 import type { ShowRuntime } from "../show/runtime.js";
 import { RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
+import { describeStage, queryStage, ZoneSchema } from "../venue/stage.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -54,6 +55,22 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ canvas: CanvasSchema }),
     run: ({ canvas }) => venue.canvases.put(canvas),
   });
+
+  // ---- stage
+  reg.register({ name: "stage.zone.list", title: "Zones", description: "Stage zones (type, floor height, tags, protected).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => show.zones.list() });
+  reg.register({ name: "stage.zone.put", title: "Zone", description: "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected.", right: "show:write", profiles: ["setup"], schema: z.object({ zone: ZoneSchema }), run: ({ zone }) => show.zones.put(zone) });
+  reg.register({ name: "stage.zone.delete", title: "Supprimer une zone", description: "Deletes a zone.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: show.zones.delete(i) }) });
+  reg.register({
+    name: "stage.query",
+    title: "Interroger la scène",
+    description: "Finds fixtures by role, zone they are in, zone they aim at, tags; optionally sorted along x/y/z (for sweeps). Each result says why it matched.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ role: z.string().optional(), inZone: z.string().optional(), aimingAt: z.string().optional(), tags: z.array(z.string()).optional(), sortBy: z.enum(["x", "y", "z"]).optional() }),
+    run: (q) => queryStage(venue.fixtures.list(), show.zones.list(), q).map((r) => ({ id: r.fixture.id, name: r.fixture.name, role: r.fixture.role, zone: r.zone, position: r.fixture.position, why: r.why })),
+  });
+  reg.register({ name: "stage.describe", title: "Décrire la scène", description: "Plain-French description of the stage: zones, what is in them and what lights them.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
 
   // ---- palettes & looks
   reg.register({ name: "palette.list", title: "Palettes", description: "Colour palettes of the show.", right: "dashboards:view", readOnly: true, profiles: ["design"], schema: z.object({}), run: () => show.palettes.list() });

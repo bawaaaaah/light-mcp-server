@@ -324,6 +324,9 @@ export class LightPlugin implements McpPlugin {
       ].filter(Boolean).join("\n");
       return { contents: [{ uri: uri.href, mimeType: "text/plain", text }] };
     });
+    server.registerResource("stage", "light://stage", { title: "Scène", description: "The stage in plain French: zones (protected ones flagged), fixtures in them and fixtures lighting them.", mimeType: "text/plain" }, async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/plain", text: String(await this.commands.invoke("stage.describe", {}, sys)) }],
+    }));
     server.registerResource("knowledge", "light://knowledge", { title: "Base de connaissances couleur", description: "Mood → colours and design rules.", mimeType: "application/json" }, async (uri) => json(uri, await this.commands.invoke("knowledge.get", {}, sys)));
   }
 

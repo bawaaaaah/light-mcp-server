@@ -16,7 +16,8 @@ export const RuleSchema = z.object({
   id: z.string(),
   name: z.string().default(""),
   level: z.enum(["type", "venue", "show"]).default("show"),
-  scope: z.object({ model: z.string().optional(), fixture: z.string().optional() }).default({}),
+  /** zone: fixtures located in or aiming at this zone (protected zones). */
+  scope: z.object({ model: z.string().optional(), fixture: z.string().optional(), zone: z.string().optional() }).default({}),
   target: z.object({
     channel: z.string().optional(),
     attribute: z.enum(["intensity", "color", "colorWheel", "pan", "tilt", "strobe", "effect", "speed", "maintenance", "other"]).optional(),
@@ -42,7 +43,8 @@ export interface Clamp {
   rule: string;
 }
 
-function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel): boolean {
+function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel, zoneOfFixture?: (id: string) => string | undefined): boolean {
+  if (rule.scope.zone && fx.patch.target !== rule.scope.zone && zoneOfFixture?.(fx.patch.id) !== rule.scope.zone) return false;
   const model = `${fx.def.manufacturer} ${fx.def.model}`.toLowerCase();
   if (rule.scope.model && !model.includes(rule.scope.model.toLowerCase())) return false;
   if (rule.scope.fixture && rule.scope.fixture !== fx.patch.id) return false;
@@ -69,13 +71,13 @@ function avoidForbidden(value: number, ch: FixtureChannel, forbid: string[]): nu
  * Effective rules for one channel: sorted from broad to specific; a locked rule blocks the
  * relaxations below it (its bounds are re-applied after the more specific ones).
  */
-export function applyRules(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array): Clamp[] {
+export function applyRules(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
   const sorted = [...rules].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
   fx.mode.channels.forEach((name, offset) => {
     const ch = fx.def.channels.get(name);
     if (!ch) return;
-    const applicable = sorted.filter((r) => ruleApplies(r, fx, ch));
+    const applicable = sorted.filter((r) => ruleApplies(r, fx, ch, zoneOfFixture));
     if (applicable.length === 0) return;
     const index = fx.patch.address - 1 + offset;
     if (index < 0 || index >= 512) return;

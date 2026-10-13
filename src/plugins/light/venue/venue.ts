@@ -23,6 +23,9 @@ export const PatchedFixtureSchema = z.object({
   role: z.string().optional(),
   tags: z.array(z.string()).default([]),
   position: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
+  mount: z.enum(["floor", "stand", "truss", "hung", "wall", "pillar", "ceiling"]).optional(),
+  /** Zone the fixture aims at (stage model). */
+  target: z.string().optional(),
   notes: z.string().optional(),
 });
 export type PatchedFixture = z.infer<typeof PatchedFixtureSchema>;

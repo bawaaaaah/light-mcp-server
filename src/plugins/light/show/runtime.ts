@@ -10,6 +10,7 @@ import { LookPlayer } from "../engine/player.js";
 import { generateSteps, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleSchema, type Clamp, type Rule } from "../rules/rules.js";
+import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
 
 export interface TempoSource {
@@ -35,6 +36,7 @@ export class ShowRuntime {
   /** Show-level rules; venue/type rules live in the venue store. */
   readonly rules: Collection<Rule>;
   readonly venueRules: Collection<Rule>;
+  readonly zones: Collection<Zone>;
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
@@ -54,6 +56,7 @@ export class ShowRuntime {
     this.groups = store.collection("groups", GroupSchema);
     this.rules = store.collection("rules", RuleSchema);
     this.venueRules = venue.store.collection("rules", RuleSchema);
+    this.zones = venue.store.collection("zones", ZoneSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     store.onChange((e) => {
       // A look or palette edited while playing restarts with the new definition (effects stay editable live).
@@ -232,11 +235,16 @@ export class ShowRuntime {
     const rules = [...this.venueRules.list(), ...this.rules.list()];
     const clamps: Clamp[] = [];
     if (rules.length) {
+      const zones = this.zones.list();
+      const zoneById = (id: string) => {
+        const f = this.venue.fixtures.get(id);
+        return f ? zoneOf(f, zones)?.id : undefined;
+      };
       for (const f of this.venue.fixtures.list()) {
         const r = this.venue.resolve(f.id);
         const buf = buffers[f.universe - 1];
         if ("error" in r || !buf) continue;
-        clamps.push(...applyRules(rules, r, buf));
+        clamps.push(...applyRules(rules, r, buf, zoneById));
       }
     }
     this.lastClamps = clamps;

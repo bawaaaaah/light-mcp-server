@@ -77,5 +77,18 @@ describe("colour knowledge and design", () => {
       expect(lint.ok).to.equal(false);
       expect(lint.issues.map((i) => i.message).join(" | ")).to.match(/contraste faible/).and.match(/look inconnu fantome/);
     });
+
+    it("models the stage and caps fixtures aiming at a protected zone", async () => {
+      await run("stage.zone.put", { zone: { id: "public", name: "Public", type: "audience", polygon: [[-6, -10], [6, -10], [6, 0], [-6, 0]], protected: true } });
+      await run("stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]], floorHeight: 0.6 } });
+      await run("venue.fixture.put", { fixture: { id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1, role: "wash-public", position: { x: 0, y: 1, z: 3 }, target: "public" } });
+      const q = (await run("stage.query", { aimingAt: "public" })) as { id: string; zone: string; why: string }[];
+      expect(q).to.deep.equal([{ id: "bar", name: "Barre", role: "wash-public", zone: "scene", position: { x: 0, y: 1, z: 3 }, why: "vise public" }]);
+      const text = (await run("stage.describe")) as string;
+      expect(text).to.contain("Zone « Public » (audience, PROTÉGÉE)").and.contain("éclairée par Barre (wash-public)");
+      await run("rule.put", { where: "venue", rule: { id: "public-max", level: "venue", scope: { zone: "public" }, target: { attribute: "intensity" }, max: 150 } });
+      const buffers = plugin.engine.render();
+      expect(buffers[0]![0]).to.equal(150); // dimmer capped although the master is full
+    });
   });
 });
