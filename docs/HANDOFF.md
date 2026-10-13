@@ -80,6 +80,7 @@ Le journal complet et daté est dans [decisions.md](decisions.md). Résumé :
 Aucune. Toutes les décisions de conception sont prises ([decisions.md](decisions.md)). La suite attend le feu vert de l'utilisateur pour l'étape 0.
 
 ## Carte de la documentation
+- [tests-mac.md](tests-mac.md) : **protocole de tests pour un agent Claude sur le Mac de régie** (MIDI, Ableton, Art-Net, import réel, auto-test).
 - [install.md](install.md) : **installation et premiers pas** (Mac, Docker/Pi, import QLC+, MIDI, Ableton, IA).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [decisions.md](decisions.md) : journal daté des décisions.
