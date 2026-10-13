@@ -19,6 +19,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
+import { registerExportCommands } from "./commands/export-commands.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
@@ -139,6 +140,7 @@ export class LightPlugin implements McpPlugin {
       },
     });
     registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list());
+    registerExportCommands(this.commands, this.runtime, () => mappings.list(), dataRoot);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 

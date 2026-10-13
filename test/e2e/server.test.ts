@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { createSocket, type Socket } from "node:dgram";
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -51,6 +52,8 @@ describe("server end to end", function () {
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));
     mkdirSync(join(dir, "data", "imports"), { recursive: true });
     copyFileSync(new URL("../fixtures/synthetic.qxw", import.meta.url), join(dir, "data", "imports", "workspace.qxw"));
+    mkdirSync(join(dir, "data", "private"), { recursive: true });
+    writeFileSync(join(dir, "data", "private", "shell.adg"), gzipSync(readFileSync(new URL("../fixtures/shell-rack.xml", import.meta.url))));
     node = await fakeNode();
     running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     base = `http://127.0.0.1:${running.gateway!.address!.port}`;
@@ -239,5 +242,10 @@ describe("server end to end", function () {
     expect(result.passed).to.equal(result.total);
     expect(result.exclusivity.every((e) => e.ok)).to.equal(true);
     expect(result.latencyMs.max).to.be.below(50);
+    const table = (await call("export.notes", {})) as unknown as string;
+    expect(table).to.contain("| note | 1 | 36 | C1 | Checker | trigger |");
+    const rack = await call("export.ableton.rack", {});
+    expect(rack.chains).to.equal(3); // notes 36, 37 (imported) and 60 (blackout mapping of an earlier test)
+    expect((await command(token, "export.ableton.rack", { shell: "../../x.adg" })).status).to.equal(422);
   });
 });
