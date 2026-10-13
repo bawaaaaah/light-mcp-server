@@ -23,7 +23,9 @@
     "proto:qxw": "tsx prototypes/p12-qxw-import.ts",
     "proto:liveset": "tsx prototypes/p8-live-set.ts",
     "light": "tsx src/cli/main.ts",
-    "serve": "tsx src/cli/main.ts serve"
+    "serve": "tsx src/cli/main.ts serve",
+    "build:web": "npm --prefix web run build",
+    "dev:web": "npm --prefix web run dev"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
