@@ -10,7 +10,7 @@ import { EventBus } from "./core/event-bus.js";
 import { Gateway } from "./core/gateway.js";
 import { redirectConsoleToStderr, StdioEndpoint } from "./core/stdio-endpoint.js";
 import { ToolVisibilityController } from "./core/tool-visibility-controller.js";
-import { LightPlugin, PLUGIN_ID } from "./plugins/light/light-plugin.js";
+import { LightPlugin, PLUGIN_ID, type LightPluginOptions } from "./plugins/light/light-plugin.js";
 
 export interface BootstrapOptions {
   configPath?: string;
@@ -19,6 +19,8 @@ export interface BootstrapOptions {
   http?: boolean;
   stdio?: boolean;
   log?: (msg: string) => void;
+  /** Overrides for the light plugin (data root, test seams). */
+  light?: Pick<LightPluginOptions, "dataRoot" | "midiNative" | "tickerRateHz">;
 }
 
 export interface Running {
@@ -40,7 +42,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
   const masterToken = await resolveAuthToken(configStore);
   const auth = new AuthService(masterToken, configStore);
   const eventBus = new EventBus();
-  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth });
+  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth, ...opts.light });
   const plugins = [light];
   const toolVisibility = new ToolVisibilityController(plugins, configStore);
   await light.start();

@@ -13,7 +13,14 @@ import type { LiveTopic, McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import { summarizeDescription, type PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import type { ScopedConfigStore } from "../../core/config-store.js";
+import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
+import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
+import { FolderStore } from "./data/store.js";
+import { MidiHub, type HubMessage } from "./midi/hub.js";
+import { MappingSchema, MidiMapper } from "./midi/mapping.js";
+import { OscServer } from "./osc/server.js";
+import { TempoClock } from "./timing/tempo.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
@@ -37,6 +44,16 @@ export const LightConfigSchema = z.object({
     })
     .default({ routes: [{ universe: 1, artnet: { portAddress: 0 } }] }),
   discovery: z.boolean().default(true),
+  /** Current show and venue (folders under <dataRoot>/shows and /venues). */
+  show: z.string().default("default"),
+  venue: z.string().default("default"),
+  midi: z
+    .object({
+      profiles: z.record(z.string(), MidiProfileSchema).default({ local: MidiProfileSchema.parse({ inputs: ["IAC"] }) }),
+      active: z.string().default("local"),
+    })
+    .default({}),
+  osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).default({}),
 });
 export type LightConfig = z.infer<typeof LightConfigSchema>;
 
@@ -47,8 +64,11 @@ export interface LightPluginOptions {
   eventBus: EventBus;
   config?: ScopedConfigStore;
   auth?: AuthMiddleware;
-  /** Test seam: engine ticker options. */
+  /** Root of the data folders (machine/venues/shows). Default: <repo>/data. */
+  dataRoot?: string;
+  /** Test seams. */
   tickerRateHz?: number;
+  midiNative?: null;
 }
 
 export class LightPlugin implements McpPlugin {
@@ -57,8 +77,14 @@ export class LightPlugin implements McpPlugin {
   readonly commands = new CommandRegistry();
   readonly engine: DmxEngine;
   readonly router: OutputRouter;
+  readonly show: FolderStore;
+  readonly hub: MidiHub;
+  readonly mapper = new MidiMapper();
+  readonly tempo = new TempoClock();
+  readonly osc: OscServer;
   private config: LightConfig;
   private started = false;
+  private tempoTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly opts: LightPluginOptions) {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
@@ -71,6 +97,35 @@ export class LightPlugin implements McpPlugin {
     this.commands.onCommand((e) => this.publish("command", e));
     registerCoreCommands(this.commands, this.engine, this.router);
 
+    const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
+    this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
+    const mappings = this.show.collection("mappings", MappingSchema);
+    this.mapper.setMappings(mappings.list());
+    this.hub = new MidiHub(this.activeMidiProfile(), opts.midiNative === null ? { native: null } : {});
+    this.hub.on("message", (m: HubMessage) => this.onMidi(m));
+    this.hub.on("ports", () => this.publish("midi", { status: this.hub.status() }));
+    this.hub.on("warning", (w: string) => this.publish("midi", { warning: w }));
+    registerMidiCommands(this.commands, {
+      hub: this.hub,
+      mapper: this.mapper,
+      mappings,
+      tempo: this.tempo,
+      profiles: () => this.config.midi.profiles,
+      activeProfile: () => this.config.midi.active,
+      selectProfile: async (name) => {
+        if (!this.config.midi.profiles[name]) throw new Error(`profil inconnu : ${name}`);
+        this.config = { ...this.config, midi: { ...this.config.midi, active: name } };
+        await this.hub.setConfig(this.activeMidiProfile());
+        await this.opts.config?.set(this.config);
+      },
+      saveProfile: async (name, profile) => {
+        this.config = { ...this.config, midi: { ...this.config.midi, profiles: { ...this.config.midi.profiles, [name]: profile } } };
+        if (name === this.config.midi.active) await this.hub.setConfig(this.activeMidiProfile());
+        await this.opts.config?.set(this.config);
+      },
+    });
+    this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
+
     const publishFrame = throttleMerge<number>(
       40, // ≤ 25 Hz to dashboards (docs/architecture.md, topic light:dmx)
       (xs) => xs[xs.length - 1]!,
@@ -81,6 +136,24 @@ export class LightPlugin implements McpPlugin {
       publishFrame(now);
     });
     this.router.onNodesChanged(() => this.publish("nodes", this.router.registry.list()));
+  }
+
+  private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; rtp: MidiProfile["rtp"] } {
+    const p = this.config.midi.profiles[this.config.midi.active] ?? MidiProfileSchema.parse({});
+    return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, rtp: p.rtp };
+  }
+
+  /** Every MIDI message: tempo follows the clock; mappings turn the rest into commands. */
+  private onMidi(m: HubMessage): void {
+    this.tempo.handleMidi(m.msg);
+    const t = m.msg.type;
+    if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
+    this.publish("midi", { monitor: { port: m.port, source: m.source, msg: m.msg, at: Date.now() } });
+    const out = this.mapper.handle(m.msg, m.port);
+    this.hub.sendFeedback(out.feedback);
+    for (const call of out.calls) {
+      this.commands.invoke(call.command, call.args, { origin: "midi", can: () => true }).catch((err: Error) => this.publish("midi", { error: `${call.command} : ${err.message}` }));
+    }
   }
 
   private publish(type: string, payload: unknown): void {
@@ -100,10 +173,17 @@ export class LightPlugin implements McpPlugin {
   async start(): Promise<void> {
     await this.router.start({ discovery: this.config.discovery });
     this.engine.start();
+    await this.hub.start();
+    await this.osc.start().catch((err: Error) => console.warn(`OSC indisponible sur le port ${this.config.osc.port} : ${err.message}`));
+    this.tempoTimer = setInterval(() => this.publish("tempo", this.tempo.state()), 250);
+    this.tempoTimer.unref();
     this.started = true;
   }
 
   async stop(): Promise<void> {
+    if (this.tempoTimer) clearInterval(this.tempoTimer);
+    this.osc.stop();
+    this.hub.stop();
     this.engine.stop();
     this.router.stop();
     this.started = false;
@@ -116,6 +196,7 @@ export class LightPlugin implements McpPlugin {
       status,
       detail: { frames: this.engine.frames, packets: s.packetsSent, errors: s.errors, discovery: s.discovery, nodes: this.router.registry.list().length },
       ...(s.discovery === "unavailable" ? { errorMessage: `découverte Art-Net indisponible (port 6454 occupé ?) : ${s.discoveryError}` } : {}),
+      ...(this.hub.localAvailable ? {} : { warnings: [`MIDI local indisponible : ${this.hub.localError}`] }),
     };
   }
 
@@ -216,6 +297,8 @@ export class LightPlugin implements McpPlugin {
       state: { channel: "control" },
       nodes: { channel: "control" },
       command: { channel: "control" },
+      midi: { channel: "control" },
+      tempo: { channel: "control" },
     };
   }
 }

@@ -8,6 +8,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import WebSocket from "ws";
 import { bootstrap, type Running } from "../../src/index.js";
 import { decodeDmx } from "../../src/plugins/light/output/artnet.js";
+import { decodeOsc, encodeOsc } from "../../src/plugins/light/osc/codec.js";
+import { RtpMidiSession } from "../../src/plugins/light/midi/rtp/session.js";
 
 /** Fake Art-Net node on its own loopback address (127.0.0.2:6454). */
 async function fakeNode(): Promise<{ sock: Socket; next: (pred: (d: Uint8Array) => boolean, ms?: number) => Promise<Uint8Array> }> {
@@ -43,10 +45,10 @@ describe("server end to end", function () {
     const configPath = join(dir, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] } } } }),
+      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e" } } } } } } }),
     );
     node = await fakeNode();
-    running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined });
+    running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     base = `http://127.0.0.1:${running.gateway!.address!.port}`;
     await running.auth.setPin("regisseur", "1234");
     await running.auth.setPin("benevole", "5678");
@@ -132,5 +134,52 @@ describe("server end to end", function () {
     expect(u).to.equal(1);
     expect(Buffer.from(bytes.$b64, "base64").length).to.equal(512);
     ws.close();
+  });
+
+  it("runs commands from OSC, and answers /light/help", async () => {
+    const port = running.light.osc.port!;
+    const sock = createSocket("udp4");
+    await new Promise<void>((r) => sock.bind(0, "127.0.0.1", r));
+    const help: string[] = [];
+    sock.on("message", (b) => help.push(String(decodeOsc(b)[0]!.args[0])));
+    sock.send(encodeOsc({ address: "/light/help", args: [] }), port, "127.0.0.1");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(help).to.include.members(["/light/panic", "/light/blackout", "/light/tempo/tap", "/light/dmx/set"]);
+    const set = node.next((d) => d[4] === 77);
+    sock.send(encodeOsc({ address: "/light/dmx/set", args: [1, 5, 77] }), port, "127.0.0.1");
+    await set;
+    sock.close();
+  });
+
+  it("turns MIDI received over RTP-MIDI into commands through a mapping", async () => {
+    const token = await login("1234");
+    const put = await command(token, "midi.mapping.put", {
+      mapping: { id: "blackout-note", input: { type: "note", channel: 1, number: 60 }, mode: "latch", on: { command: "blackout", args: { on: true } }, off: { command: "blackout", args: { on: false } } },
+    });
+    expect(put.status).to.equal(200);
+    const daw = new RtpMidiSession({ name: "DAW", port: 15306, host: "127.0.0.1" });
+    await daw.start();
+    try {
+      await daw.invite("127.0.0.1", 15304);
+      const dark = node.next((d) => d[4] === 0 && d[0] === 0);
+      daw.send([[0x90, 60, 100]]);
+      await dark;
+      expect(running.light.engine.isBlackout()).to.equal(true);
+      daw.send([[0x90, 60, 100]]); // latch: second press releases
+      await new Promise((r) => setTimeout(r, 50));
+      expect(running.light.engine.isBlackout()).to.equal(false);
+      const status = (await (await command(token, "midi.status", {})).json()) as { result: { inputs: { name: string; lastMessageAt?: number }[] } };
+      expect(status.result.inputs.find((i) => i.name === "RTP · DAW")!.lastMessageAt).to.be.a("number");
+    } finally {
+      daw.stop();
+    }
+  });
+
+  it("follows tap tempo", async () => {
+    const token = await login("1234");
+    await command(token, "tempo.tap", {});
+    await new Promise((r) => setTimeout(r, 500));
+    const res = (await (await command(token, "tempo.tap", {})).json()) as { result: { bpm: number } };
+    expect(res.result.bpm).to.be.closeTo(120, 15);
   });
 });
