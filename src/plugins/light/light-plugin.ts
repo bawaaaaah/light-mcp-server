@@ -20,6 +20,8 @@ import { registerShowCommands } from "./commands/show-commands.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
+import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
+import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
@@ -93,6 +95,7 @@ export class LightPlugin implements McpPlugin {
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
+  private songs: SongServices | undefined;
 
   constructor(private readonly opts: LightPluginOptions) {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
@@ -141,6 +144,17 @@ export class LightPlugin implements McpPlugin {
     });
     registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list());
     registerExportCommands(this.commands, this.runtime, () => mappings.list(), dataRoot);
+    this.songs = {
+      runtime: this.runtime,
+      songs: this.show.collection("songs", SongSchema),
+      setlists: this.show.collection("setlists", SetlistSchema),
+      tempo: this.tempo,
+      mappings: () => mappings.list(),
+      dataRoot,
+      state: { follow: true },
+      publish: (state) => this.publish("song", state),
+    };
+    registerSongCommands(this.commands, this.songs);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 
@@ -151,6 +165,7 @@ export class LightPlugin implements McpPlugin {
     );
     let lastClampKey = "";
     this.engine.onFrame((buffers, now) => {
+      if (this.songs) followPosition(this.songs);
       this.router.sendFrame(buffers);
       publishFrame(now);
       const clamps = this.runtime?.lastClamps ?? [];
@@ -325,6 +340,7 @@ export class LightPlugin implements McpPlugin {
       midi: { channel: "control" },
       tempo: { channel: "control" },
       rules: { channel: "control" },
+      song: { channel: "control" },
     };
   }
 }
