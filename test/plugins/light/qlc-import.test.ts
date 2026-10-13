@@ -51,6 +51,7 @@ describe("QLC+ workspace import", () => {
     expect(ws.functions.get(20)).to.include({ type: "Sequence", runOrder: "Random" });
     const buttons = ws.widgets.filter((w) => w.kind === "button");
     expect(buttons.map((b) => b.soloFrame)).to.deep.equal([100, 100]);
+    expect(buttons.map((b) => b.functionId)).to.deep.equal([10, 20]);
     expect(ws.soloFrames[0]!.members).to.deep.equal([101, 102]);
     expect(ws.widgets.find((w) => w.kind === "speeddial")!.input!.midi).to.deep.equal({ kind: "clock", what: "beat" });
   });

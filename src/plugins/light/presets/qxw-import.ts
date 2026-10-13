@@ -169,7 +169,8 @@ function inputOf(w: Node): QxwWidget["input"] {
 
 function walkVc(node: Node, frames: string[], solo: number | undefined, out: QxwWidget[], soloFrames: QxwWorkspace["soloFrames"]): void {
   for (const b of (node["Button"] as Node[] | undefined) ?? []) {
-    const fn = b["Function"] as Node | undefined;
+    const fnRaw = b["Function"] as Node | Node[] | undefined;
+    const fn = Array.isArray(fnRaw) ? fnRaw[0] : fnRaw;
     out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b["Action"]), input: inputOf(b) });
   }
   for (const s of (node["Slider"] as Node[] | undefined) ?? []) {

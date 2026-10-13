@@ -17,6 +17,7 @@ import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { registerShowCommands } from "./commands/show-commands.js";
+import { registerImportCommands } from "./commands/import-commands.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
@@ -136,6 +137,7 @@ export class LightPlugin implements McpPlugin {
         await this.opts.config?.set(this.config);
       },
     });
+    registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 
     const publishFrame = throttleMerge<number>(
