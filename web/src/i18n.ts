@@ -1,5 +1,12 @@
 /** UI texts, FR + EN (docs/specs/ui-dashboards.md). */
 const fr = {
+  venue: "Lieu",
+  patch: "Patch",
+  library: "Bibliothèque",
+  canvases: "Canevas",
+  zones: "Zones",
+  makeCanvas: "Créer le canevas",
+  patchIt: "Patcher",
   download: "Sauvegarde .lightshow",
   restore: "Restaurer",
   restoreConfirm: "Remplacer le show et le lieu par cette sauvegarde ? (l'état actuel est conservé dans les backups)",
@@ -69,6 +76,13 @@ const fr = {
   language: "Langue",
 };
 const en: typeof fr = {
+  venue: "Venue",
+  patch: "Patch",
+  library: "Library",
+  canvases: "Canvases",
+  zones: "Zones",
+  makeCanvas: "Create canvas",
+  patchIt: "Patch",
   download: ".lightshow backup",
   restore: "Restore",
   restoreConfirm: "Replace the show and venue with this backup? (the current state is kept in the backups)",

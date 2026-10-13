@@ -72,6 +72,26 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   reg.register({ name: "stage.describe", title: "Décrire la scène", description: "Plain-French description of the stage: zones, what is in them and what lights them.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
 
+  reg.register({
+    name: "venue.canvas.auto",
+    title: "Canevas automatique",
+    description: "Builds a canvas from fixtures in the given order: one cell per head (or per fixture without heads). Topology line, line-mirror or ring.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ id: z.string(), name: z.string(), fixtures: z.array(z.string()).min(1), topology: z.enum(["line", "line-mirror", "ring"]).default("line") }),
+    run: ({ id: cid, name, fixtures, topology }) => {
+      const render: { from: number; to: number; targets: { fixture: string; head: number }[] }[] = [];
+      let cell = 0;
+      for (const fid of fixtures) {
+        const r = venue.resolve(fid);
+        if ("error" in r) throw new Error(r.error);
+        const heads = r.mode.heads.length ? r.mode.heads.map((_, h) => h) : [-1];
+        for (const h of heads) render.push({ from: cell, to: cell++, targets: [{ fixture: fid, head: h }] });
+      }
+      return venue.canvases.put({ id: cid, name, topology, cells: cell, render });
+    },
+  });
+
   // ---- palettes & looks
   reg.register({ name: "palette.list", title: "Palettes", description: "Colour palettes of the show.", right: "dashboards:view", readOnly: true, profiles: ["design"], schema: z.object({}), run: () => show.palettes.list() });
   reg.register({ name: "palette.put", title: "Palette", description: "Creates or updates a palette (used by reference: every look using it follows).", right: "show:write", profiles: ["design"], schema: z.object({ palette: PaletteSchema }), run: ({ palette }) => show.palettes.put(palette) });

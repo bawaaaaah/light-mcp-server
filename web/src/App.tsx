@@ -9,12 +9,13 @@ import { ImportPage } from "./pages/Import";
 import { SongsPage } from "./pages/Songs";
 import { ShowPage } from "./pages/Show";
 import { OscPage } from "./pages/Osc";
+import { VenuePage } from "./pages/Venue";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 
-type Page = "live" | "songs" | "show" | "console" | "midi" | "osc" | "import";
-const PAGES: Page[] = ["live", "songs", "show", "console", "midi", "osc", "import"];
+type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import";
+const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import"];
 
 function Login({ onLogin, t }: { onLogin: (r: Role) => void; t: Texts }) {
   const [pin, setPin] = useState("");
@@ -109,6 +110,7 @@ export function App() {
         {page === "live" && <DashboardsPage />}
         {page === "songs" && <SongsPage />}
         {page === "show" && <ShowPage />}
+        {page === "venue" && <VenuePage />}
         {page === "console" && <ConsolePage />}
         {page === "midi" && <MidiPage />}
         {page === "osc" && <OscPage />}

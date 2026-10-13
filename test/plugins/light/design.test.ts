@@ -78,6 +78,13 @@ describe("colour knowledge and design", () => {
       expect(lint.issues.map((i) => i.message).join(" | ")).to.match(/contraste faible/).and.match(/look inconnu fantome/);
     });
 
+    it("builds a canvas automatically from fixture heads", async () => {
+      await run("venue.fixture.put", { fixture: { id: "bar2", name: "Barre 2", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 16 } });
+      const c = (await run("venue.canvas.auto", { id: "mur2", name: "Mur 2", fixtures: ["bar", "bar2"], topology: "line-mirror" })) as { cells: number; render: { targets: { fixture: string; head: number }[] }[] };
+      expect(c.cells).to.equal(8);
+      expect(c.render[4]!.targets[0]).to.deep.equal({ fixture: "bar2", head: 0 });
+    });
+
     it("models the stage and caps fixtures aiming at a protected zone", async () => {
       await run("stage.zone.put", { zone: { id: "public", name: "Public", type: "audience", polygon: [[-6, -10], [6, -10], [6, 0], [-6, 0]], protected: true } });
       await run("stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]], floorHeight: 0.6 } });
