@@ -22,6 +22,8 @@ import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
+import { registerDesignCommands } from "./commands/design-commands.js";
+import { loadKnowledge, type Knowledge } from "./knowledge/knowledge.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
@@ -155,6 +157,9 @@ export class LightPlugin implements McpPlugin {
       publish: (state) => this.publish("song", state),
     };
     registerSongCommands(this.commands, this.songs);
+    const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
+    let kb: Knowledge | undefined;
+    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), () => (kb ??= loadKnowledge(knowledgePath)));
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 
@@ -249,6 +254,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   registerTools(server: McpServer): void {
+    this.registerResources(server);
     for (const def of this.commands.list()) {
       const shape = (def.schema as unknown as z.AnyZodObject).shape ?? {};
       server.registerTool(
@@ -264,6 +270,41 @@ export class LightPlugin implements McpPlugin {
         },
       );
     }
+  }
+
+  /** MCP resources: readable snapshots for the AI (docs/specs/mcp.md, « Ressources »). */
+  private registerResources(server: McpServer): void {
+    const json = (uri: URL, value: unknown) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(value, null, 2) }] });
+    const sys = { origin: "mcp" as const, can: () => true };
+    server.registerResource("show", "light://show", { title: "Show", description: "Looks, palettes, groups, songs, setlists and settings of the current show.", mimeType: "application/json" }, async (uri) =>
+      json(uri, {
+        settings: this.runtime.settings,
+        palettes: this.runtime.palettes.list(),
+        looks: this.runtime.looks.list().map(({ technique, ...l }) => ({ ...l, technique: technique.kind })),
+        groups: this.runtime.groups.list(),
+        songs: await this.commands.invoke("song.list", {}, sys),
+        setlists: await this.commands.invoke("setlist.list", {}, sys),
+      }),
+    );
+    server.registerResource("venue", "light://venue", { title: "Lieu", description: "Patch, canvases and rules of the venue.", mimeType: "application/json" }, (uri) =>
+      json(uri, { fixtures: this.venue.fixtures.list(), canvases: this.venue.canvases.list().map(({ render, ...c }) => ({ ...c, renderedRanges: render.length })), rules: this.runtime.venueRules.list() }),
+    );
+    server.registerResource("live", "light://live", { title: "En direct", description: "What is playing now, in plain French: looks, masters, blackout, tempo, song and section.", mimeType: "text/plain" }, async (uri) => {
+      const t = this.tempo.state();
+      const looks = this.runtime.activeLooks().map((id) => this.runtime.looks.get(id)?.name ?? id);
+      const masters = this.runtime.groups.list().filter((g) => g.master).map((g) => `${g.name} ${Math.round((g.master!.mute ? 0 : g.master!.level) * 100)} % (effectif ${Math.round(this.runtime.effectiveLevel(g.id) * 100)} %)`);
+      const song = (await this.commands.invoke("song.state", {}, sys)) as { song?: string; section?: string };
+      const text = [
+        this.engine.isBlackout() ? "BLACKOUT actif." : "",
+        `Looks en cours : ${looks.length ? looks.join(", ") : "aucun"}.`,
+        masters.length ? `Masters : ${masters.join(" ; ")}.` : "",
+        `Tempo : ${t.bpm.toFixed(1)} BPM (${t.source}${t.clockMissing ? ", horloge absente" : ""}).`,
+        song.song ? `Chant : ${song.song}, section ${song.section ?? "—"}.` : "",
+        this.runtime.lastClamps.length ? `Règles appliquées : ${this.runtime.lastClamps.length} valeur(s) bornée(s).` : "",
+      ].filter(Boolean).join("\n");
+      return { contents: [{ uri: uri.href, mimeType: "text/plain", text }] };
+    });
+    server.registerResource("knowledge", "light://knowledge", { title: "Base de connaissances couleur", description: "Mood → colours and design rules.", mimeType: "application/json" }, async (uri) => json(uri, await this.commands.invoke("knowledge.get", {}, sys)));
   }
 
   async getToolCatalogue(): Promise<PluginToolCatalogue> {

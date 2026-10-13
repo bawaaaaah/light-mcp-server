@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "source": "Base générique livrée avec light-mcp-server (psychologie des couleurs courante). Un fichier data/private/knowledge.json la complète ou la remplace mot par mot.",
+  "moods": {
+    "calme": { "colors": ["#3a6ff7", "#46c8d8"], "energy": "pose", "family": "froid" },
+    "paix": { "colors": ["#4a90e2", "#7fd1c7"], "energy": "pose", "family": "froid" },
+    "intimite": { "colors": ["#2a2f9e", "#7b3fbf"], "energy": "pose", "family": "froid" },
+    "recueillement": { "colors": ["#1b2a6b", "#5b3a99"], "energy": "pose", "family": "froid" },
+    "mystere": { "colors": ["#2b0f5c", "#123a8a"], "energy": "pose", "family": "froid" },
+    "confiance": { "colors": ["#1e5bd6", "#e8eef9"], "energy": "pose", "family": "froid" },
+    "guerison": { "colors": ["#16c2b0", "#9fe3d4"], "energy": "pose", "family": "froid" },
+    "esperance": { "colors": ["#2fbf71", "#16c2b0"], "energy": "dynamique", "family": "vert" },
+    "joie": { "colors": ["#ffcc1a", "#ff8a1f", "#ffffff"], "energy": "dynamique", "family": "chaud" },
+    "fete": { "colors": ["#ff2fb3", "#18d4ff", "#ffcc1a", "#7cff4f"], "energy": "survolte", "family": "festif" },
+    "gratitude": { "colors": ["#ffb03a", "#ffd27a"], "energy": "dynamique", "family": "chaud" },
+    "accueil": { "colors": ["#ff9d4a", "#ffe0b0"], "energy": "pose", "family": "chaud" },
+    "amour": { "colors": ["#e8174a", "#ff7aa8"], "energy": "dynamique", "family": "chaud" },
+    "force": { "colors": ["#e01a1a", "#ffb000"], "energy": "survolte", "family": "chaud" },
+    "victoire": { "colors": ["#ffb000", "#e01a1a", "#ffffff"], "energy": "survolte", "family": "chaud" },
+    "majeste": { "colors": ["#ffb000", "#6a1fd1"], "energy": "dynamique", "family": "chaud" },
+    "lumiere": { "colors": ["#fff1d6", "#ffd27a"], "energy": "pose", "family": "blanc" },
+    "purete": { "colors": ["#ffffff", "#dbe8ff"], "energy": "pose", "family": "blanc" },
+    "combat": { "colors": ["#b3001b", "#1a1a6e"], "energy": "survolte", "family": "contraste" },
+    "doute": { "colors": ["#101a5c", "#3b3f6e"], "energy": "pose", "family": "froid" },
+    "louange": { "colors": ["#ffb000", "#18d4ff"], "energy": "dynamique", "family": "chaud-froid" },
+    "adoration": { "colors": ["#4b1fa8", "#1e3ce6"], "energy": "pose", "family": "froid" },
+    "envoi": { "colors": ["#ff8a1f", "#ffcc1a", "#18d4ff"], "energy": "survolte", "family": "festif" }
+  },
+  "rules": [
+    "La couleur ne touche pas la peau : le rôle face reste en blanc.",
+    "Une section ne change de couleur que si son idée-clé change.",
+    "Énergie posée : 1 à 3 pas, 2 temps à 1 mesure par pas, fondu continu (respire).",
+    "Énergie dynamique : 6 à 9 pas, 1 temps par pas, bord franc (claque).",
+    "Énergie survoltée : 12 pas ou plus, 1 temps par pas, ordre aléatoire, bord franc."
+  ]
+}

@@ -120,6 +120,10 @@ describe("server end to end", function () {
     expect(result.isError).to.not.equal(true);
     await zero;
     await client.callTool({ name: "light_blackout", arguments: { on: false } });
+    const resources = (await client.listResources()).resources.map((r) => r.uri);
+    expect(resources).to.include.members(["light://show", "light://live", "light://venue", "light://knowledge"]);
+    const live = await client.readResource({ uri: "light://live" });
+    expect(String((live.contents[0] as { text: string }).text)).to.match(/Tempo : .* BPM/);
     await client.close();
   });
 
