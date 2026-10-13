@@ -16,6 +16,9 @@ import type { ScopedConfigStore } from "../../core/config-store.js";
 import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
+import { registerShowCommands } from "./commands/show-commands.js";
+import { ShowRuntime } from "./show/runtime.js";
+import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { MappingSchema, MidiMapper } from "./midi/mapping.js";
@@ -78,6 +81,8 @@ export class LightPlugin implements McpPlugin {
   readonly engine: DmxEngine;
   readonly router: OutputRouter;
   readonly show: FolderStore;
+  readonly venue: Venue;
+  readonly runtime: ShowRuntime;
   readonly hub: MidiHub;
   readonly mapper = new MidiMapper();
   readonly tempo = new TempoClock();
@@ -99,6 +104,13 @@ export class LightPlugin implements McpPlugin {
 
     const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
+    this.venue = new Venue(
+      new FolderStore(path.join(dataRoot, "venues", this.config.venue), path.join(dataRoot, "backups", "venues", this.config.venue)),
+      [path.join(dataRoot, "fixtures"), path.join(dataRoot, "venues", this.config.venue, "fixture-definitions")],
+    );
+    this.runtime = new ShowRuntime(this.show, this.venue, this.tempo);
+    this.engine.setRenderer((buffers) => this.runtime.render(buffers));
+    registerShowCommands(this.commands, this.engine, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());
     this.hub = new MidiHub(this.activeMidiProfile(), opts.midiNative === null ? { native: null } : {});

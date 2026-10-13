@@ -1,8 +1,7 @@
 /**
- * DMX engine, phase 1: programmer (parked channels) + blackout, rendered into the output universes
+ * DMX engine: show renderer (looks, groups, venue) + programmer (parked channels) + blackout, rendered into the output universes
  * on every frame of the Ticker (regular 44 Hz ticks + immediate frames on state changes).
- * Later phases add, in this order (docs/specs/engine-effects-timing.md): playbacks and merge,
- * groups/masters, flash, rules mask, attribute → DMX conversion.
+ * The rules mask (docs/specs/rules-limits.md) comes next, as the last stage before output.
  */
 import { Ticker, type TickerOptions } from "./ticker.js";
 import { UniverseStore } from "../output/universes.js";
@@ -18,6 +17,8 @@ export class DmxEngine {
   private blackout = false;
   private readonly ticker: Ticker;
   private readonly listeners = new Set<EngineFrameListener>();
+  /** Show renderer (looks, groups, venue conversion), called before parks and blackout. */
+  private renderer: ((buffers: Uint8Array[]) => void) | undefined;
   frames = 0;
 
   constructor(universes: number, tickerOptions: TickerOptions = {}) {
@@ -41,6 +42,10 @@ export class DmxEngine {
   /** Renders a frame as soon as possible (call after any state change). */
   requestFrame(): void {
     this.ticker.requestFrame();
+  }
+
+  setRenderer(fn: (buffers: Uint8Array[]) => void): void {
+    this.renderer = fn;
   }
 
   park(universe: number, channel: number, value: number): void {
@@ -84,10 +89,21 @@ export class DmxEngine {
 
   /** Computes the output buffers. Exposed for tests and previews. */
   render(): readonly Uint8Array[] {
+    for (const buf of this.output.buffers) buf.fill(0);
+    if (!this.blackout) {
+      try {
+        this.renderer?.(this.output.buffers);
+      } catch (err) {
+        // A broken look must never stop the output: keep sending the rest.
+        console.warn("render:", (err as Error).message);
+      }
+    }
     for (let u = 1; u <= this.output.count; u++) {
       const buf = this.output.buffers[u - 1]!;
-      buf.fill(0);
-      if (this.blackout) continue;
+      if (this.blackout) {
+        buf.fill(0);
+        continue;
+      }
       for (const [ch, v] of this.programmer.get(u) ?? []) buf[ch - 1] = v;
     }
     return this.output.buffers;

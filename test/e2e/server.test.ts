@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { createSocket, type Socket } from "node:dgram";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -47,6 +47,8 @@ describe("server end to end", function () {
       configPath,
       JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e" } } } } } } }),
     );
+    mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
+    copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));
     node = await fakeNode();
     running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     base = `http://127.0.0.1:${running.gateway!.address!.port}`;
@@ -181,5 +183,37 @@ describe("server end to end", function () {
     await new Promise((r) => setTimeout(r, 500));
     const res = (await (await command(token, "tempo.tap", {})).json()) as { result: { bpm: number } };
     expect(res.result.bpm).to.be.closeTo(120, 15);
+  });
+
+  it("plays a show: patch, canvas, palette, look, panic with and without a safe look", async () => {
+    const token = await login("1234");
+    const ok = async (name: string, body: unknown) => {
+      const res = await command(token, name, body);
+      const json = (await res.json()) as { ok: boolean; result: unknown; error?: string };
+      expect(res.status, `${name}: ${json.error}`).to.equal(200);
+      return json.result;
+    };
+    await command(token, "dmx.release", {});
+    await ok("venue.fixture.put", { fixture: { id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 101 } });
+    await ok("venue.canvas.put", { canvas: { id: "mur", name: "Mur", cells: 4, render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: [{ fixture: "bar", head: h }] })) } });
+    await ok("palette.put", { palette: { id: "intime", name: "Intime", colors: ["#1e3ce6", "#ff960f"] } });
+    await ok("look.put", { look: { id: "refrain", name: "Refrain", canvas: "mur", palette: "intime", technique: { kind: "damier", colors: ["#000000", "#000000"], block: 1 } } });
+    await ok("look.put", { look: { id: "secours", name: "Secours", canvas: "mur", technique: { kind: "plat", color: "#ffd8a8" } } });
+    const lit = node.next((d) => d[100] === 255 && d[103] === 0x1e && d[105] === 0xe6); // dimmer + head 0 = palette colour 1
+    await ok("look.go", { id: "refrain" });
+    await lit;
+    // Panic without safe look → Blackout
+    const dark = node.next((d) => d.every((v) => v === 0));
+    expect(await ok("panic", {})).to.deep.equal({ action: "blackout", reason: "aucun look de secours défini" });
+    await dark;
+    await ok("blackout", { on: false });
+    // Panic with a safe look → recalls it
+    await ok("show.settings.set", { safeLook: "secours" });
+    await ok("look.go", { id: "refrain" });
+    const safe = node.next((d) => d[103] === 0xff && d[104] === 0xd8);
+    expect(await ok("panic", {})).to.deep.equal({ action: "safe-look", look: "secours" });
+    await safe;
+    const looks = (await ok("look.list", {})) as { id: string; active: boolean }[];
+    expect(looks.filter((l) => l.active).map((l) => l.id)).to.deep.equal(["secours"]);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Phase 1 commands: DMX console (park/release), blackout, panic, output and Art-Net nodes.
+ * Base commands: DMX console (park/release), blackout, output and Art-Net nodes.
  */
 import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
@@ -61,21 +61,6 @@ export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, ro
     run: ({ on }) => {
       engine.setBlackout(on);
       return { blackout: on };
-    },
-  });
-
-  reg.register({
-    name: "panic",
-    title: "Panic neutre",
-    description:
-      "Safety button: stops effects and recalls the show's chosen safe look. Until a safe look is defined (phase 3), it falls back to a Blackout, as specified.",
-    right: "commands:panic",
-    profiles: ["setup", "design", "live"],
-    schema: z.object({}),
-    run: () => {
-      engine.release();
-      engine.setBlackout(true);
-      return { action: "blackout", reason: "aucun look de secours défini" };
     },
   });
 
