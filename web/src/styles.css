@@ -369,3 +369,14 @@ button.danger {
 tr.muted td {
   color: var(--muted);
 }
+
+.search {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35em 0.6em;
+  min-width: 14em;
+}
+code {
+  color: var(--accent);
+}

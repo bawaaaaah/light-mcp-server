@@ -224,6 +224,9 @@ export class MidiHub extends EventEmitter {
 
   status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; rtp: { enabled: boolean; port: number; peers: string[] } } {
     const inputs: PortStatus[] = this.knownInputs.map((name) => ({ name, watched: this.isWatched(name), open: this.openInputs.has(name), lastMessageAt: this.activity.get(name) }));
+    for (const [name, at] of this.activity) {
+      if (name.startsWith("Web MIDI")) inputs.push({ name, watched: true, open: true, lastMessageAt: at });
+    }
     for (const peer of this.rtp?.listPeers() ?? []) {
       const name = `RTP · ${peer.name}`;
       inputs.push({ name, watched: true, open: true, lastMessageAt: this.activity.get(name) });
