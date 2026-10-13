@@ -94,6 +94,19 @@ describe("songs", () => {
       expect(out.tempo[0]).to.deep.equal({ time: 0, bpm: 96 });
     });
 
+    it("sends MIDI feedback when a look changes from any origin", async () => {
+      await run("midi.mapping.put", { mapping: { id: "fb", input: { type: "note", channel: 1, number: 41 }, on: { command: "look.go", args: { id: "a" } }, feedback: "note" } });
+      const sent: number[][] = [];
+      plugin.hub.sendFeedback = (msgs: number[][]) => void sent.push(...msgs);
+      await run("look.stopall");
+      sent.length = 0;
+      await run("look.go", { id: "a" }); // from the UI, not from MIDI
+      expect(sent).to.deep.include([0x90, 41, 127]);
+      sent.length = 0;
+      await run("look.go", { id: "b" }); // exclusive group releases "a"
+      expect(sent).to.deep.include([0x80, 41, 0]);
+    });
+
     after(async () => plugin.stop());
   });
 });

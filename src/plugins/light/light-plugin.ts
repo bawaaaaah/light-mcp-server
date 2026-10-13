@@ -107,7 +107,10 @@ export class LightPlugin implements McpPlugin {
       this.engine.requestFrame();
       this.publish("state", this.state());
     };
-    this.commands.onCommand((e) => this.publish("command", e));
+    this.commands.onCommand((e) => {
+      this.publish("command", e);
+      if (e.ok) this.syncMidiFeedback();
+    });
     registerCoreCommands(this.commands, this.engine, this.router);
 
     const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
@@ -186,6 +189,23 @@ export class LightPlugin implements McpPlugin {
   private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; rtp: MidiProfile["rtp"] } {
     const p = this.config.midi.profiles[this.config.midi.active] ?? MidiProfileSchema.parse({});
     return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, rtp: p.rtp };
+  }
+
+  /**
+   * MIDI feedback follows the real state, whatever changed it (UI, OSC, MCP, timeline, MIDI):
+   * look mappings light up when their look plays, level mappings mirror their group's master.
+   */
+  syncMidiFeedback(): void {
+    const out: number[][] = [];
+    for (const m of this.mapper.list()) {
+      const target = String(m.on.args.id ?? "");
+      if (m.on.command === "look.go") out.push(...this.mapper.syncState(m.id, this.runtime.isActive(target)));
+      else if (m.on.command === "group.level") {
+        const g = this.runtime.groups.get(target);
+        if (g?.master) out.push(...this.mapper.syncState(m.id, !g.master.mute && g.master.level > 0, g.master.level));
+      }
+    }
+    this.hub.sendFeedback(out);
   }
 
   /** Every MIDI message: tempo follows the clock; mappings turn the rest into commands. */
