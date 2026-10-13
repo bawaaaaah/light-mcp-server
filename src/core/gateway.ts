@@ -139,7 +139,7 @@ export class Gateway {
     for (const plugin of this.opts.plugins) {
       if (!plugin.registerHttpRoutes) continue;
       const router = express.Router();
-      router.use(express.json());
+      router.use(express.json({ limit: "16mb" }));
       plugin.registerHttpRoutes(router);
       this.app.use(`/api/plugins/${plugin.id}`, this.opts.auth.requireAuth(), router);
     }

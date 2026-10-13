@@ -3,7 +3,8 @@
  * WebSocket topics — all generated from the command registry (docs/architecture.md, principle 2).
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Request, Response, Router } from "express";
+import express, { type Request, type Response, type Router } from "express";
+import { packArchive, readArchive, restoreFolder } from "./data/archive.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AuthMiddleware } from "../../core/auth.js";
@@ -378,6 +379,34 @@ export class LightPlugin implements McpPlugin {
       }
     });
     router.get("/state", (_req, res) => res.json(this.state()));
+    router.get("/archive", (req: Request, res: Response) => {
+      if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, "droit requis : show:write");
+      const withVenue = req.query.venue !== "0";
+      const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined });
+      res.setHeader("content-type", "application/zip");
+      res.setHeader("content-disposition", `attachment; filename="${this.config.show}.lightshow"`);
+      res.send(Buffer.from(zip));
+    });
+    router.post("/archive", express.raw({ type: () => true, limit: "64mb" }), (req: Request, res: Response) => {
+      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, "droit requis : show:write");
+      let content: ReturnType<typeof readArchive>;
+      try {
+        content = readArchive(new Uint8Array(req.body as Buffer));
+      } catch (err) {
+        throw new HttpError(400, `archive illisible : ${(err as Error).message}`);
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const backups = path.resolve(this.show.root, "..", "..", "backups", "restore-" + stamp);
+      this.runtime.stopAll();
+      if (Object.keys(content.show).length) restoreFolder(this.show.root, content.show, path.join(backups, "show"));
+      if (Object.keys(content.venue).length) restoreFolder(this.venue.store.root, content.venue, path.join(backups, "venue"));
+      this.show.reloadAll();
+      this.venue.store.reloadAll();
+      this.runtime.reloadSettings();
+      this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
+      this.publish("state", this.state());
+      res.json({ restored: true, manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) });
+    });
   }
 
   liveTopics(): Record<string, LiveTopic> {

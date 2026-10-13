@@ -380,3 +380,11 @@ tr.muted td {
 code {
   color: var(--accent);
 }
+
+.button-like {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55em 0.9em;
+  cursor: pointer;
+}

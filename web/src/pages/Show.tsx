@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { cmd } from "../api";
+import { cmd, downloadArchive, restoreArchive } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 
@@ -85,6 +85,19 @@ export function ShowPage() {
           </select>
         </label>
         <button onClick={() => void cmd<Lint>("show.lint").then(setLint)}>{t.lint}</button>
+        <button onClick={() => void downloadArchive(true).catch((e: Error) => setError(e.message))}>⤓ {t.download}</button>
+        <label className="button-like">
+          ⤒ {t.restore}
+          <input
+            type="file"
+            accept=".lightshow,.zip"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f && confirm(t.restoreConfirm)) void restoreArchive(f).then(refresh).catch((err: Error) => setError(err.message));
+            }}
+          />
+        </label>
         {error && (
           <span className="error" onClick={() => setError("")}>
             {error}

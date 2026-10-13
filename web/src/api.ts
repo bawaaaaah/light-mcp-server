@@ -77,3 +77,19 @@ export async function cmd<T = unknown>(name: string, args: unknown = {}): Promis
 export async function lightState(): Promise<{ blackout: boolean; universes: number; discovery: string }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }
+
+export async function downloadArchive(withVenue: boolean): Promise<void> {
+  const res = await fetch(`/api/plugins/light/archive?venue=${withVenue ? 1 : 0}`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({ error: res.statusText }))).error);
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "show.lightshow";
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function restoreArchive(file: File): Promise<{ files: { show: number; venue: number }; backup: string }> {
+  return json(await fetch("/api/plugins/light/archive", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+}

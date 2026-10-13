@@ -65,6 +65,10 @@ export class ShowRuntime {
     });
   }
 
+  reloadSettings(): void {
+    this.settings = this.store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
+  }
+
   saveSettings(patch: Partial<ShowSettings>): ShowSettings {
     this.settings = ShowSettingsSchema.parse({ ...this.settings, ...patch });
     this.store.writeManifest("show.json", this.settings);

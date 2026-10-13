@@ -1,5 +1,8 @@
 /** UI texts, FR + EN (docs/specs/ui-dashboards.md). */
 const fr = {
+  download: "Sauvegarde .lightshow",
+  restore: "Restaurer",
+  restoreConfirm: "Remplacer le show et le lieu par cette sauvegarde ? (l'état actuel est conservé dans les backups)",
   osc: "OSC",
   search: "Rechercher",
   copyTable: "Copier la table",
@@ -66,6 +69,9 @@ const fr = {
   language: "Langue",
 };
 const en: typeof fr = {
+  download: ".lightshow backup",
+  restore: "Restore",
+  restoreConfirm: "Replace the show and venue with this backup? (the current state is kept in the backups)",
   osc: "OSC",
   search: "Search",
   copyTable: "Copy the table",

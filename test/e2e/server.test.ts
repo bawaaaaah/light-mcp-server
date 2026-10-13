@@ -252,4 +252,26 @@ describe("server end to end", function () {
     expect(rack.chains).to.equal(3); // notes 36, 37 (imported) and 60 (blackout mapping of an earlier test)
     expect((await command(token, "export.ableton.rack", { shell: "../../x.adg" })).status).to.equal(422);
   });
+
+  it("downloads a .lightshow archive and restores it", async () => {
+    const token = await login("1234");
+    const auth = { authorization: `Bearer ${token}` };
+    const res = await fetch(`${base}/api/plugins/light/archive`, { headers: auth });
+    expect(res.status).to.equal(200);
+    expect(res.headers.get("content-type")).to.contain("application/zip");
+    const zip = new Uint8Array(await res.arrayBuffer());
+    const looksBefore = running.light.runtime.looks.list().length;
+    await command(token, "look.delete", { id: "secours" });
+    expect(running.light.runtime.looks.get("secours")).to.equal(undefined);
+    const restore = await fetch(`${base}/api/plugins/light/archive`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip });
+    const body = (await restore.json()) as { restored: boolean; files: { show: number; venue: number } };
+    expect(restore.status).to.equal(200);
+    expect(body.restored).to.equal(true);
+    expect(running.light.runtime.looks.list().length).to.equal(looksBefore);
+    expect(running.light.runtime.looks.get("secours")).to.not.equal(undefined);
+    const bad = await fetch(`${base}/api/plugins/light/archive`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: new Uint8Array([1, 2, 3]) });
+    expect(bad.status).to.equal(400);
+    const volunteer = await login("5678");
+    expect((await fetch(`${base}/api/plugins/light/archive`, { headers: { authorization: `Bearer ${volunteer}` } })).status).to.equal(403);
+  });
 });
