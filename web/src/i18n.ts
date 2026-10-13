@@ -1,5 +1,14 @@
 /** UI texts, FR + EN (docs/specs/ui-dashboards.md). */
 const fr = {
+  notes: "Notes",
+  noNotes: "Aucune note.",
+  settings: "Réglages",
+  output: "Sortie DMX",
+  nodes: "Nodes Art-Net",
+  noNodes: "Aucun node détecté.",
+  discover: "Chercher les nodes",
+  roles: "Rôles et PIN",
+  adminOnly: "Réservé à l'administrateur.",
   venue: "Lieu",
   patch: "Patch",
   library: "Bibliothèque",
@@ -76,6 +85,15 @@ const fr = {
   language: "Langue",
 };
 const en: typeof fr = {
+  notes: "Notes",
+  noNotes: "No notes.",
+  settings: "Settings",
+  output: "DMX output",
+  nodes: "Art-Net nodes",
+  noNodes: "No node found.",
+  discover: "Discover nodes",
+  roles: "Roles and PIN",
+  adminOnly: "Administrator only.",
   venue: "Venue",
   patch: "Patch",
   library: "Library",

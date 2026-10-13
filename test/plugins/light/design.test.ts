@@ -78,6 +78,17 @@ describe("colour knowledge and design", () => {
       expect(lint.issues.map((i) => i.message).join(" | ")).to.match(/contraste faible/).and.match(/look inconnu fantome/);
     });
 
+    it("writes and finds notes on any object", async () => {
+      await run("notes.set", { collection: "fixtures", id: "bar", notes: "attention : câble DMX sous la marche" });
+      await run("notes.set", { collection: "looks", id: "adoration", notes: "pour les temps calmes" });
+      const all = (await run("notes.search", {})) as { collection: string; id: string; notes: string }[];
+      expect(all.map((n) => `${n.collection}/${n.id}`)).to.include.members(["fixtures/bar", "looks/adoration"]);
+      const found = (await run("notes.search", { query: "câble" })) as { id: string; notes: string }[];
+      expect(found.map((n) => n.id)).to.deep.equal(["bar"]);
+      expect(found[0]!.notes).to.match(/\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)$/); // timestamped
+      expect(plugin.venue.fixtures.get("bar")!.manufacturer).to.equal("Test"); // the rest of the object is kept
+    });
+
     it("builds a canvas automatically from fixture heads", async () => {
       await run("venue.fixture.put", { fixture: { id: "bar2", name: "Barre 2", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 16 } });
       const c = (await run("venue.canvas.auto", { id: "mur2", name: "Mur 2", fixtures: ["bar", "bar2"], topology: "line-mirror" })) as { cells: number; render: { targets: { fixture: string; head: number }[] }[] };

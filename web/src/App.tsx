@@ -10,12 +10,14 @@ import { SongsPage } from "./pages/Songs";
 import { ShowPage } from "./pages/Show";
 import { OscPage } from "./pages/Osc";
 import { VenuePage } from "./pages/Venue";
+import { NotesPage } from "./pages/Notes";
+import { SettingsPage } from "./pages/Settings";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 
-type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import";
-const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import"];
+type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "settings";
+const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "settings"];
 
 function Login({ onLogin, t }: { onLogin: (r: Role) => void; t: Texts }) {
   const [pin, setPin] = useState("");
@@ -115,6 +117,8 @@ export function App() {
         {page === "midi" && <MidiPage />}
         {page === "osc" && <OscPage />}
         {page === "import" && <ImportPage />}
+        {page === "notes" && <NotesPage />}
+        {page === "settings" && <SettingsPage />}
       </main>
     </I18n.Provider>
   );

@@ -388,3 +388,14 @@ code {
   padding: 0.55em 0.9em;
   cursor: pointer;
 }
+
+textarea {
+  flex: 1;
+  min-width: 16em;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4em;
+  font: inherit;
+}
