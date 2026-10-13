@@ -2,28 +2,29 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-13)
-- **Développement lancé** (feu vert de l'utilisateur). On en est à l'**étape 0 : prototypes**.
-- Socle en place : dépôt git, licence MIT, `CLAUDE.md`, TypeScript, Mocha.
-- Premiers modules réels, testés :
-  - codec Art-Net, registre des nodes ;
-  - parseur MIDI, suivi de MIDI clock et SPP ;
-  - ticker du moteur avec rendu immédiat ;
-  - générateur de MIDI Effect Rack.
-- Prototypes P1 à P12 : [research/proto-resultats.md](research/proto-resultats.md).
-  - **Validés** : P2 (tick), P7 (RTP-MIDI en local), P9 (WebSocket), P10 (sACN), P11 (OSC), P12 (import QLC+, 97 %).
-  - **À confirmer en conditions réelles** : P3 et P8 (dans Live), P6 (réseau lumière), P7 avec le Mac.
-  - **Restent à faire sur le Mac** : P1, P4, P5.
-- Modules réels déjà écrits et testés (59 tests) :
-  - codecs Art-Net, sACN, OSC, AppleMIDI, WebSocket ;
-  - parseur MIDI, suivi de clock et SPP, ticker ;
-  - rack Ableton, éditeur de Live Set ;
-  - imports `.qxf` et `.qxw` avec analyse.
+## Où on en est (2026-10-13, fin de journée)
+- **Développement en cours** (feu vert de l'utilisateur, qui fera les tests matériel en fin de semaine).
+- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). P2, P7, P9, P10, P11, P12 validés ; P3/P8 à ouvrir dans Live ; P6 sur le réseau lumière ; P1/P4/P5 sur le Mac.
+- **Serveur (TypeScript, `npm test` = 126 tests verts)** :
+  - cœur repris de wing (`src/core`) : config machine, bus, hub WebSocket, MCP HTTP + stdio, visibilité des outils, **rôles + PIN** (`auth.ts`), passerelle (`gateway.ts`) ;
+  - plugin `light` (`src/plugins/light`) : **registre de commandes unique** (outils MCP, routes HTTP, adresses OSC générés depuis lui), sortie Art-Net/sACN + découverte, moteur (ticker 44 Hz + rendu immédiat), lieu (patch, canevas, rendu, `.qxf`), show (palettes par référence, looks = techniques + lecteur, groupes unifiés façon DCA, réglages), **masque de règles**, MIDI (hub local/RTP/Web MIDI, mappings Déclencher/Latch/Momentané, retour, registre de notes), tempo (tap, MIDI clock), OSC, **import QLC+ → lieu + show**, **auto-test**, exports Ableton (rack, table des notes) ;
+  - données en dossiers texte (`data/`, hors git) ; CLI `npm run light -- serve | token | pin | roles`.
+- **Interface web v0** (`web/`, Vite + React, FR/EN) : connexion PIN, Live, console DMX, MIDI, Import + auto-test. Construite par `npm run build:web`, servie par la passerelle. Pas encore vérifiée dans un vrai navigateur (aucun navigateur sur la machine de dev).
 
 ## Prochaines étapes
-1. L'utilisateur lance P1, P4 et P5 sur le Mac, P3 dans Live et P6 sur le réseau lumière ([prototypes/README.md](../prototypes/README.md)), puis on reporte les résultats.
-2. Phase 1 : `core/` repris de wing-mcp-server (référence clonée dans un dossier temporaire), bootstrap, config machine, ws-hub, MCP HTTP + stdio.
-3. **v0 « prochain culte »** ([roadmap.md](roadmap.md)), puis les phases en parallèle.
+1. Chants et setlist (sections → looks, boutons, timeline en temps, suivi SPP) et export Live Set depuis les chants.
+2. Dashboards modulables (modèle serveur + grille éditable, groupes de widgets).
+3. Scène virtuelle (zones, positions, rôles) et zones protégées ; MCP de conception (look par intention, lint, ressources).
+4. Validation matérielle par l'utilisateur (prototypes Mac/Live/réseau), puis répétition v0 avec QLC+ en secours.
+
+## Démarrer
+```bash
+npm install && npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julusian/midi
+npm run build:web
+npm run light -- pin regisseur 1234     # définir un PIN
+npm run serve                            # http://localhost:8790 ; MCP sur /mcp (jeton : npm run light -- token)
+```
+Fichiers à déposer (hors git) : définitions `.qxf` dans `data/fixtures/`, workspace QLC+ dans `data/imports/`, coquille Ableton dans `data/private/shell.adg`.
 
 ## Règles pour les agents qui implémentent
 - **Réutiliser avant d'écrire** : chercher les commandes, sélecteurs, utilitaires et schémas existants avant d'en créer. Aucune duplication. Les outils MCP, les routes OSC et HTTP et la CLI sont de minces adaptateurs sur la couche de commandes.
