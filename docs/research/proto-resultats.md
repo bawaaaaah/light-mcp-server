@@ -1,22 +1,24 @@
 # Résultats des prototypes (étape 0)
 
-Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26).
+Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
+
+**Restent à faire sur le Mac** : P1 sur un vrai bus IAC et hotplug d'un contrôleur USB ; P4/P5 depuis Ableton (horloge, SPP, aftertouch) ; P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; l'import du vrai workspace avec les `.qxf` personnels ([tests-mac](../tests-mac.md)).
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
 |---|---|---|---|
-| P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ⏳ **à faire sur le Mac** | Module natif précompilé pour macOS, Linux (dont ARM) et Windows. Sans séquenceur ALSA, l'échec est propre |
-| P2 | Tick DMX 16 univers à 44 Hz | ✅ **validé** | Aucune trame perdue ; **déclenchement → paquet 3,9 ms au pire avec le rendu immédiat**, contre 23 ms sans |
+| P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ✅ **tourne sur le Mac** ; 🟡 à refaire sur un vrai bus IAC | Ports listés (sessions réseau et bus virtuel) ; latence 500/500, p95 0,21 ms, max 0,99 ms sur un bus de boucle ; hotplug pas encore testé |
+| P2 | Tick DMX 16 univers à 44 Hz | ✅ **validé** (Linux et Mac) | Aucune trame perdue ; déclenchement → paquet **3,9 ms (Linux), 4,97 ms (Mac)** au pire avec le rendu immédiat, contre 23 ms sans |
 | P3 | Rack `.adg` cloné depuis la coquille | 🟡 **à ouvrir dans Live** | Rack de 6 chaînes depuis la vraie coquille ; tout le reste identique octet pour octet |
 | P4 | Clock et SPP depuis Ableton | ⏳ **à faire sur le Mac** | Suivi testé en unitaire (±0,5 BPM avec une gigue de ±1 ms, position par SPP) |
 | P5 | Aftertouch dans un clip | ⏳ **à faire sur le Mac** | Le parseur gère l'aftertouch poly et canal |
-| P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node |
-| P7 | **RTP-MIDI en pur Node** (sans démon) | ✅ **validé en local**, 🟡 interop Mac à tester | Invitation, synchro d'horloge, MIDI dans les deux sens ; aller-retour p50 0,06 ms |
+| P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu) |
+| P7 | **RTP-MIDI en pur Node** (sans démon) | ✅ **validé** (Linux et Mac, boucle locale), 🟡 connexion depuis « Configuration audio et MIDI » à tester | Aller-retour p50 0,06 ms (Linux) ; **Mac, 1000 notes : p50 0,037 · p95 0,077 · p99 0,096 · max 0,32 ms** |
 | P8 | **Génération de Live Set** | 🟡 **à ouvrir dans Live** | Repères, clips autonomes, tempo ; XML bien formé ; autres pistes intactes |
-| P9 | **Flux WebSocket** 16 univers vers N écrans | ✅ **validé** | 8 clients à 25 Hz : 3 % d'un cœur, latence p99 < 1,2 ms ; client lent isolé |
-| P10 | **sACN** (E1.31) multicast | ✅ **validé** (local et vraie interface) | 16 univers, aucune perte |
-| P11 | **OSC** (pilotage, `/light/help`) | ✅ **validé** | Aller-retour p50 0,06 ms ; table d'adresses renvoyée |
-| P12 | **Import `.qxw` et reconnaissance des techniques** | ✅ **validé** sur un vrai workspace | **97 % des techniques reconnues (29/30), 100 % du punch** ; analyse en 150 à 250 ms |
+| P9 | **Flux WebSocket** 16 univers vers N écrans | ✅ **validé** (Linux et Mac) | 8 clients à 25 Hz : ~3 % d'un cœur, latence p99 < 1,2 ms ; client lent isolé (Mac : 113 trames sautées pour lui seul, les autres intacts) |
+| P10 | **sACN** (E1.31) multicast | ✅ **validé** (Linux et Mac) | 16 univers, aucune perte (Mac : 217 paquets par univers, 0 trou) |
+| P11 | **OSC** (pilotage, `/light/help`) | ✅ **validé** (Linux et Mac) | Aller-retour p50 0,06 ms (Linux), 0,035 ms (Mac) ; table d'adresses renvoyée |
+| P12 | **Import `.qxw` et reconnaissance des techniques** | ✅ **validé** sur un vrai workspace ; ✅ tourne sur le Mac (workspace de test) | **97 % des techniques reconnues (29/30), 100 % du punch** ; Mac : 5/5 techniques, attaque 100 % sur le workspace synthétique |
 
 ## P2 — tick DMX
 16 univers × 512 canaux, rendu simulé, encodage ArtDmx, envoi UDP en local.

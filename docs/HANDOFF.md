@@ -4,7 +4,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
-- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). Six validés ici ; P1/P4/P5 (Mac), P3/P8 (Live), P6 (réseau lumière) à faire par l'utilisateur.
+- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Premiers tests sur le Mac (2026-10-14) : P2, P7, P9, P10, P11, P12 validés, P1 tourne** (latence < 1 ms sur un bus de boucle). Restent : P1 sur un vrai bus IAC et hotplug, P4/P5 depuis Ableton, P3/P8 dans Live, P6 et la bascule QLC+ sur le réseau lumière.
 - **Serveur** (`npm test` : 201 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
