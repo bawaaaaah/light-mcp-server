@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { slug } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
+import { Calibration } from "../components/Calibration";
 
 interface Def {
   manufacturer: string;
@@ -77,6 +78,10 @@ export function VenuePage() {
           onError={setError}
           onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
         />
+        <details className="calibration-box">
+          <summary>{t.calibrationTitle}</summary>
+          <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
+        </details>
       </section>
       <div className="cols">
         <section>

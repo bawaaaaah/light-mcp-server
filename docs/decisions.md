@@ -74,5 +74,7 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-14 | Vocabulaire | **DCA** = le fader d'un groupe (pas « sub-master » ni « fader de groupe ») ; Groupe = l'objet | [groupes](specs/groups-masters.md) |
 | 2026-10-14 | Limites DCA | min/max sur le niveau du groupe, mode butée (défaut) ou course réduite ; mute = 0 ; flash plafonné au max | [groupes](specs/groups-masters.md) |
 | 2026-10-14 | Import EFX | EFX QLC+ → look de position + Move FX sur un groupe ; formes absentes approximées et signalées ; Serial = têtes réparties sur un cycle | [chants](specs/presets-songs-notes.md) |
+| 2026-10-14 | Calibration des lyres | Repères visés à la main → yaw, décalage de tilt, inversions (le décalage de pan est confondu avec le yaw) ; écart > 3° signalé | [lieu](specs/venue-fixtures-stage.md) |
+| 2026-10-14 | Lecture seule | Une commande qui peut écrire (apply/save), jouer le show ou injecter du MIDI n'est jamais marquée readOnly (promesse faite aux clients IA) ; test de contrat | [mcp](specs/mcp.md) |
 | 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

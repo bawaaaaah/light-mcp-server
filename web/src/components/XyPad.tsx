@@ -11,20 +11,20 @@ interface Head {
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). Sends `position.set` at most every 40 ms
  * while dragging (the last position is always sent), « ⟲ » releases back to the looks.
  */
-export function XyPad({ group, label, onError }: { group?: string; label?: string; onError: (msg: string) => void }) {
+export function XyPad({ group, fixture, label, onError }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void }) {
   const t = useT();
   const [pos, setPos] = useState<{ pan: number; tilt: number } | null>(null);
   const pad = useRef<HTMLDivElement>(null);
   const pending = useRef<{ pan: number; tilt: number } | null>(null);
   const timer = useRef<number | undefined>(undefined);
-  const target = group ? { group } : {};
+  const target = fixture ? { fixtures: [fixture] } : group ? { group } : {};
 
   useEffect(() => {
     void cmd<Head[]>("position.list")
-      .then((heads) => setPos(heads.find((h) => h.manual)?.manual ?? null))
+      .then((heads) => setPos((fixture ? heads.find((h) => h.id === fixture) : heads.find((h) => h.manual))?.manual ?? null))
       .catch(() => undefined);
     return () => window.clearTimeout(timer.current);
-  }, [group]);
+  }, [group, fixture]);
 
   const flush = () => {
     timer.current = undefined;

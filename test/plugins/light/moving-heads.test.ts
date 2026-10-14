@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseQxf, findMode } from "../../../src/plugins/light/venue/qxf-import.js";
 import { MoveSchema, movePosition } from "../../../src/plugins/light/engine/move.js";
-import { aimAt, type AimSetup } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { Venue } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
@@ -116,6 +116,47 @@ describe("moving heads", () => {
       const offset = aimAt({ ...base, panOffset: 10 }, { x: 0, y: -5, z: 0 }) as { panDeg: number };
       expect(offset.panDeg).to.be.closeTo(-10, 1e-9);
       expect(aimAt({ ...base, panMax: 90, tiltMax: 90 }, { x: 0, y: 5, z: -1 })).to.have.property("error");
+    });
+  });
+
+  describe("guided calibration", () => {
+    // A flown head, turned 30°, tilt 4° off, pan wired backwards: what the operator records when
+    // aiming it by hand at three floor marks (output values, inversion included).
+    const truth: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 4 };
+    const marks = [{ x: 0, y: 1, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 2, y: 5.5, z: 0 }];
+    const record = (noise = 0): CalibrationSample[] =>
+      marks.map((target, i) => {
+        const a = aimAt(truth, target) as { pan: number; tilt: number };
+        const jitter = noise * (i % 2 ? 1 : -1);
+        return { target, pan: 1 - a.pan + jitter, tilt: a.tilt - jitter };
+      });
+
+    it("finds the yaw, tilt offset and inversions from three marks", () => {
+      const c = calibrate(truth, record()) as { yaw: number; tiltOffset: number; invertPan: boolean; invertTilt: boolean; errorDeg: number };
+      expect(c).to.include({ invertPan: true, invertTilt: false });
+      expect(c.yaw).to.be.closeTo(30, 0.1);
+      expect(c.tiltOffset).to.be.closeTo(4, 0.1);
+      expect(c.errorDeg).to.be.below(0.1);
+    });
+
+    it("stays close with hand-aiming imprecision, and reports the error", () => {
+      const c = calibrate(truth, record(0.002)) as { yaw: number; errorDeg: number; errors: number[] };
+      expect(c.yaw).to.be.closeTo(30, 1.5);
+      expect(c.errorDeg).to.be.above(0).and.below(2);
+      expect(c.errors).to.have.length(3);
+    });
+
+    it("then aims right: the calibrated setup reproduces the recorded output", () => {
+      const c = calibrate(truth, record()) as { yaw: number; tiltOffset: number };
+      const target = { x: 3, y: 4, z: 0 };
+      const calibrated = aimAt({ ...truth, yaw: c.yaw, tiltOffset: c.tiltOffset }, target) as { pan: number; tilt: number };
+      const real = aimAt(truth, target) as { pan: number; tilt: number };
+      expect(calibrated.pan).to.be.closeTo(real.pan, 0.002);
+      expect(calibrated.tilt).to.be.closeTo(real.tilt, 0.002);
+    });
+
+    it("needs at least two marks", () => {
+      expect(calibrate(truth, record().slice(0, 1))).to.have.property("error");
     });
   });
 

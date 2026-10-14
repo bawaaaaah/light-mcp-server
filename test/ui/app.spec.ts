@@ -389,6 +389,36 @@ test("restoring a backup shows the differences first", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("guided calibration of a moving head", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const spot = ((await api(page, "venue.fixture.list")) as { id: string }[]).find((f) => f.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 2, z: 5 }, mount: "hung" } });
+  await api(page, "stage.zone.put", { zone: { id: "marque", name: "Marque", type: "stage", polygon: [[-3, 0], [-2, 0], [-2, 1], [-3, 1]] } });
+  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  await page.getByText("Calibrer les lyres").click();
+  const box = page.locator(".calibration");
+  await box.getByLabel("Repère").selectOption("marque");
+  const pad = box.locator(".xy .pad");
+  const r = (await pad.boundingBox())!;
+  await page.mouse.click(r.x + r.width * 0.3, r.y + r.height * 0.4);
+  await box.getByRole("button", { name: /Enregistrer ce repère/ }).click();
+  await expect(box.getByRole("button", { name: /Enregistrer ce repère/ })).toContainText("(1)");
+  await box.getByLabel("Repère").selectOption("");
+  await box.getByLabel("x (m)").fill("3");
+  await box.getByLabel("y (m)").fill("4");
+  await page.mouse.click(r.x + r.width * 0.75, r.y + r.height * 0.2);
+  await box.getByRole("button", { name: /Enregistrer ce repère/ }).click();
+  await expect(box.getByRole("button", { name: /Enregistrer ce repère/ })).toContainText("(2)");
+  await box.getByRole("button", { name: "Calculer" }).click();
+  await expect(box.locator(".report")).toContainText("yaw");
+  await page.screenshot({ path: "test-results/calibration.png", fullPage: true });
+  page.once("dialog", (d) => void d.accept()); // random aiming: a large error, confirmation asked
+  await box.getByRole("button", { name: "Appliquer" }).click();
+  await expect.poll(async () => ((await api(page, "venue.fixture.list")) as { id: string; orientation?: { yaw: number } }[]).find((f) => f.id === "spot")?.orientation).toBeTruthy();
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

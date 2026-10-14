@@ -41,7 +41,8 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
     - **viser** une zone (son centre, à 1,5 m au-dessus de son plancher par défaut) ou un point : calcul depuis la position, le montage (accrochée = retournée) et le `yaw`, en gardant la solution la plus proche du centre ; hors de portée = signalé ;
     - lyre sans mélange de couleurs : la couleur peinte par le look choisit le **créneau de roue** le plus proche et son niveau pilote le gradateur ; le shutter est mis sur sa valeur « ouvert » ;
     - **Blackout** éteint la lumière mais **garde pan/tilt** (les lyres ne partent pas en butée) ;
-    - plus tard : **calibration guidée** (viser deux ou trois repères au sol, comme dans Lightkey) et pan/tilt → point (sens inverse).
+    - **calibration guidée** (v1, comme dans Lightkey ; page Lieu, « Calibrer les lyres ») : on vise à la main (pad XY) deux ou trois repères au sol connus (centre d'une zone ou point), on les enregistre (`calibration.record`, valeurs réellement envoyées, inversions comprises), puis `calibration.solve` trouve le **yaw**, le **décalage de tilt** et les **inversions pan/tilt** (recherche exhaustive, écart angulaire par repère). Le décalage de pan est confondu avec le yaw pour une lyre de niveau. Un écart moyen au-delà de 3° est signalé, et l'application demande confirmation ;
+    - plus tard : pan/tilt → point (sens inverse), lyre non horizontale.
   - **Rôle** : `face | contre | douche | latéral | wash-public | blinder | effet | découpe | wall-wash | décor | machine`.
 - **Usages** :
   - effets spatiaux (balayage par X, vague par Y, montée par Z, radial) ;

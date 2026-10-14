@@ -719,3 +719,18 @@ table.cues select {
   color: var(--accent);
   border: 1px solid var(--accent);
 }
+.calibration-box {
+  margin-top: 0.8em;
+}
+.calibration-box summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.calibration-pad {
+  width: 260px;
+  height: 260px;
+  display: flex;
+}
+.calibration-pad .xy {
+  flex: 1;
+}

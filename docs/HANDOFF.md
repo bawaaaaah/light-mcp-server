@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Premiers tests sur le Mac (2026-10-14) : P2, P7, P9, P10, P11, P12 validés, P1 tourne** (latence < 1 ms sur un bus de boucle). Restent : P1 sur un vrai bus IAC et hotplug, P4/P5 depuis Ableton, P3/P8 dans Live, P6 et la bascule QLC+ sur le réseau lumière.
-- **Serveur** (`npm test` : 205 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 211 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -30,7 +30,6 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - répétition v0 avec QLC+ en secours, en suivant [bascule-qlc.md](bascule-qlc.md).
 2. Corriger d'après ses retours, notamment l'interface.
 3. Non encore fait :
-   - lyres : calibration guidée ;
    - cascade complète des règles.
 4. Plus tard (roadmap) : IA en live, Max for Live, AbleSet, audio, 3D, comptes et QR.
 
