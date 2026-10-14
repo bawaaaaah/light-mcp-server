@@ -67,33 +67,83 @@ function avoidForbidden(value: number, ch: FixtureChannel, forbid: string[]): nu
   return best;
 }
 
+/** Specificity of a rule's scope: everything < a model < a zone < one fixture. */
+const scopeRank = (r: Rule) => (r.scope.fixture ? 3 : r.scope.zone ? 2 : r.scope.model ? 1 : 0);
+const specificity = (r: Rule) => LEVEL_RANK[r.level] * 10 + scopeRank(r);
+
+type Constraint = "forbidTags" | "values" | "min" | "max";
+const CONSTRAINTS: Constraint[] = ["forbidTags", "values", "min", "max"];
+
+export interface EffectiveRule {
+  min?: number;
+  max?: number;
+  values?: number[];
+  forbidTags?: string[];
+  /** constraint → id of the rule it comes from */
+  from: Partial<Record<Constraint, string>>;
+  /** locked rules re-applied on top (they cannot be relaxed) */
+  locked: string[];
+}
+
 /**
- * Effective rules for one channel: sorted from broad to specific; a locked rule blocks the
- * relaxations below it (its bounds are re-applied after the more specific ones).
+ * The rule in force on one channel (docs/specs/rules-limits.md): each constraint comes from the
+ * most specific rule that sets it — level (type < venue < show), then scope (all < model < zone <
+ * fixture) — so a show can relax a type's limit; `locked` rules are re-applied on top. Pure.
  */
+export function effectiveRule(rules: Rule[], fx: ResolvedFixture, ch: FixtureChannel, zoneOfFixture?: (id: string) => string | undefined): EffectiveRule | undefined {
+  const applicable = rules.filter((r) => ruleApplies(r, fx, ch, zoneOfFixture)).sort((a, b) => specificity(a) - specificity(b));
+  if (!applicable.length) return undefined;
+  const eff: EffectiveRule = { from: {}, locked: applicable.filter((r) => r.locked).map((r) => r.id) };
+  for (const r of applicable) {
+    for (const k of CONSTRAINTS) {
+      const v = r[k];
+      if (v === undefined || (Array.isArray(v) && v.length === 0)) continue;
+      (eff as unknown as Record<string, unknown>)[k] = v;
+      eff.from[k] = r.id;
+    }
+  }
+  // contradictory bounds (min above max): the more specific rule's bound wins
+  if (eff.min !== undefined && eff.max !== undefined && eff.min > eff.max) {
+    const rank = (id?: string) => specificity(applicable.find((r) => r.id === id)!);
+    if (rank(eff.from.min) >= rank(eff.from.max)) {
+      delete eff.max;
+      delete eff.from.max;
+    } else {
+      delete eff.min;
+      delete eff.from.min;
+    }
+  }
+  return eff;
+}
+
+/** Applies constraints to a value; returns the new value. */
+function enforce(v: number, c: { min?: number; max?: number; values?: number[]; forbidTags?: string[] }, ch: FixtureChannel): number {
+  if (c.forbidTags?.length) v = avoidForbidden(v, ch, c.forbidTags);
+  if (c.values?.length) v = c.values.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), c.values[0]!);
+  if (c.min !== undefined && v < c.min) v = c.min;
+  if (c.max !== undefined && v > c.max) v = c.max;
+  return v;
+}
+
+/** Applies the effective rules to a fixture's channels in a DMX buffer; returns what was moved. */
 export function applyRules(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
-  const sorted = [...rules].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
+  const byId = new Map(rules.map((r) => [r.id, r]));
   fx.mode.channels.forEach((name, offset) => {
     const ch = fx.def.channels.get(name);
     if (!ch) return;
-    const applicable = sorted.filter((r) => ruleApplies(r, fx, ch, zoneOfFixture));
-    if (applicable.length === 0) return;
+    const eff = effectiveRule(rules, fx, ch, zoneOfFixture);
+    if (!eff) return;
     const index = fx.patch.address - 1 + offset;
     if (index < 0 || index >= 512) return;
     const original = buffer[index]!;
-    let v = original;
-    let last = "";
-    const enforce = (r: Rule) => {
+    let v = enforce(original, eff, ch);
+    let last = v !== original ? (Object.values(eff.from).at(-1) ?? "") : "";
+    for (const id of eff.locked) {
       const before = v;
-      if (r.forbidTags?.length) v = avoidForbidden(v, ch, r.forbidTags);
-      if (r.values?.length) v = r.values.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), r.values[0]!);
-      if (r.min !== undefined && v < r.min) v = r.min;
-      if (r.max !== undefined && v > r.max) v = r.max;
-      if (v !== before) last = r.id;
-    };
-    for (const r of applicable) enforce(r);
-    for (const r of applicable.filter((x) => x.locked)) enforce(r); // locked bounds cannot be relaxed
+      v = enforce(v, byId.get(id)!, ch); // locked bounds cannot be relaxed
+      if (v !== before) last = id;
+    }
     if (v !== original) {
       buffer[index] = v;
       clamps.push({ fixture: fx.patch.id, channel: name, from: original, to: v, rule: last });

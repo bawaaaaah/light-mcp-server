@@ -11,9 +11,9 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
-import { RuleSchema } from "../rules/rules.js";
+import { effectiveRule, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
-import { describeStage, queryStage, ZoneSchema } from "../venue/stage.js";
+import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -172,6 +172,33 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const coll = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
   reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
   reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
+  reg.register({
+    name: "rule.effective",
+    title: "Règles en vigueur",
+    description: "Effective rule on each channel of a fixture: every bound with the rule it comes from (most specific level and scope wins), plus the locked rules re-applied on top.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ fixture: z.string() }),
+    run: ({ fixture }) => {
+      const r = venue.resolve(fixture);
+      if ("error" in r) throw new Error(r.error);
+      const rules = [...show.venueRules.list(), ...show.rules.list()];
+      const names = new Map(rules.map((x) => [x.id, x.name || x.id]));
+      const zones = show.zones.list();
+      const zoneById = (id: string) => {
+        const f = venue.fixtures.get(id);
+        return f ? zoneOf(f, zones)?.id : undefined;
+      };
+      return r.mode.channels.flatMap((name, offset) => {
+        const ch = r.def.channels.get(name);
+        const eff = ch && effectiveRule(rules, r, ch, zoneById);
+        if (!eff) return [];
+        const { from, locked, ...bounds } = eff;
+        return [{ channel: name, dmx: r.patch.address + offset, attribute: ch.attribute, ...bounds, from: Object.fromEntries(Object.entries(from).map(([k, id]) => [k, names.get(id) ?? id])), locked: locked.map((id) => names.get(id) ?? id) }];
+      });
+    },
+  });
   reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: coll(w).delete(i) }) });
 
   // ---- dashboards

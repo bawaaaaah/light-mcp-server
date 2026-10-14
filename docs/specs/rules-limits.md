@@ -21,6 +21,8 @@ Une seule mécanique gère toutes les limites : max par attribut, modes interdit
 3. **Groupe ou widget** : limites d'un groupe ([groups-masters](groups-masters.md)) et **marqueurs** posés sur un fader ou un bouton.
 
 Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`** (sécurité matérielle, contrainte du lieu), qu'aucun niveau inférieur ne peut relâcher.
+- Concrètement (v1) : **chaque borne** (min, max, valeurs permises, modes interdits) vient de la règle la plus précise qui la définit — niveau (type < lieu < show), puis portée (tout < modèle < zone < projecteur). Un show peut donc **assouplir** la limite d'un type ; deux bornes contradictoires (min au-dessus du max) : celle de la règle la plus précise l'emporte. Les règles `locked` sont réappliquées par-dessus.
+- `rule.effective {fixture}` donne, canal par canal, la règle en vigueur et la provenance de chaque borne.
 
 ## Toujours actifs en v1 (hors cascade)
 - **Zones protégées** : une zone marquée `protected` (pupitre, public) a ses propres limites. Par exemple « intensité ≤ 60 % vers *audience* », « aucune lyre ne vise *pupitre* sauf look autorisé ».

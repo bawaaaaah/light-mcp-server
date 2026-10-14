@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { readFileSync } from "node:fs";
 import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
-import { applyRules, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
+import { applyRules, effectiveRule, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
 import type { ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
 const def = parseQxf(readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8"));
@@ -48,10 +48,25 @@ describe("rules mask", () => {
     let buf = new Uint8Array(512);
     buf[0] = 255;
     applyRules([venueMax, showMax], fx, buf);
-    expect(buf[0]).to.equal(200); // show (more specific) wins
+    expect(buf[0]).to.equal(255); // contradictory bounds: the show's min (more specific) wins, the venue max no longer applies
     buf = new Uint8Array(512);
     buf[0] = 255;
     applyRules([{ ...venueMax, locked: true }, showMax], fx, buf);
     expect(buf[0]).to.equal(150); // locked venue bound cannot be relaxed
+  });
+
+  it("lets a show relax a fixture type's limit, scope by scope, and says where each bound comes from", () => {
+    const typeMax = rule({ id: "type-uv", level: "type", scope: { model: "Bar 4" }, target: { attribute: "intensity" }, max: 128 });
+    const showMax = rule({ id: "show-uv", level: "show", target: { attribute: "intensity" }, max: 200 });
+    const one = rule({ id: "this-one", level: "show", scope: { fixture: "bar" }, target: { attribute: "intensity" }, max: 100 });
+    const buf = new Uint8Array(512);
+    buf[0] = 255;
+    applyRules([typeMax, showMax], fx, buf);
+    expect(buf[0]).to.equal(200); // relaxed by the show (sequential clamps used to give 128)
+    buf[0] = 255;
+    applyRules([typeMax, showMax, one], fx, buf);
+    expect(buf[0]).to.equal(100); // within the show, the fixture-scoped rule is more specific
+    const ch = fx.def.channels.get(fx.mode.channels[0]!)!;
+    expect(effectiveRule([typeMax, showMax, one], fx, ch)).to.deep.include({ max: 100, from: { max: "this-one" } });
   });
 });

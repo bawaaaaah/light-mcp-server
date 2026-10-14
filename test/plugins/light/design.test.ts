@@ -113,6 +113,16 @@ describe("colour knowledge and design", () => {
       await run("show.settings.set", { safeLook: undefined });
     });
 
+    it("shows the effective rule of each channel and where it comes from", async () => {
+      await run("rule.put", { where: "venue", rule: { id: "type-dim", name: "Barres : dimmer max 50 %", level: "type", scope: { model: "Bar 4" }, target: { attribute: "intensity" }, max: 128 } });
+      await run("rule.put", { where: "show", rule: { id: "show-dim", name: "Show : dimmer max 80 %", level: "show", target: { attribute: "intensity" }, max: 204 } });
+      const eff = (await run("rule.effective", { fixture: "bar" })) as { channel: string; dmx: number; max?: number; from: Record<string, string> }[];
+      const dimmer = eff.find((c) => c.dmx === 1)!;
+      expect(dimmer).to.deep.include({ max: 204, from: { max: "Show : dimmer max 80 %" } }); // the show relaxed the type's limit
+      await run("rule.delete", { where: "venue", id: "type-dim" });
+      await run("rule.delete", { where: "show", id: "show-dim" });
+    });
+
     it("proposes then saves a look from an intention", async () => {
       const dry = (await run("look.from_intent", { name: "Adoration", canvas: "mur", mood: ["adoration"] })) as { saved: boolean };
       expect(dry.saved).to.equal(false);
