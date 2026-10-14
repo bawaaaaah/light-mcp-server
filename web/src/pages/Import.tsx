@@ -7,6 +7,7 @@ interface Proposal {
   report: { converted: string[]; warnings: string[] };
   counts: Record<string, number>;
   collisions?: string[];
+  merged?: Record<string, { added: number; updated: number; unchanged: number; kept: string[]; toCheck: string[] }>;
 }
 interface Rebuild {
   saved: boolean;
@@ -71,6 +72,37 @@ export function ImportPage() {
                     <li key={i}>{w}</li>
                   ))}
                 </ul>
+              </>
+            )}
+            {proposal.merged && (
+              <>
+                <h3>{t.reimport}</h3>
+                <table className="merged">
+                  <tbody>
+                    {Object.entries(proposal.merged)
+                      .filter(([, m]) => m.added + m.updated + m.unchanged + m.kept.length + m.toCheck.length > 0)
+                      .map(([name, m]) => (
+                        <tr key={name}>
+                          <td>{t.importCollections[name as keyof typeof t.importCollections] ?? name}</td>
+                          <td>
+                            +{m.added} · ~{m.updated} · ={m.unchanged}
+                          </td>
+                          <td>
+                            {m.kept.length > 0 && (
+                              <small>
+                                {t.keptByHand} : {m.kept.join(", ")}
+                              </small>
+                            )}{" "}
+                            {m.toCheck.length > 0 && (
+                              <small className="warn">
+                                {t.toCheck} : {m.toCheck.join(", ")}
+                              </small>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </>
             )}
             {!proposal.applied && xml && (
