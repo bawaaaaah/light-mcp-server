@@ -2,7 +2,7 @@
 
 Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
 
-**Restent à faire sur le Mac** : P4/P5 depuis Ableton (horloge, SPP, aftertouch sur le bus IAC) ; P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 sur le bus IAC, P12 + auto-test du vrai show (voir ci-dessous).
+**Restent à faire sur le Mac** : P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show.
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
@@ -10,8 +10,8 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 | P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ✅ **validé sur le Mac (bus IAC)** ; 🟡 hotplug | Bus IAC détecté et utilisé comme boucle : latence 500/500, **p95 0,19 ms, max 0,26 ms** (< 2 ms) ; hotplug USB pas encore testé (nécessite de brancher/débrancher) |
 | P2 | Tick DMX 16 univers à 44 Hz | ✅ **validé** (Linux et Mac) | Aucune trame perdue ; déclenchement → paquet **3,9 ms (Linux), 4,97 ms (Mac)** au pire avec le rendu immédiat, contre 23 ms sans |
 | P3 | Rack `.adg` cloné depuis la coquille | 🟡 **généré sur le Mac, à ouvrir dans Live** | Rack de 6 chaînes généré depuis la coquille de l'utilisateur (`prototypes/out/test-rack.adg`, notes 36/37/38/39/60/61) ; reste à coller sur une piste pour vérifier les key zones et les couleurs |
-| P4 | Clock et SPP depuis Ableton | ⏳ **à faire sur le Mac** | Suivi testé en unitaire (±0,5 BPM avec une gigue de ±1 ms, position par SPP) |
-| P5 | Aftertouch dans un clip | ⏳ **à faire sur le Mac** | Le parseur gère l'aftertouch poly et canal |
+| P4 | Clock et SPP depuis Ableton | ✅ **validé sur le Mac (bus IAC)** | Lecture en boucle : tempo suivi (103→162 BPM, gigue ±0,05), position qui avance (mesure 1.1→1139), transport arrêt↔lecture, sauts gérés |
+| P5 | Aftertouch dans un clip | ✅ **validé sur le Mac** | Enveloppe `chanAT` bien reçue entre `noteOn` et `noteOff` : crête 103 puis décroissance 92/77/58/42/30/19 (fondu/punch d'un clip) |
 | P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu) |
 | P7 | **RTP-MIDI en pur Node** (sans démon) | ✅ **validé** (Linux et Mac, boucle locale), 🟡 connexion depuis « Configuration audio et MIDI » à tester | Aller-retour p50 0,06 ms (Linux) ; **Mac, 1000 notes : p50 0,037 · p95 0,077 · p99 0,096 · max 0,32 ms** |
 | P8 | **Génération de Live Set** | 🟡 **à ouvrir dans Live** | Repères, clips autonomes, tempo ; XML bien formé ; autres pistes intactes |
@@ -101,6 +101,13 @@ Le vrai workspace (QLC+ 4.14.4, 31 fixtures, 108 séquences) a été importé pu
 | Définitions manquantes | 4 modèles sans `.qxf` dans la bibliothèque QLC+ (anonymisés) : un PAR « tri flat RGB », un générique 1 canal (poursuite), une machine à fumée 8 canaux, un PAR 9 canaux ; ils sont patchés sans décodage (signalé par l'avertissement « patchée sans décodage ») |
 
 Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import.
+
+## P4 + P5 — horloge, position et aftertouch depuis Ableton (Mac, bus IAC, 2026-10-14)
+`npm run proto:midi -- --in "QLC+ loop"` en écoute directe du bus IAC pendant que Live tournait en boucle :
+- **Horloge/tempo (P4)** : le BPM est suivi en continu, **103,00 → 162,00 BPM** (plusieurs temps de lecture à des tempos différents), gigue de **±0,05 BPM** (critère ±0,5, largement respecté). Le transport bascule **arrêt ↔ lecture** et est signalé comme tel.
+- **Position SPP (P4)** : la position avance en mesure.temps, de **1.1** jusqu'à **mesure 1139.2** sur la session, soit un défilement cohérent de la grille.
+- **Aftertouch (P5)** : un clip avec enveloppe de pression émet bien des `chanAT` **entre `noteOn` et `noteOff`**. Extrait : `noteOn n22 → p0 → p103 (crête) → 92 → 77 → 58 → 42 → 30 → 19 → 18`, puis remontée `27 → 33 → 51 → 69 → 91 → 106` — un vrai fondu/punch, pas un message isolé. Le parseur distingue `chanAT` (reçu, 113 occurrences) de `polyAT` (non utilisé ici, ce qui est normal pour une enveloppe de modulation commune à un canal).
+- **Note d'usage** : c'est Live qui **sort** l'aftertouch du clip (l'éditeur de clips en émet bien en MIDI out), contrairement à beaucoup de DAW ; le mode « Momentané » de suivi de look peut donc réellement suivre la dynamique.
 
 ## Points à retenir
 - **Linux** : `snd-seq` est requis pour le MIDI local ; le RTP-MIDI n'a plus besoin de rtpmidid (P7).
