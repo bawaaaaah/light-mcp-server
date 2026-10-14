@@ -127,10 +127,15 @@ export class ShowRuntime {
     return [...this.active.keys()];
   }
 
-  /** Starts a look; releases the other looks of its exclusive groups. Idempotent (« Déclencher »). */
-  go(lookId: string): { started: boolean; released: string[] } {
+  /**
+   * Starts a look; releases the other looks of its exclusive groups. Idempotent (« Déclencher »).
+   * `auto`: started by the timeline, the AI or the section follower — a « manuel seulement » look
+   * refuses (docs/specs/rules-limits.md, drapeaux de section): checked here so no path skips it.
+   */
+  go(lookId: string, auto = false): { started: boolean; released: string[] } {
     const look = this.looks.get(lookId);
     if (!look) throw new Error(`look inconnu : ${lookId}`);
+    if (auto && look.manualOnly) throw new Error(`« ${look.name} » est en manuel seulement`);
     const released: string[] = [];
     for (const g of this.groups.list()) {
       if (!g.exclusive || !g.members.looks.includes(lookId)) continue;

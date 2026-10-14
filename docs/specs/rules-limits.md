@@ -28,8 +28,8 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 ## Toujours actifs en v1 (hors cascade)
 - **Zones protégées** : une zone marquée `protected` (pupitre, public) a ses propres limites. Par exemple « intensité ≤ 60 % vers *audience* », « aucune lyre ne vise *pupitre* sauf look autorisé ».
 - **Drapeaux de section** (posés sur une section de chant, actifs pendant cette section) :
-  - `manualOnly` : jamais déclenchée par la timeline ni par l'IA, au doigt seulement ;
-  - `noCut` : seules les techniques qui n'éteignent rien sont admises ;
+  - `manualOnly` : jamais déclenchée par la timeline ni par l'IA, au doigt seulement (v1 : vérifié dans le moteur lui-même, donc aussi pour les sections lancées par l'IA, par une action de timeline ou par le suivi de position ; le suivi passe la section sans lancer le look. Le MIDI reste autorisé : un pad est un doigt — une note envoyée par un clip d'Ableton aussi, à éviter sur ces looks) ;
+  - `noCut` : seules les techniques qui n'éteignent rien sont admises (v1 : vérifié à l'enregistrement du look) ;
   - **plancher d'intensité** : « le sol n'est jamais noir » ;
   - **règles machines** : « pas de bulles pendant une prise de parole », « brume jamais au tempo ».
 

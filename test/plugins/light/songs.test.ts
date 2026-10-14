@@ -143,6 +143,32 @@ describe("songs", () => {
       await run("tempo.set", { source: "manual" });
     });
 
+    it("never starts a « manuel seulement » look automatically (AI, timeline, MIDI position), by hand only", async () => {
+      const songs = (plugin as unknown as { songs: Parameters<typeof followPosition>[0] }).songs;
+      const lookB = plugin.runtime.looks.get("b")!;
+      await run("look.put", { look: { ...lookB, manualOnly: true } });
+      await run("look.stopall");
+      const asAi = (name: string, args: unknown) => plugin.commands.invoke(name, args, { origin: "mcp", can: () => true }).then(() => "ok", (e: Error) => e.message);
+      expect(await asAi("look.go", { id: "b" })).to.match(/manuel seulement/);
+      expect(await asAi("song.section.go", { song: "chant", section: "refrain" })).to.match(/manuel seulement/);
+      // the section follower (position under the playhead) skips it without stopping
+      await run("song.play", { song: "chant", bar: 4 });
+      expect(songs.state.section).to.equal("refrain");
+      expect(plugin.runtime.isActive("b")).to.equal(false);
+      await run("song.stop");
+      await run("song.section.go", { song: "chant", section: "refrain" }); // by hand (ui): allowed
+      expect(plugin.runtime.isActive("b")).to.equal(true);
+      await run("look.put", { look: { ...lookB, manualOnly: false } });
+      await run("look.stopall");
+    });
+
+    it("refuses a « jamais coupé » look whose technique switches cells off", async () => {
+      const put = (technique: unknown) => run("look.put", { look: { id: "nc", name: "NC", canvas: "mur", technique, noCut: true } }).then(() => "ok", (e: Error) => e.message);
+      expect(await put({ kind: "flash", color: "#ffffff" })).to.match(/éteint des cellules/);
+      expect(await put({ kind: "damier", colors: ["#ff0000", "#0000ff"] })).to.equal("ok");
+      await run("look.delete", { id: "nc" });
+    });
+
     it("writes the cue sheet with trigger notes", async () => {
       const sheet = (await run("export.cuesheet", { setlist: "dimanche" })) as string;
       expect(sheet).to.contain("## Chant · 96 BPM");
