@@ -11,6 +11,7 @@ import { useTopic } from "../hooks/useTopic";
 import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
 import { StepsEditor } from "./StepsEditor";
 import { LookPreview, type Preview } from "./LookPreview";
+import { slug, splitList, uniqueId } from "../util";
 
 type Every = { beats: number } | { seconds: number };
 interface Move {
@@ -44,14 +45,6 @@ interface Named {
   name: string;
   cells?: number;
 }
-
-export const slug = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "look";
 
 export function newLook(canvas: string): LookDraft {
   return { id: "", name: "", canvas, technique: { kind: "plat", color: "#ffffff" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, manualOnly: false, noCut: false, danger: false, tags: [] };
@@ -95,7 +88,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
     void cmd<unknown[]>("position.list").then((h) => setHasHeads(h.length > 0));
   }, []);
 
-  const id = isNew ? uniqueId(slug(look.name), existing) : look.id;
+  const id = isNew ? uniqueId(slug(look.name, "look"), existing) : look.id;
   const draft = useMemo(() => ({ ...look, id: id || "look" }), [look, id]);
   const cells = canvases.find((c) => c.id === look.canvas)?.cells ?? 8;
 
@@ -305,7 +298,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
         ))}
         <label className="field">
           <span>tags</span>
-          <input defaultValue={look.tags.join(", ")} onBlur={(e) => set({ tags: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) })} />
+          <input defaultValue={look.tags.join(", ")} onBlur={(e) => set({ tags: splitList(e.target.value) })} />
         </label>
       </div>
       <textarea placeholder={t.notes} value={look.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />
@@ -337,11 +330,4 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
       </div>
     </section>
   );
-}
-
-function uniqueId(base: string, existing: string[]): string {
-  if (!base) return "";
-  let id = base;
-  for (let i = 2; existing.includes(id); i++) id = `${base}-${i}`;
-  return id;
 }

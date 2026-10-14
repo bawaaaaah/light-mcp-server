@@ -180,6 +180,46 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   expect(errors).toEqual([]);
 });
 
+test("song editor: sections, timeline, grid fill, then a setlist", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.getByRole("button", { name: "+ Nouveau chant" }).click();
+  const editor = page.locator(".song-editor");
+  await editor.getByLabel("Titre").fill("Mon chant");
+  await editor.getByLabel("Ambiances").fill("joie, louange");
+  await editor.getByLabel("Ambiances").blur();
+  await editor.getByLabel("look 1").selectOption("checker");
+  await editor.getByRole("button", { name: "+ Section" }).click();
+  await editor.getByLabel("Section 2", { exact: true }).fill("Refrain");
+  await editor.locator("table.sections tbody tr").nth(1).locator("input[type=number]").first().fill("16");
+  await expect(editor.locator(".timeline .block")).toHaveCount(2);
+  await expect(editor.locator(".timeline .block.empty")).toHaveText("Refrain"); // no look yet
+  await page.screenshot({ path: "test-results/song-editor.png", fullPage: true });
+  await editor.getByRole("button", { name: "Remplir la grille" }).click();
+  await expect(editor.locator(".timeline .block.empty")).toHaveCount(0); // the grid proposed a look
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const songs = (await api(page, "song.list")) as { id: string; sections: { name: string; look?: string; bars: number }[] }[];
+  const mine = songs.find((x) => x.id === "mon-chant")!;
+  expect(mine.sections.map((x) => [x.name, x.bars])).toEqual([["Intro", 8], ["Refrain", 16]]);
+  expect(mine.sections[0]!.look).toBe("checker");
+  expect(mine.sections[1]!.look).toBeTruthy();
+  await expect(page.locator("section.song", { hasText: "Mon chant" }).locator("button.look")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "+ Nouvelle setlist" }).click();
+  const sl = page.locator(".setlist-editor");
+  await sl.getByLabel("Nom").fill("Ma setlist");
+  await sl.getByLabel("Ajouter un chant").selectOption("mon-chant");
+  await sl.getByLabel("Ajouter un chant").selectOption("chant");
+  await sl.locator(".setlist-songs li").nth(1).getByRole("button", { name: "↑" }).click();
+  await sl.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(sl).toHaveCount(0);
+  const lists = (await api(page, "setlist.list")) as { id: string; songs: string[] }[];
+  expect(lists.find((l) => l.id === "ma-setlist")!.songs).toEqual(["chant", "mon-chant"]);
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

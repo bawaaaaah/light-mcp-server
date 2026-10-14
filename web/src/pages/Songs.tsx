@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { newSong, SetlistEditor, SongEditor, type SetlistDraft, type SongDraft } from "../components/SongEditor";
 
 interface Section {
   id: string;
@@ -37,6 +38,8 @@ export function SongsPage() {
   const [setlists, setSetlists] = useState<Setlist[]>([]);
   const [sheet, setSheet] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState<SongDraft | null>(null);
+  const [editingSetlist, setEditingSetlist] = useState<SetlistDraft | null>(null);
   const state = useTopic<SongState>("light:song", { follow: true });
 
   const refresh = useCallback(() => {
@@ -68,6 +71,12 @@ export function SongsPage() {
         <label className="row">
           <input type="checkbox" checked={state.follow} onChange={(e) => void run("song.follow", { on: e.target.checked })} /> {t.follow}
         </label>
+        <button className="ghost" onClick={() => setEditing(newSong())}>
+          + {t.newSong}
+        </button>
+        <button className="ghost" onClick={() => setEditingSetlist(current ? { ...current } : { id: "", name: "", songs: [] })}>
+          {current ? `✎ ${t.setlist}` : `+ ${t.newSetlist}`}
+        </button>
         <button className="ghost" onClick={() => void cmd<string>("export.cuesheet", state.setlist ? { setlist: state.setlist } : {}).then(setSheet)}>
           {t.cuesheet}
         </button>
@@ -77,11 +86,44 @@ export function SongsPage() {
           </span>
         )}
       </section>
+      {editing && (
+        <SongEditor
+          key={editing.id || "new"}
+          initial={editing}
+          existing={songs.map((s) => s.id)}
+          onClose={() => {
+            setEditing(null);
+            refresh();
+          }}
+        />
+      )}
+      {editingSetlist && (
+        <SetlistEditor
+          key={editingSetlist.id || "new-setlist"}
+          initial={editingSetlist}
+          songs={songs}
+          existing={setlists.map((s) => s.id)}
+          onClose={() => {
+            setEditingSetlist(null);
+            refresh();
+          }}
+        />
+      )}
       {ordered.length === 0 && <p className="hint">{t.noSongs}</p>}
       {ordered.map((song) => (
         <section key={song.id} className={song.id === state.song ? "song current" : "song"}>
           <h2 onClick={() => void run("song.select", { id: song.id })}>
-            {song.title} <small>{[song.key, `${song.bpm} BPM`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>
+            {song.title} <small>{[song.key, `${song.bpm} BPM`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>{" "}
+            <button
+              className="ghost"
+              aria-label={`${t.edit} ${song.title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(song as unknown as SongDraft);
+              }}
+            >
+              ✎
+            </button>
           </h2>
           <div className="grid">
             {song.sections.map((sec) => (

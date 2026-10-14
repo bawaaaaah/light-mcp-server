@@ -42,10 +42,12 @@ Chant {
      - **Départ** : à la main, sur une note MIDI ou sur MIDI Start.
      - **Suivi** : MIDI clock et **SPP**, avec rétablissement de la section courante.
 - **Réutilisation** : un chant repris un autre jour pointe vers les mêmes looks, mais garde ses propres boutons et notes.
+- **Éditeur** (v1, page Chants) : en-tête (titre, tonalité, BPM, temps par mesure, ambiances, palette, début dans Live), sections (nom, look, repère, idée, mesures, position fixe facultative, ordre), **timeline proportionnelle** (une section sans look apparaît en rouge) et « **remplir la grille** » (`song.grid_fill` sur le canevas choisi). Les pistes d'actions de la timeline restent à faire.
 
 ### Setlist
 - Liste ordonnée de chants avec suivant et précédent (MIDI, OSC), sélection par Program Change ou par le canal réservé.
 - Le chant courant est publié sur `light:song`.
+- Éditeur de setlist (v1) : nom, ajout de chants, ordre.
 
 ### Exports
 - **Feuille de conduite** (Markdown/PDF) : par chant, les sections, le bouton et la note, le repère, la tonalité, le BPM, l'arc d'énergie et les sécurités.

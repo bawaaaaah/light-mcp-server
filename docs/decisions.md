@@ -59,5 +59,6 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-14 | Lyres | Position logique normalisée (0..1, centre 0,5) ; inversion, swap et 16 bits dans le lieu ; une lyre non pilotée reste au centre ; Blackout garde pan/tilt | [lieu](specs/venue-fixtures-stage.md) |
 | 2026-10-14 | Move FX | Le mouvement fait partie du look (`move`) ; technique `aucune` pour les looks de position ; une position manuelle (pad XY, viser) passe devant les looks jusqu'au relâchement | [moteur](specs/engine-effects-timing.md) |
 | 2026-10-14 | Éditeur de looks | Formulaire des paramètres généré depuis le schéma zod du serveur ; aperçu calculé par le serveur (`look.preview`), seul le temps est rejoué dans le navigateur | [ui](specs/ui-dashboards.md) |
+| 2026-10-14 | Éditeur de chants | Page Chants : en-tête du chant, sections (look, repère, idée, mesures, position fixe), timeline proportionnelle, « remplir la grille » ; éditeur de setlist | [chants](specs/presets-songs-notes.md) |
 | 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

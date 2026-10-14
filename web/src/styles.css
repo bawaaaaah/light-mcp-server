@@ -559,3 +559,46 @@ input.swatch {
 button.danger {
   color: var(--danger, #e5484d);
 }
+
+/* Song editor */
+.timeline {
+  position: relative;
+  height: 2.2em;
+  margin: 0.8em 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.timeline .block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.4em;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-right: 2px solid var(--panel);
+}
+.timeline .block.empty {
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+table.sections input:not([type]) {
+  width: 100%;
+  min-width: 6em;
+}
+table.sections input[type="number"] {
+  width: 4.5em;
+}
+table.sections th {
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: normal;
+}
+.setlist-songs li {
+  margin: 0.2em 0;
+}
