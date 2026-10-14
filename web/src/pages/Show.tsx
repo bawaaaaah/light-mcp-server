@@ -3,6 +3,7 @@ import { cmd, downloadArchive, previewArchive, restoreArchive, type FolderDiff }
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
+import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 
 interface Look {
   id: string;
@@ -48,6 +49,7 @@ export function ShowPage() {
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<LookDraft | null>(null);
+  const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
 
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
@@ -59,7 +61,7 @@ export function ShowPage() {
     void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "group.put", "group.delete", "import.", "show.settings", "song.grid_fill"], refresh);
+  useCommandEvents(["look.", "group.", "import.", "show.settings", "show.autopresets", "song.grid_fill"], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const intentArgs = (save: boolean) => ({
@@ -233,15 +235,34 @@ export function ShowPage() {
         </table>
       </section>
 
+      {editingGroup && (
+        <GroupEditor
+          key={editingGroup.id || "new-group"}
+          initial={editingGroup}
+          existing={groups.map((g) => g.id)}
+          onClose={() => {
+            setEditingGroup(null);
+            refresh();
+          }}
+        />
+      )}
       <section>
         <h2>
-          {t.groupsDca} ({groups.length})
+          {t.groupsDca} ({groups.length}){" "}
+          <button className="ghost" onClick={() => setEditingGroup(newGroup())}>
+            + {t.newGroup}
+          </button>
         </h2>
         <table>
           <tbody>
             {groups.map((g) => (
               <tr key={g.id}>
-                <td>{g.name}</td>
+                <td>
+                  <button className="ghost" aria-label={`${t.edit} ${g.name}`} onClick={() => setEditingGroup(g as unknown as GroupDraft)}>
+                    ✎
+                  </button>{" "}
+                  {g.name}
+                </td>
                 <td>{g.exclusive ? t.exclusive : ""}</td>
                 <td>{g.master ? `DCA ${Math.round(g.master.level * 100)} % → ${Math.round(g.effectiveLevel * 100)} %` : ""}</td>
                 <td>

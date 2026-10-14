@@ -64,6 +64,7 @@ Les groupes s'appliquent **après la fusion** et **avant** blackout, freeze, fla
 
 ## UI
 - **Page Groupes** : arbre des groupes avec glisser-déposer, membres, sélecteur, options master, exclusif, limites et presets.
+  - v1 (page Show, « Groupes et DCA ») : créer, modifier, supprimer un groupe ; membres par cases à cocher (projecteurs, sous-groupes, looks), DCA oui/non, exclusif, looks dosés ou exclus ; limites du DCA dans le tableau. Plus tard : arbre et glisser-déposer, sélecteur par rôle ou tags dans l'interface.
 - **Widget « fader de groupe »** : le niveau propre et, en grisé, le **niveau effectif** (avec les parents), plus mute et flash.
 - **Console DMX** : au survol d'un canal, la liste des groupes qui le réduisent et de combien.
 - Dans un dashboard, une sélection de widgets se regroupe en un clic, et on peut ajouter un master si l'on veut.

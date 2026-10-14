@@ -419,6 +419,38 @@ test("guided calibration of a moving head", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("group editor: nested DCAs multiply", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  // a DCA on one bar
+  await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
+  let editor = page.locator(".group-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("LED bar public");
+  await editor.locator("fieldset.checklist", { hasText: "Projecteurs" }).getByLabel("Bar 0").check();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  // a parent DCA holding it
+  await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
+  editor = page.locator(".group-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Ambiance");
+  await editor.locator("fieldset.checklist", { hasText: "Sous-groupes" }).getByLabel("LED bar public").check();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await api(page, "group.level", { id: "ambiance", level: 0.5 });
+  await api(page, "group.level", { id: "led-bar-public", level: 0.5 });
+  const list = (await api(page, "group.list")) as { id: string; effectiveLevel: number }[];
+  expect(list.find((g) => g.id === "led-bar-public")!.effectiveLevel).toBe(0.25); // 50 % × 50 %
+  await page.screenshot({ path: "test-results/groups.png", fullPage: true });
+  // edit then delete
+  await page.getByRole("button", { name: "Modifier Ambiance" }).click();
+  page.once("dialog", (d) => void d.accept());
+  await page.locator(".group-editor").getByRole("button", { name: "Supprimer" }).click();
+  await expect.poll(async () => ((await api(page, "group.list")) as { id: string }[]).some((g) => g.id === "ambiance")).toBe(false);
+  await api(page, "group.delete", { id: "led-bar-public" });
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
