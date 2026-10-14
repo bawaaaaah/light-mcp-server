@@ -11,7 +11,7 @@ import { ConfigStore } from "../core/config-store.js";
 import { bootstrap } from "../index.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, type Caller } from "./client.js";
-import { packArchive, readArchive, restoreFolder } from "../plugins/light/data/archive.js";
+import { diffFolder, packArchive, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
 
 const USAGE = `light <commande>
   serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
@@ -30,7 +30,7 @@ const USAGE = `light <commande>
                                   pose la setlist dans une copie du Live Set (Live fermé)
   osc-table                       adresses OSC
   pack [fichier] [--no-venue]     sauvegarde .lightshow
-  unpack <fichier>                restaure une sauvegarde (avec copie de l'existant)
+  unpack <fichier> [--check]      restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement
   standby on|off                  sortie en veille / reprendre la main
   call <commande> [json]          n'importe quelle commande (voir « commands »)
   commands                        liste des commandes
@@ -119,6 +119,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       als: { type: "string" },
       track: { type: "string" },
       "no-venue": { type: "boolean", default: false },
+      check: { type: "boolean", default: false },
     },
   });
   const caller = await connect({ configPath, dataRoot: DATA_ROOT, url: values.url, offline: values.offline, token: async () => (await machine()).token });
@@ -177,7 +178,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         return await pack(caller, positionals[0], !values["no-venue"]);
       case "unpack":
         if (!positionals[0]) throw new CliError("usage : light unpack <fichier.lightshow>");
-        return await unpack(caller, positionals[0]);
+        return await unpack(caller, positionals[0], values.check);
       case "commands": {
         const list = caller.plugin ? caller.plugin.commands.list() : ((await (await caller.http!("/commands")).json()) as { name: string; title: string; readOnly?: boolean }[]);
         for (const c of list) console.log(`${c.name.padEnd(28)} ${c.readOnly ? "lecture" : "écriture"}  ${c.title}`);
@@ -217,8 +218,33 @@ async function pack(caller: Caller, file: string | undefined, withVenue: boolean
   return 0;
 }
 
-async function unpack(caller: Caller, file: string): Promise<number> {
+function printDiff(label: string, d: FolderDiff | null): void {
+  if (d === null) return console.log(`${label} : inchangé (absent de la sauvegarde)`);
+  console.log(`${label} : ${d.added.length} ajouté(s), ${d.changed.length} modifié(s), ${d.removed.length} supprimé(s), ${d.unchanged} identique(s)`);
+  for (const p of d.added) console.log(`  + ${p}`);
+  for (const p of d.changed) console.log(`  ~ ${p}`);
+  for (const p of d.removed) console.log(`  - ${p}`);
+}
+
+async function unpack(caller: Caller, file: string, check = false): Promise<number> {
   const bytes = readFileSync(file);
+  if (check) {
+    let diff: { show: FolderDiff | null; venue: FolderDiff | null };
+    if (caller.http) {
+      const res = await caller.http("/archive?dryRun=1", { method: "POST", body: bytes });
+      const body = (await res.json()) as typeof diff & { error?: string };
+      if (!res.ok) throw new CliError(`archive : ${body.error ?? res.statusText}`);
+      diff = body;
+    } else {
+      const content = readArchive(new Uint8Array(bytes));
+      const p = caller.plugin!;
+      diff = { show: Object.keys(content.show).length ? diffFolder(p.runtime.store.root, content.show) : null, venue: Object.keys(content.venue).length ? diffFolder(p.venue.store.root, content.venue) : null };
+    }
+    printDiff("Show", diff.show);
+    printDiff("Lieu", diff.venue);
+    console.error("(rien n'a été écrit : relancer sans --check pour restaurer)");
+    return 0;
+  }
   if (caller.http) {
     const res = await caller.http("/archive", { method: "POST", body: bytes });
     const body = (await res.json()) as { error?: string };

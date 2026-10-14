@@ -38,6 +38,10 @@ describe("CLI light (offline)", function () {
     const out = join(dir, "backup.lightshow");
     expect(light("pack", out).code).to.equal(0);
     expect(existsSync(out)).to.equal(true);
+    const check = light("unpack", out, "--check");
+    expect(check.code).to.equal(0);
+    expect(check.out).to.match(/Show : 0 ajouté\(s\), 0 modifié\(s\), 0 supprimé\(s\)/);
+    expect(check.err).to.match(/rien n'a été écrit/);
     const bad = light("call", "nope");
     expect(bad.code).to.equal(1);
     expect(bad.err).to.match(/commande inconnue/);

@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). Six validés ici ; P1/P4/P5 (Mac), P3/P8 (Live), P6 (réseau lumière) à faire par l'utilisateur.
-- **Serveur** (`npm test` : 197 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 198 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;

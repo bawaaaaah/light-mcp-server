@@ -33,7 +33,7 @@ data/shows/<id>/
 
 ## Archive `.lightshow`
 - Un **zip** du dossier du show, et éventuellement du lieu, avec un manifeste (versions, plugins requis, empreintes). Comme un `.docx` ou un `.als`.
-- **Télécharger et recharger depuis l'UI**, avec un aperçu des différences avant d'appliquer.
+- **Télécharger et recharger depuis l'UI**, avec un aperçu des différences avant d'appliquer (v1 : `POST /archive?dryRun=1`, fichiers ajoutés, modifiés, supprimés, comparés par contenu JSON et non par mise en forme ; « rien à restaurer » si identique ; `light unpack --check` en ligne de commande).
 - **Jamais dedans** : secrets, config machine, données de plugins privés (seulement l'indication « nécessite le plugin X »).
 
 ## Versions et sécurité des données

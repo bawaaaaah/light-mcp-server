@@ -280,6 +280,12 @@ describe("server end to end", function () {
     const looksBefore = running.light.runtime.looks.list().length;
     await command(token, "look.delete", { id: "secours" });
     expect(running.light.runtime.looks.get("secours")).to.equal(undefined);
+    // preview first: what the restore would change, nothing written
+    const preview = await fetch(`${base}/api/plugins/light/archive?dryRun=1`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip });
+    const diff = (await preview.json()) as { dryRun: boolean; show: { added: string[]; changed: string[]; removed: string[] } };
+    expect(diff.dryRun).to.equal(true);
+    expect(diff.show.added).to.deep.equal(["looks/secours.json"]);
+    expect(running.light.runtime.looks.get("secours")).to.equal(undefined);
     const restore = await fetch(`${base}/api/plugins/light/archive`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip });
     const body = (await restore.json()) as { restored: boolean; files: { show: number; venue: number } };
     expect(restore.status).to.equal(200);

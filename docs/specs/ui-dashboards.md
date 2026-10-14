@@ -55,7 +55,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 
 ## Sauvegarde
 - **Télécharger** le show (et/ou le lieu) en archive **`.lightshow`**.
-- **Recharger** une archive, avec un aperçu des différences avant d'appliquer.
+- **Recharger** une archive, avec un aperçu des différences avant d'appliquer (v1).
 - Liste des backups automatiques ([data-cli-sdk](data-cli-sdk.md)).
 
 ## Éditeur d'effets, d'easing et de timing

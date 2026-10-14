@@ -62,3 +62,21 @@ describe("folder store", () => {
     expect(() => c.put({ id: "Bad Id", name: "x", colors: [] })).to.throw(/identifiant/);
   });
 });
+
+describe("archive restore preview", () => {
+  it("lists what a restore would add, change and remove, ignoring key order and layout", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { diffFolder } = await import("../../../src/plugins/light/data/archive.js");
+    const dir = join(mkdtempSync(join(tmpdir(), "light-diff-")), "show");
+    mkdirSync(join(dir, "looks"), { recursive: true });
+    writeFileSync(join(dir, "looks", "a.json"), '{\n  "id": "a",\n  "name": "A"\n}\n');
+    writeFileSync(join(dir, "looks", "b.json"), '{"id":"b","name":"B"}');
+    writeFileSync(join(dir, "looks", "gone.json"), '{"id":"gone"}');
+    const diff = diffFolder(dir, {
+      "looks/a.json": '{"name":"A","id":"a"}', // same content, other order and layout
+      "looks/b.json": '{"id":"b","name":"B bis"}',
+      "looks/new.json": '{"id":"new"}',
+    });
+    expect(diff).to.deep.equal({ added: ["looks/new.json"], removed: ["looks/gone.json"], changed: ["looks/b.json"], unchanged: 1 });
+  });
+});

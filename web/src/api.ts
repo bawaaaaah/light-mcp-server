@@ -90,6 +90,18 @@ export async function downloadArchive(withVenue: boolean): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export interface FolderDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+  unchanged: number;
+}
+
+/** What restoring this backup would change; nothing is written. */
+export async function previewArchive(file: File): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null }> {
+  return json(await fetch("/api/plugins/light/archive?dryRun=1", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+}
+
 export async function restoreArchive(file: File): Promise<{ files: { show: number; venue: number }; backup: string }> {
   return json(await fetch("/api/plugins/light/archive", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
 }

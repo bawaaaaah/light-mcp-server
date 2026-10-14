@@ -4,7 +4,7 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
-import { packArchive, readArchive, restoreFolder } from "./data/archive.js";
+import { diffFolder, packArchive, readArchive, restoreFolder } from "./data/archive.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AuthMiddleware } from "../../core/auth.js";
@@ -465,6 +465,16 @@ export class LightPlugin implements McpPlugin {
         content = readArchive(new Uint8Array(req.body as Buffer));
       } catch (err) {
         throw new HttpError(400, `archive illisible : ${(err as Error).message}`);
+      }
+      if (req.query.dryRun === "1") {
+        // preview: what restoring would change, nothing written
+        res.json({
+          dryRun: true,
+          manifest: content.manifest,
+          show: Object.keys(content.show).length ? diffFolder(this.show.root, content.show) : null,
+          venue: Object.keys(content.venue).length ? diffFolder(this.venue.store.root, content.venue) : null,
+        });
+        return;
       }
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backups = path.resolve(this.show.root, "..", "..", "backups", "restore-" + stamp);

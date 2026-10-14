@@ -322,6 +322,33 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("restoring a backup shows the differences first", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const backup = await page.evaluate(async () => {
+    const res = await fetch("/api/plugins/light/archive", { headers: { authorization: `Bearer ${sessionStorage.getItem("token")}` } });
+    return Array.from(new Uint8Array(await res.arrayBuffer()));
+  });
+  const file = { name: "show.lightshow", mimeType: "application/zip", buffer: Buffer.from(backup) };
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  const input = page.locator('input[type=file][accept*="lightshow"]');
+  // identical backup: nothing to restore
+  await input.setInputFiles(file);
+  await expect(page.locator(".show .error")).toContainText("identique");
+  // a look renamed since the backup: the dialog lists it, accepting restores it
+  const look = ((await api(page, "look.list")) as { id: string; name: string }[]).find((l) => l.id === "hole")!;
+  await api(page, "look.put", { look: { ...look, name: "Renommé" } });
+  let message = "";
+  page.once("dialog", (d) => {
+    message = d.message();
+    void d.accept();
+  });
+  await input.setInputFiles(file);
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; name: string }[]).find((l) => l.id === "hole")?.name).toBe(look.name);
+  expect(message).toContain("~ looks/hole.json");
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
