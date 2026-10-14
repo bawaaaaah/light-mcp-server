@@ -160,7 +160,7 @@ export class LightPlugin implements McpPlugin {
         await this.opts.config?.set(this.config);
       },
     });
-    registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list());
+    registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list(), () => this.tempo.state().bpm);
     registerExportCommands(this.commands, this.runtime, () => mappings.list(), dataRoot);
     this.songs = {
       runtime: this.runtime,

@@ -6,6 +6,7 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { deltaE, loadKnowledge, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
+import { checkCadence } from "../../../src/plugins/light/commands/selftest-commands.js";
 
 describe("colour knowledge and design", () => {
   const kb = loadKnowledge();
@@ -38,6 +39,20 @@ describe("colour knowledge and design", () => {
     expect(merged.rules).to.include("règle perso");
   });
 
+  describe("cadence check", () => {
+    it("accepts whole numbers of steps within the tolerance", () => {
+      expect(checkCadence([0, 500, 1000, 2000], 500)).to.include({ ok: true, measuredMs: 500 }); // 1000 = two identical steps
+      expect(checkCadence([0, 510, 990, 1505], 500).ok).to.equal(true);
+    });
+
+    it("rejects a wrong cadence and too few changes", () => {
+      const slow = checkCadence([0, 600, 1200, 1800], 500);
+      expect(slow.ok).to.equal(false);
+      expect(slow.detail).to.match(/écart max 100 ms/);
+      expect(checkCadence([0, 500], 500)).to.include({ ok: false });
+    });
+  });
+
   describe("design commands", () => {
     let plugin: LightPlugin;
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
@@ -62,6 +77,20 @@ describe("colour knowledge and design", () => {
         ["#ffffff", "#ffffff", "#ff0000", "#ff0000"],
       ]);
       expect(plugin.runtime.looks.get("draft")).to.equal(undefined); // nothing saved
+    });
+
+    it("measures a look's cadence on the real output (self-test)", async () => {
+      await run("look.put", { look: { id: "fast", name: "Rapide", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 }, timing: { every: { seconds: 0.1 } } } });
+      await run("look.put", { look: { id: "fade", name: "Fondu court", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 }, timing: { every: { seconds: 0.2 }, attack: 0.3 } } });
+      await run("look.put", { look: { id: "soft", name: "Doux", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"] }, timing: { every: { seconds: 0.1 }, attack: 1 } } });
+      const r = (await run("selftest.run", { cadence: true, looks: ["fast", "fade", "soft"] })) as { cadence: { looks: { look: string; ok: boolean; measuredMs?: number; detail?: string }[] } };
+      const [fast, fade, soft] = r.cadence.looks;
+      expect(fast).to.include({ look: "fast", ok: true });
+      expect(fast!.measuredMs).to.be.closeTo(100, 15);
+      expect(fade).to.include({ look: "fade", ok: true }); // a short fade counts once per step
+      expect(fade!.measuredMs).to.be.closeTo(200, 15);
+      expect(soft!.detail).to.match(/fondu/); // a full-step fade has no sharp change: skipped, said so
+      expect(plugin.runtime.isActive("fast")).to.equal(false); // state restored
     });
 
     it("proposes then saves a look from an intention", async () => {

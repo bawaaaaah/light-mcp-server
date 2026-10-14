@@ -27,6 +27,8 @@ export interface MidiClockState {
   bpm: number | null;
   /** Position in quarter-note beats since song start, from SPP + ticks. */
   beats: number;
+  /** Beats actually played since creation (ticks while running): never moved by SPP or Start. */
+  played: number;
 }
 
 export class MidiClockFollower {
@@ -38,6 +40,7 @@ export class MidiClockFollower {
   private running = false;
   private sixteenths = 0;
   private ticksSincePosition = 0;
+  private ticksPlayed = 0;
 
   constructor(options: MidiClockOptions = {}) {
     this.window = options.window ?? PPQN;
@@ -84,6 +87,7 @@ export class MidiClockFollower {
     }
     this.lastTick = nowMs;
     if (this.running) {
+      this.ticksPlayed += 1;
       this.ticksSincePosition += 1;
       if (this.ticksSincePosition >= CLOCKS_PER_SIXTEENTH) {
         this.sixteenths += Math.floor(this.ticksSincePosition / CLOCKS_PER_SIXTEENTH);
@@ -105,6 +109,7 @@ export class MidiClockFollower {
       receiving,
       bpm: receiving && avg !== null && avg > 0 ? 60000 / (avg * PPQN) : null,
       beats: this.sixteenths / 4 + this.ticksSincePosition / PPQN,
+      played: this.ticksPlayed / PPQN,
     };
   }
 }

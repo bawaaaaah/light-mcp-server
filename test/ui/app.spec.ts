@@ -249,6 +249,22 @@ test("output standby: visible everywhere, then take over", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("self-test with the real-time cadence of every look", async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Import" }).click();
+  await page.getByLabel("Mesurer aussi la cadence").check();
+  await page.getByRole("button", { name: "Lancer l'auto-test" }).click();
+  const table = page.locator("table.cadence");
+  await expect(table).toBeVisible({ timeout: 40_000 });
+  await expect(table.locator("caption")).toContainText("120 BPM");
+  expect(await table.locator("tr").count()).toBeGreaterThanOrEqual(4);
+  await expect(table.locator("tr.error")).toHaveCount(0);
+  await page.screenshot({ path: "test-results/selftest-cadence.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("a volunteer cannot write the show", async ({ page }) => {
   await login(page, "5678");
   await page.getByRole("button", { name: "Console DMX" }).click();

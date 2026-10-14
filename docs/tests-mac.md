@@ -35,7 +35,7 @@ Préalable (utilisateur) : Live → Préférences → Link · Tempo · MIDI → 
 2. Demander à l'utilisateur de **lancer la lecture** : vérifier le BPM affiché (±0,5 du tempo de Live) et que la position avance.
 3. Demander un **changement de tempo** : le BPM suit en moins d'un temps.
 4. Demander un **saut dans l'arrangement** (clic plus loin, puis lecture) : la position affichée (mesure.temps) doit correspondre à celle de Live (SPP).
-5. Demander **Stop** : « horloge : absente » ou arrêt, puis **Sync désactivé** : l'alerte « horloge absente » doit apparaître.
+5. Demander **Stop** : « horloge : absente » ou arrêt, puis **Sync désactivé** : l'alerte « horloge absente » doit apparaître. Avec le serveur lancé et un look en temps qui joue : **le look doit continuer au dernier tempo** après Stop (il ne se fige pas), et reprendre au tempo de Live à la relecture, y compris après un saut en arrière dans l'arrangement. Noter si Live envoie l'horloge quand il est arrêté.
 6. **P5** : demander de jouer un clip contenant de l'**aftertouch** (enveloppe de pression) : des lignes `polyAT`/`chanAT` doivent apparaître entre note on et note off. Si Live n'en émet pas, le noter (le mode Momentané fonctionne alors sans « suivre l'aftertouch »).
 
 Astuce : si AbleSet est installé, `/midi/send/...` en OSC (port 39051) permet d'injecter des notes sans clip ; l'utilisateur a déjà un client de ce type dans son espace de travail privé.
@@ -72,7 +72,7 @@ Résultats anonymisés dans `research/proto-resultats.md` (section P6).
 2. Copier son workspace dans `data/imports/` (copie !).
 3. Définir les PIN : `npm run light -- pin regisseur <pin>` et `npm run light -- pin admin <pin>`.
 4. `npm run serve`, ouvrir `http://localhost:8790`, page **Import** : proposition → vérifier les avertissements (définitions manquantes = 0 attendu) → **Appliquer** → **Reconstruire** (proposition) → **Auto-test**.
-   Critères : auto-test 100 % des mappings, exclusivité OK, latence max < 10 ms.
+   Critères : auto-test 100 % des mappings, exclusivité OK, latence max < 10 ms. Puis l'auto-test avec **« Mesurer aussi la cadence »** : toutes les lignes ✔ (comparer avec la mesure de cadence de son propre banc de test).
 5. Avec le node Art-Net et le vrai kit (QLC+ fermé), demander à l'utilisateur de **regarder** : chaque section lancée depuis la page Live correspond-elle visuellement à QLC+ ? Le Panic, le Blackout, les masters ?
 6. **Avec Ableton** (profil MIDI « local », bus IAC) : demander à l'utilisateur de jouer sa setlist ; les sections doivent suivre les clips, et la reprise au milieu d'une section (scrub) doit rallumer la bonne section quand « Suivre la position MIDI » est actif.
 

@@ -2,6 +2,12 @@
  * Tempo source for the whole engine: manual BPM, tap tempo, or MIDI clock (with SPP position).
  * Raises `clockMissing` when MIDI clock is the selected source but no clock arrives — the real
  * trap where nothing follows the tempo and nothing says so (docs/specs/midi.md).
+ *
+ * Two clocks, never mixed up:
+ * - `beats` drives the looks' cadence: monotonic, it follows the clock ticks while the DAW plays,
+ *   free-runs at the last known tempo when the clock stops or is missing (looks never freeze
+ *   between songs), and ignores position jumps (a scrub must not hold a look on its first step);
+ * - `position` is the song position (SPP + ticks) while the DAW plays, for following sections.
  */
 import type { MidiMessage } from "../midi/parse.js";
 import { MidiClockFollower } from "./midi-clock.js";
@@ -14,8 +20,10 @@ export interface TempoState {
   /** MIDI clock: ticks arriving; manual/tap: always true. */
   receiving: boolean;
   running: boolean;
-  /** Beat position (quarter notes) — MIDI clock/SPP when available, otherwise free-running. */
+  /** Engine beats (quarter notes) for the looks' cadence: monotonic, never frozen. */
   beats: number;
+  /** Song position in beats from the MIDI clock (SPP), only while the DAW plays. */
+  position: number | null;
   clockMissing: boolean;
 }
 
@@ -27,8 +35,11 @@ export class TempoClock {
   private manualBpm = 120;
   private taps: number[] = [];
   private readonly follower = new MidiClockFollower();
-  /** free-running phase anchor for manual/tap */
+  /** free-running phase anchor for manual/tap, and the last followed point for MIDI */
   private anchor = { atMs: 0, beats: 0 };
+  /** MIDI: beats played at the last followed point (undefined while not running). */
+  private lastPlayed: number | undefined;
+  private lastMidiBpm: number | undefined;
 
   constructor(private readonly now: () => number = () => performance.now()) {
     this.anchor.atMs = now();
@@ -36,6 +47,7 @@ export class TempoClock {
 
   setSource(source: TempoSource): void {
     this.reanchor();
+    this.lastPlayed = undefined;
     this.source = source;
   }
 
@@ -74,9 +86,22 @@ export class TempoClock {
     const t = this.now();
     if (this.source === "midi") {
       const s = this.follower.state(t);
-      return { bpm: s.bpm ?? this.manualBpm, source: "midi", receiving: s.receiving, running: s.running, beats: s.beats, clockMissing: !s.receiving };
+      if (s.bpm) this.lastMidiBpm = s.bpm;
+      const bpm = s.bpm ?? this.lastMidiBpm ?? this.manualBpm;
+      const freeRun = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * bpm;
+      let beats: number;
+      if (s.running) {
+        // Follow the ticks played (SPP jumps do not move them); a start continues from the free-run.
+        beats = this.lastPlayed === undefined ? freeRun : this.anchor.beats + (s.played - this.lastPlayed);
+        this.lastPlayed = s.played;
+        this.anchor = { atMs: t, beats };
+      } else {
+        this.lastPlayed = undefined; // stopped or missing: free-run from the last followed point
+        beats = freeRun;
+      }
+      return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats, position: s.running ? s.beats : null, clockMissing: !s.receiving };
     }
     const beats = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * this.manualBpm;
-    return { bpm: this.manualBpm, source: this.source, receiving: true, running: true, beats, clockMissing: false };
+    return { bpm: this.manualBpm, source: this.source, receiving: true, running: true, beats, position: null, clockMissing: false };
   }
 }

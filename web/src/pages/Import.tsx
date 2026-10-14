@@ -20,6 +20,7 @@ interface Selftest {
   failed: { mapping: string; label: string; reason: string }[];
   exclusivity: { group: string; ok: boolean; detail?: string }[];
   latencyMs: { p50: number; max: number };
+  cadence?: { bpm: number; looks: { look: string; expectedMs: number; measuredMs?: number; ok: boolean; detail?: string }[] };
 }
 
 export function ImportPage() {
@@ -29,6 +30,8 @@ export function ImportPage() {
   const [selftest, setSelftest] = useState<Selftest | null>(null);
   const [rebuild, setRebuild] = useState<Rebuild | null>(null);
   const [error, setError] = useState("");
+  const [withCadence, setWithCadence] = useState(false);
+  const [running, setRunning] = useState(false);
 
   const pick = async (file: File | undefined) => {
     if (!file) return;
@@ -109,7 +112,23 @@ export function ImportPage() {
       </section>
       <section>
         <h2>{t.selftest}</h2>
-        <button onClick={() => void cmd<Selftest>("selftest.run").then(setSelftest).catch((e: Error) => setError(e.message))}>{t.runSelftest}</button>
+        <div className="row">
+          <button
+            disabled={running}
+            onClick={() => {
+              setRunning(true);
+              void cmd<Selftest>("selftest.run", { cadence: withCadence })
+                .then(setSelftest)
+                .catch((e: Error) => setError(e.message))
+                .finally(() => setRunning(false));
+            }}
+          >
+            {running ? "…" : t.runSelftest}
+          </button>
+          <label className="row">
+            <input type="checkbox" checked={withCadence} onChange={(e) => setWithCadence(e.target.checked)} /> {t.measureCadence}
+          </label>
+        </div>
         {selftest && (
           <div className="report">
             <p>
@@ -129,6 +148,27 @@ export function ImportPage() {
                   </li>
                 ))}
             </ul>
+            {selftest.cadence && (
+              <table className="cadence">
+                <caption>
+                  {t.cadence} · {selftest.cadence.bpm} BPM · {selftest.cadence.looks.filter((c) => c.ok).length}/{selftest.cadence.looks.length}
+                </caption>
+                <tbody>
+                  {selftest.cadence.looks.map((c) => (
+                    <tr key={c.look} className={c.ok ? "" : "error"}>
+                      <td>{c.ok ? "✔" : "✖"}</td>
+                      <td>{c.look}</td>
+                      <td>
+                        {c.measuredMs ?? "—"} / {c.expectedMs} ms
+                      </td>
+                      <td>
+                        <small>{c.detail}</small>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </section>

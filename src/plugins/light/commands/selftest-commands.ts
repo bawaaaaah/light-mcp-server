@@ -1,8 +1,9 @@
 /**
  * Self-test (docs/roadmap.md, v0 acceptance): replays every MIDI mapping through a fresh mapper,
  * checks the effect (look playing with non-black DMX on its fixtures, group level applied), checks
- * the exclusivity of every exclusive group, measures trigger → rendered frame time, and restores the
- * state it found. Same spirit as the user's own end-to-end MIDI test bench.
+ * the exclusivity of every exclusive group, measures trigger → rendered frame time, optionally
+ * measures each look's cadence on the real output in real time, and restores the state it found.
+ * Same spirit as the user's own end-to-end MIDI test bench.
  */
 import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
@@ -17,7 +18,35 @@ export interface SelftestResult {
   failed: { mapping: string; label: string; reason: string }[];
   exclusivity: { group: string; ok: boolean; detail?: string }[];
   latencyMs: { p50: number; max: number };
+  /** Real-time cadence of the looks (with `cadence: true`), at the tempo of the moment. */
+  cadence?: { bpm: number; looks: CadenceCheck[] };
 }
+
+export interface CadenceCheck {
+  look: string;
+  expectedMs: number;
+  measuredMs?: number;
+  ok: boolean;
+  detail?: string;
+}
+
+/**
+ * Checks step-change times against an expected step length: every interval must be a whole number
+ * of steps (two identical steps in a row look like one long step) within the tolerance.
+ * Pure: takes the change timestamps (ms).
+ */
+export function checkCadence(changes: number[], expectedMs: number, toleranceMs = Math.max(25, expectedMs * 0.05)): Omit<CadenceCheck, "look"> {
+  const intervals = changes.slice(1).map((t, i) => t - changes[i]!);
+  if (intervals.length < 2) return { expectedMs, ok: false, detail: `${changes.length} changement(s) observé(s) : pas assez pour mesurer` };
+  const perStep = intervals.map((d) => d / Math.max(1, Math.round(d / expectedMs)));
+  perStep.sort((a, b) => a - b);
+  const measuredMs = Math.round(perStep[Math.floor(perStep.length / 2)]! * 10) / 10;
+  const worst = intervals.reduce((w, d) => Math.max(w, Math.abs(d - Math.max(1, Math.round(d / expectedMs)) * expectedMs)), 0);
+  const ok = worst <= toleranceMs;
+  return { expectedMs: Math.round(expectedMs * 10) / 10, measuredMs, ok, ...(ok ? {} : { detail: `écart max ${Math.round(worst)} ms (tolérance ${Math.round(toleranceMs)} ms)` }) };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function messageFor(m: Mapping): MidiMessage {
   const ch = m.input.channel;
@@ -33,7 +62,7 @@ function messageFor(m: Mapping): MidiMessage {
   }
 }
 
-export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine, runtime: ShowRuntime, mappings: () => Mapping[]): void {
+export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine, runtime: ShowRuntime, mappings: () => Mapping[], bpm: () => number = () => 120): void {
   const fixturesOfLook = (lookId: string): string[] => {
     const look = runtime.looks.get(lookId);
     if (!look) return [];
@@ -54,16 +83,55 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     });
   };
 
+  /** Snapshot of a look's fixtures on the real output. */
+  const snapshot = (fixtureIds: string[]): string => {
+    const buffers = engine.render();
+    return fixtureIds
+      .map((id) => {
+        const f = runtime.venue.fixtures.get(id);
+        const r = runtime.venue.resolve(id);
+        const buf = f && buffers[f.universe - 1];
+        return !f || "error" in r || !buf ? "" : Array.from(buf.subarray(f.address - 1, f.address - 1 + r.mode.channels.length)).join(",");
+      })
+      .join("|");
+  };
+
+  /** Plays a look alone and times its step changes on the output (real time, ~4 steps). */
+  const measureLook = async (lookId: string, tempoBpm: number): Promise<CadenceCheck> => {
+    const look = runtime.looks.get(lookId)!;
+    const every = look.timing.every;
+    const expectedMs = "seconds" in every ? every.seconds * 1000 : (every.beats * 60_000) / tempoBpm;
+    if (look.timing.attack > 0.5) return { look: lookId, expectedMs, ok: true, detail: "fondu (attaque) de plus d'un demi-pas : cadence non mesurable par changement, ignoré" };
+    if (expectedMs > 4000) return { look: lookId, expectedMs, ok: true, detail: "pas de plus de 4 s : ignoré" };
+    runtime.stopAll();
+    runtime.go(lookId);
+    const fixtures = fixturesOfLook(lookId);
+    const changes: number[] = [];
+    let last = snapshot(fixtures);
+    const until = performance.now() + expectedMs * 5.5 + 100;
+    // A step starts with its first change; the fade (attack) that follows is part of the same step.
+    const guardMs = expectedMs * (look.timing.attack + 0.15);
+    while (performance.now() < until && changes.length < 5) {
+      await sleep(2);
+      const now = snapshot(fixtures);
+      const at = performance.now();
+      if (now !== last && (!changes.length || at - changes.at(-1)! > guardMs)) changes.push(at);
+      last = now;
+    }
+    runtime.stop(lookId);
+    return { look: lookId, ...checkCadence(changes, expectedMs) };
+  };
+
   reg.register({
     name: "selftest.run",
     title: "Auto-test",
     description:
-      "Replays every MIDI mapping, checks its effect (look playing with DMX on its fixtures, group level), checks exclusive groups, measures trigger→frame time, then restores the previous state.",
+      "Replays every MIDI mapping, checks its effect (look playing with DMX on its fixtures, group level), checks exclusive groups, measures trigger→frame time, then restores the previous state. With cadence: true, also plays each look (or the given ones) alone and measures its step cadence on the real output against the current tempo (about 4 steps per look: takes a while).",
     right: "commands:selftest",
     readOnly: true,
     profiles: ["setup"],
-    schema: z.object({}),
-    run: async (): Promise<SelftestResult> => {
+    schema: z.object({ cadence: z.boolean().default(false), looks: z.array(z.string()).optional() }),
+    run: async ({ cadence, looks }): Promise<SelftestResult> => {
       const activeBefore = runtime.activeLooks();
       const levelsBefore = new Map(runtime.groups.list().map((g) => [g.id, g.master]));
       const blackoutBefore = engine.isBlackout();
@@ -118,12 +186,24 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
           exclusivity.push({ group: g.id, ok, detail });
         }
         latencies.sort((a, b) => a - b);
+        let cadenceResult: SelftestResult["cadence"];
+        if (cadence) {
+          const tempoBpm = bpm();
+          const ids = (looks ?? runtime.looks.list().map((l) => l.id)).filter((id) => {
+            const l = runtime.looks.get(id);
+            return l && runtime.stepsOf(l).length > 1;
+          });
+          const checks: CadenceCheck[] = [];
+          for (const id of ids) checks.push(await measureLook(id, tempoBpm));
+          cadenceResult = { bpm: tempoBpm, looks: checks };
+        }
         return {
           total: all.length,
           passed: all.length - failed.length,
           failed,
           exclusivity,
           latencyMs: { p50: Math.round((latencies[Math.floor(latencies.length / 2)] ?? 0) * 100) / 100, max: Math.round((latencies.at(-1) ?? 0) * 100) / 100 },
+          ...(cadenceResult ? { cadence: cadenceResult } : {}),
         };
       } finally {
         runtime.stopAll();

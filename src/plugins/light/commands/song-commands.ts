@@ -207,10 +207,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
 export function followPosition(s: SongServices): void {
   if (!s.state.follow || !s.state.song) return;
   const t = s.tempo.state();
-  if (t.source !== "midi" || !t.running) return;
+  if (t.source !== "midi" || !t.running || t.position === null) return;
   const sg = s.songs.get(s.state.song);
   if (!sg) return;
-  const sec = sectionAt(sg, t.beats - (sg.startBeat ?? 0));
+  const sec = sectionAt(sg, t.position - (sg.startBeat ?? 0));
   if (!sec || sec.id === s.state.section) return;
   s.state.section = sec.id;
   if (sec.look) s.runtime.go(sec.look);
