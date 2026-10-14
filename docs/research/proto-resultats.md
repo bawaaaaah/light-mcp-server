@@ -9,7 +9,7 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 |---|---|---|---|
 | P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ✅ **validé sur le Mac (bus IAC)** ; 🟡 hotplug | Bus IAC détecté et utilisé comme boucle : latence 500/500, **p95 0,19 ms, max 0,26 ms** (< 2 ms) ; hotplug USB pas encore testé (nécessite de brancher/débrancher) |
 | P2 | Tick DMX 16 univers à 44 Hz | ✅ **validé** (Linux et Mac) | Aucune trame perdue ; déclenchement → paquet **3,9 ms (Linux), 4,97 ms (Mac)** au pire avec le rendu immédiat, contre 23 ms sans |
-| P3 | Rack `.adg` cloné depuis la coquille | 🟡 **généré sur le Mac, à ouvrir dans Live** | Rack de 6 chaînes généré depuis la coquille de l'utilisateur (`prototypes/out/test-rack.adg`, notes 36/37/38/39/60/61) ; reste à coller sur une piste pour vérifier les key zones et les couleurs |
+| P3 | Rack `.adg` cloné depuis la coquille | ✅ **validé sur le Mac, charge dans Live** | Rack de 6 chaînes généré depuis **une vraie coquille de Live** (un branch réel, notes 36/37/38/39/60/61) ; chargé sans erreur dans Live 12.4.5. Coquille synthétique `shell-rack.xml` écartée (Live la rejetait, scaffold incomplet) |
 | P4 | Clock et SPP depuis Ableton | ✅ **validé sur le Mac (bus IAC)** | Lecture en boucle : tempo suivi (103→162 BPM, gigue ±0,05), position qui avance (mesure 1.1→1139), transport arrêt↔lecture, sauts gérés |
 | P5 | Aftertouch dans un clip | ✅ **validé sur le Mac** | Enveloppe `chanAT` bien reçue entre `noteOn` et `noteOff` : crête 103 puis décroissance 92/77/58/42/30/19 (fondu/punch d'un clip) |
 | P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu) |
