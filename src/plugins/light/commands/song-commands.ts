@@ -47,6 +47,9 @@ export function noteForLook(mappings: Mapping[], lookId: string): { channel: num
   return m ? { channel: m.input.channel, note: m.input.number } : undefined;
 }
 
+/** Commands asked by the timeline or the AI are « automatic »: « manuel seulement » looks refuse them. */
+const isAuto = (origin: string) => origin === "timeline" || origin === "mcp";
+
 export function registerSongCommands(reg: CommandRegistry, s: SongServices): void {
   const id = z.object({ id: z.string() });
   const song = (songId?: string) => {
@@ -55,12 +58,13 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     if (!found) throw new Error(sid ? `chant inconnu : ${sid}` : "aucun chant sélectionné");
     return found;
   };
-  const goSection = (sg: Song, sectionId: string) => {
+  /** `auto`: asked by the timeline or the AI — a « manuel seulement » look then refuses. */
+  const goSection = (sg: Song, sectionId: string, auto = false) => {
     const sec = sg.sections.find((x) => x.id === sectionId);
     if (!sec) throw new Error(`section inconnue : ${sectionId}`);
+    if (sec.look) s.runtime.go(sec.look, auto);
     s.state.song = sg.id;
     s.state.section = sec.id;
-    if (sec.look) s.runtime.go(sec.look);
     s.publish({ ...s.state });
     return { song: sg.id, section: sec.id, look: sec.look };
   };
@@ -93,13 +97,13 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     right: "commands:trigger",
     profiles: ["live"],
     schema: z.object({ id: z.string(), start: z.boolean().default(true) }),
-    run: ({ id: i, start }) => {
+    run: ({ id: i, start }, ctx) => {
       const sg = song(i);
       s.state.song = sg.id;
       s.state.section = undefined;
       s.state.transport = undefined;
       if (s.tempo.state().source !== "midi") s.tempo.setBpm(sg.bpm);
-      if (start && sg.sections[0]) return goSection(sg, sg.sections[0].id);
+      if (start && sg.sections[0]) return goSection(sg, sg.sections[0].id, isAuto(ctx.origin));
       s.publish({ ...s.state });
       return { song: sg.id };
     },
@@ -164,13 +168,13 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
         return { name: look.name, steps, cadence };
       }),
   });
-  reg.register({ name: "song.section.go", title: "Lancer une section", description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }) => goSection(song(sid), section) });
-  const step = (dir: 1 | -1) => () => {
+  reg.register({ name: "song.section.go", title: "Lancer une section", description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }, ctx) => goSection(song(sid), section, isAuto(ctx.origin)) });
+  const step = (dir: 1 | -1) => (_args: unknown, ctx: { origin: string }) => {
     const sg = song();
     const i = sg.sections.findIndex((x) => x.id === s.state.section);
     const next = sg.sections[Math.max(0, Math.min(sg.sections.length - 1, i + dir))];
     if (!next) throw new Error("chant sans section");
-    return goSection(sg, next.id);
+    return goSection(sg, next.id, isAuto(ctx.origin));
   };
   reg.register({ name: "song.next", title: "Section suivante", description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
   reg.register({ name: "song.prev", title: "Section précédente", description: "Previous section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(-1) });
@@ -317,7 +321,13 @@ export function followPosition(s: SongServices): void {
     const sec = sectionAt(sg, pos);
     if (sec && sec.id !== s.state.section) {
       s.state.section = sec.id;
-      if (sec.look) s.runtime.go(sec.look);
+      if (sec.look) {
+        try {
+          s.runtime.go(sec.look, true); // automatic: a « manuel seulement » look is left to the operator
+        } catch {
+          /* manual only or unknown look: the section is followed, the look is not started */
+        }
+      }
       changed = true;
     }
   }

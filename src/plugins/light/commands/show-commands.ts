@@ -108,6 +108,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ look: LookSchema }),
     run: ({ look }) => {
       if (!venue.canvases.get(look.canvas)) throw new Error(`canevas inconnu : ${look.canvas}`);
+      // « jamais coupé » (noCut): only techniques that never switch a cell off
+      if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
+        throw new Error(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`);
+      }
       return show.looks.put(look);
     },
   });
@@ -143,11 +147,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "commands:trigger",
     profiles: ["design", "live"],
     schema: id,
-    run: ({ id: i }, ctx) => {
-      const look = show.looks.get(i);
-      if (look?.manualOnly && (ctx.origin === "timeline" || ctx.origin === "mcp")) throw new Error(`« ${look.name} » est en manuel seulement`);
-      return show.go(i);
-    },
+    run: ({ id: i }, ctx) => show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp"),
   });
   reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: id, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
   reg.register({ name: "look.stopall", title: "Tout arrêter", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
