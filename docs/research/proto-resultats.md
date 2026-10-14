@@ -2,7 +2,7 @@
 
 Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
 
-**Restent à faire sur le Mac** : P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show.
+**Restent à faire sur le Mac** : P8 (Live Set ouvert dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P3 (rack chargé dans Live), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show.
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
@@ -112,6 +112,6 @@ Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effet
 ## Points à retenir
 - **Linux** : `snd-seq` est requis pour le MIDI local ; le RTP-MIDI n'a plus besoin de rtpmidid (P7).
 - **macOS** : un **bus IAC** sert de boucle MIDI de bout en bout sans matériel (latence P1 mesurée dessus). Les sessions RTP-MIDI du système apparaissent aussi comme ports CoreMIDI. Les deux voies restent possibles.
-- **Port 6454** : il ne peut pas être partagé avec QLC+ sur la même machine. Pendant la transition, un seul des deux émet.
+- **Port 6454** : le partage avec QLC+ sur la même machine n'est **pas encore vérifié** ([tests-mac](../tests-mac.md), étape 5 bis) ; d'ici là, découverte coupée sur le Mac partagé et un seul émetteur à la fois ([bascule-qlc](../bascule-qlc.md)).
 - **Un seul `.qxf` manquant bloque le décodage d'un fixture** (il reste patché sans décodage) ; l'import signale chaque modèle et chaque fader qui demande un travail manuel.
 - **npm 12** : il faut approuver les scripts d'installation d'esbuild et de `@julusian/midi`.
