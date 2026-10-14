@@ -140,7 +140,6 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     title: "Message Web MIDI",
     description: "Relays MIDI bytes received by a browser (Web MIDI) into the hub.",
     right: "midi:input",
-    readOnly: true,
     schema: z.object({ port: z.string().default("Web MIDI"), bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3) }),
     run: ({ port, bytes }) => {
       s.hub.dispatch("web", port, bytes);

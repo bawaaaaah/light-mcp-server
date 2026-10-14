@@ -54,7 +54,6 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     description:
       "Proposes a look from an intention: mood keywords (e.g. intimite, joie, victoire), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true.",
     right: "show:write",
-    readOnly: true,
     profiles: ["design"],
     schema: z.object({ name: z.string(), canvas: z.string(), mood: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).optional(), colors: z.array(z.string()).optional(), cut: z.boolean().optional(), id: z.string().optional(), save: z.boolean().default(false) }),
     run: ({ name, canvas, mood, energy, colors, cut, id, save }) => {
@@ -72,7 +71,6 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     description:
       "Gives every section without a look a proposed one, following the method: the song's mood is the guard rail, energy from the section (or its name: intro/couplet posé, refrain/pont dynamique, final/vamp survolté), dominant/accent swapped between neighbours for contrast. Also creates the song's exclusive group. Saved only if save is true.",
     right: "show:write",
-    readOnly: true,
     profiles: ["design"],
     schema: z.object({ song: z.string(), canvas: z.string(), energies: z.record(z.string(), z.enum(["pose", "dynamique", "survolte"])).default({}), save: z.boolean().default(false) }),
     run: ({ song: songId, canvas, energies, save }) => {
@@ -149,7 +147,6 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     description:
       "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten.",
     right: "show:write",
-    readOnly: true,
     profiles: ["setup", "design"],
     schema: z.object({ canvas: z.string().optional(), apply: z.boolean().default(false) }),
     run: ({ canvas: canvasId, apply }) => {

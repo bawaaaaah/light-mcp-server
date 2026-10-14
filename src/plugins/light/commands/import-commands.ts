@@ -79,7 +79,6 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     description:
       "Rebuilds imported looks (exact steps) into editable parametric techniques (plat, damier, palette, creux, masques) when the recognised technique allows it and the re-rendered result matches the original (fidelity ≥ minFidelity). Dry run unless save is true; the previous version is kept in the backups.",
     right: "show:write",
-    readOnly: true,
     profiles: ["design"],
     schema: z.object({ id: z.string().optional(), minFidelity: z.number().min(0).max(1).default(0.9), save: z.boolean().default(false) }),
     run: ({ id, minFidelity, save }) => {
