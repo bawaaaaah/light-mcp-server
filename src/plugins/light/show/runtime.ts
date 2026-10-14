@@ -190,13 +190,9 @@ export class ShowRuntime {
     return out;
   }
 
-  /** A group's own factor: master level (flash = 1, mute = 0), capped by its limit. */
+  /** A group's own factor (its DCA): master level within its limits; mute = 0; flash = its max. */
   private ownLevel(g: Group): number {
-    if (this.flashes.has(g.id)) return 1;
-    const m = g.master;
-    if (!m) return 1;
-    const level = m.mute ? 0 : m.level;
-    return Math.min(level, g.limits?.max ?? 1);
+    return dcaLevel(g, this.flashes.has(g.id));
   }
 
   /** Effective factor of a group: its own level × its parents' (DCA-like cascade). */
@@ -328,4 +324,18 @@ export class ShowRuntime {
     this.lastClamps = clamps;
     this.lastErrors = errors;
   }
+}
+
+/**
+ * Level of a group's DCA: its master level (1 without a master) within its limits — clamped, or
+ * the whole travel scaled onto min..max. Mute gives 0; a flash gives the max, never beyond. Pure.
+ */
+export function dcaLevel(g: Pick<Group, "master" | "limits">, flash = false): number {
+  const min = g.limits?.min ?? 0;
+  const max = g.limits?.max ?? 1;
+  if (flash) return max;
+  if (g.master?.mute) return 0;
+  const level = g.master?.level ?? 1;
+  if (g.limits?.mode === "scale") return min + level * (max - min);
+  return Math.min(max, Math.max(min, level));
 }

@@ -33,6 +33,7 @@ interface Group {
   id: string;
   name: string;
   master?: { level: number; mute: boolean };
+  limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   effectiveLevel: number;
 }
 interface Tempo {
@@ -162,22 +163,36 @@ export function DashboardsPage() {
       case "group-fader": {
         const g = groupById.get(w.target ?? "");
         if (!g) return <div className="fill missing">{w.target}</div>;
+        // stop mode: the fader is shown where the DCA really is (on the mark when pushed past it)
+        const shown = g.limits?.mode === "scale" ? (g.master?.level ?? 1) : Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, g.master?.level ?? 1));
         return (
           <div className="fader fill">
+            <div className="track">
             <input
               type="range"
               min={0}
               max={1000}
-              value={Math.round((g.master?.level ?? 1) * 1000)}
+              aria-label={`DCA ${g.name}`}
+              value={Math.round(shown * 1000)}
               onChange={(e) => {
-                const level = Number(e.target.value) / 1000;
+                let level = Number(e.target.value) / 1000;
+                // clamp mode: the fader stops at the DCA limits (position = level)
+                if (g.limits?.mode !== "scale") level = Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, level));
                 setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, master: { level, mute: x.master?.mute ?? false } } : x)));
                 void run("group.level", { id: g.id, level });
               }}
             />
+            {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
+            {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
+            </div>
             <span className="value">
-              {Math.round((g.master?.level ?? 1) * 100)}%<small> ({Math.round(g.effectiveLevel * 100)}%)</small>
+              {Math.round(shown * 100)}%<small> ({Math.round(g.effectiveLevel * 100)}%)</small>
             </span>
+            {g.limits && (g.limits.min !== undefined || g.limits.max !== undefined) && (
+              <small className="limits">
+                {Math.round((g.limits.min ?? 0) * 100)}–{Math.round((g.limits.max ?? 1) * 100)} %{g.limits.mode === "scale" ? " ↕" : ""}
+              </small>
+            )}
             <div className="row">
               <button className={g.master?.mute ? "mute on" : "mute"} onClick={() => void run("group.mute", { id: g.id, mute: !g.master?.mute })}>
                 M
@@ -209,7 +224,9 @@ export function DashboardsPage() {
             <select value="" onChange={(e) => e.target.value && addWidget(e.target.value as Kind)}>
               <option value="">+ widget</option>
               {KINDS.map((k) => (
-                <option key={k}>{k}</option>
+                <option key={k} value={k}>
+                  {t.widgetKinds[k]}
+                </option>
               ))}
             </select>
             <button className="primary" onClick={save}>

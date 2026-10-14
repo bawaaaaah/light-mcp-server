@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { Venue } from "../../../src/plugins/light/venue/venue.js";
-import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
+import { dcaLevel, ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
+import { GroupSchema } from "../../../src/plugins/light/show/model.js";
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "light-show-"));
@@ -88,6 +89,20 @@ describe("show runtime", () => {
     const b = dmx();
     expect(b[0]).to.equal(Math.round(0.4 * 255)); // bar-l dimmer
     expect(b[15]).to.equal(Math.round(0.5 * 255)); // bar-r dimmer
+  });
+
+  it("keeps a DCA within its limits: clamped, or the whole travel scaled", () => {
+    const clamp = { master: { level: 1, mute: false }, limits: { min: 0.2, max: 0.8, mode: "clamp" as const } };
+    expect(dcaLevel(clamp)).to.equal(0.8);
+    expect(dcaLevel({ ...clamp, master: { level: 0, mute: false } })).to.equal(0.2); // never below the floor
+    expect(dcaLevel({ ...clamp, master: { level: 0.5, mute: false } })).to.equal(0.5);
+    const scale = { ...clamp, limits: { ...clamp.limits, mode: "scale" as const } };
+    expect(dcaLevel({ ...scale, master: { level: 0, mute: false } })).to.be.closeTo(0.2, 1e-9);
+    expect(dcaLevel({ ...scale, master: { level: 0.5, mute: false } })).to.be.closeTo(0.5, 1e-9);
+    expect(dcaLevel({ ...scale, master: { level: 1, mute: false } })).to.be.closeTo(0.8, 1e-9);
+    expect(dcaLevel({ ...clamp, master: { level: 1, mute: true } })).to.equal(0); // mute still means dark
+    expect(dcaLevel(clamp, true)).to.equal(0.8); // a flash goes to the max, never beyond
+    expect(() => GroupSchema.parse({ id: "g", name: "G", limits: { min: 0.9, max: 0.1 } })).to.throw(/min au-dessus du max/);
   });
 
   it("applies mute, flash and limits", () => {

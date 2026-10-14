@@ -27,7 +27,8 @@
 | **Repère** | Le moment structurel qui déclenche une section (« l'entrée franche du groupe »). |
 | **Drapeaux de section** | `manualOnly` (au doigt seulement), `noCut` (rien ne s'éteint), plancher d'intensité. |
 | **Groupe** | Objet unifié qui contient des membres et des sous-groupes. Il peut avoir un **master** proportionnel, être **exclusif**, porter des **limites**, et inclure ou exclure des presets d'effets. |
-| **Master** | Le niveau d'un groupe. Il multiplie la sortie de ses membres, comme un DCA. |
+| **DCA** | Le fader d'un groupe (son master proportionnel) : il multiplie la sortie de ses membres, comme un DCA de console son ; les DCA imbriqués se multiplient. Peut porter des **limites** min/max (butée ou course réduite). Terme préféré à « sub-master » et « fader de groupe ». |
+| **Master** | Synonyme technique de DCA dans le code (`group.master`). |
 | **Grand master** | Le master du groupe racine. |
 | **Exclusif** | Un groupe où un seul membre est actif à la fois : en lancer un relâche les autres. |
 | **Conflit** | Deux looks actifs hors d'un même groupe exclusif qui écrivent les mêmes attributs des mêmes fixtures. Il est signalé. |

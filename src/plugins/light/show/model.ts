@@ -52,7 +52,19 @@ export const GroupSchema = z.object({
   selector: z.object({ role: z.string().optional(), tags: z.array(z.string()).optional() }).optional(),
   master: z.object({ level: z.number().min(0).max(1).default(1), mute: z.boolean().default(false) }).optional(),
   exclusive: z.boolean().default(false),
-  limits: z.object({ max: z.number().min(0).max(1).optional() }).optional(),
+  /**
+   * DCA limits (docs/specs/groups-masters.md): bounds of the effective level. `clamp`: the fader
+   * stops at the bounds (position = level); `scale`: the whole travel maps onto min..max (best
+   * for a physical MIDI fader). Mute still goes to 0; a flash goes to the max, never beyond.
+   */
+  limits: z
+    .object({
+      min: z.number().min(0).max(1).optional(),
+      max: z.number().min(0).max(1).optional(),
+      mode: z.enum(["clamp", "scale"]).default("clamp"),
+    })
+    .refine((l) => l.min === undefined || l.max === undefined || l.min <= l.max, { message: "min au-dessus du max" })
+    .optional(),
   presets: z.object({ included: z.array(z.string()).default([]), excluded: z.array(z.string()).default([]) }).default({}),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).optional(),
   notes: z.string().optional(),

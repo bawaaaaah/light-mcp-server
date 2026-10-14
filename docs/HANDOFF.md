@@ -14,6 +14,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - import QLC+ + reconstruction + auto-test (mappings, exclusivité, latence, **cadence mesurée en temps réel**) ; exports (rack, Live Set, conduite) ; conception assistée ; notes ; archives `.lightshow` ;
   - **bascule avec QLC+** : sortie en veille (`light serve --standby`), alerte « autre console », procédure dans [bascule-qlc.md](bascule-qlc.md) ;
   - actions de la timeline des chants et lecture sans DAW (▶) ; planche SVG d'un chant ; aperçu 2D en direct de la scène (page Lieu) ;
+  - limites min/max des DCA (butée ou course réduite) ;
   - presets automatiques (premier allumage d'un lieu en un clic) ;
   - SDK TypeScript et Python, OpenAPI générée ([sdk/README.md](../sdk/README.md)) ;
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;

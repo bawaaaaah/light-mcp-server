@@ -82,6 +82,29 @@ test("group fader drives the master and the dimmer", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("DCA limits: a max set on the Show page stops the fader on the dashboard", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  const max = page.getByLabel("max Master");
+  await max.fill("50");
+  await max.blur();
+  await expect.poll(async () => ((await api(page, "group.list")) as { id: string; limits?: { max?: number } }[]).find((g) => g.id === "master")?.limits?.max).toBe(0.5);
+  await page.locator("header nav button", { hasText: "Live" }).click();
+  await expect(page.locator(".fader .mark.max")).toBeVisible();
+  const fader = page.getByLabel("DCA Master");
+  await fader.fill("1000"); // pushed to the top…
+  await expect(page.locator(".cell .fader .value").first()).toHaveText(/^50%/); // …it stops at the max, and is shown there
+  await expect.poll(async () => (await dmx(page))[0]).toBe(128);
+  await page.screenshot({ path: "test-results/dca-limits.png", fullPage: true });
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.getByLabel("max Master").fill("");
+  await page.getByLabel("max Master").blur();
+  await expect.poll(async () => ((await api(page, "group.list")) as { id: string; limits?: { max?: number } }[]).find((g) => g.id === "master")?.limits?.max).toBeUndefined();
+  await api(page, "group.level", { id: "master", level: 1 });
+  expect(errors).toEqual([]);
+});
+
 test("DMX console: shows live values and parks a channel", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -353,7 +376,7 @@ test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.getByRole("button", { name: "✎" }).click();
-  await page.locator(".dashboards .bar select").selectOption("label");
+  await page.locator(".dashboards .bar select").selectOption("label"); // value stays the kind id
   await page.locator(".editor input[placeholder=label]").fill("Mon repère");
   await page.getByRole("button", { name: "✔" }).click();
   await expect(page.locator(".w-label", { hasText: "Mon repère" })).toBeVisible();

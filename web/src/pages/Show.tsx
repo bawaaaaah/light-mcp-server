@@ -19,6 +19,7 @@ interface Group {
   name: string;
   exclusive: boolean;
   master?: { level: number; mute: boolean };
+  limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   members: { fixtures: string[]; looks: string[]; groups: string[] };
   effectiveLevel: number;
 }
@@ -234,7 +235,7 @@ export function ShowPage() {
 
       <section>
         <h2>
-          {t.groups} ({groups.length})
+          {t.groupsDca} ({groups.length})
         </h2>
         <table>
           <tbody>
@@ -242,7 +243,43 @@ export function ShowPage() {
               <tr key={g.id}>
                 <td>{g.name}</td>
                 <td>{g.exclusive ? t.exclusive : ""}</td>
-                <td>{g.master ? `${Math.round(g.master.level * 100)} % → ${Math.round(g.effectiveLevel * 100)} %` : ""}</td>
+                <td>{g.master ? `DCA ${Math.round(g.master.level * 100)} % → ${Math.round(g.effectiveLevel * 100)} %` : ""}</td>
+                <td>
+                  {g.master && (
+                    <span className="row dca-limits">
+                      {(["min", "max"] as const).map((k) => (
+                        <label key={k} className="inline">
+                          {k}
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={5}
+                            aria-label={`${k} ${g.name}`}
+                            placeholder={k === "min" ? "0" : "100"}
+                            defaultValue={g.limits?.[k] !== undefined ? Math.round(g.limits[k]! * 100) : ""}
+                            onBlur={(e) => {
+                              const v = e.target.value === "" ? undefined : Number(e.target.value) / 100;
+                              const { effectiveLevel: _e, ...group } = g;
+                              void run("group.put", { group: { ...group, limits: { ...g.limits, mode: g.limits?.mode ?? "clamp", [k]: v } } }).then(refresh);
+                            }}
+                          />
+                        </label>
+                      ))}
+                      <select
+                        aria-label={`${t.dcaMode} ${g.name}`}
+                        value={g.limits?.mode ?? "clamp"}
+                        onChange={(e) => {
+                          const { effectiveLevel: _e, ...group } = g;
+                          void run("group.put", { group: { ...group, limits: { ...g.limits, mode: e.target.value } } }).then(refresh);
+                        }}
+                      >
+                        <option value="clamp">{t.dcaClamp}</option>
+                        <option value="scale">{t.dcaScale}</option>
+                      </select>
+                    </span>
+                  )}
+                </td>
                 <td>
                   <small>
                     {g.members.looks.length} looks · {g.members.fixtures.length} fixtures · {g.members.groups.length} sous-groupes

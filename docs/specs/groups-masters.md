@@ -1,5 +1,7 @@
 # Groupes et masters
 
+**Vocabulaire** (décision du 2026-10-14) : le **Groupe** est l'objet (membres, sous-groupes, exclusivité, presets) ; son fader s'appelle le **DCA** (comme sur une console son). On évite « sub-master » (sens variable selon les consoles) et « fader de groupe ».
+
 Un **objet Groupe unique** remplace les groupes de widgets, les masters de groupe, les sub-masters, les groupes d'exclusivité et les solo frames. Ce choix fait suite à l'analyse critique : sept mécanismes qui se recouvraient rendaient le « pourquoi cette lumière est à 40 % ? » illisible.
 
 ## Modèle
@@ -19,7 +21,7 @@ Groupe {
 - **Hiérarchie** : un groupe peut contenir des **sous-groupes**, sans cycle (l'UI les refuse). Un groupe peut avoir plusieurs parents.
 - **Grand master** : le master du **groupe racine**.
 
-## Master (proportionnel, comme un DCA)
+## DCA (master proportionnel)
 - **Calcul** : `sortie = valeur_fusion × Π(niveaux des masters de chaque chaîne de groupes jusqu'au grand master)`.
 - **Exemple** :
 
@@ -45,6 +47,11 @@ Groupe {
 - Les conflits hors d'un groupe exclusif sont **signalés** (`light:conflicts`).
 
 ## Limites
+- **Limites du DCA** (v1) : `limits { min, max, mode }` bornent le niveau effectif du groupe, d'où qu'il vienne (interface, MIDI, OSC, IA, timeline) :
+  - `clamp` (« butée », par défaut) : le fader s'arrête aux bornes ; il est affiché sur la marque (rouge au max, ambre au min) ;
+  - `scale` (« course réduite ») : toute la course est ramenée entre min et max (idéal pour un fader MIDI physique) ;
+  - le mute donne toujours 0 ; un **flash monte au max, jamais au-delà** (pas d'éblouissement possible) ;
+  - réglage dans la page Show (« Groupes et DCA »), affichage `min–max %` sous le fader du dashboard.
 - Ce que les membres du groupe ont le droit d'atteindre : max (par exemple 70 %), plage, ou liste de valeurs autorisées (par exemple seulement 0, 50 et 100 %).
 - Ce sont des **règles de niveau groupe** ([rules-limits](rules-limits.md)), affichées comme un **marqueur** sur le fader du master.
 
