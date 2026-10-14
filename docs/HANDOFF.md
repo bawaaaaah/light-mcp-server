@@ -12,7 +12,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - MIDI (local, RTP, Web MIDI ; modes ; retour ; registre de notes), tempo, OSC, chants/setlist/suivi SPP ;
   - import QLC+ + reconstruction + auto-test ; exports (rack, Live Set, conduite) ; conception assistée ; notes ; archives `.lightshow` ;
   - build de production, image Docker vérifiée.
-- **Interface web** : Live (dashboards modulables), Chants, Show, Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Jamais vue dans un vrai navigateur** : aucun navigateur sur la machine de dev.
+- **Interface web** : Live (dashboards modulables), Chants, Show, Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
 1. **L'utilisateur** :

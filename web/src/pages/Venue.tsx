@@ -99,8 +99,8 @@ export function VenuePage() {
                   </td>
                   <td>{f.role}</td>
                   <td>
-                    <button className="ghost" onClick={() => void run("venue.fixture.delete", { id: f.id })}>
-                      🗑
+                    <button className="ghost" title={t.delete} onClick={() => void run("venue.fixture.delete", { id: f.id })}>
+                      ✕
                     </button>
                   </td>
                 </tr>
@@ -159,8 +159,14 @@ export function VenuePage() {
               ))}
             </select>
             <input placeholder={t.name} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-            <input type="number" min={1} max={16} value={draft.universe} onChange={(e) => setDraft({ ...draft, universe: Number(e.target.value) })} title={t.universe} />
-            <input type="number" min={1} max={512} value={draft.address} onChange={(e) => setDraft({ ...draft, address: Number(e.target.value) })} title="adresse" />
+            <label className="inline">
+              U
+              <input type="number" min={1} max={16} value={draft.universe} onChange={(e) => setDraft({ ...draft, universe: Number(e.target.value) })} title={t.universe} />
+            </label>
+            <label className="inline">
+              @
+              <input type="number" min={1} max={512} value={draft.address} onChange={(e) => setDraft({ ...draft, address: Number(e.target.value) })} title={t.address} />
+            </label>
             <button className="ghost" onClick={() => setDraft({ ...draft, address: nextAddress(draft.universe) })}>
               auto
             </button>

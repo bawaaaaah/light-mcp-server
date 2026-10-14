@@ -12,3 +12,5 @@ data/
 
 # Sorties des prototypes (racks générés, mesures brutes)
 prototypes/out/
+test-results/
+playwright-report/

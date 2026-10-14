@@ -47,7 +47,10 @@ export function ImportPage() {
       <section>
         <h2>{t.importTitle}</h2>
         <p className="hint">{t.importHelp}</p>
-        <input type="file" accept=".qxw" onChange={(e) => void pick(e.target.files?.[0])} />
+        <label className="button-like primary">
+          ⤒ {t.chooseQxw}
+          <input type="file" accept=".qxw" hidden onChange={(e) => void pick(e.target.files?.[0])} />
+        </label>
         {error && <p className="error">{error}</p>}
         {proposal && (
           <div className="report">

@@ -111,6 +111,7 @@ export function MidiPage() {
       <div className="cols">
         <section>
           <h2>{t.inputs}</h2>
+          {status?.inputs.length === 0 && <p className="hint">{t.noInputs}</p>}
           <ul className="inputs">
             {status?.inputs.map((i) => {
               const active = i.lastMessageAt !== undefined && now - i.lastMessageAt < 3000;
@@ -136,7 +137,7 @@ export function MidiPage() {
                   <td>
                     {m.input.type} {m.input.number} <small>ch{m.input.channel}</small>
                   </td>
-                  <td>{m.mode}</td>
+                  <td>{t.modes[m.mode as keyof typeof t.modes] ?? m.mode}</td>
                   <td>{m.label || `${m.on.command} ${String(m.on.args.id ?? "")}`}</td>
                 </tr>
               ))}

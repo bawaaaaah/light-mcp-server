@@ -10,6 +10,7 @@ export function ConsolePage() {
   const [count, setCount] = useState(1);
   const [values, setValues] = useState<Uint8Array>(new Uint8Array(512));
   const [parked, setParked] = useState<Record<number, number>>({});
+  const [error, setError] = useState("");
   const pending = useRef(new Map<number, number>());
   const timer = useRef<number | null>(null);
 
@@ -40,7 +41,10 @@ export function ConsolePage() {
       timer.current = null;
       const values = Object.fromEntries(pending.current);
       pending.current.clear();
-      void cmd("dmx.set", { universe, values });
+      void cmd("dmx.set", { universe, values }).catch((e: Error) => {
+        setError(e.message);
+        void cmd<{ parked: Record<number, number> }>("dmx.get", { universe }).then((r) => setParked(r.parked));
+      });
     });
   };
 
@@ -66,6 +70,11 @@ export function ConsolePage() {
         >
           {t.releaseAll}
         </button>
+        {error && (
+          <span className="error" onClick={() => setError("")}>
+            {error}
+          </span>
+        )}
       </section>
       <div className="channels">
         {Array.from({ length: 512 }, (_, i) => {

@@ -27,9 +27,11 @@
     "build:web": "npm --prefix web run build",
     "dev:web": "npm --prefix web run dev",
     "build": "tsc -p tsconfig.build.json && cp src/plugins/light/knowledge/generic.json dist/plugins/light/knowledge/ && npm --prefix web run build",
-    "start": "node dist/cli/main.js serve"
+    "start": "node dist/cli/main.js serve",
+    "test:ui": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/chai": "^5.2.3",
     "@types/express": "^5.0.6",
     "@types/mocha": "^10.0.10",
