@@ -90,7 +90,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 ### Export MIDI Effect Rack (v1)
 - **Une chaîne par action**, nommée comme elle, avec une **key zone d'une seule touche** (`KeyRange` Min = Max = note, crossfades idem). La chaîne s'allume quand sa note passe : c'est une légende vivante dans Live.
 - `DocumentColorIndex` par bande, **rouge pour les actions danger ou manuelles**. `UserName` du device = « show · bande · canal », `Annotation` = légende des CC.
-- **Méthode** : cloner `<MidiEffectBranchPreset>` depuis une **coquille** `.adg` exportée par la version de Live de l'utilisateur, non modifiée, et vérifier que tout le reste ressort octet pour octet. **On ne fabrique jamais le XML Live à la main.**
+- **Méthode** : cloner `<MidiEffectBranchPreset>` depuis une **coquille** `.adg` exportée par la version de Live de l'utilisateur, non modifiée, et vérifier que tout le reste ressort octet pour octet. **On ne fabrique jamais le XML Live à la main.** Validé le 2026-10-14 : un rack généré depuis une vraie coquille se charge dans Live 12.4.5, alors qu'une coquille synthétique (celle des tests unitaires, `test/fixtures/shell-rack.xml`) est refusée par Live — elle ne sert qu'aux tests.
 - Avertissement à l'export : **un rack = une piste**. Une note couverte par deux racks est dupliquée. Le mode Déclencher rend cette duplication inoffensive.
 - Également exportés : la **table des notes** (CSV/Markdown) et un **`.mid` par chant** (la timeline en notes et CC).
 

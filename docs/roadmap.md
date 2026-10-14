@@ -26,10 +26,10 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Sortie Art-Net/sACN, découverte | ✅ (à valider sur le réseau lumière) |
 | Lieu, canevas, scène, règles | ✅ v1 |
 | Techniques, lecteur, groupes, panic | ✅ |
-| MIDI (modes, retour, registre), OSC, tempo | ✅ (MIDI local à valider sur le Mac) |
+| MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) |
 | Chants, setlist, suivi SPP | ✅ |
-| Import QLC+ + auto-test (critère v0) | ✅ (à rejouer sur le vrai workspace avec les `.qxf` de l'utilisateur) |
-| Exports Ableton (rack, Live Set), conduite | ✅ (à ouvrir dans Live) |
+| Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; à faire à la main : 4 modèles sans `.qxf`, ~11 faders QLC+ hors gradateur (blanc, UV, effets) |
+| Exports Ableton (rack, Live Set), conduite | ✅ rack chargé dans Live ; Live Set à ouvrir dans Live |
 | Conception assistée + ressources MCP | ✅ v1 |
 | Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 24 scénarios) ; reste à la voir sur tablette et sur le Mac |
 | Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
