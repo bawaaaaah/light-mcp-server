@@ -74,7 +74,8 @@ Résultats anonymisés dans `research/proto-resultats.md` (section P6).
 4. `npm run serve`, ouvrir `http://localhost:8790`, page **Import** : proposition → vérifier les avertissements (définitions manquantes = 0 attendu) → **Appliquer** → **Reconstruire** (proposition) → **Auto-test**.
    Critères : auto-test 100 % des mappings, exclusivité OK, latence max < 10 ms. Puis l'auto-test avec **« Mesurer aussi la cadence »** : toutes les lignes ✔ (comparer avec la mesure de cadence de son propre banc de test).
 5. Avec le node Art-Net et le vrai kit (QLC+ fermé), demander à l'utilisateur de **regarder** : chaque section lancée depuis la page Live correspond-elle visuellement à QLC+ ? Le Panic, le Blackout, les masters ?
-6. **Avec Ableton** (profil MIDI « local », bus IAC) : demander à l'utilisateur de jouer sa setlist ; les sections doivent suivre les clips, et la reprise au milieu d'une section (scrub) doit rallumer la bonne section quand « Suivre la position MIDI » est actif.
+6. **Plantage simulé** : un look qui joue, arrêter le serveur (Ctrl-C) et le relancer aussitôt : la lumière revient telle quelle en quelques secondes (message « Reprise après redémarrage » dans le terminal).
+7. **Avec Ableton** (profil MIDI « local », bus IAC) : demander à l'utilisateur de jouer sa setlist ; les sections doivent suivre les clips, et la reprise au milieu d'une section (scrub) doit rallumer la bonne section quand « Suivre la position MIDI » est actif.
 
 ## 7. Rapport
 - Compléter `docs/research/proto-resultats.md` (tableau de synthèse + une section par prototype, résultats anonymisés).

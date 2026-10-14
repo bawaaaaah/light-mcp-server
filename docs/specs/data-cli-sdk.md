@@ -41,6 +41,11 @@ data/shows/<id>/
 - Backup automatique avant chaque migration et à intervalles réguliers, avec rotation.
 - **Mode hybride** : une régénération (import, IA, script) conserve ce qui a été ajusté à la main. Toute perte potentielle **bloque l'écriture** et est listée.
 
+## Reprise après redémarrage (v1)
+- Ce qui joue (looks, Blackout, setlist, chant, section) est écrit environ une fois par seconde dans `data/machine/live.json` (écriture atomique ; horodatage rafraîchi au moins toutes les 30 s).
+- Au démarrage, il est **restauré seulement s'il a moins de 5 minutes** et concerne le même show : un plantage ou un redémarrage rapide pendant un culte reprend où on en était ; un démarrage le lendemain ne rallume rien par surprise.
+- Les niveaux des groupes et le grand master sont déjà enregistrés dans le show ; les positions manuelles des lyres et les forçages de la console ne sont pas repris (volontairement).
+
 ## CLI `light` (headless)
 | Commande | Rôle |
 |---|---|

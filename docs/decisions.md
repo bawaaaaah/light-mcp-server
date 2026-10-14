@@ -63,5 +63,6 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-14 | Bascule QLC+ | **Sortie en veille** (le show tourne et suit le MIDI, rien n'est envoyé, retour MIDI coupé ; gardée au redémarrage ; trame à zéro en entrant) et alerte « autre console » ; procédure écrite ; sur un Mac partagé avec QLC+, découverte coupée par prudence | [bascule](bascule-qlc.md) |
 | 2026-10-14 | Tempo | Temps moteur (cadence des looks) séparé de la position du chant : il suit les ticks, continue au dernier tempo sans horloge et ignore les sauts ; corrige des looks figés quand Live est arrêté et bloqués après un recul | [moteur](specs/engine-effects-timing.md) |
 | 2026-10-14 | Auto-test | Mesure de la cadence de chaque look sur la sortie réelle, en option (critère v0 « mesure de la cadence ») | [moteur](specs/engine-effects-timing.md) |
+| 2026-10-14 | Reprise | Après un redémarrage, l'état en direct (looks, Blackout, chant) est restauré s'il a moins de 5 minutes ; sinon rien ne se rallume | [données](specs/data-cli-sdk.md) |
 | 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

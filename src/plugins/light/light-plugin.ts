@@ -33,6 +33,7 @@ import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { MappingSchema, MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import { TempoClock } from "./timing/tempo.js";
+import { LiveSnapshotFile } from "./data/live-snapshot.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
@@ -104,6 +105,9 @@ export class LightPlugin implements McpPlugin {
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
   private songs: SongServices | undefined;
+  private readonly liveFile: LiveSnapshotFile;
+  /** What was resumed at start-up after a restart, if anything. */
+  resumed: { looks: string[]; blackout: boolean; song?: string; section?: string } | undefined;
 
   constructor(private readonly opts: LightPluginOptions) {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
@@ -126,6 +130,7 @@ export class LightPlugin implements McpPlugin {
 
     const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
+    this.liveFile = new LiveSnapshotFile(path.join(dataRoot, "machine", "live.json"));
     this.venue = new Venue(
       new FolderStore(path.join(dataRoot, "venues", this.config.venue), path.join(dataRoot, "backups", "venues", this.config.venue)),
       [path.join(dataRoot, "fixtures"), path.join(dataRoot, "venues", this.config.venue, "fixture-definitions")],
@@ -256,8 +261,36 @@ export class LightPlugin implements McpPlugin {
     return this.commands.invoke(name, args, ctx);
   }
 
+  /** Saves what is playing, for a resume after a restart. */
+  saveLive(): void {
+    const s = this.songs?.state;
+    try {
+      this.liveFile.save({ show: this.config.show, looks: this.runtime.activeLooks(), blackout: this.engine.isBlackout(), setlist: s?.setlist, song: s?.song, section: s?.section });
+    } catch (err) {
+      console.warn("sauvegarde de l'état en direct :", (err as Error).message);
+    }
+  }
+
+  /** Restores a recent live state (crash or quick restart during a service). */
+  private resumeLive(): void {
+    const snap = this.liveFile.load(this.config.show);
+    if (!snap) return;
+    const looks = snap.looks.filter((id) => {
+      try {
+        return this.runtime.looks.get(id) !== undefined && (this.runtime.go(id), true);
+      } catch {
+        return false;
+      }
+    });
+    this.engine.setBlackout(snap.blackout);
+    if (this.songs) Object.assign(this.songs.state, { setlist: snap.setlist, song: snap.song, section: snap.section });
+    this.resumed = { looks, blackout: snap.blackout, song: snap.song, section: snap.section };
+    console.warn(`Reprise après redémarrage : ${looks.length} look(s)${snap.blackout ? ", Blackout actif" : ""}${snap.song ? `, chant ${snap.song}` : ""}.`);
+  }
+
   async start(): Promise<void> {
     if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
+    this.resumeLive();
     await this.router.start({ discovery: this.config.discovery });
     if (this.router.isStandby()) console.warn("Sortie en veille : rien n'est envoyé aux nodes (Réglages → Reprendre la main, ou light serve --live).");
     this.engine.start();
@@ -269,6 +302,7 @@ export class LightPlugin implements McpPlugin {
       this.publish("tempo", this.tempo.state());
       // Output state (standby, other Art-Net sources) changes without commands: check it every second.
       if (++ticks % 4) return;
+      this.saveLive();
       const state = this.state();
       const key = JSON.stringify(state);
       if (key !== lastState) this.publish("state", state);
@@ -280,6 +314,7 @@ export class LightPlugin implements McpPlugin {
 
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
+    if (this.started) this.saveLive();
     this.osc.stop();
     this.hub.stop();
     this.engine.stop();
