@@ -44,7 +44,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - **Panic neutre** (rappelle le look de secours du show, sinon Blackout) et **Blackout**. Le look de secours se choisit dans les réglages du show, et le bouton indique s'il est défini.
 - Momentanés : strobe (fader désigné), fumée, blinder.
 - Sélecteur de chant ou de setlist.
-- Label ou cadre, mini moniteur DMX, mini preview 2D, note épinglée.
+- Label ou cadre, mini moniteur DMX, mini preview 2D (v1 : widget « Scène en direct », le plan de la page Lieu en compact), note épinglée.
 
 ### Indicateurs
 - **Danger** (rouge) : flashs et strobe.

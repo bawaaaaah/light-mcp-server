@@ -3,8 +3,9 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
+import { LiveStage } from "../components/StagePlan";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview";
 interface Widget {
   id: string;
   kind: Kind;
@@ -47,8 +48,8 @@ interface SongState {
   section?: string;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy"];
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 } };
+const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview"];
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
 export function DashboardsPage() {
   const t = useT();
@@ -158,6 +159,12 @@ export function DashboardsPage() {
           </button>
         );
       }
+      case "preview":
+        return (
+          <div className="fill preview-widget">
+            <LiveStage onError={setError} />
+          </div>
+        );
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} />;
       case "group-fader": {

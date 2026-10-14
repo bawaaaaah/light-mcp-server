@@ -417,6 +417,19 @@ test("self-test with the real-time cadence of every look", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("live stage widget on a dashboard", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(".dashboards .bar select").selectOption("preview");
+  await page.getByRole("button", { name: "✔" }).click();
+  const widget = page.locator(".preview-widget svg");
+  await expect(widget).toBeVisible();
+  await expect(widget.locator("g.fixture")).toHaveCount(3);
+  await page.screenshot({ path: "test-results/preview-widget.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("a volunteer cannot write the show", async ({ page }) => {
   await login(page, "5678");
   await page.getByRole("button", { name: "Console DMX" }).click();

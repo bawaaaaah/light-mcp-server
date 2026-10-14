@@ -708,3 +708,10 @@ table.cues select {
 .fader .limits {
   font-size: 0.7rem;
 }
+.preview-widget {
+  overflow: hidden;
+}
+.stage-plan.compact svg {
+  height: 100%;
+  max-width: none;
+}

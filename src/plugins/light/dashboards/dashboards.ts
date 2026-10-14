@@ -7,7 +7,7 @@ import type { Group, Look } from "../show/model.js";
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy"]),
+  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview"]),
   /** Grid position (columns × rows of the dashboard). */
   x: z.number().int().min(0),
   y: z.number().int().min(0),

@@ -32,7 +32,7 @@ const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", 
 /** Default height of a fixture placed for the first time, from its mount (metres). */
 const defaultHeight = (mount?: string) => (mount === "hung" || mount === "truss" || mount === "ceiling" ? 5 : mount === "stand" ? 1.8 : mount === "wall" || mount === "pillar" ? 3 : 0.3);
 
-export function StagePlan({ fixtures, zones, onError, onMove }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void; onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void }) {
+export function StagePlan({ fixtures, zones, onError, onMove, compact = false }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void; onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void; compact?: boolean }) {
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [aiming, setAiming] = useState(false);
@@ -107,8 +107,9 @@ export function StagePlan({ fixtures, zones, onError, onMove }: { fixtures: Plan
   };
 
   return (
-    <div className="stage-plan">
-      <div className="row">
+    <div className={compact ? "stage-plan compact" : "stage-plan"}>
+      {!compact && (
+        <div className="row">
         <small className="hint">
           {t.audience} ↓{layout.unplaced ? ` · ${layout.unplaced} ${t.unplaced}` : ""}
         </small>
@@ -122,7 +123,8 @@ export function StagePlan({ fixtures, zones, onError, onMove }: { fixtures: Plan
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
         )}
-      </div>
+        </div>
+      )}
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
@@ -195,4 +197,15 @@ function inside(x: number, y: number, poly: [number, number][]): boolean {
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
+}
+
+/** Self-loading live preview, for a dashboard widget. */
+export function LiveStage({ onError }: { onError: (msg: string) => void }) {
+  const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
+  const [zones, setZones] = useState<PlanZone[]>([]);
+  useEffect(() => {
+    void cmd<PlanFixture[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
+    void cmd<PlanZone[]>("stage.zone.list").then(setZones).catch(() => undefined);
+  }, []);
+  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact />;
 }
