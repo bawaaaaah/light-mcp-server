@@ -37,6 +37,17 @@ function setup() {
 }
 
 describe("show runtime", () => {
+  it("reads back what each head shows, for the live 2D preview", () => {
+    const { venue, show, dmx } = setup();
+    show.looks.put({ id: "dam", name: "Damier", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 } });
+    show.go("dam");
+    const colors = venue.displayColors([dmx()]);
+    expect(colors["bar-l"]).to.deep.equal(["#ff0000", "#0000ff", "#ff0000", "#0000ff"]);
+    show.groups.put({ id: "m", name: "M", members: { fixtures: ["bar-l"] }, master: { level: 0.5, mute: false } });
+    expect(venue.displayColors([dmx()])["bar-l"]![0]).to.equal("#800000"); // the dimmer is applied
+    expect(venue.displayColors([new Uint8Array(512)])["bar-r"]).to.deep.equal(["#000000", "#000000", "#000000", "#000000"]);
+  });
+
   it("plays a look on the canvas and follows the beat", () => {
     const { show, dmx, advance } = setup();
     show.looks.put({ id: "dam", name: "Damier", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 } });

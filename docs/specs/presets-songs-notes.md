@@ -18,7 +18,7 @@ Tout objet a un `name`, des `tags` (humeur, usage, saison, couleur dominante), u
 - On l'instancie en remplissant les emplacements, par exemple « Palette qui tourne » + palette « Intime bleu/ambre » + canevas « fond ».
 - Banque globale et **banques par chant** (par référence ou par copie).
 - **Presets automatiques** (Wolfmix, v1) : dès le patch et le canevas définis, on génère des palettes de base et les techniques principales appliquées au canevas du lieu. Le premier allumage est immédiat.
-  - `show.autopresets` (bouton « ✨ Presets automatiques » de la page Show) : 6 palettes tirées de la base de connaissances (blanc chaud, intime, calme, joie, fête, force) et 6 looks qui les utilisent **par référence** (plat, respiration, onde, palette qui tourne, damier, creux), cadences et attaques selon l'énergie, dans un groupe exclusif ; le blanc chaud devient le look de secours si le show n'en a pas.
+  - `show.autopresets` (bouton « ★ Presets automatiques » de la page Show) : 6 palettes tirées de la base de connaissances (blanc chaud, intime, calme, joie, fête, force) et 6 looks qui les utilisent **par référence** (plat, respiration, onde, palette qui tourne, damier, creux), cadences et attaques selon l'énergie, dans un groupe exclusif ; le blanc chaud devient le look de secours si le show n'en a pas.
   - Proposition d'abord ; les éléments `auto-*` déjà présents ne sont **jamais écrasés** (les retouches survivent à une nouvelle génération).
 
 ## Chants
@@ -71,7 +71,7 @@ Chant {
 ## Notes partout
 - Champ `notes` (Markdown court, horodaté) sur **chaque objet** : fixture, zone, groupe, look, preset, palette, section, cue, mapping, dashboard, widget, node, univers.
 - **Annotations libres** : post-it sur la scène, commentaires à un temps donné sur la timeline.
-- Une icône 🗒 apparaît sur tout objet annoté. La page **Notes** offre une recherche globale. Les notes sont incluses dans les ressources MCP et accessibles par `light_note_*`.
+- Une icône ✎ apparaît sur tout objet annoté. La page **Notes** offre une recherche globale. Les notes sont incluses dans les ressources MCP et accessibles par `light_note_*`.
 
 ## Import QLC+ puis reconstruction
 1. **Import `.qxw`** :

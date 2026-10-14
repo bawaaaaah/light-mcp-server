@@ -139,6 +139,15 @@ describe("moving heads", () => {
       expect(pos(b, 11)[0]).to.equal(Math.round(0.75 * 65535)); // spot-r: pan inverted
     });
 
+    it("shows a lamp head in its wheel colour for the 2D preview", () => {
+      const { venue, show, dmx } = setup();
+      show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });
+      show.go("rouge");
+      expect(venue.displayColors([dmx()])["spot-l"]).to.deep.equal(["#ff0000"]);
+      show.stop("rouge");
+      expect(venue.displayColors([dmx()])["spot-l"]).to.deep.equal(["#000000"]); // dimmer at 0
+    });
+
     it("moves with the beat; a position-only look leaves the colour alone", () => {
       const { show, dmx, advance, pos } = setup();
       show.looks.put({ id: "pan", name: "Balayage", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "pan", size: { pan: 0.25 }, every: { beats: 4 } } });

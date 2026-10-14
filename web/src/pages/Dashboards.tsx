@@ -259,7 +259,7 @@ export function DashboardsPage() {
               setSelected(null);
             }}
           >
-            🗑
+            ✕
           </button>
         </section>
       )}

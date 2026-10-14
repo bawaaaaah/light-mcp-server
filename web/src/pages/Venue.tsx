@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import { slug } from "../util";
+import { StagePlan, type PlanZone } from "../components/StagePlan";
 
 interface Def {
   manufacturer: string;
@@ -19,6 +21,7 @@ interface Fixture {
   address: number;
   role?: string;
   target?: string;
+  position?: { x: number; y: number; z: number };
 }
 interface Canvas {
   id: string;
@@ -26,20 +29,7 @@ interface Canvas {
   topology: string;
   cells: number;
 }
-interface Zone {
-  id: string;
-  name: string;
-  type: string;
-  protected: boolean;
-}
-
-const slug = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "x";
+type Zone = PlanZone;
 
 export function VenuePage() {
   const t = useT();
@@ -78,6 +68,10 @@ export function VenuePage() {
           {error}
         </p>
       )}
+      <section>
+        <h2>{t.stagePreview}</h2>
+        <StagePlan fixtures={fixtures} zones={zones} onError={setError} />
+      </section>
       <div className="cols">
         <section>
           <h2>{t.patch} ({fixtures.length})</h2>
@@ -133,7 +127,7 @@ export function VenuePage() {
           <ul>
             {zones.map((z) => (
               <li key={z.id}>
-                {z.name} <small>({z.type})</small> {z.protected ? "🛡" : ""}
+                {z.name} <small>({z.type})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
               </li>
             ))}
           </ul>

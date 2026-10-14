@@ -185,7 +185,7 @@ test("automatic presets light a venue in one click", async ({ page }) => {
   page.on("dialog", (d) => void d.accept());
   await login(page);
   await page.locator("header nav button", { hasText: "Show" }).click();
-  await page.getByRole("button", { name: "✨ Presets automatiques" }).click();
+  await page.getByRole("button", { name: "★ Presets automatiques" }).click();
   const auto = page.locator("button.look", { hasText: "Blanc chaud" });
   await expect(auto).toBeVisible();
   await auto.click();
@@ -269,6 +269,38 @@ test("storyboard of a song, shown and downloadable", async ({ page }) => {
   await expect(board).toContainText("« début »");
   await expect(page.locator(".board a", { hasText: "SVG" })).toHaveAttribute("download", "Chant test.svg");
   await page.screenshot({ path: "test-results/board.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("live 2D stage preview follows the output", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  const plan = page.locator(".stage-plan svg");
+  await expect(plan).toBeVisible();
+  await expect(plan.locator("g.fixture")).toHaveCount(3);
+  await expect(page.locator(".stage-plan .hint")).toContainText("3 projecteur(s) sans position");
+  const bar = plan.locator('g.fixture[data-fixture="bar-0"] rect');
+  await expect(bar.first()).toHaveAttribute("fill", "#000000");
+  await api(page, "look.go", { id: "masks" });
+  await expect.poll(async () => (await bar.evaluateAll((rs) => rs.map((r) => r.getAttribute("fill")))).some((f) => f !== "#000000")).toBe(true); // lit, live
+  await page.screenshot({ path: "test-results/stage-preview.png", fullPage: true });
+  // a modelled stage: zones and positions
+  await api(page, "stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]] } });
+  await api(page, "stage.zone.put", { zone: { id: "pupitre", name: "Pupitre", type: "riser", polygon: [[2.5, 0.5], [3.5, 0.5], [3.5, 1.5], [2.5, 1.5]], protected: true } });
+  const fixtures = (await api(page, "venue.fixture.list")) as { id: string }[];
+  for (const f of fixtures.filter((x) => x.id.startsWith("bar-"))) {
+    await api(page, "venue.fixture.put", { fixture: { ...f, position: { x: f.id === "bar-0" ? -2 : 2, y: 4.5, z: 0.2 } } });
+  }
+  await page.reload();
+  await expect(page.locator(".stage-plan svg g.zone")).toHaveCount(2);
+  await expect(page.locator(".stage-plan .hint")).toContainText("1 projecteur(s) sans position");
+  await page.screenshot({ path: "test-results/stage-preview-placed.png", fullPage: true });
+  await page.getByLabel("Viser avec les lyres").check();
+  await plan.click({ position: { x: 300, y: 60 } });
+  await expect(page.locator(".venue > .error")).toContainText("position sur la scène inconnue"); // the spot has no position yet
+  await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
 

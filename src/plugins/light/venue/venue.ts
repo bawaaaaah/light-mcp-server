@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
 import { findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
+import { displayHex } from "../engine/display.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -295,6 +296,39 @@ export class Venue {
     };
     put(r.pan, pan);
     put(r.tilt, tilt);
+  }
+
+  /**
+   * What each fixture shows, read back from the DMX output (after rules, console parks and
+   * Blackout): one screen colour per head (or one for a head-less fixture), dimmer applied.
+   * For the live 2D preview.
+   */
+  displayColors(buffers: readonly Uint8Array[]): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const patch of this.fixtures.list()) {
+      const r = this.resolve(patch.id);
+      const buf = buffers[patch.universe - 1];
+      if ("error" in r || !buf) continue;
+      const at = (off: number) => (buf[patch.address - 1 + off] ?? 0) / 255;
+      const dimmer = r.dimmers.length ? Math.max(...r.dimmers.map(at)) : 1;
+      if (r.lampOnly) {
+        if (!r.dimmers.length) continue;
+        let color: Color = { white: 1 };
+        if (r.wheel) {
+          const v = buf[patch.address - 1 + r.wheel.offset] ?? 0;
+          const slot = [...r.wheel.slots].reverse().find((s) => v >= s.value);
+          if (slot) color = slot.color;
+        }
+        out[patch.id] = [displayHex(Object.fromEntries(Object.entries(color).map(([k, x]) => [k, (x ?? 0) * dimmer])) as Color)];
+        continue;
+      }
+      out[patch.id] = [...r.heads.values()].map((comps) => {
+        const c: Color = {};
+        for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) c[comp] = at(off) * dimmer;
+        return displayHex(c);
+      });
+    }
+    return out;
   }
 
   /** DMX slots (0-based, per universe) holding pan/tilt: kept on Blackout so heads do not swing. */

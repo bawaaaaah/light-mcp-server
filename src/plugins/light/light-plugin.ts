@@ -481,6 +481,8 @@ export class LightPlugin implements McpPlugin {
   }
 
   liveTopics(): Record<string, LiveTopic> {
+    let lastPreview = "";
+    let lastPreviewAt = 0;
     const universesParam = z.object({ universes: z.array(z.number().int().min(1).max(this.config.universes)).min(1).max(16) });
     return {
       dmx: {
@@ -496,6 +498,20 @@ export class LightPlugin implements McpPlugin {
           const { buffers } = payload as { buffers: Uint8Array[] };
           const { universes } = params as { universes: number[] };
           return { universes: universes.map((u) => [u, buffers[u - 1]!.slice()]) };
+        },
+      },
+      /** Live 2D preview: screen colour of every fixture head, read from the output; on change (and every second). */
+      preview: {
+        channel: "stream",
+        source: "frame",
+        encode: (payload) => {
+          const colors = this.venue.displayColors((payload as { buffers: Uint8Array[] }).buffers);
+          const key = JSON.stringify(colors);
+          const now = Date.now();
+          if (key === lastPreview && now - lastPreviewAt < 1000) return null; // unchanged: once a second for late subscribers
+          lastPreview = key;
+          lastPreviewAt = now;
+          return { fixtures: colors };
         },
       },
       state: { channel: "control" },

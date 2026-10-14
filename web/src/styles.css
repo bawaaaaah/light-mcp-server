@@ -653,3 +653,24 @@ table.cues select {
   text-decoration: none;
   margin-left: 0.5em;
 }
+
+/* Live 2D stage preview */
+.stage-plan svg {
+  display: block;
+  width: 100%;
+  max-width: 1100px;
+  background: #12141a;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.stage-plan svg.aiming {
+  cursor: crosshair;
+}
+.stage-plan .zone-name {
+  font-size: 13px;
+  fill: #8b93a7;
+}
+.stage-plan .fixture-name {
+  font-size: 10px;
+  fill: #c9ced9;
+}

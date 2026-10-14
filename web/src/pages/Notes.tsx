@@ -28,7 +28,7 @@ export function NotesPage() {
       {notes.length === 0 && <p className="hint">{t.noNotes}</p>}
       {notes.map((n) => (
         <div className="report" key={key(n)}>
-          <strong>🗒 {n.name}</strong> <small className="hint">({n.collection})</small>
+          <strong>✎ {n.name}</strong> <small className="hint">({n.collection})</small>
           {editing[key(n)] !== undefined ? (
             <div className="editor">
               <textarea rows={3} value={editing[key(n)]} onChange={(e) => setEditing({ ...editing, [key(n)]: e.target.value })} />

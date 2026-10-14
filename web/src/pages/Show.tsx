@@ -100,7 +100,7 @@ export function ShowPage() {
               .catch((e: Error) => setError(e.message))
           }
         >
-          ✨ {t.autopresets}
+          ★ {t.autopresets}
         </button>
         <button onClick={() => void downloadArchive(true).catch((e: Error) => setError(e.message))}>⤓ {t.download}</button>
         <label className="button-like">
