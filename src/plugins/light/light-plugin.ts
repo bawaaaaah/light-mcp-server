@@ -33,6 +33,7 @@ import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { MappingSchema, MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import { TempoClock } from "./timing/tempo.js";
+import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
 import { openApiDocument } from "./commands/openapi.js";
 import { getPackageVersion } from "../../core/version.js";
@@ -130,7 +131,7 @@ export class LightPlugin implements McpPlugin {
       if (!standby) this.syncMidiFeedback(true); // take the controllers' LEDs back too
     });
 
-    const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
+    const dataRoot = opts.dataRoot ?? defaultDataRoot();
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
     this.liveFile = new LiveSnapshotFile(path.join(dataRoot, "machine", "live.json"));
     this.venue = new Venue(

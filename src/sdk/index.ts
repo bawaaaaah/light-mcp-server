@@ -8,10 +8,10 @@
  *   await light.call("look.go", { id: "joie" });
  *   const stop = light.subscribe("light:state", (s) => console.log(s));
  */
-export type { Look, Palette, Group, ShowSettings } from "../src/plugins/light/show/model.js";
-export type { Song, Section, Setlist } from "../src/plugins/light/songs/songs.js";
-export type { Mapping } from "../src/plugins/light/midi/mapping.js";
-export type { PatchedFixture, Canvas } from "../src/plugins/light/venue/venue.js";
+export type { Look, Palette, Group, ShowSettings } from "../plugins/light/show/model.js";
+export type { Song, Section, Setlist } from "../plugins/light/songs/songs.js";
+export type { Mapping } from "../plugins/light/midi/mapping.js";
+export type { PatchedFixture, Canvas } from "../plugins/light/venue/venue.js";
 
 export class LightError extends Error {
   constructor(

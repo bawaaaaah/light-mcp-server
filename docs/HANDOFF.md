@@ -88,6 +88,7 @@ Aucune. Toutes les décisions de conception sont prises ([decisions.md](decision
 - [bascule-qlc.md](bascule-qlc.md) : **procédure de bascule avec QLC+** (sortie en veille, secours).
 - [tests-mac.md](tests-mac.md) : **protocole de tests pour un agent Claude sur le Mac de régie** (MIDI, Ableton, Art-Net, import réel, auto-test).
 - [install.md](install.md) : **installation et premiers pas** (Mac, Docker/Pi, import QLC+, MIDI, Ableton, IA).
+- [install-npm.md](install-npm.md) : **installation depuis GitHub Packages** (paquet publié à chaque commit de `main` dont la CI passe ; image Docker sur GHCR).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [decisions.md](decisions.md) : journal daté des décisions.
 - [glossaire.md](glossaire.md) : vocabulaire du projet.

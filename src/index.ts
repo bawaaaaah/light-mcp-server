@@ -2,8 +2,7 @@
  * Bootstrap (same shape as wing-mcp-server): machine config → EventBus → plugins → HTTP gateway
  * and/or stdio MCP endpoint.
  */
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { configPath, dataRoot, webRoot } from "./core/paths.js";
 import { AuthService, resolveAuthToken } from "./core/auth.js";
 import { ConfigStore } from "./core/config-store.js";
 import { EventBus } from "./core/event-bus.js";
@@ -32,24 +31,23 @@ export interface Running {
   stop(): Promise<void>;
 }
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
   const log = opts.log ?? ((m: string) => console.error(m));
   if (opts.stdio) redirectConsoleToStderr();
-  const configStore = new ConfigStore({ filePath: opts.configPath ?? process.env.LIGHT_CONFIG_PATH ?? path.join(ROOT, "data", "machine", "config.json") });
+  const configStore = new ConfigStore({ filePath: opts.configPath ?? configPath() });
   await configStore.load();
   const masterToken = await resolveAuthToken(configStore);
   const auth = new AuthService(masterToken, configStore);
   const eventBus = new EventBus();
-  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth, ...(process.env.LIGHT_DATA_ROOT ? { dataRoot: process.env.LIGHT_DATA_ROOT } : {}), ...opts.light });
+  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth, dataRoot: dataRoot(), ...opts.light });
   const plugins = [light];
   const toolVisibility = new ToolVisibilityController(plugins, configStore);
   await light.start();
 
   let gateway: Gateway | undefined;
   if (opts.http !== false) {
-    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, port: opts.port ?? Number(process.env.PORT ?? 8790), host: opts.host, webRoot: path.join(ROOT, "web", "dist"), log });
+    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, port: opts.port ?? Number(process.env.PORT ?? 8790), host: opts.host, webRoot: webRoot(), log });
     await gateway.start();
   }
   let stdio: StdioEndpoint | undefined;
