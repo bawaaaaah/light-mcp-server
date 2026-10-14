@@ -10,7 +10,8 @@
  *   SoloFrames → exclusive groups; level sliders on dimmer channels → groups with a master;
  *   buttons' MIDI notes → mappings (look.go, mode trigger) with the same notes pinned;
  *   level sliders' CCs → group.level mappings; SpeedDial tap on MIDI clock → tempo from MIDI clock;
- *   SpeedDial multipliers → cadence in beats and attack (QLC+ grid: 1 step = 1 tap = 1 beat).
+ *   SpeedDial multipliers → cadence in beats and attack (QLC+ grid: 1 step = 1 tap = 1 beat);
+ *   EFX (moving-head movements) → position-only looks with a Move FX on a group of their fixtures.
  */
 import type { QxwFunction, QxwWorkspace } from "./qxw-import.js";
 import { analyzeSequence, cellsFor, stepColors, type Rgbw } from "./qxw-analyze.js";
@@ -19,6 +20,10 @@ import { findMode } from "../venue/qxf-import.js";
 import { slugify } from "../data/store.js";
 import type { Canvas, PatchedFixture } from "../venue/venue.js";
 import type { Group, Look } from "../show/model.js";
+import type { Move } from "../engine/move.js";
+
+/** QLC+ EFX algorithm → Move FX shape; the others are approximated by a circle (reported). */
+const EFX_SHAPES: Record<string, Move["shape"]> = { Circle: "cercle", Eight: "huit", Line: "pan", Line2: "tilt" };
 import type { Mapping } from "../midi/mapping.js";
 
 /** QLC+ SpeedDial multiplier index → factor (VCSpeedDialFunction::SpeedMultiplier). */
@@ -118,9 +123,63 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   }
   converted.push(`${looks.length} looks (pas exacts, technique reconnue en étiquette)`);
 
+  const groupTaken = new Set<string>();
+  // EFX → position-only looks moving a group of their fixtures (format from QLC+'s efx.cpp).
+  const efxGroups: Group[] = [];
+  let efxCanvas: Canvas | null = null;
+  const efxFns = [...ws.functions.values()].filter((f) => f.type === "EFX" && f.efx);
+  for (const fn of efxFns) {
+    const efx = fn.efx!;
+    const moving = efx.fixtures.filter((f) => f.mode === 0 && fixtureIds.has(f.id));
+    if (efx.fixtures.some((f) => f.mode !== 0)) warnings.push(`EFX « ${fn.name} » : les parties gradateur ou RGB ne sont pas converties (seulement pan/tilt)`);
+    if (!moving.length) {
+      warnings.push(`EFX « ${fn.name} » : aucune fixture en mode position — non importé`);
+      continue;
+    }
+    const shape = EFX_SHAPES[efx.algorithm];
+    if (!shape) warnings.push(`EFX « ${fn.name} » : forme ${efx.algorithm} approximée par un cercle`);
+    if (efx.rotation) warnings.push(`EFX « ${fn.name} » : rotation de ${efx.rotation}° ignorée`);
+    if (efx.propagation === "Asymmetric") warnings.push(`EFX « ${fn.name} » : propagation asymétrique approximée (ailes)`);
+    const id = uniqueId(fn.name || `efx-${fn.id}`, lookTaken);
+    const groupId = uniqueId(`efx-${id}`, groupTaken);
+    const members = [...new Set(moving.map((f) => fixtureIds.get(f.id)!))];
+    efxGroups.push(group(groupId, `EFX · ${fn.name}`, { fixtures: members }));
+    if (!canvas && !efxCanvas) {
+      // no colour cells at all (a moving-head rig): a canvas of the moving fixtures to hold the looks
+      const all = [...new Set(efxFns.flatMap((f) => f.efx!.fixtures.map((x) => fixtureIds.get(x.id)).filter((x): x is string => Boolean(x))))];
+      efxCanvas = { id: "qlc", name: "Import QLC+", topology: "line", cells: all.length, render: all.map((f, i) => ({ from: i, to: i, targets: [{ fixture: f, head: -1 }] })) };
+    }
+    lookIds.set(fn.id, id);
+    const seconds = fn.speed.duration > 0 ? fn.speed.duration / 1000 : 20;
+    looks.push({
+      id,
+      name: fn.name,
+      canvas: "qlc",
+      technique: { kind: "aucune" },
+      move: {
+        shape: shape ?? "cercle",
+        center: { pan: efx.xOffset / 255, tilt: efx.yOffset / 255 },
+        size: { pan: Math.min(0.5, efx.width / 255), tilt: Math.min(0.5, efx.height / 255) },
+        every: { seconds },
+        // QLC+ « Serial » spreads the heads evenly over one cycle: the last one is (n-1)/n behind
+        spread: efx.propagation === "Serial" ? (members.length - 1) / Math.max(1, members.length) : efx.propagation === "Asymmetric" ? 0.5 : 0,
+        wings: efx.propagation === "Asymmetric",
+        reverse: fn.direction === "Backward",
+        fan: 0,
+        group: groupId,
+      },
+      timing: { every: { seconds: 1 }, attack: 0, order: "loop", entryFade: 0 },
+      manualOnly: false,
+      noCut: false,
+      danger: false,
+      tags: [`technique:efx-${efx.algorithm.toLowerCase()}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
+      notes: `Importé de QLC+ (EFX #${fn.id}) : ${efx.algorithm}, ${seconds} s par cycle, propagation ${efx.propagation}.`,
+    });
+  }
+  if (efxFns.length) converted.push(`${efxGroups.length} EFX → looks de mouvement (Move FX) sur leurs groupes`);
+
   // Exclusive groups from solo frames; level sliders on dimmers → groups with masters.
   const groups: Group[] = [];
-  const groupTaken = new Set<string>();
   for (const sf of ws.soloFrames) {
     const members = sf.members
       .map((wid) => ws.widgets.find((w) => w.id === wid)?.functionId)
@@ -148,6 +207,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     }
     if (other) warnings.push(`fader « ${w.caption} » : ${other} canal(aux) hors gradateur (blanc, UV, effet…) non convertis — à refaire en look ou en règle`);
   }
+  groups.push(...efxGroups);
   converted.push(`${groups.length} groupes (${groups.filter((g) => g.exclusive).length} exclusifs, ${groups.filter((g) => g.master).length} avec master)`);
 
   // MIDI mappings: same notes, same CCs.
@@ -169,7 +229,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   }
   converted.push(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`);
   if (tempoFromMidiClock) converted.push("tempo : horloge MIDI (molette QLC+ sur l'horloge de Live)");
-  return { fixtures, canvas, looks, groups, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
+  return { fixtures, canvas: canvas ?? efxCanvas, looks, groups, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
 }
 
 /** Entry fade in seconds when step 0 is a soft entry (fade ≥ 1 s and ≥ 3× the other steps' fades), else 0. */

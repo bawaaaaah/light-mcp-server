@@ -73,5 +73,6 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-14 | Règles | Correctif : chaque borne vient de la règle la plus précise (le show peut assouplir le type), conflit min/max tranché par la plus précise, `locked` par-dessus ; `rule.effective` avec provenance | [règles](specs/rules-limits.md) |
 | 2026-10-14 | Vocabulaire | **DCA** = le fader d'un groupe (pas « sub-master » ni « fader de groupe ») ; Groupe = l'objet | [groupes](specs/groups-masters.md) |
 | 2026-10-14 | Limites DCA | min/max sur le niveau du groupe, mode butée (défaut) ou course réduite ; mute = 0 ; flash plafonné au max | [groupes](specs/groups-masters.md) |
+| 2026-10-14 | Import EFX | EFX QLC+ → look de position + Move FX sur un groupe ; formes absentes approximées et signalées ; Serial = têtes réparties sur un cycle | [chants](specs/presets-songs-notes.md) |
 | 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

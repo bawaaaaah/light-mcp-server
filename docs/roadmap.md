@@ -40,7 +40,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Actions de la timeline des chants, lecture sans DAW | ✅ |
 | Planche (storyboard SVG d'un chant) | ✅ |
 | Aperçu 2D en direct de la scène (couleurs relues dans la sortie) | ✅ |
-| Lyres (pan/tilt 16 bits, Move FX, viser une zone, pad XY, roue de couleurs) | ✅ (calibration guidée et import des EFX QLC+ : plus tard ; à valider sur une vraie lyre) |
+| Lyres (pan/tilt 16 bits, Move FX, viser une zone, pad XY, roue de couleurs, import des EFX QLC+) | ✅ (calibration guidée : plus tard ; à valider sur une vraie lyre et un vrai workspace avec EFX) |
 
 ## Étape 1 : v0 « prochain culte »
 **Objectif** : remplacer le pipeline QLC+ actuel de l'utilisateur sur **un vrai événement**.

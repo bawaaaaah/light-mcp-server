@@ -78,7 +78,8 @@ Chant {
    - fixtures (avec `.qxf`), groupes ;
    - fonctions Scene, Sequence (SpeedModes Common/PerStep, FadeIn/Hold/FadeOut, RunOrder dont Random), Chaser, RGBMatrix, Collection ;
    - Virtual Console : SoloFrame, Button et Slider avec leurs `<Input>` MIDI, SpeedDial avec les multiplicateurs par fonction ;
-   - le profil d'entrée `.qxi` sert à retrouver les noms.
+   - le profil d'entrée `.qxi` sert à retrouver les noms ;
+   - **EFX** (mouvements de lyres, v1) → look de position (technique `aucune`) dont le Move FX anime un groupe de ses projecteurs : cercle, huit, lignes ; carré, losange, feuille et Lissajous **approximés par un cercle** (signalé) ; durée → cycle en secondes, Offset/Width/Height → centre et taille, `Serial` → têtes réparties sur un cycle, `Backward` → inversé ; parties gradateur ou RGB d'un EFX non converties (signalé). Format lu d'après le code de QLC+ (`efx.cpp`) : **à valider sur un vrai workspace contenant des EFX**.
 2. **Analyse** : extraction des palettes récurrentes, des structures de séquences, des notes MIDI (vers le registre) et des conventions de nommage.
 3. **Reconstruction** : chaque séquence est reconvertie, quand c'est possible, en **technique paramétrique** sur un canevas (damier, palette qui tourne, masques, orage…). Elle devient éditable et portable. Ce qui ne se reconnaît pas reste une séquence à pas importée telle quelle.
 4. Tout passe par une **proposition** (diff) avant d'être appliqué. En **mode hybride**, une réimportation conserve ce qui a été ajusté à la main.

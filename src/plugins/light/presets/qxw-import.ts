@@ -45,6 +45,23 @@ export interface QxwFunction {
   values: Map<number, Map<number, number>>;
   /** Collection members */
   members: number[];
+  /** EFX (moving-head movement), as QLC+ saves it (efx.cpp). */
+  efx?: QxwEfx;
+}
+
+export interface QxwEfx {
+  algorithm: string;
+  /** 0..127, half-amplitude on the 0..255 pan/tilt range */
+  width: number;
+  height: number;
+  rotation: number;
+  /** Parallel | Serial | Asymmetric */
+  propagation: string;
+  /** centre, 0..255 */
+  xOffset: number;
+  yOffset: number;
+  /** mode: 0 position, 1 dimmer, 2 RGB */
+  fixtures: { id: number; head: number; mode: number; direction?: string }[];
 }
 
 export type MidiBinding =
@@ -153,6 +170,20 @@ function parseFunction(f: Node): QxwFunction {
     const map = new Map<number, number>();
     for (let k = 0; k + 1 < nums.length; k += 2) map.set(nums[k]!, nums[k + 1]!);
     fn.values.set(num(fv["@_ID"]), map);
+  }
+  if (fn.type === "EFX") {
+    const axes = ([] as Node[]).concat((f["Axis"] as Node | Node[] | undefined) ?? []);
+    const axis = (name: string) => axes.find((a) => String(a["@_Name"]) === name);
+    fn.efx = {
+      algorithm: txt(f["Algorithm"]) || "Circle",
+      width: f["Width"] !== undefined ? num(f["Width"]) : 127,
+      height: f["Height"] !== undefined ? num(f["Height"]) : 127,
+      rotation: num(f["Rotation"]),
+      propagation: txt(f["PropagationMode"]) || "Parallel",
+      xOffset: axis("X")?.["Offset"] !== undefined ? num(axis("X")!["Offset"]) : 127,
+      yOffset: axis("Y")?.["Offset"] !== undefined ? num(axis("Y")!["Offset"]) : 127,
+      fixtures: ((f["Fixture"] as Node[] | undefined) ?? []).map((x) => ({ id: num(x["ID"]), head: num(x["Head"]), mode: num(x["Mode"]), direction: x["Direction"] !== undefined ? txt(x["Direction"]) : undefined })),
+    };
   }
   const fns = f["Function"];
   if (fn.type === "Collection" && fns) fn.members = (Array.isArray(fns) ? fns : [fns]).map((x) => num(x));

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace xmlns="http://www.qlcplus.org/Workspace"><Creator><Name>Q Light Controller Plus</Name><Version>4.13.0</Version></Creator>
+<Engine>
+<Fixture><Manufacturer>Test</Manufacturer><Model>Spot 7</Model><Mode>Standard</Mode><ID>0</ID><Name>Spot A</Name><Universe>0</Universe><Address>0</Address><Channels>7</Channels></Fixture>
+<Fixture><Manufacturer>Test</Manufacturer><Model>Spot 7</Model><Mode>Standard</Mode><ID>1</ID><Name>Spot B</Name><Universe>0</Universe><Address>10</Address><Channels>7</Channels></Fixture>
+<Function ID="60" Type="EFX" Name="Cercle lent" Path="Mouvements"><Speed FadeIn="0" FadeOut="0" Duration="8000"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><PropagationMode>Serial</PropagationMode><Algorithm>Circle</Algorithm><Width>64</Width><Height>32</Height><Rotation>0</Rotation><StartOffset>0</StartOffset><IsRelative>0</IsRelative><Axis Name="X"><Offset>127</Offset><Frequency>2</Frequency><Phase>90</Phase></Axis><Axis Name="Y"><Offset>191</Offset><Frequency>2</Frequency><Phase>0</Phase></Axis><Fixture><ID>0</ID><Head>0</Head><Mode>0</Mode><Direction>Forward</Direction><StartOffset>0</StartOffset></Fixture><Fixture><ID>1</ID><Head>0</Head><Mode>0</Mode><Direction>Forward</Direction><StartOffset>0</StartOffset></Fixture></Function>
+<Function ID="61" Type="EFX" Name="Lissajous"><Speed FadeIn="0" FadeOut="0" Duration="4000"/><Direction>Backward</Direction><RunOrder>Loop</RunOrder><PropagationMode>Parallel</PropagationMode><Algorithm>Lissajous</Algorithm><Width>127</Width><Height>127</Height><Rotation>45</Rotation><Axis Name="X"><Offset>127</Offset></Axis><Axis Name="Y"><Offset>127</Offset></Axis><Fixture><ID>0</ID><Head>0</Head><Mode>0</Mode></Fixture></Function>
+<Function ID="62" Type="EFX" Name="Couleurs seules"><Speed FadeIn="0" FadeOut="0" Duration="2000"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><PropagationMode>Parallel</PropagationMode><Algorithm>Circle</Algorithm><Fixture><ID>1</ID><Head>0</Head><Mode>2</Mode></Fixture></Function>
+</Engine>
+<VirtualConsole><Frame Caption="">
+<Button Caption="Cercle" ID="201"><Function ID="60"/><Action>Toggle</Action><Input Universe="0" Channel="188"/></Button>
+</Frame></VirtualConsole></Workspace>
