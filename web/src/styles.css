@@ -637,3 +637,19 @@ table.sections th {
 table.cues select {
   max-width: 14em;
 }
+
+.board-view {
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px;
+}
+.board-view svg {
+  max-width: 100%;
+  height: auto;
+}
+.board h2 a {
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.5em;
+}

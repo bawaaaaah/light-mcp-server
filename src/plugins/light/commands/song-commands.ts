@@ -11,6 +11,8 @@ import type { ShowRuntime } from "../show/runtime.js";
 import type { Mapping } from "../midi/mapping.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { cuesBetween, cueSheet, placeSections, sectionAt, SetlistSchema, songEnd, SongSchema, type Setlist, type Song } from "../songs/songs.js";
+import { songBoard } from "../songs/board.js";
+import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
 
 export interface SongState {
@@ -138,6 +140,29 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       s.publish({ ...s.state });
       return { stopped: was };
     },
+  });
+  reg.register({
+    name: "export.board",
+    title: "Planche d'un chant",
+    description: "Storyboard of a song as SVG: one band per section (height by length), the first steps of its look in colour on the canvas, cadence, cue and timeline actions. Printable.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({ song: z.string().optional() }),
+    run: ({ song: sid }) =>
+      songBoard(song(sid), (lookId) => {
+        const look = s.runtime.looks.get(lookId);
+        if (!look) return undefined;
+        let steps: (string | null)[][] = [];
+        try {
+          steps = s.runtime.stepsOf(look).map((st) => st.map((c) => (c ? displayHex(c) : null)));
+        } catch {
+          steps = [];
+        }
+        const e = look.timing.every;
+        const cadence = `${"beats" in e ? `${e.beats} t` : `${e.seconds} s`} par pas · ${look.timing.attack < 0.2 ? "claque" : look.timing.attack > 0.8 ? "respire" : `attaque ${Math.round(look.timing.attack * 100)} %`} · ${look.technique.kind}`;
+        return { name: look.name, steps, cadence };
+      }),
   });
   reg.register({ name: "song.section.go", title: "Lancer une section", description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }) => goSection(song(sid), section) });
   const step = (dir: 1 | -1) => () => {

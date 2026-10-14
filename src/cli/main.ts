@@ -24,6 +24,7 @@ const USAGE = `light <commande>
   import qxw <fichier> [--apply]  import d'un workspace QLC+ (proposition, puis --apply)
   export cuesheet [--setlist id]  feuille de conduite (Markdown)
   export notes [--csv]            table des notes MIDI
+  export board [--song id]        planche (storyboard SVG) d'un chant
   export ableton [--shell f]      MIDI Effect Rack depuis la coquille (data/private/)
   export liveset --setlist id --als f --track nom
                                   pose la setlist dans une copie du Live Set (Live fermé)
@@ -112,6 +113,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       apply: { type: "boolean", default: false },
       cadence: { type: "boolean", default: false },
       setlist: { type: "string" },
+      song: { type: "string" },
       csv: { type: "boolean", default: false },
       shell: { type: "string" },
       als: { type: "string" },
@@ -154,11 +156,12 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         const [kind] = positionals;
         if (kind === "cuesheet") console.log(await caller.call<string>("export.cuesheet", values.setlist ? { setlist: values.setlist } : {}));
         else if (kind === "notes") console.log(await caller.call<string>("export.notes", { format: values.csv ? "csv" : "markdown" }));
+        else if (kind === "board") console.log(await caller.call<string>("export.board", values.song ? { song: values.song } : {}));
         else if (kind === "ableton") json(await caller.call("export.ableton.rack", values.shell ? { shell: values.shell } : {}));
         else if (kind === "liveset") {
           if (!values.setlist || !values.als || !values.track) throw new CliError("usage : light export liveset --setlist <id> --als <fichier> --track <piste>");
           json(await caller.call("export.liveset", { setlist: values.setlist, als: values.als, track: values.track }));
-        } else throw new CliError("usage : light export cuesheet | notes | ableton | liveset");
+        } else throw new CliError("usage : light export cuesheet | notes | board | ableton | liveset");
         return 0;
       }
       case "osc-table":

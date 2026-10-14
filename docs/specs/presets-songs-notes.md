@@ -55,6 +55,7 @@ Chant {
 ### Exports
 - **Feuille de conduite** (Markdown/PDF) : par chant, les sections, le bouton et la note, le repère, la tonalité, le BPM, l'arc d'énergie et les sécurités.
 - **Planche** (SVG/PDF) : storyboard d'un chant (X = canevas, Y = temps, avec montée, maintien et descente) et plan de la salle par section.
+  - v1 (`export.board`, bouton ▤ de la page Chants, `light export board`) : une bande par section (hauteur selon sa durée), les premiers pas de son look en couleurs sur les cellules du canevas, cadence et attaque, repère, actions de la timeline ; SVG imprimable ou convertible en PDF. Plus tard : plan de la salle par section.
 - Racks Ableton, `.mid` et Live Set : voir [midi](midi.md).
 
 ## Base de connaissances couleur

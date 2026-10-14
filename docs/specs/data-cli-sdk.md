@@ -56,7 +56,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light check` | lint du show (schémas, conflits de notes, contraste, sections inertes) ; sortie 1 en cas d'erreur |
 | `light selftest [--cadence]` | auto-test : mappings, exclusivité, latence, cadence mesurée ; sortie 1 en cas d'échec |
 | `light import qxw <fichier> [--apply]` | import d'un workspace QLC+ : proposition, puis `--apply` pour écrire |
-| `light export cuesheet [--setlist id]` / `notes [--csv]` | feuille de conduite, table des notes |
+| `light export cuesheet [--setlist id]` / `notes [--csv]` / `board [--song id]` | feuille de conduite, table des notes, planche SVG d'un chant |
 | `light export ableton [--shell f]` | MIDI Effect Rack depuis la coquille |
 | `light export liveset --setlist id --als f --track nom` | pose la setlist dans une copie du Live Set (Live fermé) |
 | `light pack [fichier] [--no-venue]` / `light unpack <fichier>` | sauvegarde `.lightshow`, restauration avec copie de l'existant |
@@ -64,7 +64,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light osc-table` | adresses OSC |
 | `light call <commande> [json]` / `light commands` | n'importe quelle commande du registre, liste des commandes |
 
-Plus tard : planche (`board`), `--check` généralisé aux commandes d'écriture.
+Plus tard : `--check` généralisé aux commandes d'écriture.
 
 ## SDK de scripts (v1)
 Voir [`sdk/README.md`](../../sdk/README.md). Fait : client TypeScript `sdk/index.ts` (commandes, état, sauvegardes, sujets en direct par WebSocket, types du show), client Python `sdk/python/light_client.py` (bibliothèque standard, banc d'auto-test en ligne de commande), description **OpenAPI 3** générée depuis le registre (`GET /api/plugins/light/openapi.json`, validée avec Redocly). Reste : paquet npm publié.

@@ -40,6 +40,14 @@ export function SongsPage() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [setlists, setSetlists] = useState<Setlist[]>([]);
   const [sheet, setSheet] = useState<string | null>(null);
+  const [board, setBoard] = useState<{ title: string; svg: string; url: string } | null>(null);
+  const showBoard = (song: Song) =>
+    void cmd<string>("export.board", { song: song.id })
+      .then((svg) => {
+        if (board) URL.revokeObjectURL(board.url);
+        setBoard({ title: song.title, svg, url: URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })) });
+      })
+      .catch((e: Error) => setError(e.message));
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<SongDraft | null>(null);
   const [editingSetlist, setEditingSetlist] = useState<SetlistDraft | null>(null);
@@ -131,6 +139,9 @@ export function SongsPage() {
                 {t.bar} {Math.floor(state.position / (song.beatsPerBar ?? 4)) + 1}.{Math.floor(state.position % (song.beatsPerBar ?? 4)) + 1}
               </small>
             )}
+            <button className="ghost" aria-label={`${t.board} ${song.title}`} onClick={(e) => (e.stopPropagation(), showBoard(song))}>
+              ▤
+            </button>
             <button
               className="ghost"
               aria-label={`${t.edit} ${song.title}`}
@@ -157,6 +168,20 @@ export function SongsPage() {
           </div>
         </section>
       ))}
+      {board && (
+        <section className="board">
+          <h2>
+            {t.board} · {board.title}{" "}
+            <a href={board.url} download={`${board.title}.svg`}>
+              ⤓ SVG
+            </a>{" "}
+            <button className="ghost" onClick={() => setBoard(null)}>
+              ✕
+            </button>
+          </h2>
+          <div className="board-view" dangerouslySetInnerHTML={{ __html: board.svg }} />
+        </section>
+      )}
       {sheet && (
         <section>
           <h2>{t.cuesheet}</h2>

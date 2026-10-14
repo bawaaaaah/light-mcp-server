@@ -258,6 +258,20 @@ test("timeline action: placed in the song editor, fired by ▶ playback", async 
   expect(errors).toEqual([]);
 });
 
+test("storyboard of a song, shown and downloadable", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.getByRole("button", { name: "Planche Chant test" }).click();
+  const board = page.locator(".board-view svg");
+  await expect(board).toBeVisible();
+  await expect(board.locator("g.section")).toHaveCount(2);
+  await expect(board).toContainText("« début »");
+  await expect(page.locator(".board a", { hasText: "SVG" })).toHaveAttribute("download", "Chant test.svg");
+  await page.screenshot({ path: "test-results/board.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -8,6 +8,7 @@ import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { followPosition } from "../../../src/plugins/light/commands/song-commands.js";
 import { cuesBetween, placeSections, sectionAt, SongSchema } from "../../../src/plugins/light/songs/songs.js";
+import { XMLValidator } from "fast-xml-parser";
 import { readAls, summarize } from "../../../src/plugins/light/ableton/live-set.js";
 
 const song = SongSchema.parse({
@@ -148,6 +149,16 @@ describe("songs", () => {
       expect(sheet).to.contain("| 5 | Refrain | premier refrain | Look B | 40 (ch 1) |");
       expect(sheet).to.contain("- mesure 6.1 : public à 50 %");
       expect(sheet).to.contain("- mesure 11.1 : group.level id=public level=0");
+    });
+
+    it("draws the storyboard of a song in SVG", async () => {
+      const svg = (await run("export.board", { song: "chant" })) as string;
+      expect(XMLValidator.validate(svg)).to.equal(true);
+      expect(svg.match(/class="section"/g)).to.have.length(3);
+      expect(svg).to.contain("Look B");
+      expect(svg).to.contain('fill="#ff0000"'); // look A painted red on the canvas
+      expect(svg).to.contain("« premier refrain »");
+      expect(svg).to.contain("◆ mesure 6.1 : public à 50 %");
     });
 
     it("lays the setlist into a Live Set", async () => {
