@@ -97,6 +97,11 @@ export class Collection<T extends { id: string }> {
     return this.items.get(id);
   }
 
+  /** Normalises a value with the collection's schema (defaults applied), without storing it. */
+  parse(value: unknown): T {
+    return this.schema.parse(value);
+  }
+
   list(): T[] {
     return [...this.items.values()];
   }

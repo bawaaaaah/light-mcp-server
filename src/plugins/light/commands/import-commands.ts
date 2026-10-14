@@ -10,6 +10,10 @@ import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection, FolderStore } from "../data/store.js";
 import type { Mapping, MidiMapper } from "../midi/mapping.js";
 import { parseQxw } from "../presets/qxw-import.js";
+import { mergeImport } from "../presets/merge-import.js";
+
+/** Fingerprints of what the last import wrote, per collection and id (re-import « mode hybride »). */
+const ImportStateSchema = z.record(z.string(), z.record(z.string(), z.string()));
 import { qxwToShow } from "../presets/qxw-to-show.js";
 import { NoteRegistry, NoteRegistrySchema } from "../midi/note-registry.js";
 import type { TempoClock } from "../timing/tempo.js";
@@ -32,8 +36,8 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       "Converts a QLC+ workspace (.qxw) into the venue (patch, canvas) and the show (looks with exact steps tagged with the recognised technique, exclusive groups, masters, MIDI mappings with the same notes). Dry run unless apply is true. Give `file` (name inside data/imports) or `xml`.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ file: z.string().optional(), xml: z.string().optional(), apply: z.boolean().default(false) }),
-    run: ({ file, xml, apply }) => {
+    schema: z.object({ file: z.string().optional(), xml: z.string().optional(), apply: z.boolean().default(false), replace: z.boolean().default(false) }),
+    run: ({ file, xml, apply, replace }) => {
       let text = xml;
       if (!text) {
         if (!file) throw new Error("donner file ou xml");
@@ -51,12 +55,24 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       };
       if (!apply) return { applied: false, ...summary };
       const venue = s.runtime.venue;
-      for (const f of p.fixtures) venue.fixtures.put(f);
-      if (p.canvas) venue.canvases.put(p.canvas);
-      for (const l of p.looks) s.runtime.looks.put(l);
-      for (const g of p.groups) s.runtime.groups.put(g);
-      for (const f of p.faders) s.runtime.faders.put(f);
-      for (const m of p.mappings) s.mappings.put(m);
+      // « mode hybride »: untouched objects are updated, hand edits kept, live state always kept
+      const state = s.show.readManifest("import-state.json", ImportStateSchema, {});
+      const merge = <T extends { id: string }>(name: string, raw: T[], col: { get(id: string): T | undefined; put(v: unknown): T; parse(v: unknown): T }) => {
+        const incoming = raw.map((x) => col.parse(x)); // same defaults as what is stored, so fingerprints compare
+        const m = mergeImport(name, incoming as unknown as ({ id: string } & Record<string, unknown>)[], (id) => col.get(id) as unknown as ({ id: string } & Record<string, unknown>) | undefined, state[name] ?? {}, replace);
+        for (const item of m.write) col.put(item);
+        state[name] = { ...(state[name] ?? {}), ...m.fingerprints };
+        return { added: m.added.length, updated: m.updated.length, unchanged: m.unchanged.length, kept: m.kept, toCheck: m.toCheck };
+      };
+      const merged = {
+        fixtures: merge("fixtures", p.fixtures, venue.fixtures),
+        canvases: merge("canvases", p.canvas ? [p.canvas] : [], venue.canvases),
+        looks: merge("looks", p.looks, s.runtime.looks),
+        groups: merge("groups", p.groups, s.runtime.groups),
+        faders: merge("faders", p.faders, s.runtime.faders),
+        mappings: merge("mappings", p.mappings, s.mappings),
+      };
+      s.show.writeManifest("import-state.json", state);
       s.mapper.setMappings(s.mappings.list());
       const registry = new NoteRegistry(s.show.readManifest("notes-registry.json", NoteRegistrySchema, NoteRegistrySchema.parse({})));
       if (!registry.data.bands.some((b) => b.id === "import")) registry.data.bands.push({ id: "import", from: 0, to: 127, channel: 1 });
@@ -70,7 +86,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       }
       s.show.writeManifest("notes-registry.json", registry.data);
       if (p.tempoFromMidiClock) s.tempo.setSource("midi");
-      return { applied: true, ...summary, collisions };
+      return { applied: true, ...summary, merged, collisions };
     },
   });
 

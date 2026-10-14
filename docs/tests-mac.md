@@ -77,6 +77,12 @@ Résultats anonymisés dans `research/proto-resultats.md` (section P6).
 6. **Plantage simulé** : un look qui joue, arrêter le serveur (Ctrl-C) et le relancer aussitôt : la lumière revient telle quelle en quelques secondes (message « Reprise après redémarrage » dans le terminal).
 7. **Avec Ableton** (profil MIDI « local », bus IAC) : demander à l'utilisateur de jouer sa setlist ; les sections doivent suivre les clips, et la reprise au milieu d'une section (scrub) doit rallumer la bonne section quand « Suivre la position MIDI » est actif.
 
+## 6 bis. Réimporter le vrai show (après les mises à jour du 2026-10-15)
+Les faders QLC+ hors gradateur (blanc, UV, strobe, machines) deviennent maintenant des **faders de canaux**, et les Submasters des DCA. Réimporter le workspace **sans `--replace`** : `npm run light -- import qxw data/imports/<copie>.qxw` (proposition), puis `--apply`.
+- Le rapport « Fusion avec le show existant » doit montrer des faders de canaux **ajoutés**, les looks **identiques** (ou mis à jour si le workspace a changé), et rien de retouché à la main écrasé (liste « conservés »).
+- Les looks importés avant ce suivi et différents apparaissent « à vérifier » : ils sont conservés.
+- Relancer l'auto-test (avec la cadence) : 100 % attendu ; vérifier dans la page Show que les faders de canaux listent les bons canaux.
+
 ## 7. Rapport
 - Compléter `docs/research/proto-resultats.md` (tableau de synthèse + une section par prototype, résultats anonymisés).
 - Mettre à jour `docs/HANDOFF.md` (« Où on en est ») et `docs/roadmap.md` (avancement).

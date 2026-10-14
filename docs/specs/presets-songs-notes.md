@@ -83,7 +83,10 @@ Chant {
    - **EFX** (mouvements de lyres, v1) → look de position (technique `aucune`) dont le Move FX anime un groupe de ses projecteurs : cercle, huit, lignes ; carré, losange, feuille et Lissajous **approximés par un cercle** (signalé) ; durée → cycle en secondes, Offset/Width/Height → centre et taille, `Serial` → têtes réparties sur un cycle, `Backward` → inversé ; parties gradateur ou RGB d'un EFX non converties (signalé). Format lu d'après le code de QLC+ (`efx.cpp`) : **à valider sur un vrai workspace contenant des EFX**.
 2. **Analyse** : extraction des palettes récurrentes, des structures de séquences, des notes MIDI (vers le registre) et des conventions de nommage.
 3. **Reconstruction** : chaque séquence est reconvertie, quand c'est possible, en **technique paramétrique** sur un canevas (damier, palette qui tourne, masques, orage…). Elle devient éditable et portable. Ce qui ne se reconnaît pas reste une séquence à pas importée telle quelle.
-4. Tout passe par une **proposition** (diff) avant d'être appliqué. En **mode hybride**, une réimportation conserve ce qui a été ajusté à la main.
+4. Tout passe par une **proposition** (diff) avant d'être appliqué. En **mode hybride** (v1), une réimportation conserve ce qui a été ajusté à la main :
+   - l'import mémorise l'empreinte de ce qu'il a écrit (`import-state.json` du show) ; un objet **inchangé depuis** est mis à jour avec la nouvelle version QLC+, un objet **modifié à la main est conservé** et signalé ;
+   - toujours conservés : position, montage, orientation, rôle et notes des projecteurs ; niveau, mute et limites des DCA ; niveau des faders de canaux ;
+   - objets importés avant ce suivi et différents : conservés et listés « à vérifier » ; `replace` (CLI `--replace`) écrase volontairement les retouches (l'état en direct et les champs utilisateur restent).
 
 ## Tests
 - Palettes par référence et détachement.

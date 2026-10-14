@@ -21,7 +21,9 @@ const USAGE = `light <commande>
   roles                           liste des rôles
   check                           vérifie le show (lint) ; code de sortie 1 en cas d'erreur
   selftest [--cadence]            auto-test (mappings, exclusivité, latence, cadence)
-  import qxw <fichier> [--apply]  import d'un workspace QLC+ (proposition, puis --apply)
+  import qxw <fichier> [--apply] [--replace]
+                                  import d'un workspace QLC+ (proposition, puis --apply) ; une réimportation
+                                  garde les retouches faites à la main (--replace : les écraser)
   export cuesheet [--setlist id]  feuille de conduite (Markdown)
   export notes [--csv]            table des notes MIDI
   export board [--song id]        planche (storyboard SVG) d'un chant
@@ -111,6 +113,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       offline: { type: "boolean", default: false },
       url: { type: "string" },
       apply: { type: "boolean", default: false },
+      replace: { type: "boolean", default: false },
       cadence: { type: "boolean", default: false },
       setlist: { type: "string" },
       song: { type: "string" },
@@ -149,7 +152,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       case "import": {
         const [kind, file] = positionals;
         if (kind !== "qxw" || !file) throw new CliError("usage : light import qxw <fichier> [--apply]");
-        json(await caller.call("import.qxw", { xml: readFileSync(file, "utf8"), apply: values.apply }));
+        json(await caller.call("import.qxw", { xml: readFileSync(file, "utf8"), apply: values.apply, replace: values.replace }));
         if (!values.apply) console.error("(proposition seulement : relancer avec --apply pour écrire)");
         return 0;
       }
