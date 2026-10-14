@@ -3,11 +3,11 @@
  * songs or actions — never to DMX channels — stored in the show and shared by every screen.
  */
 import { z } from "zod";
-import type { Group, Look } from "../show/model.js";
+import type { ChannelFader, Group, Look } from "../show/model.js";
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview"]),
+  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview", "channel-fader"]),
   /** Grid position (columns × rows of the dashboard). */
   x: z.number().int().min(0),
   y: z.number().int().min(0),
@@ -34,7 +34,7 @@ export const DashboardSchema = z.object({
 export type Dashboard = z.infer<typeof DashboardSchema>;
 
 /** A first dashboard built from the show: safety bar, one row per exclusive group, then faders (and an XY pad for moving heads). */
-export function defaultDashboard(looks: Look[], groups: Group[], movingHeads = false): Dashboard {
+export function defaultDashboard(looks: Look[], groups: Group[], movingHeads = false, faders: ChannelFader[] = []): Dashboard {
   const widgets: Widget[] = [
     { id: "panic", kind: "panic", x: 0, y: 0, w: 3, h: 1 },
     { id: "blackout", kind: "blackout", x: 3, y: 0, w: 2, h: 1 },
@@ -59,9 +59,15 @@ export function defaultDashboard(looks: Look[], groups: Group[], movingHeads = f
   groups
     .filter((g) => g.master)
     .forEach((g, i) => widgets.push({ id: `fader-${g.id}`, kind: "group-fader", target: g.id, x: i % 12, y: y + Math.floor(i / 12) * 4, w: 1, h: 4 }));
+  // channel faders (white, UV, strobe, machines) after the DCAs
+  const dcas = groups.filter((g) => g.master).length;
+  faders.forEach((f, k) => {
+    const i = dcas + k;
+    widgets.push({ id: `channels-${f.id}`, kind: "channel-fader", target: f.id, x: i % 12, y: y + Math.floor(i / 12) * 4, w: 1, h: 4 });
+  });
   if (movingHeads) {
-    const faders = groups.filter((g) => g.master).length;
-    widgets.push({ id: "xy", kind: "xy", x: faders > 8 ? 0 : 9, y: faders > 8 ? y + Math.ceil(faders / 12) * 4 : y, w: 3, h: 4, label: "Lyres" });
+    const faderCount = groups.filter((g) => g.master).length + faders.length;
+    widgets.push({ id: "xy", kind: "xy", x: faderCount > 8 ? 0 : 9, y: faderCount > 8 ? y + Math.ceil(faderCount / 12) * 4 : y, w: 3, h: 4, label: "Lyres" });
   }
   return { id: "principal", name: "Principal", columns: 12, widgets };
 }

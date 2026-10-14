@@ -55,6 +55,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       if (p.canvas) venue.canvases.put(p.canvas);
       for (const l of p.looks) s.runtime.looks.put(l);
       for (const g of p.groups) s.runtime.groups.put(g);
+      for (const f of p.faders) s.runtime.faders.put(f);
       for (const m of p.mappings) s.mappings.put(m);
       s.mapper.setMappings(s.mappings.list());
       const registry = new NoteRegistry(s.show.readManifest("notes-registry.json", NoteRegistrySchema, NoteRegistrySchema.parse({})));

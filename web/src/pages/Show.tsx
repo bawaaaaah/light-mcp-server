@@ -24,6 +24,12 @@ interface Group {
   members: { fixtures: string[]; looks: string[]; groups: string[] };
   effectiveLevel: number;
 }
+interface ChannelFader {
+  id: string;
+  name: string;
+  level: number;
+  channels: { fixture: string; offset: number }[];
+}
 interface Canvas {
   id: string;
   name: string;
@@ -42,6 +48,7 @@ export function ShowPage() {
   const t = useT();
   const [looks, setLooks] = useState<Look[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [lint, setLint] = useState<Lint | null>(null);
@@ -54,6 +61,7 @@ export function ShowPage() {
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
     void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
+    void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
     void cmd<Canvas[]>("venue.canvas.list").then((c) => {
       setCanvases(c);
       setIntent((i) => (i.canvas || !c[0] ? i : { ...i, canvas: c[0].id }));
@@ -61,7 +69,7 @@ export function ShowPage() {
     void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "group.", "import.", "show.settings", "show.autopresets", "song.grid_fill"], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.autopresets", "song.grid_fill"], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const intentArgs = (save: boolean) => ({
@@ -311,6 +319,27 @@ export function ShowPage() {
           </tbody>
         </table>
       </section>
+      {faders.length > 0 && (
+        <section>
+          <h2>
+            {t.channelFaders} ({faders.length})
+          </h2>
+          <p className="hint">{t.channelFadersHelp}</p>
+          <table>
+            <tbody>
+              {faders.map((f) => (
+                <tr key={f.id}>
+                  <td>{f.name}</td>
+                  <td>
+                    <small>{f.channels.map((c) => `${c.fixture}+${c.offset + 1}`).join(", ")}</small>
+                  </td>
+                  <td>{Math.round(f.level * 100)} %</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   );
 }

@@ -28,10 +28,10 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Techniques, lecteur, groupes, panic | ✅ |
 | MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) |
 | Chants, setlist, suivi SPP | ✅ |
-| Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; à faire à la main : 4 modèles sans `.qxf`, ~11 faders QLC+ hors gradateur (blanc, UV, effets) |
+| Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; faders hors gradateur et Submasters convertis depuis le 2026-10-15 (à réimporter) ; à faire : 4 modèles sans `.qxf` |
 | Exports Ableton (rack, Live Set), conduite | ✅ rack chargé dans Live ; Live Set à ouvrir dans Live |
 | Conception assistée + ressources MCP | ✅ v1 |
-| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 24 scénarios) ; reste à la voir sur tablette et sur le Mac |
+| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 25 scénarios) ; reste à la voir sur tablette et sur le Mac |
 | Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
 | Archives `.lightshow`, notes partout, Web MIDI, explorateur OSC | ✅ |
 | Éditeur de looks (paramètres, pas, cadence, Move FX, aperçu animé) | ✅ |

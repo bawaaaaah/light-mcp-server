@@ -9,7 +9,7 @@ import { displayHex } from "../engine/display.js";
 import type { CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
-import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
+import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
@@ -160,12 +160,41 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     const g = show.groups.get(groupId);
     if (!g) throw new Error(`groupe inconnu : ${groupId}`);
     const master = { level: g.master?.level ?? 1, mute: g.master?.mute ?? false, ...patch };
-    show.groups.put({ ...g, master });
+    show.groups.putLive({ ...g, master }); // a fader moves many times a second: no backup per move
     return { id: groupId, ...master, effectiveLevel: show.effectiveLevel(groupId) };
   };
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
   reg.register({ name: "group.mute", title: "Mute de groupe", description: "Mutes or unmutes a group master (the level is kept).", right: "commands:level", profiles: ["live"], schema: z.object({ id: z.string(), mute: z.boolean() }), run: ({ id: i, mute }) => withMaster(i, { mute }) });
   reg.register({ name: "group.flash", title: "Flash de groupe", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
+
+  // ---- channel faders (white, UV, strobe, machines — like QLC+ « Level » sliders)
+  reg.register({ name: "fader.list", title: "Faders de canaux", description: "Channel faders: raw channels (white, UV, strobe, machines…) driven at a level, highest-takes-precedence with the show.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.faders.list() });
+  reg.register({
+    name: "fader.put",
+    title: "Fader de canaux",
+    description: "Creates or updates a channel fader: name, channels as {fixture, offset from its address (0-based)}, level 0..1. The rules mask still applies after it.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ fader: ChannelFaderSchema }),
+    run: ({ fader }) => {
+      for (const c of fader.channels) if (!venue.fixtures.get(c.fixture)) throw new Error(`fixture inconnue : ${c.fixture}`);
+      return show.faders.put(fader);
+    },
+  });
+  reg.register({ name: "fader.delete", title: "Supprimer un fader de canaux", description: "Deletes a channel fader.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: show.faders.delete(i) }) });
+  reg.register({
+    name: "fader.level",
+    title: "Niveau d'un fader de canaux",
+    description: "Sets a channel fader's level (0..1).",
+    right: "commands:level",
+    profiles: ["live", "design"],
+    schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }),
+    run: ({ id: i, level }) => {
+      const f = show.faders.get(i);
+      if (!f) throw new Error(`fader inconnu : ${i}`);
+      return show.faders.putLive({ ...f, level });
+    },
+  });
 
   // ---- rules
   const where = z.enum(["venue", "show"]).default("show");
@@ -212,7 +241,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["design", "live"],
     schema: z.object({}),
     run: () => {
-      if (dashboards.list().length === 0) return [defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0)];
+      if (dashboards.list().length === 0) return [defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0, show.faders.list())];
       return dashboards.list();
     },
   });
@@ -225,7 +254,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string().default("principal"), name: z.string().default("Principal") }),
-    run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0), id: i, name }),
+    run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0, show.faders.list()), id: i, name }),
   });
 
   // ---- notes everywhere

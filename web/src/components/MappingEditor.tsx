@@ -26,13 +26,14 @@ interface Named {
 }
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
-const ACTIONS = ["look", "dca", "flash", "section", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
+const ACTIONS = ["look", "dca", "fader", "flash", "section", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
 type Action = (typeof ACTIONS)[number];
 
 function actionOf(m: MappingDraft): { action: Action; target: string } {
   const id = String(m.on.args.id ?? "");
   if (m.on.command === "look.go") return { action: "look", target: id };
   if (m.on.command === "group.level") return { action: "dca", target: id };
+  if (m.on.command === "fader.level") return { action: "fader", target: id };
   if (m.on.command === "group.flash") return { action: "flash", target: id };
   if (m.on.command === "song.section.go") return { action: "section", target: `${String(m.on.args.song ?? "")}/${String(m.on.args.section ?? "")}` };
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
@@ -45,6 +46,8 @@ function build(m: MappingDraft, action: Action, target: string): MappingDraft {
       return { ...base, on: { command: "look.go", args: { id: target } }, off: m.mode === "trigger" ? undefined : { command: "look.stop", args: { id: target } } };
     case "dca":
       return { ...base, on: { command: "group.level", args: { id: target } }, levelArg: "level" };
+    case "fader":
+      return { ...base, on: { command: "fader.level", args: { id: target } }, levelArg: "level" };
     case "flash":
       return { ...base, mode: "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
     case "section": {
@@ -67,6 +70,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [looks, setLooks] = useState<Named[]>([]);
   const [groups, setGroups] = useState<Named[]>([]);
   const [songs, setSongs] = useState<Named[]>([]);
+  const [faders, setFaders] = useState<Named[]>([]);
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
 
@@ -74,10 +78,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     void cmd<Named[]>("look.list").then(setLooks);
     void cmd<Named[]>("group.list").then(setGroups);
     void cmd<Named[]>("song.list").then(setSongs);
+    void cmd<Named[]>("fader.list").then(setFaders);
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" ? groups : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" ? groups : action === "fader" ? faders : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
@@ -120,7 +125,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         </button>
         <label className="field">
           <span>{t.mode}</span>
-          <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca"}>
+          <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca" || action === "fader"}>
             {(["trigger", "latch", "momentary"] as const).map((x) => (
               <option key={x} value={x}>
                 {t.modes[x]}

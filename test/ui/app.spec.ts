@@ -507,6 +507,26 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
   expect(errors).toEqual([]);
 });
 
+test("channel fader: on a dashboard, it drives its channels", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "fader.put", { fader: { id: "blanc", name: "Blanc", channels: [{ fixture: "bar-0", offset: 2 }], level: 0 } });
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(".dashboards .bar select").selectOption("channel-fader");
+  await page.locator(".dashboards .editor select").first().selectOption("blanc");
+  await page.getByRole("button", { name: "✔" }).click();
+  const fader = page.getByLabel("Fader de canaux Blanc");
+  await expect(fader).toBeVisible();
+  await fader.fill("1000");
+  await expect.poll(async () => (await dmx(page))[2]).toBe(255);
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await expect(page.locator("section", { hasText: "Faders de canaux" }).locator("tr", { hasText: "Blanc" })).toContainText("100 %");
+  await api(page, "fader.delete", { id: "blanc" });
+  await expect.poll(async () => (await dmx(page))[2]).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
