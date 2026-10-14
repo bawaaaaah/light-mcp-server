@@ -10,7 +10,7 @@ const universe = z.number().int().min(1).describe("Univers (1..N)");
 const channel = z.number().int().min(1).max(512).describe("Canal DMX (1..512)");
 const value = z.number().int().min(0).max(255).describe("Valeur (0..255)");
 
-export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, router: OutputRouter): void {
+export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, router: OutputRouter, persistStandby: (on: boolean) => Promise<void> = async () => undefined): void {
   reg.register({
     name: "dmx.get",
     title: "Lire un univers",
@@ -72,7 +72,22 @@ export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, ro
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => ({ config: router.getConfig(), stats: router.stats, frames: engine.frames }),
+    run: () => ({ config: router.getConfig(), stats: router.stats, frames: engine.frames, standby: router.isStandby(), foreignSources: router.foreignSources(), merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })) }),
+  });
+
+  reg.register({
+    name: "output.standby",
+    title: "Sortie en veille",
+    description:
+      "Standby (on): the show keeps running and following MIDI, but no Art-Net/sACN is sent, so another console (QLC+) can hold the nodes without a merge. Off: every universe is sent again at once. Kept across restarts. Used for the switchover with QLC+ (docs/bascule-qlc.md).",
+    right: "commands:output",
+    profiles: ["setup", "live"],
+    schema: z.object({ on: z.boolean() }),
+    run: async ({ on }) => {
+      router.setStandby(on);
+      await persistStandby(on);
+      return { standby: on, foreignSources: router.foreignSources().map((f) => f.ip) };
+    },
   });
 
   reg.register({

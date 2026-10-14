@@ -233,6 +233,22 @@ test("dashboard editor: add a label widget and save", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("output standby: visible everywhere, then take over", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page, "9999");
+  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.getByRole("button", { name: "⏸ Mettre en veille" }).click();
+  await expect(page.locator("header .badge.standby")).toContainText("Veille");
+  await page.locator("header nav button", { hasText: "Live" }).click();
+  await expect(page.locator("header .badge.standby")).toBeVisible(); // on every page
+  await page.screenshot({ path: "test-results/standby.png" });
+  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.getByRole("button", { name: "▶ Reprendre la main" }).click();
+  await expect(page.locator("header .badge.standby")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("a volunteer cannot write the show", async ({ page }) => {
   await login(page, "5678");
   await page.getByRole("button", { name: "Console DMX" }).click();

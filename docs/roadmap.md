@@ -31,7 +31,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Import QLC+ + auto-test (critère v0) | ✅ (à rejouer sur le vrai workspace avec les `.qxf` de l'utilisateur) |
 | Exports Ableton (rack, Live Set), conduite | ✅ (à ouvrir dans Live) |
 | Conception assistée + ressources MCP | ✅ v1 |
-| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 11 scénarios) ; reste à la voir sur tablette et sur le Mac |
+| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 12 scénarios) ; reste à la voir sur tablette et sur le Mac |
 | Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
 | Archives `.lightshow`, notes partout, Web MIDI, explorateur OSC | ✅ |
 | Éditeur de looks (paramètres, pas, cadence, Move FX, aperçu animé) | ✅ |
@@ -56,7 +56,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 
 **Plan de secours**
 - QLC+ reste prêt à prendre la main pendant toute la transition : mêmes nodes et un Art-Net qu'on bascule.
-- La procédure de bascule est écrite dans la doc.
+- La procédure de bascule est écrite dans la doc : ✅ [bascule-qlc.md](bascule-qlc.md) (sortie en veille, alerte « autre console », `light serve --standby`) ; à répéter sur le vrai réseau ([tests-mac](tests-mac.md), étape 5 bis).
 
 ## Étape 2 : phases en parallèle
 Ces chantiers avancent ensemble. Chacun a sa spec :

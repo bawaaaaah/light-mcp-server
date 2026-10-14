@@ -94,6 +94,23 @@ describe("server end to end", function () {
     expect(performance.now() - t0).to.be.below(50);
   });
 
+  it("goes on standby (nothing sent) and back (everything resent at once)", async () => {
+    const token = await login("1234");
+    expect((await command(token, "output.standby", { on: true })).status).to.equal(200);
+    const silent = node.next((d) => d[2] === 77, 400).then(
+      () => "received",
+      () => "silent",
+    );
+    await command(token, "dmx.set", { universe: 1, channel: 3, value: 77 });
+    expect(await silent).to.equal("silent");
+    const status = (await (await command(token, "output.status", {})).json()) as { result: { standby: boolean } };
+    expect(status.result.standby).to.equal(true);
+    const back = node.next((d) => d[2] === 77, 500);
+    await command(token, "output.standby", { on: false });
+    await back;
+    await command(token, "dmx.release", { universe: 1, channels: [3] });
+  });
+
   it("enforces role rights", async () => {
     const token = await login("5678");
     const res = await command(token, "dmx.set", { universe: 1, channel: 2, value: 10 });

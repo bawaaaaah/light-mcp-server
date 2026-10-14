@@ -113,6 +113,8 @@ export interface PollReply {
   status2: number;
   /** Port-Addresses this node outputs, derived from Net/Sub-Net/SwOut and the output port types. */
   outputAddresses: number[];
+  /** Output port-addresses the node reports as merging two sources (GoodOutput bit 3). */
+  merging: number[];
 }
 
 function cString(buf: Buffer, start: number, length: number): string {
@@ -126,6 +128,7 @@ function ipAt(buf: Buffer, offset: number): string {
 }
 
 const PORT_TYPE_OUTPUT = 0x80;
+const GOOD_OUTPUT_MERGING = 0x08;
 
 export function decodePollReply(buf: Buffer): PollReply | null {
   if (readOpCode(buf) !== OpCode.PollReply || buf.length < POLL_REPLY_MIN_LENGTH) return null;
@@ -136,9 +139,14 @@ export function decodePollReply(buf: Buffer): PollReply | null {
   const swOut = [190, 191, 192, 193].map(byteAt);
   const netSwitch = byteAt(18);
   const subSwitch = byteAt(19);
+  const goodOutput = [182, 183, 184, 185].map(byteAt);
   const outputAddresses: number[] = [];
+  const merging: number[] = [];
   for (let i = 0; i < numPorts; i++) {
-    if (portTypes[i]! & PORT_TYPE_OUTPUT) outputAddresses.push(portAddress(netSwitch, subSwitch, swOut[i]!));
+    if (!(portTypes[i]! & PORT_TYPE_OUTPUT)) continue;
+    const addr = portAddress(netSwitch, subSwitch, swOut[i]!);
+    outputAddresses.push(addr);
+    if (goodOutput[i]! & GOOD_OUTPUT_MERGING) merging.push(addr);
   }
   return {
     ip: ipAt(buf, 10),
@@ -161,6 +169,7 @@ export function decodePollReply(buf: Buffer): PollReply | null {
     bindIndex: byteAt(211),
     status2: byteAt(212),
     outputAddresses,
+    merging,
   };
 }
 
@@ -174,6 +183,8 @@ export interface PollReplyInit {
   swOut: number[];
   mac?: string;
   bindIndex?: number;
+  /** Ports reporting a merge of two sources. */
+  merging?: boolean[];
 }
 
 /** Encodes an ArtPollReply. Used by tests and by the fake node; a controller never sends one. */
@@ -190,6 +201,7 @@ export function encodePollReply(init: PollReplyInit): Buffer {
   ports.forEach((uni, i) => {
     buf.writeUInt8(PORT_TYPE_OUTPUT, 174 + i);
     buf.writeUInt8(uni & 0x0f, 190 + i);
+    if (init.merging?.[i]) buf.writeUInt8(GOOD_OUTPUT_MERGING, 182 + i);
   });
   (init.mac ?? "00:00:00:00:00:00").split(":").forEach((h, i) => buf.writeUInt8(parseInt(h, 16) & 0xff, 201 + i));
   init.ip.split(".").forEach((part, i) => buf.writeUInt8(Number(part) & 0xff, 207 + i));

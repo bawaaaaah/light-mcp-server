@@ -53,6 +53,8 @@ export const LightConfigSchema = z.object({
       artSync: z.boolean().optional(),
       sourceName: z.string().optional(),
       routes: z.array(RouteSchema),
+      /** Standby: the show runs but nothing is sent (QLC+ or another console holds the nodes). Kept across restarts. */
+      standby: z.boolean().default(false),
     })
     .default({ routes: [{ universe: 1, artnet: { portAddress: 0 } }] }),
   discovery: z.boolean().default(true),
@@ -78,6 +80,8 @@ export interface LightPluginOptions {
   auth?: AuthMiddleware;
   /** Root of the data folders (machine/venues/shows). Default: <repo>/data. */
   dataRoot?: string;
+  /** Start on standby (true) or sending (false), overriding and saving the config (`light serve --standby | --live`). */
+  standby?: boolean;
   /** Test seams. */
   tickerRateHz?: number;
   midiNative?: null;
@@ -103,6 +107,7 @@ export class LightPlugin implements McpPlugin {
 
   constructor(private readonly opts: LightPluginOptions) {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
+    if (opts.standby !== undefined) this.config = { ...this.config, output: { ...this.config.output, standby: opts.standby } };
     this.engine = new DmxEngine(this.config.universes, { rateHz: opts.tickerRateHz });
     this.router = new OutputRouter(this.config.output as OutputConfig);
     this.commands.onStateChange = () => {
@@ -113,7 +118,11 @@ export class LightPlugin implements McpPlugin {
       this.publish("command", e);
       if (e.ok) this.syncMidiFeedback();
     });
-    registerCoreCommands(this.commands, this.engine, this.router);
+    registerCoreCommands(this.commands, this.engine, this.router, async (standby) => {
+      this.config = { ...this.config, output: { ...this.config.output, standby } };
+      await this.opts.config?.set(this.config);
+      if (!standby) this.syncMidiFeedback(true); // take the controllers' LEDs back too
+    });
 
     const dataRoot = opts.dataRoot ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../data");
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
@@ -199,7 +208,9 @@ export class LightPlugin implements McpPlugin {
    * MIDI feedback follows the real state, whatever changed it (UI, OSC, MCP, timeline, MIDI):
    * look mappings light up when their look plays, level mappings mirror their group's master.
    */
-  syncMidiFeedback(): void {
+  /** Sends MIDI feedback for state changes (all of it with `full`); silent on standby, where QLC+ holds the controllers. */
+  syncMidiFeedback(full = false): void {
+    if (this.router.isStandby()) return;
     const out: number[][] = [];
     for (const m of this.mapper.list()) {
       const target = String(m.on.args.id ?? "");
@@ -209,7 +220,7 @@ export class LightPlugin implements McpPlugin {
         if (g?.master) out.push(...this.mapper.syncState(m.id, !g.master.mute && g.master.level > 0, g.master.level));
       }
     }
-    this.hub.sendFeedback(out);
+    this.hub.sendFeedback(full ? this.mapper.allFeedback() : out);
   }
 
   /** Every MIDI message: tempo follows the clock; mappings turn the rest into commands. */
@@ -219,7 +230,7 @@ export class LightPlugin implements McpPlugin {
     if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
     this.publish("midi", { monitor: { port: m.port, source: m.source, msg: m.msg, at: Date.now() } });
     const out = this.mapper.handle(m.msg, m.port);
-    this.hub.sendFeedback(out.feedback);
+    if (!this.router.isStandby()) this.hub.sendFeedback(out.feedback);
     for (const call of out.calls) {
       this.commands.invoke(call.command, call.args, { origin: "midi", can: () => true }).catch((err: Error) => this.publish("midi", { error: `${call.command} : ${err.message}` }));
     }
@@ -229,8 +240,14 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { blackout: boolean; universes: number; discovery: string } {
-    return { blackout: this.engine.isBlackout(), universes: this.config.universes, discovery: this.router.stats.discovery };
+  state(): { blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[] } {
+    return {
+      blackout: this.engine.isBlackout(),
+      universes: this.config.universes,
+      discovery: this.router.stats.discovery,
+      standby: this.router.isStandby(),
+      foreignSources: this.router.foreignSources().map((f) => f.ip),
+    };
   }
 
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
@@ -240,11 +257,23 @@ export class LightPlugin implements McpPlugin {
   }
 
   async start(): Promise<void> {
+    if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
     await this.router.start({ discovery: this.config.discovery });
+    if (this.router.isStandby()) console.warn("Sortie en veille : rien n'est envoyé aux nodes (Réglages → Reprendre la main, ou light serve --live).");
     this.engine.start();
     await this.hub.start();
     await this.osc.start().catch((err: Error) => console.warn(`OSC indisponible sur le port ${this.config.osc.port} : ${err.message}`));
-    this.tempoTimer = setInterval(() => this.publish("tempo", this.tempo.state()), 250);
+    let lastState = "";
+    let ticks = 0;
+    this.tempoTimer = setInterval(() => {
+      this.publish("tempo", this.tempo.state());
+      // Output state (standby, other Art-Net sources) changes without commands: check it every second.
+      if (++ticks % 4) return;
+      const state = this.state();
+      const key = JSON.stringify(state);
+      if (key !== lastState) this.publish("state", state);
+      lastState = key;
+    }, 250);
     this.tempoTimer.unref();
     this.started = true;
   }

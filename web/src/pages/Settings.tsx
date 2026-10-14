@@ -15,6 +15,9 @@ interface Node {
   outputAddresses: number[];
 }
 interface Output {
+  standby: boolean;
+  foreignSources: { ip: string; portAddresses: number[] }[];
+  merging: { ip: string; shortName: string; portAddresses: number[] }[];
   stats: { framesSent: number; packetsSent: number; errors: number; discovery: string; discoveryError?: string };
   config: { routes: { universe: number; artnet?: { portAddress: number }; sacn?: { universe: number } }[] };
 }
@@ -55,6 +58,28 @@ export function SettingsPage() {
       <div className="cols">
         <section>
           <h2>{t.output}</h2>
+          {output && (
+            <div className="row standby-bar">
+              {output.standby ? (
+                <button className="primary" onClick={() => confirm(t.takeOverConfirm) && void cmd("output.standby", { on: false }).then(() => cmd<Output>("output.status").then(setOutput))}>
+                  ▶ {t.takeOver}
+                </button>
+              ) : (
+                <button onClick={() => confirm(t.standbyConfirm) && void cmd("output.standby", { on: true }).then(() => cmd<Output>("output.status").then(setOutput))}>⏸ {t.goStandby}</button>
+              )}
+              {output.standby && <span className="badge standby">{t.standby}</span>}
+            </div>
+          )}
+          {output?.foreignSources.map((f) => (
+            <p key={f.ip} className={output.standby ? "hint" : "error"}>
+              {output.standby ? t.otherHolds : `⚠ ${t.otherSource} :`} {f.ip} (Art-Net {f.portAddresses.join(", ")})
+            </p>
+          ))}
+          {output?.merging.map((n) => (
+            <p key={n.ip} className="error">
+              ⚠ {n.shortName || n.ip} {t.merging} (Art-Net {n.portAddresses.join(", ")})
+            </p>
+          ))}
           {output && (
             <p>
               {output.stats.framesSent} trames · {output.stats.packetsSent} paquets · {output.stats.errors} erreurs · découverte {output.stats.discovery}

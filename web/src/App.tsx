@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { login, logout, me, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
+import { useTopic } from "./hooks/useTopic";
 import { DashboardsPage } from "./pages/Dashboards";
 import { ConsolePage } from "./pages/Console";
 import { MidiPage } from "./pages/Midi";
@@ -46,6 +47,7 @@ export function App() {
   const [role, setRole] = useState<Role | null>(null);
   const [checked, setChecked] = useState(false);
   const [up, setUp] = useState(false);
+  const output = useTopic<{ standby?: boolean; foreignSources?: string[] } | null>("light:state", null);
   const [page, setPage] = useState<Page>(() => (PAGES.includes(location.hash.slice(1) as Page) ? (location.hash.slice(1) as Page) : "live"));
   const t = TEXTS[lang];
 
@@ -92,6 +94,16 @@ export function App() {
           ))}
         </nav>
         <div className="right">
+          {output?.standby && (
+            <span className="badge standby" title={`${t.standby}${output.foreignSources?.length ? ` · ${t.otherHolds} ${output.foreignSources.join(", ")}` : ""}. ${t.standbyHelp}`}>
+              ⏸ {t.standbyShort}
+            </span>
+          )}
+          {!output?.standby && output?.foreignSources?.length ? (
+            <span className="badge conflict" title={t.otherSourceHelp}>
+              ⚠ {t.otherSource} : {output.foreignSources.join(", ")}
+            </span>
+          ) : null}
           <span className={up ? "dot ok" : "dot ko"} title={up ? t.connected : t.disconnected} />
           <span className="role">{role.name}</span>
           <select aria-label={t.language} value={lang} onChange={(e) => switchLang(e.target.value as Lang)}>

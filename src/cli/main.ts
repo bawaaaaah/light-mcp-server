@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * CLI `light` (docs/specs/data-cli-sdk.md). Phase 1 commands:
- *   light serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http]
+ *   light serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
+ *                               --standby: start without sending (QLC+ holds the nodes), --live: sending
  *   light token                 prints the master token (MCP clients, scripts)
  *   light pin <role> <pin>      sets a role's PIN (admin, regisseur, benevole, lecture)
  *   light roles                 lists the roles
@@ -28,9 +29,14 @@ switch (command) {
   case "serve": {
     const { values } = parseArgs({
       args: rest,
-      options: { port: { type: "string" }, host: { type: "string" }, stdio: { type: "boolean", default: false }, "no-http": { type: "boolean", default: false } },
+      options: { port: { type: "string" }, host: { type: "string" }, stdio: { type: "boolean", default: false }, "no-http": { type: "boolean", default: false }, standby: { type: "boolean" }, live: { type: "boolean" } },
     });
-    const running = await bootstrap({ configPath, port: values.port ? Number(values.port) : undefined, host: values.host, stdio: values.stdio, http: !values["no-http"] });
+    if (values.standby && values.live) {
+      console.error("--standby et --live sont incompatibles");
+      process.exit(1);
+    }
+    const standby = values.standby ? true : values.live ? false : undefined;
+    const running = await bootstrap({ configPath, port: values.port ? Number(values.port) : undefined, host: values.host, stdio: values.stdio, http: !values["no-http"], light: standby === undefined ? undefined : { standby } });
     const shutdown = async () => {
       await running.stop();
       process.exit(0);

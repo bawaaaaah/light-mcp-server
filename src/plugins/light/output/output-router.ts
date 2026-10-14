@@ -11,7 +11,7 @@
 import { createSocket, type Socket } from "node:dgram";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
-import { ARTNET_PORT, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
+import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { NodeRegistry, type KnownNode } from "./artnet-discovery.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 
@@ -25,6 +25,8 @@ export interface OutputConfig {
   /** Local IPv4 to bind (selects the interface). Default: all interfaces. */
   bindAddress?: string;
   routes: UniverseRoute[];
+  /** Standby: render but send nothing (another console holds the nodes). */
+  standby?: boolean;
   artSync?: boolean;
   sourceName?: string;
 }
@@ -35,6 +37,22 @@ export interface OutputStats {
   errors: number;
   discovery: "active" | "unavailable" | "off";
   discoveryError?: string;
+}
+
+/** Another controller seen sending ArtDmx (only visible while discovery holds UDP 6454). */
+export interface ForeignSource {
+  ip: string;
+  port: number;
+  portAddresses: number[];
+  lastSeen: number;
+}
+
+const FOREIGN_EXPIRY_MS = 3000;
+
+function localAddresses(): Set<string> {
+  const out = new Set<string>(["127.0.0.1"]);
+  for (const addrs of Object.values(networkInterfaces())) for (const a of addrs ?? []) if (a.family === "IPv4") out.add(a.address);
+  return out;
 }
 
 const KEEPALIVE_MS = 1000;
@@ -66,6 +84,8 @@ export class OutputRouter {
   private readonly lastSent = new Map<number, { at: number; data: Uint8Array }>();
   private readonly cid = randomBytes(16);
   private nodeListener: ((change: { added?: KnownNode; lost?: KnownNode[] }) => void) | undefined;
+  private readonly foreign = new Map<string, ForeignSource>();
+  private locals = localAddresses();
 
   constructor(private config: OutputConfig) {}
 
@@ -87,9 +107,10 @@ export class OutputRouter {
       this.stats.errors += 1;
       console.warn("Art-Net socket error:", err.message);
     });
-    this.artnet.on("message", (msg) => {
+    this.artnet.on("message", (msg, rinfo) => {
       const reply = decodePollReply(msg);
       if (reply && this.registry.seen(reply, Date.now()) === "added") this.nodeListener?.({ added: this.registry.list().find((n) => n.ip === reply.ip) });
+      if (!reply) this.received(msg, rinfo.address, rinfo.port);
     });
     const bindAddress = this.config.bindAddress ?? "0.0.0.0";
     if (options.discovery !== false) {
@@ -153,8 +174,44 @@ export class OutputRouter {
     this.stats.packetsSent += 1;
   }
 
+  /** Records an ArtDmx from another controller (our own packets come from a local IP and our port). */
+  received(msg: Buffer, ip: string, port: number, nowMs = Date.now()): void {
+    const dmx = decodeDmx(msg);
+    if (!dmx) return;
+    if (this.locals.has(ip) && port === (this.artnet?.address().port ?? -1)) return;
+    const key = `${ip}:${port}`;
+    const known = this.foreign.get(key);
+    const portAddresses = known ? [...new Set([...known.portAddresses, dmx.portAddress])].sort((a, b) => a - b) : [dmx.portAddress];
+    this.foreign.set(key, { ip, port, portAddresses, lastSeen: nowMs });
+  }
+
+  /** Controllers seen sending Art-Net in the last seconds. */
+  foreignSources(nowMs = Date.now()): ForeignSource[] {
+    for (const [k, f] of this.foreign) if (nowMs - f.lastSeen > FOREIGN_EXPIRY_MS) this.foreign.delete(k);
+    return [...this.foreign.values()];
+  }
+
+  /**
+   * Standby: nothing is sent; leaving it resends every universe at once. Entering it sends a last
+   * all-zero frame (3 times, UDP): a node merging two sources keeps a silent source's last frame
+   * for ~10 s, and zeros are neutral in HTP (in LTP the other console's next frame wins at once).
+   */
+  setStandby(on: boolean, nowMs = Date.now()): void {
+    if (on && !this.config.standby) {
+      const zeros = Array.from({ length: Math.max(0, ...this.config.routes.map((r) => r.universe)) }, () => new Uint8Array(512));
+      for (let i = 0; i < 3; i++) this.sendFrame(zeros, nowMs, true);
+    }
+    this.config = { ...this.config, standby: on };
+    if (!on) this.lastSent.clear();
+  }
+
+  isStandby(): boolean {
+    return Boolean(this.config.standby);
+  }
+
   /** Sends every routed universe that changed, or that has not been sent for KEEPALIVE_MS. */
   sendFrame(buffers: readonly Uint8Array[], nowMs = Date.now(), force = false): void {
+    if (this.config.standby) return;
     let sentAny = false;
     for (const route of this.config.routes) {
       const data = buffers[route.universe - 1];

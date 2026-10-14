@@ -189,4 +189,9 @@ export class MidiMapper {
     if (m.pickup) s.caught = false;
     return this.feedbackFor(m, s);
   }
+
+  /** Feedback of every mapping's current state (resync controllers another program has written to). */
+  allFeedback(): number[][] {
+    return this.mappings.flatMap((m) => this.feedbackFor(m, this.st(m.id)));
+  }
 }

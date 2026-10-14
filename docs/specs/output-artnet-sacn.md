@@ -29,6 +29,12 @@
 - **Budget** : 16 univers à 44 Hz sans trame perdue ([roadmap](../roadmap.md), prototype P2).
 - La sortie continue même si l'UI ou un plugin tombe.
 
+## Veille et autre console (v1)
+- **Sortie en veille** (`output.standby`, `light serve --standby | --live`, gardée au redémarrage) : le show tourne et suit le MIDI, rien n'est envoyé ; le retour MIDI est coupé aussi. En entrant en veille, le serveur envoie une dernière trame **à zéro** (3 fois) : un node qui fusionne garde la dernière trame d'une source muette ~10 s, et des zéros sont neutres en HTP. En sortant de veille, tous les univers et tout le retour MIDI repartent aussitôt.
+- **Autre console** : un ArtDmx reçu d'une autre source (autre IP, ou autre port sur cette machine) est signalé 3 s ; l'en-tête de l'interface alerte si le serveur envoie en même temps. Nécessite la découverte (port 6454).
+- **Fusion côté node** : le bit 3 de *GoodOutput* de l'ArtPollReply (port en fusion) est remonté par port-address.
+- Procédure complète : [bascule-qlc.md](../bascule-qlc.md).
+
 ## Couche machine
 L'IP de l'interface et les adresses des nodes relèvent de la **machine** ou du **lieu**, jamais du show. QLC+ réécrivait l'IP dans le show à chaque sauvegarde.
 

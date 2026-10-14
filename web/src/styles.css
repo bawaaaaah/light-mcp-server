@@ -602,3 +602,24 @@ table.sections th {
 .setlist-songs li {
   margin: 0.2em 0;
 }
+
+/* Output standby / another console */
+.badge {
+  padding: 0.2em 0.6em;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.badge.standby {
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+.badge.conflict {
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.standby-bar {
+  margin: 0.5em 0;
+}

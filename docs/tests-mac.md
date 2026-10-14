@@ -59,6 +59,13 @@ Astuce : si AbleSet est installé, `/midi/send/...` en OSC (port 39051) permet d
 2. Critères : chaque node répond (IP, nom, sorties/port-addresses). Noter les résultats **anonymisés**.
 3. Puis `npm run serve` et page **Réglages** : les nodes apparaissent, la sortie compte des paquets.
 
+## 5 bis. Bascule avec QLC+ (agent + utilisateur, sur le réseau lumière)
+Suivre [`bascule-qlc.md`](bascule-qlc.md) en répétition, et noter :
+1. **Partage du port 6454** sur le même Mac : lancer QLC+ (sortie Art-Net active), puis le serveur avec la découverte **active**. QLC+ envoie-t-il toujours ? La page Réglages indique-t-elle « découverte unavailable » ? Puis dans l'ordre inverse (serveur d'abord, puis QLC+) : QLC+ arrive-t-il à ouvrir sa sortie Art-Net ? Si un ordre pose problème, garder `"discovery": false` sur ce Mac (recommandation actuelle) et le noter.
+2. **Comportement du node** quand les deux envoient : fusion HTP ou LTP, durée de maintien d'une source muette (couper QLC+ et chronométrer), bit de fusion vu dans Réglages (si découverte active).
+3. **Bascule complète** dans les deux sens pendant qu'Ableton joue : pas de noir, pas de saut ; temps total.
+Résultats anonymisés dans `research/proto-resultats.md` (section P6).
+
 ## 6. Reprise du show réel et auto-test (agent, puis utilisateur pour regarder la lumière)
 1. Copier les définitions de fixtures de l'utilisateur dans `data/fixtures/` :
    `cp ~/Library/Application\ Support/QLC+/Fixtures/*.qxf data/fixtures/` (et celles de la bibliothèque QLC+ si besoin).

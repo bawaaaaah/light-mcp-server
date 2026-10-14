@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { decodePollReply, encodePollReply, portAddress } from "../../../src/plugins/light/output/artnet.js";
+import { decodeDmx, decodePollReply, encodeDmx, encodePollReply, portAddress } from "../../../src/plugins/light/output/artnet.js";
+import { OutputRouter } from "../../../src/plugins/light/output/output-router.js";
 import { NodeRegistry } from "../../../src/plugins/light/output/artnet-discovery.js";
 import { Ticker, type TickerClock } from "../../../src/plugins/light/engine/ticker.js";
 
@@ -52,6 +53,47 @@ describe("Art-Net node registry", () => {
     reg.seen(reply("10.0.0.2", [1]), 0);
     expect(reg.outputsFor(portAddress(0, 0, 1)).map((n) => n.ip)).to.deep.equal(["10.0.0.1", "10.0.0.2"]);
     expect(reg.outputsFor(portAddress(0, 0, 0)).map((n) => n.ip)).to.deep.equal(["10.0.0.1"]);
+  });
+});
+
+describe("sharing the nodes with another console", () => {
+  const dmx = (pa: number) => encodeDmx({ sequence: 1, physical: 0, portAddress: pa, data: new Uint8Array(512) });
+
+  it("reads the nodes' « merging » flag per output port", () => {
+    const r = decodePollReply(encodePollReply({ ip: "192.0.2.20", shortName: "n", longName: "n", swOut: [0, 1], merging: [false, true] }))!;
+    expect(r.outputAddresses).to.deep.equal([0, 1]);
+    expect(r.merging).to.deep.equal([1]);
+  });
+
+  it("notices another controller sending Art-Net, and forgets it when it stops", () => {
+    const router = new OutputRouter({ routes: [] });
+    router.received(dmx(0), "192.0.2.10", 6454, 1000);
+    router.received(dmx(1), "192.0.2.10", 6454, 1500);
+    router.received(dmx(0), "127.0.0.1", 6454, 1500); // another program on this machine
+    router.received(Buffer.from("not art-net"), "192.0.2.11", 6454, 1500);
+    expect(router.foreignSources(2000).map((f) => [f.ip, f.portAddresses])).to.deep.equal([
+      ["192.0.2.10", [0, 1]],
+      ["127.0.0.1", [0]],
+    ]);
+    expect(router.foreignSources(5000)).to.deep.equal([]);
+  });
+
+  it("leaves with a neutral all-zero frame, sends nothing on standby, and everything again when it ends", () => {
+    const router = new OutputRouter({ routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["192.0.2.30"] } }] });
+    const sent: number[][] = [];
+    (router as unknown as { send: (s: unknown, b: Buffer, p: number, h: string) => void }).send = (_s, b) => void sent.push([...decodeDmx(b)!.data.slice(0, 2)]);
+    const frame = [new Uint8Array(512).fill(200)];
+    router.sendFrame(frame, 0);
+    router.setStandby(true, 5);
+    expect(sent).to.deep.equal([[200, 200], [0, 0], [0, 0], [0, 0]]);
+    router.sendFrame(frame, 10);
+    router.sendFrame(frame, 5000); // not even a keep-alive
+    expect(sent).to.have.length(4);
+    router.setStandby(true, 6000); // already on standby: no new zeros
+    expect(sent).to.have.length(4);
+    router.setStandby(false);
+    router.sendFrame(frame, 6010);
+    expect(sent.at(-1)).to.deep.equal([200, 200]);
   });
 });
 
