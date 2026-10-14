@@ -11,7 +11,9 @@
  *   buttons' MIDI notes → mappings (look.go, mode trigger) with the same notes pinned;
  *   level sliders' CCs → group.level mappings; SpeedDial tap on MIDI clock → tempo from MIDI clock;
  *   SpeedDial multipliers → cadence in beats and attack (QLC+ grid: 1 step = 1 tap = 1 beat);
- *   EFX (moving-head movements) → position-only looks with a Move FX on a group of their fixtures.
+ *   EFX (moving-head movements) → position-only looks with a Move FX on a group of their fixtures;
+ *   level sliders on other channels (white, UV, strobe, machines) → channel faders (HTP, like QLC+);
+ *   Submaster sliders → a DCA dosing the looks started by the buttons of their frame.
  */
 import type { QxwFunction, QxwWorkspace } from "./qxw-import.js";
 import { analyzeSequence, cellsFor, stepColors, type Rgbw } from "./qxw-analyze.js";
@@ -19,7 +21,7 @@ import type { FixtureDefinition } from "../venue/qxf-import.js";
 import { findMode } from "../venue/qxf-import.js";
 import { slugify } from "../data/store.js";
 import type { Canvas, PatchedFixture } from "../venue/venue.js";
-import type { Group, Look } from "../show/model.js";
+import type { ChannelFader, Group, Look } from "../show/model.js";
 import type { Move } from "../engine/move.js";
 
 /** QLC+ EFX algorithm → Move FX shape; the others are approximated by a circle (reported). */
@@ -34,6 +36,7 @@ export interface ImportProposal {
   canvas: Canvas | null;
   looks: Look[];
   groups: Group[];
+  faders: ChannelFader[];
   mappings: Mapping[];
   pinnedNotes: { action: string; channel: number; note: number }[];
   tempoFromMidiClock: boolean;
@@ -189,23 +192,48 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     groups.push(group(uniqueId(sf.caption || `solo-${sf.id}`, groupTaken), sf.caption || `Cadre solo ${sf.id}`, { exclusive: true, looks: [...new Set(members)] }));
   }
   const sliderGroups = new Map<number, string>();
+  const sliderFaders = new Map<number, string>();
+  const faders: ChannelFader[] = [];
+  const faderTaken = new Set<string>();
   for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.levelChannels?.length)) {
     const dimmerFixtures = new Set<string>();
-    let other = 0;
+    const others: ChannelFader["channels"] = [];
     for (const lc of w.levelChannels!) {
       const f = ws.fixtures.find((x) => x.id === lc.fixture);
-      const def = f && defs.find((d) => slugify(d.manufacturer) === slugify(f.manufacturer) && slugify(d.model) === slugify(f.model));
-      const mode = def && f ? findMode(def, f.mode) : undefined;
+      const fixtureId = fixtureIds.get(lc.fixture);
+      if (!f || !fixtureId) continue;
+      const def = defs.find((d) => slugify(d.manufacturer) === slugify(f.manufacturer) && slugify(d.model) === slugify(f.model));
+      const mode = def ? findMode(def, f.mode) : undefined;
       const ch = def && mode ? def.channels.get(mode.channels[lc.channel] ?? "") : undefined;
-      if (ch?.attribute === "intensity") dimmerFixtures.add(fixtureIds.get(lc.fixture)!);
-      else other += 1;
+      if (ch?.attribute === "intensity") dimmerFixtures.add(fixtureId);
+      else others.push({ fixture: fixtureId, offset: lc.channel }); // white, UV, strobe, machines — or undecoded: kept by offset
     }
     if (dimmerFixtures.size) {
       const id = uniqueId(w.caption || `slider-${w.id}`, groupTaken);
       sliderGroups.set(w.id, id);
       groups.push(group(id, w.caption || `Fader ${w.id}`, { fixtures: [...dimmerFixtures], master: true }));
     }
-    if (other) warnings.push(`fader « ${w.caption} » : ${other} canal(aux) hors gradateur (blanc, UV, effet…) non convertis — à refaire en look ou en règle`);
+    if (others.length) {
+      // a QLC+ level slider writes its channels directly (HTP): a channel fader does the same; it starts at 0
+      const id = uniqueId(dimmerFixtures.size ? `${w.caption || `slider-${w.id}`}-canaux` : w.caption || `slider-${w.id}`, faderTaken);
+      sliderFaders.set(w.id, id);
+      faders.push({ id, name: w.caption || `Fader ${w.id}`, channels: others, level: 0, notes: `Importé de QLC+ (fader #${w.id}, ${others.length} canal(aux) hors gradateur).` });
+    }
+  }
+  if (faders.length) converted.push(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`);
+  // Submaster sliders: a DCA dosing what the buttons of their frame (and sub-frames) start.
+  for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.sliderMode === "Submaster")) {
+    const looksInFrame = ws.widgets
+      .filter((b) => b.kind === "button" && b.functionId !== undefined && (b.frameKey === w.frameKey || b.frameKey.startsWith(`${w.frameKey}/`)))
+      .map((b) => lookIds.get(b.functionId!))
+      .filter((x): x is string => Boolean(x));
+    if (!looksInFrame.length) {
+      warnings.push(`submaster « ${w.caption} » : aucun look dans son cadre — non converti`);
+      continue;
+    }
+    const id = uniqueId(w.caption || `submaster-${w.id}`, groupTaken);
+    sliderGroups.set(w.id, id);
+    groups.push({ ...group(id, w.caption || `Submaster ${w.id}`, { master: true }), presets: { included: [...new Set(looksInFrame)], excluded: [] } });
   }
   groups.push(...efxGroups);
   converted.push(`${groups.length} groupes (${groups.filter((g) => g.exclusive).length} exclusifs, ${groups.filter((g) => g.master).length} avec master)`);
@@ -222,14 +250,17 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       const id = uniqueId(`note-${midi.note}-${look}`, mapTaken);
       mappings.push(mapping(id, w.caption, { type: "note", channel: midi.channel, number: midi.note }, w.action === "Flash" ? "momentary" : "trigger", { command: "look.go", args: { id: look } }, w.action === "Flash" ? { command: "look.stop", args: { id: look } } : undefined));
       pinnedNotes.push({ action: `look:${look}:${w.id}`, channel: midi.channel, note: midi.note });
-    } else if (w.kind === "slider" && midi.kind === "cc" && sliderGroups.has(w.id)) {
-      const g = sliderGroups.get(w.id)!;
-      mappings.push({ ...mapping(uniqueId(`cc-${midi.controller}-${g}`, mapTaken), w.caption, { type: "cc", channel: midi.channel, number: midi.controller }, "trigger", { command: "group.level", args: { id: g } }), levelArg: "level" });
+    } else if (w.kind === "slider" && midi.kind === "cc") {
+      const input = { type: "cc" as const, channel: midi.channel, number: midi.controller };
+      const g = sliderGroups.get(w.id);
+      if (g) mappings.push({ ...mapping(uniqueId(`cc-${midi.controller}-${g}`, mapTaken), w.caption, input, "trigger", { command: "group.level", args: { id: g } }), levelArg: "level" });
+      const f = sliderFaders.get(w.id);
+      if (f) mappings.push({ ...mapping(uniqueId(`cc-${midi.controller}-${f}`, mapTaken), w.caption, input, "trigger", { command: "fader.level", args: { id: f } }), levelArg: "level", feedback: "cc" });
     }
   }
   converted.push(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`);
   if (tempoFromMidiClock) converted.push("tempo : horloge MIDI (molette QLC+ sur l'horloge de Live)");
-  return { fixtures, canvas: canvas ?? efxCanvas, looks, groups, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
+  return { fixtures, canvas: canvas ?? efxCanvas, looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
 }
 
 /** Entry fade in seconds when step 0 is a soft entry (fade ≥ 1 s and ≥ 3× the other steps' fades), else 0. */

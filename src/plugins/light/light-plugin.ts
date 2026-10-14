@@ -318,6 +318,7 @@ export class LightPlugin implements McpPlugin {
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
     if (this.started) this.saveLive();
+    this.show.flushLive();
     this.osc.stop();
     this.hub.stop();
     this.engine.stop();
@@ -453,6 +454,7 @@ export class LightPlugin implements McpPlugin {
     router.get("/archive", (req: Request, res: Response) => {
       if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, "droit requis : show:write");
       const withVenue = req.query.venue !== "0";
+      this.show.flushLive(); // live levels not yet on disk
       const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined });
       res.setHeader("content-type", "application/zip");
       res.setHeader("content-disposition", `attachment; filename="${this.config.show}.lightshow"`);

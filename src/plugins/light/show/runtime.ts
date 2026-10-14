@@ -13,7 +13,7 @@ import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleSchema, type Clamp, type Rule } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
-import { GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
+import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
 
 export interface TempoSource {
   state(): { beats: number };
@@ -35,6 +35,7 @@ export class ShowRuntime {
   readonly palettes: Collection<Palette>;
   readonly looks: Collection<Look>;
   readonly groups: Collection<Group>;
+  readonly faders: Collection<ChannelFader>;
   /** Show-level rules; venue/type rules live in the venue store. */
   readonly rules: Collection<Rule>;
   readonly venueRules: Collection<Rule>;
@@ -58,6 +59,7 @@ export class ShowRuntime {
     this.palettes = store.collection("palettes", PaletteSchema);
     this.looks = store.collection("looks", LookSchema);
     this.groups = store.collection("groups", GroupSchema);
+    this.faders = store.collection("faders", ChannelFaderSchema);
     this.rules = store.collection("rules", RuleSchema);
     this.venueRules = venue.store.collection("rules", RuleSchema);
     this.zones = venue.store.collection("zones", ZoneSchema);
@@ -305,6 +307,17 @@ export class ShowRuntime {
     for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));
     errors.push(...this.venue.toDmx(frame, buffers));
+    // Channel faders: highest takes precedence with the show, like QLC+ level sliders.
+    for (const fader of this.faders.list()) {
+      if (fader.level <= 0) continue;
+      const value = Math.round(fader.level * 255);
+      for (const c of fader.channels) {
+        const f = this.venue.fixtures.get(c.fixture);
+        const buf = f && buffers[f.universe - 1];
+        const index = f ? f.address - 1 + c.offset : -1;
+        if (buf && index >= 0 && index < 512 && buf[index]! < value) buf[index] = value;
+      }
+    }
     // Rules mask: last stage of the show's output.
     const rules = [...this.venueRules.list(), ...this.rules.list()];
     const clamps: Clamp[] = [];

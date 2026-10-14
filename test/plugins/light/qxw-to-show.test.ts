@@ -107,3 +107,43 @@ describe("QLC+ EFX → Move FX", () => {
     expect(first[0]).to.not.equal(first[1]); // serial propagation: the two heads are out of phase
   });
 });
+
+describe("QLC+ faders → channel faders and DCAs", () => {
+  const p = qxwToShow(parseQxw(fixture("faders.qxw")), [parseQxf(fixture("bar4.qxf"))]);
+
+  it("turns a level slider on other channels into a channel fader, even without a definition", () => {
+    expect(p.faders).to.deep.equal([
+      { id: "strobe-et-fumee", name: "Strobe et fumee", channels: [{ fixture: "bar-0", offset: 1 }, { fixture: "fumee", offset: 0 }], level: 0, notes: "Importé de QLC+ (fader #31, 2 canal(aux) hors gradateur)." },
+    ]);
+  });
+
+  it("keeps dimmer sliders as DCAs and turns a submaster into a DCA dosing its frame's looks", () => {
+    expect(p.groups.find((g) => g.id === "dim")!.members.fixtures).to.deep.equal(["bar-0"]);
+    const sub = p.groups.find((g) => g.id === "sub-ambiance")!;
+    expect(sub.master).to.not.equal(undefined);
+    expect(sub.presets.included).to.deep.equal(["rouge", "bleu"]);
+  });
+
+  it("maps each slider's CC to the right command", () => {
+    const byCc = Object.fromEntries(p.mappings.filter((m) => m.input.type === "cc").map((m) => [m.input.number, [m.on.command, m.on.args.id, m.levelArg]]));
+    expect(byCc).to.deep.equal({ 20: ["group.level", "sub-ambiance", "level"], 21: ["fader.level", "strobe-et-fumee", "level"], 22: ["group.level", "dim", "level"] });
+  });
+
+  it("applies, then the fader drives its channels (highest takes precedence) and the submaster doses its looks", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-faders-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: fixture("faders.qxw"), apply: true });
+    const out = () => plugin.engine.render()[0]!;
+    expect([out()[1], out()[100]]).to.deep.equal([0, 0]); // faders start at 0
+    await run("fader.level", { id: "strobe-et-fumee", level: 0.5 });
+    expect([out()[1], out()[100]]).to.deep.equal([128, 128]);
+    await run("look.go", { id: "rouge" });
+    const full = out()[3]!;
+    await run("group.level", { id: "sub-ambiance", level: 0.5 });
+    expect(out()[3]).to.be.closeTo(full / 2, 1);
+  });
+});

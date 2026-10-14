@@ -71,6 +71,21 @@ export const GroupSchema = z.object({
 });
 export type Group = z.infer<typeof GroupSchema>;
 
+/**
+ * Channel fader (docs/specs/groups-masters.md, « Fader de canaux »): drives raw channels — white,
+ * UV, strobe, a machine — like a QLC+ « Level » slider, highest-takes-precedence with the show.
+ * Channels are given by offset from the fixture's address, so it works even without a definition.
+ * The rules mask still applies after it (UV max, strobe policy…).
+ */
+export const ChannelFaderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  channels: z.array(z.object({ fixture: z.string(), offset: z.number().int().min(0).max(511) })).min(1),
+  level: z.number().min(0).max(1).default(0),
+  notes: z.string().optional(),
+});
+export type ChannelFader = z.infer<typeof ChannelFaderSchema>;
+
 export const ShowSettingsSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   kind: z.literal("show").default("show"),

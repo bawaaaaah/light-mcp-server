@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace xmlns="http://www.qlcplus.org/Workspace"><Creator><Name>Q Light Controller Plus</Name><Version>4.14.4</Version></Creator>
+<Engine>
+<Fixture><Manufacturer>Test</Manufacturer><Model>Bar 4</Model><Mode>15-channel</Mode><ID>0</ID><Name>Bar 0</Name><Universe>0</Universe><Address>0</Address><Channels>15</Channels></Fixture>
+<Fixture><Manufacturer>Test</Manufacturer><Model>Smoke 2</Model><Mode>2-channel</Mode><ID>1</ID><Name>Fumee</Name><Universe>0</Universe><Address>100</Address><Channels>2</Channels></Fixture>
+<Function ID="10" Type="Sequence" Name="rouge" BoundScene="11"><Speed FadeIn="0" FadeOut="0" Duration="500"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/><Step Number="0" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:3,255,6,255,9,255,12,255</Step><Step Number="1" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:3,200,6,200,9,200,12,200</Step></Function>
+<Function ID="20" Type="Sequence" Name="bleu" BoundScene="21"><Speed FadeIn="0" FadeOut="0" Duration="500"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/><Step Number="0" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:5,255,8,255,11,255,14,255</Step><Step Number="1" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:5,200,8,200,11,200,14,200</Step></Function>
+</Engine>
+<VirtualConsole><Frame Caption="">
+<Frame Caption="Ambiance" ID="1">
+<Button Caption="Rouge" ID="101"><Function ID="10"/><Action>Toggle</Action><Input Universe="0" Channel="164"/></Button>
+<Button Caption="Bleu" ID="102"><Function ID="20"/><Action>Toggle</Action><Input Universe="0" Channel="165"/></Button>
+<Slider Caption="Sub ambiance" ID="30"><Input Universe="0" Channel="20"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None">Submaster</SliderMode><Playback><Function>4294967295</Function></Playback></Slider>
+</Frame>
+<Slider Caption="Strobe et fumee" ID="31"><Input Universe="0" Channel="21"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="0">1</Channel><Channel Fixture="1">0</Channel></Level></Slider>
+<Slider Caption="Dim" ID="32"><Input Universe="0" Channel="22"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="255"><Channel Fixture="0">0</Channel></Level></Slider>
+</Frame></VirtualConsole></Workspace>

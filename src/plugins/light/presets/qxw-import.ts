@@ -79,6 +79,8 @@ export interface QxwWidget {
   /** Solo frame that makes this widget exclusive with its siblings. */
   soloFrame?: number;
   frames: string[]; // captions of enclosing frames
+  /** Identity of the enclosing frame (path of frame ids): a Submaster doses the widgets of its frame. */
+  frameKey: string;
   functionId?: number;
   action?: string;
   input?: { universe: number; channel: number; midi: MidiBinding };
@@ -198,16 +200,16 @@ function inputOf(w: Node): QxwWidget["input"] {
   return { universe: num(input["@_Universe"]), channel, midi: decodeMidiInput(channel) };
 }
 
-function walkVc(node: Node, frames: string[], solo: number | undefined, out: QxwWidget[], soloFrames: QxwWorkspace["soloFrames"]): void {
+function walkVc(node: Node, frames: string[], solo: number | undefined, out: QxwWidget[], soloFrames: QxwWorkspace["soloFrames"], frameKey = ""): void {
   for (const b of (node["Button"] as Node[] | undefined) ?? []) {
     const fnRaw = b["Function"] as Node | Node[] | undefined;
     const fn = Array.isArray(fnRaw) ? fnRaw[0] : fnRaw;
-    out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b["Action"]), input: inputOf(b) });
+    out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b["Action"]), input: inputOf(b) });
   }
   for (const s of (node["Slider"] as Node[] | undefined) ?? []) {
     const level = s["Level"] as Node | undefined;
     const chans = ((level?.["Channel"] as unknown[]) ?? []).map((c) => ({ fixture: num((c as Node)["@_Fixture"]), channel: num(c) }));
-    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans });
+    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans });
   }
   for (const d of (node["SpeedDial"] as Node[] | undefined) ?? []) {
     const fns = d["Function"];
@@ -218,16 +220,17 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
       id: num(d["@_ID"]),
       caption: String(d["@_Caption"] ?? ""),
       frames,
+      frameKey,
       input: tap ? inputOf(tap) : undefined,
       speedDialFunctions: list.map((f) => ({ id: num(f), fadeIn: num(f["@_FadeIn"]), fadeOut: num(f["@_FadeOut"]), duration: num(f["@_Duration"]) })),
     });
   }
-  for (const c of (node["CueList"] as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: String(c["@_Caption"] ?? ""), frames, input: inputOf(c) });
-  for (const f of (node["Frame"] as Node[] | undefined) ?? []) walkVc(f, [...frames, String(f["@_Caption"] ?? "")], solo, out, soloFrames);
+  for (const c of (node["CueList"] as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: String(c["@_Caption"] ?? ""), frames, frameKey, input: inputOf(c) });
+  for (const f of (node["Frame"] as Node[] | undefined) ?? []) walkVc(f, [...frames, String(f["@_Caption"] ?? "")], solo, out, soloFrames, `${frameKey}/${String(f["@_ID"] ?? f["@_Caption"] ?? "")}`);
   for (const f of (node["SoloFrame"] as Node[] | undefined) ?? []) {
     const id = num(f["@_ID"]);
     const before = out.length;
-    walkVc(f, [...frames, String(f["@_Caption"] ?? "")], id, out, soloFrames);
+    walkVc(f, [...frames, String(f["@_Caption"] ?? "")], id, out, soloFrames, `${frameKey}/${id}`);
     soloFrames.push({ id, caption: String(f["@_Caption"] ?? ""), members: out.slice(before).filter((w) => w.kind === "button" && w.soloFrame === id).map((w) => w.id) });
   }
 }

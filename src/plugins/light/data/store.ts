@@ -59,8 +59,12 @@ export interface ChangeEvent {
   kind: "put" | "delete";
 }
 
+/** Delay before a live value (fader level) reaches the disk: one write after the last move. */
+export const LIVE_WRITE_DELAY_MS = 1000;
+
 export class Collection<T extends { id: string }> {
   private readonly items = new Map<string, T>();
+  private readonly pendingLive = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly store: FolderStore,
@@ -72,6 +76,9 @@ export class Collection<T extends { id: string }> {
 
   /** Re-reads every object from disk (after an archive was restored). */
   reload(): void {
+    // the disk wins (archive restored, file edited): pending live values are dropped
+    for (const timer of this.pendingLive.values()) clearTimeout(timer);
+    this.pendingLive.clear();
     this.items.clear();
     const { store, name, schema } = this;
     const dir = join(store.root, name);
@@ -119,6 +126,35 @@ export class Collection<T extends { id: string }> {
     return item;
   }
 
+  /**
+   * Live value (a DCA or fader level moved by hand or MIDI, many times a second): in effect at
+   * once, written once after the moves stop, without a backup — it is state, not show design.
+   */
+  putLive(value: unknown): T {
+    const item = this.schema.parse(value);
+    if (!this.items.has(item.id)) return this.put(item);
+    this.items.set(item.id, item);
+    this.store.emit({ collection: this.name, id: item.id, kind: "put" });
+    clearTimeout(this.pendingLive.get(item.id));
+    const timer = setTimeout(() => this.flushLive(item.id), LIVE_WRITE_DELAY_MS);
+    timer.unref?.();
+    this.pendingLive.set(item.id, timer);
+    return item;
+  }
+
+  /** Writes the pending live values now (shutdown, archive, tests). */
+  flushLive(id?: string): void {
+    for (const key of id ? [id] : [...this.pendingLive.keys()]) {
+      clearTimeout(this.pendingLive.get(key));
+      this.pendingLive.delete(key);
+      const item = this.items.get(key);
+      if (!item) continue;
+      const dir = join(this.store.root, this.name);
+      mkdirSync(dir, { recursive: true });
+      writeAtomic(join(dir, `${key}.json`), stableStringify(item));
+    }
+  }
+
   delete(id: string): boolean {
     if (!this.items.delete(id)) return false;
     const path = join(this.store.root, this.name, `${id}.json`);
@@ -149,6 +185,11 @@ export class FolderStore {
     const c = new Collection<T>(this, name, schema);
     this.collections.set(name, c as unknown as Collection<{ id: string }>);
     return c;
+  }
+
+  /** Writes every pending live value (before an archive, at shutdown). */
+  flushLive(): void {
+    for (const c of this.collections.values()) c.flushLive();
   }
 
   /** Re-reads every collection from disk and notifies listeners. */

@@ -5,7 +5,7 @@ import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
 interface Widget {
   id: string;
   kind: Kind;
@@ -37,6 +37,12 @@ interface Group {
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   effectiveLevel: number;
 }
+interface ChannelFader {
+  id: string;
+  name: string;
+  level: number;
+  channels: unknown[];
+}
 interface Tempo {
   bpm: number;
   source: string;
@@ -48,8 +54,8 @@ interface SongState {
   section?: string;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview"];
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
+const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
 export function DashboardsPage() {
   const t = useT();
@@ -57,6 +63,7 @@ export function DashboardsPage() {
   const [current, setCurrent] = useState(0);
   const [looks, setLooks] = useState<Look[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [edit, setEdit] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -67,12 +74,13 @@ export function DashboardsPage() {
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch(() => undefined);
     void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
+    void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then(setDashboards).catch((e: Error) => setError(e.message));
   }, [refresh]);
-  useCommandEvents(["look.", "group.", "panic", "import.", "selftest.", "song.", "setlist."], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist."], refresh);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -167,6 +175,33 @@ export function DashboardsPage() {
         );
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} />;
+      case "channel-fader": {
+        const f = faders.find((x) => x.id === w.target);
+        if (!f) return <div className="fill missing">{w.target}</div>;
+        return (
+          <div className="fader fill channel">
+            <div className="track">
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                aria-label={`${t.channelFader} ${f.name}`}
+                value={Math.round(f.level * 1000)}
+                onChange={(e) => {
+                  const level = Number(e.target.value) / 1000;
+                  setFaders((fs) => fs.map((x) => (x.id === f.id ? { ...x, level } : x)));
+                  void run("fader.level", { id: f.id, level });
+                }}
+              />
+            </div>
+            <span className="value">{Math.round(f.level * 100)}%</span>
+            <small className="limits">
+              {f.channels.length} {t.channelsShort}
+            </small>
+            <label>{w.label ?? f.name}</label>
+          </div>
+        );
+      }
       case "group-fader": {
         const g = groupById.get(w.target ?? "");
         if (!g) return <div className="fill missing">{w.target}</div>;
@@ -265,6 +300,7 @@ export function DashboardsPage() {
           <select value={sel.target ?? ""} onChange={(e) => updateWidget(sel.id, { target: e.target.value })}>
             <option value="">—</option>
             {sel.kind === "look" && looks.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             {(sel.kind === "group-fader" || sel.kind === "xy") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <input placeholder="label" value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />

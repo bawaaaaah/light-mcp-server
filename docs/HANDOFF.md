@@ -4,8 +4,8 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
-- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; à reprendre à la main : 4 modèles sans `.qxf`, ~11 faders QLC+ hors gradateur.
-- **Serveur** (`npm test` : 211 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; à reprendre à la main : 4 modèles sans `.qxf` (les faders QLC+ hors gradateur et les Submasters sont convertis depuis le 2026-10-15 : **réimporter le workspace**).
+- **Serveur** (`npm test` : 217 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;

@@ -55,6 +55,14 @@ Groupe {
 - Ce que les membres du groupe ont le droit d'atteindre : max (par exemple 70 %), plage, ou liste de valeurs autorisées (par exemple seulement 0, 50 et 100 %).
 - Ce sont des **règles de niveau groupe** ([rules-limits](rules-limits.md)), affichées comme un **marqueur** sur le fader du master.
 
+## Fader de canaux (v1)
+- Pour ce qui n'est pas de l'intensité : **blanc, UV, strobe, machine à fumée**… Un fader de canaux écrit directement une liste de canaux (projecteur + décalage depuis son adresse, donc **même sans définition**), le plus haut l'emporte avec le show (HTP), comme un fader « Level » de QLC+. C'est aussi le **fader désigné** de la politique strobe.
+- Le masque de règles s'applique après (UV max, strobe…) ; Blackout l'éteint ; il démarre à 0 à l'import (un strobe ne part jamais tout seul).
+- Commandes `fader.*` ; widget « Fader de canaux » ; action MIDI « Fader de canaux (CC) ».
+
+## Niveaux en direct
+- Un DCA ou un fader bougé à la main ou au MIDI change des dizaines de fois par seconde : la valeur s'applique **tout de suite**, mais n'est écrite sur disque qu'**une fois, une seconde après** le dernier mouvement, **sans copie de sauvegarde** (c'est un état, pas une modification du show). Avant une archive et à l'arrêt, tout est écrit ; une restauration d'archive l'emporte sur une valeur en attente.
+
 ## Presets d'effets inclus ou exclus
 - **Inclus** : le master du groupe **dose** ces presets (niveau ou taille) ou les **coupe** (mute).
 - **Exclus** : ces presets **n'agissent pas** sur les membres du groupe. Exemple : « la face n'est jamais touchée par la palette qui tourne ».

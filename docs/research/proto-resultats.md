@@ -100,7 +100,7 @@ Le vrai workspace (QLC+ 4.14.4, 31 fixtures, 108 séquences) a été importé pu
 | **Auto-test en cadence (temps réel, 120 BPM)** | 104 lignes, **toutes ✔** : 35 cadences mesurées (ex. 500,3/500 ms ; 100,1/100 ms) et 69 ignorées (fondus d'attaque sur plus d'un demi-pas, non mesurables par changement — comportement attendu) |
 | Définitions manquantes | 4 modèles sans `.qxf` dans la bibliothèque QLC+ (anonymisés) : un PAR « tri flat RGB », un générique 1 canal (poursuite), une machine à fumée 8 canaux, un PAR 9 canaux ; ils sont patchés sans décodage (signalé par l'avertissement « patchée sans décodage ») |
 
-Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import.
+Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import. **Depuis le 2026-10-15** : ils deviennent des **faders de canaux** et les Submasters des DCA ; réimporter le workspace pour en profiter.
 
 ## P4 + P5 — horloge, position et aftertouch depuis Ableton (Mac, bus IAC, 2026-10-14)
 `npm run proto:midi -- --in "QLC+ loop"` en écoute directe du bus IAC pendant que Live tournait en boucle :

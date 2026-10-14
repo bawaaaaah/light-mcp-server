@@ -80,3 +80,36 @@ describe("archive restore preview", () => {
     expect(diff).to.deep.equal({ added: ["looks/new.json"], removed: ["looks/gone.json"], changed: ["looks/b.json"], unchanged: 1 });
   });
 });
+
+describe("live values (fader levels)", () => {
+  const setup = () => {
+    const d = mkdtempSync(join(tmpdir(), "light-live-store-"));
+    const store = new FolderStore(join(d, "show"), join(d, "backups"));
+    const col = store.collection("groups", z.object({ id: z.string(), level: z.number() }));
+    col.put({ id: "g", level: 1 });
+    const backups = () => (existsSync(join(d, "backups")) ? readdirSync(join(d, "backups")).length : 0);
+    const onDisk = () => JSON.parse(readFileSync(join(d, "show", "groups", "g.json"), "utf8")).level as number;
+    return { store, col, backups, onDisk };
+  };
+
+  it("applies at once, writes once after the moves, and never makes a backup per move", async () => {
+    const { col, backups, onDisk } = setup();
+    for (let i = 0; i <= 100; i++) col.putLive({ id: "g", level: i / 100 });
+    expect(col.get("g")!.level).to.equal(1); // in effect immediately
+    expect(onDisk()).to.equal(1); // not written yet (it was 1 before, and the last move is 1)
+    col.putLive({ id: "g", level: 0.3 });
+    expect(onDisk()).to.equal(1);
+    col.flushLive();
+    expect(onDisk()).to.equal(0.3);
+    expect(backups()).to.equal(0);
+  });
+
+  it("drops pending values when the disk is reloaded (a restored archive wins)", async () => {
+    const { store, col, onDisk } = setup();
+    col.putLive({ id: "g", level: 0.2 });
+    store.reloadAll(); // e.g. after restoring an archive
+    col.flushLive();
+    expect(onDisk()).to.equal(1);
+    expect(col.get("g")!.level).to.equal(1);
+  });
+});
