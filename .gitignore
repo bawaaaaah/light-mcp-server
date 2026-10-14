@@ -8,7 +8,7 @@ coverage/
 
 # Toutes les données d'exécution : machine, lieux, shows, plugins privés, secrets.
 # Seuls des exemples neutres sont versionnés (examples/).
-data/
+/data/
 
 # Sorties des prototypes (racks générés, mesures brutes)
 prototypes/out/
