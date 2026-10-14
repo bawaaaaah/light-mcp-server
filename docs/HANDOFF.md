@@ -20,7 +20,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;
   - reprise après un plantage ou un redémarrage rapide (état en direct de moins de 5 min) ;
   - build de production, image Docker vérifiée.
-- **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
+- **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de règles et de mappings MIDI (avec « Apprendre »), calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
 1. **L'utilisateur** :
