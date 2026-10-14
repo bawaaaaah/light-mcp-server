@@ -2,14 +2,14 @@
 
 Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
 
-**Restent à faire sur le Mac** : P1 sur un vrai bus IAC et hotplug d'un contrôleur USB ; P4/P5 depuis Ableton (horloge, SPP, aftertouch) ; P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; l'import du vrai workspace avec les `.qxf` personnels ([tests-mac](../tests-mac.md)).
+**Restent à faire sur le Mac** : P4/P5 depuis Ableton (horloge, SPP, aftertouch sur le bus IAC) ; P3/P8 (rack et Live Set ouverts dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 sur le bus IAC, P12 + auto-test du vrai show (voir ci-dessous).
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
 |---|---|---|---|
-| P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ✅ **tourne sur le Mac** ; 🟡 à refaire sur un vrai bus IAC | Ports listés (sessions réseau et bus virtuel) ; latence 500/500, p95 0,21 ms, max 0,99 ms sur un bus de boucle ; hotplug pas encore testé |
+| P1 | MIDI local (IAC, USB) depuis Node, hotplug, latence | ✅ **validé sur le Mac (bus IAC)** ; 🟡 hotplug | Bus IAC détecté et utilisé comme boucle : latence 500/500, **p95 0,19 ms, max 0,26 ms** (< 2 ms) ; hotplug USB pas encore testé (nécessite de brancher/débrancher) |
 | P2 | Tick DMX 16 univers à 44 Hz | ✅ **validé** (Linux et Mac) | Aucune trame perdue ; déclenchement → paquet **3,9 ms (Linux), 4,97 ms (Mac)** au pire avec le rendu immédiat, contre 23 ms sans |
-| P3 | Rack `.adg` cloné depuis la coquille | 🟡 **à ouvrir dans Live** | Rack de 6 chaînes depuis la vraie coquille ; tout le reste identique octet pour octet |
+| P3 | Rack `.adg` cloné depuis la coquille | 🟡 **généré sur le Mac, à ouvrir dans Live** | Rack de 6 chaînes généré depuis la coquille de l'utilisateur (`prototypes/out/test-rack.adg`, notes 36/37/38/39/60/61) ; reste à coller sur une piste pour vérifier les key zones et les couleurs |
 | P4 | Clock et SPP depuis Ableton | ⏳ **à faire sur le Mac** | Suivi testé en unitaire (±0,5 BPM avec une gigue de ±1 ms, position par SPP) |
 | P5 | Aftertouch dans un clip | ⏳ **à faire sur le Mac** | Le parseur gère l'aftertouch poly et canal |
 | P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu) |
@@ -18,7 +18,7 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 | P9 | **Flux WebSocket** 16 univers vers N écrans | ✅ **validé** (Linux et Mac) | 8 clients à 25 Hz : ~3 % d'un cœur, latence p99 < 1,2 ms ; client lent isolé (Mac : 113 trames sautées pour lui seul, les autres intacts) |
 | P10 | **sACN** (E1.31) multicast | ✅ **validé** (Linux et Mac) | 16 univers, aucune perte (Mac : 217 paquets par univers, 0 trou) |
 | P11 | **OSC** (pilotage, `/light/help`) | ✅ **validé** (Linux et Mac) | Aller-retour p50 0,06 ms (Linux), 0,035 ms (Mac) ; table d'adresses renvoyée |
-| P12 | **Import `.qxw` et reconnaissance des techniques** | ✅ **validé** sur un vrai workspace ; ✅ tourne sur le Mac (workspace de test) | **97 % des techniques reconnues (29/30), 100 % du punch** ; Mac : 5/5 techniques, attaque 100 % sur le workspace synthétique |
+| P12 | **Import `.qxw` et reconnaissance des techniques** | ✅ **validé** sur un vrai workspace (Mac, `.qxf` de la bibliothèque QLC+) | **Import réel réussi** : 31 fixtures, 108 séquences, 0 collision ; **auto-test 92/92 mappings, latence max 3,46 ms, exclusivité OK, cadence 100 % ✔** ; 4 modèles sans `.qxf` (notés) |
 
 ## P2 — tick DMX
 16 univers × 512 canaux, rendu simulé, encodage ArtDmx, envoi UDP en local.
@@ -87,11 +87,24 @@ Codec maison (i, f, s, T, F, N, bundles) et routes à paramètres (`/light/group
   | « Punch » (attaque claque ou respire) | **100 % (30/30)** |
 
   Le seul échec est une section de masques colorés sans aucun bloc noir, reconnue comme une palette.
-- **Second workspace** (31 fixtures) : la plupart des définitions de fixtures ne sont pas dans le dépôt public de QLC+ (définitions personnelles). **Il faudra les fichiers `.qxf` de l'utilisateur**, situés dans la bibliothèque QLC+ du Mac.
+- **Second workspace** (31 fixtures) : la plupart des définitions de fixtures ne sont pas dans le dépôt public de QLC+ (définitions personnelles). Les `.qxf` ont été fournis par l'utilisateur (bibliothèque QLC+ du Mac, 634 fichiers) et placés dans `data/fixtures/` (exclu de git).
 - Les palettes sont extraites par classe de teinte (la couleur la plus franche), par exemple « ambre ↔ or » utilisée 3 fois.
+
+## P12 + §6 — import réel et auto-test du vrai show (Mac de régie, 2026-10-14)
+Le vrai workspace (QLC+ 4.14.4, 31 fixtures, 108 séquences) a été importé puis testé en mode `--offline` (données dans `data/`, exclu de git), sans serveur en réseau :
+| Étape | Résultat |
+|---|---|
+| Import (proposition) | 31 fixtures patchées, canevas 101 cellules, 106 looks, 13 groupes (1 exclusif), 92 mappings MIDI |
+| Import `--apply` | **0 collision** |
+| **Auto-test (mappings / exclusivité / latence)** | **92/92 mappings · 0 échec · latence 0,16 p50 / 3,46 ms max** · 1 règle d'exclusivité « une seule scène à la fois » ✔ |
+| **Auto-test en cadence (temps réel, 120 BPM)** | 104 lignes, **toutes ✔** : 35 cadences mesurées (ex. 500,3/500 ms ; 100,1/100 ms) et 69 ignorées (fondus d'attaque sur plus d'un demi-pas, non mesurables par changement — comportement attendu) |
+| Définitions manquantes | 4 modèles sans `.qxf` dans la bibliothèque QLC+ (anonymisés) : un PAR « tri flat RGB », un générique 1 canal (poursuite), une machine à fumée 8 canaux, un PAR 9 canaux ; ils sont patchés sans décodage (signalé par l'avertissement « patchée sans décodage ») |
+
+Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import.
 
 ## Points à retenir
 - **Linux** : `snd-seq` est requis pour le MIDI local ; le RTP-MIDI n'a plus besoin de rtpmidid (P7).
-- **macOS** : les sessions RTP-MIDI du système apparaissent aussi comme ports CoreMIDI. Les deux voies restent possibles.
+- **macOS** : un **bus IAC** sert de boucle MIDI de bout en bout sans matériel (latence P1 mesurée dessus). Les sessions RTP-MIDI du système apparaissent aussi comme ports CoreMIDI. Les deux voies restent possibles.
 - **Port 6454** : il ne peut pas être partagé avec QLC+ sur la même machine. Pendant la transition, un seul des deux émet.
+- **Un seul `.qxf` manquant bloque le décodage d'un fixture** (il reste patché sans décodage) ; l'import signale chaque modèle et chaque fader qui demande un travail manuel.
 - **npm 12** : il faut approuver les scripts d'installation d'esbuild et de `@julusian/midi`.
