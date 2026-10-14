@@ -482,6 +482,31 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   expect(errors).toEqual([]);
 });
 
+test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("header nav button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  await editor.getByRole("button", { name: "Apprendre" }).click();
+  await expect(editor.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 50, 100] }); // the note played on a controller
+  await expect(editor.getByLabel("Note / CC")).toHaveValue("50");
+  await editor.getByLabel("Cible").selectOption("hole");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator(".midi table tr", { hasText: "hole" })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 50, 100] });
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(true);
+  await page.screenshot({ path: "test-results/midi-mapping.png", fullPage: true });
+  await page.getByRole("button", { name: "Modifier hole" }).click();
+  await page.locator(".mapping-editor").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".midi table tr", { hasText: "hole" })).toHaveCount(0);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

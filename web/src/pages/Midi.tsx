@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { control } from "../ws";
+import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
 
 interface Status {
   localAvailable: boolean;
@@ -12,6 +13,7 @@ interface Status {
   rtp: { enabled: boolean; port: number; peers: string[] };
   profile: string;
   profiles: string[];
+  profileConfig?: { inputs: string[]; feedbackOutput?: string; rtp: { enabled: boolean; port: number; name: string } };
 }
 interface Mapping {
   id: string;
@@ -69,12 +71,26 @@ export function MidiPage() {
   const [monitor, setMonitor] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const [webMidi, setWebMidi] = useState(false);
+  const [editing, setEditing] = useState<MappingDraft | null>(null);
+  const [error, setError] = useState("");
+  const loadMappings = () => void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
+  /** Watch or stop watching a port in the active profile (patterns match by substring). */
+  const saveProfile = (patch: Partial<NonNullable<Status["profileConfig"]>>) => {
+    if (!status?.profileConfig) return;
+    void cmd("midi.profile.save", { name: status.profile, profile: { ...status.profileConfig, ...patch } })
+      .then(() => cmd<Status>("midi.status").then(setStatus))
+      .catch((e: Error) => setError(e.message));
+  };
+  const toggleWatch = (name: string, on: boolean) => {
+    const inputs = status?.profileConfig?.inputs ?? [];
+    saveProfile({ inputs: on ? [...inputs, name] : inputs.filter((p) => !name.toLowerCase().includes(p.toLowerCase())) });
+  };
   const web = useWebMidi(webMidi);
 
   useEffect(() => {
     const load = () => void cmd<Status>("midi.status").then(setStatus).catch(() => undefined);
     load();
-    void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
+    loadMappings();
     const timer = setInterval(() => {
       load();
       setNow(Date.now());
@@ -107,6 +123,22 @@ export function MidiPage() {
           <input type="checkbox" checked={webMidi} onChange={(e) => setWebMidi(e.target.checked)} /> {t.webMidi}
         </label>
         {webMidi && <span className="hint">{web.error || web.inputs.join(", ") || "—"}</span>}
+        {status?.profileConfig && (
+          <label>
+            {t.feedbackOut}{" "}
+            <select value={status.profileConfig.feedbackOutput ?? ""} onChange={(e) => saveProfile({ feedbackOutput: e.target.value || undefined })}>
+              <option value="">—</option>
+              {status.outputs.map((o) => (
+                <option key={o}>{o}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {error && (
+          <span className="error" onClick={() => setError("")}>
+            {error}
+          </span>
+        )}
       </section>
       <div className="cols">
         <section>
@@ -117,6 +149,7 @@ export function MidiPage() {
               const active = i.lastMessageAt !== undefined && now - i.lastMessageAt < 3000;
               return (
                 <li key={i.name}>
+                  <input type="checkbox" aria-label={`${t.watch} ${i.name}`} checked={i.watched} disabled={!status.profileConfig} onChange={(e) => toggleWatch(i.name, e.target.checked)} />{" "}
                   <span className={active ? "dot ok" : i.open ? "dot idle" : "dot ko"} /> {i.name}{" "}
                   <small>{i.watched ? `${t.watched}, ${active ? t.active : t.silent}` : ""}</small>
                 </li>
@@ -128,8 +161,22 @@ export function MidiPage() {
         </section>
         <section>
           <h2>
-            {t.mappings} ({mappings.length})
+            {t.mappings} ({mappings.length}){" "}
+            <button className="ghost" onClick={() => setEditing(newMapping())}>
+              + {t.newMapping}
+            </button>
           </h2>
+          {editing && (
+            <MappingEditor
+              key={editing.id || "new-mapping"}
+              initial={editing}
+              existing={mappings.map((m) => m.id)}
+              onClose={() => {
+                setEditing(null);
+                loadMappings();
+              }}
+            />
+          )}
           <table>
             <tbody>
               {mappings.map((m) => (
@@ -139,6 +186,11 @@ export function MidiPage() {
                   </td>
                   <td>{t.modes[m.mode as keyof typeof t.modes] ?? m.mode}</td>
                   <td>{m.label || `${m.on.command} ${String(m.on.args.id ?? "")}`}</td>
+                  <td>
+                    <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m as unknown as MappingDraft)}>
+                      ✎
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

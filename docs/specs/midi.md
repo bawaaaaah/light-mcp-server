@@ -58,6 +58,10 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - Une note libérée reste **réservée**. Une collision ou une réattribution passe par une **proposition** validée par un humain, jamais en silence.
 - **Bandes de notes** configurables par show, avec une **bande commune** (bibliothèque partagée) identique d'un show à l'autre pour permettre un rack Ableton commun.
 
+### Dans l'interface (v1, page MIDI)
+- **Entrées surveillées** : une case par port détecté (enregistrée dans le profil actif ; les motifs reconnaissent les noms par sous-chaîne, par exemple « IAC ») et la **sortie de retour**.
+- **Mappings** : créer, modifier, supprimer ; entrée note, CC ou program change avec **« Apprendre »** (le prochain message reçu, 15 s) ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
+
 ## Retour MIDI (feedback)
 - Chaque mapping peut renvoyer son état : une note on dont la vélocité égale le niveau (ou vaut 127/0), une note off, ou un CC miroir. Le profil traduit l'état en couleur ou clignotement de LED.
 - Le retour est émis à **chaque changement d'état, quelle que soit l'origine** : UI, MIDI, OSC, MCP, timeline.

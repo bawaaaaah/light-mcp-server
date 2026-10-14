@@ -33,12 +33,12 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.status",
     title: "État MIDI",
-    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile.",
+    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],
     schema: z.object({}),
-    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()) }),
+    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()] }),
   });
 
   reg.register({
