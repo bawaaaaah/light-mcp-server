@@ -451,6 +451,37 @@ test("group editor: nested DCAs multiply", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("rules: a type limit, relaxed by the show, seen on the output and explained", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "masks" });
+  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  const panel = page.locator(".rules-panel");
+  const form = panel.locator(".rule-form");
+  // type level: Bar 4 dimmer max 50 %
+  await form.getByLabel("Niveau").selectOption("type");
+  await form.getByLabel("Portée").first().selectOption("model");
+  await form.locator("select[aria-label='Portée']").selectOption("Bar 4");
+  await form.getByLabel("max %").fill("50");
+  await form.getByRole("button", { name: "+ Ajouter la règle" }).click();
+  await expect(panel.locator("table.rules tr", { hasText: "Gradateur max 50 %" })).toBeVisible();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(128);
+  // show level: everything max 80 % — more specific level, relaxes the type's limit
+  await form.getByLabel("Niveau").selectOption("show");
+  await form.getByLabel("Portée").first().selectOption("all");
+  await form.getByLabel("max %").fill("80");
+  await form.getByRole("button", { name: "+ Ajouter la règle" }).click();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(204);
+  await panel.getByLabel("Règles en vigueur pour un projecteur").selectOption("bar-0");
+  await expect(panel.locator("table.effective")).toContainText("max ← Gradateur max 80 %");
+  await page.screenshot({ path: "test-results/rules.png", fullPage: true });
+  for (const name of ["Gradateur max 80 %", "Gradateur max 50 %"]) await panel.getByRole("button", { name: `Supprimer ${name}` }).click();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(255);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

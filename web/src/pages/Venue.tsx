@@ -5,6 +5,7 @@ import { useCommandEvents } from "../hooks/useTopic";
 import { slug } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
+import { RulesPanel } from "../components/RulesPanel";
 
 interface Def {
   manufacturer: string;
@@ -82,6 +83,10 @@ export function VenuePage() {
           <summary>{t.calibrationTitle}</summary>
           <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
         </details>
+      </section>
+      <section>
+        <h2>{t.rulesTitle}</h2>
+        <RulesPanel fixtures={fixtures} zones={zones} onError={setError} />
       </section>
       <div className="cols">
         <section>

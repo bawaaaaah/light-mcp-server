@@ -466,7 +466,8 @@ textarea {
   padding: 0.8em 1em;
   margin-bottom: 1em;
 }
-.look-editor h3 {
+.look-editor h3,
+.rules-panel h3 {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -753,4 +754,12 @@ fieldset.checklist {
 fieldset.checklist legend {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+/* Rules */
+table.rules td {
+  padding: 0.25em 0.5em;
+}
+.rule-form {
+  margin-top: 0.8em;
 }
