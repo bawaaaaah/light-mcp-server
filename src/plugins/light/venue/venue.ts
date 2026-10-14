@@ -11,6 +11,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
 import { findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import type { Position } from "../engine/move.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -26,6 +27,19 @@ export const PatchedFixtureSchema = z.object({
   mount: z.enum(["floor", "stand", "truss", "hung", "wall", "pillar", "ceiling"]).optional(),
   /** Zone the fixture aims at (stage model). */
   target: z.string().optional(),
+  /** Moving heads: orientation and calibration (docs/specs/venue-fixtures-stage.md, « Lyres »). */
+  orientation: z
+    .object({
+      /** Heading of the fixture's front, degrees from the audience, clockwise seen from above. */
+      yaw: z.number().default(0),
+      invertPan: z.boolean().default(false),
+      invertTilt: z.boolean().default(false),
+      swapPanTilt: z.boolean().default(false),
+      /** Calibration offsets in degrees. */
+      panOffset: z.number().default(0),
+      tiltOffset: z.number().default(0),
+    })
+    .optional(),
   notes: z.string().optional(),
 });
 export type PatchedFixture = z.infer<typeof PatchedFixtureSchema>;
@@ -55,9 +69,17 @@ export interface AttributeFrame {
   intensity: Map<string, number>;
   /** fixtureId → channel offset (0-based in the mode) → raw DMX value */
   raw: Map<string, Map<number, number>>;
+  /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
+  positions: Map<string, Position>;
 }
 
-export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map() });
+export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map() });
+
+/** A 8- or 16-bit channel pair. */
+export interface CoarseFine {
+  coarse: number;
+  fine?: number;
+}
 
 export interface ResolvedFixture {
   patch: PatchedFixture;
@@ -67,6 +89,36 @@ export interface ResolvedFixture {
   heads: Map<number, Partial<Record<ColorComponent, number>>>;
   dimmers: number[];
   strobes: number[];
+  /** Moving heads: pan/tilt channels and travel in degrees (540/270 when the definition is silent). */
+  pan?: CoarseFine;
+  tilt?: CoarseFine;
+  panMax: number;
+  tiltMax: number;
+  /** Colour wheel: channel offset and its coloured slots. */
+  wheel?: { offset: number; slots: { value: number; color: Color }[] };
+  /** Shutter channels and their « open » value, written when nothing else drives them. */
+  shutterOpen: Map<number, number>;
+  /** No colour mixing: the painted colour's level drives the dimmer (lamp + wheel, plain dimmer). */
+  lampOnly: boolean;
+}
+
+const hexColor = (hex: string): Color => ({ red: parseInt(hex.slice(1, 3), 16) / 255, green: parseInt(hex.slice(3, 5), 16) / 255, blue: parseInt(hex.slice(5, 7), 16) / 255 });
+const levelOf = (c: Color) => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
+
+/** Wheel slot closest to a colour (by chromaticity, the level goes to the dimmer). */
+function nearestSlot(slots: { value: number; color: Color }[], c: Color): number {
+  const norm = (x: Color) => {
+    const l = levelOf(x) || 1;
+    return [(x.red ?? 0) + (x.white ?? 0), (x.green ?? 0) + (x.white ?? 0), (x.blue ?? 0) + (x.white ?? 0)].map((v) => v / l);
+  };
+  const target = norm(c);
+  let best = slots[0]!;
+  let bestD = Infinity;
+  for (const slot of slots) {
+    const d = norm(slot.color).reduce((acc, v, i) => acc + (v - target[i]!) ** 2, 0);
+    if (d < bestD) [best, bestD] = [slot, d];
+  }
+  return best.value;
 }
 
 const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -114,11 +166,30 @@ export class Venue {
         const heads = new Map<number, Partial<Record<ColorComponent, number>>>();
         const dimmers: number[] = [];
         const strobes: number[] = [];
+        const shutterOpen = new Map<number, number>();
+        let pan: CoarseFine | undefined;
+        let tilt: CoarseFine | undefined;
+        let wheel: ResolvedFixture["wheel"];
         mode.channels.forEach((name, offset) => {
           const ch = def.channels.get(name);
           if (ch?.attribute === "intensity") dimmers.push(offset);
-          if (ch?.attribute === "strobe") strobes.push(offset);
+          if (ch?.attribute === "strobe") {
+            strobes.push(offset);
+            const open = ch.capabilities.find((c) => /ShutterOpen/.test(c.preset ?? "") || /^(shutter )?open$/i.test(c.name));
+            if (open) shutterOpen.set(offset, open.min);
+          }
+          if (ch?.attribute === "pan" || ch?.attribute === "tilt") {
+            const pair = ch.attribute === "pan" ? (pan ??= { coarse: -1 }) : (tilt ??= { coarse: -1 });
+            if (ch.fine) pair.fine ??= offset;
+            else if (pair.coarse < 0) pair.coarse = offset;
+          }
+          if (ch?.attribute === "colorWheel" && !wheel) {
+            const slots = ch.capabilities.filter((c) => c.color).map((c) => ({ value: c.min, color: hexColor(c.color!) }));
+            if (slots.length) wheel = { offset, slots };
+          }
         });
+        if (pan && pan.coarse < 0) pan = undefined;
+        if (tilt && tilt.coarse < 0) tilt = undefined;
         if (mode.heads.length) {
           mode.heads.forEach((offsets, h) => {
             const comps: Partial<Record<ColorComponent, number>> = {};
@@ -136,7 +207,8 @@ export class Venue {
           });
           heads.set(-1, comps);
         }
-        result = { patch, def, mode, heads, dimmers, strobes };
+        const lampOnly = [...heads.values()].every((c) => Object.keys(c).length === 0);
+        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, wheel, shutterOpen, lampOnly };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -187,10 +259,17 @@ export class Venue {
       };
       const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
-      for (const d of r.dimmers) write(d, intensity * 255);
-      const colorScale = hasDimmer ? 1 : intensity;
       const painted = frame.colors.get(patch.id);
-      if (painted) {
+      for (const [off, v] of r.shutterOpen) write(off, v);
+      if (r.lampOnly) {
+        // Lamp-only fixtures are lit by what the looks paint on them, at its level.
+        const color = painted?.get(-1) ?? painted?.values().next().value;
+        for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * 255 : 0);
+        if (r.wheel && color) write(r.wheel.offset, nearestSlot(r.wheel.slots, color));
+      } else for (const d of r.dimmers) write(d, intensity * 255);
+      const colorScale = hasDimmer ? 1 : intensity;
+      if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
+      if (painted && !r.lampOnly) {
         for (const [h, comps] of r.heads) {
           const color = painted.get(h) ?? painted.get(-1);
           if (!color) continue;
@@ -200,5 +279,36 @@ export class Venue {
       for (const [off, v] of frame.raw.get(patch.id) ?? []) write(off, v);
     }
     return errors;
+  }
+
+  /** Logical position → pan/tilt channels (inversion, swap, 16-bit). */
+  private writePosition(r: ResolvedFixture, p: Position, write: (offset: number, value: number) => void): void {
+    const o = r.patch.orientation;
+    let pan = o?.invertPan ? 1 - p.pan : p.pan;
+    let tilt = o?.invertTilt ? 1 - p.tilt : p.tilt;
+    if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
+    const put = (ch: CoarseFine | undefined, v: number) => {
+      if (!ch) return;
+      const v16 = Math.round(Math.max(0, Math.min(1, v)) * 65535);
+      write(ch.coarse, v16 >> 8);
+      if (ch.fine !== undefined) write(ch.fine, v16 & 255);
+    };
+    put(r.pan, pan);
+    put(r.tilt, tilt);
+  }
+
+  /** DMX slots (0-based, per universe) holding pan/tilt: kept on Blackout so heads do not swing. */
+  positionSlots(): Map<number, number[]> {
+    const out = new Map<number, number[]>();
+    for (const patch of this.fixtures.list()) {
+      const r = this.resolve(patch.id);
+      if ("error" in r) continue;
+      const offs = [r.pan?.coarse, r.pan?.fine, r.tilt?.coarse, r.tilt?.fine].filter((x): x is number => x !== undefined);
+      if (!offs.length) continue;
+      const list = out.get(patch.universe) ?? [];
+      list.push(...offs.map((o) => patch.address - 1 + o));
+      out.set(patch.universe, list);
+    }
+    return out;
   }
 }

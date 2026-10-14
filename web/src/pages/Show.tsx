@@ -8,6 +8,7 @@ interface Look {
   name: string;
   canvas: string;
   technique: { kind: string };
+  move?: { shape: string };
   timing: { every: { beats?: number; seconds?: number }; attack: number; order: string };
   tags: string[];
   active: boolean;
@@ -166,7 +167,10 @@ export function ShowPage() {
                     {l.name}
                   </button>
                 </td>
-                <td>{l.technique.kind}</td>
+                <td>
+                  {l.technique.kind}
+                  {l.move && <small> · ↻ {l.move.shape}</small>}
+                </td>
                 <td>{cadence(l)}</td>
                 <td>{l.timing.attack < 0.2 ? "claque" : l.timing.attack > 0.8 ? "respire" : `${Math.round(l.timing.attack * 100)} %`}</td>
                 <td>{l.timing.order}</td>

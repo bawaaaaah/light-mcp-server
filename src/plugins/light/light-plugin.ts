@@ -18,6 +18,7 @@ import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { registerShowCommands } from "./commands/show-commands.js";
+import { registerMoveCommands } from "./commands/move-commands.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -122,7 +123,9 @@ export class LightPlugin implements McpPlugin {
     );
     this.runtime = new ShowRuntime(this.show, this.venue, this.tempo);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
+    this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     registerShowCommands(this.commands, this.engine, this.runtime);
+    registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());
     this.hub = new MidiHub(this.activeMidiProfile(), opts.midiNative === null ? { native: null } : {});

@@ -14,7 +14,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 |---|---|---|
 | Lieu et matériel | décrire la salle, ses zones et son matériel ; trouver les fixtures | `light_venue_*`, `light_stage_*`, `light_fixture_search`, `light_fixture_import` |
 | Patch et réseau | proposer un patch, détecter les nodes, router les univers | `light_patch_plan`, `light_patch_check`, `light_discover_nodes`, `light_route_universe` |
-| Mise au point | identifier les projecteurs, calibrer, poser rôles et zones protégées | `light_identify`, `light_calibrate_pantilt`, `light_aim`, `light_protect_zone` |
+| Mise au point | identifier les projecteurs, calibrer, poser rôles et zones protégées | `light_identify`, `light_calibrate_pantilt`, `light_position_aim` (et `light_position_set`, `light_position_release`), `light_protect_zone` |
 | Canevas | définir les canevas et leur rendu sur le kit | `light_canvas_*`, `light_venue_map_canvas` |
 | Conception | palettes, looks et techniques à partir d'une intention | `light_look_from_intent`, `light_palette_*`, `light_preset_*`, `light_technique_*` |
 | Chants | remplir la grille d'un chant, générer boutons et timeline | `light_song_*`, `light_song_grid_fill`, `light_song_from_structure`, `light_timeline_*` |

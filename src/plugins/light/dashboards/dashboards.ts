@@ -7,13 +7,13 @@ import type { Group, Look } from "../show/model.js";
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all"]),
+  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy"]),
   /** Grid position (columns × rows of the dashboard). */
   x: z.number().int().min(0),
   y: z.number().int().min(0),
   w: z.number().int().min(1).default(2),
   h: z.number().int().min(1).default(1),
-  /** Target: look id, group id, "song:section", or label text. */
+  /** Target: look id, group id (faders; XY pad: its moving heads, none = all), "song:section", or label text. */
   target: z.string().optional(),
   label: z.string().optional(),
   mode: z.enum(["trigger", "latch", "momentary"]).optional(),
@@ -33,8 +33,8 @@ export const DashboardSchema = z.object({
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;
 
-/** A first dashboard built from the show: safety bar, one row per exclusive group, then faders. */
-export function defaultDashboard(looks: Look[], groups: Group[]): Dashboard {
+/** A first dashboard built from the show: safety bar, one row per exclusive group, then faders (and an XY pad for moving heads). */
+export function defaultDashboard(looks: Look[], groups: Group[], movingHeads = false): Dashboard {
   const widgets: Widget[] = [
     { id: "panic", kind: "panic", x: 0, y: 0, w: 3, h: 1 },
     { id: "blackout", kind: "blackout", x: 3, y: 0, w: 2, h: 1 },
@@ -59,5 +59,9 @@ export function defaultDashboard(looks: Look[], groups: Group[]): Dashboard {
   groups
     .filter((g) => g.master)
     .forEach((g, i) => widgets.push({ id: `fader-${g.id}`, kind: "group-fader", target: g.id, x: i % 12, y: y + Math.floor(i / 12) * 4, w: 1, h: 4 }));
+  if (movingHeads) {
+    const faders = groups.filter((g) => g.master).length;
+    widgets.push({ id: "xy", kind: "xy", x: faders > 8 ? 0 : 9, y: faders > 8 ? y + Math.ceil(faders / 12) * 4 : y, w: 3, h: 4, label: "Lyres" });
+  }
   return { id: "principal", name: "Principal", columns: 12, widgets };
 }

@@ -119,6 +119,21 @@ test("every page loads without errors, in French and English", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("XY pad moves the heads, ⟲ gives them back to the looks", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const pad = page.locator(".xy .pad");
+  await expect(pad).toBeVisible();
+  const box = (await pad.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.75, box.y + box.height * 0.25);
+  await expect(page.locator(".xy small")).toHaveText("75 / 75");
+  await expect.poll(async () => (await dmx(page, 2)).slice(0, 3)).toEqual([191, expect.any(Number), 191]); // pan, pan fine, tilt
+  await page.locator(".xy button").click();
+  await expect.poll(async () => (await dmx(page, 2))[0]).toBe(128); // back to the centre
+  await page.screenshot({ path: "test-results/xy.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

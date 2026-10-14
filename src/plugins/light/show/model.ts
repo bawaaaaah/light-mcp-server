@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { TimingSchema } from "../engine/player.js";
+import { MoveSchema } from "../engine/move.js";
 
 export const PaletteSchema = z.object({
   id: z.string(),
@@ -22,6 +23,8 @@ export const LookSchema = z.object({
   /** By reference: the technique's colours come from this palette (changing it updates the look). */
   palette: z.string().optional(),
   timing: TimingSchema.default({}),
+  /** Moving heads: position or Move FX played with the look (docs/specs/engine-effects-timing.md). */
+  move: MoveSchema.optional(),
   /** Mirrored composition (paint the left half, fold it); default: the canvas topology. */
   mirror: z.boolean().optional(),
   /** Section safety flags (docs/specs/rules-limits.md). */

@@ -53,6 +53,8 @@ export const TechniqueSchema = z.discriminatedUnion("kind", [
     reverse: z.boolean().default(false),
     resolution: z.number().int().min(2).max(64).default(16),
   }),
+  /** No colour: the look only moves heads (position presets, Move FX). */
+  z.object({ kind: z.literal("aucune") }),
   /** Imported or hand-made raw steps (hex per cell, "-" for off, "" for untouched). */
   z.object({ kind: z.literal("pas"), steps: z.array(z.array(z.string())).min(1) }),
 ]);
@@ -210,6 +212,8 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
         }),
       );
     }
+    case "aucune":
+      return [Array.from({ length: cells }, () => null)];
     case "pas":
       return t.steps.map((row) => Array.from({ length: cells }, (_, k) => {
         const v = row[k] ?? "";

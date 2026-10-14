@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { XyPad } from "../components/XyPad";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy";
 interface Widget {
   id: string;
   kind: Kind;
@@ -45,7 +46,8 @@ interface SongState {
   section?: string;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label"];
+const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy"];
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 } };
 
 export function DashboardsPage() {
   const t = useT();
@@ -95,7 +97,7 @@ export function DashboardsPage() {
     if (!dash) return;
     const y = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
     const id = `${kind}-${Date.now().toString(36)}`;
-    update((d) => ({ ...d, widgets: [...d.widgets, { id, kind, x: 0, y, w: kind === "group-fader" ? 1 : 2, h: kind === "group-fader" ? 4 : 1 }] }));
+    update((d) => ({ ...d, widgets: [...d.widgets, { id, kind, x: 0, y, ...(SIZE[kind] ?? { w: 2, h: 1 }) }] }));
     setSelected(id);
   };
 
@@ -155,6 +157,8 @@ export function DashboardsPage() {
           </button>
         );
       }
+      case "xy":
+        return <XyPad group={w.target || undefined} label={w.label} onError={setError} />;
       case "group-fader": {
         const g = groupById.get(w.target ?? "");
         if (!g) return <div className="fill missing">{w.target}</div>;
@@ -237,7 +241,7 @@ export function DashboardsPage() {
           <select value={sel.target ?? ""} onChange={(e) => updateWidget(sel.id, { target: e.target.value })}>
             <option value="">—</option>
             {sel.kind === "look" && looks.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            {sel.kind === "group-fader" && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            {(sel.kind === "group-fader" || sel.kind === "xy") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <input placeholder="label" value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           <button onClick={() => updateWidget(sel.id, { x: Math.max(0, sel.x - 1) })}>←</button>

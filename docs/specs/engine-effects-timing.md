@@ -65,6 +65,13 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 
 **Préréglages façon Wolfmix** : Colour FX (rainbow, sparkle, fever), Move FX (pan, tilt, circle, figure‑8, magic carpet) et Beam FX (chase, wave, heartbeat). Ils sont construits sur ces deux modèles, avec **deux couches A et B combinables** par module.
 
+### Move FX (lyres, v1)
+- Un look peut porter un **`move`** en plus de sa technique de couleur ; la technique `aucune` donne un look de position pure (preset de position, mouvement seul).
+- Formes : `fixe` (position), `cercle`, `huit`, `pan`, `tilt`, `tapis` (« magic carpet » : vague de tilt, spread 1 par défaut).
+- Paramètres : centre et taille (fractions de la course), un cycle par `every` (temps ou secondes, comme la cadence), **spread** (déphasage du premier au dernier projecteur, en cycles), `wings`, `reverse`, **éventail** (`fan`, écart de pan fixe le long de la rangée).
+- Projecteurs déplacés : les lyres du canevas du look, dans l'ordre des cellules, ou celles d'un **groupe** (`move.group`), triées par X.
+- Une **position manuelle** (pad XY, viser) passe devant les looks jusqu'au relâchement ; le Panic neutre relâche tout.
+
 ## Effets par forme d'onde
 - **Formes** : sine, triangle, saw, ramp, square (PWM), random, step, courbe custom (points ou bezier).
 - **Paramètres** : vitesse (Hz ou fraction de BPM), taille, offset, **phase et spread** ; répartition en groups, blocks, wings, shuffle (grandMA3) ; direction (avant, arrière, rebond, aléatoire) ; ordre (patch, groupe, canevas, ou spatial selon X/Y/Z/radial) ; fade-in/out de l'effet.

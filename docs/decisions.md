@@ -55,4 +55,8 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-13 | Forçage console | Les forçages de la console DMX (programmer) s'appliquent après le masque de règles : c'est le « forçage technicien » | [règles](specs/rules-limits.md) |
 | 2026-10-13 | Import QLC+ | Les séquences sont importées à l'identique (pas exacts) et étiquetées avec la technique reconnue ; la reconstruction paramétrique viendra ensuite, look par look | [chants](specs/presets-songs-notes.md) |
 | 2026-10-13 | Interface | Interface v0 : dashboards modulables (grille, édition), console DMX, MIDI, Import + auto-test ; FR/EN | [ui](specs/ui-dashboards.md) |
+| 2026-10-14 | Tests | Interface testée dans Chromium headless par Playwright (`npm run test:ui`), captures relues après chaque changement visuel | [HANDOFF](HANDOFF.md) |
+| 2026-10-14 | Lyres | Position logique normalisée (0..1, centre 0,5) ; inversion, swap et 16 bits dans le lieu ; une lyre non pilotée reste au centre ; Blackout garde pan/tilt | [lieu](specs/venue-fixtures-stage.md) |
+| 2026-10-14 | Move FX | Le mouvement fait partie du look (`move`) ; technique `aucune` pour les looks de position ; une position manuelle (pad XY, viser) passe devant les looks jusqu'au relâchement | [moteur](specs/engine-effects-timing.md) |
+| 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

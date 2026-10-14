@@ -158,7 +158,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["design", "live"],
     schema: z.object({}),
     run: () => {
-      if (dashboards.list().length === 0) return [defaultDashboard(show.looks.list(), show.groups.list())];
+      if (dashboards.list().length === 0) return [defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0)];
       return dashboards.list();
     },
   });
@@ -171,7 +171,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string().default("principal"), name: z.string().default("Principal") }),
-    run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list()), id: i, name }),
+    run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0), id: i, name }),
   });
 
   // ---- notes everywhere
@@ -242,12 +242,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "panic",
     title: "Panic neutre",
-    description: "Safety: stops every look and the DMX console parks, then recalls the show's safe look; without a safe look it does a Blackout.",
+    description: "Safety: stops every look, the DMX console parks and the manual head positions, then recalls the show's safe look; without a safe look it does a Blackout.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
     run: () => {
       show.stopAll();
+      show.releasePositions();
       engine.release();
       const safe = show.settings.safeLook;
       if (safe && show.looks.get(safe)) {

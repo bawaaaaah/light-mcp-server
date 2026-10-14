@@ -18,7 +18,7 @@ Le **lieu** est une des trois couches de données (machine / lieu / show, voir [
 - **Cellules** : les fixtures multi-cellules sont adressables cellule par cellule, partout.
 
 ## Patch
-- Une instance porte : id, nom, type et mode, univers et adresse, inversion ou swap pan/tilt, tags, position sur la scène, rôle, notes.
+- Une instance porte : id, nom, type et mode, univers et adresse, tags, position sur la scène, montage, rôle, notes, et pour une lyre `orientation` (`yaw`, inversion pan/tilt, swap pan/tilt, décalages de calibration en degrés).
 - Le patch détecte les conflits d'adresse et propose un patch automatique.
 - Le patch peut être importé depuis un `.qxw`.
 
@@ -35,7 +35,13 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
   - `mount` : `floor | stand | truss | hung | wall | pillar | ceiling` ;
   - `orientation {yaw,pitch,roll}`, avec des raccourcis : « vers le public », « vers le mur du fond », « douche », « contre-jour », « rasant mur », « vise la zone X ou le point P ».
   - `target` calculé dans les deux sens.
-  - **Lyres** : pan/tilt neutre, sens de rotation, plages en degrés ; pan/tilt vers un point 3D et l'inverse ; **calibration guidée** (on vise deux ou trois repères au sol, comme dans Lightkey).
+  - **Lyres** (v1) :
+    - la définition donne les canaux pan/tilt (8 ou 16 bits, avec `fine`) et la course en degrés (`<Physical><Focus PanMax TiltMax>` du mode, sinon de la fixture, sinon 540°/270°) ;
+    - le moteur manipule une **position logique normalisée** (0..1 de la course, 0,5 = centre) ; le lieu applique inversion, swap et encodage 16 bits ; une lyre que rien ne pilote reste **au centre** ;
+    - **viser** une zone (son centre, à 1,5 m au-dessus de son plancher par défaut) ou un point : calcul depuis la position, le montage (accrochée = retournée) et le `yaw`, en gardant la solution la plus proche du centre ; hors de portée = signalé ;
+    - lyre sans mélange de couleurs : la couleur peinte par le look choisit le **créneau de roue** le plus proche et son niveau pilote le gradateur ; le shutter est mis sur sa valeur « ouvert » ;
+    - **Blackout** éteint la lumière mais **garde pan/tilt** (les lyres ne partent pas en butée) ;
+    - plus tard : **calibration guidée** (viser deux ou trois repères au sol, comme dans Lightkey) et pan/tilt → point (sens inverse).
   - **Rôle** : `face | contre | douche | latéral | wash-public | blinder | effet | découpe | wall-wash | décor | machine`.
 - **Usages** :
   - effets spatiaux (balayage par X, vague par Y, montée par Z, radial) ;
@@ -60,7 +66,7 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
 - **Live preview 2D** : faisceaux qui reflètent intensité, couleur, zoom et strobe, à partir des valeurs du moteur.
 
 ## MCP
-`light_venue_*`, `light_fixture_search` et `light_fixture_import`, `light_patch_plan` puis `light_apply`, `light_stage_zone` et `light_stage_place`, `light_stage_query`, `light_protect_zone`, `light_canvas_*`, `light_venue_map_canvas`, `light_identify`, `light_calibrate_pantilt`, `light_aim`. Ressource `light://stage`.
+`light_venue_*`, `light_fixture_search` et `light_fixture_import`, `light_patch_plan` puis `light_apply`, `light_stage_zone` et `light_stage_place`, `light_stage_query`, `light_protect_zone`, `light_canvas_*`, `light_venue_map_canvas`, `light_identify`, `light_calibrate_pantilt`, `light_position_aim` (et `light_position_set`, `light_position_release`). Ressource `light://stage`.
 
 ## Tests
 - Imports OFL et `.qxf`, déduction des tags.

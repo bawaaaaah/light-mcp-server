@@ -415,3 +415,45 @@ textarea {
   padding: 0.4em;
   font: inherit;
 }
+
+/* XY pad (moving heads) */
+.xy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+.xy .pad {
+  position: relative;
+  flex: 1;
+  min-height: 6em;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.xy .cross {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(var(--line), var(--line)) center / 1px 100% no-repeat,
+    linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+.xy .dot {
+  position: absolute;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+}
+.xy .row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.xy .row label {
+  flex: 1;
+}

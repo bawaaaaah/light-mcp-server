@@ -14,6 +14,8 @@ export interface FixtureCapability {
   max: number;
   name: string;
   preset?: string;
+  /** Colour of a wheel slot ("#rrggbb"), from QLC+'s Res1 / Color attribute. */
+  color?: string;
   tags: CapabilityTag[];
 }
 
@@ -32,6 +34,9 @@ export interface FixtureMode {
   channels: string[]; // channel names, by DMX offset
   /** Cells: each head lists the DMX offsets of its channels. */
   heads: number[][];
+  /** Pan/tilt travel in degrees (mode-specific physical section, else the fixture's). */
+  panMax?: number;
+  tiltMax?: number;
 }
 
 export interface FixtureDefinition {
@@ -40,6 +45,8 @@ export interface FixtureDefinition {
   type: string;
   channels: Map<string, FixtureChannel>;
   modes: FixtureMode[];
+  panMax?: number;
+  tiltMax?: number;
 }
 
 const ARRAYS = new Set(["Channel", "Capability", "Mode", "Head"]);
@@ -112,7 +119,8 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   const capabilities: FixtureCapability[] = ((node["Capability"] as Record<string, unknown>[] | undefined) ?? []).map((c) => {
     const capName = text(c);
     const capPreset = c["@_Preset"] as string | undefined;
-    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, tags: capabilityTags(capName, capPreset) };
+    const hex = [c["@_Res1"], c["@_Res"], c["@_Color"]].find((v): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
+    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, ...(hex ? { color: hex.toLowerCase() } : {}), tags: capabilityTags(capName, capPreset) };
   });
 
   let attribute: FixtureChannel["attribute"] = "other";
@@ -143,6 +151,15 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   return { name, attribute, color, fine: /Fine$/.test(preset ?? "") || /fine/i.test(name), capabilities, tags: [...tags] };
 }
 
+/** PanMax / TiltMax of a <Physical><Focus> section, when present. */
+function focusOf(node: unknown): { panMax?: number; tiltMax?: number } {
+  const focus = (node as Record<string, Record<string, unknown>> | undefined)?.["Focus"];
+  const num = (v: unknown) => (v !== undefined && Number(v) > 0 ? Number(v) : undefined);
+  const panMax = num(focus?.["@_PanMax"]);
+  const tiltMax = num(focus?.["@_TiltMax"]);
+  return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}) };
+}
+
 export function parseQxf(xml: string): FixtureDefinition {
   const root = parser.parse(xml).FixtureDefinition as Record<string, unknown>;
   if (!root) throw new Error("not a QLC+ fixture definition");
@@ -155,9 +172,9 @@ export function parseQxf(xml: string): FixtureDefinition {
     const chans = ((m["Channel"] as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
     chans.sort((a, b) => a.n - b.n);
     const heads = ((m["Head"] as Record<string, unknown>[]) ?? []).map((h) => ((h["Channel"] as unknown[]) ?? []).map((x) => Number(text(x))));
-    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads };
+    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads, ...focusOf(m["Physical"]) };
   });
-  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes };
+  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes, ...focusOf(root["Physical"]) };
 }
 
 /** Mode names differ between QLC+ versions ("39-channel" vs "39 Channel"): compare loosely. */

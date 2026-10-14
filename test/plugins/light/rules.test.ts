@@ -12,6 +12,10 @@ const fx: ResolvedFixture = {
   heads: new Map(),
   dimmers: [0],
   strobes: [1],
+  panMax: 540,
+  tiltMax: 270,
+  shutterOpen: new Map(),
+  lampOnly: false,
 };
 const rule = (r: unknown) => RuleSchema.parse(r);
 

@@ -31,10 +31,10 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Import QLC+ + auto-test (critère v0) | ✅ (à rejouer sur le vrai workspace avec les `.qxf` de l'utilisateur) |
 | Exports Ableton (rack, Live Set), conduite | ✅ (à ouvrir dans Live) |
 | Conception assistée + ressources MCP | ✅ v1 |
-| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 8 scénarios) ; reste à la voir sur tablette et sur le Mac |
+| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 9 scénarios) ; reste à la voir sur tablette et sur le Mac |
 | Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
 | Archives `.lightshow`, notes partout, Web MIDI, explorateur OSC | ✅ |
-| Lyres (pan/tilt, Move FX, pad XY) | ⏳ |
+| Lyres (pan/tilt 16 bits, Move FX, viser une zone, pad XY, roue de couleurs) | ✅ (calibration guidée et import des EFX QLC+ : plus tard ; à valider sur une vraie lyre) |
 
 ## Étape 1 : v0 « prochain culte »
 **Objectif** : remplacer le pipeline QLC+ actuel de l'utilisateur sur **un vrai événement**.

@@ -9,9 +9,13 @@ import { z } from "zod";
 import { rng, type CellState, type Step } from "./techniques.js";
 import type { Color } from "../venue/venue.js";
 
+/** A duration in beats (follows the tempo) or in seconds (fixed). */
+export const EverySchema = z.union([z.object({ beats: z.number().positive() }), z.object({ seconds: z.number().positive() })]);
+export type Every = z.infer<typeof EverySchema>;
+
 export const TimingSchema = z.object({
   /** Step length: beats (musical) or seconds (fixed). */
-  every: z.union([z.object({ beats: z.number().positive() }), z.object({ seconds: z.number().positive() })]).default({ beats: 1 }),
+  every: EverySchema.default({ beats: 1 }),
   attack: z.number().min(0).max(1).default(0),
   order: z.enum(["loop", "pingpong", "random", "weighted"]).default("loop"),
   /** Weighted order: weight per step (missing = 1). */
@@ -97,9 +101,8 @@ export class LookPlayer {
     }
   }
 
-  /** Progress in steps since start (fractional). */
-  position(nowMs: number, beats: number): number {
-    const every = this.timing.every;
+  /** Progress in units of `every` since start (fractional): steps for the timing, cycles for a move. */
+  position(nowMs: number, beats: number, every: Every = this.timing.every): number {
     return "beats" in every ? (beats - this.startBeats) / every.beats : (nowMs - this.startMs) / 1000 / every.seconds;
   }
 

@@ -8,6 +8,8 @@
 import type { Collection, FolderStore } from "../data/store.js";
 import { LookPlayer } from "../engine/player.js";
 import { generateSteps, scaleColor, type Step, type Technique } from "../engine/techniques.js";
+import { movePosition, type Position } from "../engine/move.js";
+import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleSchema, type Clamp, type Rule } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
@@ -43,6 +45,8 @@ export class ShowRuntime {
   private readonly active = new Map<string, ActiveLook>();
   /** group id → flash held */
   private readonly flashes = new Set<string>();
+  /** Manual positions (XY pad, aiming): override the looks' moves until released. */
+  private readonly manualPositions = new Map<string, Position>();
   lastErrors: string[] = [];
 
   constructor(
@@ -212,6 +216,61 @@ export class ShowRuntime {
     return level;
   }
 
+  /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
+  movingHeads(): string[] {
+    return this.venue.fixtures.list().filter((f) => {
+      const r = this.venue.resolve(f.id);
+      return !("error" in r) && (r.pan || r.tilt);
+    }).map((f) => f.id);
+  }
+
+  /** Fixtures moved by a look, in row order (canvas order, or by X position for a group). */
+  movedBy(look: Look): string[] {
+    const heads = new Set(this.movingHeads());
+    if (look.move?.group) {
+      const pos = (id: string) => this.venue.fixtures.get(id)?.position?.x ?? 0;
+      const order = this.venue.fixtures.list().map((f) => f.id);
+      return [...this.fixturesOf(look.move.group)].filter((f) => heads.has(f)).sort((a, b) => pos(a) - pos(b) || order.indexOf(a) - order.indexOf(b));
+    }
+    const out: string[] = [];
+    for (const cell of this.venue.cellTargets(look.canvas)) for (const t of cell) if (heads.has(t.fixture) && !out.includes(t.fixture)) out.push(t.fixture);
+    return out;
+  }
+
+  /** Sets a manual position (normalised pan/tilt) on fixtures; it wins over the looks until released. */
+  setPosition(fixtures: string[], p: Partial<Position>): void {
+    for (const f of fixtures) {
+      const cur = this.manualPositions.get(f) ?? { pan: 0.5, tilt: 0.5 };
+      this.manualPositions.set(f, { pan: p.pan ?? cur.pan, tilt: p.tilt ?? cur.tilt });
+    }
+  }
+
+  /** Releases manual positions (all when no fixture is given); returns the released fixtures. */
+  releasePositions(fixtures?: string[]): string[] {
+    const ids = fixtures ?? [...this.manualPositions.keys()];
+    return ids.filter((f) => this.manualPositions.delete(f));
+  }
+
+  manualPosition(fixture: string): Position | undefined {
+    return this.manualPositions.get(fixture);
+  }
+
+  /** Points fixtures at a point of the stage (metres); returns per-fixture results. */
+  aim(fixtures: string[], target: { x: number; y: number; z: number }): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
+    return fixtures.map((id) => {
+      const f = this.venue.fixtures.get(id);
+      const r = this.venue.resolve(id);
+      if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : `fixture inconnue : ${id}` };
+      if (!r.pan && !r.tilt) return { fixture: id, error: "pas de pan/tilt" };
+      if (!f.position) return { fixture: id, error: "position sur la scène inconnue" };
+      const o = f.orientation;
+      const res = aimAt({ position: f.position, hung: f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling", yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 }, target);
+      if ("error" in res) return { fixture: id, error: res.error };
+      this.setPosition([id], res);
+      return { fixture: id, pan: res.pan, tilt: res.tilt };
+    });
+  }
+
   /** Renders the playing looks into DMX buffers. */
   render(buffers: Uint8Array[]): void {
     const now = this.now();
@@ -233,7 +292,17 @@ export class ShowRuntime {
         errors.push((err as Error).message);
       }
       for (const f of excluded) frame.colors.delete(f);
+      if (look.move) {
+        try {
+          const moved = this.movedBy(look);
+          const cycles = player.position(now, beats, look.move.every);
+          moved.forEach((f, i) => frame.positions.set(f, movePosition(look.move!, cycles, i, moved.length)));
+        } catch (err) {
+          errors.push((err as Error).message);
+        }
+      }
     }
+    for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));
     errors.push(...this.venue.toDmx(frame, buffers));
     // Rules mask: last stage of the show's output.
