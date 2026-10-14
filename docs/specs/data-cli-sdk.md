@@ -46,20 +46,25 @@ data/shows/<id>/
 - Au démarrage, il est **restauré seulement s'il a moins de 5 minutes** et concerne le même show : un plantage ou un redémarrage rapide pendant un culte reprend où on en était ; un démarrage le lendemain ne rallume rien par surprise.
 - Les niveaux des groupes et le grand master sont déjà enregistrés dans le show ; les positions manuelles des lyres et les forçages de la console ne sont pas repris (volontairement).
 
-## CLI `light` (headless)
+## CLI `light` (headless, v1)
+Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI passe par son API HTTP avec le jeton maître ; **serveur injoignable** : elle ouvre directement les dossiers de données (jamais les deux à la fois, donc jamais deux écrivains sur un show). `--offline` force le second mode, `--url` choisit le serveur ; `LIGHT_CONFIG_PATH` et `LIGHT_DATA_ROOT` valent pour le serveur et la CLI.
+
 | Commande | Rôle |
 |---|---|
-| `light serve` | lance le serveur |
-| `light import qxw <fichier>` | import et reconstruction d'un workspace QLC+ (proposition, puis `--apply`) |
-| `light check` | lint hors ligne : schémas, règles, conflits de notes, contraste, symétrie, sections inertes |
-| `light selftest` | auto-test de bout en bout contre un serveur qui tourne : MIDI injecté, DMX relu, cadence, exclusivité |
-| `light export ableton` | MIDI Effect Rack (depuis la coquille), table des notes, `.mid` |
-| `light export liveset <als>` | pose la setlist dans un Live Set (Live fermé, avec backup) |
-| `light export cuesheet` / `board` | feuille de conduite, planche |
-| `light pack` / `light unpack` | dossier vers `.lightshow`, et l'inverse |
-| `light osc-table` | table des adresses OSC |
+| `light serve [--standby \| --live]` | lance le serveur (en veille : n'envoie rien, voir [bascule](../bascule-qlc.md)) |
+| `light token` / `pin <rôle> <pin>` / `roles` | jeton maître, PIN des rôles |
+| `light check` | lint du show (schémas, conflits de notes, contraste, sections inertes) ; sortie 1 en cas d'erreur |
+| `light selftest [--cadence]` | auto-test : mappings, exclusivité, latence, cadence mesurée ; sortie 1 en cas d'échec |
+| `light import qxw <fichier> [--apply]` | import d'un workspace QLC+ : proposition, puis `--apply` pour écrire |
+| `light export cuesheet [--setlist id]` / `notes [--csv]` | feuille de conduite, table des notes |
+| `light export ableton [--shell f]` | MIDI Effect Rack depuis la coquille |
+| `light export liveset --setlist id --als f --track nom` | pose la setlist dans une copie du Live Set (Live fermé) |
+| `light pack [fichier] [--no-venue]` / `light unpack <fichier>` | sauvegarde `.lightshow`, restauration avec copie de l'existant |
+| `light standby on\|off` | sortie en veille, reprendre la main |
+| `light osc-table` | adresses OSC |
+| `light call <commande> [json]` / `light commands` | n'importe quelle commande du registre, liste des commandes |
 
-Chaque commande d'écriture accepte `--check` (n'écrit rien) et est idempotente.
+Plus tard : planche (`board`), `--check` généralisé aux commandes d'écriture.
 
 ## SDK de scripts
 - **TypeScript** : un paquet `sdk/` qui expose les types (schémas zod) et un client des commandes (HTTP/WS).

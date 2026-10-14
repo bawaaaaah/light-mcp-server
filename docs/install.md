@@ -25,7 +25,8 @@ npm start                               # ou npm run serve en développement
 ```
 - Interface : `http://<machine>:8790`, connexion avec le PIN.
 - MCP : `http://<machine>:8790/mcp` avec le jeton de `npm run light -- token`, ou en stdio avec `node dist/cli/main.js serve --stdio --no-http`.
-- **QLC+ et ce serveur ne peuvent pas utiliser le port 6454 en même temps** sur une même machine : pendant la transition, un seul des deux émet.
+- **Pendant la transition avec QLC+** : un seul des deux émet. Lancer le serveur en veille (`npm run serve -- --standby`) et suivre [bascule-qlc.md](bascule-qlc.md) ; sur un Mac partagé avec QLC+, mettre `"discovery": false` (port 6454).
+- **En ligne de commande** : `npm run light -- check`, `selftest --cadence`, `pack`, `standby on|off`… (`npm run light -- help`). La CLI passe par le serveur s'il tourne, sinon elle ouvre les données directement.
 
 ## 3. Reprendre un show QLC+
 1. Copier les définitions de fixtures (`.qxf`) dans `data/fixtures/` : celles de la bibliothèque QLC+ du Mac et les tiennes.

@@ -42,7 +42,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
   const masterToken = await resolveAuthToken(configStore);
   const auth = new AuthService(masterToken, configStore);
   const eventBus = new EventBus();
-  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth, ...opts.light });
+  const light = new LightPlugin({ eventBus, config: configStore.scoped(PLUGIN_ID), auth, ...(process.env.LIGHT_DATA_ROOT ? { dataRoot: process.env.LIGHT_DATA_ROOT } : {}), ...opts.light });
   const plugins = [light];
   const toolVisibility = new ToolVisibilityController(plugins, configStore);
   await light.start();
