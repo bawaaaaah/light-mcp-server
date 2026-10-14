@@ -4,7 +4,8 @@
  * head coloured from the real output (topic light:preview, after rules, parks and Blackout).
  * Fixtures with no stage position are lined up along the front edge. With moving heads, « Viser »
  * points them at the clicked spot (position.aim, at a standing person's height). « Placer » lets
- * fixtures be dragged to their place (snapped to 10 cm).
+ * fixtures be dragged to their place (snapped to 10 cm). The front view shows heights (X, Z): risers
+ * at their floor height, and dragging there sets a fixture's height.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -38,6 +39,21 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [view, setView] = useState<"top" | "front">("top");
+  const front = view === "front";
+  // The drawing works on (x, y) pairs: top view = stage plan, front view = (x, height).
+  const shown = useMemo(() => {
+    const fx = fixtures.map((f) => (front && f.position ? { ...f, position: { x: f.position.x, y: f.position.z, z: f.position.y } } : f));
+    const zs = front
+      ? zones.map((z) => {
+          const xs = z.polygon.map((p) => p[0]);
+          const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+          const top = Math.max(0.05, z.floorHeight);
+          return { ...z, polygon: [[x0, 0], [x1, 0], [x1, top], [x0, top]] as [number, number][] };
+        })
+      : zones;
+    return { fixtures: fx, zones: zs };
+  }, [fixtures, zones, front]);
   const [heads, setHeads] = useState(0);
   const svg = useRef<SVGSVGElement>(null);
 
@@ -48,8 +64,9 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
 
   // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front.
   const layout = useMemo(() => {
-    const pts: [number, number][] = [...zones.flatMap((z) => z.polygon), ...fixtures.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number])];
-    const unplaced = fixtures.filter((f) => !f.position);
+    const { fixtures: fxs, zones: zs } = shown;
+    const pts: [number, number][] = [...zs.flatMap((z) => z.polygon), ...fxs.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number])];
+    const unplaced = fxs.filter((f) => !f.position);
     const rowHalf = Math.max(1.5, unplaced.length * 0.6);
     let minX = -rowHalf;
     let maxX = rowHalf;
@@ -70,10 +87,10 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
     } else [minY, maxY] = [rowY - 0.3, rowY + 0.3]; // nothing placed yet: just the row
     const m = pts.length ? 0.8 : 0.3;
     const pos = new Map<string, { x: number; y: number }>();
-    for (const f of fixtures) if (f.position) pos.set(f.id, { x: f.position.x, y: f.position.y });
+    for (const f of fxs) if (f.position) pos.set(f.id, { x: f.position.x, y: f.position.y });
     unplaced.forEach((f, i) => pos.set(f.id, { x: -rowHalf + (2 * rowHalf * (i + 0.5)) / unplaced.length, y: rowY }));
     return { minX: minX - m, maxX: maxX + m, minY: minY - m, maxY: maxY + m, pos, unplaced: unplaced.length };
-  }, [fixtures, zones]);
+  }, [shown]);
 
   const W = 800;
   const scale = W / (layout.maxX - layout.minX);
@@ -91,11 +108,12 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
     if (!drag) return;
     const f = fixtures.find((x) => x.id === drag.id);
     setDrag(null);
-    if (f && onMove) onMove(f, { x: snap(drag.x), y: snap(drag.y), z: f.position?.z ?? defaultHeight(f.mount) });
+    // front view: the vertical axis is the height; the depth is kept
+    if (f && onMove) onMove(f, front ? { x: snap(drag.x), y: f.position?.y ?? 1, z: Math.max(0, snap(drag.y)) } : { x: snap(drag.x), y: snap(drag.y), z: f.position?.z ?? defaultHeight(f.mount) });
   };
 
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!aiming || placing || !svg.current) return;
+    if (!aiming || placing || front || !svg.current) return;
     const p = eventToStage(e);
     const zone = zones.find((z) => inside(p.x, p.y, z.polygon));
     void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 } })
@@ -111,14 +129,22 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
       {!compact && (
         <div className="row">
         <small className="hint">
-          {t.audience} ↓{layout.unplaced ? ` · ${layout.unplaced} ${t.unplaced}` : ""}
+          {front ? t.audienceFacing : `${t.audience} ↓`}{layout.unplaced ? ` · ${layout.unplaced} ${t.unplaced}` : ""}
         </small>
         {onMove && (
           <label className="row">
             <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false))} /> {t.placeMode}
           </label>
         )}
-        {heads > 0 && !placing && (
+        <span className="row view-switch">
+          <button className={front ? "ghost" : "ghost on"} onClick={() => setView("top")}>
+            {t.viewTop}
+          </button>
+          <button className={front ? "ghost on" : "ghost"} onClick={() => (setView("front"), setAiming(false))}>
+            {t.viewFront}
+          </button>
+        </span>
+        {heads > 0 && !placing && !front && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
@@ -136,7 +162,8 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
         aria-label={t.stagePreview}
       >
         <rect width={W} height={H} fill="#12141a" />
-        {zones.map((z) => (
+        {front && <line x1={0} x2={W} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
+        {shown.zones.map((z) => (
           <g key={z.id} className="zone">
             <polygon points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill={ZONE_FILL[z.type] ?? "#262a33"} stroke={z.protected ? "#e5484d" : "#3b4150"} strokeDasharray={z.protected ? "6 4" : undefined} />
             <text x={sx(z.polygon.reduce((a, p) => a + p[0], 0) / z.polygon.length)} y={sy(Math.max(...z.polygon.map((p) => p[1]))) + 14} textAnchor="middle" className="zone-name">

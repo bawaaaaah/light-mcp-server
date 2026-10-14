@@ -715,3 +715,7 @@ table.cues select {
   height: 100%;
   max-width: none;
 }
+.view-switch button.on {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}

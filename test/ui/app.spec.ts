@@ -341,6 +341,23 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   await plan.click({ position: { x: 300, y: 60 } }); // the head, now placed, aims at the clicked spot
   await expect.poll(async () => ((await api(page, "position.list")) as { id: string; manual: unknown }[]).find((h) => h.id === "spot")?.manual).not.toBeNull();
   await api(page, "position.release");
+  // front view: heights; dragging a bar up raises it
+  await page.getByRole("button", { name: "Face", exact: true }).click();
+  await expect(page.locator(".stage-plan .hint")).toContainText("hauteurs");
+  await page.getByLabel("Placer les projecteurs").check();
+  const bar0 = page.locator('.stage-plan g.fixture[data-fixture="bar-0"] rect').first();
+  await bar0.scrollIntoViewIfNeeded();
+  const b = (await bar0.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y - 120, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => ((await api(page, "venue.fixture.list")) as { id: string; position?: { y: number; z: number } }[]).find((f) => f.id === "bar-0")?.position?.z ?? 0).toBeGreaterThan(1);
+  const raised = ((await api(page, "venue.fixture.list")) as { id: string; position: { y: number } }[]).find((f) => f.id === "bar-0")!.position;
+  expect(raised.y).toBe(4.5); // depth kept
+  await page.screenshot({ path: "test-results/stage-front.png", fullPage: true });
+  await page.getByLabel("Placer les projecteurs").uncheck();
+  await page.getByRole("button", { name: "Dessus", exact: true }).click();
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
