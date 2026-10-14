@@ -59,8 +59,11 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - Liste des backups automatiques ([data-cli-sdk](data-cli-sdk.md)).
 
 ## Éditeur d'effets, d'easing et de timing
-- **Aperçu animé** sur le canevas et sur la scène.
-- **Éditeur de pas** : masque et couleurs par pas, attaque, ordre, poids.
+- **Éditeur de looks** (v1, page Show) : technique et ses paramètres, palette par référence, miroir, cadence (temps ou secondes), attaque, ordre et poids, fondu d'entrée, Move FX des lyres, drapeaux, tags et notes ; enregistrer, enregistrer et lancer, dupliquer, supprimer.
+  - Le formulaire des paramètres est **généré depuis le schéma du serveur** (`look.techniques`) : une nouvelle technique ou un nouveau paramètre apparaît sans code d'interface.
+  - L'**aperçu animé** rejoue les pas calculés par le serveur (`look.preview`, le même générateur que le show) au tempo courant.
+- **Aperçu animé** sur la scène : plus tard.
+- **Éditeur de pas** (v1, technique `pas`) : une ligne par pas, un carré par cellule, pinceau couleur / éteint / non piloté, dupliquer ou supprimer un pas.
 - **Courbe d'easing** : poignées bezier, presets de Penner, `steps`.
 - **Timeline** fade, hold et delay, avec une bascule **secondes ↔ temps musicaux**.
 - Visualisation du spread et de la phase.

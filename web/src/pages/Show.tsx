@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cmd, downloadArchive, restoreArchive } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 
 interface Look {
   id: string;
@@ -45,6 +46,7 @@ export function ShowPage() {
   const [intent, setIntent] = useState({ name: "", mood: "", canvas: "", energy: "" });
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState<LookDraft | null>(null);
 
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
@@ -154,9 +156,24 @@ export function ShowPage() {
         )}
       </section>
 
+      {editing && (
+        <LookEditor
+          key={editing.id || "new"}
+          initial={editing}
+          existing={looks.map((l) => l.id)}
+          onClose={() => {
+            setEditing(null);
+            refresh();
+          }}
+        />
+      )}
+
       <section>
         <h2>
-          {t.looks} ({looks.length})
+          {t.looks} ({looks.length}){" "}
+          <button className="ghost" onClick={() => setEditing(newLook(canvases[0]?.id ?? ""))}>
+            + {t.newLook}
+          </button>
         </h2>
         <table>
           <tbody>
@@ -176,6 +193,11 @@ export function ShowPage() {
                 <td>{l.timing.order}</td>
                 <td>
                   <small>{l.tags.join(" · ")}</small>
+                </td>
+                <td>
+                  <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => setEditing(l as unknown as LookDraft)}>
+                    ✎
+                  </button>
                 </td>
               </tr>
             ))}

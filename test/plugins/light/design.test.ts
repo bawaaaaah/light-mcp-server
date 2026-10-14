@@ -51,6 +51,19 @@ describe("colour knowledge and design", () => {
       await run("venue.canvas.put", { canvas: { id: "mur", name: "Mur", cells: 4, render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: [{ fixture: "bar", head: h }] })) } });
     });
 
+    it("describes every technique for the editors and previews an unsaved look", async () => {
+      const kinds = (await run("look.techniques")) as { kind: string; schema: { properties: Record<string, unknown> } }[];
+      expect(kinds.map((k) => k.kind)).to.include.members(["plat", "damier", "onde", "pas", "aucune"]);
+      expect(kinds.find((k) => k.kind === "creux")!.schema.properties).to.have.keys("kind", "colors", "block", "width", "floor");
+      const preview = (await run("look.preview", { look: { id: "draft", name: "Brouillon", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff+w255"], block: 2 } } })) as { cells: number; steps: (string | null)[][] };
+      expect(preview.cells).to.equal(4);
+      expect(preview.steps).to.deep.equal([
+        ["#ff0000", "#ff0000", "#ffffff", "#ffffff"], // blue + white shows as white
+        ["#ffffff", "#ffffff", "#ff0000", "#ff0000"],
+      ]);
+      expect(plugin.runtime.looks.get("draft")).to.equal(undefined); // nothing saved
+    });
+
     it("proposes then saves a look from an intention", async () => {
       const dry = (await run("look.from_intent", { name: "Adoration", canvas: "mur", mood: ["adoration"] })) as { saved: boolean };
       expect(dry.saved).to.equal(false);

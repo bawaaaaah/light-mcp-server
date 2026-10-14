@@ -26,6 +26,17 @@ async function dmx(page: Page, universe = 1): Promise<number[]> {
   }, universe);
 }
 
+/** Runs a command with the session token of the page. */
+async function api(page: Page, name: string, args: unknown = {}): Promise<unknown> {
+  return page.evaluate(
+    async ([n, a]) => {
+      const res = await fetch(`/api/plugins/light/commands/${n}`, { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify(a) });
+      return ((await res.json()) as { result: unknown }).result;
+    },
+    [name, args] as const,
+  );
+}
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -131,6 +142,41 @@ test("XY pad moves the heads, ⟲ gives them back to the looks", async ({ page }
   await page.locator(".xy button").click();
   await expect.poll(async () => (await dmx(page, 2))[0]).toBe(128); // back to the centre
   await page.screenshot({ path: "test-results/xy.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("look editor: create with a live preview, then paint steps", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau look" }).click();
+  const editor = page.locator(".look-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Mon damier");
+  await editor.getByLabel("Technique").selectOption("damier");
+  await expect(editor.locator(".fields .colors input.swatch")).toHaveCount(2);
+  await expect(editor.locator(".preview .cell")).toHaveCount(8); // server preview on the 8-cell canvas
+  await expect(editor.locator(".preview .cell.free")).toHaveCount(0);
+  await page.screenshot({ path: "test-results/look-editor.png", fullPage: true });
+  await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator("button.look", { hasText: "Mon damier" })).toHaveClass(/on/);
+  await expect.poll(async () => (await dmx(page)).slice(3, 15).some((v) => v > 0)).toBe(true);
+
+  // edit: raw steps, first cell painted « éteint »
+  await page.getByRole("button", { name: "Modifier Mon damier" }).click();
+  await editor.getByLabel("Technique").selectOption("pas");
+  await expect(editor.locator(".steps-editor .step-row .cell")).toHaveCount(8);
+  await editor.getByLabel("éteint").check();
+  await editor.locator(".steps-editor .step-row .cell").first().dispatchEvent("pointerdown");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const look = (await api(page, "look.list")) as { id: string; technique: { kind: string; steps: string[][] } }[];
+  const mine = look.find((l) => l.id === "mon-damier")!;
+  expect(mine.technique.kind).toBe("pas");
+  expect(mine.technique.steps[0]![0]).toBe("-");
+  await expect.poll(async () => (await dmx(page)).slice(3, 9)).toEqual([0, 0, 0, 255, 255, 255]); // head 1 off, head 2 white
+  await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
 

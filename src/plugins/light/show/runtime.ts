@@ -106,11 +106,15 @@ export class ShowRuntime {
     }
   }
 
-  private build(look: Look): LookPlayer {
+  /** The steps a look plays on its canvas (palette and mirror applied). */
+  stepsOf(look: Look): Step[] {
     const canvas = this.venue.canvases.get(look.canvas);
     if (!canvas) throw new Error(`canevas inconnu : ${look.canvas}`);
-    const steps = generateSteps(this.resolvedTechnique(look), canvas.cells, look.mirror ?? canvas.topology === "line-mirror");
-    return new LookPlayer(steps, look.timing, seedOf(look.id));
+    return generateSteps(this.resolvedTechnique(look), canvas.cells, look.mirror ?? canvas.topology === "line-mirror");
+  }
+
+  private build(look: Look): LookPlayer {
+    return new LookPlayer(this.stepsOf(look), look.timing, seedOf(look.id));
   }
 
   isActive(lookId: string): boolean {

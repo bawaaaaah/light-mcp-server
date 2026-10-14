@@ -3,6 +3,9 @@
  * groups (level, mute, flash), show settings, and « Panic neutre ».
  */
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { TechniqueSchema } from "../engine/techniques.js";
+import type { Color } from "../venue/venue.js";
 import type { CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
@@ -99,13 +102,37 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas), canvas, palette, timing (every beats|seconds, attack 0 claque..1 respire, order).",
+    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas, aucune = no colour), canvas, palette, timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis, center, size, every, spread, fan, group).",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ look: LookSchema }),
     run: ({ look }) => {
       if (!venue.canvases.get(look.canvas)) throw new Error(`canevas inconnu : ${look.canvas}`);
       return show.looks.put(look);
+    },
+  });
+  reg.register({
+    name: "look.techniques",
+    title: "Techniques",
+    description: "Every technique kind with the JSON schema of its parameters (for editors).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({}),
+    run: () => TechniqueSchema.options.map((o) => ({ kind: o.shape.kind.value, schema: zodToJsonSchema(o, { $refStrategy: "none" }) })),
+  });
+  reg.register({
+    name: "look.preview",
+    title: "Aperçu d'un look",
+    description: "Steps a look (saved or not) generates on its canvas: one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. Nothing is played.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({ look: LookSchema }),
+    run: ({ look }) => {
+      const canvas = venue.canvases.get(look.canvas);
+      if (!canvas) throw new Error(`canevas inconnu : ${look.canvas}`);
+      return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: show.stepsOf(look).map((step) => step.map((c) => (c ? displayHex(c) : null))) };
     },
   });
   reg.register({ name: "look.delete", title: "Supprimer un look", description: "Deletes a look.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => (show.stop(i), { deleted: show.looks.delete(i) }) });
@@ -260,4 +287,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { action: "blackout", reason: "aucun look de secours défini" };
     },
   });
+}
+
+/** Screen colour of a light colour (white and amber added, UV as a violet tint). */
+function displayHex(c: Color): string {
+  const w = (c.white ?? 0) + (c.warmWhite ?? 0) + (c.coldWhite ?? 0);
+  const r = (c.red ?? 0) + w + (c.amber ?? 0) + (c.magenta ?? 0) + (c.yellow ?? 0) + 0.4 * (c.uv ?? 0);
+  const g = (c.green ?? 0) + w + 0.75 * (c.amber ?? 0) + (c.cyan ?? 0) + (c.yellow ?? 0) + (c.lime ?? 0);
+  const b = (c.blue ?? 0) + w + (c.cyan ?? 0) + (c.magenta ?? 0) + 0.8 * (c.uv ?? 0);
+  return "#" + [r, g, b].map((v) => Math.round(Math.min(1, v) * 255).toString(16).padStart(2, "0")).join("");
 }
