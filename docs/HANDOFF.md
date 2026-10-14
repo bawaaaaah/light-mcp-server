@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). Six validés ici ; P1/P4/P5 (Mac), P3/P8 (Live), P6 (réseau lumière) à faire par l'utilisateur.
-- **Serveur** (`npm test` : 190 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 194 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -13,6 +13,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - MIDI (local, RTP, Web MIDI ; modes ; retour ; registre de notes), tempo, OSC, chants/setlist/suivi SPP ;
   - import QLC+ + reconstruction + auto-test (mappings, exclusivité, latence, **cadence mesurée en temps réel**) ; exports (rack, Live Set, conduite) ; conception assistée ; notes ; archives `.lightshow` ;
   - **bascule avec QLC+** : sortie en veille (`light serve --standby`), alerte « autre console », procédure dans [bascule-qlc.md](bascule-qlc.md) ;
+  - actions de la timeline des chants et lecture sans DAW (▶) ;
   - presets automatiques (premier allumage d'un lieu en un clic) ;
   - SDK TypeScript et Python, OpenAPI générée ([sdk/README.md](../sdk/README.md)) ;
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;

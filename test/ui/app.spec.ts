@@ -235,6 +235,29 @@ test("song editor: sections, timeline, grid fill, then a setlist", async ({ page
   expect(errors).toEqual([]);
 });
 
+test("timeline action: placed in the song editor, fired by ▶ playback", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.getByRole("button", { name: "Modifier Chant test" }).click();
+  const editor = page.locator(".song-editor");
+  await editor.getByRole("button", { name: "+ Action" }).click();
+  await editor.getByLabel("Action 1").selectOption("group.level");
+  await editor.getByLabel("Cible 1").selectOption("master");
+  await editor.getByLabel("Valeur 1").fill("50");
+  await editor.locator("table.cues tbody tr").first().locator("input[type=number]").nth(1).fill("2"); // beat 2 of bar 1
+  await expect(editor.locator(".timeline .cue-mark")).toHaveCount(1);
+  await page.screenshot({ path: "test-results/song-cues.png", fullPage: true });
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await page.getByRole("button", { name: "Lecture Chant test" }).click();
+  await expect(page.locator("section.song.current .position")).toContainText("mesure 1.");
+  await expect.poll(async () => ((await api(page, "group.list")) as { id: string; master?: { level: number } }[]).find((g) => g.id === "master")?.master?.level).toBe(0.5);
+  await page.getByRole("button", { name: "Arrêt Chant test" }).click();
+  await api(page, "group.level", { id: "master", level: 1 });
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

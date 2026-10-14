@@ -178,6 +178,7 @@ export class LightPlugin implements McpPlugin {
       dataRoot,
       state: { follow: true },
       publish: (state) => this.publish("song", state),
+      run: (command, args) => this.commands.invoke(command, args, { origin: "timeline", can: () => true }),
     };
     registerSongCommands(this.commands, this.songs);
     const knowledgePath = path.join(dataRoot, "private", "knowledge.json");

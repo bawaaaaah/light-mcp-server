@@ -18,6 +18,23 @@ export interface SectionDraft {
   atBar?: number;
   notes?: string;
 }
+export interface CueDraft {
+  id: string;
+  atBar: number;
+  beat: number;
+  command: string;
+  args: Record<string, unknown>;
+  label?: string;
+}
+/** Timeline actions offered in the editor; any other command stays editable as JSON. */
+const CUE_COMMANDS: Record<string, { target?: "look" | "group"; value?: "level" | "on" | "mute" }> = {
+  "look.go": { target: "look" },
+  "look.stop": { target: "look" },
+  "group.level": { target: "group", value: "level" },
+  "group.flash": { target: "group", value: "on" },
+  "group.mute": { target: "group", value: "mute" },
+  blackout: { value: "on" },
+};
 export interface SongDraft {
   id: string;
   title: string;
@@ -27,6 +44,7 @@ export interface SongDraft {
   mood: string[];
   palette?: string;
   sections: SectionDraft[];
+  cues?: CueDraft[];
   startBeat?: number;
   tags: string[];
   notes?: string;
@@ -64,12 +82,14 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   const [palettes, setPalettes] = useState<Named[]>([]);
   const [canvases, setCanvases] = useState<Named[]>([]);
   const [canvas, setCanvas] = useState("");
+  const [groups, setGroups] = useState<Named[]>([]);
   const [error, setError] = useState("");
   const isNew = !song.id;
 
   useEffect(() => {
     void cmd<Named[]>("look.list").then(setLooks);
     void cmd<Named[]>("palette.list").then(setPalettes);
+    void cmd<Named[]>("group.list").then(setGroups);
     void cmd<Named[]>("venue.canvas.list").then((c) => (setCanvases(c), setCanvas(c[0]?.id ?? "")));
   }, []);
 
@@ -109,8 +129,14 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
     }
   };
 
+  const cues = song.cues ?? [];
+  const setCue = (i: number, patch: Partial<CueDraft>) => set({ cues: cues.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  const addCue = () => {
+    const last = cues.at(-1);
+    set({ cues: [...cues, { id: uniqueId("action", cues.map((c) => c.id)), atBar: last ? last.atBar + 1 : 0, beat: 0, command: "group.flash", args: { id: groups[0]?.id ?? "", on: true } }] });
+  };
   const spans = placed(song.sections);
-  const total = Math.max(1, ...spans.map((p) => p.end));
+  const total = Math.max(1, ...spans.map((p) => p.end), ...cues.map((c) => c.atBar + 1));
 
   return (
     <section className="song-editor look-editor">
@@ -159,6 +185,9 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <span key={s.id} className={s.look ? "block" : "block empty"} style={{ left: `${(spans[i]!.start / total) * 100}%`, width: `${((spans[i]!.end - spans[i]!.start) / total) * 100}%` }} title={`${s.name} · ${t.bar} ${spans[i]!.start + 1}`}>
             {s.name}
           </span>
+        ))}
+        {cues.map((c) => (
+          <span key={c.id} className="cue-mark" style={{ left: `${((c.atBar + c.beat / song.beatsPerBar) / total) * 100}%` }} title={`${c.label ?? c.command} · ${t.bar} ${c.atBar + 1}.${c.beat + 1}`} />
         ))}
       </div>
 
@@ -224,6 +253,78 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
         </tbody>
       </table>
       <button onClick={addSection}>+ {t.section}</button>
+
+      <h3>{t.cues}</h3>
+      {cues.length > 0 && (
+        <table className="sections cues">
+          <thead>
+            <tr>
+              <th>{t.barTitle}</th>
+              <th>{t.beat}</th>
+              <th>{t.action}</th>
+              <th>{t.target}</th>
+              <th>{t.value}</th>
+              <th>{t.labelText}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {cues.map((c, i) => {
+              const kind = CUE_COMMANDS[c.command];
+              return (
+                <tr key={c.id}>
+                  <td>
+                    <input type="number" min={1} aria-label={`${t.bar} ${i + 1}`} value={c.atBar + 1} onChange={(e) => Number(e.target.value) >= 1 && setCue(i, { atBar: Number(e.target.value) - 1 })} />
+                  </td>
+                  <td>
+                    <input type="number" min={1} max={song.beatsPerBar} step={0.5} value={c.beat + 1} onChange={(e) => Number(e.target.value) >= 1 && setCue(i, { beat: Number(e.target.value) - 1 })} />
+                  </td>
+                  <td>
+                    <select aria-label={`${t.action} ${i + 1}`} value={c.command} onChange={(e) => setCue(i, { command: e.target.value, args: CUE_COMMANDS[e.target.value]?.target === "look" ? { id: looks[0]?.id ?? "" } : CUE_COMMANDS[e.target.value]?.target === "group" ? { id: groups[0]?.id ?? "", ...(e.target.value === "group.level" ? { level: 1 } : e.target.value === "group.mute" ? { mute: true } : { on: true }) } : { on: true } })}>
+                      {Object.keys(CUE_COMMANDS).map((k) => (
+                        <option key={k} value={k}>
+                          {t.cueCommands[k as keyof typeof t.cueCommands]}
+                        </option>
+                      ))}
+                      {!kind && <option value={c.command}>{c.command}</option>}
+                    </select>
+                  </td>
+                  <td>
+                    {kind?.target && (
+                      <select aria-label={`${t.target} ${i + 1}`} value={String(c.args.id ?? "")} onChange={(e) => setCue(i, { args: { ...c.args, id: e.target.value } })}>
+                        {(kind.target === "look" ? looks : groups).map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {!kind && <input aria-label="args" defaultValue={JSON.stringify(c.args)} onBlur={(e) => { try { setCue(i, { args: JSON.parse(e.target.value) as Record<string, unknown> }); } catch { setError("JSON"); } }} />}
+                  </td>
+                  <td>
+                    {kind?.value === "level" && <input type="number" min={0} max={100} step={5} aria-label={`${t.value} ${i + 1}`} value={Math.round(Number(c.args.level ?? 1) * 100)} onChange={(e) => setCue(i, { args: { ...c.args, level: Number(e.target.value) / 100 } })} />}
+                    {(kind?.value === "on" || kind?.value === "mute") && (
+                      <select value={String(c.args[kind.value] ?? true)} onChange={(e) => setCue(i, { args: { ...c.args, [kind.value!]: e.target.value === "true" } })}>
+                        <option value="true">{kind.value === "mute" ? t.muteOn : t.on}</option>
+                        <option value="false">{kind.value === "mute" ? t.muteOff : t.offAction}</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    <input value={c.label ?? ""} onChange={(e) => setCue(i, { label: e.target.value || undefined })} />
+                  </td>
+                  <td>
+                    <button className="ghost" title={t.delete} onClick={() => set({ cues: cues.filter((_, j) => j !== i) })}>
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <button onClick={addCue}>+ {t.action}</button>
 
       <div className="fields">
         <label className="field">

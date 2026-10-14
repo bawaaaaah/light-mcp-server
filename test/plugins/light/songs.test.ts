@@ -7,7 +7,7 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { followPosition } from "../../../src/plugins/light/commands/song-commands.js";
-import { placeSections, sectionAt, SongSchema } from "../../../src/plugins/light/songs/songs.js";
+import { cuesBetween, placeSections, sectionAt, SongSchema } from "../../../src/plugins/light/songs/songs.js";
 import { readAls, summarize } from "../../../src/plugins/light/ableton/live-set.js";
 
 const song = SongSchema.parse({
@@ -32,6 +32,16 @@ describe("songs", () => {
     expect(sectionAt(song, 20)!.id).to.equal("refrain");
     expect(sectionAt(song, 50)!.id).to.equal("refrain"); // gap keeps the last section
     expect(sectionAt(song, 64)!.id).to.equal("pont");
+  });
+
+  it("finds the timeline actions passed between two positions", () => {
+    const sg = SongSchema.parse({ ...song, cues: [
+      { id: "flash", atBar: 4, command: "group.flash", args: { id: "g", on: true } },
+      { id: "late", atBar: 4, beat: 2, command: "blackout", args: { on: true } },
+    ] });
+    expect(cuesBetween(sg, 15, 16).map((c) => c.id)).to.deep.equal(["flash"]); // bar 4 = beat 16
+    expect(cuesBetween(sg, 16, 17)).to.deep.equal([]); // already passed
+    expect(cuesBetween(sg, 15, 19).map((c) => c.id)).to.deep.equal(["flash", "late"]);
   });
 
   describe("in the plugin", () => {
@@ -78,10 +88,66 @@ describe("songs", () => {
       await run("tempo.set", { source: "manual" });
     });
 
+    it("refuses timeline actions with an unknown command, bad arguments or a song command", async () => {
+      const put = (cue: unknown) => run("song.put", { song: { ...song, id: "x", cues: [cue] } }).then(() => "ok", (e: Error) => e.message);
+      expect(await put({ id: "c", atBar: 1, command: "nope" })).to.match(/commande inconnue nope/);
+      expect(await put({ id: "c", atBar: 1, command: "group.level", args: { id: "sections" } })).to.match(/group.level.*level/);
+      expect(await put({ id: "c", atBar: 1, command: "song.next" })).to.match(/ne peut pas piloter les chants/);
+      expect(await put({ id: "c", atBar: 1, command: "group.level", args: { id: "sections", level: 0.5 } })).to.equal("ok");
+      await run("song.delete", { id: "x" });
+    });
+
+    it("plays a song on its own clock: sections follow, actions fire in playback, never on a jump", async () => {
+      const songs = (plugin as unknown as { songs: Parameters<typeof followPosition>[0] }).songs;
+      await run("group.put", { group: { id: "public", name: "Public", master: { level: 1 } } });
+      await run("song.put", { song: { ...song, cues: [
+        { id: "baisse", atBar: 5, command: "group.level", args: { id: "public", level: 0.5 }, label: "public à 50 %" },
+        { id: "noir", atBar: 10, command: "group.level", args: { id: "public", level: 0 } },
+      ] } });
+      const r = (await run("song.play", { song: "chant", bar: 4 })) as { section: string };
+      expect(r.section).to.equal("refrain"); // bar 4 = beat 16: start of the refrain
+      expect(plugin.runtime.activeLooks()).to.deep.equal(["b"]);
+      const move = async (beats: number) => {
+        songs.state.transport!.startBeats -= beats; // as if the engine had played `beats` more
+        followPosition(songs);
+        await new Promise((r) => setImmediate(r));
+      };
+      for (let i = 0; i < 17; i++) await move(0.25); // playback through bar 5 (0-based: beat 20)
+      expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5);
+      await move(30); // a jump past bar 10: nothing fires
+      expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5);
+      await move(30); // past the end of the song
+      expect(songs.state.transport).to.equal(undefined);
+      await run("song.stop");
+    });
+
+    it("fires the actions under the MIDI clock, not on a scrub", async () => {
+      const songs = (plugin as unknown as { songs: Parameters<typeof followPosition>[0] }).songs;
+      await run("group.level", { id: "public", level: 1 });
+      await run("tempo.set", { source: "midi" });
+      plugin.tempo.handleMidi({ type: "stop" });
+      plugin.tempo.handleMidi({ type: "songposition", sixteenths: 19 * 4 + 3 }); // beat 19.75, just before the action at beat 20
+      plugin.tempo.handleMidi({ type: "continue" });
+      followPosition(songs); // first position: nothing fired
+      for (let i = 0; i < 12; i++) plugin.tempo.handleMidi({ type: "clock" }); // half a beat of playback
+      followPosition(songs);
+      await new Promise((r) => setImmediate(r));
+      expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5); // the action at beat 20 fired
+      plugin.tempo.handleMidi({ type: "songposition", sixteenths: 41 * 4 }); // scrub past bar 10 (beat 40)
+      for (let i = 0; i < 3; i++) plugin.tempo.handleMidi({ type: "clock" });
+      followPosition(songs);
+      await new Promise((r) => setImmediate(r));
+      expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5);
+      plugin.tempo.handleMidi({ type: "stop" });
+      await run("tempo.set", { source: "manual" });
+    });
+
     it("writes the cue sheet with trigger notes", async () => {
       const sheet = (await run("export.cuesheet", { setlist: "dimanche" })) as string;
       expect(sheet).to.contain("## Chant · 96 BPM");
       expect(sheet).to.contain("| 5 | Refrain | premier refrain | Look B | 40 (ch 1) |");
+      expect(sheet).to.contain("- mesure 6.1 : public à 50 %");
+      expect(sheet).to.contain("- mesure 11.1 : group.level id=public level=0");
     });
 
     it("lays the setlist into a Live Set", async () => {

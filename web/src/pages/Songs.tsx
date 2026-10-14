@@ -17,6 +17,7 @@ interface Song {
   title: string;
   key?: string;
   bpm: number;
+  beatsPerBar?: number;
   mood: string[];
   sections: Section[];
 }
@@ -30,6 +31,8 @@ interface SongState {
   song?: string;
   section?: string;
   follow: boolean;
+  transport?: { playing: boolean };
+  position?: number;
 }
 
 export function SongsPage() {
@@ -114,6 +117,20 @@ export function SongsPage() {
         <section key={song.id} className={song.id === state.song ? "song current" : "song"}>
           <h2 onClick={() => void run("song.select", { id: song.id })}>
             {song.title} <small>{[song.key, `${song.bpm} BPM`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>{" "}
+            {song.id === state.song && state.transport?.playing ? (
+              <button className="ghost" aria-label={`${t.stop} ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("song.stop"))}>
+                ■
+              </button>
+            ) : (
+              <button className="ghost" title={t.playHelp} aria-label={`${t.play} ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("song.play", { song: song.id }))}>
+                ▶
+              </button>
+            )}
+            {song.id === state.song && state.position !== undefined && (
+              <small className="position">
+                {t.bar} {Math.floor(state.position / (song.beatsPerBar ?? 4)) + 1}.{Math.floor(state.position % (song.beatsPerBar ?? 4)) + 1}
+              </small>
+            )}
             <button
               className="ghost"
               aria-label={`${t.edit} ${song.title}`}

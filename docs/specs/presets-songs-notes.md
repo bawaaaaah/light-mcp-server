@@ -44,7 +44,8 @@ Chant {
      - **Départ** : à la main, sur une note MIDI ou sur MIDI Start.
      - **Suivi** : MIDI clock et **SPP**, avec rétablissement de la section courante.
 - **Réutilisation** : un chant repris un autre jour pointe vers les mêmes looks, mais garde ses propres boutons et notes.
-- **Éditeur** (v1, page Chants) : en-tête (titre, tonalité, BPM, temps par mesure, ambiances, palette, début dans Live), sections (nom, look, repère, idée, mesures, position fixe facultative, ordre), **timeline proportionnelle** (une section sans look apparaît en rouge) et « **remplir la grille** » (`song.grid_fill` sur le canevas choisi). Les pistes d'actions de la timeline restent à faire.
+- **Éditeur** (v1, page Chants) : en-tête (titre, tonalité, BPM, temps par mesure, ambiances, palette, début dans Live), sections (nom, look, repère, idée, mesures, position fixe facultative, ordre), **timeline proportionnelle** (une section sans look apparaît en rouge) et « **remplir la grille** » (`song.grid_fill` sur le canevas choisi). **Actions de la timeline** (v1) : n'importe quelle commande (lancer ou arrêter un look, niveau, flash ou coupure d'un groupe, Blackout…) placée à une mesure et un temps ; validée à l'enregistrement (commande connue, arguments valides, jamais une commande de chant). Elles se déclenchent quand la position les franchit **en lecture normale** — jamais sur un saut (scrub, SPP), pour ne pas rejouer une rafale — et figurent sur la timeline et dans la feuille de conduite.
+- **Lecture sans DAW** (v1, `song.play` / `song.stop`, ▶ ■ sur la page Chants) : le chant tourne sur son propre tempo depuis une section ou une mesure, les sections et les actions s'enchaînent seules, arrêt à la fin du chant. Une horloge MIDI qui joue garde toujours la priorité.
 
 ### Setlist
 - Liste ordonnée de chants avec suivant et précédent (MIDI, OSC), sélection par Program Change ou par le canal réservé.

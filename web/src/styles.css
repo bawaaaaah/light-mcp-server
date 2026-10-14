@@ -623,3 +623,17 @@ table.sections th {
 .standby-bar {
   margin: 0.5em 0;
 }
+
+.timeline .cue-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  opacity: 0.8;
+  pointer-events: none;
+}
+table.cues select {
+  max-width: 14em;
+}
