@@ -2,7 +2,7 @@
 
 Contrôleur lumière DMX (Art-Net / sACN) open source. On le pilote depuis une interface web temps réel (WebSocket), en MIDI ou OSC depuis Ableton et les contrôleurs, ou par une IA via MCP.
 
-> **Statut : en développement (v0).** Installation et premiers pas : [`docs/install.md`](docs/install.md).
+> **Statut : en développement (v0).** Installation et premiers pas : [`docs/install.md`](docs/install.md) (sources, Docker) ou [`docs/install-npm.md`](docs/install-npm.md) (paquet `@bawaaaaah/light-mcp-server` sur GitHub Packages ; image `ghcr.io/bawaaaaah/light-mcp-server`).
 > Reprendre le projet : [`docs/HANDOFF.md`](docs/HANDOFF.md). Feuille de route : [`docs/roadmap.md`](docs/roadmap.md).
 
 ## En bref

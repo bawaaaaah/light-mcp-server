@@ -5,10 +5,10 @@
  */
 import { parseArgs } from "node:util";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { AuthService, resolveAuthToken } from "../core/auth.js";
 import { ConfigStore } from "../core/config-store.js";
 import { bootstrap } from "../index.js";
+import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, type Caller } from "./client.js";
 import { diffFolder, packArchive, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
@@ -39,9 +39,8 @@ const USAGE = `light <commande>
 Options communes : --offline (ouvre les données sans passer par le serveur), --url http://hôte:port`;
 
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const DATA_ROOT = process.env.LIGHT_DATA_ROOT ?? path.join(ROOT, "data");
-const configPath = process.env.LIGHT_CONFIG_PATH ?? path.join(ROOT, "data", "machine", "config.json");
+const DATA_ROOT = dataRoot();
+const configPath = resolveConfigPath();
 
 async function machine(): Promise<{ store: ConfigStore; auth: AuthService; token: string }> {
   const store = new ConfigStore({ filePath: configPath });

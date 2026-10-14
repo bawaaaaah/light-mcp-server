@@ -5,8 +5,19 @@
     "rootDir": "src",
     "noEmit": false,
     "sourceMap": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "declaration": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "web", "test", "prototypes"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "web",
+    "test",
+    "prototypes"
+  ]
 }

@@ -7,7 +7,8 @@ Deux clients minces, **sans dépendance**, sur l'API HTTP du serveur. Toute acti
 
 ## TypeScript (Node ≥ 22 ou navigateur)
 ```ts
-import { LightClient } from "./sdk/index.js";
+import { LightClient } from "@bawaaaaah/light-mcp-server/sdk"; // installé depuis GitHub Packages
+// dans le dépôt : import { LightClient } from "./src/sdk/index.js";
 
 const light = await LightClient.login("http://localhost:8790", "1234");
 await light.call("look.go", { id: "auto-joie" });

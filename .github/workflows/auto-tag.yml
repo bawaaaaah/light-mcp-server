@@ -1,0 +1,73 @@
+name: Auto-tag main for release
+
+# Same scheme as wing-mcp-server: every commit that lands on main gets the next patch tag once CI
+# has passed for it, then release.yml is dispatched for that tag (an event caused by GITHUB_TOKEN
+# does not start another workflow by itself, hence the explicit `gh workflow run`). A commit that
+# breaks CI is never tagged, so never published. The job-level guard keeps a pull request from a
+# fork's own `main` branch from being tagged.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  group: auto-tag-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Compute and push the next version tag
+        id: tag
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --quiet
+          existing="$(git tag --points-at "$HEAD_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+          if [ -n "$existing" ]; then
+            echo "$HEAD_SHA is already tagged $existing; nothing to do."
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Next version from the highest release tag (package.json is not bumped on each merge),
+          # unless package.json is ahead of every tag (a deliberate `npm version minor`).
+          latest="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n1 || true)"
+          latest="${latest:-0.0.0}"
+          pkg="$(node -p "require('./package.json').version")"
+          highest="$(printf '%s\n%s\n' "$latest" "$pkg" | sort -V | tail -n1)"
+          if [ "$pkg" != "$latest" ] && [ "$pkg" = "$highest" ]; then
+            new_version="v${pkg}"
+          else
+            IFS='.' read -r major minor patch <<< "$latest"
+            new_version="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "Tagging $HEAD_SHA as ${new_version} (latest tag v${latest}, package.json ${pkg})"
+          git tag "$new_version" "$HEAD_SHA"
+          git push origin "$new_version"
+          echo "version=${new_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch release.yml for the new tag
+        if: steps.tag.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: gh workflow run release.yml --ref "$VERSION" -f dry_run=false

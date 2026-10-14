@@ -1,12 +1,60 @@
 {
-  "name": "light-mcp-server",
-  "version": "0.0.1",
-  "description": "Contrôleur lumière DMX (Art-Net / sACN) piloté en web, MIDI, OSC et MCP",
+  "name": "@bawaaaaah/light-mcp-server",
+  "version": "0.1.0",
+  "description": "Contrôleur lumière DMX (Art-Net / sACN) piloté en web, MIDI, OSC et MCP — import QLC+, export Ableton",
+  "keywords": [
+    "dmx",
+    "art-net",
+    "sacn",
+    "lighting",
+    "midi",
+    "osc",
+    "mcp",
+    "model-context-protocol",
+    "qlc",
+    "ableton"
+  ],
   "license": "MIT",
-  "private": true,
+  "homepage": "https://github.com/bawaaaaah/light-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bawaaaaah/light-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bawaaaaah/light-mcp-server/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.6"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "light": "./dist/cli/main.js",
+    "light-mcp-server": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist/",
+    "web/dist/",
+    "sdk/",
+    "docs/install.md",
+    "docs/install-npm.md",
+    "docs/bascule-qlc.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "test": "mocha --import=tsx --require test/setup/no-unhandled-errors.ts 'test/**/*.test.ts' --recursive --timeout 20000",
@@ -28,7 +76,8 @@
     "dev:web": "npm --prefix web run dev",
     "build": "tsc -p tsconfig.build.json && cp src/plugins/light/knowledge/generic.json dist/plugins/light/knowledge/ && npm --prefix web run build",
     "start": "node dist/cli/main.js serve",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
@@ -57,7 +106,5 @@
     "esbuild@0.28.2": true,
     "@julusian/midi@3.8.1": true
   },
-  "bin": {
-    "light": "dist/cli/main.js"
-  }
+  "types": "./dist/index.d.ts"
 }

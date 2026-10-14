@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bootstrap, type Running } from "../../src/index.js";
-import { LightClient, LightError } from "../../sdk/index.js";
+import { LightClient, LightError } from "../../src/sdk/index.js";
 
 describe("SDK (TypeScript and Python) and OpenAPI", function () {
   this.timeout(30_000);
