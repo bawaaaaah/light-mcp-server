@@ -66,7 +66,9 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 
 Plus tard : planche (`board`), `--check` généralisé aux commandes d'écriture.
 
-## SDK de scripts
+## SDK de scripts (v1)
+Voir [`sdk/README.md`](../../sdk/README.md). Fait : client TypeScript `sdk/index.ts` (commandes, état, sauvegardes, sujets en direct par WebSocket, types du show), client Python `sdk/python/light_client.py` (bibliothèque standard, banc d'auto-test en ligne de commande), description **OpenAPI 3** générée depuis le registre (`GET /api/plugins/light/openapi.json`, validée avec Redocly). Reste : paquet npm publié.
+
 - **TypeScript** : un paquet `sdk/` qui expose les types (schémas zod) et un client des commandes (HTTP/WS).
 - **Python et autres langages** : l'**API HTTP** documentée (OpenAPI générée depuis les schémas).
 - Un générateur utilisateur écrit **à travers les commandes** du serveur ou produit des fichiers au format dossier, puis `light check` valide. Il ne contourne jamais la couche de commandes pour un serveur en marche.

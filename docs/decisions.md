@@ -66,5 +66,6 @@ Chaque ligne est une décision **validée par l'utilisateur**. En cas de contrad
 | 2026-10-14 | Reprise | Après un redémarrage, l'état en direct (looks, Blackout, chant) est restauré s'il a moins de 5 minutes ; sinon rien ne se rallume | [données](specs/data-cli-sdk.md) |
 | 2026-10-14 | CLI | `light` passe par l'API du serveur s'il tourne, sinon ouvre les données directement (jamais deux écrivains) ; commandes check, selftest, import, export, pack/unpack, standby, call | [données](specs/data-cli-sdk.md) |
 | 2026-10-14 | Presets automatiques | 6 palettes + 6 looks (une technique chacun) + groupe exclusif, look de secours si absent ; jamais d'écrasement | [chants](specs/presets-songs-notes.md) |
+| 2026-10-14 | SDK | Clients TypeScript et Python sans dépendance, OpenAPI générée depuis le registre de commandes (une route par commande, droit en `x-right`) | [données](specs/data-cli-sdk.md) |
 | 2026-10-14 | Fixtures sans mélange | Lampe + roue de couleurs ou gradateur seul : la couleur peinte choisit le créneau de roue le plus proche et son niveau pilote le gradateur (éteint si rien n'est peint) | [lieu](specs/venue-fixtures-stage.md) |
 

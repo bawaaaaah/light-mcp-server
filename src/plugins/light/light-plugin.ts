@@ -34,6 +34,8 @@ import { MappingSchema, MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import { TempoClock } from "./timing/tempo.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
+import { openApiDocument } from "./commands/openapi.js";
+import { getPackageVersion } from "../../core/version.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
@@ -434,6 +436,7 @@ export class LightPlugin implements McpPlugin {
 
   registerHttpRoutes(router: Router): void {
     const credential = (req: Request) => this.opts.auth?.bearerOf(req);
+    router.get("/openapi.json", (_req: Request, res: Response) => res.json(openApiDocument(this.commands.list(), getPackageVersion())));
     router.get("/commands", (_req: Request, res: Response) => {
       res.json(this.commands.list().map((d) => ({ name: d.name, title: d.title, description: d.description, right: d.right, readOnly: Boolean(d.readOnly), schema: zodToJsonSchema(d.schema) })));
     });
