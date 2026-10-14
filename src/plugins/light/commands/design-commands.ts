@@ -11,7 +11,23 @@ import { slugify } from "../data/store.js";
 import type { Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
 import { deltaE, proposeLook, type Energy, type Knowledge } from "../knowledge/knowledge.js";
-import type { Look } from "../show/model.js";
+import type { Group, Look, Palette } from "../show/model.js";
+import type { Technique } from "../engine/techniques.js";
+import type { Timing } from "../engine/player.js";
+
+/**
+ * Automatic presets (docs/specs/presets-songs-notes.md, Wolfmix): base palettes from the knowledge
+ * base and one look per main technique, so a new venue lights up at once. Moods, techniques and
+ * cadences are chosen to cover the energies: posé, dynamique, survolté.
+ */
+const AUTO: { id: string; name: string; mood: string; technique: (n: number) => Technique; timing: Partial<Timing> }[] = [
+  { id: "blanc-chaud", name: "Blanc chaud", mood: "lumiere", technique: () => ({ kind: "plat", color: "#fff1d6" }), timing: { every: { beats: 4 }, attack: 1 } },
+  { id: "intime", name: "Intime", mood: "intimite", technique: () => ({ kind: "respiration", colors: ["#2a2f9e", "#7b3fbf"], steps: 4, depth: 0.3 }), timing: { every: { beats: 2 }, attack: 1 } },
+  { id: "calme", name: "Calme", mood: "calme", technique: () => ({ kind: "onde", colors: ["#3a6ff7", "#46c8d8"], wave: "sine", depth: 0.6, spread: 1, blocks: 1, wings: false, reverse: false, resolution: 16 }), timing: { every: { beats: 0.25 }, attack: 0 } },
+  { id: "joie", name: "Joie", mood: "joie", technique: (n) => ({ kind: "palette", colors: ["#ffcc1a", "#ff8a1f", "#ffffff"], block: Math.max(1, Math.round(n / 4)) }), timing: { every: { beats: 1 }, attack: 0 } },
+  { id: "fete", name: "Fête", mood: "fete", technique: (n) => ({ kind: "damier", colors: ["#ff2fb3", "#18d4ff"], block: Math.max(1, Math.round(n / 4)) }), timing: { every: { beats: 0.5 }, attack: 0 } },
+  { id: "force", name: "Force", mood: "force", technique: (n) => ({ kind: "creux", colors: ["#e01a1a", "#ffb000"], block: Math.max(1, Math.round(n / 4)), width: 1, floor: 0 }), timing: { every: { beats: 0.5 }, attack: 0 } },
+];
 
 const energyOfSection = (name: string): Energy => {
   const n = name.toLowerCase();
@@ -124,6 +140,57 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         });
       }
       return { ok: !issues.some((i) => i.level === "erreur"), issues };
+    },
+  });
+
+  reg.register({
+    name: "show.autopresets",
+    title: "Presets automatiques",
+    description:
+      "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten.",
+    right: "show:write",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ canvas: z.string().optional(), apply: z.boolean().default(false) }),
+    run: ({ canvas: canvasId, apply }) => {
+      const canvas = canvasId ? runtime.venue.canvases.get(canvasId) : runtime.venue.canvases.list()[0];
+      if (!canvas) throw new Error(canvasId ? `canevas inconnu : ${canvasId}` : "aucun canevas : définir d'abord le patch et un canevas (venue.canvas.auto)");
+      const kb = knowledge();
+      const palettes: Palette[] = [];
+      const looks: Look[] = [];
+      for (const a of AUTO) {
+        const mood = kb.moods[a.mood];
+        const technique = a.technique(canvas.cells);
+        const base = "colors" in technique ? technique.colors : "color" in technique ? [technique.color] : [];
+        const colors = mood?.colors.length ? (mood.colors.length >= base.length ? mood.colors : [...mood.colors, ...base.slice(mood.colors.length)]) : base;
+        palettes.push({ id: `auto-${a.id}`, name: a.name, colors, tags: ["auto", `ambiance:${a.mood}`] });
+        looks.push({
+          id: `auto-${a.id}`,
+          name: a.name,
+          canvas: canvas.id,
+          technique,
+          palette: `auto-${a.id}`,
+          timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 1, ...a.timing },
+          manualOnly: false,
+          noCut: false,
+          danger: false,
+          tags: ["auto", `technique:${technique.kind}`, `ambiance:${a.mood}`],
+        });
+      }
+      const group: Group = { id: "auto", name: "Presets automatiques", members: { fixtures: [], looks: looks.map((l) => l.id), groups: [] }, exclusive: true, presets: { included: [], excluded: [] } };
+      const created: string[] = [];
+      const kept: string[] = [];
+      const keep = <T extends { id: string }>(col: Collection<T>, item: T, kind: string) => {
+        if (col.get(item.id)) return void kept.push(`${kind} ${item.id}`);
+        created.push(`${kind} ${item.id}`);
+        if (apply) col.put(item);
+      };
+      for (const p of palettes) keep(runtime.palettes, p, "palette");
+      for (const l of looks) keep(runtime.looks, l, "look");
+      keep(runtime.groups, group, "groupe");
+      const safeLook = runtime.settings.safeLook ? undefined : "auto-blanc-chaud";
+      if (apply && safeLook) runtime.saveSettings({ safeLook });
+      return { applied: apply, canvas: canvas.id, created, kept, safeLook, looks: looks.map((l) => ({ id: l.id, name: l.name, technique: l.technique.kind })) };
     },
   });
 }

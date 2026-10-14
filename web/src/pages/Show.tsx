@@ -88,6 +88,20 @@ export function ShowPage() {
           </select>
         </label>
         <button onClick={() => void cmd<Lint>("show.lint").then(setLint)}>{t.lint}</button>
+        <button
+          title={t.autopresetsHelp}
+          onClick={() =>
+            void cmd<{ created: string[]; kept: string[]; canvas: string; safeLook?: string }>("show.autopresets", {})
+              .then((p) => {
+                if (!p.created.length) return setError(t.autopresetsNothing);
+                const summary = `${t.autopresets} (${p.canvas}) :\n${p.created.join("\n")}${p.safeLook ? `\n\n${t.safeLook} : ${p.safeLook}` : ""}`;
+                if (confirm(summary)) return cmd("show.autopresets", { apply: true }).then(refresh);
+              })
+              .catch((e: Error) => setError(e.message))
+          }
+        >
+          ✨ {t.autopresets}
+        </button>
         <button onClick={() => void downloadArchive(true).catch((e: Error) => setError(e.message))}>⤓ {t.download}</button>
         <label className="button-like">
           ⤒ {t.restore}

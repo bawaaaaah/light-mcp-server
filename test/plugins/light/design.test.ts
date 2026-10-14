@@ -93,6 +93,26 @@ describe("colour knowledge and design", () => {
       expect(plugin.runtime.isActive("fast")).to.equal(false); // state restored
     });
 
+    it("lights a new venue at once with automatic presets, without ever overwriting", async () => {
+      const dry = (await run("show.autopresets", { canvas: "mur" })) as { applied: boolean; created: string[] };
+      expect(dry.applied).to.equal(false);
+      expect(plugin.runtime.looks.get("auto-joie")).to.equal(undefined);
+      const r = (await run("show.autopresets", { canvas: "mur", apply: true })) as { created: string[]; safeLook?: string; looks: { technique: string }[] };
+      expect(r.created).to.have.length(13); // 6 palettes, 6 looks, 1 group
+      expect(r.looks.map((l) => l.technique)).to.deep.equal(["plat", "respiration", "onde", "palette", "damier", "creux"]);
+      expect(r.safeLook).to.equal("auto-blanc-chaud");
+      expect(plugin.runtime.settings.safeLook).to.equal("auto-blanc-chaud");
+      for (const l of plugin.runtime.looks.list().filter((x) => x.id.startsWith("auto-"))) expect(plugin.runtime.stepsOf(l).flat().some((c) => c !== null), l.id).to.equal(true);
+      // by reference: the palette drives the look
+      expect(plugin.runtime.looks.get("auto-joie")!.palette).to.equal("auto-joie");
+      await run("look.put", { look: { ...plugin.runtime.looks.get("auto-fete")!, name: "Fête retouchée" } });
+      const again = (await run("show.autopresets", { canvas: "mur", apply: true })) as { created: string[]; kept: string[] };
+      expect(again.created).to.deep.equal([]);
+      expect(plugin.runtime.looks.get("auto-fete")!.name).to.equal("Fête retouchée"); // a hand edit survives
+      expect(plugin.runtime.groups.get("auto")!.exclusive).to.equal(true);
+      await run("show.settings.set", { safeLook: undefined });
+    });
+
     it("proposes then saves a look from an intention", async () => {
       const dry = (await run("look.from_intent", { name: "Adoration", canvas: "mur", mood: ["adoration"] })) as { saved: boolean };
       expect(dry.saved).to.equal(false);

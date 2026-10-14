@@ -180,6 +180,21 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   expect(errors).toEqual([]);
 });
 
+test("automatic presets light a venue in one click", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "✨ Presets automatiques" }).click();
+  const auto = page.locator("button.look", { hasText: "Blanc chaud" });
+  await expect(auto).toBeVisible();
+  await auto.click();
+  await expect(auto).toHaveClass(/on/);
+  await expect.poll(async () => (await dmx(page)).slice(3, 15).some((v) => v > 0)).toBe(true);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("song editor: sections, timeline, grid fill, then a setlist", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
