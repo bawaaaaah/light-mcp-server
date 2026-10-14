@@ -674,3 +674,13 @@ table.cues select {
   font-size: 10px;
   fill: #c9ced9;
 }
+.stage-plan svg.placing {
+  user-select: none;
+  touch-action: none;
+}
+.stage-plan svg.placing .fixture {
+  cursor: grab;
+}
+.stage-plan svg.placing .fixture:active {
+  cursor: grabbing;
+}

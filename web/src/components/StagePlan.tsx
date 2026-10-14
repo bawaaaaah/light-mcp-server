@@ -3,7 +3,8 @@
  * audience at the bottom. Zones are drawn from their polygons; fixtures at their position, each
  * head coloured from the real output (topic light:preview, after rules, parks and Blackout).
  * Fixtures with no stage position are lined up along the front edge. With moving heads, « Viser »
- * points them at the clicked spot (position.aim, at a standing person's height).
+ * points them at the clicked spot (position.aim, at a standing person's height). « Placer » lets
+ * fixtures be dragged to their place (snapped to 10 cm).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -14,6 +15,7 @@ export interface PlanFixture {
   id: string;
   name: string;
   role?: string;
+  mount?: string;
   position?: { x: number; y: number; z: number };
 }
 export interface PlanZone {
@@ -27,10 +29,15 @@ export interface PlanZone {
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
 
-export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void }) {
+/** Default height of a fixture placed for the first time, from its mount (metres). */
+const defaultHeight = (mount?: string) => (mount === "hung" || mount === "truss" || mount === "ceiling" ? 5 : mount === "stand" ? 1.8 : mount === "wall" || mount === "pillar" ? 3 : 0.3);
+
+export function StagePlan({ fixtures, zones, onError, onMove }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void; onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void }) {
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [aiming, setAiming] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
   const [heads, setHeads] = useState(0);
   const svg = useRef<SVGSVGElement>(null);
 
@@ -75,10 +82,21 @@ export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[
   const sy = (y: number) => H - (y - layout.minY) * scale; // upstage at the top, audience at the bottom
   const toStage = (px: number, py: number) => ({ x: px / scale + layout.minX, y: (H - py) / scale + layout.minY });
 
+  const eventToStage = (e: { clientX: number; clientY: number }) => {
+    const r = svg.current!.getBoundingClientRect();
+    return toStage(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H);
+  };
+  const snap = (v: number) => Math.round(v * 10) / 10;
+  const dropDrag = () => {
+    if (!drag) return;
+    const f = fixtures.find((x) => x.id === drag.id);
+    setDrag(null);
+    if (f && onMove) onMove(f, { x: snap(drag.x), y: snap(drag.y), z: f.position?.z ?? defaultHeight(f.mount) });
+  };
+
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!aiming || !svg.current) return;
-    const r = svg.current.getBoundingClientRect();
-    const p = toStage(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H);
+    if (!aiming || placing || !svg.current) return;
+    const p = eventToStage(e);
     const zone = zones.find((z) => inside(p.x, p.y, z.polygon));
     void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 } })
       .then((res) => {
@@ -94,13 +112,27 @@ export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[
         <small className="hint">
           {t.audience} ↓{layout.unplaced ? ` · ${layout.unplaced} ${t.unplaced}` : ""}
         </small>
-        {heads > 0 && (
+        {onMove && (
+          <label className="row">
+            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false))} /> {t.placeMode}
+          </label>
+        )}
+        {heads > 0 && !placing && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
         )}
       </div>
-      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className={aiming ? "aiming" : ""} onClick={aimAt} role="img" aria-label={t.stagePreview}>
+      <svg
+        ref={svg}
+        viewBox={`0 0 ${W} ${H}`}
+        className={aiming ? "aiming" : placing ? "placing" : ""}
+        onClick={aimAt}
+        onPointerMove={(e) => drag && setDrag({ ...drag, ...eventToStage(e) })}
+        onPointerUp={dropDrag}
+        role="img"
+        aria-label={t.stagePreview}
+      >
         <rect width={W} height={H} fill="#12141a" />
         {zones.map((z) => (
           <g key={z.id} className="zone">
@@ -113,7 +145,7 @@ export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[
         ))}
         {/* halos first, under every fixture */}
         {fixtures.map((f) => {
-          const p = layout.pos.get(f.id)!;
+          const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
           const w = Math.min(1.2, Math.max(0.3, (colors[f.id]?.length ?? 1) * 0.2)) * scale;
@@ -121,7 +153,7 @@ export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[
           return <ellipse key={`halo-${f.id}`} cx={sx(p.x)} cy={sy(p.y)} rx={w * 0.75} ry={h * 1.5} fill={lit[Math.floor(lit.length / 2)]} opacity={0.22} />;
         })}
         {fixtures.map((f) => {
-          const p = layout.pos.get(f.id)!;
+          const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
           const cols = colors[f.id] ?? ["#000000"];
           // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
           const w = Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
@@ -130,7 +162,17 @@ export function StagePlan({ fixtures, zones, onError }: { fixtures: PlanFixture[
           const x0 = sx(p.x) - w / 2;
           const y0 = sy(p.y) - h / 2;
           return (
-            <g key={f.id} className="fixture" data-fixture={f.id}>
+            <g
+              key={f.id}
+              className="fixture"
+              data-fixture={f.id}
+              onPointerDown={(e) => {
+                if (!placing) return;
+                e.stopPropagation();
+                svg.current?.setPointerCapture(e.pointerId);
+                setDrag({ id: f.id, ...eventToStage(e) });
+              }}
+            >
               {cols.map((c, i) => (
                 <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
               ))}

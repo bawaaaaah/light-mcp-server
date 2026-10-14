@@ -21,6 +21,7 @@ interface Fixture {
   address: number;
   role?: string;
   target?: string;
+  mount?: string;
   position?: { x: number; y: number; z: number };
 }
 interface Canvas {
@@ -70,7 +71,12 @@ export function VenuePage() {
       )}
       <section>
         <h2>{t.stagePreview}</h2>
-        <StagePlan fixtures={fixtures} zones={zones} onError={setError} />
+        <StagePlan
+          fixtures={fixtures}
+          zones={zones}
+          onError={setError}
+          onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
+        />
       </section>
       <div className="cols">
         <section>

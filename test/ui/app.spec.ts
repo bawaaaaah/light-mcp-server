@@ -297,9 +297,27 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   await expect(page.locator(".stage-plan svg g.zone")).toHaveCount(2);
   await expect(page.locator(".stage-plan .hint")).toContainText("1 projecteur(s) sans position");
   await page.screenshot({ path: "test-results/stage-preview-placed.png", fullPage: true });
+  // drag the unplaced moving head onto the stage
+  await page.getByLabel("Placer les projecteurs").check();
+  const spot = page.locator('.stage-plan g.fixture[data-fixture="spot"] rect').first();
+  await spot.scrollIntoViewIfNeeded();
+  const from = (await spot.boundingBox())!;
+  const stage = (await page.locator(".stage-plan g.zone polygon").first().boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height * 0.8, { steps: 8 }); // front part of the stage, still on screen
+  await page.mouse.up();
+  await expect.poll(async () => ((await api(page, "venue.fixture.list")) as { id: string; position?: { x: number; y: number; z: number } }[]).find((f) => f.id === "spot")?.position).toEqual({ x: expect.any(Number), y: expect.any(Number), z: 0.3 });
+  const placed = ((await api(page, "venue.fixture.list")) as { id: string; position: { x: number; y: number } }[]).find((f) => f.id === "spot")!.position;
+  expect(Math.abs(placed.x)).toBeLessThan(0.5); // dropped at the middle of the stage (x from -4 to 4)
+  expect(placed.y).toBeGreaterThan(0.5); // 80 % of the way to the front: y ≈ 1 m
+  expect(placed.y).toBeLessThan(1.5);
+  await expect(page.locator(".stage-plan .hint")).not.toContainText("sans position");
+  await page.getByLabel("Placer les projecteurs").uncheck();
   await page.getByLabel("Viser avec les lyres").check();
-  await plan.click({ position: { x: 300, y: 60 } });
-  await expect(page.locator(".venue > .error")).toContainText("position sur la scène inconnue"); // the spot has no position yet
+  await plan.click({ position: { x: 300, y: 60 } }); // the head, now placed, aims at the clicked spot
+  await expect.poll(async () => ((await api(page, "position.list")) as { id: string; manual: unknown }[]).find((h) => h.id === "spot")?.manual).not.toBeNull();
+  await api(page, "position.release");
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
