@@ -6,6 +6,8 @@
 <Function ID="10" Type="Sequence" Name="rouge" BoundScene="11"><Speed FadeIn="0" FadeOut="0" Duration="500"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/><Step Number="0" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:3,255,6,255,9,255,12,255</Step><Step Number="1" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:3,200,6,200,9,200,12,200</Step></Function>
 <Function ID="20" Type="Sequence" Name="bleu" BoundScene="21"><Speed FadeIn="0" FadeOut="0" Duration="500"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/><Step Number="0" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:5,255,8,255,11,255,14,255</Step><Step Number="1" FadeIn="0" Hold="500" FadeOut="0" Values="1">0:5,200,8,200,11,200,14,200</Step></Function>
 <Function ID="40" Type="Sequence" Name="bouffees" BoundScene="41"><Speed FadeIn="0" FadeOut="0" Duration="2000"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/><Step Number="0" FadeIn="0" Hold="2000" FadeOut="0" Values="2">1:0,200,1,100</Step><Step Number="1" FadeIn="0" Hold="2000" FadeOut="0" Values="1">1:1,50</Step></Function>
+<Function ID="60" Type="Scene" Name="face rouge"><Speed FadeIn="2000" FadeOut="0" Duration="0"/><FixtureVal ID="0">3,255,6,255,9,255,12,255</FixtureVal></Function>
+<Function ID="61" Type="Scene" Name="liee"><Speed FadeIn="0" FadeOut="0" Duration="0"/><FixtureVal ID="0">4,255</FixtureVal></Function>
 <Function ID="50" Type="Sequence" Name="vide" BoundScene="51"><Speed FadeIn="0" FadeOut="0" Duration="500"/><Direction>Forward</Direction><RunOrder>Loop</RunOrder><SpeedModes FadeIn="Common" FadeOut="Common" Duration="Common"/></Function>
 </Engine>
 <VirtualConsole><Frame Caption="">
@@ -14,6 +16,7 @@
 <Button Caption="Bleu" ID="102"><Function ID="20"/><Action>Toggle</Action><Input Universe="0" Channel="165"/></Button>
 <Slider Caption="Sub ambiance" ID="30"><Input Universe="0" Channel="20"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None">Submaster</SliderMode><Playback><Function>4294967295</Function></Playback></Slider>
 </Frame>
+<Button Caption="Face rouge" ID="104"><Function ID="60"/><Action>Toggle</Action><Input Universe="0" Channel="167"/></Button>
 <Button Caption="Bouffees" ID="103"><Function ID="40"/><Action>Toggle</Action><Input Universe="0" Channel="166"/></Button>
 <Slider Caption="Strobe et fumee" ID="31"><Input Universe="0" Channel="21"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="0">1</Channel><Channel Fixture="1">0</Channel></Level></Slider>
 <Slider Caption="Dim" ID="32"><Input Universe="0" Channel="22"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="255"><Channel Fixture="0">0</Channel></Level></Slider>

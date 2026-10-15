@@ -7,7 +7,7 @@
  */
 import type { Collection, FolderStore } from "../data/store.js";
 import { LookPlayer } from "../engine/player.js";
-import { generateSteps, scaleColor, type Step, type Technique } from "../engine/techniques.js";
+import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
@@ -120,7 +120,10 @@ export class ShowRuntime {
   }
 
   private build(look: Look): LookPlayer {
-    return new LookPlayer(this.stepsOf(look), look.timing, seedOf(look.id));
+    const steps = this.stepsOf(look);
+    // entry fade (« pas 0 d'entrée », a QLC+ scene's fade in): from black on the cells the look paints
+    const entry = look.timing.entryFade > 0 ? steps[0]!.map((c) => (c ? OFF : null)) : null;
+    return new LookPlayer(steps, look.timing, seedOf(look.id), entry);
   }
 
   isActive(lookId: string): boolean {

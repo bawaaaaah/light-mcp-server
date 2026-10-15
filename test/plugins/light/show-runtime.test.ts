@@ -60,6 +60,17 @@ describe("show runtime", () => {
     expect([b[3], b[5]]).to.deep.equal([0, 255]); // swapped on the next beat
   });
 
+  it("plays the entry fade from black (a QLC+ scene's fade in)", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { entryFade: 2 } });
+    show.go("f");
+    expect(dmx()[3]).to.equal(0);
+    advance(2); // 1 s of 2
+    expect(dmx()[3]).to.be.within(100, 155);
+    advance(2);
+    expect(dmx()[3]).to.equal(255);
+  });
+
   it("uses palettes by reference", () => {
     const { show, dmx } = setup();
     show.palettes.put({ id: "chaud", name: "Chaud", colors: ["#ff8000", "#ffff00"] });

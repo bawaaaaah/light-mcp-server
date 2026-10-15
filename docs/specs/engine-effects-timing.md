@@ -72,6 +72,9 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - Projecteurs déplacés : les lyres du canevas du look, dans l'ordre des cellules, ou celles d'un **groupe** (`move.group`), triées par X.
 - Une **position manuelle** (pad XY, viser) passe devant les looks jusqu'au relâchement ; le Panic neutre relâche tout.
 
+### Fondu d'entrée
+- `timing.entryFade` (secondes) : au lancement, le look part du **noir** sur les cellules qu'il peint et y arrive en fondu ; c'est le « pas 0 d'entrée » et le fondu d'entrée d'une Scene QLC+. L'auto-test de cadence attend la fin du fondu avant de mesurer.
+
 ### Canaux bruts (machines, lampes, v1)
 - Un look peut porter des **canaux bruts** (`channels`) : des canaux hors canevas (fumée, hazer, ventilateur, lampe sans couleur), donnés par projecteur + décalage depuis son adresse, donc **même sans définition**, avec une valeur DMX (0-255) par pas.
 - Ils avancent avec l'horloge du look (`every`) : dans l'ordre des couleurs quand le nombre de pas est le même, sinon en boucle. **Pas de fondu** (une machine ne se fond pas).

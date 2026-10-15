@@ -114,6 +114,8 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     if (expectedMs > 4000) return { look: lookId, expectedMs, ok: true, detail: "pas de plus de 4 s : ignoré" };
     runtime.stopAll();
     runtime.go(lookId);
+    // the entry fade changes the output on every frame: measure the steps once it is over
+    if (look.timing.entryFade > 0) await sleep(look.timing.entryFade * 1000 + 50);
     const fixtures = fixturesOfLook(lookId);
     const changes: number[] = [];
     let last = snapshot(fixtures);

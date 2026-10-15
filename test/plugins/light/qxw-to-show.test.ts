@@ -124,6 +124,15 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     expect(sub.presets.included).to.deep.equal(["rouge", "bleu"]);
   });
 
+  it("imports a scene a button starts as a one-step look, its fade in as the entry fade", () => {
+    const scene = p.looks.find((l) => l.id === "face-rouge")!;
+    expect((scene.technique as { steps: string[][] }).steps).to.have.length(1);
+    expect((scene.technique as { steps: string[][] }).steps[0]!.slice(0, 4)).to.deep.equal(["#ff0000", "#ff0000", "#ff0000", "#ff0000"]);
+    expect(scene.timing.entryFade).to.equal(2);
+    expect(p.looks.find((l) => l.id === "liee")).to.equal(undefined); // no widget starts it
+    expect(p.mappings.find((m) => m.on.args.id === "face-rouge")!.input.number).to.equal(39);
+  });
+
   it("turns a submaster among level sliders into a DCA over their DCAs and channel faders", () => {
     const sub = p.groups.find((g) => g.id === "sub-banque")!;
     expect(sub.master).to.not.equal(undefined);

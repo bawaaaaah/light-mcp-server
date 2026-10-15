@@ -57,6 +57,11 @@ function uniqueId(base: string, taken: Set<string>): string {
   return id;
 }
 
+/** A QLC+ scene as a one-step sequence: its values held, its fade in as the look's entry fade. */
+function sceneAsSequence(fn: QxwFunction): QxwFunction {
+  return { ...fn, steps: [{ fadeIn: fn.speed.fadeIn, hold: 0, fadeOut: fn.speed.fadeOut, values: fn.values }] };
+}
+
 /**
  * Raw channels of a sequence (every channel it writes, by fixture and offset), one row per step;
  * a value missing from a step is 0 (QLC+ drops zeros when saving). Null when it writes nothing.
@@ -116,7 +121,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   const looks: Look[] = [];
   const lookIds = new Map<number, string>();
   const lookTaken = new Set<string>();
-  const sequences = [...ws.functions.values()].filter((f) => f.type === "Sequence");
+  // Sequences, and the scenes a widget starts (as one-step sequences; the scenes bound to a sequence
+  // only hold its fixture list)
+  const started = new Set(ws.widgets.map((w) => w.functionId).filter((x): x is number => x !== undefined));
+  const sequences = [...ws.functions.values()].flatMap((f) => (f.type === "Sequence" ? [f] : f.type === "Scene" && started.has(f.id) ? [sceneAsSequence(f)] : []));
   for (const fn of sequences) {
     if (!canvas) break;
     const written = new Set<number>(fn.steps.flatMap((s) => [...s.values.keys()]));
@@ -156,7 +164,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       name: fn.name,
       canvas: "qlc",
       technique: { kind: "pas", steps },
-      timing: { ...timingOf(fn, dialed.get(fn.id), entry > 0), entryFade: entry },
+      timing: { ...timingOf(fn, dialed.get(fn.id), entry > 0), entryFade: entry || (fn.type === "Scene" ? Math.min(30, fn.speed.fadeIn / 1000) : 0) },
       manualOnly: false,
       noCut: false,
       danger: false,
