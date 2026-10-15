@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
-import { findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { findDefinition, findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 
@@ -122,7 +122,6 @@ function nearestSlot(slots: { value: number; color: Color }[], c: Color): number
   return best.value;
 }
 
-const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export class Venue {
   readonly definitions: FixtureDefinition[] = [];
@@ -150,7 +149,7 @@ export class Venue {
   }
 
   definitionFor(manufacturer: string, model: string): FixtureDefinition | undefined {
-    return this.definitions.find((d) => sameName(d.manufacturer, manufacturer) && sameName(d.model, model));
+    return findDefinition(this.definitions, manufacturer, model);
   }
 
   resolve(fixtureId: string): ResolvedFixture | { error: string } {

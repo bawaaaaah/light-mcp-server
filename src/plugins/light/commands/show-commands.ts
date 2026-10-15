@@ -9,6 +9,7 @@ import { displayHex } from "../engine/display.js";
 import type { CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
+import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -23,13 +24,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.library",
     title: "Bibliothèque de fixtures",
-    description: "Fixture definitions available (manufacturer, model, modes with channel count and heads).",
+    description: "Fixture definitions available (manufacturer, model, modes with channel count and heads), the .qxf files then QLC+'s built-in generic dimmer.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({ search: z.string().optional() }),
     run: ({ search }) =>
-      venue.definitions
+      [...venue.definitions, GENERIC_DIMMER]
         .filter((d) => !search || `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase()))
         .map((d) => ({ manufacturer: d.manufacturer, model: d.model, type: d.type, modes: d.modes.map((m) => ({ name: m.name, channels: m.channels.length, heads: m.heads.length })) })),
   });

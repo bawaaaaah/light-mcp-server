@@ -182,3 +182,31 @@ export function findMode(def: FixtureDefinition, name: string): FixtureMode | un
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/channels?$/, "ch").replace(/ch$/, "");
   return def.modes.find((m) => m.name === name) ?? def.modes.find((m) => norm(m.name) === norm(name));
 }
+
+const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** Most channels a QLC+ generic dimmer pack can have (its editor allows up to 512; packs stay small). */
+const GENERIC_DIMMER_MAX = 64;
+
+/**
+ * QLC+'s built-in generic dimmer (manufacturer and model « Generic », mode « N Channel »): it has no
+ * .qxf file, QLC+ creates it in the code. Every channel is an intensity channel.
+ */
+export const GENERIC_DIMMER: FixtureDefinition = {
+  manufacturer: "Generic",
+  model: "Generic",
+  type: "Dimmer",
+  channels: new Map(
+    Array.from({ length: GENERIC_DIMMER_MAX }, (_, i): [string, FixtureChannel] => {
+      const name = `Dimmer ${i + 1}`;
+      return [name, { name, attribute: "intensity", capabilities: [{ min: 0, max: 255, name: "Intensity", tags: [] }], tags: [] }];
+    }),
+  ),
+  modes: Array.from({ length: GENERIC_DIMMER_MAX }, (_, i) => ({ name: `${i + 1} Channel`, channels: Array.from({ length: i + 1 }, (_, c) => `Dimmer ${c + 1}`), heads: [] })),
+};
+
+/** The definition of a model: from the loaded .qxf files, else QLC+'s built-in generic dimmer. */
+export function findDefinition(defs: FixtureDefinition[], manufacturer: string, model: string): FixtureDefinition | undefined {
+  const match = (d: FixtureDefinition) => sameName(d.manufacturer, manufacturer) && sameName(d.model, model);
+  return defs.find(match) ?? (match(GENERIC_DIMMER) ? GENERIC_DIMMER : undefined);
+}

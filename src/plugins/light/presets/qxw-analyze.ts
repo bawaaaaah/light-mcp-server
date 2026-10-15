@@ -5,7 +5,7 @@
  * Pure: works on the parsed workspace and fixture definitions.
  */
 import type { QxwFixture, QxwFunction, QxwStep, QxwWorkspace } from "./qxw-import.js";
-import { findMode, type ColorComponent, type FixtureDefinition } from "../venue/qxf-import.js";
+import { findDefinition, findMode, type ColorComponent, type FixtureDefinition } from "../venue/qxf-import.js";
 
 export interface Cell {
   fixtureId: number;
@@ -45,9 +45,8 @@ export interface WorkspaceAnalysis {
 export function cellsFor(ws: QxwWorkspace, defs: FixtureDefinition[]): { cells: Cell[]; missing: string[] } {
   const cells: Cell[] = [];
   const missing = new Set<string>();
-  const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
   for (const fx of ws.fixtures) {
-    const def = defs.find((d) => sameName(d.manufacturer, fx.manufacturer) && sameName(d.model, fx.model));
+    const def = findDefinition(defs, fx.manufacturer, fx.model);
     const mode = def ? findMode(def, fx.mode) : undefined;
     if (!def || !mode) {
       missing.add(`${fx.manufacturer} ${fx.model} (${fx.mode})`);

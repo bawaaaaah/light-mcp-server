@@ -13,6 +13,7 @@ Le **lieu** est une des trois couches de données (machine / lieu / show, voir [
   - Fine 16 bits, valeur par défaut.
 - **Tags de capabilities** : `soundActive`, `autoProgram`, `builtinMacro`, `uv`, `strobe`, `reset`, `fan`, `lamp`… Ils sont déduits à l'import et corrigeables. Ce sont eux qui permettent les règles globales du type « interdire tous les modes son-actif ».
 - **Import** : OFL (JSON) et QLC+ `.qxf` (XML). L'UI contient un éditeur de fixtures.
+- **Gradateur générique de QLC+** (fabricant et modèle « Generic », mode « N Channel ») : QLC+ le crée dans son code, sans `.qxf`. Le serveur le connaît d'office (jusqu'à 64 canaux, tous en intensité) et la bibliothèque le propose.
 - **Validation de la bibliothèque** : on signale une définition dont le nom de fichier ne correspond pas au contenu (cas réel : deux définitions inversées).
 - **Attributs normalisés** de 0 à 1. Le moteur ne voit jamais de canaux, d'où le **copier-coller d'attributs entre types différents** (Lightkey).
 - **Cellules** : les fixtures multi-cellules sont adressables cellule par cellule, partout.

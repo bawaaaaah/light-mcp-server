@@ -18,7 +18,7 @@
 import type { QxwFunction, QxwWorkspace } from "./qxw-import.js";
 import { analyzeSequence, cellsFor, stepColors, type Rgbw } from "./qxw-analyze.js";
 import type { FixtureDefinition } from "../venue/qxf-import.js";
-import { findMode } from "../venue/qxf-import.js";
+import { findDefinition, findMode } from "../venue/qxf-import.js";
 import { slugify } from "../data/store.js";
 import type { Canvas, PatchedFixture } from "../venue/venue.js";
 import type { ChannelFader, Group, Look } from "../show/model.js";
@@ -65,7 +65,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   const fixtures: PatchedFixture[] = ws.fixtures.map((f) => {
     const id = uniqueId(f.name || `${f.model}-${f.id}`, taken);
     fixtureIds.set(f.id, id);
-    const def = defs.find((d) => slugify(d.manufacturer) === slugify(f.manufacturer) && slugify(d.model) === slugify(f.model));
+    const def = findDefinition(defs, f.manufacturer, f.model);
     if (!def || !findMode(def, f.mode)) warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
     return { id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode, universe: f.universe + 1, address: f.address + 1, tags: [], notes: undefined } as PatchedFixture;
   });
@@ -202,11 +202,13 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       const f = ws.fixtures.find((x) => x.id === lc.fixture);
       const fixtureId = fixtureIds.get(lc.fixture);
       if (!f || !fixtureId) continue;
-      const def = defs.find((d) => slugify(d.manufacturer) === slugify(f.manufacturer) && slugify(d.model) === slugify(f.model));
+      const def = findDefinition(defs, f.manufacturer, f.model);
       const mode = def ? findMode(def, f.mode) : undefined;
       const ch = def && mode ? def.channels.get(mode.channels[lc.channel] ?? "") : undefined;
-      if (ch?.attribute === "intensity") dimmerFixtures.add(fixtureId);
-      else others.push({ fixture: fixtureId, offset: lc.channel }); // white, UV, strobe, machines — or undecoded: kept by offset
+      // a DCA doses the colours the looks paint; a lamp without colour (generic dimmer) is driven like in QLC+
+      const colored = Boolean(mode?.channels.some((n) => def!.channels.get(n)?.color));
+      if (ch?.attribute === "intensity" && colored) dimmerFixtures.add(fixtureId);
+      else others.push({ fixture: fixtureId, offset: lc.channel }); // white, UV, strobe, machines, lamps — or undecoded: kept by offset
     }
     if (dimmerFixtures.size) {
       const id = uniqueId(w.caption || `slider-${w.id}`, groupTaken);
