@@ -42,12 +42,13 @@ describe("rule programs (per section, by MIDI Program Change)", () => {
     await run("program.select", { id: null });
   });
 
-  it("follows the song: the prayer section activates it, the next one ends it", async () => {
+  it("follows the song: the prayer section activates it, a section without a program keeps it", async () => {
     await run("song.put", { song: { id: "s", title: "S", bpm: 120, sections: [{ id: "c", name: "Couplet", look: "a", bars: 4 }, { id: "p", name: "Prière", look: "a", bars: 4, program: "priere" }, { id: "f", name: "Final", look: "a", bars: 4 }] } });
     await run("song.section.go", { song: "s", section: "p" });
     expect(plugin.runtime.activeProgram).to.equal("priere");
     await run("song.section.go", { song: "s", section: "f" });
-    expect(plugin.runtime.activeProgram).to.equal(undefined); // the song uses programs: a section without one clears it
+    expect(plugin.runtime.activeProgram).to.equal("priere"); // only another program (or a hand, a PC) replaces it
+    await run("program.select", { id: null });
     // following playback too
     await run("song.play", { song: "s", bar: 4 });
     expect(plugin.runtime.activeProgram).to.equal("priere");

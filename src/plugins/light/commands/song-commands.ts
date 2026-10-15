@@ -49,11 +49,11 @@ export function noteForLook(mappings: Mapping[], lookId: string): { channel: num
 }
 
 /** Activates the rule program a section asks for (unknown program: ignored, reported by the lint). */
-function applySectionProgram(s: SongServices, song: Song, section: Section): void {
-  const p = sectionProgram(song, section);
+function applySectionProgram(s: SongServices, section: Section): void {
+  const p = sectionProgram(section);
   if (!p) return;
   try {
-    s.runtime.selectProgram(p.program ?? undefined);
+    s.runtime.selectProgram(p);
   } catch {
     /* unknown program */
   }
@@ -75,7 +75,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     const sec = sg.sections.find((x) => x.id === sectionId);
     if (!sec) throw new Error(`section inconnue : ${sectionId}`);
     if (sec.look) s.runtime.go(sec.look, auto);
-    applySectionProgram(s, sg, sec);
+    applySectionProgram(s, sec);
     s.state.song = sg.id;
     s.state.section = sec.id;
     s.publish({ ...s.state });
@@ -378,7 +378,7 @@ export function followPosition(s: SongServices): void {
           /* manual only or unknown look: the section is followed, the look is not started */
         }
       }
-      applySectionProgram(s, sg, sec);
+      applySectionProgram(s, sec);
       changed = true;
     }
   }

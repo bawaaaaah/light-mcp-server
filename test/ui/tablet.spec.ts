@@ -15,7 +15,7 @@ for (const [label, viewport] of [
     for (const name of ["Live", "Show", "Lieu", "Chants", "MIDI", "OSC", "Import", "Notes", "Réglages", "Console DMX"]) {
       await page.locator("header nav button", { hasText: name }).first().click();
       await page.waitForTimeout(150);
-      const width = await page.evaluate(() => document.documentElement.scrollWidth);
+      const width = await page.evaluate<number>("document.documentElement.scrollWidth");
       if (width > viewport.width) wide.push(`${name}: ${width}px`);
       await page.screenshot({ path: `test-results/tablet-${label}-${name.replace(/\s/g, "-")}.png`, fullPage: true });
     }

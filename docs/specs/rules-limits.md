@@ -29,7 +29,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 - Un **programme** regroupe des règles pour un moment du culte : « prière : rien au-dessus de 40 %, pas de strobe », « annonces »… **Un seul est actif à la fois** (ou aucun). Une règle peut porter un `program` : elle ne s'applique que pendant ce programme ; les règles sans programme s'appliquent toujours.
 - **Activation** :
   - **Program Change MIDI** reçu sur le canal du programme, sans mapping à créer (numéro 0-127 comme l'octet MIDI ; Live l'affiche +1 : un clip « Prière #100 » envoie 99) ;
-  - **section de chant** portant un programme ; si un chant utilise des programmes, une section sans programme le relâche (les limites de la prière finissent avec elle) ;
+  - **section de chant** portant un programme ; une section sans programme **garde** le programme actif (décidé le 2026-10-15) : seul un autre programme, un Program Change ou la main le remplace ;
   - interface (page Lieu, « Règles et limites ») et commande `program.select` ;
   - repris après un redémarrage (état en direct).
 - Le programme actif s'affiche dans l'en-tête ; `rule.effective` tient compte du programme actif (ou de celui demandé).

@@ -75,13 +75,10 @@ export function placeSections(song: Song): { section: Section; startBeat: number
 }
 
 /**
- * Rule program to activate when a section starts: its own, or none when the song uses programs
- * on other sections (so the « prière » limits end with the prayer); undefined = leave as is.
+ * Rule program to activate when a section starts: its own; undefined = leave the active one as is
+ * (decided 2026-10-15: only another program, a Program Change or a hand replaces it).
  */
-export function sectionProgram(song: Song, section: Section): { program: string | null } | undefined {
-  if (section.program) return { program: section.program };
-  return song.sections.some((s) => s.program) ? { program: null } : undefined;
-}
+export const sectionProgram = (section: Section): string | undefined => section.program;
 
 /** Position of a cue in beats from the song start. */
 export const cueBeat = (song: Song, cue: Cue): number => cue.atBar * song.beatsPerBar + cue.beat;
