@@ -99,6 +99,30 @@ test("AI connection page: the token holder gets ready-to-paste snippets, a volun
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
 });
 
+test("files: a new show opens on every screen, keeps backups, resets, and the first show comes back", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page, "9999");
+  await page.locator("header nav button", { hasText: "Fichiers" }).click();
+  const files = page.locator(".files");
+  await files.getByPlaceholder("Nom du show", { exact: true }).fill("Essai");
+  await files.getByRole("button", { name: "Créer et ouvrir" }).click();
+  await expect(page.locator("header .show-name")).toHaveText("Essai"); // the app reloaded on the new show
+  expect(((await api(page, "look.list")) as unknown[]).length).toBe(0);
+  await files.getByPlaceholder("Libellé (facultatif)").fill("test");
+  await files.getByRole("button", { name: "Enregistrer une sauvegarde" }).click();
+  await expect(files.locator(".backups")).toContainText(/essai-.*-test\.lightshow/);
+  await files.getByRole("button", { name: "Réinitialiser le show" }).click();
+  await expect(files.getByText("Show réinitialisé")).toBeVisible();
+  await page.screenshot({ path: "test-results/files.png", fullPage: true });
+  await files.locator(".shows tr", { hasText: "Show" }).first().getByRole("button", { name: "Ouvrir" }).click();
+  await expect(page.locator("header .show-name")).toHaveText("Show");
+  expect(((await api(page, "look.list")) as unknown[]).length).toBeGreaterThan(0);
+  await files.locator(".shows tr", { hasText: "Essai" }).getByRole("button", { name: "Supprimer" }).click();
+  await expect(files.locator(".shows")).not.toContainText("Essai");
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");

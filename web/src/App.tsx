@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { ApiError, can, login, loginRoles, loginWithToken, logout, restoreSession, type Role } from "./api";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { ApiError, can, lightState, login, loginRoles, loginWithToken, logout, restoreSession, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -14,14 +14,17 @@ import { VenuePage } from "./pages/Venue";
 import { NotesPage } from "./pages/Notes";
 import { SettingsPage } from "./pages/Settings";
 import { ConnectPage } from "./pages/Connect";
+import { FilesPage } from "./pages/Files";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 
-type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "connect" | "settings";
-const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "connect", "settings"];
+type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings";
+const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "files", "connect", "settings"];
 /** Pages a role sees only with a right; the others are for every role. */
 const PAGE_RIGHTS: Partial<Record<Page, string>> = { connect: "mcp:use" };
+
+type LightState = Awaited<ReturnType<typeof lightState>>;
 
 /** A refused PIN reads as such; anything else (too many tries) keeps the server's words. */
 const pinError = (e: unknown, t: Texts) => (e instanceof ApiError && e.status !== 401 ? e.message : t.badPin);
@@ -97,7 +100,11 @@ export function App() {
   const [checked, setChecked] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [up, setUp] = useState(false);
-  const output = useTopic<{ standby?: boolean; foreignSources?: string[]; program?: string | null } | null>("light:state", null);
+  const live = useTopic<LightState | null>("light:state", null);
+  // The topic only speaks on a change: read the current state once signed in.
+  const [seed, setSeed] = useState<LightState | null>(null);
+  const output = live ?? seed;
+  const openShow = useRef<string | undefined>(undefined);
   const [page, setPage] = useState<Page>(() => (PAGES.includes(location.hash.slice(1) as Page) ? (location.hash.slice(1) as Page) : "live"));
   const t = TEXTS[lang];
 
@@ -106,6 +113,9 @@ export function App() {
       .then(setRole, (err: unknown) => setLinkError(pinError(err, TEXTS[lang])))
       .finally(() => setChecked(true));
   }, []);
+  useEffect(() => {
+    if (role) void lightState().then(setSeed, () => undefined);
+  }, [role]);
   useEffect(() => {
     if (!role) return;
     const off = control.onStatus(setUp);
@@ -120,6 +130,13 @@ export function App() {
   useEffect(() => {
     location.hash = page;
   }, [page]);
+  // Another show opened (here or on another screen): every page reloads its data.
+  useEffect(() => {
+    const id = output?.show?.id;
+    if (!id) return;
+    if (openShow.current && openShow.current !== id) location.reload();
+    openShow.current = id;
+  }, [output?.show?.id]);
 
   const switchLang = (l: Lang) => {
     setLang(l);
@@ -144,6 +161,11 @@ export function App() {
           ))}
         </nav>
         <div className="right">
+          {output?.show && (
+            <button className="badge show-name" title={t.openShow} onClick={() => setPage("files")}>
+              {output.show.name}
+            </button>
+          )}
           {output?.standby && (
             <span className="badge standby" title={`${t.standby}${output.foreignSources?.length ? ` · ${t.otherHolds} ${output.foreignSources.join(", ")}` : ""}. ${t.standbyHelp}`}>
               ⏸ {t.standbyShort}
@@ -185,6 +207,7 @@ export function App() {
         {page === "osc" && <OscPage />}
         {page === "import" && <ImportPage />}
         {page === "notes" && <NotesPage />}
+        {page === "files" && <FilesPage role={role} />}
         {page === "connect" && pages.includes("connect") && <ConnectPage role={role} />}
         {page === "settings" && <SettingsPage />}
       </main>

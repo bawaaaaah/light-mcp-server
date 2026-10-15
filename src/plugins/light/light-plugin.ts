@@ -14,11 +14,13 @@ import type { LiveTopic, McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import { summarizeDescription, type PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import type { ScopedConfigStore } from "../../core/config-store.js";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
+import { backupPath, registerFileCommands } from "./commands/file-commands.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -27,6 +29,7 @@ import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { registerDesignCommands } from "./commands/design-commands.js";
 import { loadKnowledge, type Knowledge } from "./knowledge/knowledge.js";
 import { ShowRuntime } from "./show/runtime.js";
+import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
@@ -109,6 +112,7 @@ export class LightPlugin implements McpPlugin {
   private tempoTimer: NodeJS.Timeout | undefined;
   private songs: SongServices | undefined;
   private readonly liveFile: LiveSnapshotFile;
+  private readonly dataRoot: string;
   /** What was resumed at start-up after a restart, if anything. */
   resumed: { looks: string[]; blackout: boolean; song?: string; section?: string } | undefined;
 
@@ -132,11 +136,12 @@ export class LightPlugin implements McpPlugin {
     });
 
     const dataRoot = opts.dataRoot ?? defaultDataRoot();
+    this.dataRoot = dataRoot;
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
     this.liveFile = new LiveSnapshotFile(path.join(dataRoot, "machine", "live.json"));
     this.venue = new Venue(
       new FolderStore(path.join(dataRoot, "venues", this.config.venue), path.join(dataRoot, "backups", "venues", this.config.venue)),
-      [path.join(dataRoot, "fixtures"), path.join(dataRoot, "venues", this.config.venue, "fixture-definitions")],
+      this.definitionDirs(this.config.venue),
     );
     this.runtime = new ShowRuntime(this.show, this.venue, this.tempo);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
@@ -186,6 +191,20 @@ export class LightPlugin implements McpPlugin {
     let kb: Knowledge | undefined;
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), () => (kb ??= loadKnowledge(knowledgePath)));
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
+    registerFileCommands(this.commands, {
+      dataRoot,
+      current: () => ({ show: this.config.show, venue: this.config.venue }),
+      open: (id) => this.openShow(id),
+      flush: () => {
+        this.show.flushLive();
+        this.venue.store.flushLive();
+      },
+      reload: () => {
+        this.runtime.resetLive();
+        this.reloadFromDisk();
+      },
+      restore: (bytes) => this.restoreArchive(bytes),
+    });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 
     const publishFrame = throttleMerge<number>(
@@ -206,6 +225,50 @@ export class LightPlugin implements McpPlugin {
       }
     });
     this.router.onNodesChanged(() => this.publish("nodes", this.router.registry.list()));
+  }
+
+  private definitionDirs(venue: string): string[] {
+    return [path.join(this.dataRoot, "fixtures"), path.join(this.dataRoot, "venues", venue, "fixture-definitions")];
+  }
+
+  /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
+  private reloadFromDisk(): void {
+    this.show.reloadAll();
+    this.venue.store.reloadAll();
+    this.venue.refreshDefinitions();
+    this.runtime.reloadSettings();
+    this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
+    this.engine.requestFrame();
+    this.publish("state", this.state());
+  }
+
+  /** Opens another show and its venue, in place: everything live stops, every screen follows. */
+  async openShow(id: string): Promise<void> {
+    if (id === this.config.show) return;
+    const showRoot = path.join(this.dataRoot, "shows", id);
+    const settingsFile = path.join(showRoot, "show.json");
+    const venue = ShowSettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {}).venue;
+    this.saveLive();
+    this.runtime.resetLive();
+    this.engine.setBlackout(false);
+    this.show.retarget(showRoot, path.join(this.dataRoot, "backups", "shows", id));
+    if (venue !== this.config.venue) this.venue.retarget(path.join(this.dataRoot, "venues", venue), path.join(this.dataRoot, "backups", "venues", venue), this.definitionDirs(venue));
+    this.config = { ...this.config, show: id, venue };
+    await this.opts.config?.set(this.config);
+    if (this.songs) Object.assign(this.songs.state, { setlist: undefined, song: undefined, section: undefined });
+    this.reloadFromDisk();
+  }
+
+  /** Replaces the current show (and venue, when the archive has one), after copying them to the backups. */
+  private restoreArchive(bytes: Uint8Array): { backup: string; files: { show: number; venue: number }; manifest: ReturnType<typeof readArchive>["manifest"] } {
+    const content = readArchive(bytes);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backups = path.join(this.dataRoot, "backups", "restore-" + stamp);
+    this.runtime.stopAll();
+    if (Object.keys(content.show).length) restoreFolder(this.show.root, content.show, path.join(backups, "show"));
+    if (Object.keys(content.venue).length) restoreFolder(this.venue.store.root, content.venue, path.join(backups, "venue"));
+    this.reloadFromDisk();
+    return { manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) };
   }
 
   private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; rtp: MidiProfile["rtp"] } {
@@ -257,8 +320,9 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; program: string | null } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; program: string | null } {
     return {
+      show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
       blackout: this.engine.isBlackout(),
       universes: this.config.universes,
@@ -491,17 +555,13 @@ export class LightPlugin implements McpPlugin {
         });
         return;
       }
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backups = path.resolve(this.show.root, "..", "..", "backups", "restore-" + stamp);
-      this.runtime.stopAll();
-      if (Object.keys(content.show).length) restoreFolder(this.show.root, content.show, path.join(backups, "show"));
-      if (Object.keys(content.venue).length) restoreFolder(this.venue.store.root, content.venue, path.join(backups, "venue"));
-      this.show.reloadAll();
-      this.venue.store.reloadAll();
-      this.runtime.reloadSettings();
-      this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
-      this.publish("state", this.state());
-      res.json({ restored: true, manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) });
+      res.json({ restored: true, ...this.restoreArchive(new Uint8Array(req.body as Buffer)) });
+    });
+    router.get("/backups/:file", (req: Request, res: Response) => {
+      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, "droit requis : show:write");
+      const file = backupPath(this.dataRoot, String(req.params.file));
+      if (!file) throw new HttpError(404, "sauvegarde inconnue");
+      res.download(file);
     });
   }
 

@@ -134,12 +134,21 @@ export class Venue {
 
   constructor(
     readonly store: FolderStore,
-    private readonly definitionDirs: string[],
+    private definitionDirs: string[],
   ) {
     this.refreshDefinitions();
     this.fixtures = store.collection("fixtures", PatchedFixtureSchema);
     this.canvases = store.collection("canvases", CanvasSchema);
     store.onChange(() => this.resolved.clear());
+  }
+
+  /** Points the venue at another folder (the venue of another show) and reads it. */
+  retarget(root: string, backupRoot: string | undefined, definitionDirs: string[]): void {
+    this.definitionDirs = definitionDirs;
+    this.definitionStamp = "";
+    this.definitionErrors = [];
+    this.store.retarget(root, backupRoot);
+    this.refreshDefinitions();
   }
 
   /**

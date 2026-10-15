@@ -34,6 +34,14 @@ const USAGE = `light <commande>
   export liveset --setlist id --als f --track nom
                                   pose la setlist dans une copie du Live Set (Live fermé)
   osc-table                       adresses OSC
+  show list                       shows de la machine (le show ouvert est marqué)
+  show new <nom> [--from id] [--venue current|copy|new]
+                                  nouveau show, vide ou copie d'un autre (« Enregistrer sous »), puis ouvert
+  show open <id>                  ouvre un autre show (et son lieu)
+  show rename <nom>               renomme le show ouvert
+  show reset [--with-venue]       vide le show ouvert (et son lieu), après une sauvegarde
+  backup list|create [libellé]|restore <fichier>
+                                  sauvegardes .lightshow gardées dans data/backups
   pack [fichier] [--no-venue]     sauvegarde .lightshow
   unpack <fichier> [--check]      restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement
   standby on|off                  sortie en veille / reprendre la main
@@ -126,6 +134,9 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       track: { type: "string" },
       "no-venue": { type: "boolean", default: false },
       check: { type: "boolean", default: false },
+      from: { type: "string" },
+      venue: { type: "string" },
+      "with-venue": { type: "boolean", default: false },
     },
   });
   const caller = await connect({ configPath, dataRoot: DATA_ROOT, url: values.url, offline: values.offline, token: async () => (await machine()).token });
@@ -180,6 +191,24 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         const [on] = positionals;
         if (on !== "on" && on !== "off") throw new CliError("usage : light standby on|off");
         json(await caller.call("output.standby", { on: on === "on" }));
+        return 0;
+      }
+      case "show": {
+        const [action, arg] = positionals;
+        if (action === "list") for (const sh of await caller.call<{ id: string; name: string; venue: string; active: boolean }[]>("show.list")) console.log(`${sh.active ? "▶" : " "} ${sh.id.padEnd(24)} ${sh.name}  (lieu ${sh.venue})`);
+        else if (action === "new" && arg) json(await caller.call("show.create", { name: arg, from: values.from, venue: values.venue }));
+        else if (action === "open" && arg) json(await caller.call("show.open", { id: arg }));
+        else if (action === "rename" && arg) json(await caller.call("show.rename", { name: arg }));
+        else if (action === "reset") json(await caller.call("show.reset", { venue: values["with-venue"] }));
+        else throw new CliError("usage : light show list|new <nom>|open <id>|rename <nom>|reset [--with-venue]");
+        return 0;
+      }
+      case "backup": {
+        const [action, arg] = positionals;
+        if (action === "list") for (const b of await caller.call<{ file: string; size: number; show?: string }[]>("backup.list")) console.log(`${b.file}  ${Math.round(b.size / 1024)} Kio`);
+        else if (action === "create") json(await caller.call("backup.create", arg ? { label: arg } : {}));
+        else if (action === "restore" && arg) json(await caller.call("backup.restore", { file: arg }));
+        else throw new CliError("usage : light backup list|create [libellé]|restore <fichier>");
         return 0;
       }
       case "pack":

@@ -178,10 +178,24 @@ export class FolderStore {
   private readonly collections = new Map<string, Collection<{ id: string }>>();
 
   constructor(
-    readonly root: string,
-    private readonly backupRoot?: string,
+    private rootDir: string,
+    private backupRoot?: string,
   ) {
+    mkdirSync(rootDir, { recursive: true });
+  }
+
+  get root(): string {
+    return this.rootDir;
+  }
+
+  /** Points the store at another folder (another show or venue) and reads it. */
+  retarget(root: string, backupRoot?: string): void {
+    this.flushLive();
+    this.rootDir = root;
+    this.backupRoot = backupRoot;
     mkdirSync(root, { recursive: true });
+    this.loadErrors.length = 0;
+    this.reloadAll();
   }
 
   collection<T extends { id: string }>(name: string, schema: ZodType<T, ZodTypeDef, unknown>): Collection<T> {

@@ -122,20 +122,38 @@ export async function cmd<T = unknown>(name: string, args: unknown = {}): Promis
   return r.result;
 }
 
-export async function lightState(): Promise<{ blackout: boolean; universes: number; discovery: string }> {
+export async function lightState(): Promise<{
+  show?: { id: string; name: string };
+  blackout: boolean;
+  universes: number;
+  discovery: string;
+  standby?: boolean;
+  foreignSources?: string[];
+  program?: string | null;
+}> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }
 
-export async function downloadArchive(withVenue: boolean): Promise<void> {
-  const res = await fetch(`/api/plugins/light/archive?venue=${withVenue ? 1 : 0}`, { headers: { authorization: `Bearer ${token}` } });
+/** Saves an authenticated download under the name the server gives (or `fallback`). */
+async function saveDownload(route: string, fallback: string): Promise<void> {
+  const res = await fetch(route, { headers: { authorization: `Bearer ${token}` } });
   if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({ error: res.statusText }))).error);
-  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "show.lightshow";
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallback;
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadArchive(withVenue: boolean): Promise<void> {
+  return saveDownload(`/api/plugins/light/archive?venue=${withVenue ? 1 : 0}`, "show.lightshow");
+}
+
+/** A backup kept on the server (data/backups). */
+export function downloadBackup(file: string): Promise<void> {
+  return saveDownload(`/api/plugins/light/backups/${encodeURIComponent(file)}`, file);
 }
 
 export interface FolderDiff {

@@ -182,6 +182,14 @@ export class ShowRuntime {
     return ids;
   }
 
+  /** Forgets everything live (looks, flashes, manual positions, program): another show opens. */
+  resetLive(): void {
+    this.active.clear();
+    this.flashes.clear();
+    this.manualPositions.clear();
+    this.activeProgram = undefined;
+  }
+
   private restart(lookId: string): void {
     const look = this.looks.get(lookId);
     this.active.delete(lookId);

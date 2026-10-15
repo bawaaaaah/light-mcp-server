@@ -21,6 +21,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 | **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton |
 | **OSC** | explorateur d'adresses (recherche, copier), export de la table |
 | **Notes** | recherche globale |
+| **Fichiers** | show ouvert (renommer), liste des shows (ouvrir, dupliquer, supprimer), nouveau show (vide ou copie, même lieu, copie du lieu ou lieu vide), sauvegardes `.lightshow` du serveur (enregistrer, restaurer, télécharger), réinitialisation (administrateur) ; le nom du show ouvert est dans l'en-tête et y mène |
 | **Connexion IA** | adresse MCP et jeton (masqué, à copier), marche à suivre par client (Claude Code, Claude Desktop, claude.ai, stdio, Inspector, curl), publication derrière un reverse proxy ; réservée aux rôles qui ont `mcp:use` |
 | **Réglages** | réseau, tempo, rôles et PIN, **liens de partage** (utilisateur + PIN), plugins (formulaires générés), langue, **sauvegarde** |
 

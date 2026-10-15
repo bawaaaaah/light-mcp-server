@@ -421,6 +421,9 @@ label.inline {
 label.inline input {
   width: 4.5em;
 }
+label.inline input[type="checkbox"] {
+  width: auto;
+}
 
 textarea {
   flex: 1;
@@ -820,4 +823,34 @@ table.rules td {
 }
 .share-link code.link {
   overflow-wrap: anywhere;
+}
+
+/* Files page (pages/Files.tsx) and the open show in the header. */
+.badge.show-name {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: inherit;
+  cursor: pointer;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.files {
+  max-width: 64em;
+}
+.files table td {
+  padding: 0.35em 0.6em 0.35em 0;
+}
+.files tr.active td:first-child {
+  color: var(--accent);
+  font-weight: 600;
+}
+.files .current-show strong {
+  font-size: 1.2rem;
+}
+.files .danger-zone {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 0.2em 1em 1em;
+  margin-top: 1.5em;
 }

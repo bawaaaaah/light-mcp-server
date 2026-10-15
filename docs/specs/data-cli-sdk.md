@@ -36,6 +36,14 @@ data/shows/<id>/
 - **Télécharger et recharger depuis l'UI**, avec un aperçu des différences avant d'appliquer (v1 : `POST /archive?dryRun=1`, fichiers ajoutés, modifiés, supprimés, comparés par contenu JSON et non par mise en forme ; « rien à restaurer » si identique ; `light unpack --check` en ligne de commande).
 - **Jamais dedans** : secrets, config machine, données de plugins privés (seulement l'indication « nécessite le plugin X »).
 
+## Shows et sauvegardes (v1, comme une console lumière)
+- Un show est un dossier `data/shows/<id>` ; son `show.json` porte son nom et le lieu sur lequel il joue (`data/venues/<id>`). Tout est enregistré au fil des modifications : il n'y a pas de bouton « Enregistrer ».
+- **Ouvrir** un show se fait à chaud (`show.open`) : ce qui joue s'arrête, ses looks, chants, dashboards et mappings remplacent les précédents, sur tous les écrans (l'interface se recharge quand le show ouvert change). Le show ouvert est gardé dans la config machine.
+- **Nouveau** (`show.create`) : vide, ou **copie** d'un autre (`from`, c'est « Enregistrer sous » et « Dupliquer »), sur le même lieu (même patch), une copie du lieu, ou un lieu vide ; ouvert aussitôt.
+- **Renommer** (le dossier garde son identifiant), **supprimer** (un show fermé seulement, déplacé dans `data/backups/deleted/`, récupérable à la main).
+- **Réinitialiser** (`show.reset`, administrateur) : vide le show ouvert, et sur demande son lieu, après une sauvegarde automatique.
+- **Sauvegardes** : archives `.lightshow` du show ouvert et de son lieu gardées dans `data/backups/` (nom : show, date et heure locales, libellé), listées, restaurées (avec copie de l'existant) ou téléchargées depuis l'interface (page **Fichiers**).
+
 ## Versions et sécurité des données
 - `schemaVersion` sur chaque manifeste. Les migrations sont versionnées et testées.
 - Backup automatique avant chaque migration et à intervalles réguliers, avec rotation.
@@ -59,6 +67,8 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light export cuesheet [--setlist id]` / `notes [--csv]` / `board [--song id]` | feuille de conduite, table des notes, planche SVG d'un chant |
 | `light export ableton [--shell f]` | MIDI Effect Rack depuis la coquille |
 | `light export liveset --setlist id --als f --track nom` | pose la setlist dans une copie du Live Set (Live fermé) |
+| `light show list` / `new <nom> [--from id] [--venue current\|copy\|new]` / `open <id>` / `rename <nom>` / `reset [--with-venue]` | shows de la machine (voir plus haut) |
+| `light backup list` / `create [libellé]` / `restore <fichier>` | sauvegardes `.lightshow` gardées dans `data/backups/` |
 | `light pack [fichier] [--no-venue]` / `light unpack <fichier>` | sauvegarde `.lightshow`, restauration avec copie de l'existant |
 | `light standby on\|off` | sortie en veille, reprendre la main |
 | `light osc-table` | adresses OSC |
