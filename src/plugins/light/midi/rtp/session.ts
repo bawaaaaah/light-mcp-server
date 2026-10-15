@@ -31,6 +31,16 @@ export interface RtpSessionOptions {
 /** AppleMIDI timestamps are in 100 µs units. */
 const now100us = (): bigint => BigInt(Math.round(performance.now() * 10));
 
+/** Rejects when the port is taken (on a Mac, the system's network MIDI session holds 5004) instead of never settling. */
+const bind = (socket: Socket, port: number, host: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    socket.once("error", reject);
+    socket.bind(port, host, () => {
+      socket.off("error", reject);
+      resolve();
+    });
+  });
+
 export class RtpMidiSession extends EventEmitter {
   readonly ssrc = randomInt(1, 0xffffffff);
   private control!: Socket;
@@ -49,8 +59,14 @@ export class RtpMidiSession extends EventEmitter {
     this.data = createSocket("udp4");
     this.control.on("message", (msg, rinfo) => this.onControl(msg, rinfo.address, rinfo.port, "control"));
     this.data.on("message", (msg, rinfo) => this.onData(msg, rinfo.address, rinfo.port));
-    await new Promise<void>((res) => this.control.bind(this.options.port, host, res));
-    await new Promise<void>((res) => this.data.bind(this.options.port + 1, host, res));
+    try {
+      await bind(this.control, this.options.port, host);
+      await bind(this.data, this.options.port + 1, host);
+    } catch (err) {
+      this.control.close();
+      this.data.close();
+      throw err;
+    }
   }
 
   stop(): void {

@@ -10,7 +10,7 @@ interface Status {
   inputs: { name: string; watched: boolean; open: boolean; lastMessageAt?: number }[];
   outputs: string[];
   feedback?: string;
-  rtp: { enabled: boolean; port: number; peers: string[] };
+  rtp: { enabled: boolean; port: number; peers: string[]; error?: string };
   profile: string;
   profiles: string[];
   profileConfig?: { inputs: string[]; feedbackOutput?: string; rtp: { enabled: boolean; port: number; name: string } };
@@ -118,7 +118,8 @@ export function MidiPage() {
           </select>
         </label>
         {status && !status.localAvailable && <span className="warn">{t.localMidiMissing} : {status.localError}</span>}
-        {status?.rtp.enabled && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
+        {status?.rtp.enabled && !status.rtp.error && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
+        {status?.rtp.error && <span className="warn">{t.rtpUnavailable} : {status.rtp.error}</span>}
         <label className="row">
           <input type="checkbox" checked={webMidi} onChange={(e) => setWebMidi(e.target.checked)} /> {t.webMidi}
         </label>

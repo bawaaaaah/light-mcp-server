@@ -19,6 +19,7 @@
 - **Choix des entrées surveillées** : la page MIDI liste tous les ports et sessions, et l'utilisateur coche ceux à écouter.
 - **Auto-détection** : hotplug des ports locaux, découverte des sessions RTP-MIDI (Bonjour/mDNS), notification « nouvelle entrée détectée ».
 - **Profils d'entrées** par événement ou par lieu, stockés dans la config machine. Par exemple « local IAC » ou « RTP régie ». On **bascule d'un clic** entre MIDI local et RTP-MIDI.
+- **Port RTP-MIDI occupé** (sur un Mac, la session réseau de macOS prend souvent 5004) : le serveur démarre quand même, sans session intégrée, et le signale dans ses journaux, `/health` et la page MIDI.
 - **Indicateur d'activité** par entrée (reçoit, ou silencieuse) et moniteur MIDI (`light:midi`), avec la latence mesurée.
 - Chaque message est normalisé en `{source, port, type, ch, num, val, ts}`. Le chemin MIDI → commande → moteur ne passe jamais par l'UI.
 

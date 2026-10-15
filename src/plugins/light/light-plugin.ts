@@ -340,11 +340,13 @@ export class LightPlugin implements McpPlugin {
   async getHealth(): Promise<PluginHealth> {
     const s = this.router.stats;
     const status = !this.started ? "ERROR" : s.discovery === "unavailable" ? "DEGRADED" : "HEALTHY";
+    const rtpError = this.hub.status().rtp.error;
+    const warnings = [...(this.hub.localAvailable ? [] : [`MIDI local indisponible : ${this.hub.localError}`]), ...(rtpError ? [`RTP-MIDI indisponible : ${rtpError}`] : [])];
     return {
       status,
       detail: { frames: this.engine.frames, packets: s.packetsSent, errors: s.errors, discovery: s.discovery, nodes: this.router.registry.list().length },
       ...(s.discovery === "unavailable" ? { errorMessage: `découverte Art-Net indisponible (port 6454 occupé ?) : ${s.discoveryError}` } : {}),
-      ...(this.hub.localAvailable ? {} : { warnings: [`MIDI local indisponible : ${this.hub.localError}`] }),
+      ...(warnings.length ? { warnings } : {}),
     };
   }
 

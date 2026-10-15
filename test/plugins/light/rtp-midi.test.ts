@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { createSocket } from "node:dgram";
 import { decodeControl, decodeRtpMidi, encodeControl, encodeRtpMidi } from "../../../src/plugins/light/midi/rtp/applemidi.js";
 import { RtpMidiSession } from "../../../src/plugins/light/midi/rtp/session.js";
 
@@ -55,6 +56,19 @@ describe("RTP-MIDI session (loopback)", () => {
     } finally {
       a.stop();
       b.stop();
+    }
+  });
+
+  it("rejects when its port is taken instead of waiting forever", async () => {
+    const squatter = createSocket("udp4");
+    await new Promise<void>((res) => squatter.bind(15104, "127.0.0.1", res));
+    const session = new RtpMidiSession({ name: "A", port: 15104, host: "127.0.0.1" });
+    try {
+      let error: Error | undefined;
+      await session.start().catch((err: Error) => (error = err));
+      expect(error?.message).to.match(/EADDRINUSE/);
+    } finally {
+      squatter.close();
     }
   });
 });

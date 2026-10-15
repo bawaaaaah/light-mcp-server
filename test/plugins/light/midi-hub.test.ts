@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { createSocket } from "node:dgram";
 import { MidiHub, type HubMessage } from "../../../src/plugins/light/midi/hub.js";
 import { RtpMidiSession } from "../../../src/plugins/light/midi/rtp/session.js";
 
@@ -103,6 +104,20 @@ describe("MIDI hub", () => {
     } finally {
       remote.stop();
       hub.stop();
+    }
+  });
+
+  it("starts anyway when the RTP-MIDI port is taken, and says so", async () => {
+    // On a Mac, the system's own network MIDI session usually holds 5004.
+    const squatter = createSocket("udp4");
+    await new Promise<void>((res) => squatter.bind(15304, "0.0.0.0", res));
+    const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15304, name: "hub" } }, { native: null });
+    try {
+      await hub.start();
+      expect(hub.status().rtp.error).to.match(/EADDRINUSE/);
+    } finally {
+      hub.stop();
+      squatter.close();
     }
   });
 });

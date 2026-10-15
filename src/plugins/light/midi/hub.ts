@@ -79,6 +79,8 @@ export class MidiHub extends EventEmitter {
   private readonly activity = new Map<string, number>();
   private scanTimer: NodeJS.Timeout | undefined;
   private rtp: RtpMidiSession | undefined;
+  /** Why the RTP-MIDI session could not open (port taken); the rest of MIDI keeps working. */
+  private rtpError: string | undefined;
 
   constructor(
     private config: HubConfig,
@@ -139,6 +141,7 @@ export class MidiHub extends EventEmitter {
   private async applyRtp(): Promise<void> {
     this.rtp?.stop();
     this.rtp = undefined;
+    this.rtpError = undefined;
     if (!this.config.rtp.enabled) return;
     const session = new RtpMidiSession({ name: this.config.rtp.name, port: this.config.rtp.port });
     session.on("midi", (bytes: number[], ssrc: number) => {
@@ -147,7 +150,13 @@ export class MidiHub extends EventEmitter {
     });
     session.on("peer", () => this.emit("ports"));
     session.on("peerLeft", () => this.emit("ports"));
-    await session.start();
+    try {
+      await session.start();
+    } catch (err) {
+      this.rtpError = `port ${this.config.rtp.port} : ${(err as Error).message}`;
+      console.warn(`RTP-MIDI indisponible (${this.rtpError}). Sur un Mac, la session réseau de « Configuration audio et MIDI » occupe souvent le port 5004.`);
+      return;
+    }
     this.rtp = session;
   }
 
@@ -222,7 +231,7 @@ export class MidiHub extends EventEmitter {
     for (const m of messages) this.feedbackPort.out.sendMessage(m);
   }
 
-  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; rtp: { enabled: boolean; port: number; peers: string[] } } {
+  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; rtp: { enabled: boolean; port: number; peers: string[]; error?: string } } {
     const inputs: PortStatus[] = this.knownInputs.map((name) => ({ name, watched: this.isWatched(name), open: this.openInputs.has(name), lastMessageAt: this.activity.get(name) }));
     for (const [name, at] of this.activity) {
       if (name.startsWith("Web MIDI")) inputs.push({ name, watched: true, open: true, lastMessageAt: at });
@@ -237,7 +246,7 @@ export class MidiHub extends EventEmitter {
       inputs,
       outputs: this.knownOutputs,
       feedback: this.feedbackPort?.name ?? (this.config.feedbackOutput === "rtp" ? "rtp" : undefined),
-      rtp: { enabled: this.config.rtp.enabled, port: this.config.rtp.port, peers: this.rtp?.listPeers().map((p) => `${p.name} (${p.address})`) ?? [] },
+      rtp: { enabled: this.config.rtp.enabled, port: this.config.rtp.port, peers: this.rtp?.listPeers().map((p) => `${p.name} (${p.address})`) ?? [], error: this.rtpError },
     };
   }
 }
