@@ -15,7 +15,10 @@ interface Widget {
   h: number;
   target?: string;
   label?: string;
+  /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
+  mode?: ButtonMode;
 }
+type ButtonMode = "trigger" | "latch" | "momentary";
 interface Dashboard {
   id: string;
   name: string;
@@ -111,6 +114,25 @@ export function DashboardsPage() {
     setSelected(id);
   };
 
+  /**
+   * Press behaviour of a look or Blackout button (docs/specs/ui-dashboards.md): « Déclencher »
+   * always switches on, « Latch » toggles, « Momentané » is on while the button is held.
+   */
+  const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void) =>
+    mode === "momentary"
+      ? {
+          onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+            if (edit) return;
+            e.currentTarget.setPointerCapture?.(e.pointerId); // released outside the button: still released
+            on();
+          },
+          onPointerUp: () => !edit && off(),
+          onPointerCancel: () => !edit && off(),
+          onKeyDown: (e: React.KeyboardEvent) => !edit && !e.repeat && (e.key === " " || e.key === "Enter") && on(),
+          onKeyUp: (e: React.KeyboardEvent) => !edit && (e.key === " " || e.key === "Enter") && off(),
+        }
+      : { onClick: () => (mode === "latch" && active ? off() : on()) };
+
   const render = (w: Widget) => {
     switch (w.kind) {
       case "label":
@@ -123,7 +145,7 @@ export function DashboardsPage() {
         );
       case "blackout":
         return (
-          <button className={`fill blackout ${state?.blackout ? "on" : ""}`} onClick={() => void run("blackout", { on: !state?.blackout })}>
+          <button className={`fill blackout ${state?.blackout ? "on" : ""}`} title={t.modes[w.mode ?? "latch"]} {...press(w.mode ?? "latch", Boolean(state?.blackout), () => void run("blackout", { on: true }), () => void run("blackout", { on: false }))}>
             {state?.blackout ? t.blackoutOn : t.blackout}
           </button>
         );
@@ -161,9 +183,19 @@ export function DashboardsPage() {
         const l = lookById.get(w.target ?? "");
         if (!l) return <div className="fill missing">{w.target}</div>;
         return (
-          <button className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""}`} title={l.tags.join(" · ")} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
+          <button
+            className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""}`}
+            title={`${t.modes[w.mode ?? "latch"]} · ${l.tags.join(" · ")}`}
+            {...press(
+              w.mode ?? "latch",
+              l.active,
+              () => void run("look.go", { id: l.id }),
+              () => void run("look.stop", { id: l.id }),
+            )}
+          >
             {l.manualOnly ? "✋ " : ""}
             {w.label ?? l.name}
+            {w.mode && w.mode !== "latch" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
           </button>
         );
       }
@@ -304,6 +336,15 @@ export function DashboardsPage() {
             {(sel.kind === "group-fader" || sel.kind === "xy") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <input placeholder="label" value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
+          {(sel.kind === "look" || sel.kind === "blackout") && (
+            <select aria-label={t.mode} value={sel.mode ?? "latch"} onChange={(e) => updateWidget(sel.id, { mode: e.target.value as ButtonMode })}>
+              {(["latch", "momentary", "trigger"] as const).map((m) => (
+                <option key={m} value={m}>
+                  {t.modes[m]}
+                </option>
+              ))}
+            </select>
+          )}
           <button onClick={() => updateWidget(sel.id, { x: Math.max(0, sel.x - 1) })}>←</button>
           <button onClick={() => updateWidget(sel.id, { x: Math.min((dash?.columns ?? 12) - sel.w, sel.x + 1) })}>→</button>
           <button onClick={() => updateWidget(sel.id, { y: Math.max(0, sel.y - 1) })}>↑</button>

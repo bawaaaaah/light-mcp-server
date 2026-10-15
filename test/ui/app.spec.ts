@@ -646,6 +646,36 @@ test("song MIDI file downloaded from the songs page", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("dashboard buttons: on while held (momentary), or on/off (latch)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const active = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "masks")!.active;
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(".dgrid button.look", { hasText: "masks" }).click(); // selects the widget in edit mode
+  await expect.poll(active).toBe(false); // editing never fires
+  await page.getByLabel("Mode").selectOption("momentary");
+  await page.getByRole("button", { name: "✔" }).click();
+  const button = page.locator(".dgrid button.look", { hasText: "masks" });
+  await button.hover();
+  await page.mouse.down();
+  await expect.poll(active).toBe(true);
+  await page.mouse.up();
+  await expect.poll(active).toBe(false);
+  // latch (the default) toggles
+  const hole = page.locator(".dgrid button.look", { hasText: "hole" });
+  await hole.click();
+  await expect(hole).toHaveClass(/on/);
+  await hole.click();
+  await expect(hole).not.toHaveClass(/on/);
+  // back to latch for the other tests
+  await page.getByRole("button", { name: "✎" }).click();
+  await button.click();
+  await page.getByLabel("Mode").selectOption("latch");
+  await page.getByRole("button", { name: "✔" }).click();
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

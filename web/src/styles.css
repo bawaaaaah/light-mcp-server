@@ -767,3 +767,4 @@ table.rules td {
 .raw-steps input { width: 4.5em; }
 .raw-steps th { font-weight: normal; font-size: 0.85em; }
 .raw-steps th, .raw-steps td { padding: 2px 8px; }
+.mode-mark { opacity: 0.6; }

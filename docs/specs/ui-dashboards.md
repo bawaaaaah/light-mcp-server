@@ -29,6 +29,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - **Bascule** par onglets, raccourcis 1‑9, URL `/d/:id`, MIDI, OSC ou sélection d'un chant. On peut dupliquer, importer et exporter.
 - **Groupes de widgets** : on sélectionne des boutons ou faders et on les regroupe en un clic. Le groupe peut être **exclusif** et recevoir **sur demande un fader master** proportionnel ([groups-masters](groups-masters.md)).
 - **Mode par défaut des nouveaux boutons** (Déclencher, Latch, Momentané), réglable par show, dashboard ou groupe.
+- **Mode de chaque bouton** (v1, boutons de look et Blackout, choisi dans l'éditeur du dashboard) : **Marche / arrêt** (latch, par défaut : un appui allume, le suivant éteint), **Tant qu'on appuie** (momentané : actif pendant l'appui, relâché même si le doigt sort du bouton ; un repère ⇣ l'indique), **Déclencher** (allume toujours, ne coupe jamais ; repère ▸). En mode édition, un appui sélectionne le widget sans rien déclencher.
 - Les widgets sont **liés à des groupes, rôles ou canevas**, jamais à des canaux. On dispose de **modèles de widgets** et du **reciblage en masse** (douleur QLC+).
 - **Overlay de playbacks** (Onyx) : un panneau escamotable avec les groupes et playbacks, accessible depuis toutes les pages.
 
