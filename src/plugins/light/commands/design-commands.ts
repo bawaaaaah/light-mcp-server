@@ -103,7 +103,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look), sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -126,13 +126,35 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const key = `${m.input.type}:${m.input.channel}:${m.input.number}:${m.input.port ?? ""}`;
         if (seen.has(key)) err(`mapping ${m.id}`, `même entrée que ${seen.get(key)}`);
         seen.set(key, m.id);
-        if (m.on.command.startsWith("look.") && m.on.args.id && !runtime.looks.get(String(m.on.args.id))) err(`mapping ${m.id}`, `look inconnu ${String(m.on.args.id)}`);
+        const target = m.on.args.id;
+        if (typeof target === "string" && target) {
+          if (m.on.command.startsWith("look.") && !runtime.looks.get(target)) err(`mapping ${m.id}`, `look inconnu ${target}`);
+          if (m.on.command.startsWith("group.") && !runtime.groups.get(target)) err(`mapping ${m.id}`, `groupe inconnu ${target}`);
+          if (m.on.command.startsWith("fader.") && !runtime.faders.get(target)) err(`mapping ${m.id}`, `fader de canaux inconnu ${target}`);
+          if (m.on.command === "program.select" && !runtime.programs.get(target)) err(`mapping ${m.id}`, `programme inconnu ${target}`);
+        }
+      }
+      for (const g of runtime.groups.list()) {
+        for (const f of g.members.fixtures) if (!runtime.venue.fixtures.get(f)) err(`groupe ${g.id}`, `projecteur inconnu ${f}`);
+        for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(`groupe ${g.id}`, `look inconnu ${l}`);
+        for (const sub of g.members.groups) if (!runtime.groups.get(sub)) err(`groupe ${g.id}`, `sous-groupe inconnu ${sub}`);
+      }
+      for (const f of runtime.faders.list()) {
+        for (const c of f.channels) {
+          if (!runtime.venue.fixtures.get(c.fixture)) {
+            err(`fader ${f.id}`, `projecteur inconnu ${c.fixture}`);
+            continue;
+          }
+          const r = runtime.venue.resolve(c.fixture);
+          if (!("error" in r) && c.offset >= r.mode.channels.length) err(`fader ${f.id}`, `${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`);
+        }
       }
       for (const s of songs.list()) {
         if (!s.mood.length) warn(`chant ${s.id}`, "pas d'ambiance globale");
         s.sections.forEach((sec, i) => {
           if (!sec.look) warn(`chant ${s.id}`, `section ${sec.id} sans look`);
           else if (!runtime.looks.get(sec.look)) err(`chant ${s.id}`, `section ${sec.id} : look inconnu ${sec.look}`);
+          if (sec.program && !runtime.programs.get(sec.program)) err(`chant ${s.id}`, `section ${sec.id} : programme inconnu ${sec.program}`);
           const prev = s.sections[i - 1];
           if (prev?.look && prev.look === sec.look && prev.idea !== sec.idea) warn(`chant ${s.id}`, `${prev.id} et ${sec.id} ont le même look alors que l'idée change`);
         });

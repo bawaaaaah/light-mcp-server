@@ -46,7 +46,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 - **Profils** : `setup`, `design`, `full` (et plus tard `live`). On change de profil avec `light_tool_profile`, notifié par `tools/list_changed`.
 
 ## Outils de vérification et d'export
-- `light_lint(show | song)` : contraste ΔE des couples, symétrie des miroirs, sections identiques ou inertes, looks qui écrivent de l'intensité, du strobe ou de l'UV contre les règles, conflits de notes, sections hors famille d'ambiance.
+- `light_lint(show | song)` : contraste ΔE des couples, symétrie des miroirs, sections identiques ou inertes, looks qui écrivent de l'intensité, du strobe ou de l'UV contre les règles, conflits de notes, sections hors famille d'ambiance, **références cassées** (look, groupe, fader de canaux, programme, projecteur supprimé, canal hors du mode d'un projecteur).
 - `light_selftest` : balaie les mappings, relit le DMX, mesure la cadence et contrôle l'exclusivité.
 - `light_song_grid_fill({ structure | paroles, ambiance })` : propose la grille d'un chant à partir de la base de connaissances.
 - `light_export_cuesheet`, `light_export_board`, `light_export_ableton`, `light_export_liveset`.

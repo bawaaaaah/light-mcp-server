@@ -159,6 +159,19 @@ describe("colour knowledge and design", () => {
       expect(lint.issues.map((i) => i.message).join(" | ")).to.match(/contraste faible/).and.match(/look inconnu fantome/);
     });
 
+    it("lint finds broken references to groups, faders, programs and fixtures", async () => {
+      const refused = await run("fader.put", { fader: { id: "f0", name: "F0", channels: [{ fixture: "bar", offset: 500 }] } }).then(() => "ok", (e: Error) => e.message);
+      expect(refused).to.match(/canal 501 demandé/);
+      await run("venue.fixture.put", { fixture: { id: "partie", name: "Partie", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 2, address: 1 } });
+      await run("fader.put", { fader: { id: "f1", name: "F1", channels: [{ fixture: "partie", offset: 14 }] } });
+      await run("venue.fixture.delete", { id: "partie" }); // removed from the patch afterwards
+      await run("midi.mapping.put", { mapping: { id: "m2", input: { type: "cc", channel: 1, number: 7 }, on: { command: "group.level", args: { id: "disparu" } }, levelArg: "level" } });
+      const text = ((await run("show.lint")) as { issues: { where: string; message: string }[] }).issues.map((i) => `${i.where}: ${i.message}`).join(" | ");
+      expect(text).to.match(/fader f1: projecteur inconnu partie/).and.match(/mapping m2: groupe inconnu disparu/);
+      await run("fader.delete", { id: "f1" });
+      await run("midi.mapping.delete", { id: "m2" });
+    });
+
     it("writes and finds notes on any object", async () => {
       await run("notes.set", { collection: "fixtures", id: "bar", notes: "attention : câble DMX sous la marche" });
       await run("notes.set", { collection: "looks", id: "adoration", notes: "pour les temps calmes" });

@@ -193,7 +193,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: z.object({ fader: ChannelFaderSchema }),
     run: ({ fader }) => {
-      for (const c of fader.channels) if (!venue.fixtures.get(c.fixture)) throw new Error(`fixture inconnue : ${c.fixture}`);
+      for (const c of fader.channels) {
+        if (!venue.fixtures.get(c.fixture)) throw new Error(`fixture inconnue : ${c.fixture}`);
+        const r = venue.resolve(c.fixture); // without a definition the channel count is unknown: accepted
+        if (!("error" in r) && c.offset >= r.mode.channels.length) throw new Error(`${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`);
+      }
       return show.faders.put(fader);
     },
   });
