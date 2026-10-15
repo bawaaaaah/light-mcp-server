@@ -104,13 +104,37 @@ export const ChannelFaderSchema = z.object({
 });
 export type ChannelFader = z.infer<typeof ChannelFaderSchema>;
 
+/**
+ * Snapshot (« instantané »): the whole live state saved ahead, recalled at once — by hand or by
+ * « Panic neutre » as the safe state. Objects deleted since are skipped on recall.
+ */
+export const SnapshotSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Looks playing (latched buttons, playbacks, sections). */
+  looks: z.array(z.string()).default([]),
+  /** DCA levels and mutes, by group id. */
+  groups: z.record(z.string(), z.object({ level: z.number().min(0).max(1), mute: z.boolean().default(false) })).default({}),
+  /** Channel fader levels, by fader id. */
+  faders: z.record(z.string(), z.number().min(0).max(1)).default({}),
+  grandMaster: z.number().min(0).max(1).optional(),
+  /** Active rule program; absent = none. */
+  program: z.string().optional(),
+  blackout: z.boolean().default(false),
+  savedAt: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type Snapshot = z.infer<typeof SnapshotSchema>;
+
 export const ShowSettingsSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   kind: z.literal("show").default("show"),
   name: z.string().default("Show"),
   venue: z.string().default("default"),
-  /** Look recalled by « Panic neutre »; none → Blackout. */
+  /** Look recalled by « Panic neutre » when no safe snapshot is set; none → Blackout. */
   safeLook: z.string().optional(),
+  /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */
+  safeSnapshot: z.string().optional(),
   grandMaster: z.number().min(0).max(1).default(1),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).default("trigger"),
 });

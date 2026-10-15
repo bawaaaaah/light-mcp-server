@@ -381,6 +381,17 @@ const fr = {
   resetConfirm: "Vider tout le show ouvert ? Une sauvegarde est faite avant.",
   resetConfirmVenue: "Vider tout le show ouvert ET son lieu (patch, canevas, zones) ? Une sauvegarde est faite avant.",
   resetDone: "Show réinitialisé (sauvegarde faite avant)",
+  safeState: "Secours (Panic)",
+  safeStateHelp: "Ce que rappelle « Panic neutre » : un instantané (l'état complet enregistré à l'avance), sinon un look, sinon un Blackout.",
+  snapshots: "Instantanés",
+  snapshotsHelp: "Un instantané garde l'état complet du moment : looks lancés, niveaux et mutes des DCA, faders de canaux, grand master, programme de règles, Blackout. Le rappeler remet tout d'un coup ; choisi comme secours, c'est lui que rappelle « Panic neutre ».",
+  snapshotName: "Nom de l'instantané",
+  saveSnapshot: "Enregistrer l'état actuel",
+  safeBadge: "secours",
+  recall: "Rappeler",
+  overwrite: "Remplacer",
+  overwriteHelp: "Remplace cet instantané par l'état actuel",
+  overwriteConfirm: "Remplacer par l'état actuel l'instantané",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -764,6 +775,17 @@ const en: typeof fr = {
   resetConfirm: "Empty the whole open show? A backup is made first.",
   resetConfirmVenue: "Empty the whole open show AND its venue (patch, canvases, zones)? A backup is made first.",
   resetDone: "Show reset (backup made first)",
+  safeState: "Safe state (Panic)",
+  safeStateHelp: "What « Panic neutre » recalls: a snapshot (the whole state saved ahead), else a look, else a Blackout.",
+  snapshots: "Snapshots",
+  snapshotsHelp: "A snapshot keeps the whole state of the moment: looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout. Recalling it sets everything at once; chosen as the safe state, « Panic neutre » recalls it.",
+  snapshotName: "Snapshot name",
+  saveSnapshot: "Save the current state",
+  safeBadge: "safe",
+  recall: "Recall",
+  overwrite: "Replace",
+  overwriteHelp: "Replaces this snapshot with the current state",
+  overwriteConfirm: "Replace with the current state the snapshot",
 };
 
 export type Lang = "fr" | "en";

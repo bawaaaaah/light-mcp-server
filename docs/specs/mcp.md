@@ -54,7 +54,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 - `light_export_cuesheet`, `light_export_board`, `light_export_ableton`, `light_export_liveset`.
 
 ## Sécurité
-- **Panic neutre** (`light_panic`) et **Blackout** (`light_blackout`) : sans confirmation, mappables en MIDI et OSC. Le Panic neutre coupe effets, strobe, UV et machines, puis rappelle le **preset de scène choisi à l'avance pour le show** (réglage du show : « look de secours »). **Si aucun preset n'est défini, il fait un Blackout.**
+- **Panic neutre** (`light_panic`) et **Blackout** (`light_blackout`) : sans confirmation, mappables en MIDI et OSC. Le Panic neutre coupe effets, strobe, UV et machines, puis rappelle le **secours choisi à l'avance pour le show** : un **instantané** (`light_snapshot_*` : l'état complet, looks lancés, DCA, faders de canaux, grand master, programme, Blackout, enregistré à l'avance), sinon le « look de secours ». **Si rien n'est défini, il fait un Blackout.** Les objets supprimés depuis l'enregistrement sont ignorés et listés.
 - Les actions marquées **interdit à l'IA** ou **à confirmer**, et les sections `manualOnly`, sont refusées ou soumises à confirmation.
 - **Priorité humaine** : un geste du régisseur annule une commande de l'IA en cours sur le même objet.
 - Débit limité et **journal** de toutes les actions avec leur origine `mcp`.

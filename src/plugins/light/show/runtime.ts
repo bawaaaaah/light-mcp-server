@@ -13,7 +13,7 @@ import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
-import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
+import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 
 export interface TempoSource {
   state(): { beats: number };
@@ -43,6 +43,7 @@ export class ShowRuntime {
   /** Active rule program (one at a time), or none. */
   activeProgram: string | undefined;
   readonly zones: Collection<Zone>;
+  readonly snapshots: Collection<Snapshot>;
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
@@ -67,6 +68,7 @@ export class ShowRuntime {
     this.venueRules = venue.store.collection("rules", RuleSchema);
     this.programs = store.collection("programs", RuleProgramSchema);
     this.zones = venue.store.collection("zones", ZoneSchema);
+    this.snapshots = store.collection("snapshots", SnapshotSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     store.onChange((e) => {
       // A look or palette edited while playing restarts with the new definition (effects stay editable live).
@@ -143,6 +145,47 @@ export class ShowRuntime {
   }
   private readonly playbackStarted = new Set<string>();
 
+  /** The live state a snapshot saves: looks playing, DCA, channel faders, grand master, program. */
+  captureSnapshot(blackout: boolean): Omit<Snapshot, "id" | "name" | "notes"> {
+    return {
+      looks: this.activeLooks(),
+      groups: Object.fromEntries(this.groups.list().flatMap((g) => (g.master ? [[g.id, { level: g.master.level, mute: g.master.mute }]] : []))),
+      faders: Object.fromEntries(this.faders.list().map((f) => [f.id, f.level])),
+      grandMaster: this.settings.grandMaster,
+      program: this.activeProgram,
+      blackout,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Puts a snapshot back: its levels first (playback DCAs start their looks), then only its looks
+   * play. Objects deleted since are skipped and listed. The Blackout is the caller's (engine).
+   */
+  applySnapshot(s: Snapshot): { looks: string[]; skipped: string[] } {
+    this.stopAll();
+    this.playbackStarted.clear();
+    const skipped: string[] = [];
+    for (const [id, m] of Object.entries(s.groups)) {
+      const g = this.groups.get(id);
+      if (g) this.groups.putLive({ ...g, master: { ...g.master, level: m.level, mute: m.mute } });
+      else skipped.push(id);
+    }
+    for (const [id, level] of Object.entries(s.faders)) {
+      const f = this.faders.get(id);
+      if (f) this.faders.putLive({ ...f, level });
+      else skipped.push(id);
+    }
+    if (s.grandMaster !== undefined && s.grandMaster !== this.settings.grandMaster) this.saveSettings({ grandMaster: s.grandMaster });
+    this.selectProgram(s.program && this.programs.get(s.program) ? s.program : undefined);
+    for (const g of this.groups.list()) if (g.playback) this.syncPlayback(g.id);
+    for (const id of s.looks) {
+      if (this.looks.get(id)) this.go(id);
+      else skipped.push(id);
+    }
+    return { looks: this.activeLooks(), skipped };
+  }
+
   isActive(lookId: string): boolean {
     return this.active.has(lookId);
   }
@@ -185,6 +228,7 @@ export class ShowRuntime {
   /** Forgets everything live (looks, flashes, manual positions, program): another show opens. */
   resetLive(): void {
     this.active.clear();
+    this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();
     this.activeProgram = undefined;

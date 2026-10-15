@@ -42,7 +42,17 @@ interface Lint {
 }
 interface Settings {
   safeLook?: string;
+  safeSnapshot?: string;
   grandMaster: number;
+}
+interface Snapshot {
+  id: string;
+  name: string;
+  looks: string[];
+  groups: Record<string, { level: number; mute: boolean }>;
+  faders: Record<string, number>;
+  blackout: boolean;
+  savedAt?: string;
 }
 
 export function ShowPage() {
@@ -52,6 +62,8 @@ export function ShowPage() {
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [snapshotName, setSnapshotName] = useState("");
   const [lint, setLint] = useState<Lint | null>(null);
   const [intent, setIntent] = useState({ name: "", mood: "", canvas: "", energy: "" });
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
@@ -69,9 +81,10 @@ export function ShowPage() {
       setIntent((i) => (i.canvas || !c[0] ? i : { ...i, canvas: c[0].id }));
     });
     void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
+    void cmd<Snapshot[]>("snapshot.list").then(setSnapshots).catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.autopresets", "song.grid_fill"], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const intentArgs = (save: boolean) => ({
@@ -89,15 +102,30 @@ export function ShowPage() {
   return (
     <div className="show">
       <section className="bar">
-        <label>
-          {t.safeLook}{" "}
-          <select value={settings?.safeLook ?? ""} onChange={(e) => void run("show.settings.set", { safeLook: e.target.value || undefined })}>
+        <label title={t.safeStateHelp}>
+          {t.safeState}{" "}
+          <select
+            value={settings?.safeSnapshot ? `snapshot:${settings.safeSnapshot}` : settings?.safeLook ? `look:${settings.safeLook}` : ""}
+            onChange={(e) => {
+              const [kind, id] = e.target.value.split(/:(.*)/);
+              void run("show.settings.set", kind === "snapshot" ? { safeSnapshot: id } : { safeSnapshot: undefined, safeLook: kind === "look" ? id : undefined });
+            }}
+          >
             <option value="">{t.none} (Blackout)</option>
-            {looks.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
+            <optgroup label={t.snapshots}>
+              {snapshots.map((s) => (
+                <option key={s.id} value={`snapshot:${s.id}`}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label={t.looks}>
+              {looks.map((l) => (
+                <option key={l.id} value={`look:${l.id}`}>
+                  {l.name}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </label>
         <button onClick={() => void cmd<Lint>("show.lint").then(setLint)}>{t.lint}</button>
@@ -160,6 +188,41 @@ export function ShowPage() {
           </ul>
         </div>
       )}
+
+      <section className="snapshots">
+        <h2>{t.snapshots}</h2>
+        <p className="hint">{t.snapshotsHelp}</p>
+        <div className="row">
+          <input aria-label={t.snapshotName} placeholder={t.snapshotName} value={snapshotName} onChange={(e) => setSnapshotName(e.target.value)} />
+          <button className="primary" disabled={!snapshotName.trim()} onClick={() => void run("snapshot.save", { name: snapshotName.trim() }).then(() => setSnapshotName(""))}>
+            {t.saveSnapshot}
+          </button>
+        </div>
+        <table>
+          <tbody>
+            {snapshots.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  {s.name}
+                  {settings?.safeSnapshot === s.id && <span className="badge standby"> {t.safeBadge}</span>}
+                </td>
+                <td className="hint">
+                  {s.looks.length} look(s) · {Object.keys(s.groups).length} DCA · {Object.keys(s.faders).length} fader(s){s.blackout ? " · Blackout" : ""}
+                </td>
+                <td className="row">
+                  <button onClick={() => void run("snapshot.recall", { id: s.id })}>{t.recall}</button>
+                  <button title={t.overwriteHelp} onClick={() => confirm(`${t.overwriteConfirm} « ${s.name} »`) && void run("snapshot.save", { id: s.id, name: s.name })}>
+                    {t.overwrite}
+                  </button>
+                  <button className="ghost" onClick={() => confirm(`${t.delete} « ${s.name} » ?`) && void run("snapshot.delete", { id: s.id })}>
+                    {t.delete}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       <section>
         <h2>{t.fromIntent}</h2>

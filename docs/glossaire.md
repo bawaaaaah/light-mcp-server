@@ -39,7 +39,8 @@
 | **Bande de notes** | Une plage de notes réservée à un usage (bibliothèque commune, chants d'un événement…). |
 | **Règle** | Une contrainte (max, plage, capability interdite…) appliquée en dernier par le moteur. |
 | **Marqueur** | Une règle posée sur un widget : max sur un fader, « danger », « interdit à l'IA ». |
-| **Panic neutre** | Bouton de secours : coupe effets, strobe, UV et machines, puis rappelle le preset de scène choisi à l'avance pour le show (son « look de secours »). Si aucun preset n'est défini, il fait un Blackout. |
+| **Panic neutre** | Bouton de secours : coupe effets, strobe, UV et machines, puis rappelle le **secours** choisi à l'avance pour le show : un **instantané** (l'état complet), sinon un « look de secours ». Si rien n'est défini, il fait un Blackout. |
+| **Instantané** | L'état complet du moment, enregistré pour être rappelé d'un coup : looks lancés, niveaux et mutes des DCA, faders de canaux, grand master, programme de règles, Blackout. Choisi comme secours, c'est lui que rappelle le Panic neutre. |
 | **Blackout** | Bouton de secours : tout à zéro, strobe compris. |
 | **Proposition** | Un changement préparé (diff et `proposalId`) que l'utilisateur valide avant de l'appliquer. |
 | **Sélecteur** | Une désignation par le sens (rôle, zone, groupe, tag, `near`, `except`) plutôt que par adresse. |

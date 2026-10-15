@@ -123,6 +123,35 @@ test("files: a new show opens on every screen, keeps backups, resets, and the fi
   expect(errors).toEqual([]);
 });
 
+test("snapshots: save the whole state, choose it as Panic's safe state, Panic brings it back", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "hole" });
+  await api(page, "group.level", { id: "master", level: 0.6 });
+  await page.locator("header nav button", { hasText: "Show" }).first().click();
+  const box = page.locator(".snapshots");
+  await box.getByPlaceholder("Nom de l'instantané").fill("Accueil");
+  await box.getByRole("button", { name: "Enregistrer l'état actuel" }).click();
+  await expect(box.locator("tr", { hasText: "Accueil" })).toContainText("1 look(s)");
+  await page.getByLabel(/Secours \(Panic\)/).selectOption({ label: "Accueil" });
+  await expect(box.locator("tr", { hasText: "Accueil" })).toContainText("secours");
+  await page.screenshot({ path: "test-results/snapshots.png", fullPage: true });
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "masks" });
+  await api(page, "group.level", { id: "master", level: 1 });
+  await api(page, "panic");
+  const state = (await api(page, "look.list")) as { id: string; active?: boolean }[];
+  expect(state.filter((l) => l.active).map((l) => l.id)).toEqual(["hole"]);
+  expect(((await api(page, "group.list")) as { id: string; master?: { level: number } }[]).find((g) => g.id === "master")?.master?.level).toBe(0.6);
+  await api(page, "show.settings.set", { safeSnapshot: undefined });
+  await api(page, "snapshot.delete", { id: "accueil" });
+  await api(page, "look.stopall");
+  await api(page, "group.level", { id: "master", level: 1 });
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");

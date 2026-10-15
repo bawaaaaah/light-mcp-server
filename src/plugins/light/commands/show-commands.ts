@@ -11,6 +11,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
+import { slugify } from "../data/store.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
@@ -401,23 +402,68 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- show settings & safety
-  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe look recalled by « Panic neutre », grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
+  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeLook, grandMaster, defaultButtonMode).",
+    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode).",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }),
     run: (patch) => {
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(`look inconnu : ${patch.safeLook}`);
+      if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(`instantané inconnu : ${patch.safeSnapshot}`);
       return show.saveSettings(patch);
     },
   });
+  // ---- snapshots: the whole live state, saved ahead (the safe state of « Panic neutre »)
+  reg.register({ name: "snapshot.list", title: "Instantanés", description: "Snapshots of the show: the whole live state saved ahead (looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.snapshots.list() });
+  reg.register({
+    name: "snapshot.save",
+    title: "Enregistrer un instantané",
+    description: "Saves what plays now and every level as a snapshot (a new one, or over `id`).",
+    right: "show:write",
+    profiles: ["design", "live"],
+    schema: z.object({ name: z.string().min(1), id: z.string().optional(), notes: z.string().optional() }),
+    run: ({ name, id: given, notes }) => {
+      let target = given ?? slugify(name);
+      for (let i = 2; !given && show.snapshots.get(target); i++) target = `${slugify(name)}-${i}`;
+      return show.snapshots.put({ id: target, name, notes, ...show.captureSnapshot(engine.isBlackout()) });
+    },
+  });
+  reg.register({
+    name: "snapshot.recall",
+    title: "Rappeler un instantané",
+    description: "Puts a snapshot back at once: only its looks play, its DCA, faders, grand master, program and Blackout are set. Objects deleted since are skipped and listed.",
+    right: "commands:snapshot",
+    profiles: ["live", "design"],
+    schema: id,
+    run: ({ id: i }) => {
+      const snap = show.snapshots.get(i);
+      if (!snap) throw new Error(`instantané inconnu : ${i}`);
+      const done = show.applySnapshot(snap);
+      engine.setBlackout(snap.blackout);
+      return { id: i, ...done };
+    },
+  });
+  reg.register({
+    name: "snapshot.delete",
+    title: "Supprimer un instantané",
+    description: "Deletes a snapshot (and unsets it as the safe state).",
+    right: "show:write",
+    profiles: ["design"],
+    schema: id,
+    run: ({ id: i }) => {
+      if (show.settings.safeSnapshot === i) show.saveSettings({ safeSnapshot: undefined });
+      return { deleted: show.snapshots.delete(i) };
+    },
+  });
+
   reg.register({
     name: "panic",
     title: "Panic neutre",
-    description: "Safety: stops every look, the DMX console parks and the manual head positions, then recalls the show's safe look; without a safe look it does a Blackout.",
+    description:
+      "Safety: stops every look, the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
@@ -425,6 +471,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       show.stopAll();
       show.releasePositions();
       engine.release();
+      const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
+      if (snap) {
+        const done = show.applySnapshot(snap);
+        engine.setBlackout(snap.blackout);
+        return { action: "safe-snapshot", snapshot: snap.id, ...done };
+      }
       const safe = show.settings.safeLook;
       if (safe && show.looks.get(safe)) {
         engine.setBlackout(false);
