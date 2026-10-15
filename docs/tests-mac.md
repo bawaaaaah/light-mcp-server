@@ -82,7 +82,8 @@ Les faders QLC+ hors gradateur (blanc, UV, strobe, machines) deviennent maintena
 - Le rapport « Fusion avec le show existant » doit montrer des faders de canaux **ajoutés**, les looks **identiques** (ou mis à jour si le workspace a changé), et rien de retouché à la main écrasé (liste « conservés »).
 - Les looks importés avant ce suivi et différents apparaissent « à vérifier » : ils sont conservés.
 - Relancer l'auto-test (avec la cadence) : 100 % attendu ; vérifier dans la page Show que les faders de canaux listent les bons canaux.
-- Le gradateur « Generic » de QLC+ est maintenant connu sans `.qxf` : il ne doit plus apparaître en « définition manquante ». Noter les modèles qui y restent et demander à l'utilisateur leurs `.qxf` (QLC+ › Fixture Editor, ou son dossier de fixtures personnelles) à copier dans `data/fixtures/`, puis réimporter.
+- Définitions : copier dans `data/fixtures/` les `.qxf` du dossier personnel de QLC+ (`~/QLC+/Fixtures` sur l'ordinateur de l'utilisateur, ou l'équivalent sur le Mac) **et** ceux fournis avec QLC+ (`/Applications/QLC+.app/Contents/Resources/Fixtures/`, sous-dossiers par fabricant) pour les modèles qui manquent encore. Le gradateur « Generic » est connu sans `.qxf`. Un mode de nom différent mais de même nombre de canaux est retenu (signalé). Attendu : **aucune** « définition manquante » (vérifié sur les workspaces de l'utilisateur avec ces deux sources).
+- Les séquences sans couleur (fumée, hazer) deviennent des looks « machines » à canaux bruts, lancés par les mêmes notes : vérifier avec l'utilisateur qu'une note de fumée envoie bien la fumée.
 - Page Show, « + Nouveau fader de canaux » : créer un fader sur le canal strobe (ou UV) de plusieurs projecteurs ; le mapper sur un CC (page MIDI) et vérifier avec l'utilisateur qu'il règle tous ces projecteurs ensemble.
 
 ## 6 ter. Programmes de règles depuis Ableton
