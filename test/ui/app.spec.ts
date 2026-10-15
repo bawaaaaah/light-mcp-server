@@ -559,6 +559,27 @@ test("rule program: created, holds a rule, activated by hand and by a Program Ch
   expect(errors).toEqual([]);
 });
 
+test("rule program triggered by a MIDI note mapping", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "program.put", { program: { id: "annonces", name: "Annonces" } });
+  await page.locator("header nav button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  await editor.getByLabel("Note / CC").fill("51");
+  await editor.getByLabel("Action").selectOption("program");
+  await editor.getByLabel("Cible").selectOption("annonces");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 51, 100] }); // a note in a Live clip, where a PC would be ignored
+  await expect.poll(async () => ((await api(page, "program.list")) as { active: string | null }).active).toBe("annonces");
+  await page.getByRole("button", { name: "Modifier Annonces" }).click();
+  await page.locator(".mapping-editor").getByRole("button", { name: "Supprimer" }).click();
+  await api(page, "program.select", { id: null });
+  await api(page, "program.delete", { id: "annonces" });
+  expect(errors).toEqual([]);
+});
+
 test("song MIDI file downloaded from the songs page", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -60,7 +60,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 
 ### Dans l'interface (v1, page MIDI)
 - **Entrées surveillées** : une case par port détecté (enregistrée dans le profil actif ; les motifs reconnaissent les noms par sous-chaîne, par exemple « IAC ») et la **sortie de retour**.
-- **Mappings** : créer, modifier, supprimer ; entrée note, CC ou program change avec **« Apprendre »** (le prochain message reçu, 15 s) ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
+- **Mappings** : créer, modifier, supprimer ; entrée note, CC ou program change avec **« Apprendre »** (le prochain message reçu, 15 s) ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, **activer un programme de règles** (ou aucun), section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
 
 ## Retour MIDI (feedback)
 - Chaque mapping peut renvoyer son état : une note on dont la vélocité égale le niveau (ou vaut 127/0), une note off, ou un CC miroir. Le profil traduit l'état en couleur ou clignotement de LED.
@@ -111,7 +111,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 
 ### Programmes de règles dans Ableton (v1)
 - **Clip par programme** (`export.ableton.programs`, CLI `light export programs`) : un clip `.alc` « Prière #100 » qui envoie le Program Change du programme au lancement, comme le clip « A #100 » de la piste « Show TAG » de l'utilisateur. Cloné depuis une coquille `.alc` exportée par Live (`data/private/shell.alc`) : seuls le nom et le Program Change du **premier** clip changent (les clips du groove pool restent intacts ; vérifié sur un vrai clip : 2 lignes modifiées). Le canal est celui de la sortie MIDI de la piste.
-- **Fichier MIDI d'un chant** (`export.mid`, bouton ⤓ de la page Chants, CLI `light export mid`) : format 0, 96 ticks par temps (comme le fichier de clic de référence), tempo et mesure du chant ; à chaque section, la note qui lance son look (d'après les mappings, durée 1/16) et le Program Change de son programme. **Live ignore a priori les Program Change des fichiers MIDI importés** (à vérifier sur le Mac) : les clips de programmes les portent de façon sûre.
+- **Fichier MIDI d'un chant** (`export.mid`, bouton ⤓ de la page Chants, CLI `light export mid`) : format 0, 96 ticks par temps (comme le fichier de clic de référence), tempo et mesure du chant ; à chaque section, la note qui lance son look (d'après les mappings, durée 1/16) et le Program Change de son programme. **Live ignore a priori les Program Change des fichiers MIDI importés** (à vérifier sur le Mac) : les clips de programmes les portent de façon sûre, et un **mapping de note** « activer un programme » (page MIDI) permet aussi de passer par une simple note.
 
 ## Tests
 - Chaque mode avec des séquences de messages : note on à 0, rejeu pendant l'appui, aftertouch, note off orpheline, duplication.
