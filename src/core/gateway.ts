@@ -12,6 +12,7 @@ import http, { type Server as HttpServer } from "node:http";
 import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { signedInView, type AuthService, type UserSummary } from "./auth.js";
 import { createPasskeyRouter, type PasskeyService } from "./passkeys.js";
@@ -53,6 +54,8 @@ interface McpSession {
   transport: StreamableHTTPServerTransport;
   lastSeenAt: number;
   toolHandles: Map<string, RegisteredTool>;
+  /** The user (or administrator) the session was opened for: nobody else may use it. */
+  principal: string;
 }
 
 export class Gateway {
@@ -213,9 +216,19 @@ export class Gateway {
     }
   }
 
-  private newSession(): { mcpServer: ReturnType<typeof createMcpServer>["mcpServer"]; toolHandles: Map<string, RegisteredTool> } {
+  /** An MCP session for one user: the tools their role cannot call are not even listed. */
+  private newSession(credential: string): { mcpServer: ReturnType<typeof createMcpServer>["mcpServer"]; toolHandles: Map<string, RegisteredTool> } {
     const vis = this.opts.toolVisibility;
-    return createMcpServer(this.opts.plugins, vis ? { extraInstructions: vis.instructionsAddendum(), isToolHidden: (n) => vis.isHidden(n) } : {});
+    const forbidden = (name: string) => {
+      const right = this.opts.plugins.map((p) => p.toolRight?.(name)).find(Boolean);
+      return right !== undefined && !this.opts.auth.can(credential, right);
+    };
+    return createMcpServer(this.opts.plugins, { extraInstructions: vis?.instructionsAddendum(), isToolHidden: (n) => (vis?.isHidden(n) ?? false) || forbidden(n) });
+  }
+
+  /** Who a credential acts as: the same user (or the administrator) keeps their session across token refreshes. */
+  private principalOf(credential: string): string {
+    return `${this.opts.auth.roleOf(credential)?.id ?? ""}:${this.opts.auth.userOf(credential)?.id ?? ""}`;
   }
 
   private sweepSessions(): void {
@@ -244,6 +257,8 @@ export class Gateway {
         return next(new HttpError(401, "Unauthorized: send the token as a Bearer header"));
       }
       if (!this.opts.auth.can(credential, "mcp:use")) return next(new HttpError(403, "ce rôle n'a pas accès au MCP"));
+      // The transport hands this to every tool call (extra.authInfo): each call is checked with its caller's rights.
+      (req as Request & { auth?: AuthInfo }).auth = { token: credential, clientId: this.principalOf(credential), scopes: [] };
       next();
     };
     const sessionId = (req: Request): string | undefined => {
@@ -254,7 +269,12 @@ export class Gateway {
       const id = sessionId(req);
       try {
         const existing = id ? this.sessions.get(id) : undefined;
+        const credential = this.opts.auth.bearerOf(req)!;
         if (existing) {
+          if (existing.principal !== this.principalOf(credential)) {
+            res.status(403).json({ jsonrpc: "2.0", error: { code: -32001, message: "session d'un autre utilisateur" }, id: null });
+            return;
+          }
           existing.lastSeenAt = Date.now();
           await existing.transport.handleRequest(req, res, req.body);
           return;
@@ -267,12 +287,12 @@ export class Gateway {
           res.status(400).json({ jsonrpc: "2.0", error: { code: -32000, message: "Bad Request: No valid session ID provided" }, id: null });
           return;
         }
-        const session = this.newSession();
+        const session = this.newSession(credential);
         const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
           onsessioninitialized: (sid) => {
             this.sweepSessions();
-            this.sessions.set(sid, { transport, lastSeenAt: Date.now(), toolHandles: session.toolHandles });
+            this.sessions.set(sid, { transport, lastSeenAt: Date.now(), toolHandles: session.toolHandles, principal: this.principalOf(credential) });
           },
         });
         transport.onclose = () => {
@@ -290,6 +310,10 @@ export class Gateway {
       const entry = id ? this.sessions.get(id) : undefined;
       if (!entry) {
         res.status(id ? 404 : 400).send(id ? "Session not found" : "Missing session ID");
+        return;
+      }
+      if (entry.principal !== this.principalOf(this.opts.auth.bearerOf(req)!)) {
+        res.status(403).send("session d'un autre utilisateur");
         return;
       }
       entry.lastSeenAt = Date.now();

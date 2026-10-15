@@ -423,6 +423,10 @@ export class LightPlugin implements McpPlugin {
     ].join(" ");
   }
 
+  toolRight(name: string): string | undefined {
+    return this.commands.list().find((d) => toolName(d.name) === name)?.right;
+  }
+
   registerTools(server: McpServer): void {
     this.registerResources(server);
     for (const def of this.commands.list()) {
@@ -430,9 +434,13 @@ export class LightPlugin implements McpPlugin {
       server.registerTool(
         toolName(def.name),
         { title: def.title, description: def.description, inputSchema: shape, annotations: { readOnlyHint: Boolean(def.readOnly) } },
-        async (args: unknown) => {
+        async (args: unknown, extra: { authInfo?: { token: string } }) => {
           try {
-            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can: () => true });
+            // Over HTTP every call carries its caller (core/gateway.ts) and is checked against their
+            // role; over stdio the client launched the server itself and may do everything.
+            const token = extra?.authInfo?.token;
+            const can = (right: string) => token === undefined || !this.opts.auth || this.opts.auth.can(token, right);
+            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can });
             return { content: [{ type: "text" as const, text: JSON.stringify(result ?? { ok: true }, null, 2) }] };
           } catch (err) {
             return { isError: true, content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }] };

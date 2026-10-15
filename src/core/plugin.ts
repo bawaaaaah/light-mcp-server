@@ -47,6 +47,8 @@ export interface McpPlugin {
   stop(): Promise<void>;
   getHealth(): Promise<PluginHealth>;
   registerTools(server: McpServer): void;
+  /** The right a tool needs (its command's): an MCP session lists only the tools its user may call. */
+  toolRight?(toolName: string): string | undefined;
   /**
    * Guidance returned to the client in `initialize`, telling a model how this plugin's tools are
    * meant to be used before it has called any of them. Optional, and composed with the other
