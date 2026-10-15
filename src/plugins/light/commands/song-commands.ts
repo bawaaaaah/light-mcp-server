@@ -10,7 +10,7 @@ import { slugify } from "../data/store.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Mapping } from "../midi/mapping.js";
 import type { TempoClock } from "../timing/tempo.js";
-import { cuesBetween, cueSheet, placeSections, sectionAt, SetlistSchema, songEnd, SongSchema, type Setlist, type Song } from "../songs/songs.js";
+import { cuesBetween, cueSheet, placeSections, sectionAt, sectionProgram, SetlistSchema, songEnd, SongSchema, type Section, type Setlist, type Song } from "../songs/songs.js";
 import { songBoard } from "../songs/board.js";
 import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
@@ -47,6 +47,17 @@ export function noteForLook(mappings: Mapping[], lookId: string): { channel: num
   return m ? { channel: m.input.channel, note: m.input.number } : undefined;
 }
 
+/** Activates the rule program a section asks for (unknown program: ignored, reported by the lint). */
+function applySectionProgram(s: SongServices, song: Song, section: Section): void {
+  const p = sectionProgram(song, section);
+  if (!p) return;
+  try {
+    s.runtime.selectProgram(p.program ?? undefined);
+  } catch {
+    /* unknown program */
+  }
+}
+
 /** Commands asked by the timeline or the AI are « automatic »: « manuel seulement » looks refuse them. */
 const isAuto = (origin: string) => origin === "timeline" || origin === "mcp";
 
@@ -63,6 +74,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     const sec = sg.sections.find((x) => x.id === sectionId);
     if (!sec) throw new Error(`section inconnue : ${sectionId}`);
     if (sec.look) s.runtime.go(sec.look, auto);
+    applySectionProgram(s, sg, sec);
     s.state.song = sg.id;
     s.state.section = sec.id;
     s.publish({ ...s.state });
@@ -78,7 +90,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     profiles: ["design"],
     schema: z.object({ song: SongSchema }),
     run: ({ song: sg }) => {
-      for (const sec of sg.sections) if (sec.look && !s.runtime.looks.get(sec.look)) throw new Error(`section ${sec.id} : look inconnu ${sec.look}`);
+      for (const sec of sg.sections) {
+        if (sec.look && !s.runtime.looks.get(sec.look)) throw new Error(`section ${sec.id} : look inconnu ${sec.look}`);
+        if (sec.program && !s.runtime.programs.get(sec.program)) throw new Error(`section ${sec.id} : programme inconnu ${sec.program}`);
+      }
       for (const c of sg.cues) {
         const def = reg.get(c.command);
         if (!def) throw new Error(`action ${c.id} : commande inconnue ${c.command}`);
@@ -328,6 +343,7 @@ export function followPosition(s: SongServices): void {
           /* manual only or unknown look: the section is followed, the look is not started */
         }
       }
+      applySectionProgram(s, sg, sec);
       changed = true;
     }
   }

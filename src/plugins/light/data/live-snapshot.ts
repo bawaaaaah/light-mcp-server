@@ -16,6 +16,8 @@ export const LiveSnapshotSchema = z.object({
   setlist: z.string().optional(),
   song: z.string().optional(),
   section: z.string().optional(),
+  /** Active rule program. */
+  program: z.string().optional(),
 });
 export type LiveSnapshot = z.infer<typeof LiveSnapshotSchema>;
 

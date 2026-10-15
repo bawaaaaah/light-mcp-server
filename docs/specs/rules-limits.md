@@ -10,7 +10,7 @@ Une seule mécanique gère toutes les limites : max par attribut, modes interdit
 ## Périmètre
 | v1 | Plus tard |
 |---|---|
-| Cascade à **3 niveaux** ; zones protégées ; drapeaux de section ; scènes sans intensité par défaut ; politique strobe ; marqueurs | Cascade complète (niveaux rôle, zone, instance, section) ; `appliesTo` différencié pour l'IA en live |
+| Cascade à **3 niveaux** ; **programmes de règles** (par section, par Program Change) ; zones protégées ; drapeaux de section ; scènes sans intensité par défaut ; politique strobe ; marqueurs | Niveau rôle ; `appliesTo` différencié pour l'IA en live |
 
 ## Cascade v1 (du plus général au plus précis)
 1. **Type de fixture** (bibliothèque) : règles de base de la fixture. Exemples :
@@ -24,6 +24,16 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 - Concrètement (v1) : **chaque borne** (min, max, valeurs permises, modes interdits) vient de la règle la plus précise qui la définit — niveau (type < lieu < show), puis portée (tout < modèle < zone < projecteur). Un show peut donc **assouplir** la limite d'un type ; deux bornes contradictoires (min au-dessus du max) : celle de la règle la plus précise l'emporte. Les règles `locked` sont réappliquées par-dessus.
 - `rule.effective {fixture}` donne, canal par canal, la règle en vigueur et la provenance de chaque borne.
 - **Interface** (v1, page Lieu, « Règles et limites ») : liste et suppression ; création (niveau, portée tout/modèle/projecteur/zone, canal gradateur/UV/blanc/strobe/pan/tilt/effets ou canal nommé, min/max en %, modes interdits, verrouillée) ; règles en vigueur d'un projecteur avec leur provenance ; valeurs bornées sur la dernière trame.
+
+## Programmes de règles (v1, demandé le 2026-10-15)
+- Un **programme** regroupe des règles pour un moment du culte : « prière : rien au-dessus de 40 %, pas de strobe », « annonces »… **Un seul est actif à la fois** (ou aucun). Une règle peut porter un `program` : elle ne s'applique que pendant ce programme ; les règles sans programme s'appliquent toujours.
+- **Activation** :
+  - **Program Change MIDI** reçu sur le canal du programme, sans mapping à créer (numéro 0-127 comme l'octet MIDI ; Live l'affiche +1 : un clip « Prière #100 » envoie 99) ;
+  - **section de chant** portant un programme ; si un chant utilise des programmes, une section sans programme le relâche (les limites de la prière finissent avec elle) ;
+  - interface (page Lieu, « Règles et limites ») et commande `program.select` ;
+  - repris après un redémarrage (état en direct).
+- Le programme actif s'affiche dans l'en-tête ; `rule.effective` tient compte du programme actif (ou de celui demandé).
+- Exports : clip `.alc` par programme (Program Change au lancement) et `.mid` par chant ([midi](midi.md), Ableton).
 
 ## Toujours actifs en v1 (hors cascade)
 - **Zones protégées** : une zone marquée `protected` (pupitre, public) a ses propres limites. Par exemple « intensité ≤ 60 % vers *audience* », « aucune lyre ne vise *pupitre* sauf look autorisé ».

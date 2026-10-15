@@ -11,7 +11,7 @@ import { generateSteps, scaleColor, type Step, type Technique } from "../engine/
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
-import { applyRules, RuleSchema, type Clamp, type Rule } from "../rules/rules.js";
+import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings } from "./model.js";
 
@@ -39,6 +39,9 @@ export class ShowRuntime {
   /** Show-level rules; venue/type rules live in the venue store. */
   readonly rules: Collection<Rule>;
   readonly venueRules: Collection<Rule>;
+  readonly programs: Collection<RuleProgram>;
+  /** Active rule program (one at a time), or none. */
+  activeProgram: string | undefined;
   readonly zones: Collection<Zone>;
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
@@ -62,6 +65,7 @@ export class ShowRuntime {
     this.faders = store.collection("faders", ChannelFaderSchema);
     this.rules = store.collection("rules", RuleSchema);
     this.venueRules = venue.store.collection("rules", RuleSchema);
+    this.programs = store.collection("programs", RuleProgramSchema);
     this.zones = venue.store.collection("zones", ZoneSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     store.onChange((e) => {
@@ -223,6 +227,24 @@ export class ShowRuntime {
     return level;
   }
 
+  /** Venue and show rules in force now (the active program's included). */
+  rulesInForce(program = this.activeProgram): Rule[] {
+    return rulesInForce([...this.venueRules.list(), ...this.rules.list()], program);
+  }
+
+  /** Activates a rule program (undefined = none); returns whether it changed. */
+  selectProgram(id: string | undefined): boolean {
+    if (id !== undefined && !this.programs.get(id)) throw new Error(`programme inconnu : ${id}`);
+    const changed = this.activeProgram !== id;
+    this.activeProgram = id;
+    return changed;
+  }
+
+  /** The program a MIDI Program Change selects, if any. */
+  programFor(channel: number, number: number): RuleProgram | undefined {
+    return this.programs.list().find((p) => p.programChange === number && p.channel === channel);
+  }
+
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
   movingHeads(): string[] {
     return this.venue.fixtures.list().filter((f) => {
@@ -324,7 +346,7 @@ export class ShowRuntime {
       }
     }
     // Rules mask: last stage of the show's output.
-    const rules = [...this.venueRules.list(), ...this.rules.list()];
+    const rules = this.rulesInForce();
     const clamps: Clamp[] = [];
     if (rules.length) {
       const zones = this.zones.list();

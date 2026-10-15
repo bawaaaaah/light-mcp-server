@@ -16,6 +16,7 @@ export interface SectionDraft {
   idea?: string;
   bars: number;
   atBar?: number;
+  program?: string;
   notes?: string;
 }
 export interface CueDraft {
@@ -83,6 +84,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   const [canvases, setCanvases] = useState<Named[]>([]);
   const [canvas, setCanvas] = useState("");
   const [groups, setGroups] = useState<Named[]>([]);
+  const [programs, setPrograms] = useState<Named[]>([]);
   const [error, setError] = useState("");
   const isNew = !song.id;
 
@@ -90,6 +92,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
     void cmd<Named[]>("look.list").then(setLooks);
     void cmd<Named[]>("palette.list").then(setPalettes);
     void cmd<Named[]>("group.list").then(setGroups);
+    void cmd<{ programs: Named[] }>("program.list").then((r) => setPrograms(r.programs));
     void cmd<Named[]>("venue.canvas.list").then((c) => (setCanvases(c), setCanvas(c[0]?.id ?? "")));
   }, []);
 
@@ -201,6 +204,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
             <th>{t.idea}</th>
             <th>{t.bars}</th>
             <th>{t.atBar}</th>
+            {programs.length > 0 && <th>{t.programLabel}</th>}
             <th />
           </tr>
         </thead>
@@ -235,6 +239,18 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
               <td>
                 <input type="number" min={0} placeholder="auto" value={s.atBar ?? ""} onChange={(e) => setSection(i, { atBar: optNumber(e.target.value) })} />
               </td>
+              {programs.length > 0 && (
+                <td>
+                  <select aria-label={`${t.programLabel} ${i + 1}`} value={s.program ?? ""} onChange={(e) => setSection(i, { program: e.target.value || undefined })}>
+                    <option value="">—</option>
+                    {programs.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+              )}
               <td>
                 <span className="row">
                   <button className="ghost" disabled={i === 0} onClick={() => move(i, -1)}>

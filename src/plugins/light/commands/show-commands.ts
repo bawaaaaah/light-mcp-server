@@ -11,7 +11,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import type { ShowRuntime } from "../show/runtime.js";
-import { effectiveRule, RuleSchema } from "../rules/rules.js";
+import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
 
@@ -208,11 +208,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ fixture: z.string() }),
-    run: ({ fixture }) => {
+    schema: z.object({ fixture: z.string(), program: z.string().optional() }),
+    run: ({ fixture, program }) => {
       const r = venue.resolve(fixture);
       if ("error" in r) throw new Error(r.error);
-      const rules = [...show.venueRules.list(), ...show.rules.list()];
+      const rules = show.rulesInForce(program ?? show.activeProgram);
       const names = new Map(rules.map((x) => [x.id, x.name || x.id]));
       const zones = show.zones.list();
       const zoneById = (id: string) => {
@@ -227,6 +227,51 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         return [{ channel: name, dmx: r.patch.address + offset, attribute: ch.attribute, ...bounds, from: Object.fromEntries(Object.entries(from).map(([k, id]) => [k, names.get(id) ?? id])), locked: locked.map((id) => names.get(id) ?? id) }];
       });
     },
+  });
+  // ---- rule programs (one active at a time: « prière », « annonces »…)
+  reg.register({
+    name: "program.list",
+    title: "Programmes de règles",
+    description: "Rule programs (name, MIDI Program Change number 0-based and channel) and the active one. Rules tagged with a program apply only while it is active.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design", "live"],
+    schema: z.object({}),
+    run: () => ({ active: show.activeProgram ?? null, programs: show.programs.list() }),
+  });
+  reg.register({
+    name: "program.put",
+    title: "Programme de règles",
+    description: "Creates or updates a rule program: name, MIDI Program Change (0-based like the MIDI byte; Live shows it +1, « #100 » = 99) and channel. A Program Change received on that channel activates it.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ program: RuleProgramSchema }),
+    run: ({ program }) => {
+      const clash = program.programChange !== undefined && show.programs.list().find((p) => p.id !== program.id && p.programChange === program.programChange && p.channel === program.channel);
+      if (clash) throw new Error(`Program Change ${program.programChange} (canal ${program.channel}) déjà pris par « ${clash.name} »`);
+      return show.programs.put(program);
+    },
+  });
+  reg.register({
+    name: "program.delete",
+    title: "Supprimer un programme",
+    description: "Deletes a rule program (its rules stay, unused, until reassigned).",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: id,
+    run: ({ id: i }) => {
+      if (show.activeProgram === i) show.selectProgram(undefined);
+      return { deleted: show.programs.delete(i) };
+    },
+  });
+  reg.register({
+    name: "program.select",
+    title: "Activer un programme",
+    description: "Activates a rule program (or none, with id null): its rules apply from the next frame.",
+    right: "commands:trigger",
+    profiles: ["live", "design"],
+    schema: z.object({ id: z.string().nullable() }),
+    run: ({ id: i }) => ({ active: (show.selectProgram(i ?? undefined), show.activeProgram ?? null) }),
   });
   reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: coll(w).delete(i) }) });
 

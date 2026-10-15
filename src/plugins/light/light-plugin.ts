@@ -238,6 +238,14 @@ export class LightPlugin implements McpPlugin {
     const t = m.msg.type;
     if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
     this.publish("midi", { monitor: { port: m.port, source: m.source, msg: m.msg, at: Date.now() } });
+    // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
+    if (m.msg.type === "programchange") {
+      const program = this.runtime.programFor(m.msg.channel, m.msg.program);
+      if (program && this.runtime.selectProgram(program.id)) {
+        this.engine.requestFrame();
+        this.publish("state", this.state());
+      }
+    }
     const out = this.mapper.handle(m.msg, m.port);
     if (!this.router.isStandby()) this.hub.sendFeedback(out.feedback);
     for (const call of out.calls) {
@@ -249,8 +257,9 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[] } {
+  state(): { blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; program: string | null } {
     return {
+      program: this.runtime?.activeProgram ?? null,
       blackout: this.engine.isBlackout(),
       universes: this.config.universes,
       discovery: this.router.stats.discovery,
@@ -269,7 +278,7 @@ export class LightPlugin implements McpPlugin {
   saveLive(): void {
     const s = this.songs?.state;
     try {
-      this.liveFile.save({ show: this.config.show, looks: this.runtime.activeLooks(), blackout: this.engine.isBlackout(), setlist: s?.setlist, song: s?.song, section: s?.section });
+      this.liveFile.save({ show: this.config.show, looks: this.runtime.activeLooks(), blackout: this.engine.isBlackout(), setlist: s?.setlist, song: s?.song, section: s?.section, program: this.runtime.activeProgram });
     } catch (err) {
       console.warn("sauvegarde de l'état en direct :", (err as Error).message);
     }
@@ -287,6 +296,7 @@ export class LightPlugin implements McpPlugin {
       }
     });
     this.engine.setBlackout(snap.blackout);
+    if (snap.program && this.runtime.programs.get(snap.program)) this.runtime.selectProgram(snap.program);
     if (this.songs) Object.assign(this.songs.state, { setlist: snap.setlist, song: snap.song, section: snap.section });
     this.resumed = { looks, blackout: snap.blackout, song: snap.song, section: snap.section };
     console.warn(`Reprise après redémarrage : ${looks.length} look(s)${snap.blackout ? ", Blackout actif" : ""}${snap.song ? `, chant ${snap.song}` : ""}.`);

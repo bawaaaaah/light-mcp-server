@@ -29,9 +29,29 @@ export const RuleSchema = z.object({
   values: z.array(z.number().int().min(0).max(255)).optional(),
   forbidTags: z.array(z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"])).optional(),
   locked: z.boolean().default(false),
+  /** Rule program it belongs to: the rule applies only while that program is active (absent = always). */
+  program: z.string().optional(),
   notes: z.string().optional(),
 });
 export type Rule = z.infer<typeof RuleSchema>;
+
+/**
+ * Rule program (docs/specs/rules-limits.md, « Programmes de règles »): a named set of rules for a
+ * moment of the service — « prière : rien au-dessus de 40 %, pas de strobe ». One is active at a
+ * time (or none). It is selected by a MIDI Program Change (its number, 0-based like the MIDI byte;
+ * Live shows it +1, « #100 » = 99), by a song section, or by a command.
+ */
+export const RuleProgramSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  programChange: z.number().int().min(0).max(127).optional(),
+  channel: z.number().int().min(1).max(16).default(1),
+  notes: z.string().optional(),
+});
+export type RuleProgram = z.infer<typeof RuleProgramSchema>;
+
+/** The rules in force for the active program: rules without a program, plus that program's. */
+export const rulesInForce = (rules: Rule[], activeProgram?: string): Rule[] => rules.filter((r) => !r.program || r.program === activeProgram);
 
 const LEVEL_RANK = { type: 0, venue: 1, show: 2 } as const;
 

@@ -19,6 +19,13 @@ interface Rule {
   max?: number;
   forbidTags?: string[];
   locked: boolean;
+  program?: string;
+}
+interface Program {
+  id: string;
+  name: string;
+  programChange?: number;
+  channel: number;
 }
 interface Effective {
   channel: string;
@@ -55,7 +62,10 @@ const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100
 export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }) {
   const t = useT();
   const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
-  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", forbid: [] as string[], locked: false });
+  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", forbid: [] as string[], locked: false, program: "" });
+  const [programs, setPrograms] = useState<{ active: string | null; programs: Program[] }>({ active: null, programs: [] });
+  const [progDraft, setProgDraft] = useState({ name: "", pc: "", channel: "1" });
+  const loadPrograms = useCallback(() => void cmd<typeof programs>("program.list").then(setPrograms).catch(() => undefined), []);
   const [inspect, setInspect] = useState("");
   const [effective, setEffective] = useState<Effective[]>([]);
 
@@ -64,10 +74,12 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
   }, [onError]);
   useEffect(refresh, [refresh]);
   useCommandEvents(["rule."], refresh);
+  useEffect(loadPrograms, [loadPrograms]);
+  useCommandEvents(["program."], loadPrograms);
   useEffect(() => {
-    if (inspect) void cmd<Effective[]>("rule.effective", { fixture: inspect }).then(setEffective).catch((e: Error) => onError(e.message));
+    if (inspect) void cmd<Effective[]>("rule.effective", { fixture: inspect }).then(setEffective).catch((e: Error) => onError(e.message)); // with the active program
     else setEffective([]);
-  }, [inspect, rules, onError]);
+  }, [inspect, rules, programs.active, onError]);
 
   const models = [...new Set(fixtures.map((f) => f.model).filter((m): m is string => Boolean(m)))];
   const all = [...rules.venue.map((r) => ({ ...r, where: "venue" as const })), ...rules.show.map((r) => ({ ...r, where: "show" as const }))];
@@ -91,6 +103,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       ...(draft.max ? { max: toDmx(draft.max) } : {}),
       ...(draft.forbid.length ? { forbidTags: draft.forbid } : {}),
       locked: draft.locked,
+      ...(draft.program ? { program: draft.program } : {}),
     };
     void cmd("rule.put", { where: draft.level === "show" ? "show" : "venue", rule })
       .then(() => setDraft({ ...draft, name: "", min: "", max: "", forbid: [] }))
@@ -100,12 +113,68 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
   return (
     <div className="rules-panel">
       <p className="hint">{t.rulesHelp}</p>
+      <h3>{t.programs}</h3>
+      <p className="hint">{t.programsHelp}</p>
+      <table className="rules programs">
+        <tbody>
+          {programs.programs.map((p) => (
+            <tr key={p.id} className={programs.active === p.id ? "active" : ""}>
+              <td>
+                {p.name} {programs.active === p.id && <span className="badge standby">{t.programActive}</span>}
+              </td>
+              <td>
+                <small>{p.programChange !== undefined ? `PC #${p.programChange + 1} · ${t.midiChannel} ${p.channel}` : "—"}</small>
+              </td>
+              <td>
+                {programs.active === p.id ? (
+                  <button onClick={() => void cmd("program.select", { id: null }).catch((e: Error) => onError(e.message))}>{t.programOff}</button>
+                ) : (
+                  <button onClick={() => void cmd("program.select", { id: p.id }).catch((e: Error) => onError(e.message))}>{t.programOn}</button>
+                )}
+              </td>
+              <td>
+                <button className="ghost" aria-label={`${t.delete} ${p.name}`} onClick={() => void cmd("program.delete", { id: p.id }).catch((e: Error) => onError(e.message))}>
+                  ✕
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="fields">
+        <label className="field">
+          <span>{t.name}</span>
+          <input aria-label={t.programName} value={progDraft.name} onChange={(e) => setProgDraft({ ...progDraft, name: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>{t.programNumber}</span>
+          <input type="number" min={1} max={128} aria-label={t.programNumber} value={progDraft.pc} onChange={(e) => setProgDraft({ ...progDraft, pc: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>{t.midiChannel}</span>
+          <input type="number" min={1} max={16} value={progDraft.channel} onChange={(e) => setProgDraft({ ...progDraft, channel: e.target.value })} />
+        </label>
+        <button
+          disabled={!progDraft.name.trim()}
+          onClick={() =>
+            void cmd("program.put", {
+              program: { id: uniqueId(slug(progDraft.name, "programme"), programs.programs.map((p) => p.id)), name: progDraft.name, channel: Number(progDraft.channel) || 1, ...(progDraft.pc ? { programChange: Number(progDraft.pc) - 1 } : {}) },
+            })
+              .then(() => setProgDraft({ name: "", pc: "", channel: progDraft.channel }))
+              .catch((e: Error) => onError(e.message))
+          }
+        >
+          + {t.addProgram}
+        </button>
+      </div>
+
+      <h3>{t.rulesList}</h3>
       <table className="rules">
         <tbody>
           {all.map((r) => (
             <tr key={`${r.where}-${r.id}`}>
               <td>
-                {r.name || r.id} {r.locked && <span className="badge conflict">{t.locked}</span>}
+                {r.name || r.id} {r.locked && <span className="badge conflict">{t.locked}</span>} {r.program && <span className="badge standby">{programs.programs.find((p) => p.id === r.program)?.name ?? r.program}</span>}
               </td>
               <td>
                 <small>
@@ -200,6 +269,17 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
             </label>
           ))}
         </fieldset>
+        <label className="field">
+          <span>{t.programLabel}</span>
+          <select aria-label={t.programLabel} value={draft.program} onChange={(e) => setDraft({ ...draft, program: e.target.value })}>
+            <option value="">{t.always}</option>
+            {programs.programs.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="field">
           <span>{t.locked}</span>
           <input type="checkbox" checked={draft.locked} onChange={(e) => setDraft({ ...draft, locked: e.target.checked })} />

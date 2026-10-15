@@ -17,6 +17,8 @@ export const SectionSchema = z.object({
   bars: z.number().positive().default(8),
   /** Position from the song start, in bars (0-based); absent = right after the previous section. */
   atBar: z.number().min(0).optional(),
+  /** Rule program active during the section (« prière » : rien au-dessus de 40 %…). */
+  program: z.string().optional(),
   notes: z.string().optional(),
 });
 export type Section = z.infer<typeof SectionSchema>;
@@ -70,6 +72,15 @@ export function placeSections(song: Song): { section: Section; startBeat: number
     cursor = end;
   }
   return out;
+}
+
+/**
+ * Rule program to activate when a section starts: its own, or none when the song uses programs
+ * on other sections (so the « prière » limits end with the prayer); undefined = leave as is.
+ */
+export function sectionProgram(song: Song, section: Section): { program: string | null } | undefined {
+  if (section.program) return { program: section.program };
+  return song.sections.some((s) => s.program) ? { program: null } : undefined;
 }
 
 /** Position of a cue in beats from the song start. */

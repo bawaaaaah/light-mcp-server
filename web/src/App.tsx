@@ -47,7 +47,7 @@ export function App() {
   const [role, setRole] = useState<Role | null>(null);
   const [checked, setChecked] = useState(false);
   const [up, setUp] = useState(false);
-  const output = useTopic<{ standby?: boolean; foreignSources?: string[] } | null>("light:state", null);
+  const output = useTopic<{ standby?: boolean; foreignSources?: string[]; program?: string | null } | null>("light:state", null);
   const [page, setPage] = useState<Page>(() => (PAGES.includes(location.hash.slice(1) as Page) ? (location.hash.slice(1) as Page) : "live"));
   const t = TEXTS[lang];
 
@@ -104,6 +104,11 @@ export function App() {
               ⚠ {t.otherSource} : {output.foreignSources.join(", ")}
             </span>
           ) : null}
+          {output?.program && (
+            <span className="badge standby" title={t.programActiveHelp}>
+              {t.programLabel} : {output.program}
+            </span>
+          )}
           <span className={up ? "dot ok" : "dot ko"} title={up ? t.connected : t.disconnected} />
           <span className="role">{role.name}</span>
           <select aria-label={t.language} value={lang} onChange={(e) => switchLang(e.target.value as Lang)}>

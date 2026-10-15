@@ -527,6 +527,38 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
   expect(errors).toEqual([]);
 });
 
+test("rule program: created, holds a rule, activated by hand and by a Program Change", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "masks" });
+  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  const panel = page.locator(".rules-panel");
+  await panel.getByLabel("Nom du programme").fill("Prière");
+  await panel.getByLabel("Program Change (#, comme dans Live)").fill("100");
+  await panel.getByRole("button", { name: "+ Ajouter le programme" }).click();
+  await expect(panel.locator("table.programs tr", { hasText: "Prière" })).toContainText("PC #100");
+  const form = panel.locator(".rule-form");
+  await form.getByLabel("max %").fill("40");
+  await form.getByLabel("Programme", { exact: true }).selectOption("priere");
+  await form.getByRole("button", { name: "+ Ajouter la règle" }).click();
+  await expect(panel.locator("table.rules tr", { hasText: "max 40 %" })).toContainText("Prière");
+  await expect.poll(async () => (await dmx(page))[0]).toBe(255); // not active yet
+  await panel.locator("table.programs tr", { hasText: "Prière" }).getByRole("button", { name: "Activer" }).click();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(102);
+  await expect(page.locator("header .badge", { hasText: "Programme" })).toBeVisible();
+  await panel.locator("table.programs tr", { hasText: "Prière" }).getByRole("button", { name: "Désactiver" }).click();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(255);
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0xc0, 99] }); // a « Prière #100 » clip launched in Live
+  await expect.poll(async () => (await dmx(page))[0]).toBe(102);
+  await page.screenshot({ path: "test-results/programs.png", fullPage: true });
+  await api(page, "program.select", { id: null });
+  await api(page, "rule.delete", { where: "show", id: "gradateur-max-40" });
+  await api(page, "program.delete", { id: "priere" });
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
