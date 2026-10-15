@@ -104,6 +104,7 @@ docs/
 
 ## Déploiement et dimensionnement
 - **Référence v1 : natif sur le Mac de régie** (CoreMIDI, bus IAC, même machine qu'Ableton).
+  - Une **app de barre de menus** (`macos/`, reprise de wing-mcp-server) lance `node dist/cli/main.js serve` comme enfant, le relance s'il plante et le recompile ; quitter l'app arrête le serveur.
 - **Serveur distant** : Linux, Raspberry Pi (profil léger) et image Docker multi-arch, alimentés en **RTP-MIDI**.
   - Attention : Docker sur Mac ne voit ni CoreMIDI ni le bus IAC.
   - Attention : Web MIDI est absent de Safari et de l'iPad.

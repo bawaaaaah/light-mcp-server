@@ -15,3 +15,7 @@ prototypes/out/
 test-results/
 playwright-report/
 __pycache__/
+
+# App de barre de menus macOS (macos/build-app.sh)
+macos/build/
+macos/LightMenuBar/.build/

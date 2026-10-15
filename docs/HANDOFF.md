@@ -20,7 +20,8 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - SDK TypeScript et Python, OpenAPI générée ([sdk/README.md](../sdk/README.md)) ;
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;
   - reprise après un plantage ou un redémarrage rapide (état en direct de moins de 5 min) ;
-  - build de production, image Docker vérifiée.
+  - build de production, image Docker vérifiée ;
+  - **app de barre de menus macOS** (`macos/`, comme wing-mcp-server) : démarre, arrête, recompile et relance le serveur ; un port RTP-MIDI occupé ne bloque plus le démarrage.
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
@@ -89,6 +90,7 @@ Aucune. Toutes les décisions de conception sont prises ([decisions.md](decision
 - [bascule-qlc.md](bascule-qlc.md) : **procédure de bascule avec QLC+** (sortie en veille, secours).
 - [tests-mac.md](tests-mac.md) : **protocole de tests pour un agent Claude sur le Mac de régie** (MIDI, Ableton, Art-Net, import réel, auto-test).
 - [install.md](install.md) : **installation et premiers pas** (Mac, Docker/Pi, import QLC+, MIDI, Ableton, IA).
+- [../macos/README.md](../macos/README.md) : **app de barre de menus** (Mac de régie).
 - [install-npm.md](install-npm.md) : **installation depuis GitHub Packages** (paquet publié à chaque commit de `main` dont la CI passe ; image Docker sur GHCR).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [decisions.md](decisions.md) : journal daté des décisions.
