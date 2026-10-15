@@ -112,7 +112,7 @@ describe("QLC+ faders → channel faders and DCAs", () => {
   const p = qxwToShow(parseQxw(fixture("faders.qxw")), [parseQxf(fixture("bar4.qxf"))]);
 
   it("turns a level slider on other channels into a channel fader, even without a definition", () => {
-    expect(p.faders).to.deep.equal([
+    expect(p.faders.filter((f) => f.id === "strobe-et-fumee")).to.deep.equal([
       { id: "strobe-et-fumee", name: "Strobe et fumee", channels: [{ fixture: "bar-0", offset: 1 }, { fixture: "fumee", offset: 0 }], level: 0, notes: "Importé de QLC+ (fader #31, 2 canal(aux) hors gradateur)." },
     ]);
   });
@@ -124,9 +124,24 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     expect(sub.presets.included).to.deep.equal(["rouge", "bleu"]);
   });
 
+  it("turns a submaster among level sliders into a DCA over their DCAs and channel faders", () => {
+    const sub = p.groups.find((g) => g.id === "sub-banque")!;
+    expect(sub.master).to.not.equal(undefined);
+    expect(sub.members.groups).to.deep.equal(["dim-banque"]);
+    expect(p.faders.find((f) => f.id === "ventilation")!.dca).to.equal("sub-banque");
+    expect(p.faders.find((f) => f.id === "strobe-et-fumee")!.dca).to.equal(undefined); // not in that frame
+  });
+
   it("maps each slider's CC to the right command", () => {
     const byCc = Object.fromEntries(p.mappings.filter((m) => m.input.type === "cc").map((m) => [m.input.number, [m.on.command, m.on.args.id, m.levelArg]]));
-    expect(byCc).to.deep.equal({ 20: ["group.level", "sub-ambiance", "level"], 21: ["fader.level", "strobe-et-fumee", "level"], 22: ["group.level", "dim", "level"] });
+    expect(byCc).to.deep.equal({
+      20: ["group.level", "sub-ambiance", "level"],
+      21: ["fader.level", "strobe-et-fumee", "level"],
+      22: ["group.level", "dim", "level"],
+      24: ["fader.level", "ventilation", "level"],
+      25: ["group.level", "sub-banque", "level"],
+      26: ["group.level", "dim-banque", "level"],
+    });
   });
 
   it("turns a colourless sequence (a machine) into a look playing raw channels, zeros restored", () => {
@@ -153,6 +168,10 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     const full = out()[3]!;
     await run("group.level", { id: "sub-ambiance", level: 0.5 });
     expect(out()[3]).to.be.closeTo(full / 2, 1);
+    await run("fader.level", { id: "ventilation", level: 1 });
+    await run("group.level", { id: "sub-banque", level: 0.5 });
+    expect(out()[101]).to.equal(128); // the submaster doses the fader of its frame
+    await run("fader.level", { id: "ventilation", level: 0 });
     await run("look.go", { id: "bouffees" });
     expect([out()[100], out()[101]]).to.deep.equal([200, 100]); // step 1, even without a definition for the machine
   });

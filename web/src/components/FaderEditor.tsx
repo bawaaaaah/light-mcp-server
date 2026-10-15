@@ -14,6 +14,7 @@ export interface FaderDraft {
   name: string;
   channels: { fixture: string; offset: number }[];
   level: number;
+  dca?: string;
   notes?: string;
 }
 export interface FixtureChannels {
@@ -32,10 +33,13 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   const [fixtures, setFixtures] = useState<string[]>([...new Set(initial.channels.map((c) => c.fixture))]);
   const [names, setNames] = useState<string[]>([]);
   const [manual, setManual] = useState<number | "">("");
+  const [dca, setDca] = useState(initial.dca ?? "");
+  const [dcas, setDcas] = useState<{ id: string; name: string; master?: unknown }[]>([]);
   const [error, setError] = useState("");
   const isNew = !initial.id;
   const id = isNew ? uniqueId(slug(name, "fader"), existing) : initial.id;
 
+  useEffect(() => void cmd<{ id: string; name: string; master?: unknown }[]>("group.list").then((g) => setDcas(g.filter((x) => x.master))), []);
   useEffect(() => {
     void cmd<FixtureChannels[]>("venue.fixture.channels").then((list) => {
       setAll(list);
@@ -62,7 +66,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   const save = () => {
     if (!name.trim()) return setError(t.nameRequired);
     if (!channels.length) return setError(t.faderNoChannel);
-    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, notes } })
+    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, dca: dca || undefined, notes } })
       .then(onClose)
       .catch((e: Error) => setError(e.message));
   };
@@ -75,6 +79,17 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
           <span>{t.name}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} />
           {isNew && name && <small>id : {id}</small>}
+        </label>
+        <label className="field">
+          <span>{t.faderDca}</span>
+          <select aria-label={t.faderDca} value={dca} onChange={(e) => setDca(e.target.value)}>
+            <option value="">—</option>
+            {dcas.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </label>
         {undecoded.length > 0 && (
           <label className="field">

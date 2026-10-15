@@ -356,8 +356,9 @@ export class ShowRuntime {
     }
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders.
     for (const fader of this.faders.list()) {
-      if (fader.level <= 0) continue;
-      const value = Math.round(fader.level * 255);
+      const level = fader.level * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
+      if (level <= 0) continue;
+      const value = Math.round(level * 255);
       for (const c of fader.channels) {
         const f = this.venue.fixtures.get(c.fixture);
         const buf = f && buffers[f.universe - 1];

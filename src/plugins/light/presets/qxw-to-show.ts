@@ -264,19 +264,25 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     }
   }
   if (faders.length) converted.push(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`);
-  // Submaster sliders: a DCA dosing what the buttons of their frame (and sub-frames) start.
+  // Submaster sliders: a DCA dosing what its frame (and sub-frames) holds — the looks its buttons
+  // start, the DCAs and channel faders its level sliders became (like in QLC+).
   for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.sliderMode === "Submaster")) {
-    const looksInFrame = ws.widgets
-      .filter((b) => b.kind === "button" && b.functionId !== undefined && (b.frameKey === w.frameKey || b.frameKey.startsWith(`${w.frameKey}/`)))
+    const inFrame = ws.widgets.filter((b) => b !== w && (b.frameKey === w.frameKey || b.frameKey.startsWith(`${w.frameKey}/`)));
+    const looksInFrame = inFrame
+      .filter((b) => b.kind === "button" && b.functionId !== undefined)
       .map((b) => lookIds.get(b.functionId!))
       .filter((x): x is string => Boolean(x));
-    if (!looksInFrame.length) {
-      warnings.push(`submaster « ${w.caption} » : aucun look dans son cadre — non converti`);
+    const dcasInFrame = inFrame.map((b) => sliderGroups.get(b.id)).filter((x): x is string => Boolean(x));
+    const fadersInFrame = inFrame.map((b) => sliderFaders.get(b.id)).filter((x): x is string => Boolean(x));
+    if (!looksInFrame.length && !dcasInFrame.length && !fadersInFrame.length) {
+      warnings.push(`submaster « ${w.caption} » : rien d'importé dans son cadre (look, fader) — non converti`);
       continue;
     }
     const id = uniqueId(w.caption || `submaster-${w.id}`, groupTaken);
     sliderGroups.set(w.id, id);
-    groups.push({ ...group(id, w.caption || `Submaster ${w.id}`, { master: true }), presets: { included: [...new Set(looksInFrame)], excluded: [] } });
+    const sub = group(id, w.caption || `Submaster ${w.id}`, { master: true });
+    groups.push({ ...sub, members: { ...sub.members, groups: [...new Set(dcasInFrame)] }, presets: { included: [...new Set(looksInFrame)], excluded: [] } });
+    for (const f of faders) if (fadersInFrame.includes(f.id)) f.dca = id;
   }
   groups.push(...efxGroups);
   converted.push(`${groups.length} groupes (${groups.filter((g) => g.exclusive).length} exclusifs, ${groups.filter((g) => g.master).length} avec master)`);

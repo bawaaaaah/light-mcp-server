@@ -564,9 +564,11 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   await editor.getByLabel("Bar 1").check();
   await editor.getByLabel("Strobe (strobe)").check();
   await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
+  await editor.getByLabel("Dosé par le DCA").selectOption("master");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
-  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[] }[]).find((f) => f.id === "strobes")!;
+  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[]; dca?: string }[]).find((f) => f.id === "strobes")!;
+  expect(saved.dca).toBe("master");
   expect(saved.channels).toEqual([
     { fixture: "bar-0", offset: 1 },
     { fixture: "bar-1", offset: 1 },

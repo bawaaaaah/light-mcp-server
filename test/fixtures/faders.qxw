@@ -17,4 +17,9 @@
 <Button Caption="Bouffees" ID="103"><Function ID="40"/><Action>Toggle</Action><Input Universe="0" Channel="166"/></Button>
 <Slider Caption="Strobe et fumee" ID="31"><Input Universe="0" Channel="21"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="0">1</Channel><Channel Fixture="1">0</Channel></Level></Slider>
 <Slider Caption="Dim" ID="32"><Input Universe="0" Channel="22"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="255"><Channel Fixture="0">0</Channel></Level></Slider>
+<Frame Caption="Banque" ID="2">
+<Slider Caption="Ventilation" ID="33"><Input Universe="0" Channel="24"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="1">1</Channel></Level></Slider>
+<Slider Caption="Dim banque" ID="34"><Input Universe="0" Channel="26"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="0">0</Channel></Level></Slider>
+<Slider Caption="Sub banque" ID="35"><Input Universe="0" Channel="25"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None">Submaster</SliderMode><Playback><Function>4294967295</Function></Playback></Slider>
+</Frame>
 </Frame></VirtualConsole></Workspace>

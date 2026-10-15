@@ -96,6 +96,8 @@ export const ChannelFaderSchema = z.object({
   name: z.string(),
   channels: z.array(z.object({ fixture: z.string(), offset: z.number().int().min(0).max(511) })).min(1),
   level: z.number().min(0).max(1).default(0),
+  /** DCA dosing this fader (a QLC+ Submaster in the same frame): its effective level multiplies the fader's. */
+  dca: z.string().optional(),
   notes: z.string().optional(),
 });
 export type ChannelFader = z.infer<typeof ChannelFaderSchema>;

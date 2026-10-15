@@ -145,7 +145,10 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           if (problem) err(where, problem);
         }
       };
-      for (const f of runtime.faders.list()) checkChannels(`fader ${f.id}`, f.channels);
+      for (const f of runtime.faders.list()) {
+        checkChannels(`fader ${f.id}`, f.channels);
+        if (f.dca && !runtime.groups.get(f.dca)) err(`fader ${f.id}`, `DCA inconnu ${f.dca}`);
+      }
       for (const l of runtime.looks.list()) if (l.channels) checkChannels(`look ${l.id}`, l.channels.targets);
       for (const s of songs.list()) {
         if (!s.mood.length) warn(`chant ${s.id}`, "pas d'ambiance globale");

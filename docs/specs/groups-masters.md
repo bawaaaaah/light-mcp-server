@@ -60,6 +60,7 @@ Groupe {
 - Le masque de règles s'applique après (UV max, strobe…) ; Blackout l'éteint ; il démarre à 0 à l'import (un strobe ne part jamais tout seul).
 - **Éditeur** (page Show, « + Nouveau fader de canaux ») : on coche **plusieurs projecteurs**, puis les canaux à piloter **par leur nom** (Dimmer, Strobe, UV…, d'après les définitions, `venue.fixture.channels`) : le même fader les règle tous ensemble. Un projecteur sans définition prend un numéro de canal à la main.
 - Pour doser des **looks** (les « fonctions » de QLC+), c'est un groupe avec DCA qui les inclut, pas un fader de canaux.
+- Un fader de canaux peut être **dosé par un DCA** (`dca`) : le niveau du DCA (avec ses parents) multiplie celui du fader. C'est ce que devient un Submaster QLC+ placé au milieu de faders « Level ».
 - Commandes `fader.*` ; widget « Fader de canaux » ; action MIDI « Fader de canaux (CC) ».
 
 ## Niveaux en direct

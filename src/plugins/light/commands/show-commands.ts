@@ -217,12 +217,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "fader.put",
     title: "Fader de canaux",
-    description: "Creates or updates a channel fader: name, channels as {fixture, offset from its address (0-based)}, level 0..1. The rules mask still applies after it.",
+    description: "Creates or updates a channel fader: name, channels as {fixture, offset from its address (0-based)}, level 0..1, optional dca (a group with a master whose level multiplies the fader's). The rules mask still applies after it.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ fader: ChannelFaderSchema }),
     run: ({ fader }) => {
       checkChannels(fader.channels);
+      if (fader.dca && !show.groups.get(fader.dca)?.master) throw new Error(`DCA inconnu : ${fader.dca}`);
       return show.faders.put(fader);
     },
   });
