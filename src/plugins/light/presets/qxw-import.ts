@@ -209,7 +209,11 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
   for (const s of (node["Slider"] as Node[] | undefined) ?? []) {
     const level = s["Level"] as Node | undefined;
     const chans = ((level?.["Channel"] as unknown[]) ?? []).map((c) => ({ fixture: num((c as Node)["@_Fixture"]), channel: num(c) }));
-    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans });
+    // Playback sliders play a function at their level (4294967295 = none)
+    const playedRaw = (s["Playback"] as Node | undefined)?.["Function"];
+    const played = Array.isArray(playedRaw) ? playedRaw[0] : playedRaw;
+    const playedId = played !== undefined && txt(played) !== "" ? Number(txt(played)) : undefined;
+    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
   }
   for (const d of (node["SpeedDial"] as Node[] | undefined) ?? []) {
     const fns = d["Function"];

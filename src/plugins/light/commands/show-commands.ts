@@ -206,6 +206,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if (!g) throw new Error(`groupe inconnu : ${groupId}`);
     const master = { level: g.master?.level ?? 1, mute: g.master?.mute ?? false, ...patch };
     show.groups.putLive({ ...g, master }); // a fader moves many times a second: no backup per move
+    if (g.playback) show.syncPlayback(groupId);
     return { id: groupId, ...master, effectiveLevel: show.effectiveLevel(groupId) };
   };
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });

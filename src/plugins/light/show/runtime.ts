@@ -126,6 +126,23 @@ export class ShowRuntime {
     return new LookPlayer(steps, look.timing, seedOf(look.id), entry);
   }
 
+  /**
+   * Playback fader: its DCA above 0 (and not muted) starts the looks it doses, at 0 stops them —
+   * only those it started, a look launched by a button stays (like a QLC+ « Playback » slider).
+   */
+  syncPlayback(groupId: string): void {
+    const g = this.groups.get(groupId);
+    if (!g?.playback) return;
+    const up = (g.master?.level ?? 0) > 0 && !g.master?.mute;
+    for (const lookId of g.presets.included) {
+      if (up && !this.isActive(lookId) && this.looks.get(lookId)) {
+        this.go(lookId);
+        this.playbackStarted.add(lookId);
+      } else if (!up && this.playbackStarted.delete(lookId) && this.isActive(lookId)) this.stop(lookId);
+    }
+  }
+  private readonly playbackStarted = new Set<string>();
+
   isActive(lookId: string): boolean {
     return this.active.has(lookId);
   }

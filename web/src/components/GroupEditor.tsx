@@ -15,6 +15,7 @@ export interface GroupDraft {
   exclusive: boolean;
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   presets: { included: string[]; excluded: string[] };
+  playback?: boolean;
   notes?: string;
 }
 interface Named {
@@ -78,6 +79,12 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           <span>DCA</span>
           <input type="checkbox" checked={Boolean(g.master)} onChange={(e) => setG({ ...g, master: e.target.checked ? { level: 1, mute: false } : undefined })} />
         </label>
+        {g.master && (
+          <label className="field" title={t.playbackHelp}>
+            <span>{t.playback}</span>
+            <input type="checkbox" checked={Boolean(g.playback)} onChange={(e) => setG({ ...g, playback: e.target.checked || undefined })} />
+          </label>
+        )}
         <label className="field">
           <span>{t.exclusive}</span>
           <input type="checkbox" checked={g.exclusive} onChange={(e) => setG({ ...g, exclusive: e.target.checked })} />

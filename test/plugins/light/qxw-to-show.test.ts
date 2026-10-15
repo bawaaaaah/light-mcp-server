@@ -141,6 +141,13 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     expect(p.faders.find((f) => f.id === "strobe-et-fumee")!.dca).to.equal(undefined); // not in that frame
   });
 
+  it("turns a playback slider into a playback DCA over its scene's look, ignoring its leftover level channels", () => {
+    const g = p.groups.find((x) => x.id === "contre")!;
+    expect(g).to.deep.include({ playback: true, master: { level: 0, mute: false } });
+    expect(g.presets.included).to.deep.equal(["contre-bleu"]);
+    expect(p.faders.some((f) => f.name === "Contre")).to.equal(false);
+  });
+
   it("maps each slider's CC to the right command", () => {
     const byCc = Object.fromEntries(p.mappings.filter((m) => m.input.type === "cc").map((m) => [m.input.number, [m.on.command, m.on.args.id, m.levelArg]]));
     expect(byCc).to.deep.equal({
@@ -150,6 +157,7 @@ describe("QLC+ faders → channel faders and DCAs", () => {
       24: ["fader.level", "ventilation", "level"],
       25: ["group.level", "sub-banque", "level"],
       26: ["group.level", "dim-banque", "level"],
+      27: ["group.level", "contre", "level"],
     });
   });
 
@@ -181,6 +189,16 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     await run("group.level", { id: "sub-banque", level: 0.5 });
     expect(out()[101]).to.equal(128); // the submaster doses the fader of its frame
     await run("fader.level", { id: "ventilation", level: 0 });
+    await run("look.stopall");
+    await run("group.level", { id: "contre", level: 0.5 });
+    expect(plugin.runtime.isActive("contre-bleu")).to.equal(true);
+    expect(out()[5]).to.be.closeTo(128, 1); // started and dosed by the fader
+    await run("group.level", { id: "contre", level: 0 });
+    expect(plugin.runtime.isActive("contre-bleu")).to.equal(false);
+    await run("look.go", { id: "contre-bleu" }); // launched by hand: the fader at 0 leaves it
+    await run("group.level", { id: "contre", level: 0 });
+    expect(plugin.runtime.isActive("contre-bleu")).to.equal(true);
+    await run("look.stopall");
     await run("look.go", { id: "bouffees" });
     expect([out()[100], out()[101]]).to.deep.equal([200, 100]); // step 1, even without a definition for the machine
   });

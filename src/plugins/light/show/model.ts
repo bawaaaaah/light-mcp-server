@@ -81,6 +81,8 @@ export const GroupSchema = z.object({
     .optional(),
   presets: z.object({ included: z.array(z.string()).default([]), excluded: z.array(z.string()).default([]) }).default({}),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).optional(),
+  /** Playback fader (a QLC+ « Playback » slider): above 0 its DCA starts the looks it doses, at 0 stops them. */
+  playback: z.boolean().optional(),
   notes: z.string().optional(),
 });
 export type Group = z.infer<typeof GroupSchema>;

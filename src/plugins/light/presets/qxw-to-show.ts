@@ -244,7 +244,8 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   const sliderFaders = new Map<number, string>();
   const faders: ChannelFader[] = [];
   const faderTaken = new Set<string>();
-  for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.levelChannels?.length)) {
+  // Level sliders only: QLC+ keeps the level channels of a slider switched to Playback or Submaster
+  for (const w of ws.widgets.filter((x) => x.kind === "slider" && (x.sliderMode || "Level") === "Level" && x.levelChannels?.length)) {
     const dimmerFixtures = new Set<string>();
     const others: ChannelFader["channels"] = [];
     for (const lc of w.levelChannels!) {
@@ -272,6 +273,17 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     }
   }
   if (faders.length) converted.push(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`);
+  // Playback sliders: a playback DCA dosing the look of their function, started above 0.
+  for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.sliderMode === "Playback")) {
+    const look = w.functionId !== undefined ? lookIds.get(w.functionId) : undefined;
+    if (!look) {
+      warnings.push(`fader playback « ${w.caption} » : sa fonction n'est pas importée — non converti`);
+      continue;
+    }
+    const id = uniqueId(w.caption || `playback-${w.id}`, groupTaken);
+    sliderGroups.set(w.id, id);
+    groups.push({ ...group(id, w.caption || `Playback ${w.id}`, { master: true }), master: { level: 0, mute: false }, playback: true, presets: { included: [look], excluded: [] } });
+  }
   // Submaster sliders: a DCA dosing what its frame (and sub-frames) holds — the looks its buttons
   // start, the DCAs and channel faders its level sliders became (like in QLC+).
   for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.sliderMode === "Submaster")) {
