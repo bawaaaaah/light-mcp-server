@@ -27,6 +27,8 @@ import type { Move } from "../engine/move.js";
 /** QLC+ EFX algorithm → Move FX shape; the others are approximated by a circle (reported). */
 const EFX_SHAPES: Record<string, Move["shape"]> = { Circle: "cercle", Eight: "huit", Line: "pan", Line2: "tilt" };
 import type { Mapping } from "../midi/mapping.js";
+import type { Technique } from "../engine/techniques.js";
+import type { QxwFixtureGroup, QxwMatrix } from "./qxw-import.js";
 
 /** QLC+ SpeedDial multiplier index → factor (VCSpeedDialFunction::SpeedMultiplier). */
 export const QLC_MULTIPLIERS = [NaN, 0, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16] as const;
@@ -34,6 +36,8 @@ export const QLC_MULTIPLIERS = [NaN, 0, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8,
 export interface ImportProposal {
   fixtures: PatchedFixture[];
   canvas: Canvas | null;
+  /** One canvas per QLC+ fixture group an imported RGB matrix plays on. */
+  matrixCanvases: Canvas[];
   looks: Look[];
   groups: Group[];
   faders: ChannelFader[];
@@ -55,6 +59,56 @@ function uniqueId(base: string, taken: Set<string>): string {
   for (let n = 2; taken.has(id); n++) id = `${slugify(base).slice(0, 58)}-${n}`;
   taken.add(id);
   return id;
+}
+
+/**
+ * Canvas of a QLC+ fixture group: its heads as a line, column by column (X, then Y), so a matrix
+ * moving along X sweeps the same way. Null when none of its heads is patched.
+ */
+function groupCanvas(fg: QxwFixtureGroup, ws: QxwWorkspace, defs: FixtureDefinition[], fixtureIds: Map<number, string>): Canvas | null {
+  const heads = [...fg.heads].sort((a, b) => a.x - b.x || a.y - b.y).flatMap((h) => {
+    const fixture = fixtureIds.get(h.fixture);
+    const fx = ws.fixtures.find((f) => f.id === h.fixture);
+    if (!fixture || !fx) return [];
+    const def = findDefinition(defs, fx.manufacturer, fx.model);
+    const mode = def && findMode(def, fx.mode, fx.channels);
+    return [{ fixture, head: mode && mode.heads.length > 0 ? h.head : -1 }];
+  });
+  if (!heads.length) return null;
+  return { id: `qlc-groupe-${fg.id}`, name: `Groupe QLC+ ${fg.name || fg.id}`, topology: "line", cells: heads.length, render: heads.map((t, i) => ({ from: i, to: i, targets: [t] })) };
+}
+
+/** QLC+ colour names used by the matrix scripts' properties (color1Index…). */
+const NAMED: Record<string, string> = { red: "#ff0000", green: "#00ff00", blue: "#0000ff", cyan: "#00ffff", magenta: "#ff00ff", yellow: "#ffff00", white: "#ffffff", orange: "#ff8000", purple: "#8000ff", pink: "#ff60c0", violet: "#8000ff", amber: "#ffbf00", lime: "#bfff00" };
+const RAINBOW = ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
+const rgbHex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
+
+/** Nearest technique for an RGB matrix algorithm; `approx` when the movement is not the same. */
+export function matrixTechnique(m: QxwMatrix, cells: number): { technique: Technique; approx: boolean } {
+  const c0 = m.colors[0] !== undefined ? rgbHex(m.colors[0]) : "#ff0000";
+  const c1 = m.colors[1] !== undefined ? rgbHex(m.colors[1]) : undefined;
+  const named = Object.keys(m.properties)
+    .filter((k) => /^color\dIndex$/.test(k))
+    .sort()
+    .map((k) => NAMED[m.properties[k]!.toLowerCase()])
+    .filter((x): x is string => Boolean(x));
+  const atLeast3 = (cols: string[]) => (cols.length >= 3 ? cols : [...cols, ...RAINBOW].slice(0, Math.max(3, cols.length)));
+  switch (m.algorithm) {
+    case "Plain":
+      return { technique: { kind: "plat", color: c0 }, approx: c1 !== undefined };
+    case "Alternate":
+      return { technique: { kind: "damier", colors: [c0, c1 ?? "#000000"], block: 1 }, approx: false };
+    case "Stripes":
+      return { technique: { kind: "palette", colors: atLeast3(named.length ? named : [c0, ...(c1 ? [c1] : [])]), block: 1 }, approx: true };
+    case "Gradient":
+      return { technique: { kind: "palette", colors: atLeast3([c0, ...(c1 ? [c1] : [])]), block: 1 }, approx: true };
+    case "Plasma":
+      return { technique: { kind: "palette", colors: RAINBOW, block: 1 }, approx: true };
+    case "Flying Objects":
+      return { technique: { kind: "masques", colors: [c0, c0], block: 1, masks: Array.from({ length: cells }, (_, i) => "-".repeat(i) + "#" + "-".repeat(cells - 1 - i)), floor: 0 }, approx: true };
+    default:
+      return { technique: { kind: "palette", colors: atLeast3([c0, ...(c1 ? [c1] : [])]), block: 1 }, approx: true };
+  }
 }
 
 /** A QLC+ scene as a one-step sequence: its values held, its fade in as the look's entry fade. */
@@ -173,7 +227,39 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     });
     if (fn.speedModes && (fn.speedModes.duration === "PerStep" || fn.speedModes.fadeIn === "PerStep")) warnings.push(`« ${fn.name} » : timing par pas approximé par sa moyenne`);
   }
+  // RGB matrices a widget starts: their fixture group becomes a canvas, their algorithm the nearest technique.
+  const matrixCanvases = new Map<number, Canvas>();
+  let matrixLooks = 0;
+  for (const fn of [...ws.functions.values()].filter((f) => f.matrix && started.has(f.id))) {
+    const m = fn.matrix!;
+    const fg = ws.fixtureGroups.find((g) => g.id === m.fixtureGroup);
+    const mc = fg ? (matrixCanvases.get(fg.id) ?? groupCanvas(fg, ws, defs, fixtureIds)) : null;
+    if (!fg || !mc) {
+      warnings.push(`matrice « ${fn.name} » : groupe de fixtures introuvable ou vide — non importée`);
+      continue;
+    }
+    matrixCanvases.set(fg.id, mc);
+    const { technique, approx } = matrixTechnique(m, mc.cells);
+    const id = uniqueId(fn.name || `matrice-${fn.id}`, lookTaken);
+    lookIds.set(fn.id, id);
+    const timing = timingOf(fn, dialed.get(fn.id), false);
+    looks.push({
+      id,
+      name: fn.name,
+      canvas: mc.id,
+      technique,
+      timing: { ...timing, attack: m.algorithm === "Plasma" || m.algorithm === "Gradient" ? 1 : timing.attack },
+      manualOnly: false,
+      noCut: false,
+      danger: false,
+      tags: [`technique:${technique.kind}`, `matrice:${m.algorithm}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
+      notes: `Importé de QLC+ (#${fn.id}) : matrice « ${m.algorithm} » sur le groupe « ${fg.name} »${approx ? " — approximée" : ""}.`,
+    });
+    if (approx) warnings.push(`matrice « ${fn.name} » (${m.algorithm}) : approximée par la technique ${technique.kind}`);
+    matrixLooks++;
+  }
   converted.push(`${looks.length} looks (pas exacts, technique reconnue en étiquette)`);
+  if (matrixLooks) converted.push(`${matrixLooks} matrices RGB → looks sur ${matrixCanvases.size} canevas de groupe`);
 
   const groupTaken = new Set<string>();
   // EFX → position-only looks moving a group of their fixtures (format from QLC+'s efx.cpp).
@@ -329,7 +415,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   }
   converted.push(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`);
   if (tempoFromMidiClock) converted.push("tempo : horloge MIDI (molette QLC+ sur l'horloge de Live)");
-  return { fixtures, canvas: canvas ?? efxCanvas, looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
+  return { fixtures, canvas: canvas ?? efxCanvas, matrixCanvases: [...matrixCanvases.values()], looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
 }
 
 /** Entry fade in seconds when step 0 is a soft entry (fade ≥ 1 s and ≥ 3× the other steps' fades), else 0. */

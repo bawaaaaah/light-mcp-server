@@ -47,6 +47,26 @@ export interface QxwFunction {
   members: number[];
   /** EFX (moving-head movement), as QLC+ saves it (efx.cpp). */
   efx?: QxwEfx;
+  /** RGB matrix (rgbmatrix.cpp): algorithm, colours, fixture group, script properties. */
+  matrix?: QxwMatrix;
+}
+
+export interface QxwMatrix {
+  /** "Plain", or the script name (« Stripes », « Plasma »…) */
+  algorithm: string;
+  /** start and end colours, 0xRRGGBB (undefined when not set) */
+  colors: (number | undefined)[];
+  fixtureGroup: number;
+  properties: Record<string, string>;
+}
+
+/** A QLC+ fixture group: the grid an RGB matrix plays on. */
+export interface QxwFixtureGroup {
+  id: number;
+  name: string;
+  width: number;
+  height: number;
+  heads: { x: number; y: number; fixture: number; head: number }[];
 }
 
 export interface QxwEfx {
@@ -95,6 +115,7 @@ export interface QxwWorkspace {
   functions: Map<number, QxwFunction>;
   widgets: QxwWidget[];
   soloFrames: { id: number; caption: string; members: number[] }[];
+  fixtureGroups: QxwFixtureGroup[];
 }
 
 const ARRAYS = new Set(["Fixture", "Function", "Step", "FixtureVal", "Universe", "Frame", "SoloFrame", "Button", "Slider", "SpeedDial", "CueList", "Label", "XYPad", "Channel", "Input"]);
@@ -187,10 +208,25 @@ function parseFunction(f: Node): QxwFunction {
       fixtures: ((f["Fixture"] as Node[] | undefined) ?? []).map((x) => ({ id: num(x["ID"]), head: num(x["Head"]), mode: num(x["Mode"]), direction: x["Direction"] !== undefined ? txt(x["Direction"]) : undefined })),
     };
   }
+  if (fn.type === "RGBMatrix") {
+    const alg = f["Algorithm"] as Node | string | undefined;
+    const type = typeof alg === "object" ? String(alg["@_Type"] ?? "") : "";
+    const colors: (number | undefined)[] = [];
+    for (const c of list(f["Color"])) colors[num(c["@_Index"])] = Number(txt(c)) & 0xffffff;
+    fn.matrix = {
+      algorithm: type === "Script" ? txt(alg) : type || txt(alg) || "Plain",
+      colors,
+      fixtureGroup: num(f["FixtureGroup"]),
+      properties: Object.fromEntries(list(f["Property"]).map((p) => [String(p["@_Name"]), String(p["@_Value"])])),
+    };
+  }
   const fns = f["Function"];
   if (fn.type === "Collection" && fns) fn.members = (Array.isArray(fns) ? fns : [fns]).map((x) => num(x));
   return fn;
 }
+
+/** A child that may appear once or many times, as an array. */
+const list = (v: unknown): Node[] => (v === undefined ? [] : ([] as Node[]).concat(v as Node | Node[]));
 
 function inputOf(w: Node): QxwWidget["input"] {
   const inputs = w["Input"] as Node[] | undefined;
@@ -262,5 +298,15 @@ export function parseQxw(xml: string): QxwWorkspace {
   const soloFrames: QxwWorkspace["soloFrames"] = [];
   const vc = ws["VirtualConsole"] as Node | undefined;
   if (vc) for (const frame of (vc["Frame"] as Node[] | undefined) ?? []) walkVc(frame, [], undefined, widgets, soloFrames);
-  return { qlcVersion: txt((ws["Creator"] as Node | undefined)?.["Version"]), fixtures, functions, widgets, soloFrames };
+  const fixtureGroups: QxwFixtureGroup[] = list(engine["FixtureGroup"]).map((g) => {
+    const size = g["Size"] as Node | undefined;
+    return {
+      id: num(g["@_ID"]),
+      name: txt(g["Name"]),
+      width: num(size?.["@_X"]),
+      height: num(size?.["@_Y"]),
+      heads: list(g["Head"]).map((h) => ({ x: num(h["@_X"]), y: num(h["@_Y"]), fixture: num(h["@_Fixture"]), head: num(txt(h)) })),
+    };
+  });
+  return { qlcVersion: txt((ws["Creator"] as Node | undefined)?.["Version"]), fixtures, functions, widgets, soloFrames, fixtureGroups };
 }

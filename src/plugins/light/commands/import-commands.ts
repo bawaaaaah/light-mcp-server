@@ -66,7 +66,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       };
       const merged = {
         fixtures: merge("fixtures", p.fixtures, venue.fixtures),
-        canvases: merge("canvases", p.canvas ? [p.canvas] : [], venue.canvases),
+        canvases: merge("canvases", [...(p.canvas ? [p.canvas] : []), ...p.matrixCanvases], venue.canvases),
         looks: merge("looks", p.looks, s.runtime.looks),
         groups: merge("groups", p.groups, s.runtime.groups),
         faders: merge("faders", p.faders, s.runtime.faders),
