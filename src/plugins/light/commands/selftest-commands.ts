@@ -41,9 +41,18 @@ export function checkCadence(changes: number[], expectedMs: number, toleranceMs 
   const perStep = intervals.map((d) => d / Math.max(1, Math.round(d / expectedMs)));
   perStep.sort((a, b) => a - b);
   const measuredMs = Math.round(perStep[Math.floor(perStep.length / 2)]! * 10) / 10;
-  const worst = intervals.reduce((w, d) => Math.max(w, Math.abs(d - Math.max(1, Math.round(d / expectedMs)) * expectedMs)), 0);
-  const ok = worst <= toleranceMs;
-  return { expectedMs: Math.round(expectedMs * 10) / 10, measuredMs, ok, ...(ok ? {} : { detail: `écart max ${Math.round(worst)} ms (tolérance ${Math.round(toleranceMs)} ms)` }) };
+  // The cadence is judged on the median (a wrong tempo or multiplier shifts it); one isolated hiccup
+  // (a busy machine delaying a frame) is reported but tolerated, two or more fail.
+  // Deviation of each change from the ideal grid (one late frame = one hiccup, not two bad intervals).
+  const step = measuredMs;
+  const offsets = changes.map((t) => t - Math.round((t - changes[0]!) / step) * step);
+  const base = [...offsets].sort((a, b) => a - b)[Math.floor(offsets.length / 2)]!;
+  const hiccups = offsets.map((o) => Math.abs(o - base)).filter((d) => d > toleranceMs);
+  const medianOk = Math.abs(measuredMs - expectedMs) <= toleranceMs;
+  const ok = medianOk && hiccups.length <= 1;
+  const tol = `tolérance ${Math.round(toleranceMs)} ms`;
+  const detail = !medianOk ? `cadence ${measuredMs} ms au lieu de ${Math.round(expectedMs)} (${tol})` : hiccups.length > 1 ? `${hiccups.length} à-coups jusqu'à ${Math.round(Math.max(...hiccups))} ms (${tol})` : hiccups.length === 1 ? `un à-coup isolé de ${Math.round(hiccups[0]!)} ms, toléré` : undefined;
+  return { expectedMs: Math.round(expectedMs * 10) / 10, measuredMs, ok, ...(detail ? { detail } : {}) };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -93,7 +93,7 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
   - phase de temps et de mesure partagée par tous les effets ;
   - alerte si une horloge est attendue mais absente ;
   - **deux comptes séparés** : le **temps moteur** (cadence des looks) suit les ticks pendant que le DAW joue, **continue au dernier tempo connu** quand l'horloge s'arrête ou manque (les looks ne se figent jamais entre deux chants) et **ignore les sauts** de position ; la **position du chant** (SPP + ticks), elle, n'existe que pendant la lecture et sert au suivi des sections. Un recul dans l'arrangement ne bloque donc aucun look sur son premier pas.
-- **Auto-test de cadence** (`selftest.run` avec `cadence`) : chaque look joue seul, la sortie DMX réelle est échantillonnée et les changements de pas sont chronométrés (premier changement de chaque pas, fondus jusqu'à un demi-pas) ; tolérance 25 ms ou 5 %.
+- **Auto-test de cadence** (`selftest.run` avec `cadence`) : chaque look joue seul, la sortie DMX réelle est échantillonnée et les changements de pas sont chronométrés (premier changement de chaque pas, fondus jusqu'à un demi-pas) ; tolérance 25 ms ou 5 % sur la **cadence médiane** ; un **à-coup isolé** (une trame retardée par une machine chargée) est signalé mais toléré, deux ou plus échouent.
 
 ## Tests
 - Fusion HTP/LTP et priorités, cascade des groupes, flash qui ignore les masters, masque de règles en dernier.

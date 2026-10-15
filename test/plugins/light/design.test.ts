@@ -48,8 +48,17 @@ describe("colour knowledge and design", () => {
     it("rejects a wrong cadence and too few changes", () => {
       const slow = checkCadence([0, 600, 1200, 1800], 500);
       expect(slow.ok).to.equal(false);
-      expect(slow.detail).to.match(/écart max 100 ms/);
+      expect(slow.detail).to.match(/cadence 600 ms au lieu de 500/);
       expect(checkCadence([0, 500], 500)).to.include({ ok: false });
+    });
+
+    it("tolerates one isolated hiccup of a busy machine, not two", () => {
+      const one = checkCadence([0, 250, 500, 814, 1000], 250); // one interval 64 ms late, as seen on a CI runner
+      expect(one.ok).to.equal(true);
+      expect(one.detail).to.match(/un à-coup isolé de 64 ms, toléré/);
+      const two = checkCadence([0, 314, 500, 814, 1000, 1250], 250); // two late frames
+      expect(two.ok).to.equal(false);
+      expect(two.detail).to.match(/2 à-coups/);
     });
   });
 
