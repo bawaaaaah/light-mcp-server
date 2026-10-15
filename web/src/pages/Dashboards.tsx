@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
+import { WidgetMenu } from "../components/WidgetMenu";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
 interface Widget {
@@ -69,6 +70,8 @@ export function DashboardsPage() {
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [edit, setEdit] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /** The widget whose right-click menu is open, and where. */
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean } | null>("light:state", null);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
@@ -101,6 +104,13 @@ export function DashboardsPage() {
 
   const update = (fn: (d: Dashboard) => Dashboard) => setDashboards((ds) => ds.map((d, i) => (i === current ? fn(d) : d)));
   const updateWidget = (id: string, patch: Partial<Widget>) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)) }));
+  /** A change from the right-click menu: applied and saved at once (no edit mode needed). */
+  const persist = (fn: (d: Dashboard) => Dashboard) => {
+    if (!dash) return;
+    const next = fn(dash);
+    setDashboards((ds) => ds.map((d, i) => (i === current ? next : d)));
+    void cmd("dashboard.put", { dashboard: next }).catch((e: Error) => setError(e.message));
+  };
   const save = () =>
     dash &&
     void cmd("dashboard.put", { dashboard: dash })
@@ -318,6 +328,7 @@ export function DashboardsPage() {
         ) : (
           <button
             className="ghost"
+            title={t.editLayoutHelp}
             onClick={() => {
               refresh(); // the lists the editor offers (looks, groups, faders) are read afresh
               setEdit(true);
@@ -384,11 +395,32 @@ export function DashboardsPage() {
                 e.preventDefault();
                 setSelected(w.id);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                refresh();
+                setMenu({ id: w.id, x: e.clientX, y: e.clientY });
+              }}
             >
               {render(w)}
             </div>
           ))}
         </div>
+      )}
+      {menu && dash?.widgets.some((w) => w.id === menu.id) && (
+        <WidgetMenu
+          key={menu.id}
+          widget={dash.widgets.find((w) => w.id === menu.id)!}
+          at={menu}
+          looks={looks}
+          groups={groups}
+          faders={faders}
+          onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}
+          onRemove={() => {
+            persist((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== menu.id) }));
+            setMenu(null);
+          }}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   );

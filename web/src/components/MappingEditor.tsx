@@ -27,11 +27,11 @@ interface Named {
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
 const ACTIONS = ["look", "dca", "fader", "flash", "section", "program", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
-type Action = (typeof ACTIONS)[number];
+export type Action = (typeof ACTIONS)[number];
 /** Target meaning « no program » (program.select with id null). */
 const NO_PROGRAM = "-";
 
-function actionOf(m: MappingDraft): { action: Action; target: string } {
+export function actionOf(m: MappingDraft): { action: Action; target: string } {
   const id = String(m.on.args.id ?? "");
   if (m.on.command === "look.go") return { action: "look", target: id };
   if (m.on.command === "group.level") return { action: "dca", target: id };
@@ -42,7 +42,7 @@ function actionOf(m: MappingDraft): { action: Action; target: string } {
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
 }
 
-function build(m: MappingDraft, action: Action, target: string): MappingDraft {
+export function build(m: MappingDraft, action: Action, target: string): MappingDraft {
   const base = { ...m, off: undefined, levelArg: undefined };
   switch (action) {
     case "look":

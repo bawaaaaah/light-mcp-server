@@ -893,3 +893,33 @@ table.rules td {
 .added-definitions {
   margin: 0.4em 0;
 }
+
+/* Right-click menu of a dashboard widget (components/WidgetMenu.tsx). */
+.widget-menu {
+  position: fixed;
+  z-index: 50;
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  padding: 0.6em 0.9em 0.8em;
+  display: grid;
+  gap: 0.5em;
+}
+.widget-menu h3 {
+  margin: 0.2em 0;
+  font-size: 0.95rem;
+}
+.widget-menu .field {
+  display: grid;
+  gap: 0.2em;
+}
+.widget-menu .field span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.widget-menu .midi ul {
+  margin: 0.2em 0 0.4em;
+  padding-left: 1.1em;
+}

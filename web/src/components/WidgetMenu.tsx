@@ -1,0 +1,178 @@
+import { useEffect, useRef, useState } from "react";
+import { cmd } from "../api";
+import { useT } from "../App";
+import { slug, uniqueId } from "../util";
+import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
+
+export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
+export type ButtonMode = "trigger" | "latch" | "momentary";
+export interface MenuWidget {
+  id: string;
+  kind: WidgetKind;
+  target?: string;
+  label?: string;
+  mode?: ButtonMode;
+}
+interface Named {
+  id: string;
+  name: string;
+}
+
+/** The MIDI action that plays a widget, as the mapping editor builds it; none for the others. */
+function midiAction(w: MenuWidget): { action: Action; target: string } | undefined {
+  switch (w.kind) {
+    case "look":
+      return w.target ? { action: "look", target: w.target } : undefined;
+    case "group-fader":
+      return w.target ? { action: "dca", target: w.target } : undefined;
+    case "channel-fader":
+      return w.target ? { action: "fader", target: w.target } : undefined;
+    case "section":
+      return w.target ? { action: "section", target: w.target.replace(":", "/") } : undefined;
+    case "blackout":
+      return { action: "blackout", target: "" };
+    case "panic":
+      return { action: "panic", target: "" };
+    case "tap":
+      return { action: "tempo.tap", target: "" };
+    case "stop-all":
+      return { action: "look.stopall", target: "" };
+    default:
+      return undefined;
+  }
+}
+
+const inputText = (i: MappingDraft["input"]) => `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`;
+
+/**
+ * Right-click on a dashboard widget (live, no edit mode): what it drives (look, DCA, fader), its
+ * label and button mode, the MIDI notes or CCs that play it (« Apprendre » adds one), and removal.
+ * Every change is saved at once.
+ */
+export function WidgetMenu({
+  widget,
+  at,
+  looks,
+  groups,
+  faders,
+  onChange,
+  onRemove,
+  onClose,
+}: {
+  widget: MenuWidget;
+  at: { x: number; y: number };
+  looks: Named[];
+  groups: Named[];
+  faders: Named[];
+  onChange: (patch: Partial<MenuWidget>) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const box = useRef<HTMLDivElement>(null);
+  const [label, setLabel] = useState(widget.label ?? "");
+  const [mappings, setMappings] = useState<MappingDraft[]>([]);
+  const [learning, setLearning] = useState(false);
+  const [error, setError] = useState("");
+  const action = midiAction(widget);
+  const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
+  useEffect(() => {
+    loadMappings();
+    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", esc);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const mine = action ? mappings.filter((m) => {
+    const a = actionOf(m);
+    return a.action === action.action && a.target === action.target;
+  }) : [];
+  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" ? groups : [];
+  const learn = () => {
+    if (!action) return;
+    setLearning(true);
+    setError("");
+    void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
+      .then((r) => {
+        const name = widget.label || targets.find((x) => x.id === widget.target)?.name || t.widgetKinds[widget.kind];
+        const draft = { ...newMapping(), label: name, mode: widget.mode ?? (widget.kind === "look" ? "latch" : "trigger"), input: { ...r.input, port: undefined }, feedback: r.input.type === "cc" ? "cc" : "note" } as MappingDraft;
+        const id = uniqueId(slug(`${r.input.type}-${r.input.number}-${name}`, "mapping"), mappings.map((m) => m.id));
+        return cmd("midi.mapping.put", { mapping: { ...build(draft, action.action, action.target), id } });
+      })
+      .then(loadMappings, (e: Error) => setError(e.message))
+      .finally(() => setLearning(false));
+  };
+
+  const left = Math.max(8, Math.min(at.x, window.innerWidth - 340));
+  const top = Math.max(8, Math.min(at.y, window.innerHeight - 380));
+  return (
+    <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
+      <h3>
+        {t.widgetKinds[widget.kind]}
+        {widget.label ? ` · ${widget.label}` : ""}
+      </h3>
+      {targets.length > 0 && (
+        <label className="field">
+          <span>{widget.kind === "look" ? t.assignLook : t.assignTarget}</span>
+          <select value={widget.target ?? ""} onChange={(e) => onChange({ target: e.target.value || undefined })}>
+            <option value="">—</option>
+            {targets.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="field">
+        <span>{t.widgetLabel}</span>
+        <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
+      </label>
+      {(widget.kind === "look" || widget.kind === "blackout") && (
+        <label className="field">
+          <span>{t.mode}</span>
+          <select value={widget.mode ?? "latch"} onChange={(e) => onChange({ mode: e.target.value as ButtonMode })}>
+            {(["latch", "momentary", "trigger"] as const).map((m) => (
+              <option key={m} value={m}>
+                {t.modes[m]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {action && (
+        <div className="midi">
+          <span className="hint">MIDI</span>
+          <ul>
+            {mine.map((m) => (
+              <li key={m.id}>
+                {inputText(m.input)}{" "}
+                <button className="ghost" title={t.delete} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
+                  ✕
+                </button>
+              </li>
+            ))}
+            {mine.length === 0 && <li className="hint">{t.noMidi}</li>}
+          </ul>
+          <button onClick={learn} disabled={learning}>
+            {learning ? t.learning : t.learnMidi}
+          </button>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="danger" onClick={onRemove}>
+          {t.removeWidget}
+        </button>
+        <span className="grow" />
+        <button onClick={onClose}>{t.close}</button>
+      </div>
+    </div>
+  );
+}

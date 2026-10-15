@@ -29,6 +29,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 ## Dashboards
 - Modèle `{id, name, columns, widgets[], notes}`, stocké dans le show et synchronisé entre clients (`light:dashboards`).
 - **Mode édition** (ajouter, déplacer, redimensionner, configurer) et **mode live**.
+- **Clic droit** sur un widget, en mode live comme en édition : ce qu'il pilote (look lancé, DCA, fader de canaux), libellé, mode du bouton, notes et CC MIDI qui le jouent (« Apprendre », retrait), retrait du dashboard ; enregistré aussitôt. Sur tablette (pas de clic droit), passer par le mode édition.
 - **Bascule** par onglets, raccourcis 1‑9, URL `/d/:id`, MIDI, OSC ou sélection d'un chant. On peut dupliquer, importer et exporter.
 - **Groupes de widgets** : on sélectionne des boutons ou faders et on les regroupe en un clic. Le groupe peut être **exclusif** et recevoir **sur demande un fader master** proportionnel ([groups-masters](groups-masters.md)).
 - **Mode par défaut des nouveaux boutons** (Déclencher, Latch, Momentané), réglable par show, dashboard ou groupe.

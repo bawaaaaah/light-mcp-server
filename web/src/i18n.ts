@@ -438,6 +438,14 @@ const fr = {
   useNewShow: "Importer plutôt dans un nouveau show",
   createAndImport: "Créer le show et importer",
   importNewShowDone: "Show créé, importé et ouvert :",
+  widgetSettings: "Réglages du widget",
+  editLayoutHelp: "Modifier la disposition (clic droit sur un bouton, un DCA ou un fader pour le régler)",
+  assignLook: "Look lancé",
+  assignTarget: "Pilote",
+  widgetLabel: "Libellé",
+  noMidi: "aucune note ni CC",
+  learnMidi: "Apprendre une note ou un CC",
+  removeWidget: "Retirer du dashboard",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -878,6 +886,14 @@ const en: typeof fr = {
   useNewShow: "Import into a new show instead",
   createAndImport: "Create the show and import",
   importNewShowDone: "Show created, imported and opened:",
+  widgetSettings: "Widget settings",
+  editLayoutHelp: "Edit the layout (right-click a button, a DCA or a fader to set it up)",
+  assignLook: "Look started",
+  assignTarget: "Drives",
+  widgetLabel: "Label",
+  noMidi: "no note or CC",
+  learnMidi: "Learn a note or a CC",
+  removeWidget: "Remove from the dashboard",
 };
 
 export type Lang = "fr" | "en";

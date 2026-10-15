@@ -216,6 +216,34 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   expect(errors).toEqual([]);
 });
 
+test("right-click on a dashboard button: assign another look, learn a MIDI note for it, no edit mode", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  await button.click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  await expect(menu).toBeVisible();
+  await menu.getByLabel("Look lancé").selectOption("breath");
+  await expect(page.locator(".dgrid .cell button", { hasText: "breath" })).toHaveCount(2); // saved: this button now starts « breath »
+  await menu.getByRole("button", { name: "Apprendre une note ou un CC" }).click();
+  await expect(menu.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
+  await expect(menu).toContainText("note 61 · 1");
+  await page.screenshot({ path: "test-results/widget-menu.png" });
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active).toBe(true);
+  // clean up: the mapping, then the button back to « hole »
+  await menu.locator("li", { hasText: "note 61" }).getByRole("button").click();
+  await expect(menu).toContainText("aucune note ni CC");
+  await menu.getByLabel("Look lancé").selectOption("hole");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await api(page, "look.stopall");
+  expect(((await api(page, "dashboard.list")) as { widgets: { target?: string }[] }[])[0]!.widgets.filter((w) => w.target === "hole").length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
