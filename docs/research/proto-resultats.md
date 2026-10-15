@@ -2,7 +2,7 @@
 
 Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
 
-**Restent à faire sur le Mac** : P8 (Live Set ouvert dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P3 (rack chargé dans Live), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show.
+**Restent à faire sur le Mac** : P8 (Live Set ouvert dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ; les programmes de règles depuis Live (§ 6 ter) ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P3 (rack chargé dans Live), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show. **Fait (2026-10-15, soir)** : plantage simulé, réimport (§ 6 bis) et auto-test, voir la section dédiée.
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
@@ -12,7 +12,7 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 | P3 | Rack `.adg` cloné depuis la coquille | ✅ **validé sur le Mac, charge dans Live** | Rack de 6 chaînes généré depuis **une vraie coquille de Live** (un branch réel, notes 36/37/38/39/60/61) ; chargé sans erreur dans Live 12.4.5. Coquille synthétique `shell-rack.xml` écartée (Live la rejetait, scaffold incomplet) |
 | P4 | Clock et SPP depuis Ableton | ✅ **validé sur le Mac (bus IAC)** | Lecture en boucle : tempo suivi (103→162 BPM, gigue ±0,05), position qui avance (mesure 1.1→1139), transport arrêt↔lecture, sauts gérés |
 | P5 | Aftertouch dans un clip | ✅ **validé sur le Mac** | Enveloppe `chanAT` bien reçue entre `noteOn` et `noteOff` : crête 103 puis décroissance 92/77/58/42/30/19 (fondu/punch d'un clip) |
-| P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu) |
+| P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu, 14/10 et 15/10) |
 | P7 | **RTP-MIDI en pur Node** (sans démon) | ✅ **validé** (Linux et Mac, boucle locale), 🟡 connexion depuis « Configuration audio et MIDI » à tester | Aller-retour p50 0,06 ms (Linux) ; **Mac, 1000 notes : p50 0,037 · p95 0,077 · p99 0,096 · max 0,32 ms** |
 | P8 | **Génération de Live Set** | 🟡 **à ouvrir dans Live** | Repères, clips autonomes, tempo ; XML bien formé ; autres pistes intactes |
 | P9 | **Flux WebSocket** 16 univers vers N écrans | ✅ **validé** (Linux et Mac) | 8 clients à 25 Hz : ~3 % d'un cœur, latence p99 < 1,2 ms ; client lent isolé (Mac : 113 trames sautées pour lui seul, les autres intacts) |
@@ -101,6 +101,18 @@ Le vrai workspace (QLC+ 4.14.4, 31 fixtures, 108 séquences) a été importé pu
 | Définitions manquantes | 4 modèles sans `.qxf` dans la bibliothèque QLC+ (anonymisés) : un PAR « tri flat RGB », un générique 1 canal (poursuite), une machine à fumée 8 canaux, un PAR 9 canaux ; ils sont patchés sans décodage (signalé par l'avertissement « patchée sans décodage ») |
 
 Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import. **Depuis le 2026-10-15** : ils deviennent des **faders de canaux** et les Submasters des DCA ; réimporter le workspace pour en profiter.
+
+## § 6 et 6 bis — reprise, réimport et auto-test (Mac de régie, 2026-10-15, soir)
+macOS 26.6.2, Node 26.7.0, Ableton Live 12.4.6, QLC+ 4.14.4. Serveur lancé par l'app de barre de menus. `npm test` : 263 ✔ ; `npm run test:ui` : 35/36 (la calibration guidée des lyres échoue, déjà avant les changements du jour : à reprendre).
+
+| Étape | Résultat |
+|---|---|
+| **Plantage simulé** (§ 6.6) | `kill -9` du serveur, un look en cours : l'app le relance, **serveur de retour en 2 s**, « Reprise après redémarrage : 1 look(s) » ✅ |
+| **P6** (découverte) | 0 node : le Mac n'était pas sur le réseau lumière. À refaire sur place |
+| **Définitions** | Deux `.qxf` manquaient alors qu'ils sont livrés avec QLC+ (un PAR « tri flat » 5 canaux, la machine à fumée générique) : copiés depuis l'app QLC+, **0 définition manquante**. **Bug corrigé** : le serveur ne lisait `data/fixtures/` qu'au démarrage ; l'import et la bibliothèque relisent maintenant le dossier |
+| **Réimport** (§ 6 bis) | Le show actuel **mélange deux workspaces différents** (A du 14/10 : 31 projecteurs ; B du 15/10 : 25 projecteurs, 10 en commun), B importé par-dessus A sans le remplacer. B a **remplacé le canevas partagé** (101 → 4 cellules) : les looks de A n'allument plus leurs projecteurs. La sauvegarde automatique de cet import garde le canevas de 101 cellules. **Garde-fou ajouté** : un workspace qui partage moins de la moitié des projecteurs du show est refusé (`--force` pour passer outre) ; il ira dans un show à lui |
+| Conflits MIDI | L'import ajoutait des mappings sur des entrées déjà prises par des mappings faits à la main : **corrigé** (les vôtres sont gardés, les autres signalés). Le lint « même entrée » devient un avertissement : le moteur déclenche tous les mappings d'une entrée, comme QLC+ (B a lui-même deux entrées partagées) |
+| **Auto-test** (show restauré tel quel) | **121/121 mappings · latence 0,16 ms p50 / 3,15 ms max · exclusivité ✔** ; cadence : 39 looks de A sans changement observé, à cause du canevas réduit (décision de l'utilisateur en attente) |
 
 ## P4 + P5 — horloge, position et aftertouch depuis Ableton (Mac, bus IAC, 2026-10-14)
 `npm run proto:midi -- --in "QLC+ loop"` en écoute directe du bus IAC pendant que Live tournait en boucle :
