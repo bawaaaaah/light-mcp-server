@@ -83,17 +83,20 @@ lumiere.example.com {
 }
 ```
 
-Avec nginx, garder les en-têtes `Upgrade` (WebSocket de l'interface) et couper la mise en tampon (réponses en flux de MCP) :
+Avec nginx, garder les en-têtes `Upgrade` (WebSocket de l'interface), transmettre l'adresse du client (`X-Forwarded-For`, lu grâce à `trustProxy`), couper la mise en tampon (réponses en flux de MCP) et accepter les gros envois (sauvegardes `.lightshow`, workspaces QLC+) :
 
 ```nginx
 location / {
-  proxy_pass http://127.0.0.1:8790;
+  proxy_pass http://127.0.0.1:8790;   # ou l'adresse du Mac de régie sur le réseau local
   proxy_http_version 1.1;
   proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
   proxy_set_header Upgrade $http_upgrade;
   proxy_set_header Connection "upgrade";
   proxy_buffering off;
   proxy_read_timeout 1h;
+  client_max_body_size 64m;
 }
 ```
 
