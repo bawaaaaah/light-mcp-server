@@ -99,7 +99,10 @@ docs/
 
 ## Authentification et rôles
 - **v1 : PIN par rôle.** L'admin crée les rôles et leurs droits : pages, dashboards, widgets, commandes. Rôles types : admin du lieu, régisseur, bénévole limité, lecture seule.
+- **Jeton maître** (`server.authToken` de `data/machine/config.json`, créé au premier démarrage) : droits d'administrateur, pour les clients MCP, la CLI et l'écran de connexion (choix par défaut). L'app de barre de menus ouvre l'interface avec `#token=<jeton>`.
+- **PIN** : `POST /api/auth/login { pin, role? }`. L'écran de connexion liste les rôles qui ont un PIN (`GET /api/auth/login-roles`, nom et identifiant seulement) et n'essaie que celui choisi. 5 PIN faux par minute et par adresse, puis 429. Un **lien de partage** `#user=<rôle>&pin=<PIN>` connecte d'un clic ; le fragment n'est jamais envoyé au serveur.
 - Les droits s'appliquent à **l'UI, au WS, au MCP (token par rôle) et à l'OSC** (liste d'IP autorisées ou mot de passe).
+- **Réseau** : `server.port` (8790) et `server.host` (`0.0.0.0`, toutes les interfaces ; `127.0.0.1` derrière un reverse proxy sur la même machine). Ordre : option `--port`/`--host`, puis `PORT`, puis le fichier. `server.publicUrl` : l'adresse publique, dont l'origine peut ouvrir le WebSocket.
 - **Plus tard** : comptes nominatifs (mot de passe ou passkey, journal par personne) et liens ou QR secrets.
 
 ## Déploiement et dimensionnement

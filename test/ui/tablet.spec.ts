@@ -8,11 +8,12 @@ for (const [label, viewport] of [
   test(`tablet ${label}: no page is wider than the screen`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
+    await page.locator("form.pin-login select").selectOption("admin");
     await page.getByPlaceholder(/PIN/).fill("9999");
-    await page.getByRole("button", { name: /Entrer|Enter/ }).click();
+    await page.locator("form.pin-login button").click();
     await expect(page.locator("header.top")).toBeVisible();
     const wide: string[] = [];
-    for (const name of ["Live", "Show", "Lieu", "Chants", "MIDI", "OSC", "Import", "Notes", "Réglages", "Console DMX"]) {
+    for (const name of ["Live", "Show", "Lieu", "Chants", "MIDI", "OSC", "Import", "Notes", "Connexion IA", "Réglages", "Console DMX"]) {
       await page.locator("header nav button", { hasText: name }).first().click();
       await page.waitForTimeout(150);
       const width = await page.evaluate<number>("document.documentElement.scrollWidth");

@@ -17,9 +17,25 @@ enum AppSettings {
     return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
   }
 
+  /// A `port` default overrides `server.port` of data/machine/config.json (the server's own
+  /// setting, see src/core/env.ts), which overrides 8790.
   static var port: Int {
+    if let port = portOverride { return port }
+    if let port = serverConfig()?["port"] as? Int, port > 0, port <= 65535 { return port }
+    return 8790
+  }
+
+  private static var portOverride: Int? {
     let port = defaults.integer(forKey: "port")
-    return port > 0 ? port : 8790
+    return port > 0 ? port : nil
+  }
+
+  /// Where this Mac reaches the server: `server.host` when it names one interface, else loopback.
+  static var localHost: String {
+    guard let host = (serverConfig()?["host"] as? String)?.trimmingCharacters(in: .whitespaces),
+      !host.isEmpty, host != "0.0.0.0", host != "::"
+    else { return "127.0.0.1" }
+    return host.contains(":") ? "[\(host)]" : host
   }
 
   static var startServerOnLaunch: Bool {
@@ -34,20 +50,40 @@ enum AppSettings {
   static var dataURL: URL { repoURL.appendingPathComponent("data", isDirectory: true) }
   static var logURL: URL { dataURL.appendingPathComponent("prod.log") }
   static var pidURL: URL { dataURL.appendingPathComponent("menubar.pid") }
-  static var dashboardURL: URL { URL(string: "http://localhost:\(port)")! }
+  /// The web UI, logged in with the master token (`#token=`, read by web/src/api.ts).
+  static var dashboardURL: URL { withToken(URL(string: "http://\(localHost):\(port)/")!) }
+
+  /// The `server` section of data/machine/config.json.
+  private static func serverConfig() -> [String: Any]? {
+    guard
+      let data = try? Data(contentsOf: dataURL.appendingPathComponent("machine/config.json")),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    return json["server"] as? [String: Any]
+  }
+
+  /// `server.authToken`: the master token the server persisted on its first start.
+  static var authToken: String? { serverConfig()?["authToken"] as? String }
+
+  /// The URL with `#token=<authToken>`; the fragment never reaches the server or its logs.
+  private static func withToken(_ url: URL) -> URL {
+    guard let token = authToken,
+      let encoded = token.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed),
+      var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return url }
+    components.percentEncodedFragment = "token=\(encoded)"
+    return components.url ?? url
+  }
 
   /// `server.publicUrl` from data/machine/config.json, unless it is just the localhost default.
   static func publicURL() -> URL? {
     guard
-      let data = try? Data(contentsOf: dataURL.appendingPathComponent("machine/config.json")),
-      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let server = json["server"] as? [String: Any],
-      let value = server["publicUrl"] as? String,
+      let value = serverConfig()?["publicUrl"] as? String,
       let url = URL(string: value),
       let host = url.host,
       host != "localhost", host != "127.0.0.1"
     else { return nil }
-    return url
+    return withToken(url)
   }
 
   /// The environment for node and npm: what the app inherited, with node's own directory first on
@@ -57,7 +93,8 @@ enum AppSettings {
     let nodeDir = nodeURL.resolvingSymlinksInPath().deletingLastPathComponent().path
     let inherited = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "\(nodeDir):\(nodeURL.deletingLastPathComponent().path):\(inherited)"
-    env["PORT"] = String(port)
+    // Without an override the server reads server.port itself; an inherited PORT would beat it.
+    if let port = portOverride { env["PORT"] = String(port) } else { env.removeValue(forKey: "PORT") }
     return env
   }
 

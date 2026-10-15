@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { login, logout, me, type Role } from "./api";
+import { ApiError, can, login, loginRoles, loginWithToken, logout, restoreSession, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -13,32 +13,81 @@ import { OscPage } from "./pages/Osc";
 import { VenuePage } from "./pages/Venue";
 import { NotesPage } from "./pages/Notes";
 import { SettingsPage } from "./pages/Settings";
+import { ConnectPage } from "./pages/Connect";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 
-type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "settings";
-const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "settings"];
+type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "connect" | "settings";
+const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "connect", "settings"];
+/** Pages a role sees only with a right; the others are for every role. */
+const PAGE_RIGHTS: Partial<Record<Page, string>> = { connect: "mcp:use" };
 
-function Login({ onLogin, t }: { onLogin: (r: Role) => void; t: Texts }) {
+/** A refused PIN reads as such; anything else (too many tries) keeps the server's words. */
+const pinError = (e: unknown, t: Texts) => (e instanceof ApiError && e.status !== 401 ? e.message : t.badPin);
+
+/** The master token first (default), then a PIN for a user picked below. */
+function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; t: Texts; initialError?: string }) {
+  const [token, setToken] = useState("");
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  const [user, setUser] = useState("");
   const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const submit = async (e: React.FormEvent) => {
+  const [error, setError] = useState(initialError);
+  useEffect(() => {
+    void loginRoles()
+      .then((u) => {
+        setUsers(u);
+        setUser(u[0]?.id ?? "");
+      })
+      .catch(() => setUsers([]));
+  }, []);
+  const submitToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const role = await loginWithToken(token.trim());
+    if (role) onLogin(role);
+    else {
+      setError(t.badToken);
+      setToken("");
+    }
+  };
+  const submitPin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      onLogin(await login(pin));
-    } catch {
-      setError(t.badPin);
+      onLogin(await login(pin, user || undefined));
+    } catch (err) {
+      setError(pinError(err, t));
       setPin("");
     }
   };
   return (
-    <form className="login" onSubmit={submit}>
+    <div className="login">
       <h1>{t.appName}</h1>
-      <input autoFocus inputMode="numeric" type="password" placeholder={t.pin} value={pin} onChange={(e) => setPin(e.target.value)} />
-      <button type="submit">{t.login}</button>
+      <form className="token-login" onSubmit={submitToken}>
+        <input autoFocus type="password" autoComplete="off" placeholder={t.token} value={token} onChange={(e) => setToken(e.target.value)} />
+        <button type="submit" disabled={!token.trim()}>
+          {t.login}
+        </button>
+      </form>
+      <h2>{t.orPin}</h2>
+      {users.length === 0 ? (
+        <p className="hint">{t.noPins}</p>
+      ) : (
+        <form className="pin-login" onSubmit={submitPin}>
+          <select aria-label={t.user} value={user} onChange={(e) => setUser(e.target.value)}>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+          <input inputMode="numeric" type="password" placeholder={t.pin} value={pin} onChange={(e) => setPin(e.target.value)} />
+          <button type="submit" disabled={!pin}>
+            {t.login}
+          </button>
+        </form>
+      )}
       {error && <p className="error">{error}</p>}
-    </form>
+    </div>
   );
 }
 
@@ -46,16 +95,16 @@ export function App() {
   const [lang, setLang] = useState<Lang>(initialLang());
   const [role, setRole] = useState<Role | null>(null);
   const [checked, setChecked] = useState(false);
+  const [linkError, setLinkError] = useState("");
   const [up, setUp] = useState(false);
   const output = useTopic<{ standby?: boolean; foreignSources?: string[]; program?: string | null } | null>("light:state", null);
   const [page, setPage] = useState<Page>(() => (PAGES.includes(location.hash.slice(1) as Page) ? (location.hash.slice(1) as Page) : "live"));
   const t = TEXTS[lang];
 
   useEffect(() => {
-    void me().then((r) => {
-      setRole(r);
-      setChecked(true);
-    });
+    void restoreSession()
+      .then(setRole, (err: unknown) => setLinkError(pinError(err, TEXTS[lang])))
+      .finally(() => setChecked(true));
   }, []);
   useEffect(() => {
     if (!role) return;
@@ -82,12 +131,13 @@ export function App() {
   };
 
   if (!checked) return null;
-  if (!role) return <Login t={t} onLogin={setRole} />;
+  if (!role) return <Login t={t} onLogin={setRole} initialError={linkError} />;
+  const pages = PAGES.filter((p) => !PAGE_RIGHTS[p] || can(role, PAGE_RIGHTS[p]));
   return (
     <I18n.Provider value={t}>
       <header className="top">
         <nav>
-          {PAGES.map((p) => (
+          {pages.map((p) => (
             <button key={p} className={p === page ? "tab active" : "tab"} onClick={() => setPage(p)}>
               {t[p]}
             </button>
@@ -135,6 +185,7 @@ export function App() {
         {page === "osc" && <OscPage />}
         {page === "import" && <ImportPage />}
         {page === "notes" && <NotesPage />}
+        {page === "connect" && pages.includes("connect") && <ConnectPage role={role} />}
         {page === "settings" && <SettingsPage />}
       </main>
     </I18n.Provider>

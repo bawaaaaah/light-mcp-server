@@ -4,6 +4,13 @@ export interface Role {
   id: string;
   name: string;
   rights: string[];
+  /** "static": signed in with the master token (server.authToken); "session": with a PIN. */
+  kind?: "static" | "session";
+}
+
+/** Same rule as the server's rightMatches (src/core/auth.ts): "*" and "area:*" grant wholesale. */
+export function can(role: Role, right: string): boolean {
+  return role.rights.some((g) => g === "*" || g === right || (g.endsWith(":*") && right.startsWith(g.slice(0, -1))));
 }
 
 export class ApiError extends Error {
@@ -20,6 +27,25 @@ try {
   token = sessionStorage.getItem("token");
 } catch {
   token = null;
+}
+/**
+ * Links that sign in: `#token=<authToken>` (menu bar app) with the master token, and
+ * `#user=<role>&pin=<PIN>` (share link, Settings) with a PIN. Read once, then wiped from the
+ * address bar and its history entry. A fragment never reaches the server or its logs.
+ */
+const link = /^#(token|user|pin)=/.test(location.hash) ? new URLSearchParams(location.hash.slice(1)) : null;
+if (link) history.replaceState(null, "", location.pathname + location.search);
+const linkToken = link?.get("token");
+const linkPin = link?.get("pin") ? { pin: link.get("pin")!, user: link.get("user") ?? undefined } : null;
+if (linkToken) setToken(linkToken);
+// Pasted into a tab already on the app, a link only changes the fragment: reload to read it.
+window.addEventListener("hashchange", () => {
+  if (/^#(token|user|pin)=/.test(location.hash)) location.reload();
+});
+
+/** A sign-in link for a user: anyone who opens it enters with that role (until the PIN changes). */
+export function shareLink(base: string, user: string, pin: string): string {
+  return `${base.replace(/\/$/, "")}/#${new URLSearchParams({ user, pin }).toString()}`;
 }
 
 export function getToken(): string | null {
@@ -42,10 +68,30 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export async function login(pin: string): Promise<Role> {
-  const r = await json<{ token: string; role: Role }>(await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin }) }));
+export async function login(pin: string, role?: string): Promise<Role> {
+  const r = await json<{ token: string; role: Role }>(await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, role }) }));
   setToken(r.token);
   return r.role;
+}
+
+/** Logs in with the master token (server.authToken); resolves to null when it is refused. */
+export async function loginWithToken(t: string): Promise<Role | null> {
+  setToken(t);
+  return me();
+}
+
+export async function loginRoles(): Promise<{ id: string; name: string }[]> {
+  return json(await fetch("/api/auth/login-roles"));
+}
+
+/** On load: the PIN of a share link, else the stored session. Throws when the link's PIN is refused. */
+export async function restoreSession(): Promise<Role | null> {
+  if (linkPin) return login(linkPin.pin, linkPin.user);
+  return me();
+}
+
+export async function serverInfo(): Promise<{ version: string; publicUrl: string | null }> {
+  return json(await fetch("/api/server", { headers: { authorization: `Bearer ${token}` } }));
 }
 
 export async function me(): Promise<Role | null> {
@@ -58,9 +104,11 @@ export async function me(): Promise<Role | null> {
   }
 }
 
+/** Forgets the token here first, so leaving the page right away cannot sign back in. */
 export async function logout(): Promise<void> {
-  if (token) await fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${token}` } }).catch(() => undefined);
+  const old = token;
   setToken(null);
+  if (old) await fetch("/api/auth/logout", { method: "POST", headers: { authorization: `Bearer ${old}` } }).catch(() => undefined);
 }
 
 export async function wsTicket(): Promise<string> {

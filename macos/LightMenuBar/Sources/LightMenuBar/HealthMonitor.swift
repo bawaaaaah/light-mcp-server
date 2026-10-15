@@ -31,7 +31,7 @@ final class HealthMonitor {
   }
 
   func check(completion: (@MainActor @Sendable (String?) -> Void)? = nil) {
-    let url = URL(string: "http://127.0.0.1:\(AppSettings.port)/health")!
+    let url = URL(string: "http://\(AppSettings.localHost):\(AppSettings.port)/health")!
     session.dataTask(with: url) { data, response, _ in
       var status: String?
       if let data, (response as? HTTPURLResponse)?.statusCode == 200,

@@ -10,10 +10,14 @@ function watchErrors(page: Page): string[] {
   return errors;
 }
 
+/** PINs set by test/ui/server.ts, and the user each one belongs to. */
+const PIN_USERS: Record<string, string> = { "1234": "regisseur", "9999": "admin", "5678": "benevole" };
+
 async function login(page: Page, pin = "1234"): Promise<void> {
   await page.goto("/");
+  await page.locator("form.pin-login select").selectOption(PIN_USERS[pin]!);
   await page.getByPlaceholder(/PIN/).fill(pin);
-  await page.getByRole("button", { name: /Entrer|Enter/ }).click();
+  await page.locator("form.pin-login button").click();
   await expect(page.locator("header.top")).toBeVisible();
 }
 
@@ -37,14 +41,73 @@ async function api(page: Page, name: string, args: unknown = {}): Promise<unknow
   );
 }
 
+test("signs in with the token by default, and the menu bar's token link signs in at once", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto("/");
+  await page.getByPlaceholder(/Jeton/).fill("ui-test-token");
+  await page.locator("form.token-login button").click();
+  await expect(page.locator(".role")).toHaveText("Administrateur du lieu");
+  await page.screenshot({ path: "test-results/login-token.png" });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await expect(page.locator("form.token-login")).toBeVisible();
+  await page.screenshot({ path: "test-results/login.png" });
+  await page.goto("about:blank");
+  await page.goto("/#token=ui-test-token");
+  await expect(page.locator(".role")).toHaveText("Administrateur du lieu");
+  expect(page.url()).not.toContain("ui-test-token");
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
+test("share link: Settings builds it from a user and a PIN, and it signs in as that user", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  const share = page.locator(".share-link");
+  await share.locator("select").selectOption("benevole");
+  await share.getByPlaceholder("PIN").fill("5678");
+  const link = (await share.locator("code.link").textContent())!;
+  expect(link).toMatch(/\/#user=benevole&pin=5678$/);
+  await page.screenshot({ path: "test-results/share-link.png", fullPage: true });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await expect(page.locator("form.token-login")).toBeVisible();
+  await page.goto("about:blank");
+  await page.goto(link);
+  await expect(page.locator(".role")).toHaveText("Bénévole");
+  expect(page.url()).not.toContain("pin=");
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await expect(page.locator("form.token-login")).toBeVisible();
+  await page.goto("about:blank");
+  await page.goto(link.replace("5678", "0001"));
+  await expect(page.getByText(/PIN incorrect/)).toBeVisible();
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
+test("AI connection page: the token holder gets ready-to-paste snippets, a volunteer has no such page", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto("/#token=ui-test-token");
+  await page.locator("header nav button", { hasText: "Connexion IA" }).click();
+  await expect(page.locator(".connect-fields")).toContainText("/mcp");
+  await expect(page.locator(".code-block").first()).toContainText("claude mcp add --transport http light");
+  await expect(page.locator(".code-block").first()).not.toContainText("ui-test-token");
+  await page.getByRole("button", { name: "Afficher" }).click();
+  await expect(page.locator(".connect-fields")).toContainText("ui-test-token");
+  await page.screenshot({ path: "test-results/connect.png", fullPage: true });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await expect(page.locator("form.token-login")).toBeVisible();
+  await login(page, "5678");
+  await expect(page.locator("header nav button", { hasText: "Connexion IA" })).toHaveCount(0);
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
+  await page.locator("form.pin-login select").selectOption("regisseur");
   await page.getByPlaceholder(/PIN/).fill("0000");
-  await page.getByRole("button", { name: /Entrer|Enter/ }).click();
+  await page.locator("form.pin-login button").click();
   await expect(page.getByText(/PIN incorrect|Wrong PIN/)).toBeVisible();
   await page.getByPlaceholder(/PIN/).fill("1234");
-  await page.getByRole("button", { name: /Entrer|Enter/ }).click();
+  await page.locator("form.pin-login button").click();
   await expect(page.locator(".role")).toHaveText("Régisseur");
   await expect(page.locator(".dot.ok")).toBeVisible(); // WebSocket connected
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);

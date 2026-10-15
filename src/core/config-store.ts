@@ -14,6 +14,9 @@ export interface PersistedConfigFile {
   server: {
     authToken?: string;
     publicUrl?: string;
+    /** HTTP port and interface, edited by hand (core/env.ts, resolveListen). */
+    port?: unknown;
+    host?: unknown;
     oauthClients?: Record<string, unknown>;
     oauthTokens?: unknown;
     passkeys?: unknown;
@@ -35,6 +38,10 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
   server: z.object({
     authToken: z.string().optional(),
     publicUrl: z.string().optional(),
+    // Where the gateway listens (core/env.ts). Validated by their getters: a mistyped port must be
+    // ignored, not make this whole file look corrupt and take the auth token down with it.
+    port: z.unknown().optional(),
+    host: z.unknown().optional(),
     // Dynamically-registered OAuth clients (core/oauth.ts) — kept loosely typed rather than
     // mirroring the SDK's OAuthClientInformationFull shape here, same rationale as `plugins` below.
     oauthClients: z.record(z.unknown()).optional(),
@@ -171,6 +178,18 @@ export class ConfigStore {
   async setServerPublicUrl(url: string): Promise<void> {
     this.data.server.publicUrl = url;
     await this.persist();
+  }
+
+  /** `server.port` when it is a valid TCP port (0 = any free port), else undefined. */
+  getServerPort(): number | undefined {
+    const port = this.data.server.port;
+    return typeof port === "number" && Number.isInteger(port) && port >= 0 && port <= 65535 ? port : undefined;
+  }
+
+  /** `server.host`: the interface to listen on ("0.0.0.0" = every one, "127.0.0.1" = this machine). */
+  getServerHost(): string | undefined {
+    const host = this.data.server.host;
+    return typeof host === "string" && host.trim() ? host.trim() : undefined;
   }
 
   // Survives restarts so a remote OAuth client (e.g. claude.ai's connector) that already completed

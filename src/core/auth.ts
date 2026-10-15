@@ -2,8 +2,9 @@
  * Authentication and roles (docs/architecture.md, "Authentification et rôles").
  *
  * - A master token (admin) for MCP clients and the CLI, as in wing-mcp-server.
- * - Roles with a PIN (v1): POST /api/auth/login { pin } opens a session whose bearer token carries
- *   the role. Rights are checked by `can(credential, right)`.
+ * - Roles with a PIN (v1): POST /api/auth/login { pin, role? } opens a session whose bearer token
+ *   carries the role. Rights are checked by `can(credential, right)`. Failed PINs are limited per
+ *   client address, since a short PIN would otherwise be guessed in seconds once exposed.
  * - Short-lived single-use WebSocket tickets (same contract as wing's AuthMiddleware, so the WS hub
  *   is reused unchanged).
  * Accounts and secret links/QR are planned later.
@@ -89,11 +90,15 @@ export interface AuthMiddleware {
 
 const STREAM_TICKET_TTL_MS = 30_000;
 const SESSION_TTL_MS = 12 * 3600_000;
+/** Wrong PINs allowed per client address within the window, before logins answer 429. */
+const MAX_PIN_FAILURES = 5;
+const PIN_FAILURE_WINDOW_MS = 60_000;
 
 export class AuthService implements AuthMiddleware {
   private state: AuthState = { roles: DEFAULT_ROLES };
   private readonly sessions = new Map<string, { roleId: string; expiresAt: number }>();
   private readonly tickets = new Map<string, { credential: string; expiresAt: number }>();
+  private readonly pinFailures = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
     private readonly masterToken: string,
@@ -119,10 +124,31 @@ export class AuthService implements AuthMiddleware {
     await this.configStore?.setAuthState(this.state);
   }
 
-  /** Opens a session for the role whose PIN matches. */
-  login(pin: string): { token: string; role: Role } {
-    const role = this.state.roles.find((r) => r.pinHash && verifyPin(pin, r.pinHash));
-    if (!role) throw new HttpError(401, "PIN incorrect");
+  /** Roles that can log in with a PIN, for the login screen (no rights, no hash). */
+  loginRoles(): { id: string; name: string }[] {
+    return this.state.roles.filter((r) => r.pinHash).map((r) => ({ id: r.id, name: r.name }));
+  }
+
+  /**
+   * Opens a session for the role whose PIN matches; with `roleId`, only that role is tried.
+   * `client` (the caller's address) counts the wrong PINs: past MAX_PIN_FAILURES, 429 until the
+   * window ends, even for the right PIN.
+   */
+  login(pin: string, roleId?: string, client = ""): { token: string; role: Role } {
+    const now = this.now();
+    for (const [c, e] of this.pinFailures) if (e.resetAt <= now) this.pinFailures.delete(c);
+    const failures = this.pinFailures.get(client);
+    if (failures && failures.count >= MAX_PIN_FAILURES) {
+      throw new HttpError(429, `trop d'essais : réessayer dans ${Math.ceil((failures.resetAt - now) / 1000)} s`);
+    }
+    const role = this.state.roles.find((r) => (!roleId || r.id === roleId) && r.pinHash && verifyPin(pin, r.pinHash));
+    if (!role) {
+      const entry = this.pinFailures.get(client) ?? { count: 0, resetAt: now + PIN_FAILURE_WINDOW_MS };
+      entry.count++;
+      this.pinFailures.set(client, entry);
+      throw new HttpError(401, "PIN incorrect");
+    }
+    this.pinFailures.delete(client);
     const token = crypto.randomBytes(24).toString("base64url");
     this.sessions.set(token, { roleId: role.id, expiresAt: this.now() + SESSION_TTL_MS });
     return { token, role };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { cmd, getToken } from "../api";
+import { cmd, getToken, serverInfo, shareLink } from "../api";
 import { useT } from "../App";
+import { CopyButton } from "../components/Copy";
 
 interface Role {
   id: string;
@@ -29,6 +30,8 @@ export function SettingsPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [output, setOutput] = useState<Output | null>(null);
   const [message, setMessage] = useState("");
+  const [share, setShare] = useState({ user: "", pin: "" });
+  const [publicUrl, setPublicUrl] = useState<string | null>(null);
 
   const loadRoles = () =>
     void fetch("/api/auth/roles", { headers: { authorization: `Bearer ${getToken()}` } })
@@ -36,6 +39,9 @@ export function SettingsPage() {
       .then(setRoles);
   useEffect(() => {
     loadRoles();
+    void serverInfo()
+      .then((s) => setPublicUrl(s.publicUrl))
+      .catch(() => undefined);
     const load = () => {
       void cmd<Node[]>("nodes.list").then(setNodes).catch(() => undefined);
       void cmd<Output>("output.status").then(setOutput).catch(() => undefined);
@@ -51,6 +57,12 @@ export function SettingsPage() {
     setPins({ ...pins, [id]: "" });
     loadRoles();
   };
+
+  const withPin = roles?.filter((r) => r.pinHash) ?? [];
+  const shareUser = share.user || withPin[0]?.id || "";
+  const base = publicUrl ?? location.origin;
+  const link = shareUser && share.pin ? shareLink(base, shareUser, share.pin) : "";
+  const localOnly = !publicUrl && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 
   return (
     <div className="settings">
@@ -125,6 +137,28 @@ export function SettingsPage() {
               ))}
             </tbody>
           </table>
+          {withPin.length > 0 && (
+            <div className="share-link">
+              <h2>{t.shareTitle}</h2>
+              <p className="hint">{t.shareHelp}</p>
+              <div className="row">
+                <select aria-label={t.user} value={shareUser} onChange={(e) => setShare({ ...share, user: e.target.value })}>
+                  {withPin.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <input type="password" inputMode="numeric" placeholder="PIN" aria-label={t.sharePin} value={share.pin} onChange={(e) => setShare({ ...share, pin: e.target.value })} />
+              </div>
+              {link && (
+                <p className="row">
+                  <code className="link">{link}</code> <CopyButton text={link} />
+                </p>
+              )}
+              {localOnly && <p className="warn">{t.shareLocal}</p>}
+            </div>
+          )}
         </section>
       </div>
     </div>

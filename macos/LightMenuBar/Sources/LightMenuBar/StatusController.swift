@@ -137,7 +137,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     menu.addItem(item("Ouvrir l'interface", #selector(openDashboard), enabled: true))
     if let url = AppSettings.publicURL() {
       let publicItem = item("Ouvrir l'adresse publique", #selector(openPublicURL), enabled: true)
-      publicItem.toolTip = url.absoluteString
+      publicItem.toolTip = url.absoluteString.components(separatedBy: "#").first
       menu.addItem(publicItem)
     }
     menu.addItem(item("Afficher les journaux", #selector(showLogs), enabled: true))

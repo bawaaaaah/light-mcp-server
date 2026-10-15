@@ -84,6 +84,25 @@ describe("server end to end", function () {
     expect(res.status).to.equal(401);
   });
 
+  it("lists the users who have a PIN, and only tries the one picked", async () => {
+    const users = (await (await fetch(`${base}/api/auth/login-roles`)).json()) as { id: string; name: string; rights?: unknown }[];
+    expect(users.map((u) => u.id)).to.have.members(["regisseur", "benevole"]);
+    expect(users[0]).to.not.have.property("rights");
+    const as = (pin: string, role: string) => fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, role }) });
+    expect((await as("1234", "benevole")).status).to.equal(401);
+    const res = await as("1234", "regisseur");
+    expect(res.status).to.equal(200);
+    expect(((await res.json()) as { role: { id: string } }).role.id).to.equal("regisseur");
+  });
+
+  it("tells the master token from a PIN session", async () => {
+    const me = async (token: string) => ((await (await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${token}` } })).json()) as { id: string; kind: string });
+    expect(await me(running.masterToken)).to.include({ id: "admin", kind: "static" });
+    expect(await me(await login("1234"))).to.include({ id: "regisseur", kind: "session" });
+    const info = (await (await fetch(`${base}/api/server`, { headers: { authorization: `Bearer ${running.masterToken}` } })).json()) as { publicUrl: string | null };
+    expect(info.publicUrl).to.equal(null);
+  });
+
   it("parks a channel from HTTP and the Art-Net node receives it quickly", async () => {
     const token = await login("1234");
     const t0 = performance.now();

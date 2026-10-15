@@ -3,7 +3,7 @@
 Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/src/ws/client.ts` : enveloppe `t/id/topic`, corrélation req/res, réabonnement automatique). **FR + EN dès la v1** : tous les textes passent par `web/src/i18n`. Dark mode, raccourcis clavier partout, undo illimité, autosave, assistant de premier démarrage (Lightkey).
 
 ## Rôles et visibilité
-- Connexion **par PIN** en v1. Comptes nominatifs et liens/QR viendront plus tard ([architecture](../architecture.md)).
+- **Connexion** : d'abord le **jeton d'authentification** (`server.authToken`, droits d'administrateur), puis, en dessous, un **PIN** pour un utilisateur choisi dans la liste (seuls les rôles qui ont un PIN y figurent). Deux liens connectent directement, puis s'effacent de la barre d'adresse : `#token=<jeton>` (app de barre de menus) et `#user=<rôle>&pin=<PIN>` (**lien de partage**, créé dans Réglages). Les essais de PIN sont limités à 5 par minute et par adresse. Comptes nominatifs et QR viendront plus tard ([architecture](../architecture.md)).
 - Chaque rôle voit seulement les pages, dashboards et widgets autorisés. Un widget interdit est masqué ou grisé.
 
 ## Pages
@@ -21,7 +21,8 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 | **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton |
 | **OSC** | explorateur d'adresses (recherche, copier), export de la table |
 | **Notes** | recherche globale |
-| **Réglages** | réseau, tempo, rôles et PIN, plugins (formulaires générés), langue, **sauvegarde** |
+| **Connexion IA** | adresse MCP et jeton (masqué, à copier), marche à suivre par client (Claude Code, Claude Desktop, claude.ai, stdio, Inspector, curl), publication derrière un reverse proxy ; réservée aux rôles qui ont `mcp:use` |
+| **Réglages** | réseau, tempo, rôles et PIN, **liens de partage** (utilisateur + PIN), plugins (formulaires générés), langue, **sauvegarde** |
 
 ## Dashboards
 - Modèle `{id, name, columns, widgets[], notes}`, stocké dans le show et synchronisé entre clients (`light:dashboards`).

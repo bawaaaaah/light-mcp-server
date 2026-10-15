@@ -2,6 +2,8 @@
 
 Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**, outils définis avec zod, **profils** d'outils pour limiter les tokens. Tous les outils passent par la **couche de commandes** et respectent les **droits du rôle** du token MCP.
 
+**Brancher un client** : en-tête `Authorization: Bearer <jeton>` (le jeton de `npm run light -- token`). La page **Connexion IA** de l'interface donne l'adresse, le jeton et la marche à suivre par client ; le [README](../../README.md#connecter-un-client-mcp) aussi. Hors du réseau local, le serveur se publie derrière un reverse proxy HTTPS (`server.publicUrl`, `server.host`, `server.port`). Pas encore d'OAuth : claude.ai (web), qui l'exige, attendra ; Claude Desktop et Claude Code passent par l'en-tête.
+
 **Priorité (analyse critique) : la conception d'abord.** La vraie valeur de l'IA est de préparer, générer, vérifier et documenter les shows. Le pilotage en direct par l'IA viendra plus tard.
 
 ## Périmètre

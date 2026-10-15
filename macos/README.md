@@ -9,8 +9,10 @@ d'icône dans le Dock. Elle reprend celle de [wing-mcp-server](https://github.co
 - le **Redémarrer** ;
 - **Recompiler et redémarrer** : lance `npm run build`. Le serveur en marche continue de servir pendant
   la compilation et ne redémarre que si elle réussit. Sinon, une alerte montre la fin de la sortie ;
-- **Ouvrir l'interface** (`http://localhost:<port>`) et **Ouvrir l'adresse publique** (`server.publicUrl`
-  de `data/machine/config.json`, seulement si elle est définie) ;
+- **Ouvrir l'interface** (`http://127.0.0.1:<port>`) et **Ouvrir l'adresse publique** (`server.publicUrl`
+  de `data/machine/config.json`, seulement si elle est définie). Les deux liens portent le jeton
+  d'authentification (`#token=…`, lu dans `server.authToken`) : l'interface s'ouvre déjà connectée en
+  administrateur. Le jeton reste dans le navigateur, il n'est jamais envoyé au serveur dans l'adresse ;
 - **Afficher les journaux** : ouvre `data/prod.log` dans Console. La sortie du serveur, celle de la
   compilation et les lignes `[menubar]` de l'app y vont toutes ;
 - **Lancer le serveur à l'ouverture de l'app** (activé par défaut) et **Ouvrir à la connexion**.
@@ -57,8 +59,12 @@ Ouverture.
 
 ## Réglages
 
-La compilation inscrit le chemin du dépôt et le `node` trouvé. Pour les changer, ou changer le port
-(8790 par défaut), utiliser `defaults`, puis quitter et rouvrir l'app :
+Le port et l'interface d'écoute se règlent dans `data/machine/config.json` (`server.port`,
+`server.host`, voir [install.md](../docs/install.md#port-et-interface-réseau)) : l'app lit le même
+fichier pour sa surveillance et ses liens. Un port réglé par `defaults` passe avant celui du fichier.
+
+La compilation inscrit le chemin du dépôt et le `node` trouvé. Pour les changer, ou imposer un port,
+utiliser `defaults`, puis quitter et rouvrir l'app :
 
 ```bash
 defaults write com.bawaaaaah.light-mcp-menubar port -int 8790

@@ -4,6 +4,7 @@
  * is never a second writer on a show a server is using.
  */
 import { ConfigStore } from "../core/config-store.js";
+import { localBaseUrl, resolveListen } from "../core/env.js";
 import { EventBus } from "../core/event-bus.js";
 import { LightPlugin, PLUGIN_ID } from "../plugins/light/light-plugin.js";
 import { systemContext } from "../plugins/light/commands/registry.js";
@@ -31,7 +32,9 @@ async function reachable(base: string): Promise<boolean> {
 }
 
 export async function connect(opts: { configPath: string; dataRoot: string; url?: string; token: () => Promise<string>; offline?: boolean }): Promise<Caller> {
-  const base = (opts.url ?? process.env.LIGHT_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8790}`).replace(/\/$/, "");
+  const store = new ConfigStore({ filePath: opts.configPath });
+  await store.load();
+  const base = (opts.url ?? process.env.LIGHT_URL ?? localBaseUrl(resolveListen({ port: store.getServerPort(), host: store.getServerHost() }))).replace(/\/$/, "");
   if (!opts.offline && (await reachable(base))) {
     const token = await opts.token();
     const http = (route: string, init: RequestInit = {}) => fetch(`${base}/api/plugins/light${route}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
@@ -47,8 +50,6 @@ export async function connect(opts: { configPath: string; dataRoot: string; url?
       close: async () => undefined,
     };
   }
-  const store = new ConfigStore({ filePath: opts.configPath });
-  await store.load();
   const plugin = new LightPlugin({ eventBus: new EventBus(), config: store.scoped(PLUGIN_ID), dataRoot: opts.dataRoot, midiNative: null });
   return {
     mode: "offline",

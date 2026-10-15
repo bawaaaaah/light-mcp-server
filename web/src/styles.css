@@ -76,11 +76,28 @@ h2 {
   color: var(--warn);
 }
 .login {
-  max-width: 260px;
+  max-width: 300px;
   margin: 18vh auto;
   display: grid;
   gap: 0.8em;
   text-align: center;
+}
+.login form {
+  display: grid;
+  gap: 0.6em;
+}
+/* A token is long and not typed by hand: no PIN-sized digits. */
+.login .token-login input {
+  font-size: 1rem;
+  letter-spacing: normal;
+}
+.login h2 {
+  font-size: 1rem;
+  margin: 0.6em 0 0;
+}
+.login select {
+  font-size: 1.1rem;
+  padding: 0.4em;
 }
 .login input {
   font-size: 1.6rem;
@@ -768,3 +785,39 @@ table.rules td {
 .raw-steps th { font-weight: normal; font-size: 0.85em; }
 .raw-steps th, .raw-steps td { padding: 2px 8px; }
 .mode-mark { opacity: 0.6; }
+
+/* Copy-to-clipboard snippets (components/Copy.tsx). */
+.code-block {
+  position: relative;
+  margin: 0.5em 0;
+}
+.code-block pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7em 0.9em;
+  padding-right: 5.5em;
+  overflow-x: auto;
+  white-space: pre;
+}
+.code-block .copy {
+  position: absolute;
+  top: 0.4em;
+  right: 0.4em;
+}
+.connect {
+  max-width: 60em;
+}
+.connect-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5em 1em;
+  align-items: center;
+}
+.connect-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.share-link code.link {
+  overflow-wrap: anywhere;
+}

@@ -5,6 +5,7 @@
 import { configPath, dataRoot, webRoot } from "./core/paths.js";
 import { AuthService, resolveAuthToken } from "./core/auth.js";
 import { ConfigStore } from "./core/config-store.js";
+import { resolveListen } from "./core/env.js";
 import { EventBus } from "./core/event-bus.js";
 import { Gateway } from "./core/gateway.js";
 import { redirectConsoleToStderr, StdioEndpoint } from "./core/stdio-endpoint.js";
@@ -47,7 +48,8 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
 
   let gateway: Gateway | undefined;
   if (opts.http !== false) {
-    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, port: opts.port ?? Number(process.env.PORT ?? 8790), host: opts.host, webRoot: webRoot(), log });
+    const listen = resolveListen({ port: configStore.getServerPort(), host: configStore.getServerHost() }, { port: opts.port, host: opts.host });
+    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, ...listen, publicUrl: configStore.getServerPublicUrl(), webRoot: webRoot(), log });
     await gateway.start();
   }
   let stdio: StdioEndpoint | undefined;

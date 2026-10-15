@@ -31,6 +31,8 @@ export interface GatewayOptions {
   toolVisibility?: ToolVisibilityController;
   port: number;
   host?: string;
+  /** `server.publicUrl`: the address behind a reverse proxy; its origin may open WebSockets. */
+  publicUrl?: string;
   /** Built web UI (web/dist); served when present. */
   webRoot?: string;
   log?: (msg: string) => void;
@@ -78,6 +80,7 @@ export class Gateway {
       plugins: this.opts.plugins,
       eventBus: this.opts.eventBus,
       auth: this.opts.auth,
+      publicUrl: parseUrl(this.opts.publicUrl),
       handleRequest: (req) => replayThroughServer(server, req),
     });
     server.on("upgrade", (req, socket, head) => this.wsHub!.handleUpgrade(req, socket, head));
@@ -107,16 +110,17 @@ export class Gateway {
     app.post("/api/auth/login", express.json(), (req, res) => {
       const pin = bodyString(req.body, "pin");
       if (!pin) throw new HttpError(400, "pin requis");
-      const { token, role } = auth.login(pin);
+      const { token, role } = auth.login(pin, bodyString(req.body, "role"), req.socket.remoteAddress);
       res.json({ token, role: { id: role.id, name: role.name, rights: role.rights, dashboards: role.dashboards } });
     });
+    app.get("/api/auth/login-roles", (_req, res) => res.json(auth.loginRoles()));
     app.post("/api/auth/logout", auth.requireAuth(), (req, res) => {
       auth.logout(auth.bearerOf(req)!);
       res.status(204).end();
     });
     app.get("/api/auth/me", auth.requireAuth(), (req, res) => {
       const role = auth.roleOf(auth.bearerOf(req))!;
-      res.json({ id: role.id, name: role.name, rights: role.rights, dashboards: role.dashboards });
+      res.json({ id: role.id, name: role.name, rights: role.rights, dashboards: role.dashboards, kind: auth.authKind(req) });
     });
     app.post("/api/auth/ws-ticket", auth.requireAuth(), (req, res) => {
       res.json({ ticket: auth.issueStreamTicket(auth.bearerOf(req)!) });
@@ -129,6 +133,9 @@ export class Gateway {
       } catch (err) {
         next(err);
       }
+    });
+    app.get("/api/server", auth.requireAuth(), (_req, res) => {
+      res.json({ version: getPackageVersion(), publicUrl: parseUrl(this.opts.publicUrl)?.origin ?? null });
     });
     app.get("/api/plugins", auth.requireAuth(), async (_req, res) => {
       res.json(await Promise.all(this.opts.plugins.map(async (p) => ({ id: p.id, name: p.name, health: await p.getHealth() }))));
@@ -225,5 +232,14 @@ export class Gateway {
     };
     this.app.get("/mcp", requireMcp, sessionHandler);
     this.app.delete("/mcp", requireMcp, sessionHandler);
+  }
+}
+
+/** `server.publicUrl` as a URL, or undefined when it is absent or not a URL. */
+function parseUrl(value: string | undefined): URL | undefined {
+  try {
+    return value ? new URL(value) : undefined;
+  } catch {
+    return undefined;
   }
 }

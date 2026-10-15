@@ -1,6 +1,7 @@
 /**
  * Server for the browser tests: temporary data (Test Bar 4 fixtures, synthetic QLC+ workspace
- * imported, one moving head on universe 2), PINs set (régisseur 1234, admin 9999, bénévole 5678), built UI served on PORT.
+ * imported, one moving head on universe 2), PINs set (régisseur 1234, admin 9999, bénévole 5678), auth token
+ * "ui-test-token", built UI served on PORT.
  */
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "f
 copyFileSync(new URL("../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
 writeFileSync(
   join(dir, "config.json"),
-  JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
+  JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
 );
 const running = await bootstrap({ configPath: join(dir, "config.json"), port, host: "127.0.0.1", log: () => undefined, light: { dataRoot, midiNative: null } });
 await running.auth.setPin("regisseur", "1234");
