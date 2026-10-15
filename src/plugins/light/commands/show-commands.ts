@@ -38,7 +38,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup"],
     schema: z.object({ search: z.string().optional() }),
     run: ({ search }) =>
-      [...venue.definitions, GENERIC_DIMMER]
+      (venue.refreshDefinitions(), [...venue.definitions, GENERIC_DIMMER])
         .filter((d) => !search || `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase()))
         .map((d) => ({ manufacturer: d.manufacturer, model: d.model, type: d.type, modes: d.modes.map((m) => ({ name: m.name, channels: m.channels.length, heads: m.heads.length })) })),
   });

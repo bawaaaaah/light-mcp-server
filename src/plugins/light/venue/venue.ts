@@ -6,7 +6,7 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
@@ -128,24 +128,49 @@ export class Venue {
   readonly fixtures: Collection<PatchedFixture>;
   readonly canvases: Collection<Canvas>;
   private resolved = new Map<string, ResolvedFixture | { error: string }>();
+  /** Names, sizes and dates of the .qxf files last read, and the errors they gave. */
+  private definitionStamp = "";
+  private definitionErrors: string[] = [];
 
   constructor(
     readonly store: FolderStore,
-    definitionDirs: string[],
+    private readonly definitionDirs: string[],
   ) {
-    for (const dir of definitionDirs) {
-      if (!existsSync(dir)) continue;
-      for (const f of readdirSync(dir).filter((x) => x.endsWith(".qxf"))) {
-        try {
-          this.definitions.push(parseQxf(readFileSync(path.join(dir, f), "utf8")));
-        } catch (err) {
-          store.loadErrors.push(`définition ${f} : ${(err as Error).message}`);
-        }
-      }
-    }
+    this.refreshDefinitions();
     this.fixtures = store.collection("fixtures", PatchedFixtureSchema);
     this.canvases = store.collection("canvases", CanvasSchema);
     store.onChange(() => this.resolved.clear());
+  }
+
+  /**
+   * Reads the .qxf folders again when a file was added, removed or changed since the last read: a
+   * definition dropped into data/fixtures/ while the server runs is used by the next import or
+   * library listing, without a restart. Cheap when nothing changed (one stat per file).
+   */
+  refreshDefinitions(): void {
+    const files = this.definitionDirs.flatMap((dir) =>
+      existsSync(dir) ? readdirSync(dir).filter((x) => x.endsWith(".qxf")).map((f) => path.join(dir, f)) : [],
+    );
+    const stamp = files
+      .map((f) => {
+        const st = statSync(f);
+        return `${f}:${st.size}:${st.mtimeMs}`;
+      })
+      .join("\n");
+    if (stamp === this.definitionStamp) return;
+    this.definitionStamp = stamp;
+    this.definitions.length = 0;
+    this.store.loadErrors.splice(0, this.store.loadErrors.length, ...this.store.loadErrors.filter((e) => !this.definitionErrors.includes(e)));
+    this.definitionErrors = [];
+    for (const f of files) {
+      try {
+        this.definitions.push(parseQxf(readFileSync(f, "utf8")));
+      } catch (err) {
+        this.definitionErrors.push(`définition ${path.basename(f)} : ${(err as Error).message}`);
+      }
+    }
+    this.store.loadErrors.push(...this.definitionErrors);
+    this.resolved.clear();
   }
 
   definitionFor(manufacturer: string, model: string): FixtureDefinition | undefined {

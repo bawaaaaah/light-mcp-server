@@ -81,4 +81,24 @@ describe("venue: patch, canvas and DMX conversion", () => {
     frame.colors.set("ghost", new Map([[-1, { red: 1 }]]));
     expect(v.toDmx(frame, [new Uint8Array(512)])[0]).to.match(/définition manquante/);
   });
+
+  it("sees a definition dropped into the folder while it runs, once refreshed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "light-venue-"));
+    const defs = join(dir, "fixtures");
+    mkdirSync(defs);
+    writeFileSync(join(defs, "broken.qxf"), "<not xml");
+    const v = new Venue(new FolderStore(join(dir, "venue")), [defs]);
+    expect(v.definitionFor("Test", "Bar 4")).to.equal(undefined);
+    expect(v.store.loadErrors).to.have.length(1);
+    v.fixtures.put({ id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 });
+    const frame = emptyFrame();
+    frame.colors.set("bar", new Map([[-1, { red: 1 }]]));
+    expect(v.toDmx(frame, [new Uint8Array(512)])[0]).to.match(/définition manquante/);
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(defs, "bar4.qxf"));
+    v.refreshDefinitions();
+    expect(v.definitionFor("Test", "Bar 4")?.model).to.equal("Bar 4");
+    expect(v.toDmx(frame, [new Uint8Array(512)])).to.deep.equal([]);
+    v.refreshDefinitions(); // nothing changed: nothing reread, the broken file reported once
+    expect(v.store.loadErrors).to.have.length(1);
+  });
 });
