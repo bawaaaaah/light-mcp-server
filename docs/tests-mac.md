@@ -82,12 +82,16 @@ Les faders QLC+ hors gradateur (blanc, UV, strobe, machines) deviennent maintena
 - Le rapport « Fusion avec le show existant » doit montrer des faders de canaux **ajoutés**, les looks **identiques** (ou mis à jour si le workspace a changé), et rien de retouché à la main écrasé (liste « conservés »).
 - Les looks importés avant ce suivi et différents apparaissent « à vérifier » : ils sont conservés.
 - Relancer l'auto-test (avec la cadence) : 100 % attendu ; vérifier dans la page Show que les faders de canaux listent les bons canaux.
+- Le gradateur « Generic » de QLC+ est maintenant connu sans `.qxf` : il ne doit plus apparaître en « définition manquante ». Noter les modèles qui y restent et demander à l'utilisateur leurs `.qxf` (QLC+ › Fixture Editor, ou son dossier de fixtures personnelles) à copier dans `data/fixtures/`, puis réimporter.
+- Page Show, « + Nouveau fader de canaux » : créer un fader sur le canal strobe (ou UV) de plusieurs projecteurs ; le mapper sur un CC (page MIDI) et vérifier avec l'utilisateur qu'il règle tous ces projecteurs ensemble.
 
 ## 6 ter. Programmes de règles depuis Ableton
 1. Copier un clip MIDI de Live (par exemple le clip « A #100 » de la piste « Show TAG ») dans `data/private/shell.alc` (copie !).
 2. Créer un programme « Prière » avec Program Change #100 et une règle « max 40 % » attachée (page Lieu, « Règles et limites »), puis `npm run light -- export programs`.
 3. Demander à l'utilisateur de glisser `data/exports/programmes/priere-100.alc` dans Live (Live fermé n'est pas nécessaire pour un clip) : **le clip s'ouvre sans erreur** ? Le lancer : le programme « Prière » devient actif dans l'en-tête de l'interface.
 4. `npm run light -- export mid --song <id>` puis glisser le `.mid` sur une piste MIDI : les notes des looks sont-elles là au bon endroit ? **Les Program Change sont-ils conservés par Live** (à noter : on pense que non) ?
+5. Si non : page MIDI, nouveau mapping sur une note, action « Activer un programme de règles » ; une note dans un clip Live active alors le programme.
+6. Une section sans programme **garde** le programme actif (choix de l'utilisateur) : le vérifier en lançant la section qui suit « Prière ».
 
 ## 7. Rapport
 - Compléter `docs/research/proto-resultats.md` (tableau de synthèse + une section par prototype, résultats anonymisés).
