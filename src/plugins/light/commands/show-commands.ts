@@ -36,6 +36,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   reg.register({ name: "venue.fixture.list", title: "Patch", description: "Patched fixtures of the venue (address, mode, role, position).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.fixtures.list() });
   reg.register({
+    name: "venue.fixture.channels",
+    title: "Canaux des fixtures",
+    description: "Channels of each patched fixture from its definition: offset (0-based from its address), name and attribute (intensity, color, strobe…). Fixtures without a definition have none (give offsets by hand).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({}),
+    run: () =>
+      venue.fixtures.list().map((f) => {
+        const r = venue.resolve(f.id);
+        const channels = "error" in r ? [] : r.mode.channels.map((name, offset) => ({ offset, name, attribute: r.def.channels.get(name)?.attribute ?? "other" }));
+        return { id: f.id, name: f.name, channels };
+      }),
+  });
+  reg.register({
     name: "venue.fixture.put",
     title: "Patcher une fixture",
     description: "Creates or updates a patched fixture (manufacturer/model/mode from the library, universe, 1-based address, role, tags, position).",

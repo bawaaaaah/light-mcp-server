@@ -58,6 +58,8 @@ Groupe {
 ## Fader de canaux (v1)
 - Pour ce qui n'est pas de l'intensité : **blanc, UV, strobe, machine à fumée**… Un fader de canaux écrit directement une liste de canaux (projecteur + décalage depuis son adresse, donc **même sans définition**), le plus haut l'emporte avec le show (HTP), comme un fader « Level » de QLC+. C'est aussi le **fader désigné** de la politique strobe.
 - Le masque de règles s'applique après (UV max, strobe…) ; Blackout l'éteint ; il démarre à 0 à l'import (un strobe ne part jamais tout seul).
+- **Éditeur** (page Show, « + Nouveau fader de canaux ») : on coche **plusieurs projecteurs**, puis les canaux à piloter **par leur nom** (Dimmer, Strobe, UV…, d'après les définitions, `venue.fixture.channels`) : le même fader les règle tous ensemble. Un projecteur sans définition prend un numéro de canal à la main.
+- Pour doser des **looks** (les « fonctions » de QLC+), c'est un groupe avec DCA qui les inclut, pas un fader de canaux.
 - Commandes `fader.*` ; widget « Fader de canaux » ; action MIDI « Fader de canaux (CC) ».
 
 ## Niveaux en direct

@@ -527,6 +527,32 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
   expect(errors).toEqual([]);
 });
 
+test("channel fader editor: one fader on the same channel of several fixtures", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
+  const editor = page.locator(".fader-editor");
+  await editor.getByLabel("Nom").fill("Strobes");
+  await editor.getByLabel("Bar 0").check();
+  await editor.getByLabel("Bar 1").check();
+  await editor.getByLabel("Strobe (strobe)").check();
+  await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[] }[]).find((f) => f.id === "strobes")!;
+  expect(saved.channels).toEqual([
+    { fixture: "bar-0", offset: 1 },
+    { fixture: "bar-1", offset: 1 },
+  ]);
+  await page.getByRole("button", { name: "Modifier Strobes" }).click();
+  await expect(page.locator(".fader-editor").getByLabel("Strobe (strobe)")).toBeChecked();
+  page.once("dialog", (d) => void d.accept());
+  await page.locator(".fader-editor").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator("tr", { hasText: "Strobes" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("rule program: created, holds a rule, activated by hand and by a Program Change", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

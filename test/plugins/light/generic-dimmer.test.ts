@@ -45,6 +45,11 @@ describe("QLC+ built-in generic dimmer", () => {
     const library = (await run("venue.library", { search: "generic" })) as { model: string }[];
     expect(library.map((d) => d.model)).to.deep.equal(["Generic"]);
     await run("import.qxw", { xml: WORKSPACE, apply: true });
+    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string; attribute: string }[] }[];
+    expect(channels.find((f) => f.id === "pack")!.channels).to.deep.equal([
+      { offset: 0, name: "Dimmer 1", attribute: "intensity" },
+      { offset: 1, name: "Dimmer 2", attribute: "intensity" },
+    ]);
     await run("fader.level", { id: "face", level: 1 });
     const out = plugin.engine.render()[0]!;
     expect([out[199], out[209], out[210]]).to.deep.equal([255, 0, 255]);

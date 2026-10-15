@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
+import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 
 interface Look {
   id: string;
@@ -24,7 +25,7 @@ interface Group {
   members: { fixtures: string[]; looks: string[]; groups: string[] };
   effectiveLevel: number;
 }
-interface ChannelFader {
+interface ChannelFader extends FaderDraft {
   id: string;
   name: string;
   level: number;
@@ -57,6 +58,7 @@ export function ShowPage() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<LookDraft | null>(null);
   const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
+  const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
 
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
@@ -319,27 +321,44 @@ export function ShowPage() {
           </tbody>
         </table>
       </section>
-      {faders.length > 0 && (
-        <section>
-          <h2>
-            {t.channelFaders} ({faders.length})
-          </h2>
-          <p className="hint">{t.channelFadersHelp}</p>
-          <table>
-            <tbody>
-              {faders.map((f) => (
-                <tr key={f.id}>
-                  <td>{f.name}</td>
-                  <td>
-                    <small>{f.channels.map((c) => `${c.fixture}+${c.offset + 1}`).join(", ")}</small>
-                  </td>
-                  <td>{Math.round(f.level * 100)} %</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+      {editingFader && (
+        <FaderEditor
+          key={editingFader.id || "new-fader"}
+          initial={editingFader}
+          existing={faders.map((f) => f.id)}
+          onClose={() => {
+            setEditingFader(null);
+            refresh();
+          }}
+        />
       )}
+      <section>
+        <h2>
+          {t.channelFaders} ({faders.length}){" "}
+          <button className="ghost" onClick={() => setEditingFader(newFader())}>
+            + {t.newFader}
+          </button>
+        </h2>
+        <p className="hint">{t.channelFadersHelp}</p>
+        <table>
+          <tbody>
+            {faders.map((f) => (
+              <tr key={f.id}>
+                <td>
+                  <button className="ghost" aria-label={`${t.edit} ${f.name}`} onClick={() => setEditingFader(f)}>
+                    ✎
+                  </button>{" "}
+                  {f.name}
+                </td>
+                <td>
+                  <small>{f.channels.map((c) => `${c.fixture}+${c.offset + 1}`).join(", ")}</small>
+                </td>
+                <td>{Math.round(f.level * 100)} %</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }

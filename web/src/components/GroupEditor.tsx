@@ -24,7 +24,7 @@ interface Named {
 
 export const newGroup = (): GroupDraft => ({ id: "", name: "", members: { fixtures: [], looks: [], groups: [] }, master: { level: 1, mute: false }, exclusive: false, presets: { included: [], excluded: [] } });
 
-function Checklist({ title, items, selected, onChange }: { title: string; items: Named[]; selected: string[]; onChange: (ids: string[]) => void }) {
+export function Checklist({ title, items, selected, onChange }: { title: string; items: Named[]; selected: string[]; onChange: (ids: string[]) => void }) {
   return (
     <fieldset className="checklist">
       <legend>
