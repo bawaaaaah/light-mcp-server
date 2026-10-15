@@ -109,7 +109,10 @@ export function VenuePage() {
                   </td>
                   <td>{f.role}</td>
                   <td>
-                    <button className="ghost" title={t.delete} onClick={() => void run("venue.fixture.delete", { id: f.id })}>
+                    <button className="ghost" title={t.delete} onClick={() => void run("venue.fixture.delete", { id: f.id }).then((r) => {
+                        const usedBy = (r as { usedBy?: string[] } | undefined)?.usedBy ?? [];
+                        if (usedBy.length) setError(`${f.name} : ${t.stillUsedBy} ${usedBy.join(", ")}`);
+                      })}>
                       ✕
                     </button>
                   </td>

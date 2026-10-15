@@ -63,7 +63,22 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { fixture: saved, warning: "error" in r ? r.error : undefined };
     },
   });
-  reg.register({ name: "venue.fixture.delete", title: "Dépatcher", description: "Removes a fixture from the patch.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: venue.fixtures.delete(i) }) });
+  reg.register({
+    name: "venue.fixture.delete",
+    title: "Dépatcher",
+    description: "Removes a fixture from the patch. Returns what still refers to it (groups, channel faders, canvases), to fix by hand; `show.lint` reports them too.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: id,
+    run: ({ id: i }) => {
+      const usedBy = [
+        ...show.groups.list().filter((g) => g.members.fixtures.includes(i)).map((g) => `groupe ${g.name}`),
+        ...show.faders.list().filter((f) => f.channels.some((c) => c.fixture === i)).map((f) => `fader ${f.name}`),
+        ...venue.canvases.list().filter((c) => c.render.some((r) => r.targets.some((t) => t.fixture === i))).map((c) => `canevas ${c.name}`),
+      ];
+      return { deleted: venue.fixtures.delete(i), usedBy };
+    },
+  });
   reg.register({ name: "venue.canvas.list", title: "Canevas", description: "Canvases of the venue and their rendering onto fixtures.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.canvases.list() });
   reg.register({
     name: "venue.canvas.put",
