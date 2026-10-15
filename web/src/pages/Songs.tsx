@@ -139,6 +139,25 @@ export function SongsPage() {
                 {t.bar} {Math.floor(state.position / (song.beatsPerBar ?? 4)) + 1}.{Math.floor(state.position % (song.beatsPerBar ?? 4)) + 1}
               </small>
             )}
+            <button
+              className="ghost"
+              aria-label={`MIDI ${song.title}`}
+              title={t.midExport}
+              onClick={(e) => {
+                e.stopPropagation();
+                void cmd<{ base64: string; missing: string[] }>("export.mid", { song: song.id, inline: true })
+                  .then((r) => {
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(new Blob([Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0))], { type: "audio/midi" }));
+                    a.download = `${song.title}.mid`;
+                    a.click();
+                    if (r.missing.length) setError(r.missing.join(" · "));
+                  })
+                  .catch((err: Error) => setError(err.message));
+              }}
+            >
+              ⤓
+            </button>
             <button className="ghost" aria-label={`${t.board} ${song.title}`} onClick={(e) => (e.stopPropagation(), showBoard(song))}>
               ▤
             </button>

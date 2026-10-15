@@ -83,6 +83,12 @@ Les faders QLC+ hors gradateur (blanc, UV, strobe, machines) deviennent maintena
 - Les looks importés avant ce suivi et différents apparaissent « à vérifier » : ils sont conservés.
 - Relancer l'auto-test (avec la cadence) : 100 % attendu ; vérifier dans la page Show que les faders de canaux listent les bons canaux.
 
+## 6 ter. Programmes de règles depuis Ableton
+1. Copier un clip MIDI de Live (par exemple le clip « A #100 » de la piste « Show TAG ») dans `data/private/shell.alc` (copie !).
+2. Créer un programme « Prière » avec Program Change #100 et une règle « max 40 % » attachée (page Lieu, « Règles et limites »), puis `npm run light -- export programs`.
+3. Demander à l'utilisateur de glisser `data/exports/programmes/priere-100.alc` dans Live (Live fermé n'est pas nécessaire pour un clip) : **le clip s'ouvre sans erreur** ? Le lancer : le programme « Prière » devient actif dans l'en-tête de l'interface.
+4. `npm run light -- export mid --song <id>` puis glisser le `.mid` sur une piste MIDI : les notes des looks sont-elles là au bon endroit ? **Les Program Change sont-ils conservés par Live** (à noter : on pense que non) ?
+
 ## 7. Rapport
 - Compléter `docs/research/proto-resultats.md` (tableau de synthèse + une section par prototype, résultats anonymisés).
 - Mettre à jour `docs/HANDOFF.md` (« Où on en est ») et `docs/roadmap.md` (avancement).

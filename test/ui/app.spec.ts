@@ -559,6 +559,18 @@ test("rule program: created, holds a rule, activated by hand and by a Program Ch
   expect(errors).toEqual([]);
 });
 
+test("song MIDI file downloaded from the songs page", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("header nav button", { hasText: "Chants" }).click();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "MIDI Chant test" }).click()]);
+  expect(download.suggestedFilename()).toBe("Chant test.mid");
+  const path = await download.path();
+  const { readFileSync } = await import("node:fs");
+  expect(readFileSync(path!).subarray(0, 4).toString()).toBe("MThd");
+  expect(errors).toEqual([]);
+});
+
 test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

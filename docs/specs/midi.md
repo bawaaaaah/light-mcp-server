@@ -109,6 +109,10 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - **Device Max for Live** : liste les actions du serveur et permet de les glisser sur la timeline (façon « Live Triggers » de Lightkey). Il nécessite Live Suite ou l'option Max for Live.
 - **Connecteur AbleSet** (OSC/HTTP) : chant et section courants, sauts, injection de notes pour l'auto-test.
 
+### Programmes de règles dans Ableton (v1)
+- **Clip par programme** (`export.ableton.programs`, CLI `light export programs`) : un clip `.alc` « Prière #100 » qui envoie le Program Change du programme au lancement, comme le clip « A #100 » de la piste « Show TAG » de l'utilisateur. Cloné depuis une coquille `.alc` exportée par Live (`data/private/shell.alc`) : seuls le nom et le Program Change du **premier** clip changent (les clips du groove pool restent intacts ; vérifié sur un vrai clip : 2 lignes modifiées). Le canal est celui de la sortie MIDI de la piste.
+- **Fichier MIDI d'un chant** (`export.mid`, bouton ⤓ de la page Chants, CLI `light export mid`) : format 0, 96 ticks par temps (comme le fichier de clic de référence), tempo et mesure du chant ; à chaque section, la note qui lance son look (d'après les mappings, durée 1/16) et le Program Change de son programme. **Live ignore a priori les Program Change des fichiers MIDI importés** (à vérifier sur le Mac) : les clips de programmes les portent de façon sûre.
+
 ## Tests
 - Chaque mode avec des séquences de messages : note on à 0, rejeu pendant l'appui, aftertouch, note off orpheline, duplication.
 - Retour sur port distinct et détection de boucle.

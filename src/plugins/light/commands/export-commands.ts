@@ -11,6 +11,8 @@ import type { Mapping } from "../midi/mapping.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { buildRackXml, readAdg, writeAdg } from "../ableton/midi-effect-rack.js";
 import { slugify } from "../data/store.js";
+import { readAls, writeAls } from "../ableton/live-set.js";
+import { cloneProgramClip, programClipName } from "../ableton/live-clip.js";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 /** Live names note 60 "C3" (note 0 = C-2). */
@@ -84,6 +86,36 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
       const file = path.join(outDir, `${slugify(name)}.adg`);
       writeFileSync(file, writeAdg(xml));
       return { file: path.relative(dataRoot, file), chains: byNote.size, skipped };
+    },
+  });
+
+  reg.register({
+    name: "export.ableton.programs",
+    title: "Clips des programmes",
+    description:
+      "One Ableton clip (.alc) per rule program that has a Program Change: launching it in Live sends that Program Change, which activates the program (« Prière #100 »). Clones the shell clip exported by your Live (data/private), changing only the clip name and Program Change. Writes data/exports/programmes/.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ shell: z.string().default("shell.alc") }),
+    run: ({ shell }) => {
+      const shellPath = inside(path.join(dataRoot, "private"), shell);
+      if (!existsSync(shellPath)) throw new Error(`coquille introuvable : data/private/${shell} (glisser un clip MIDI de Live dans le navigateur, puis copier le .alc)`);
+      const xml = readAls(readFileSync(shellPath));
+      const outDir = path.join(dataRoot, "exports", "programmes");
+      mkdirSync(outDir, { recursive: true });
+      const written: { program: string; file: string; clip: string }[] = [];
+      const skipped: string[] = [];
+      for (const p of runtime.programs.list()) {
+        if (p.programChange === undefined) {
+          skipped.push(`« ${p.name} » : pas de Program Change`);
+          continue;
+        }
+        const clip = programClipName(p.name, p.programChange);
+        const file = path.join(outDir, `${slugify(clip)}.alc`);
+        writeFileSync(file, writeAls(cloneProgramClip(xml, { name: clip, programChange: p.programChange })));
+        written.push({ program: p.id, file: path.relative(dataRoot, file), clip });
+      }
+      return { written, skipped, note: "Chaque clip envoie son Program Change sur le canal de la piste qui le joue : régler la sortie MIDI de la piste sur le canal du programme." };
     },
   });
 }

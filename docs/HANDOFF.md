@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-14)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; à reprendre à la main : 4 modèles sans `.qxf` (les faders QLC+ hors gradateur et les Submasters sont convertis depuis le 2026-10-15 : **réimporter le workspace** ; la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis).
-- **Serveur** (`npm test` : 230 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 233 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -14,7 +14,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - import QLC+ + reconstruction + auto-test (mappings, exclusivité, latence, **cadence mesurée en temps réel**) ; exports (rack, Live Set, conduite) ; conception assistée ; notes ; archives `.lightshow` ;
   - **bascule avec QLC+** : sortie en veille (`light serve --standby`), alerte « autre console », procédure dans [bascule-qlc.md](bascule-qlc.md) ;
   - actions de la timeline des chants et lecture sans DAW (▶) ; planche SVG d'un chant ; aperçu 2D en direct de la scène (page Lieu) ;
-  - limites min/max des DCA (butée ou course réduite) ; programmes de règles (par section, par Program Change MIDI) ;
+  - limites min/max des DCA (butée ou course réduite) ; programmes de règles (par section, par Program Change MIDI), avec clips `.alc` et fichiers `.mid` pour Ableton ;
   - presets automatiques (premier allumage d'un lieu en un clic) ;
   - SDK TypeScript et Python, OpenAPI générée ([sdk/README.md](../sdk/README.md)) ;
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;

@@ -12,6 +12,7 @@ import type { Mapping } from "../midi/mapping.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { cuesBetween, cueSheet, placeSections, sectionAt, sectionProgram, SetlistSchema, songEnd, SongSchema, type Section, type Setlist, type Song } from "../songs/songs.js";
 import { songBoard } from "../songs/board.js";
+import { writeMidiFile, type MidiFileEvent } from "../ableton/midi-file.js";
 import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
 
@@ -158,6 +159,40 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       s.state.position = undefined;
       s.publish({ ...s.state });
       return { stopped: was };
+    },
+  });
+  reg.register({
+    name: "export.mid",
+    title: "Fichier MIDI d'un chant",
+    description:
+      "Standard MIDI file of a song (96 ticks per beat, its tempo and metre): at each section, the trigger note of its look (from the MIDI mappings, 1/16 long) and the Program Change of its rule program. Drop it on a MIDI track. Note: Live most likely ignores Program Changes inside imported MIDI files (to check on the Mac) — the program clips (export.ableton.programs) carry them reliably. Writes data/exports/<song>.mid.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ song: z.string().optional(), inline: z.boolean().default(false) }),
+    run: ({ song: sid, inline }) => {
+      const sg = song(sid);
+      const ppq = 96;
+      const events: MidiFileEvent[] = [];
+      const missing: string[] = [];
+      for (const p of placeSections(sg)) {
+        const tick = Math.round(p.startBeat * ppq);
+        const program = p.section.program ? s.runtime.programs.get(p.section.program) : undefined;
+        if (program?.programChange !== undefined) events.push({ tick, bytes: [0xc0 | (program.channel - 1), program.programChange] });
+        else if (p.section.program) missing.push(`${p.section.name} : programme sans Program Change`);
+        if (!p.section.look) continue;
+        const n = noteForLook(s.mappings(), p.section.look);
+        if (!n) {
+          missing.push(`${p.section.name} : aucune note ne lance « ${p.section.look} »`);
+          continue;
+        }
+        events.push({ tick, bytes: [0x90 | (n.channel - 1), n.note, 100] }, { tick: tick + ppq / 4, bytes: [0x80 | (n.channel - 1), n.note, 64] });
+      }
+      const bytes = writeMidiFile({ name: sg.title, bpm: sg.bpm, beatsPerBar: sg.beatsPerBar, ppq, events, endTick: Math.round(songEnd(sg) * ppq) });
+      const outDir = path.join(s.dataRoot, "exports");
+      mkdirSync(outDir, { recursive: true });
+      const file = path.join(outDir, `${slugify(sg.title)}.mid`);
+      writeFileSync(file, bytes);
+      return { file: path.relative(s.dataRoot, file), events: events.length, missing, ...(inline ? { base64: Buffer.from(bytes).toString("base64") } : {}) };
     },
   });
   reg.register({

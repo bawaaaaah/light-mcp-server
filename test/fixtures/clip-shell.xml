@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12402" SchemaChangeCount="5" Creator="Ableton Live 12.4.6">
+	<LiveSet>
+		<Tracks>
+			<MidiTrack Id="0">
+				<Name>
+					<EffectiveName Value="Programmes" />
+					<UserName Value="Programmes" />
+				</Name>
+				<DeviceChain>
+					<MainSequencer>
+						<ClipSlotList>
+							<ClipSlot Id="0">
+								<ClipSlot>
+									<Value>
+										<MidiClip Id="0" Time="0">
+											<CurrentStart Value="0" />
+											<CurrentEnd Value="4" />
+											<Name Value="Coquille #1" />
+											<Color Value="18" />
+											<Notes>
+												<KeyTracks />
+											</Notes>
+											<BankSelectCoarse Value="-1" />
+											<BankSelectFine Value="-1" />
+											<ProgramChange Value="0" />
+										</MidiClip>
+									</Value>
+								</ClipSlot>
+							</ClipSlot>
+						</ClipSlotList>
+					</MainSequencer>
+				</DeviceChain>
+			</MidiTrack>
+		</Tracks>
+		<GroovePool>
+			<Grooves>
+				<Groove Id="0">
+					<Clip>
+						<Value>
+							<MidiClip Id="0" Time="0">
+								<Name Value="Swing 16ths" />
+								<ProgramChange Value="-1" />
+							</MidiClip>
+						</Value>
+					</Clip>
+				</Groove>
+			</Grooves>
+		</GroovePool>
+	</LiveSet>
+</Ableton>

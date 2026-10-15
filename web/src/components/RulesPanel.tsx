@@ -168,6 +168,19 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
         </button>
       </div>
 
+      <div className="row">
+        <button
+          className="ghost"
+          onClick={() =>
+            void cmd<{ written: { clip: string; file: string }[]; skipped: string[] }>("export.ableton.programs")
+              .then((r) => onError(`${t.clipsWritten} : ${r.written.map((w) => w.file).join(", ") || "—"}${r.skipped.length ? ` · ${r.skipped.join(" · ")}` : ""}`))
+              .catch((e: Error) => onError(e.message))
+          }
+        >
+          ⤓ {t.exportClips}
+        </button>
+      </div>
+
       <h3>{t.rulesList}</h3>
       <table className="rules">
         <tbody>
