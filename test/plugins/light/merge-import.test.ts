@@ -79,4 +79,49 @@ describe("re-import without losing work (mode hybride)", () => {
     const legacy = (await run("import.qxw", { xml, apply: true })) as { merged: Record<string, { toCheck: string[] }> };
     expect(legacy.merged.looks.toCheck).to.have.members(["checker", "hole"]);
   });
+
+  it("never imports a mapping onto a MIDI input the user gave to one of their own mappings", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-reimport-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const xml = readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8");
+    await run("import.qxw", { xml, apply: true });
+    // the user frees an imported note, then gives it to a look of their own
+    const imported = (await run("midi.mapping.list")) as { id: string; input: { type: string; channel: number; number: number } }[];
+    const victim = imported.find((m) => m.input.type === "note")!;
+    await run("midi.mapping.delete", { id: victim.id });
+    await run("midi.mapping.put", { mapping: { id: "mine", input: victim.input, on: { command: "look.go", args: { id: "hole" } } } });
+    const proposal = (await run("import.qxw", { xml })) as { conflicts: string[] };
+    expect(proposal.conflicts).to.have.length(1);
+    expect(proposal.conflicts[0]).to.include("mine");
+    const r = (await run("import.qxw", { xml, apply: true })) as { conflicts: string[] };
+    expect(r.conflicts).to.have.length(1);
+    const after = (await run("midi.mapping.list")) as { id: string }[];
+    expect(after.map((m) => m.id)).to.include("mine").and.not.include(victim.id);
+    const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
+    expect(lint.issues.filter((i) => i.message.startsWith("même entrée"))).to.deep.equal([]);
+  });
+
+  it("refuses to merge another workspace into a show, unless forced", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-reimport-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const xml = readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8");
+    await run("import.qxw", { xml, apply: true });
+    const again = (await run("import.qxw", { xml })) as { otherWorkspace?: string };
+    expect(again.otherWorkspace).to.equal(undefined); // the same workspace: a re-import
+    const other = readFileSync(new URL("../../fixtures/efx.qxw", import.meta.url), "utf8");
+    const proposal = (await run("import.qxw", { xml: other })) as { otherWorkspace?: string };
+    expect(proposal.otherWorkspace).to.match(/n'est pas celui de ce show/);
+    const refused = await run("import.qxw", { xml: other, apply: true }).then(() => "applied", (e: Error) => e.message);
+    expect(refused).to.match(/n'est pas celui de ce show/);
+    const forced = (await run("import.qxw", { xml: other, apply: true, force: true })) as { applied: boolean };
+    expect(forced.applied).to.equal(true);
+  });
 });

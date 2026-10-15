@@ -51,6 +51,11 @@ export const MappingSchema = z.object({
 });
 export type Mapping = z.infer<typeof MappingSchema>;
 
+/** Two mappings with the same key answer the same MIDI message. */
+export function mappingInputKey(m: { input: { type: string; channel: number; number?: number; port?: string } }): string {
+  return `${m.input.type}:${m.input.channel}:${m.input.number ?? 0}:${m.input.port ?? ""}`;
+}
+
 export interface MappingOutput {
   calls: CommandCall[];
   /** Feedback MIDI messages (raw bytes) to send on the feedback port. */

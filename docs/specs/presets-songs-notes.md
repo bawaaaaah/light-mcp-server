@@ -89,7 +89,10 @@ Chant {
 4. Tout passe par une **proposition** (diff) avant d'être appliqué. En **mode hybride** (v1), une réimportation conserve ce qui a été ajusté à la main :
    - l'import mémorise l'empreinte de ce qu'il a écrit (`import-state.json` du show) ; un objet **inchangé depuis** est mis à jour avec la nouvelle version QLC+, un objet **modifié à la main est conservé** et signalé ;
    - toujours conservés : position, montage, orientation, rôle et notes des projecteurs ; niveau, mute et limites des DCA ; niveau des faders de canaux ;
-   - objets importés avant ce suivi et différents : conservés et listés « à vérifier » ; `replace` (CLI `--replace`) écrase volontairement les retouches (l'état en direct et les champs utilisateur restent).
+   - objets importés avant ce suivi et différents : conservés et listés « à vérifier » ; `replace` (CLI `--replace`) écrase volontairement les retouches (l'état en direct et les champs utilisateur restent) ;
+   - un mapping importé n'est jamais posé sur une entrée MIDI déjà tenue par un mapping fait à la main : celui de l'utilisateur reste, l'autre est signalé (« Entrées MIDI en conflit ») ;
+   - un **autre workspace** (moins de la moitié des projecteurs du show en commun) est refusé : ses canevas et looks de même nom remplaceraient ceux du show. Il va dans un show à lui ; `force` (CLI `--force`) l'importe quand même ;
+   - les définitions `.qxf` déposées dans `data/fixtures/` pendant que le serveur tourne sont relues à l'import, sans redémarrage.
 
 ## Tests
 - Palettes par référence et détachement.

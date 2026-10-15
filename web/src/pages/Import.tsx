@@ -7,6 +7,8 @@ interface Proposal {
   report: { converted: string[]; warnings: string[] };
   counts: Record<string, number>;
   collisions?: string[];
+  conflicts?: string[];
+  otherWorkspace?: string;
   merged?: Record<string, { added: number; updated: number; unchanged: number; kept: string[]; toCheck: string[] }>;
 }
 interface Rebuild {
@@ -74,6 +76,16 @@ export function ImportPage() {
                 </ul>
               </>
             )}
+            {(proposal.conflicts?.length ?? 0) + (proposal.collisions?.length ?? 0) > 0 && (
+              <>
+                <h3>{t.noteConflicts}</h3>
+                <ul className="warnings">
+                  {[...(proposal.conflicts ?? []), ...(proposal.collisions ?? [])].map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </>
+            )}
             {proposal.merged && (
               <>
                 <h3>{t.reimport}</h3>
@@ -105,8 +117,9 @@ export function ImportPage() {
                 </table>
               </>
             )}
+            {proposal.otherWorkspace && <p className="error">⚠ {proposal.otherWorkspace}</p>}
             {!proposal.applied && xml && (
-              <button className="primary" onClick={() => void cmd<Proposal>("import.qxw", { xml, apply: true }).then(setProposal).catch((e: Error) => setError(e.message))}>
+              <button className="primary" disabled={!!proposal.otherWorkspace} onClick={() => void cmd<Proposal>("import.qxw", { xml, apply: true }).then(setProposal).catch((e: Error) => setError(e.message))}>
                 {t.apply}
               </button>
             )}
