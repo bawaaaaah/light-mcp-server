@@ -2,10 +2,10 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-14)
+## Où on en est (2026-10-15)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
-- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; à reprendre à la main : 4 modèles sans `.qxf` (les faders QLC+ hors gradateur et les Submasters sont convertis depuis le 2026-10-15 : **réimporter le workspace** ; la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis).
-- **Serveur** (`npm test` : 233 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
+- **Serveur** (`npm test` : 248 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -14,13 +14,14 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - import QLC+ + reconstruction + auto-test (mappings, exclusivité, latence, **cadence mesurée en temps réel**) ; exports (rack, Live Set, conduite) ; conception assistée ; notes ; archives `.lightshow` ;
   - **bascule avec QLC+** : sortie en veille (`light serve --standby`), alerte « autre console », procédure dans [bascule-qlc.md](bascule-qlc.md) ;
   - actions de la timeline des chants et lecture sans DAW (▶) ; planche SVG d'un chant ; aperçu 2D en direct de la scène (page Lieu) ;
+  - looks à **canaux bruts** (boutons machine : fumée, hazer, lampe) ; faders de canaux sur plusieurs projecteurs (éditeur), dosables par un DCA ; DCA « playback » ; fondu d'entrée des looks ;
   - limites min/max des DCA (butée ou course réduite) ; programmes de règles (par section, par Program Change MIDI), avec clips `.alc` et fichiers `.mid` pour Ableton ;
   - presets automatiques (premier allumage d'un lieu en un clic) ;
   - SDK TypeScript et Python, OpenAPI générée ([sdk/README.md](../sdk/README.md)) ;
   - CLI `light` complète (check, selftest, import, export, pack/unpack, standby, call), avec ou sans serveur en marche ;
   - reprise après un plantage ou un redémarrage rapide (état en direct de moins de 5 min) ;
   - build de production, image Docker vérifiée.
-- **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de règles et de mappings MIDI (avec « Apprendre »), calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
+- **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
 1. **L'utilisateur** :

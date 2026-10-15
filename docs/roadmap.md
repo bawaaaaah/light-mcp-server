@@ -18,7 +18,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | P11 | **OSC** | Routes, `/light/help`, latence |
 | P12 | **Import `.qxw` et reconnaissance des techniques** | Techniques reconnues sur un vrai workspace (cible : ≥ 90 %) |
 
-## Avancement (2026-10-14)
+## Avancement (2026-10-15)
 | Chantier | État |
 |---|---|
 | Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
@@ -28,7 +28,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Techniques, lecteur, groupes, panic | ✅ |
 | MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) |
 | Chants, setlist, suivi SPP | ✅ |
-| Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; faders hors gradateur et Submasters convertis depuis le 2026-10-15 (à réimporter) ; à faire : 4 modèles sans `.qxf` |
+| Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; depuis le 2026-10-15 : Scenes, matrices RGB, faders Playback et Submasters, machines, gradateur générique ; vérifié sur les 16 workspaces de l'utilisateur (aucune définition manquante) ; **à réimporter sur le Mac** |
 | Exports Ableton (rack, Live Set), conduite | ✅ rack chargé dans Live ; Live Set à ouvrir dans Live |
 | Conception assistée + ressources MCP | ✅ v1 |
 | Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 33 scénarios, dont toutes les pages au format tablette, portrait et paysage, sans débordement) ; reste à la voir sur une vraie tablette et sur le Mac |
