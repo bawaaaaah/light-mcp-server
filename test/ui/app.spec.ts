@@ -489,6 +489,7 @@ test("guided calibration of a moving head", async ({ page }) => {
   const box = page.locator(".calibration");
   await box.getByLabel("Repère").selectOption("marque");
   const pad = box.locator(".xy .pad");
+  await pad.scrollIntoViewIfNeeded(); // below the fold on the Lieu page: a click by coordinates would miss it
   const r = (await pad.boundingBox())!;
   await page.mouse.click(r.x + r.width * 0.3, r.y + r.height * 0.4);
   await box.getByRole("button", { name: /Enregistrer ce repère/ }).click();

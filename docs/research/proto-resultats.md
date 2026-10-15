@@ -103,7 +103,7 @@ Le vrai workspace (QLC+ 4.14.4, 31 fixtures, 108 séquences) a été importé pu
 Le seul bémol attendu : des **faders QLC+ à plusieurs canaux** (blanc/UV/effets/strobos, ~11 faders) dont les canaux hors gradateur ne sont pas convertis automatiquement en looks ni en règles — à refaire à la main, comme prévu par la spec d'import. **Depuis le 2026-10-15** : ils deviennent des **faders de canaux** et les Submasters des DCA ; réimporter le workspace pour en profiter.
 
 ## § 6 et 6 bis — reprise, réimport et auto-test (Mac de régie, 2026-10-15, soir)
-macOS 26.6.2, Node 26.7.0, Ableton Live 12.4.6, QLC+ 4.14.4. Serveur lancé par l'app de barre de menus. `npm test` : 263 ✔ ; `npm run test:ui` : 35/36 (la calibration guidée des lyres échoue, déjà avant les changements du jour : à reprendre).
+macOS 26.6.2, Node 26.7.0, Ableton Live 12.4.6, QLC+ 4.14.4. Serveur lancé par l'app de barre de menus. `npm test` : 263 ✔ ; `npm run test:ui` : 36/36 (le test de calibration cliquait hors de l'écran, la page Lieu ayant grandi : corrigé).
 
 | Étape | Résultat |
 |---|---|
