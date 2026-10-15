@@ -203,6 +203,32 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   expect(errors).toEqual([]);
 });
 
+test("machine button: a look with raw channels and no colour", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau look" }).click();
+  const editor = page.locator(".look-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Machine");
+  await editor.getByLabel("Technique").selectOption("aucune");
+  await editor.getByLabel("Canaux bruts (machines, lampes)").check();
+  await editor.getByLabel("projecteur").selectOption("bar-0");
+  await editor.getByLabel("canal", { exact: true }).selectOption("2"); // « 3. Program »
+  await editor.getByRole("button", { name: "+ Ajouter le canal" }).click();
+  await editor.getByLabel("pas 1 · Bar 0 · Program").fill("200");
+  await page.screenshot({ path: "test-results/look-raw-channels.png", fullPage: true });
+  await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => (await dmx(page))[2]).toBe(200);
+  const mine = ((await api(page, "look.list")) as { id: string; channels?: unknown }[]).find((l) => l.id === "machine")!;
+  expect(mine.channels).toEqual({ targets: [{ fixture: "bar-0", offset: 2 }], steps: [[200]] });
+  await api(page, "look.stopall");
+  await expect.poll(async () => (await dmx(page))[2]).toBe(0);
+  await api(page, "look.delete", { id: "machine" });
+  expect(errors).toEqual([]);
+});
+
 test("automatic presets light a venue in one click", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());

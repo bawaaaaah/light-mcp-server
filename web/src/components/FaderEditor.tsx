@@ -16,7 +16,7 @@ export interface FaderDraft {
   level: number;
   notes?: string;
 }
-interface FixtureChannels {
+export interface FixtureChannels {
   id: string;
   name: string;
   channels: { offset: number; name: string; attribute: string }[];

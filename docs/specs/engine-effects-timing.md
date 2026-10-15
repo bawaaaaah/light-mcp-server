@@ -77,6 +77,7 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - Ils avancent avec l'horloge du look (`every`) : dans l'ordre des couleurs quand le nombre de pas est le même, sinon en boucle. **Pas de fondu** (une machine ne se fond pas).
 - Ils fixent leurs canaux après la conversion du canevas ; deux looks sur le même canal : le plus haut l'emporte ; les faders de canaux (HTP) puis le **masque de règles** passent après. Ils ne sont pas dosés par les DCA (une vitesse de ventilateur ne se dose pas).
 - Avec la technique `aucune`, c'est un **bouton machine** : « Fumée 50 % », « bouffées de hazer toutes les 2 s ».
+- **Éditeur** : rubrique « Canaux bruts » de l'éditeur de looks ; un canal se choisit par projecteur puis par nom (ou par numéro sans définition) ; une grille donne la valeur de chaque canal à chaque pas.
 
 ## Effets par forme d'onde
 - **Formes** : sine, triangle, saw, ramp, square (PWM), random, step, courbe custom (points ou bezier).

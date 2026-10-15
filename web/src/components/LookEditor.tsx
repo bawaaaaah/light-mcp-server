@@ -4,6 +4,7 @@
  * (cadence in beats or seconds, attack, order), Move FX for moving heads, flags, tags and notes,
  * with an animated preview computed by the server. Everything is saved with `look.put`.
  */
+import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
 import { useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -33,6 +34,7 @@ export interface LookDraft {
   palette?: string;
   timing: { every: Every; attack: number; order: string; weights?: number[]; entryFade: number };
   move?: Move;
+  channels?: LookChannelsDraft;
   mirror?: boolean;
   manualOnly: boolean;
   noCut: boolean;
@@ -78,6 +80,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [hasHeads, setHasHeads] = useState(false);
+  const [rawOpen, setRawOpen] = useState(false);
   const tempo = useTopic<{ bpm: number } | null>("light:tempo", null);
 
   useEffect(() => {
@@ -287,6 +290,13 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           )}
         </>
       )}
+
+      <h3>
+        <label className="row">
+          <input type="checkbox" checked={Boolean(look.channels) || rawOpen} onChange={(e) => (setRawOpen(e.target.checked), e.target.checked || set({ channels: undefined }))} /> {t.rawChannels}
+        </label>
+      </h3>
+      {(look.channels || rawOpen) && <RawChannelsEditor value={look.channels} onChange={(channels) => set({ channels })} />}
 
       <h3>{t.flags}</h3>
       <div className="fields">
