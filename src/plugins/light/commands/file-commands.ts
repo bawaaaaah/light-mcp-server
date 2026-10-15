@@ -23,6 +23,8 @@ export interface FileServices {
   reload(): void;
   /** Replaces the current show (and venue) with an archive's content, after a backup copy. */
   restore(bytes: Uint8Array): { backup: string; files: { show: number; venue: number } };
+  /** Imports a QLC+ workspace (.qxw text) into the open show. */
+  importQxw(xml: string): Promise<unknown>;
 }
 
 /** Local date and time for file names, as the user reads them: 2026-10-15_23-01-52. */
@@ -92,7 +94,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     name: "show.create",
     title: "Nouveau show",
     description:
-      "Creates a show, empty or as a copy of another (`from`, « Enregistrer sous » / « Dupliquer »), and opens it unless open is false. Venue: `current` plays on the open show's venue (same patch), `copy` copies that venue for this show, `new` starts an empty one.",
+      "Creates a show, empty, as a copy of another (`from`, « Enregistrer sous » / « Dupliquer »), or from a QLC+ workspace (`qxw`, its text: imported into the new show), and opens it unless open is false. Venue: `current` plays on the open show's venue (same patch), `copy` copies that venue for this show, `new` starts an empty one (the right choice for another QLC+ workspace).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({
@@ -100,8 +102,10 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       from: z.string().optional(),
       venue: z.enum(["current", "copy", "new"]).default("current"),
       open: z.boolean().default(true),
+      qxw: z.string().optional(),
     }),
-    run: async ({ name, from, venue, open }) => {
+    run: async ({ name, from, venue, open, qxw }) => {
+      if (qxw && (from || !open)) throw new Error("un workspace QLC+ s'importe dans un show neuf, ouvert aussitôt");
       if (from) known(from);
       s.flush();
       const id = freeId(name, showsDir);
@@ -116,7 +120,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       }
       writeSettings(id, { name, venue: venueId });
       if (open) await s.open(id);
-      return { id, name, venue: venueId, opened: open };
+      const imported = qxw ? await s.importQxw(qxw) : undefined;
+      return { id, name, venue: venueId, opened: open, imported };
     },
   });
 

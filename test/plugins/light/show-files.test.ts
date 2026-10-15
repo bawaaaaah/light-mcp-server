@@ -94,6 +94,31 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(((await run("venue.fixture.list")) as unknown[]).length).to.be.greaterThan(0);
   });
 
+  it("imports a QLC+ workspace into a new show of its own, on a new venue", async () => {
+    const before = await looks();
+    const defaultFixtures = ((await run("venue.fixture.list")) as unknown[]).length;
+    const xml = readFileSync(new URL("../../fixtures/efx.qxw", import.meta.url), "utf8");
+    const created = (await run("show.create", { name: "Autre salle", venue: "new", qxw: xml })) as { id: string; venue: string; imported: { applied: boolean } };
+    expect(created).to.deep.include({ id: "autre-salle", venue: "autre-salle" });
+    expect(created.imported.applied).to.equal(true);
+    expect((await looks()).length).to.be.greaterThan(0);
+    expect(await looks()).to.not.deep.equal(before);
+    await run("show.open", { id: "default" });
+    expect(await looks()).to.deep.equal(before);
+    expect(((await run("venue.fixture.list")) as unknown[]).length).to.equal(defaultFixtures); // the first venue is untouched
+  });
+
+  it("adds a fixture definition (.qxf) to the library, checked first", async () => {
+    const xml = readFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), "utf8");
+    const bad = await run("fixture.definition.add", { name: "x.qxf", xml: "<oops" }).then(() => "added", (e: Error) => e.message);
+    expect(bad).to.not.equal("added");
+    const added = (await run("fixture.definition.add", { name: "Mon spot.qxf", xml })) as { file: string; model: string };
+    expect(added.file).to.equal("Mon-spot.qxf");
+    expect(((await run("venue.library", { search: added.model })) as unknown[]).length).to.be.greaterThan(0);
+    const again = await run("fixture.definition.add", { name: "Mon spot.qxf", xml: xml.replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>") }).then(() => "added", (e: Error) => e.message);
+    expect(again).to.match(/existe déjà/);
+  });
+
   it("keeps named backups on the server", async () => {
     const { file } = (await run("backup.create", { label: "Avant répétition" })) as { file: string };
     expect(file).to.match(/^default-.*-avant-repetition\.lightshow$/);

@@ -421,7 +421,8 @@ label.inline {
 label.inline input {
   width: 4.5em;
 }
-label.inline input[type="checkbox"] {
+label.inline input[type="checkbox"],
+label.inline input[type="radio"] {
   width: auto;
 }
 
@@ -871,4 +872,24 @@ table.rules td {
 }
 .login .key-login {
   font-size: 1rem;
+}
+
+/* Guided import (pages/Import.tsx). */
+.import .step h2 {
+  color: var(--accent);
+}
+.import-target {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4em 0.8em 0.6em;
+  margin: 0.8em 0;
+  display: grid;
+  gap: 0.4em;
+}
+.import-target legend {
+  color: var(--muted);
+  padding: 0 0.3em;
+}
+.added-definitions {
+  margin: 0.4em 0;
 }

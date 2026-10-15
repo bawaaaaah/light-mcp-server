@@ -20,6 +20,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 | **Chants** | setlist, grille de chant, boutons, timeline, **planche**, feuille de conduite |
 | **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton |
 | **OSC** | explorateur d'adresses (recherche, copier), export de la table |
+| **Import** | guidé en 4 étapes : 1. définitions `.qxf` (nombre dans la bibliothèque, ajout depuis le navigateur vers `data/fixtures`) ; 2. workspace `.qxw` importé **dans le show ouvert** (réimportation qui garde les retouches) ou **dans un nouveau show** (avec son propre lieu ou sur le lieu ouvert), proposition puis application, définitions manquantes signalées et proposition recalculée dès qu'on en ajoute ; 3. reconstruction en techniques ; 4. auto-test |
 | **Notes** | recherche globale |
 | **Fichiers** | show ouvert (renommer), liste des shows (ouvrir, dupliquer, supprimer), nouveau show (vide ou copie, même lieu, copie du lieu ou lieu vide), sauvegardes `.lightshow` du serveur (enregistrer, restaurer, télécharger), réinitialisation (administrateur) ; le nom du show ouvert est dans l'en-tête et y mène |
 | **Connexion IA** | adresse MCP et jeton (masqué, à copier), marche à suivre par client (Claude Code, Claude Desktop, claude.ai, stdio, Inspector, curl), publication derrière un reverse proxy ; réservée aux rôles qui ont `mcp:use` |

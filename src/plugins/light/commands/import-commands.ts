@@ -2,7 +2,7 @@
  * Import commands: QLC+ workspace → venue + show. Dry run by default (returns the proposal
  * report); `apply: true` writes it. Files are read from <dataRoot>/imports only.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
@@ -10,6 +10,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection, FolderStore } from "../data/store.js";
 import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.js";
 import { parseQxw } from "../presets/qxw-import.js";
+import { parseQxf } from "../venue/qxf-import.js";
 import { mergeImport } from "../presets/merge-import.js";
 
 /** Fingerprints of what the last import wrote, per collection and id (re-import « mode hybride »). */
@@ -26,9 +27,30 @@ export interface ImportServices {
   mapper: MidiMapper;
   tempo: TempoClock;
   importsDir: string;
+  /** Where .qxf fixture definitions are kept (data/fixtures). */
+  fixturesDir: string;
 }
 
 export function registerImportCommands(reg: CommandRegistry, s: ImportServices): void {
+  reg.register({
+    name: "fixture.definition.add",
+    title: "Ajouter une définition de projecteur",
+    description:
+      "Adds a QLC+ fixture definition (.qxf, as text) to data/fixtures, the library every import and patch reads; checked before it is written. An existing file of the same name is only replaced with replace: true.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ name: z.string().min(1), xml: z.string().min(1), replace: z.boolean().default(false) }),
+    run: ({ name, xml, replace }) => {
+      const def = parseQxf(xml); // throws on anything that is not a definition
+      const file = `${path.basename(name).replace(/\.qxf$/i, "").replace(/[^\w.-]+/g, "-").slice(0, 100) || "definition"}.qxf`;
+      const target = path.join(s.fixturesDir, file);
+      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace) throw new Error(`${file} existe déjà (replace pour le remplacer)`);
+      mkdirSync(s.fixturesDir, { recursive: true });
+      writeFileSync(target, xml);
+      s.runtime.venue.refreshDefinitions();
+      return { file, manufacturer: def.manufacturer, model: def.model, modes: def.modes.map((m) => m.name) };
+    },
+  });
   reg.register({
     name: "import.qxw",
     title: "Importer un workspace QLC+",

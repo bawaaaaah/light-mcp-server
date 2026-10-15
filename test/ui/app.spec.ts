@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 /** Collects page errors and console errors; every test asserts there are none. */
@@ -191,6 +192,28 @@ test("users: the administrator adds a user with a PIN and a security key, who th
   await page.locator(".users-table tr", { hasText: "Régie test" }).getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".users-table")).not.toContainText("Régie test");
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
+test("guided import: a .qxf added from the browser, then a QLC+ workspace into a new show of its own", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  await page.locator("header nav button", { hasText: "Import" }).click();
+  const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
+  await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: fixture("spot.qxf") });
+  await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
+  await page.locator('input[type=file][accept=".qxw"]').setInputFiles({ name: "Autre salle.qxw", mimeType: "text/xml", buffer: fixture("efx.qxw") });
+  await expect(page.locator(".report")).toBeVisible();
+  await page.getByLabel("un nouveau show").check();
+  await expect(page.getByLabel("Nom du show", { exact: true })).toHaveValue("Autre salle");
+  await page.screenshot({ path: "test-results/import-guided.png", fullPage: true });
+  await page.getByRole("button", { name: "Créer le show et importer" }).click();
+  await expect(page.locator("header .show-name")).toHaveText("Autre salle"); // opened on every screen
+  await expect(page.locator(".import .report")).toContainText("✔"); // the report survived the reload
+  // back to the first show, the new one removed
+  await api(page, "show.open", { id: "default" });
+  await expect(page.locator("header .show-name")).toHaveText("Show");
+  await api(page, "show.delete", { id: "autre-salle" });
+  expect(errors).toEqual([]);
 });
 
 test("refuses a wrong PIN, then logs in", async ({ page }) => {

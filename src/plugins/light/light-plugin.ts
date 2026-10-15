@@ -190,7 +190,7 @@ export class LightPlugin implements McpPlugin {
     const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
     let kb: Knowledge | undefined;
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), () => (kb ??= loadKnowledge(knowledgePath)));
-    registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports") });
+    registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     registerFileCommands(this.commands, {
       dataRoot,
       current: () => ({ show: this.config.show, venue: this.config.venue }),
@@ -204,6 +204,7 @@ export class LightPlugin implements McpPlugin {
         this.reloadFromDisk();
       },
       restore: (bytes) => this.restoreArchive(bytes),
+      importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
     });
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 

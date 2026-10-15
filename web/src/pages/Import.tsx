@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -26,38 +26,157 @@ interface Selftest {
   cadence?: { bpm: number; looks: { look: string; expectedMs: number; measuredMs?: number; ok: boolean; detail?: string }[] };
 }
 
+type Target = "open" | "new";
+interface DefinitionResult {
+  file: string;
+  ok: boolean;
+  detail: string;
+}
+/** The result of an import into a new show, kept across the reload that opening it causes. */
+const LAST_IMPORT = "lastImport";
+
+/**
+ * Guided QLC+ import: 1. fixture definitions (.qxf), 2. the workspace (.qxw) into the open show or a
+ * new show of its own, proposal then apply, 3. rebuild into techniques, 4. self-test.
+ */
 export function ImportPage() {
   const t = useT();
   const [xml, setXml] = useState<string | null>(null);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [target, setTarget] = useState<Target>("open");
+  const [newShow, setNewShow] = useState({ name: "", venue: "new" as "new" | "current" });
+  const [openShow, setOpenShow] = useState("");
+  const [definitions, setDefinitions] = useState<number | null>(null);
+  const [added, setAdded] = useState<DefinitionResult[]>([]);
+  const [done, setDone] = useState("");
+  const [proposal, setProposal] = useState<Proposal | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(LAST_IMPORT);
+      sessionStorage.removeItem(LAST_IMPORT);
+      return saved ? (JSON.parse(saved) as { proposal: Proposal }).proposal : null;
+    } catch {
+      return null;
+    }
+  });
   const [selftest, setSelftest] = useState<Selftest | null>(null);
   const [rebuild, setRebuild] = useState<Rebuild | null>(null);
   const [error, setError] = useState("");
   const [withCadence, setWithCadence] = useState(false);
   const [running, setRunning] = useState(false);
 
-  const pick = async (file: File | undefined) => {
-    if (!file) return;
+  const loadLibrary = () => void cmd<unknown[]>("venue.library").then((l) => setDefinitions(l.length), () => undefined);
+  useEffect(() => {
+    loadLibrary();
+    void cmd<{ name: string; active: boolean }[]>("show.list").then((l) => setOpenShow(l.find((x) => x.active)?.name ?? ""), () => undefined);
+  }, []);
+
+  const propose = async (text: string) => {
     setError("");
-    const text = await file.text();
-    setXml(text);
     try {
       setProposal(await cmd<Proposal>("import.qxw", { xml: text }));
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    const text = await file.text();
+    setXml(text);
+    setFileName(file.name);
+    setNewShow((n) => ({ ...n, name: n.name || file.name.replace(/\.qxw$/i, "") }));
+    await propose(text);
+  };
+  const addDefinitions = async (files: FileList | null) => {
+    const results: DefinitionResult[] = [];
+    for (const f of Array.from(files ?? [])) {
+      try {
+        const r = await cmd<{ file: string; manufacturer: string; model: string }>("fixture.definition.add", { name: f.name, xml: await f.text() });
+        results.push({ file: r.file, ok: true, detail: `${r.manufacturer} ${r.model}` });
+      } catch (e) {
+        results.push({ file: f.name, ok: false, detail: (e as Error).message });
+      }
+    }
+    setAdded(results);
+    loadLibrary();
+    if (xml) await propose(xml); // the proposal now sees them
+  };
+  const apply = () => {
+    if (!xml) return;
+    if (target === "open") {
+      void cmd<Proposal>("import.qxw", { xml, apply: true }).then(setProposal, (e: Error) => setError(e.message));
+      return;
+    }
+    void cmd<{ name: string; imported: Proposal }>("show.create", { name: newShow.name.trim(), venue: newShow.venue, qxw: xml }).then(
+      (r) => {
+        try {
+          sessionStorage.setItem(LAST_IMPORT, JSON.stringify({ proposal: r.imported }));
+        } catch {
+          /* the app reloads on the new show: the report is only lost */
+        }
+        setProposal(r.imported);
+        setDone(`${t.importNewShowDone} ${r.name}`);
+      },
+      (e: Error) => setError(e.message),
+    );
+  };
+  const missing = proposal?.report.warnings.filter((w) => w.startsWith("définition manquante")).length ?? 0;
+  const blocked = target === "open" && Boolean(proposal?.otherWorkspace);
 
   return (
     <div className="import">
-      <section>
-        <h2>{t.importTitle}</h2>
+      <section className="step">
+        <h2>1. {t.importDefinitions}</h2>
+        <p className="hint">{t.importDefinitionsHelp}</p>
+        <div className="row">
+          <span>
+            {definitions ?? "…"} {t.definitionsInLibrary}
+          </span>
+          <label className="button-like">
+            ⤒ {t.addQxf}
+            <input type="file" accept=".qxf" multiple hidden onChange={(e) => void addDefinitions(e.target.files)} />
+          </label>
+        </div>
+        {added.length > 0 && (
+          <ul className="added-definitions">
+            {added.map((a) => (
+              <li key={a.file} className={a.ok ? "" : "error"}>
+                {a.ok ? "✔" : "✖"} {a.file} : {a.detail}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="step">
+        <h2>2. {t.importTitle}</h2>
         <p className="hint">{t.importHelp}</p>
-        <label className="button-like primary">
-          ⤒ {t.chooseQxw}
-          <input type="file" accept=".qxw" hidden onChange={(e) => void pick(e.target.files?.[0])} />
-        </label>
+        <div className="row">
+          <label className="button-like primary">
+            ⤒ {t.chooseQxw}
+            <input type="file" accept=".qxw" hidden onChange={(e) => void pick(e.target.files?.[0])} />
+          </label>
+          {fileName && <code>{fileName}</code>}
+        </div>
+        <fieldset className="import-target">
+          <legend>{t.importInto}</legend>
+          <label className="inline">
+            <input type="radio" name="target" checked={target === "open"} onChange={() => setTarget("open")} /> {t.intoOpenShow} « {openShow} »
+          </label>
+          <label className="inline">
+            <input type="radio" name="target" checked={target === "new"} onChange={() => setTarget("new")} /> {t.intoNewShow}
+          </label>
+          {target === "new" && (
+            <div className="row">
+              <input aria-label={t.showName} placeholder={t.showName} value={newShow.name} onChange={(e) => setNewShow({ ...newShow, name: e.target.value })} />
+              <select aria-label={t.venue} value={newShow.venue} onChange={(e) => setNewShow({ ...newShow, venue: e.target.value as "new" | "current" })}>
+                <option value="new">{t.newShowVenueNew}</option>
+                <option value="current">{t.newShowVenueSame}</option>
+              </select>
+            </div>
+          )}
+        </fieldset>
         {error && <p className="error">{error}</p>}
+        {done && <p className="hint">✔ {done}</p>}
         {proposal && (
           <div className="report">
             <h3>{proposal.applied ? "✔" : t.dryRun}</h3>
@@ -117,17 +236,23 @@ export function ImportPage() {
                 </table>
               </>
             )}
-            {proposal.otherWorkspace && <p className="error">⚠ {proposal.otherWorkspace}</p>}
+            {missing > 0 && <p className="warn">{t.missingDefinitionsHint}</p>}
+            {blocked && (
+              <p className="error">
+                ⚠ {proposal.otherWorkspace}{" "}
+                <button onClick={() => setTarget("new")}>{t.useNewShow}</button>
+              </p>
+            )}
             {!proposal.applied && xml && (
-              <button className="primary" disabled={!!proposal.otherWorkspace} onClick={() => void cmd<Proposal>("import.qxw", { xml, apply: true }).then(setProposal).catch((e: Error) => setError(e.message))}>
-                {t.apply}
+              <button className="primary" disabled={blocked || (target === "new" && !newShow.name.trim())} onClick={apply}>
+                {target === "new" ? t.createAndImport : t.apply}
               </button>
             )}
           </div>
         )}
       </section>
-      <section>
-        <h2>{t.rebuild}</h2>
+      <section className="step">
+        <h2>3. {t.rebuild}</h2>
         <p className="hint">{t.rebuildHelp}</p>
         <button onClick={() => void cmd<Rebuild>("look.rebuild").then(setRebuild).catch((e: Error) => setError(e.message))}>{t.dryRun}</button>
         {rebuild && !rebuild.saved && rebuild.rebuilt > 0 && (
@@ -155,8 +280,8 @@ export function ImportPage() {
           </div>
         )}
       </section>
-      <section>
-        <h2>{t.selftest}</h2>
+      <section className="step">
+        <h2>4. {t.selftest}</h2>
         <div className="row">
           <button
             disabled={running}

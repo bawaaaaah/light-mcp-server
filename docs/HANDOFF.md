@@ -25,6 +25,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - **shows et sauvegardes** comme une console lumière (page Fichiers, `light show`, `light backup`) ;
   - **instantanés** (état complet rappelé d'un coup) et **secours complet** du Panic neutre ;
   - **utilisateurs** nommés (rôle, PIN, clés de sécurité YubiKey / passkeys) et **OAuth** pour claude.ai, repris de wing-mcp-server ;
+  - **import QLC+ guidé** (définitions `.qxf` depuis le navigateur, workspace dans le show ouvert ou dans un nouveau show) ;
   - **connexion** : jeton d'authentification par défaut, PIN pour un utilisateur choisi, liens de partage (utilisateur + PIN), essais de PIN limités ; `server.port` / `server.host` dans `data/machine/config.json` ; page **Connexion IA** et doc du reverse proxy (README).
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
@@ -35,7 +36,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - premier coup d'œil à l'interface dans un navigateur ;
    - répétition v0 avec QLC+ en secours, en suivant [bascule-qlc.md](bascule-qlc.md).
 2. Corriger d'après ses retours. **Demandes de l'utilisateur du 2026-10-15, pas encore faites** :
-   - **refonte de l'interface** : clic droit sur les boutons, DCA et faders pour les régler et choisir ce qu'ils pilotent ; import QLC+ guidé (étapes, ajout des `.qxf` depuis l'interface, show cible).
+   - **refonte de l'interface** : clic droit sur les boutons, DCA et faders pour les régler et choisir ce qu'ils pilotent ; en-tête sur deux lignes à reprendre.
 3. Non encore fait :
    - cascade complète des règles.
 4. Plus tard (roadmap) : IA en live, Max for Live, AbleSet, audio, 3D, comptes et QR.
