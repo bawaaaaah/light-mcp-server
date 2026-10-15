@@ -2,12 +2,14 @@
  * Authentication and roles (docs/architecture.md, "Authentification et rôles").
  *
  * - A master token (admin) for MCP clients and the CLI, as in wing-mcp-server.
- * - Roles with a PIN (v1): POST /api/auth/login { pin, role? } opens a session whose bearer token
- *   carries the role. Rights are checked by `can(credential, right)`. Failed PINs are limited per
- *   client address, since a short PIN would otherwise be guessed in seconds once exposed.
+ * - Roles carry the rights; named users each have a role, a PIN and/or hardware keys (passkeys,
+ *   core/passkeys.ts). POST /api/auth/login { pin, user? } opens a session whose bearer token
+ *   carries the user, hence the role. Rights are checked by `can(credential, right)`. Failed PINs
+ *   are limited per client address, since a short PIN would otherwise be guessed in seconds once
+ *   exposed. Users came after per-role PINs: those become one user per role on load.
+ * - Tokens from elsewhere (OAuth, core/oauth.ts) resolve through `setTokenResolver`, valid on /mcp only.
  * - Short-lived single-use WebSocket tickets (same contract as wing's AuthMiddleware, so the WS hub
  *   is reused unchanged).
- * Accounts and secret links/QR are planned later.
  */
 import crypto from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
@@ -15,12 +17,13 @@ import { z } from "zod";
 import type { ConfigStore } from "./config-store.js";
 import { HttpError } from "./http-errors.js";
 
-export type AuthKind = "static" | "session";
+export type AuthKind = "static" | "session" | "oauth";
 
 /** A right is "<area>:<action>", e.g. "commands:panic", "dashboards:view", "show:write"; "*" = all. */
 export const RoleSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string(),
+  /** Before users existed, a role had its own PIN: read once and moved to a user of that role. */
   pinHash: z.string().optional(),
   rights: z.array(z.string()).default([]),
   /** Dashboards this role sees; absent = all. */
@@ -28,8 +31,34 @@ export const RoleSchema = z.object({
 });
 export type Role = z.infer<typeof RoleSchema>;
 
-const AuthStateSchema = z.object({ roles: z.array(RoleSchema) });
+export const UserSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  name: z.string().min(1),
+  role: z.string(),
+  pinHash: z.string().optional(),
+  disabled: z.boolean().default(false),
+});
+export type User = z.infer<typeof UserSchema>;
+
+/** What the UI and the API see of a user: never the PIN hash. */
+export interface UserSummary {
+  id: string;
+  name: string;
+  role: string;
+  roleName: string;
+  hasPin: boolean;
+  disabled: boolean;
+}
+
+/** What a client sees once signed in: the user's name (the role's for the master token), the role, its rights. */
+export function signedInView(role: Role, user?: UserSummary): { id: string; name: string; role: string; rights: string[]; dashboards?: string[]; user?: { id: string; name: string } } {
+  return { id: role.id, name: user?.name ?? role.name, role: role.name, rights: role.rights, dashboards: role.dashboards, user: user ? { id: user.id, name: user.name } : undefined };
+}
+
+const AuthStateSchema = z.object({ roles: z.array(RoleSchema), users: z.array(UserSchema).default([]) });
 type AuthState = z.infer<typeof AuthStateSchema>;
+
+const PIN_RE = /^\d{4,8}$/;
 
 export const DEFAULT_ROLES: Role[] = [
   { id: "admin", name: "Administrateur du lieu", rights: ["*"] },
@@ -95,8 +124,9 @@ const MAX_PIN_FAILURES = 5;
 const PIN_FAILURE_WINDOW_MS = 60_000;
 
 export class AuthService implements AuthMiddleware {
-  private state: AuthState = { roles: DEFAULT_ROLES };
-  private readonly sessions = new Map<string, { roleId: string; expiresAt: number }>();
+  private state: AuthState = { roles: DEFAULT_ROLES, users: [] };
+  private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
+  private resolveToken: ((token: string) => { userId?: string } | undefined) | undefined;
   private readonly tickets = new Map<string, { credential: string; expiresAt: number }>();
   private readonly pinFailures = new Map<string, { count: number; resetAt: number }>();
 
@@ -107,51 +137,149 @@ export class AuthService implements AuthMiddleware {
   ) {
     const parsed = AuthStateSchema.safeParse(configStore?.getAuthState());
     if (parsed.success) this.state = parsed.data;
+    // per-role PINs (before users): one user per role, same id, name and PIN
+    for (const role of this.state.roles) {
+      if (!role.pinHash) continue;
+      if (!this.state.users.some((u) => u.id === role.id)) this.state.users.push({ id: role.id, name: role.name, role: role.id, pinHash: role.pinHash, disabled: false });
+      delete role.pinHash;
+    }
   }
 
   roles(): Role[] {
-    return this.state.roles.map(({ pinHash, ...r }) => ({ ...r, pinHash: pinHash ? "set" : undefined }));
+    return this.state.roles.map(({ pinHash: _, ...r }) => r);
   }
 
-  async setPin(roleId: string, pin: string): Promise<void> {
-    if (!/^\d{4,8}$/.test(pin)) throw new HttpError(400, "PIN: 4 à 8 chiffres");
-    const role = this.state.roles.find((r) => r.id === roleId);
-    if (!role) throw new HttpError(404, `rôle inconnu : ${roleId}`);
-    if (this.state.roles.some((r) => r.id !== roleId && r.pinHash && verifyPin(pin, r.pinHash))) {
-      throw new HttpError(409, "ce PIN est déjà utilisé par un autre rôle");
+  /** OAuth (or any other issuer) tokens: resolved to a user (or to the administrator), on /mcp only. */
+  setTokenResolver(fn: (token: string) => { userId?: string } | undefined): void {
+    this.resolveToken = fn;
+  }
+
+  private role(id: string): Role {
+    const role = this.state.roles.find((r) => r.id === id);
+    if (!role) throw new HttpError(400, `rôle inconnu : ${id}`);
+    return role;
+  }
+
+  private user(id: string): User {
+    const user = this.state.users.find((u) => u.id === id);
+    if (!user) throw new HttpError(404, `utilisateur inconnu : ${id}`);
+    return user;
+  }
+
+  private summary(u: User): UserSummary {
+    return { id: u.id, name: u.name, role: u.role, roleName: this.state.roles.find((r) => r.id === u.role)?.name ?? u.role, hasPin: Boolean(u.pinHash), disabled: u.disabled };
+  }
+
+  private save(): Promise<void> {
+    return this.configStore?.setAuthState(this.state) ?? Promise.resolve();
+  }
+
+  users(): UserSummary[] {
+    return this.state.users.map((u) => this.summary(u));
+  }
+
+  userById(id: string): UserSummary | undefined {
+    const u = this.state.users.find((x) => x.id === id);
+    return u && this.summary(u);
+  }
+
+  /** A PIN is unique among users, so a PIN alone (no user picked) still finds its user. */
+  private checkPin(pin: string, exceptUser: string): string {
+    if (!PIN_RE.test(pin)) throw new HttpError(400, "PIN : 4 à 8 chiffres");
+    if (this.state.users.some((u) => u.id !== exceptUser && u.pinHash && verifyPin(pin, u.pinHash))) {
+      throw new HttpError(409, "ce PIN est déjà celui d'un autre utilisateur");
     }
-    role.pinHash = hashPin(pin);
-    await this.configStore?.setAuthState(this.state);
+    return hashPin(pin);
   }
 
-  /** Roles that can log in with a PIN, for the login screen (no rights, no hash). */
-  loginRoles(): { id: string; name: string }[] {
-    return this.state.roles.filter((r) => r.pinHash).map((r) => ({ id: r.id, name: r.name }));
+  async addUser(input: { name: string; role: string; pin?: string; id?: string }): Promise<UserSummary> {
+    this.role(input.role);
+    const base = (input.id ?? input.name).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "utilisateur";
+    let id = base;
+    for (let i = 2; this.state.users.some((u) => u.id === id); i++) id = `${base}-${i}`;
+    const user: User = UserSchema.parse({ id, name: input.name.trim(), role: input.role });
+    if (input.pin) user.pinHash = this.checkPin(input.pin, id);
+    this.state.users.push(user);
+    await this.save();
+    return this.summary(user);
+  }
+
+  async updateUser(id: string, patch: { name?: string; role?: string; disabled?: boolean }): Promise<UserSummary> {
+    const user = this.user(id);
+    if (patch.role !== undefined) user.role = this.role(patch.role).id;
+    if (patch.name !== undefined && patch.name.trim()) user.name = patch.name.trim();
+    if (patch.disabled !== undefined) user.disabled = patch.disabled;
+    if (user.disabled) this.closeSessions(id);
+    await this.save();
+    return this.summary(user);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    this.user(id);
+    this.state.users = this.state.users.filter((u) => u.id !== id);
+    this.closeSessions(id);
+    await this.save();
+  }
+
+  /** Sets (or with null removes) a user's PIN. For a role id without its user yet, creates that user (CLI `light pin`). */
+  async setPin(userId: string, pin: string | null): Promise<void> {
+    let user = this.state.users.find((u) => u.id === userId);
+    if (!user) {
+      const role = this.role(userId);
+      user = { id: role.id, name: role.name, role: role.id, disabled: false };
+      this.state.users.push(user);
+    }
+    if (pin === null) delete user.pinHash;
+    else user.pinHash = this.checkPin(pin, user.id);
+    await this.save();
+  }
+
+  /** Users who can sign in with a PIN, for the login screen (no rights, no hash). */
+  loginUsers(): { id: string; name: string }[] {
+    return this.state.users.filter((u) => u.pinHash && !u.disabled).map((u) => ({ id: u.id, name: u.name }));
+  }
+
+  /** Whether a user (enabled) has a right through their role. */
+  userCan(userId: string, right: string): boolean {
+    const user = this.state.users.find((u) => u.id === userId);
+    const role = user && !user.disabled ? this.state.roles.find((r) => r.id === user.role) : undefined;
+    return role?.rights.some((g) => rightMatches(g, right)) ?? false;
+  }
+
+  /** A session for a user who proved who they are some other way (a hardware key). */
+  openSession(userId: string): { token: string; user: UserSummary; role: Role } {
+    const user = this.user(userId);
+    if (user.disabled) throw new HttpError(403, "utilisateur désactivé");
+    const token = crypto.randomBytes(24).toString("base64url");
+    this.sessions.set(token, { userId: user.id, expiresAt: this.now() + SESSION_TTL_MS });
+    return { token, user: this.summary(user), role: this.role(user.role) };
+  }
+
+  private closeSessions(userId: string): void {
+    for (const [token, s] of this.sessions) if (s.userId === userId) this.sessions.delete(token);
   }
 
   /**
-   * Opens a session for the role whose PIN matches; with `roleId`, only that role is tried.
+   * Opens a session for the user whose PIN matches; with `userId`, only that user is tried.
    * `client` (the caller's address) counts the wrong PINs: past MAX_PIN_FAILURES, 429 until the
    * window ends, even for the right PIN.
    */
-  login(pin: string, roleId?: string, client = ""): { token: string; role: Role } {
+  login(pin: string, userId?: string, client = ""): { token: string; user: UserSummary; role: Role } {
     const now = this.now();
     for (const [c, e] of this.pinFailures) if (e.resetAt <= now) this.pinFailures.delete(c);
     const failures = this.pinFailures.get(client);
     if (failures && failures.count >= MAX_PIN_FAILURES) {
       throw new HttpError(429, `trop d'essais : réessayer dans ${Math.ceil((failures.resetAt - now) / 1000)} s`);
     }
-    const role = this.state.roles.find((r) => (!roleId || r.id === roleId) && r.pinHash && verifyPin(pin, r.pinHash));
-    if (!role) {
+    const user = this.state.users.find((u) => (!userId || u.id === userId) && !u.disabled && u.pinHash && verifyPin(pin, u.pinHash));
+    if (!user) {
       const entry = this.pinFailures.get(client) ?? { count: 0, resetAt: now + PIN_FAILURE_WINDOW_MS };
       entry.count++;
       this.pinFailures.set(client, entry);
       throw new HttpError(401, "PIN incorrect");
     }
     this.pinFailures.delete(client);
-    const token = crypto.randomBytes(24).toString("base64url");
-    this.sessions.set(token, { roleId: role.id, expiresAt: this.now() + SESSION_TTL_MS });
-    return { token, role };
+    return this.openSession(user.id);
   }
 
   logout(token: string): void {
@@ -163,16 +291,41 @@ export class AuthService implements AuthMiddleware {
     return header?.startsWith("Bearer ") ? header.slice(7) : undefined;
   }
 
+  /** The user behind a credential: none for the master token (the administrator itself). */
+  userOf(credential: string | undefined): UserSummary | undefined {
+    if (!credential || tokensMatch(credential, this.masterToken)) return undefined;
+    const session = this.sessions.get(credential);
+    if (session) {
+      if (session.expiresAt < this.now()) {
+        this.sessions.delete(credential);
+        return undefined;
+      }
+      return this.userById(session.userId);
+    }
+    const resolved = this.resolveToken?.(credential);
+    return resolved?.userId ? this.userById(resolved.userId) : undefined;
+  }
+
   roleOf(credential: string | undefined): Role | undefined {
     if (!credential) return undefined;
-    if (tokensMatch(credential, this.masterToken)) return this.state.roles.find((r) => r.id === "admin") ?? DEFAULT_ROLES[0];
+    const admin = () => this.state.roles.find((r) => r.id === "admin") ?? DEFAULT_ROLES[0];
+    if (tokensMatch(credential, this.masterToken)) return admin();
+    let userId: string;
     const session = this.sessions.get(credential);
-    if (!session) return undefined;
-    if (session.expiresAt < this.now()) {
-      this.sessions.delete(credential);
-      return undefined;
+    if (session) {
+      if (session.expiresAt < this.now()) {
+        this.sessions.delete(credential);
+        return undefined;
+      }
+      userId = session.userId;
+    } else {
+      const resolved = this.resolveToken?.(credential);
+      if (!resolved) return undefined;
+      if (!resolved.userId) return admin(); // an OAuth grant approved with the master token
+      userId = resolved.userId;
     }
-    return this.state.roles.find((r) => r.id === session.roleId);
+    const user = this.state.users.find((u) => u.id === userId);
+    return user && !user.disabled ? this.state.roles.find((r) => r.id === user.role) : undefined;
   }
 
   can(credential: string | undefined, right: string): boolean {
@@ -183,15 +336,17 @@ export class AuthService implements AuthMiddleware {
     return this.roleOf(candidate) !== undefined;
   }
 
-  authKind(req: Request): AuthKind | undefined {
+  authKind(req: Pick<Request, "headers">): AuthKind | undefined {
     const c = this.bearerOf(req);
-    if (!c) return undefined;
+    if (!c || !this.roleOf(c)) return undefined;
     if (tokensMatch(c, this.masterToken)) return "static";
-    return this.roleOf(c) ? "session" : undefined;
+    return this.sessions.has(c) ? "session" : "oauth";
   }
 
+  /** The web UI and its API: the master token or a session; an OAuth token is good for /mcp only. */
   isAuthorized(req: Request): boolean {
-    return this.authKind(req) !== undefined;
+    const kind = this.authKind(req);
+    return kind === "static" || kind === "session";
   }
 
   requireAuth(): RequestHandler {
@@ -204,7 +359,7 @@ export class AuthService implements AuthMiddleware {
   requireRight(right: string): RequestHandler {
     return (req: Request, _res: Response, next: NextFunction) => {
       const credential = this.bearerOf(req);
-      if (!this.isValidCredential(credential ?? "")) return next(new HttpError(401, "Unauthorized"));
+      if (!this.isAuthorized(req)) return next(new HttpError(401, "Unauthorized"));
       if (!this.can(credential, right)) return next(new HttpError(403, `droit requis : ${right}`));
       next();
     };

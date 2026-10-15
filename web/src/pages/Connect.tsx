@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
-import { getToken, serverInfo, type Role } from "../api";
+import { api, can, getToken, serverInfo, type Role } from "../api";
 import { useT } from "../App";
 import { CodeBlock, CopyButton } from "../components/Copy";
+
+interface OAuthClient {
+  clientId: string;
+  clientName?: string;
+  redirectUris: string[];
+  activeGrants: number;
+  lastTokenIssuedAt: string | null;
+  approvedBy: string[];
+}
 
 type Client = "claude-code" | "claude-desktop" | "claude-ai" | "stdio" | "inspector" | "curl";
 const CLIENTS: [Client, string][] = [
@@ -17,12 +26,21 @@ const CLIENTS: [Client, string][] = [
 export function ConnectPage({ role }: { role: Role }) {
   const t = useT();
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
+  const [oauth, setOauth] = useState(false);
+  const [clients, setClients] = useState<OAuthClient[]>([]);
+  const admin = can(role, "auth:admin");
+  const loadClients = () => void api<OAuthClient[]>("/api/auth/oauth/clients").then(setClients, () => setClients([]));
   const [client, setClient] = useState<Client>("claude-code");
   const [revealed, setRevealed] = useState(false);
   useEffect(() => {
     void serverInfo()
-      .then((s) => setPublicUrl(s.publicUrl))
+      .then((s) => {
+        setPublicUrl(s.publicUrl);
+        setOauth(Boolean(s.oauth));
+        if (s.oauth && admin) loadClients();
+      })
       .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const origin = publicUrl ?? location.origin;
@@ -118,7 +136,19 @@ export function ConnectPage({ role }: { role: Role }) {
             <CodeBlock {...mcpRemote} />
           </>
         )}
-        {client === "claude-ai" && <p>{t.claudeAiHelp}</p>}
+        {client === "claude-ai" &&
+          (oauth ? (
+            <>
+              <ol>
+                {t.claudeAiSteps.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ol>
+              <p className="hint">{t.claudeAiOauthHelp}</p>
+            </>
+          ) : (
+            <p>{t.claudeAiHelp}</p>
+          ))}
         {client === "stdio" && (
           <>
             <p>{t.stdioHelp}</p>
@@ -138,6 +168,31 @@ export function ConnectPage({ role }: { role: Role }) {
           </>
         )}
       </section>
+
+      {oauth && admin && (
+        <section>
+          <h2>{t.oauthClients}</h2>
+          {clients.length === 0 && <p className="hint">{t.noOauthClients}</p>}
+          <table className="oauth-clients">
+            <tbody>
+              {clients.map((c) => (
+                <tr key={c.clientId}>
+                  <td>{c.clientName ?? c.clientId}</td>
+                  <td className="hint">{c.redirectUris.join(", ")}</td>
+                  <td className="hint">
+                    {c.activeGrants} {t.grants} · {c.approvedBy.map((u) => u || t.masterToken).join(", ")}
+                  </td>
+                  <td>
+                    <button className="ghost" onClick={() => confirm(`${t.revokeClientConfirm} « ${c.clientName ?? c.clientId} »`) && void api(`/api/auth/oauth/clients/${encodeURIComponent(c.clientId)}`, "DELETE").then(loadClients)}>
+                      {t.revoke}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section>
         <h2>{t.remoteTitle}</h2>

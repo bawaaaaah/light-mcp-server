@@ -854,3 +854,21 @@ table.rules td {
   padding: 0.2em 1em 1em;
   margin-top: 1.5em;
 }
+
+/* Users, keys and OAuth clients (components/UsersPanel.tsx, pages/Connect.tsx). */
+.users-table td,
+.keys-table td,
+.oauth-clients td {
+  padding: 0.35em 0.8em 0.35em 0;
+  vertical-align: middle;
+}
+.users-table tr.disabled {
+  opacity: 0.5;
+}
+.users-table input[type="password"],
+.new-user input[type="password"] {
+  width: 7em;
+}
+.login .key-login {
+  font-size: 1rem;
+}

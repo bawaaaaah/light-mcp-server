@@ -1,8 +1,13 @@
 /** HTTP client: login and the command layer (POST /api/plugins/light/commands/:name). */
+import { browserSupportsWebAuthn, startAuthentication, startRegistration } from "@simplewebauthn/browser";
 
 export interface Role {
   id: string;
+  /** The signed-in user's name (the role's for the master token). */
   name: string;
+  /** The role's name. */
+  role?: string;
+  user?: { id: string; name: string };
   rights: string[];
   /** "static": signed in with the master token (server.authToken); "session": with a PIN. */
   kind?: "static" | "session";
@@ -68,8 +73,26 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export async function login(pin: string, role?: string): Promise<Role> {
-  const r = await json<{ token: string; role: Role }>(await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, role }) }));
+export async function login(pin: string, user?: string): Promise<Role> {
+  const r = await json<{ token: string; role: Role }>(await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, user }) }));
+  setToken(r.token);
+  return r.role;
+}
+
+/**
+ * Hardware keys (YubiKey) and passkeys run only in a secure context bound to a hostname: localhost
+ * or the public HTTPS address, never a LAN IP (where the PIN stays).
+ */
+export function keysUsableHere(): boolean {
+  const host = location.hostname;
+  return window.isSecureContext && !/^[\d.]+$/.test(host) && !host.startsWith("[") && browserSupportsWebAuthn();
+}
+
+/** Signs in with a hardware key: the browser offers the keys it holds for this address. */
+export async function loginWithKey(): Promise<Role> {
+  const optionsJSON = await json<Parameters<typeof startAuthentication>[0]["optionsJSON"]>(await fetch("/api/auth/passkeys/login/options", { method: "POST" }));
+  const response = await startAuthentication({ optionsJSON });
+  const r = await json<{ token: string; role: Role }>(await fetch("/api/auth/passkeys/login/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ response }) }));
   setToken(r.token);
   return r.role;
 }
@@ -80,8 +103,42 @@ export async function loginWithToken(t: string): Promise<Role | null> {
   return me();
 }
 
-export async function loginRoles(): Promise<{ id: string; name: string }[]> {
-  return json(await fetch("/api/auth/login-roles"));
+/** Who can sign in with a PIN, and whether hardware keys are registered at all. */
+export async function loginUsers(): Promise<{ users: { id: string; name: string }[]; keys: boolean }> {
+  return json(await fetch("/api/auth/login-users"));
+}
+
+/** Authenticated JSON call to the core API (users, keys, OAuth clients). */
+export async function api<T = unknown>(route: string, method = "GET", body?: unknown): Promise<T> {
+  const res = await fetch(route, { method, headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (res.status === 204) return undefined as T;
+  return json<T>(res);
+}
+
+export interface UserRow {
+  id: string;
+  name: string;
+  role: string;
+  roleName: string;
+  hasPin: boolean;
+  disabled: boolean;
+  keys: number;
+}
+
+export interface KeyRow {
+  id: string;
+  userId: string;
+  name: string;
+  rpId: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+/** Registers a hardware key in this browser for a user (yourself, or anyone as administrator). */
+export async function registerKey(user: string | undefined, name: string): Promise<KeyRow> {
+  const optionsJSON = await api<Parameters<typeof startRegistration>[0]["optionsJSON"]>("/api/auth/passkeys/register/options", "POST", { user });
+  const response = await startRegistration({ optionsJSON });
+  return api<KeyRow>("/api/auth/passkeys/register/verify", "POST", { user, name, response });
 }
 
 /** On load: the PIN of a share link, else the stored session. Throws when the link's PIN is refused. */
@@ -90,7 +147,7 @@ export async function restoreSession(): Promise<Role | null> {
   return me();
 }
 
-export async function serverInfo(): Promise<{ version: string; publicUrl: string | null }> {
+export async function serverInfo(): Promise<{ version: string; publicUrl: string | null; oauth?: boolean }> {
   return json(await fetch("/api/server", { headers: { authorization: `Bearer ${token}` } }));
 }
 

@@ -20,7 +20,7 @@ docker compose up -d --build      # réseau hôte, données dans ./data
 
 ## 2. Démarrer
 ```bash
-npm run light -- pin regisseur 1234     # un PIN par rôle : admin, regisseur, benevole, lecture
+npm run light -- pin regisseur 1234     # PIN d'un utilisateur (un nom de rôle crée l'utilisateur de ce rôle)
 npm start                               # ou npm run serve en développement
 ```
 - Interface : `http://<machine>:8790`. On entre avec le **jeton** (`npm run light -- token`) ou, en dessous, avec le **PIN** d'un utilisateur choisi dans la liste. Un administrateur crée dans **Réglages** des **liens de partage** (utilisateur + PIN) qui connectent d'un clic.

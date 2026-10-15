@@ -152,6 +152,47 @@ test("snapshots: save the whole state, choose it as Panic's safe state, Panic br
   expect(errors).toEqual([]);
 });
 
+test("users: the administrator adds a user with a PIN and a security key, who then signs in with the key", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  // a virtual FIDO2 key (Chromium's WebAuthn emulation), on localhost: keys need a hostname, not an IP
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true } });
+  const origin = "http://localhost:8799";
+  await page.goto(`${origin}/#token=ui-test-token`);
+  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  const users = page.locator(".users");
+  await users.getByLabel("Nom de l'utilisateur").fill("Régie test");
+  await users.getByLabel("Rôle", { exact: true }).selectOption("regisseur");
+  await users.getByLabel("PIN (facultatif)").fill("2468");
+  await users.getByRole("button", { name: "Ajouter l'utilisateur" }).click();
+  const row = users.locator(".users-table tr", { hasText: "Régie test" });
+  await expect(row).toContainText("PIN ✔");
+  await row.getByRole("button", { name: "Ajouter une clé" }).click();
+  await expect(users.getByText("Clé enregistrée")).toBeVisible();
+  await expect(users.locator(".keys-table")).toContainText("Clé de Régie test");
+  await page.screenshot({ path: "test-results/users.png", fullPage: true });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await page.getByRole("button", { name: "Entrer avec une clé de sécurité" }).click();
+  await expect(page.locator(".role")).toHaveText("Régie test");
+  expect(((await api(page, "show.settings")) as { grandMaster: number }).grandMaster).toBeGreaterThanOrEqual(0); // a régisseur session works
+  // the PIN works too, for that user only
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await page.locator("form.pin-login select").selectOption({ label: "Régie test" });
+  await page.getByPlaceholder(/PIN/).fill("2468");
+  await page.locator("form.pin-login button").click();
+  await expect(page.locator(".role")).toHaveText("Régie test");
+  // clean up as the administrator
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await page.goto("about:blank");
+  await page.goto(`${origin}/#token=ui-test-token`);
+  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator(".users-table tr", { hasText: "Régie test" }).getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".users-table")).not.toContainText("Régie test");
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -256,7 +297,7 @@ test("every page loads without errors, in French and English", async ({ page }) 
     await page.screenshot({ path: `test-results/page-${name.replace(/\s/g, "-")}.png`, fullPage: true });
   }
   await page.locator("header nav button", { hasText: "Réglages" }).click();
-  await expect(page.locator(".settings table").getByText("Régisseur")).toBeVisible();
+  await expect(page.locator(".users-table strong", { hasText: "Régisseur" })).toBeVisible();
   await page.locator("header nav button", { hasText: "Notes" }).click();
   await expect(page.getByText("note de test")).toBeVisible();
   await page.locator("header nav button", { hasText: "Import" }).click();

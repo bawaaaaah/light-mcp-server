@@ -1,14 +1,8 @@
 import { useEffect, useState } from "react";
-import { cmd, getToken, serverInfo, shareLink } from "../api";
+import { cmd, type Role } from "../api";
 import { useT } from "../App";
-import { CopyButton } from "../components/Copy";
+import { UsersPanel } from "../components/UsersPanel";
 
-interface Role {
-  id: string;
-  name: string;
-  rights: string[];
-  pinHash?: string;
-}
 interface Node {
   ip: string;
   shortName: string;
@@ -23,25 +17,13 @@ interface Output {
   config: { routes: { universe: number; artnet?: { portAddress: number }; sacn?: { universe: number } }[] };
 }
 
-export function SettingsPage() {
+export function SettingsPage({ role }: { role: Role }) {
   const t = useT();
-  const [roles, setRoles] = useState<Role[] | null>(null);
-  const [pins, setPins] = useState<Record<string, string>>({});
   const [nodes, setNodes] = useState<Node[]>([]);
   const [output, setOutput] = useState<Output | null>(null);
   const [message, setMessage] = useState("");
-  const [share, setShare] = useState({ user: "", pin: "" });
-  const [publicUrl, setPublicUrl] = useState<string | null>(null);
 
-  const loadRoles = () =>
-    void fetch("/api/auth/roles", { headers: { authorization: `Bearer ${getToken()}` } })
-      .then((r) => (r.ok ? (r.json() as Promise<Role[]>) : null))
-      .then(setRoles);
   useEffect(() => {
-    loadRoles();
-    void serverInfo()
-      .then((s) => setPublicUrl(s.publicUrl))
-      .catch(() => undefined);
     const load = () => {
       void cmd<Node[]>("nodes.list").then(setNodes).catch(() => undefined);
       void cmd<Output>("output.status").then(setOutput).catch(() => undefined);
@@ -50,19 +32,6 @@ export function SettingsPage() {
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
   }, []);
-
-  const setPin = async (id: string) => {
-    const res = await fetch(`/api/auth/roles/${id}/pin`, { method: "PUT", headers: { authorization: `Bearer ${getToken()}`, "content-type": "application/json" }, body: JSON.stringify({ pin: pins[id] }) });
-    setMessage(res.ok ? `✔ ${id}` : ((await res.json()) as { error: string }).error);
-    setPins({ ...pins, [id]: "" });
-    loadRoles();
-  };
-
-  const withPin = roles?.filter((r) => r.pinHash) ?? [];
-  const shareUser = share.user || withPin[0]?.id || "";
-  const base = publicUrl ?? location.origin;
-  const link = shareUser && share.pin ? shareLink(base, shareUser, share.pin) : "";
-  const localOnly = !publicUrl && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 
   return (
     <div className="settings">
@@ -116,51 +85,10 @@ export function SettingsPage() {
           </ul>
           <button onClick={() => void cmd("nodes.discover")}>{t.discover}</button>
         </section>
-        <section>
-          <h2>{t.roles}</h2>
-          {roles === null && <p className="hint">{t.adminOnly}</p>}
-          <table>
-            <tbody>
-              {roles?.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name}</td>
-                  <td>{r.pinHash ? "PIN ✔" : "—"}</td>
-                  <td>
-                    <input type="password" inputMode="numeric" placeholder="PIN" value={pins[r.id] ?? ""} onChange={(e) => setPins({ ...pins, [r.id]: e.target.value })} />
-                  </td>
-                  <td>
-                    <button disabled={!pins[r.id]} onClick={() => void setPin(r.id)}>
-                      ✔
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {withPin.length > 0 && (
-            <div className="share-link">
-              <h2>{t.shareTitle}</h2>
-              <p className="hint">{t.shareHelp}</p>
-              <div className="row">
-                <select aria-label={t.user} value={shareUser} onChange={(e) => setShare({ ...share, user: e.target.value })}>
-                  {withPin.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                <input type="password" inputMode="numeric" placeholder="PIN" aria-label={t.sharePin} value={share.pin} onChange={(e) => setShare({ ...share, pin: e.target.value })} />
-              </div>
-              {link && (
-                <p className="row">
-                  <code className="link">{link}</code> <CopyButton text={link} />
-                </p>
-              )}
-              {localOnly && <p className="warn">{t.shareLocal}</p>}
-            </div>
-          )}
-        </section>
       </div>
+      <section>
+        <UsersPanel role={role} />
+      </section>
     </div>
   );
 }

@@ -85,10 +85,10 @@ describe("server end to end", function () {
   });
 
   it("lists the users who have a PIN, and only tries the one picked", async () => {
-    const users = (await (await fetch(`${base}/api/auth/login-roles`)).json()) as { id: string; name: string; rights?: unknown }[];
+    const { users } = (await (await fetch(`${base}/api/auth/login-users`)).json()) as { users: { id: string; name: string; rights?: unknown }[] };
     expect(users.map((u) => u.id)).to.have.members(["regisseur", "benevole"]);
     expect(users[0]).to.not.have.property("rights");
-    const as = (pin: string, role: string) => fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, role }) });
+    const as = (pin: string, user: string) => fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin, user }) });
     expect((await as("1234", "benevole")).status).to.equal(401);
     const res = await as("1234", "regisseur");
     expect(res.status).to.equal(200);

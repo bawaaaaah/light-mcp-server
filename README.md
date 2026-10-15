@@ -26,7 +26,7 @@ Contrôleur lumière DMX (Art-Net / sACN) open source. On le pilote depuis une i
 npm run build && npm start        # http://localhost:8790 ; MCP sur /mcp
 npm run light -- token            # le jeton d'authentification (jamais écrit dans les journaux)
 ```
-On entre dans l'interface avec ce **jeton**, ou avec le **PIN** d'un utilisateur choisi dans la liste. Sur le Mac, l'app de barre de menus ouvre l'interface déjà connectée. Le port et l'interface d'écoute se règlent dans `data/machine/config.json` (`server.port`, `server.host`) : voir [install.md](docs/install.md#port-et-interface-réseau).
+On entre dans l'interface avec ce **jeton**, avec une **clé de sécurité** (YubiKey, passkey ; par `localhost` ou l'adresse publique HTTPS), ou avec le **PIN** d'un utilisateur choisi dans la liste. Les utilisateurs (nom, rôle, PIN, clés) se gèrent dans **Réglages**. Sur le Mac, l'app de barre de menus ouvre l'interface déjà connectée. Le port et l'interface d'écoute se règlent dans `data/machine/config.json` (`server.port`, `server.host`) : voir [install.md](docs/install.md#port-et-interface-réseau).
 
 ## Connecter un client MCP
 La page **Connexion IA** de l'interface donne l'adresse, le jeton et la marche à suivre pour Claude Code, Claude Desktop, claude.ai, le stdio, MCP Inspector et `curl`. En bref :
@@ -52,7 +52,7 @@ Pour Claude Desktop : Réglages → Connecteurs → Ajouter un connecteur person
 }
 ```
 
-claude.ai (web) n'accepte que des connecteurs OAuth : ce serveur ne le propose pas encore (wing-mcp-server, si). En attendant, passer par Claude Desktop ou Claude Code.
+claude.ai (web) n'accepte que des connecteurs **OAuth**, que le serveur propose dès que `server.publicUrl` est défini (adresse HTTPS, voir plus bas) : Réglages → Connecteurs → Ajouter un connecteur personnalisé, avec l'adresse `https://<votre-domaine>/mcp`, puis autoriser sur la page qui s'ouvre, avec une **clé de sécurité** (YubiKey, passkey) ou le jeton. claude.ai reçoit ses propres jetons, valables sur `/mcp` seulement, avec les droits de qui l'a autorisé ; ils se révoquent depuis la page **Connexion IA**.
 
 ### En local, en stdio
 Le client lance son propre serveur, sans réseau ni jeton :
@@ -64,7 +64,7 @@ claude mcp add light -- node /chemin/vers/light-mcp-server/dist/cli/main.js serv
 Pas pendant que le serveur HTTP tourne sur les mêmes données : le show aurait deux écrivains.
 
 ## Accès depuis l'extérieur (reverse proxy)
-Pour un client hors du réseau local (claude.ai plus tard, un téléphone, un régisseur à distance), publier le serveur derrière un **reverse proxy HTTPS** sur votre domaine, comme pour wing-mcp-server. Dans `data/machine/config.json` :
+Pour un client hors du réseau local (claude.ai, un téléphone, un régisseur à distance), publier le serveur derrière un **reverse proxy HTTPS** sur votre domaine, comme pour wing-mcp-server. Dans `data/machine/config.json` :
 
 ```json
 { "server": { "publicUrl": "https://lumiere.example.com", "host": "127.0.0.1", "port": 8790 } }
@@ -98,6 +98,7 @@ location / {
 
 Une fois exposé sur Internet :
 - le **jeton** donne la main sur toute la lumière : le garder secret. Pour le changer, retirer `server.authToken` du fichier puis redémarrer ;
+- préférer les **clés de sécurité** aux PIN pour qui entre par Internet : une clé ne se devine pas ;
 - les **PIN** sont limités à 5 essais faux par minute et par adresse. Derrière un proxy, tous les clients partagent l'adresse du proxy : préférer des PIN de 8 chiffres ;
 - un **lien de partage** (Réglages, utilisateur + PIN) fait entrer avec ce rôle quiconque l'a. Changer le PIN annule le lien ;
 - un tunnel (`npx tunnelmole 8790`, ngrok, Cloudflare Tunnel) dépanne, mais son adresse change souvent : penser à mettre `publicUrl` à jour.

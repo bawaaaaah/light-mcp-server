@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, lightState, login, loginRoles, loginWithToken, logout, restoreSession, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, restoreSession, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -29,21 +29,25 @@ type LightState = Awaited<ReturnType<typeof lightState>>;
 /** A refused PIN reads as such; anything else (too many tries) keeps the server's words. */
 const pinError = (e: unknown, t: Texts) => (e instanceof ApiError && e.status !== 401 ? e.message : t.badPin);
 
-/** The master token first (default), then a PIN for a user picked below. */
+/** The master token first (default), a hardware key where it works, then a PIN for a user picked below. */
 function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; t: Texts; initialError?: string }) {
   const [token, setToken] = useState("");
   const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  const [keys, setKeys] = useState(false);
   const [user, setUser] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState(initialError);
   useEffect(() => {
-    void loginRoles()
-      .then((u) => {
-        setUsers(u);
-        setUser(u[0]?.id ?? "");
+    void loginUsers()
+      .then((r) => {
+        setUsers(r.users);
+        setKeys(r.keys && keysUsableHere());
+        setUser(r.users[0]?.id ?? "");
       })
       .catch(() => setUsers([]));
   }, []);
+  const signInWithKey = () =>
+    void loginWithKey().then(onLogin, (err: Error) => setError(err.name === "NotAllowedError" ? t.keyCancelled : err.message));
   const submitToken = async (e: React.FormEvent) => {
     e.preventDefault();
     const role = await loginWithToken(token.trim());
@@ -71,6 +75,11 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
           {t.login}
         </button>
       </form>
+      {keys && (
+        <button type="button" className="key-login" onClick={signInWithKey}>
+          {t.loginWithKey}
+        </button>
+      )}
       <h2>{t.orPin}</h2>
       {users.length === 0 ? (
         <p className="hint">{t.noPins}</p>
@@ -209,7 +218,7 @@ export function App() {
         {page === "notes" && <NotesPage />}
         {page === "files" && <FilesPage role={role} />}
         {page === "connect" && pages.includes("connect") && <ConnectPage role={role} />}
-        {page === "settings" && <SettingsPage />}
+        {page === "settings" && <SettingsPage role={role} />}
       </main>
     </I18n.Provider>
   );

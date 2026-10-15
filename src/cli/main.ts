@@ -17,8 +17,9 @@ const USAGE = `light <commande>
   serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
                                   lance le serveur (--standby : n'envoie rien, QLC+ tient les nodes)
   token                           jeton maître (clients MCP, scripts)
-  pin <rôle> <pin>                PIN d'un rôle (admin, regisseur, benevole, lecture)
+  pin <utilisateur> <pin>         PIN d'un utilisateur (un nom de rôle crée l'utilisateur de ce rôle)
   roles                           liste des rôles
+  users                           liste des utilisateurs (rôle, PIN)
   check                           vérifie le show (lint) ; code de sortie 1 en cas d'erreur
   selftest [--cadence]            auto-test (mappings, exclusivité, latence, cadence)
   import qxw <fichier> [--apply] [--replace] [--force]
@@ -88,15 +89,19 @@ switch (command) {
   case "pin": {
     const [role, pin] = rest;
     if (!role || !pin) {
-      console.error("usage : light pin <rôle> <pin>");
+      console.error("usage : light pin <utilisateur> <pin>");
       process.exit(1);
     }
     await (await machine()).auth.setPin(role, pin);
-    console.log(`PIN du rôle « ${role} » enregistré.`);
+    console.log(`PIN de « ${role} » enregistré.`);
+    break;
+  }
+  case "users": {
+    for (const u of (await machine()).auth.users()) console.log(`${u.id.padEnd(20)} ${u.name.padEnd(24)} ${u.roleName.padEnd(24)} PIN ${u.hasPin ? "défini" : "—"}${u.disabled ? "  (désactivé)" : ""}`);
     break;
   }
   case "roles": {
-    for (const r of (await machine()).auth.roles()) console.log(`${r.id.padEnd(10)} ${r.name.padEnd(24)} PIN ${r.pinHash ? "défini" : "—"}  droits : ${r.rights.join(", ")}`);
+    for (const r of (await machine()).auth.roles()) console.log(`${r.id.padEnd(10)} ${r.name.padEnd(24)} droits : ${r.rights.join(", ")}`);
     break;
   }
   case undefined:

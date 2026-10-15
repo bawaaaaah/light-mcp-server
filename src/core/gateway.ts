@@ -13,7 +13,9 @@ import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
-import type { AuthService } from "./auth.js";
+import { signedInView, type AuthService, type UserSummary } from "./auth.js";
+import { createPasskeyRouter, type PasskeyService } from "./passkeys.js";
+import type { OAuthIntegration } from "./oauth.js";
 import type { EventBus } from "./event-bus.js";
 import { bodyString } from "./http-body.js";
 import { errorHandler, HttpError } from "./http-errors.js";
@@ -33,6 +35,10 @@ export interface GatewayOptions {
   host?: string;
   /** `server.publicUrl`: the address behind a reverse proxy; its origin may open WebSockets. */
   publicUrl?: string;
+  /** Hardware keys (YubiKey) and passkeys of the users. */
+  passkeys?: PasskeyService;
+  /** OAuth in front of /mcp (claude.ai connectors), when server.publicUrl is set. */
+  oauth?: OAuthIntegration;
   /** Built web UI (web/dist); served when present. */
   webRoot?: string;
   log?: (msg: string) => void;
@@ -92,6 +98,7 @@ export class Gateway {
   }
 
   async stop(): Promise<void> {
+    this.opts.oauth?.provider.close();
     await this.wsHub?.close();
     for (const s of this.sessions.values()) await s.transport.close().catch(() => undefined);
     this.sessions.clear();
@@ -107,35 +114,85 @@ export class Gateway {
       const status = healths.some((h) => h.status === "ERROR") ? "ERROR" : healths.some((h) => h.status === "DEGRADED") ? "DEGRADED" : "HEALTHY";
       res.json({ status, version: getPackageVersion(), uptimeMs: Date.now() - this.startedAt, plugins: healths.map(({ id, status: s }) => ({ id, status: s })) });
     });
+    const passkeys = this.opts.passkeys;
+    const userJson = (u: UserSummary) => ({ ...u, keys: passkeys?.count(u.id) ?? 0 });
     app.post("/api/auth/login", express.json(), (req, res) => {
       const pin = bodyString(req.body, "pin");
       if (!pin) throw new HttpError(400, "pin requis");
-      const { token, role } = auth.login(pin, bodyString(req.body, "role"), req.socket.remoteAddress);
-      res.json({ token, role: { id: role.id, name: role.name, rights: role.rights, dashboards: role.dashboards } });
+      const { token, role, user } = auth.login(pin, bodyString(req.body, "user") ?? bodyString(req.body, "role"), req.socket.remoteAddress);
+      res.json({ token, role: signedInView(role, user) });
     });
-    app.get("/api/auth/login-roles", (_req, res) => res.json(auth.loginRoles()));
+    app.get("/api/auth/login-users", (_req, res) => res.json({ users: auth.loginUsers(), keys: passkeys?.hasPasskeys() ?? false }));
     app.post("/api/auth/logout", auth.requireAuth(), (req, res) => {
       auth.logout(auth.bearerOf(req)!);
       res.status(204).end();
     });
     app.get("/api/auth/me", auth.requireAuth(), (req, res) => {
-      const role = auth.roleOf(auth.bearerOf(req))!;
-      res.json({ id: role.id, name: role.name, rights: role.rights, dashboards: role.dashboards, kind: auth.authKind(req) });
+      const credential = auth.bearerOf(req);
+      res.json({ ...signedInView(auth.roleOf(credential)!, auth.userOf(credential)), kind: auth.authKind(req) });
     });
     app.post("/api/auth/ws-ticket", auth.requireAuth(), (req, res) => {
       res.json({ ticket: auth.issueStreamTicket(auth.bearerOf(req)!) });
     });
-    app.get("/api/auth/roles", auth.requireRight("auth:admin"), (_req, res) => res.json(auth.roles()));
-    app.put("/api/auth/roles/:id/pin", auth.requireRight("auth:admin"), express.json(), async (req, res, next) => {
-      try {
-        await auth.setPin(String(req.params.id), bodyString(req.body, "pin") ?? "");
+    // users: the administrator's (auth:admin)
+    const admin = auth.requireRight("auth:admin");
+    const wrap = (fn: (req: express.Request, res: express.Response) => Promise<void>) => (req: express.Request, res: express.Response, next: express.NextFunction) => fn(req, res).catch(next);
+    app.get("/api/auth/roles", admin, (_req, res) => res.json(auth.roles()));
+    app.get("/api/auth/users", admin, (_req, res) => res.json(auth.users().map(userJson)));
+    app.post(
+      "/api/auth/users",
+      admin,
+      express.json(),
+      wrap(async (req, res) => {
+        const name = bodyString(req.body, "name")?.trim();
+        if (!name) throw new HttpError(400, "nom requis");
+        res.status(201).json(userJson(await auth.addUser({ name, role: bodyString(req.body, "role") ?? "", pin: bodyString(req.body, "pin") || undefined })));
+      }),
+    );
+    app.patch(
+      "/api/auth/users/:id",
+      admin,
+      express.json(),
+      wrap(async (req, res) => {
+        const disabled = req.body?.disabled;
+        res.json(userJson(await auth.updateUser(String(req.params.id), { name: bodyString(req.body, "name"), role: bodyString(req.body, "role"), disabled: typeof disabled === "boolean" ? disabled : undefined })));
+      }),
+    );
+    app.put(
+      "/api/auth/users/:id/pin",
+      admin,
+      express.json(),
+      wrap(async (req, res) => {
+        const pin = bodyString(req.body, "pin");
+        await auth.setPin(String(req.params.id), pin ? pin : null);
         res.status(204).end();
-      } catch (err) {
-        next(err);
-      }
-    });
+      }),
+    );
+    app.delete(
+      "/api/auth/users/:id",
+      admin,
+      wrap(async (req, res) => {
+        await auth.deleteUser(String(req.params.id));
+        await passkeys?.removeUser(String(req.params.id));
+        res.status(204).end();
+      }),
+    );
+    if (passkeys) app.use(createPasskeyRouter(passkeys, auth));
+    const oauth = this.opts.oauth;
+    if (oauth) {
+      app.use(oauth.router);
+      app.get("/api/auth/oauth/clients", admin, (_req, res) => res.json(oauth.provider.listClients()));
+      app.delete(
+        "/api/auth/oauth/clients/:id",
+        admin,
+        wrap(async (req, res) => {
+          if (!(await oauth.provider.revokeClient(String(req.params.id)))) throw new HttpError(404, "client inconnu");
+          res.status(204).end();
+        }),
+      );
+    }
     app.get("/api/server", auth.requireAuth(), (_req, res) => {
-      res.json({ version: getPackageVersion(), publicUrl: parseUrl(this.opts.publicUrl)?.origin ?? null });
+      res.json({ version: getPackageVersion(), publicUrl: parseUrl(this.opts.publicUrl)?.origin ?? null, oauth: Boolean(this.opts.oauth) });
     });
     app.get("/api/plugins", auth.requireAuth(), async (_req, res) => {
       res.json(await Promise.all(this.opts.plugins.map(async (p) => ({ id: p.id, name: p.name, health: await p.getHealth() }))));
@@ -175,9 +232,13 @@ export class Gateway {
   }
 
   private mountMcp(): void {
-    const requireMcp = (req: Request, _res: Response, next: NextFunction) => {
+    const requireMcp = (req: Request, res: Response, next: NextFunction) => {
       const credential = this.opts.auth.bearerOf(req);
-      if (!credential || !this.opts.auth.isValidCredential(credential)) return next(new HttpError(401, "Unauthorized: send the token as a Bearer header"));
+      if (!credential || !this.opts.auth.isValidCredential(credential)) {
+        // OAuth-only clients (claude.ai) discover the authorization server from this header
+        if (this.opts.oauth) res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${this.opts.oauth.resourceMetadataUrl}"`);
+        return next(new HttpError(401, "Unauthorized: send the token as a Bearer header"));
+      }
       if (!this.opts.auth.can(credential, "mcp:use")) return next(new HttpError(403, "ce rôle n'a pas accès au MCP"));
       next();
     };

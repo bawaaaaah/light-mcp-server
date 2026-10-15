@@ -6,6 +6,8 @@ import { configPath, dataRoot, webRoot } from "./core/paths.js";
 import { AuthService, resolveAuthToken } from "./core/auth.js";
 import { ConfigStore } from "./core/config-store.js";
 import { resolveListen } from "./core/env.js";
+import { PasskeyService } from "./core/passkeys.js";
+import { createOAuthIntegration, type OAuthIntegration } from "./core/oauth.js";
 import { EventBus } from "./core/event-bus.js";
 import { Gateway } from "./core/gateway.js";
 import { redirectConsoleToStderr, StdioEndpoint } from "./core/stdio-endpoint.js";
@@ -49,7 +51,18 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
   let gateway: Gateway | undefined;
   if (opts.http !== false) {
     const listen = resolveListen({ port: configStore.getServerPort(), host: configStore.getServerHost() }, { port: opts.port, host: opts.host });
-    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, ...listen, publicUrl: configStore.getServerPublicUrl(), webRoot: webRoot(), log });
+    const publicUrl = configStore.getServerPublicUrl();
+    const publicURL = parsePublicUrl(publicUrl);
+    const passkeys = new PasskeyService(configStore, publicURL);
+    let oauth: OAuthIntegration | undefined;
+    if (publicURL) {
+      try {
+        oauth = createOAuthIntegration(masterToken, publicURL, auth, configStore, passkeys);
+      } catch (err) {
+        log(`OAuth désactivé (server.publicUrl doit être en HTTPS) : ${(err as Error).message}`);
+      }
+    }
+    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, ...listen, publicUrl, passkeys, oauth, webRoot: webRoot(), log });
     await gateway.start();
   }
   let stdio: StdioEndpoint | undefined;
@@ -70,4 +83,15 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
     },
   };
   return running;
+}
+
+/** `server.publicUrl` as a URL; a malformed one is reported and ignored. */
+function parsePublicUrl(value: string | undefined): URL | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value);
+  } catch {
+    console.warn(`server.publicUrl ignorée (adresse invalide) : ${value}`);
+    return undefined;
+  }
 }
