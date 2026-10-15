@@ -69,6 +69,13 @@ describe("look player", () => {
     expect(row(p.render(0, 1.5))).to.equal("#800080 #800080");
   });
 
+  it("steps raw channels with the look's clock: same order as the colours, else a loop", () => {
+    const p = new LookPlayer(two, TimingSchema.parse({ every: { beats: 1 }, order: "pingpong" }), 1);
+    p.start(0, 0);
+    expect([0.5, 1.5, 2.5].map((b) => p.rawStep(0, b, 2))).to.deep.equal([0, 1, 0]);
+    expect([0.5, 1.5, 2.5, 3.5].map((b) => p.rawStep(0, b, 3))).to.deep.equal([0, 1, 2, 0]);
+  });
+
   it("follows the tempo in beats: a BPM change does not jump the phase", () => {
     const p = new LookPlayer(two, TimingSchema.parse({ every: { beats: 2 } }), 1);
     p.start(0, 10);

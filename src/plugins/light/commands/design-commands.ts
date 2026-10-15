@@ -139,16 +139,14 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(`groupe ${g.id}`, `look inconnu ${l}`);
         for (const sub of g.members.groups) if (!runtime.groups.get(sub)) err(`groupe ${g.id}`, `sous-groupe inconnu ${sub}`);
       }
-      for (const f of runtime.faders.list()) {
-        for (const c of f.channels) {
-          if (!runtime.venue.fixtures.get(c.fixture)) {
-            err(`fader ${f.id}`, `projecteur inconnu ${c.fixture}`);
-            continue;
-          }
-          const r = runtime.venue.resolve(c.fixture);
-          if (!("error" in r) && c.offset >= r.mode.channels.length) err(`fader ${f.id}`, `${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`);
+      const checkChannels = (where: string, channels: { fixture: string; offset: number }[]) => {
+        for (const c of channels) {
+          const problem = runtime.venue.channelProblem(c);
+          if (problem) err(where, problem);
         }
-      }
+      };
+      for (const f of runtime.faders.list()) checkChannels(`fader ${f.id}`, f.channels);
+      for (const l of runtime.looks.list()) if (l.channels) checkChannels(`look ${l.id}`, l.channels.targets);
       for (const s of songs.list()) {
         if (!s.mood.length) warn(`chant ${s.id}`, "pas d'ambiance globale");
         s.sections.forEach((sec, i) => {

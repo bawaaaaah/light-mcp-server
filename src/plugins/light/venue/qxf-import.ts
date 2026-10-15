@@ -177,10 +177,17 @@ export function parseQxf(xml: string): FixtureDefinition {
   return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes, ...focusOf(root["Physical"]) };
 }
 
-/** Mode names differ between QLC+ versions ("39-channel" vs "39 Channel"): compare loosely. */
-export function findMode(def: FixtureDefinition, name: string): FixtureMode | undefined {
+/**
+ * Mode names differ between QLC+ versions ("39-channel" vs "39 Channel"): compare loosely. With the
+ * channel count of the workspace, a definition whose modes are named otherwise (« Standard » vs
+ * « 2ch ») still matches when exactly one of its modes has that many channels.
+ */
+export function findMode(def: FixtureDefinition, name: string, channels?: number): FixtureMode | undefined {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/channels?$/, "ch").replace(/ch$/, "");
-  return def.modes.find((m) => m.name === name) ?? def.modes.find((m) => norm(m.name) === norm(name));
+  const byName = def.modes.find((m) => m.name === name) ?? def.modes.find((m) => norm(m.name) === norm(name));
+  if (byName || channels === undefined) return byName;
+  const sameCount = def.modes.filter((m) => m.channels.length === channels);
+  return sameCount.length === 1 ? sameCount[0] : undefined;
 }
 
 const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");

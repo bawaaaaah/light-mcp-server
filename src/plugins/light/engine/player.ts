@@ -106,6 +106,15 @@ export class LookPlayer {
     return "beats" in every ? (beats - this.startBeats) / every.beats : (nowMs - this.startMs) / 1000 / every.seconds;
   }
 
+  /**
+   * Step of a raw-channel sequence of `count` steps at this time: the same step as the colours when
+   * the counts match (same order), else a plain loop on the look's clock.
+   */
+  rawStep(nowMs: number, beats: number, count: number): number {
+    const i = Math.floor(Math.max(0, this.position(nowMs, beats)));
+    return count === this.steps.length ? this.stepAt(i) : i % count;
+  }
+
   render(nowMs: number, beats: number): Step {
     const elapsedS = (nowMs - this.startMs) / 1000;
     const pos = Math.max(0, this.position(nowMs, beats));

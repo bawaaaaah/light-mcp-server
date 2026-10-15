@@ -47,7 +47,7 @@ export function cellsFor(ws: QxwWorkspace, defs: FixtureDefinition[]): { cells: 
   const missing = new Set<string>();
   for (const fx of ws.fixtures) {
     const def = findDefinition(defs, fx.manufacturer, fx.model);
-    const mode = def ? findMode(def, fx.mode) : undefined;
+    const mode = def ? findMode(def, fx.mode, fx.channels) : undefined;
     if (!def || !mode) {
       missing.add(`${fx.manufacturer} ${fx.model} (${fx.mode})`);
       continue;

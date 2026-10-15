@@ -129,6 +129,14 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     expect(byCc).to.deep.equal({ 20: ["group.level", "sub-ambiance", "level"], 21: ["fader.level", "strobe-et-fumee", "level"], 22: ["group.level", "dim", "level"] });
   });
 
+  it("turns a colourless sequence (a machine) into a look playing raw channels, zeros restored", () => {
+    const smoke = p.looks.find((l) => l.id === "bouffees")!;
+    expect(smoke.technique).to.deep.equal({ kind: "aucune" });
+    expect(smoke.channels).to.deep.equal({ targets: [{ fixture: "fumee", offset: 0 }, { fixture: "fumee", offset: 1 }], steps: [[200, 100], [0, 50]] });
+    expect(p.report.warnings).to.include("« vide » : séquence vide — non importée");
+    expect(p.mappings.find((m) => m.on.args.id === "bouffees")!.input.number).to.equal(38); // its button's note is kept
+  });
+
   it("applies, then the fader drives its channels (highest takes precedence) and the submaster doses its looks", async () => {
     const dataRoot = join(mkdtempSync(join(tmpdir(), "light-faders-")), "data");
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
@@ -145,5 +153,7 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     const full = out()[3]!;
     await run("group.level", { id: "sub-ambiance", level: 0.5 });
     expect(out()[3]).to.be.closeTo(full / 2, 1);
+    await run("look.go", { id: "bouffees" });
+    expect([out()[100], out()[101]]).to.deep.equal([200, 100]); // step 1, even without a definition for the machine
   });
 });

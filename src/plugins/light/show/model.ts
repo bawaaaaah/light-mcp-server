@@ -15,6 +15,18 @@ export const PaletteSchema = z.object({
 });
 export type Palette = z.infer<typeof PaletteSchema>;
 
+/**
+ * Raw channels played by a look (docs/specs/engine-effects-timing.md, « Canaux bruts »): DMX values
+ * per step for channels outside the canvas — smoke, hazer, a lamp, a fan. Given by offset from the
+ * fixture's address (works without a definition); stepped with the look's clock, no fade.
+ */
+export const LookChannelsSchema = z.object({
+  targets: z.array(z.object({ fixture: z.string(), offset: z.number().int().min(0).max(511) })).min(1),
+  /** One row per step, one value (0-255) per target. */
+  steps: z.array(z.array(z.number().int().min(0).max(255))).min(1),
+});
+export type LookChannels = z.infer<typeof LookChannelsSchema>;
+
 export const LookSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -25,6 +37,8 @@ export const LookSchema = z.object({
   timing: TimingSchema.default({}),
   /** Moving heads: position or Move FX played with the look (docs/specs/engine-effects-timing.md). */
   move: MoveSchema.optional(),
+  /** Raw channels (machines, lamps) stepped with the look. */
+  channels: LookChannelsSchema.optional(),
   /** Mirrored composition (paint the left half, fold it); default: the canvas topology. */
   mirror: z.boolean().optional(),
   /** Section safety flags (docs/specs/rules-limits.md). */

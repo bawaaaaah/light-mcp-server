@@ -21,7 +21,7 @@ import type { FixtureDefinition } from "../venue/qxf-import.js";
 import { findDefinition, findMode } from "../venue/qxf-import.js";
 import { slugify } from "../data/store.js";
 import type { Canvas, PatchedFixture } from "../venue/venue.js";
-import type { ChannelFader, Group, Look } from "../show/model.js";
+import type { ChannelFader, Group, Look, LookChannels } from "../show/model.js";
 import type { Move } from "../engine/move.js";
 
 /** QLC+ EFX algorithm → Move FX shape; the others are approximated by a circle (reported). */
@@ -57,6 +57,25 @@ function uniqueId(base: string, taken: Set<string>): string {
   return id;
 }
 
+/**
+ * Raw channels of a sequence (every channel it writes, by fixture and offset), one row per step;
+ * a value missing from a step is 0 (QLC+ drops zeros when saving). Null when it writes nothing.
+ */
+function rawChannels(fn: QxwFunction, fixtureIds: Map<number, string>): LookChannels | null {
+  const keys = new Map<string, { fixture: string; offset: number; qlc: number }>();
+  for (const st of fn.steps)
+    for (const [fid, vals] of st.values) {
+      const fixture = fixtureIds.get(fid);
+      if (fixture) for (const ch of vals.keys()) keys.set(`${fid}:${ch}`, { fixture, offset: ch, qlc: fid });
+    }
+  if (!keys.size) return null;
+  const targets = [...keys.values()].sort((a, b) => a.qlc - b.qlc || a.offset - b.offset);
+  return {
+    targets: targets.map(({ fixture, offset }) => ({ fixture, offset })),
+    steps: fn.steps.map((st) => targets.map((t) => st.values.get(t.qlc)?.get(t.offset) ?? 0)),
+  };
+}
+
 export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportProposal {
   const warnings: string[] = [];
   const converted: string[] = [];
@@ -66,8 +85,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     const id = uniqueId(f.name || `${f.model}-${f.id}`, taken);
     fixtureIds.set(f.id, id);
     const def = findDefinition(defs, f.manufacturer, f.model);
-    if (!def || !findMode(def, f.mode)) warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
-    return { id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode, universe: f.universe + 1, address: f.address + 1, tags: [], notes: undefined } as PatchedFixture;
+    const mode = def ? findMode(def, f.mode, f.channels) : undefined;
+    if (!def || !mode) warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
+    else if (findMode(def, f.mode) !== mode) warnings.push(`« ${f.name} » : mode « ${f.mode} » absent de la définition, « ${mode.name} » retenu (même nombre de canaux)`);
+    return { id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: mode?.name ?? f.mode, universe: f.universe + 1, address: f.address + 1, tags: [], notes: undefined } as PatchedFixture;
   });
   converted.push(`${fixtures.length} fixtures patchées`);
 
@@ -104,7 +125,27 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     const entry = entryStep(fn);
     if (entry > 0) steps = steps.slice(1);
     if (steps.every((row) => row.every((c) => c === ""))) {
-      warnings.push(`« ${fn.name} » : aucune cellule couleur décodée (machine, gradateur ?) — non importée`);
+      // no colour: machines (smoke, hazer) or lamps — played as raw channels, like QLC+ does
+      const channels = rawChannels(fn, fixtureIds);
+      if (!channels) {
+        warnings.push(fn.steps.length ? `« ${fn.name} » : aucune valeur enregistrée (tout à 0 ?) — non importée` : `« ${fn.name} » : séquence vide — non importée`);
+        continue;
+      }
+      const id = uniqueId(fn.name || `seq-${fn.id}`, lookTaken);
+      lookIds.set(fn.id, id);
+      looks.push({
+        id,
+        name: fn.name,
+        canvas: "qlc",
+        technique: { kind: "aucune" },
+        channels,
+        timing: { ...timingOf(fn, dialed.get(fn.id), false), entryFade: 0 },
+        manualOnly: false,
+        noCut: false,
+        danger: false,
+        tags: ["machines", ...(fn.path ? [`dossier:${fn.path}`] : [])],
+        notes: `Importé de QLC+ (#${fn.id}) : ${channels.targets.length} canal(aux) hors couleur, ${channels.steps.length} pas.`,
+      });
       continue;
     }
     const analysis = analyzeSequence(fn, cells);
@@ -203,7 +244,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       const fixtureId = fixtureIds.get(lc.fixture);
       if (!f || !fixtureId) continue;
       const def = findDefinition(defs, f.manufacturer, f.model);
-      const mode = def ? findMode(def, f.mode) : undefined;
+      const mode = def ? findMode(def, f.mode, f.channels) : undefined;
       const ch = def && mode ? def.channels.get(mode.channels[lc.channel] ?? "") : undefined;
       // a DCA doses the colours the looks paint; a lamp without colour (generic dimmer) is driven like in QLC+
       const colored = Boolean(mode?.channels.some((n) => def!.channels.get(n)?.color));

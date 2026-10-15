@@ -20,6 +20,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const venue = show.venue;
   const id = z.object({ id: z.string() });
 
+  /** Raw channels (fixture + offset) must exist: refused otherwise. */
+  const checkChannels = (channels: { fixture: string; offset: number }[]) => {
+    for (const c of channels) {
+      const problem = venue.channelProblem(c);
+      if (problem) throw new Error(problem);
+    }
+  };
+
   // ---- venue
   reg.register({
     name: "venue.library",
@@ -66,7 +74,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.delete",
     title: "Dépatcher",
-    description: "Removes a fixture from the patch. Returns what still refers to it (groups, channel faders, canvases), to fix by hand; `show.lint` reports them too.",
+    description: "Removes a fixture from the patch. Returns what still refers to it (groups, channel faders, raw channels of looks, canvases), to fix by hand; `show.lint` reports them too.",
     right: "show:write",
     profiles: ["setup"],
     schema: id,
@@ -74,6 +82,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const usedBy = [
         ...show.groups.list().filter((g) => g.members.fixtures.includes(i)).map((g) => `groupe ${g.name}`),
         ...show.faders.list().filter((f) => f.channels.some((c) => c.fixture === i)).map((f) => `fader ${f.name}`),
+        ...show.looks.list().filter((l) => l.channels?.targets.some((c) => c.fixture === i)).map((l) => `look ${l.name}`),
         ...venue.canvases.list().filter((c) => c.render.some((r) => r.targets.some((t) => t.fixture === i))).map((c) => `canevas ${c.name}`),
       ];
       return { deleted: venue.fixtures.delete(i), usedBy };
@@ -133,7 +142,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas, aucune = no colour), canvas, palette, timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis, center, size, every, spread, fan, group).",
+    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis, center, size, every, spread, fan, group).",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ look: LookSchema }),
@@ -142,6 +151,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       // « jamais coupé » (noCut): only techniques that never switch a cell off
       if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
         throw new Error(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`);
+      }
+      if (look.channels) {
+        checkChannels(look.channels.targets);
+        const bad = look.channels.steps.findIndex((row) => row.length !== look.channels!.targets.length);
+        if (bad >= 0) throw new Error(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`);
       }
       return show.looks.put(look);
     },
@@ -208,11 +222,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: z.object({ fader: ChannelFaderSchema }),
     run: ({ fader }) => {
-      for (const c of fader.channels) {
-        if (!venue.fixtures.get(c.fixture)) throw new Error(`fixture inconnue : ${c.fixture}`);
-        const r = venue.resolve(c.fixture); // without a definition the channel count is unknown: accepted
-        if (!("error" in r) && c.offset >= r.mode.channels.length) throw new Error(`${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`);
-      }
+      checkChannels(fader.channels);
       return show.faders.put(fader);
     },
   });

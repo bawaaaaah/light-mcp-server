@@ -306,7 +306,17 @@ export class ShowRuntime {
     const beats = this.tempo.state().beats;
     const frame = emptyFrame();
     const errors: string[] = [];
+    /** Raw channels of the looks, by fixture then offset (highest of the looks playing them). */
+    const lookChannels = new Map<string, Map<number, number>>();
     for (const { look, player } of this.active.values()) {
+      if (look.channels) {
+        const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+        look.channels.targets.forEach((t, k) => {
+          const byOffset = lookChannels.get(t.fixture) ?? new Map<number, number>();
+          byOffset.set(t.offset, Math.max(byOffset.get(t.offset) ?? 0, row[k] ?? 0));
+          lookChannels.set(t.fixture, byOffset);
+        });
+      }
       let step: Step = player.render(now, beats);
       let lookLevel = 1;
       const excluded = new Set<string>();
@@ -334,6 +344,16 @@ export class ShowRuntime {
     for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));
     errors.push(...this.venue.toDmx(frame, buffers));
+    // Raw channels of the looks: they set their channels (by address, even without a definition).
+    for (const [fixtureId, byOffset] of lookChannels) {
+      const f = this.venue.fixtures.get(fixtureId);
+      const buf = f && buffers[f.universe - 1];
+      if (!f || !buf) continue;
+      for (const [offset, value] of byOffset) {
+        const index = f.address - 1 + offset;
+        if (index >= 0 && index < 512) buf[index] = value;
+      }
+    }
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders.
     for (const fader of this.faders.list()) {
       if (fader.level <= 0) continue;

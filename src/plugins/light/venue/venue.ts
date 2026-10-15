@@ -152,6 +152,17 @@ export class Venue {
     return findDefinition(this.definitions, manufacturer, model);
   }
 
+  /**
+   * What is wrong with a channel given by fixture + offset (raw channels of faders and looks):
+   * unpatched fixture, or a channel beyond its mode. Without a definition the count is unknown: fine.
+   */
+  channelProblem(c: { fixture: string; offset: number }): string | undefined {
+    if (!this.fixtures.get(c.fixture)) return `projecteur inconnu ${c.fixture}`;
+    const r = this.resolve(c.fixture);
+    if (!("error" in r) && c.offset >= r.mode.channels.length) return `${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`;
+    return undefined;
+  }
+
   resolve(fixtureId: string): ResolvedFixture | { error: string } {
     const cached = this.resolved.get(fixtureId);
     if (cached) return cached;

@@ -72,6 +72,12 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - Projecteurs déplacés : les lyres du canevas du look, dans l'ordre des cellules, ou celles d'un **groupe** (`move.group`), triées par X.
 - Une **position manuelle** (pad XY, viser) passe devant les looks jusqu'au relâchement ; le Panic neutre relâche tout.
 
+### Canaux bruts (machines, lampes, v1)
+- Un look peut porter des **canaux bruts** (`channels`) : des canaux hors canevas (fumée, hazer, ventilateur, lampe sans couleur), donnés par projecteur + décalage depuis son adresse, donc **même sans définition**, avec une valeur DMX (0-255) par pas.
+- Ils avancent avec l'horloge du look (`every`) : dans l'ordre des couleurs quand le nombre de pas est le même, sinon en boucle. **Pas de fondu** (une machine ne se fond pas).
+- Ils fixent leurs canaux après la conversion du canevas ; deux looks sur le même canal : le plus haut l'emporte ; les faders de canaux (HTP) puis le **masque de règles** passent après. Ils ne sont pas dosés par les DCA (une vitesse de ventilateur ne se dose pas).
+- Avec la technique `aucune`, c'est un **bouton machine** : « Fumée 50 % », « bouffées de hazer toutes les 2 s ».
+
 ## Effets par forme d'onde
 - **Formes** : sine, triangle, saw, ramp, square (PWM), random, step, courbe custom (points ou bezier).
 - **Paramètres** : vitesse (Hz ou fraction de BPM), taille, offset, **phase et spread** ; répartition en groups, blocks, wings, shuffle (grandMA3) ; direction (avant, arrière, rebond, aléatoire) ; ordre (patch, groupe, canevas, ou spatial selon X/Y/Z/radial) ; fade-in/out de l'effet.
