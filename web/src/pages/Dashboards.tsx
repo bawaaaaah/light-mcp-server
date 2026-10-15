@@ -316,7 +316,13 @@ export function DashboardsPage() {
             </button>
           </>
         ) : (
-          <button className="ghost" onClick={() => setEdit(true)}>
+          <button
+            className="ghost"
+            onClick={() => {
+              refresh(); // the lists the editor offers (looks, groups, faders) are read afresh
+              setEdit(true);
+            }}
+          >
             ✎
           </button>
         )}
