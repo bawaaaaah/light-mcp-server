@@ -145,6 +145,38 @@ export class Gateway {
     const admin = auth.requireRight("auth:admin");
     const wrap = (fn: (req: express.Request, res: express.Response) => Promise<void>) => (req: express.Request, res: express.Response, next: express.NextFunction) => fn(req, res).catch(next);
     app.get("/api/auth/roles", admin, (_req, res) => res.json(auth.roles()));
+    const rightsOf = (body: unknown) => {
+      const r = (body as { rights?: unknown } | undefined)?.rights;
+      return Array.isArray(r) ? r.filter((x): x is string => typeof x === "string") : undefined;
+    };
+    const dashboardsOf = (body: unknown) => {
+      const d = (body as { dashboards?: unknown } | undefined)?.dashboards;
+      return d === null ? null : Array.isArray(d) ? d.filter((x): x is string => typeof x === "string") : undefined;
+    };
+    app.post(
+      "/api/auth/roles",
+      admin,
+      express.json(),
+      wrap(async (req, res) => {
+        res.status(201).json(await auth.addRole({ name: bodyString(req.body, "name") ?? "", rights: rightsOf(req.body) ?? [], dashboards: dashboardsOf(req.body) ?? undefined }));
+      }),
+    );
+    app.patch(
+      "/api/auth/roles/:id",
+      admin,
+      express.json(),
+      wrap(async (req, res) => {
+        res.json(await auth.updateRole(String(req.params.id), { name: bodyString(req.body, "name"), rights: rightsOf(req.body), dashboards: dashboardsOf(req.body) }));
+      }),
+    );
+    app.delete(
+      "/api/auth/roles/:id",
+      admin,
+      wrap(async (req, res) => {
+        await auth.deleteRole(String(req.params.id));
+        res.status(204).end();
+      }),
+    );
     app.get("/api/auth/users", admin, (_req, res) => res.json(auth.users().map(userJson)));
     app.post(
       "/api/auth/users",

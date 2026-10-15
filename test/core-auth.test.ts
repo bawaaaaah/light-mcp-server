@@ -79,6 +79,15 @@ describe("named users", () => {
     expect(auth.roleOf(token)?.id).to.equal("regisseur");
   });
 
+  it("keeps the built-in roles even when the stored list is empty or partial, and the administrator's rights", async () => {
+    const auth = new AuthService("master", await store({ roles: [{ id: "admin", name: "Admin", rights: ["show:write"] }, { id: "technicien", name: "Technicien", rights: ["commands:*"] }] }));
+    expect(auth.roles().map((r) => r.id)).to.have.members(["admin", "technicien", "regisseur", "benevole", "lecture"]);
+    expect(auth.roles().find((r) => r.id === "admin")?.rights).to.deep.equal(["*"]);
+    const empty = new AuthService("master", await store({ roles: [] }));
+    expect(empty.roles().map((r) => r.id)).to.deep.equal(["admin", "regisseur", "benevole", "lecture"]);
+    expect((await empty.addUser({ name: "Moi", role: "admin" })).role).to.equal("admin");
+  });
+
   it("adds, renames, disables and deletes users; a PIN belongs to one user only", async () => {
     const auth = new AuthService("master", await store(undefined));
     const marie = await auth.addUser({ name: "Régie Jardin", role: "regisseur", pin: "4321" });

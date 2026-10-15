@@ -145,6 +145,32 @@ describe("server end to end", function () {
     expect(res.status).to.equal(400);
   });
 
+  it("lists and allows over MCP only what the user's role may do", async () => {
+    const admin = { authorization: `Bearer ${running.masterToken}`, "content-type": "application/json" };
+    const role = (await (await fetch(`${base}/api/auth/roles`, { method: "POST", headers: admin, body: JSON.stringify({ name: "IA lecture", rights: ["mcp:use", "dashboards:view"] }) })).json()) as { id: string };
+    expect(role.id).to.equal("ia-lecture");
+    const user = await fetch(`${base}/api/auth/users`, { method: "POST", headers: admin, body: JSON.stringify({ name: "Assistant", role: "ia-lecture", pin: "3579" }) });
+    expect(user.status).to.equal(201);
+    const tools = async (token: string) => {
+      const client = new Client({ name: "e2e-rights", version: "0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+      return { client, names: (await client.listTools()).tools.map((t) => t.name) };
+    };
+    const reader = await tools(await login("3579"));
+    expect(reader.names).to.include("light_look_list").and.not.include.members(["light_look_go", "light_show_reset", "light_dmx_set"]);
+    const refused = await reader.client.callTool({ name: "light_look_go", arguments: { id: "x" } });
+    expect(refused.isError).to.equal(true);
+    await reader.client.close();
+    const regisseur = await tools(await login("1234"));
+    expect(regisseur.names).to.include("light_look_go").and.not.include("light_show_reset"); // show:admin is the administrator's
+    await regisseur.client.close();
+    expect((await tools(running.masterToken)).names).to.include("light_show_reset");
+    // a role in use cannot be deleted; the built-in ones never
+    const inUse = await fetch(`${base}/api/auth/roles/ia-lecture`, { method: "DELETE", headers: admin });
+    expect(inUse.status).to.equal(409);
+    expect((await fetch(`${base}/api/auth/roles/benevole`, { method: "DELETE", headers: admin })).status).to.equal(400);
+  });
+
   it("exposes the commands as MCP tools", async () => {
     const client = new Client({ name: "e2e", version: "0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: `Bearer ${running.masterToken}` } } });

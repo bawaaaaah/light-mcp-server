@@ -124,7 +124,8 @@ const MAX_PIN_FAILURES = 5;
 const PIN_FAILURE_WINDOW_MS = 60_000;
 
 export class AuthService implements AuthMiddleware {
-  private state: AuthState = { roles: DEFAULT_ROLES, users: [] };
+  // a copy: the state is edited in place, the built-in roles must stay as they are
+  private state: AuthState = { roles: DEFAULT_ROLES.map((r) => ({ ...r, rights: [...r.rights] })), users: [] };
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private resolveToken: ((token: string) => { userId?: string } | undefined) | undefined;
   private readonly tickets = new Map<string, { credential: string; expiresAt: number }>();
@@ -137,6 +138,11 @@ export class AuthService implements AuthMiddleware {
   ) {
     const parsed = AuthStateSchema.safeParse(configStore?.getAuthState());
     if (parsed.success) this.state = parsed.data;
+    // The built-in roles are always there (a stored list once came back empty, leaving no role to
+    // give a user), and the administrator keeps every right whatever was stored.
+    for (const role of DEFAULT_ROLES) if (!this.state.roles.some((r) => r.id === role.id)) this.state.roles.push({ ...role, rights: [...role.rights] });
+    const admin = this.state.roles.find((r) => r.id === "admin")!;
+    if (!admin.rights.includes("*")) admin.rights = ["*"];
     // per-role PINs (before users): one user per role, same id, name and PIN
     for (const role of this.state.roles) {
       if (!role.pinHash) continue;
@@ -147,6 +153,44 @@ export class AuthService implements AuthMiddleware {
 
   roles(): Role[] {
     return this.state.roles.map(({ pinHash: _, ...r }) => r);
+  }
+
+  /** A right: "*", "<area>:*" or "<area>:<action>". */
+  private checkRights(rights: string[]): string[] {
+    const bad = rights.find((r) => !/^(\*|[a-z]+:(\*|[a-z-]+))$/.test(r));
+    if (bad) throw new HttpError(400, `droit invalide : ${bad}`);
+    return [...new Set(rights)];
+  }
+
+  async addRole(input: { name: string; rights: string[]; dashboards?: string[] }): Promise<Role> {
+    if (!input.name.trim()) throw new HttpError(400, "nom requis");
+    const base = input.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "role";
+    let id = base;
+    for (let i = 2; this.state.roles.some((r) => r.id === id); i++) id = `${base}-${i}`;
+    const role: Role = { id, name: input.name.trim(), rights: this.checkRights(input.rights), dashboards: input.dashboards?.length ? input.dashboards : undefined };
+    this.state.roles.push(role);
+    await this.save();
+    return role;
+  }
+
+  /** The administrator keeps every right: only its name changes. */
+  async updateRole(id: string, patch: { name?: string; rights?: string[]; dashboards?: string[] | null }): Promise<Role> {
+    const role = this.role(id);
+    if (patch.name !== undefined && patch.name.trim()) role.name = patch.name.trim();
+    if (patch.rights !== undefined && role.id !== "admin") role.rights = this.checkRights(patch.rights);
+    if (patch.dashboards !== undefined) role.dashboards = patch.dashboards?.length ? patch.dashboards : undefined;
+    await this.save();
+    return role;
+  }
+
+  /** Built-in roles stay; a role still given to a user cannot go. */
+  async deleteRole(id: string): Promise<void> {
+    this.role(id);
+    if (DEFAULT_ROLES.some((r) => r.id === id)) throw new HttpError(400, "un rôle de base ne se supprime pas");
+    const users = this.state.users.filter((u) => u.role === id).map((u) => u.name);
+    if (users.length) throw new HttpError(409, `rôle encore donné à : ${users.join(", ")}`);
+    this.state.roles = this.state.roles.filter((r) => r.id !== id);
+    await this.save();
   }
 
   /** OAuth (or any other issuer) tokens: resolved to a user (or to the administrator), on /mcp only. */
