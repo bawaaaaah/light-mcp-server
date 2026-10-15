@@ -8,7 +8,7 @@ import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection } from "../data/store.js";
 import { slugify } from "../data/store.js";
-import type { Mapping } from "../midi/mapping.js";
+import { mappingInputKey, type Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
 import { deltaE, proposeLook, type Energy, type Knowledge } from "../knowledge/knowledge.js";
 import type { Group, Look, Palette } from "../show/model.js";
@@ -123,8 +123,10 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       }
       const seen = new Map<string, string>();
       for (const m of mappings()) {
-        const key = `${m.input.type}:${m.input.channel}:${m.input.number}:${m.input.port ?? ""}`;
-        if (seen.has(key)) err(`mapping ${m.id}`, `même entrée que ${seen.get(key)}`);
+        const key = mappingInputKey(m);
+        // The mapper fires every mapping of an input, as QLC+ fires every widget bound to it: one CC
+        // driving a DCA and a channel fader is by design, so this is worth a look, not an error.
+        if (seen.has(key)) warn(`mapping ${m.id}`, `même entrée que ${seen.get(key)} : les deux se déclenchent ensemble`);
         seen.set(key, m.id);
         const target = m.on.args.id;
         if (typeof target === "string" && target) {

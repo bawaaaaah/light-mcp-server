@@ -159,6 +159,15 @@ describe("colour knowledge and design", () => {
       expect(lint.issues.map((i) => i.message).join(" | ")).to.match(/contraste faible/).and.match(/look inconnu fantome/);
     });
 
+    it("lint only warns about two mappings on one input: both fire, as in QLC+", async () => {
+      await run("midi.mapping.put", { mapping: { id: "d1", input: { type: "cc", channel: 2, number: 9 }, on: { command: "look.go", args: { id: "pale" } } } });
+      await run("midi.mapping.put", { mapping: { id: "d2", input: { type: "cc", channel: 2, number: 9 }, on: { command: "look.go", args: { id: "pale" } } } });
+      const lint = (await run("show.lint")) as { issues: { level: string; where: string; message: string }[] };
+      expect(lint.issues.find((i) => i.where === "mapping d2")).to.deep.include({ level: "attention" });
+      await run("midi.mapping.delete", { id: "d1" });
+      await run("midi.mapping.delete", { id: "d2" });
+    });
+
     it("lint finds broken references to groups, faders, programs and fixtures", async () => {
       const refused = await run("fader.put", { fader: { id: "f0", name: "F0", channels: [{ fixture: "bar", offset: 500 }] } }).then(() => "ok", (e: Error) => e.message);
       expect(refused).to.match(/canal 501 demandé/);
