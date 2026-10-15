@@ -17,6 +17,8 @@ export interface PersistedConfigFile {
     /** HTTP port and interface, edited by hand (core/env.ts, resolveListen). */
     port?: unknown;
     host?: unknown;
+    /** Reverse proxies in front of the server (Express « trust proxy » hops). */
+    trustProxy?: unknown;
     oauthClients?: Record<string, unknown>;
     oauthTokens?: unknown;
     passkeys?: unknown;
@@ -42,6 +44,7 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     // ignored, not make this whole file look corrupt and take the auth token down with it.
     port: z.unknown().optional(),
     host: z.unknown().optional(),
+    trustProxy: z.unknown().optional(),
     // Dynamically-registered OAuth clients (core/oauth.ts) — kept loosely typed rather than
     // mirroring the SDK's OAuthClientInformationFull shape here, same rationale as `plugins` below.
     oauthClients: z.record(z.unknown()).optional(),
@@ -190,6 +193,17 @@ export class ConfigStore {
   getServerHost(): string | undefined {
     const host = this.data.server.host;
     return typeof host === "string" && host.trim() ? host.trim() : undefined;
+  }
+
+  /**
+   * `server.trustProxy`: how many reverse proxies stand in front (1 for one Caddy or nginx). Behind
+   * a proxy every request comes from its address, so the PIN limit would be one bucket for all;
+   * with it, the client's address is read from X-Forwarded-For, that many hops back. A number only:
+   * trusting the whole chain would let a client forge its address and skip the limit.
+   */
+  getServerTrustProxy(): number | undefined {
+    const n = this.data.server.trustProxy;
+    return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 10 ? n : undefined;
   }
 
   // Survives restarts so a remote OAuth client (e.g. claude.ai's connector) that already completed

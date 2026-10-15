@@ -104,7 +104,7 @@ docs/
 - **Clés** : `/api/auth/passkeys/*` (connexion publique ; ajout et retrait pour soi, ou pour tous avec `auth:admin`). Une connexion par clé ouvre une session de l'utilisateur, jamais le jeton maître.
 - **OAuth** (`core/oauth.ts`, avec `server.publicUrl`) : jetons propres à chaque client, valables sur `/mcp` seulement, avec le rôle de qui a autorisé. 5 PIN faux par minute et par adresse, puis 429. Un **lien de partage** `#user=<rôle>&pin=<PIN>` connecte d'un clic ; le fragment n'est jamais envoyé au serveur.
 - Les droits s'appliquent à **l'UI, au WS, au MCP (token par rôle) et à l'OSC** (liste d'IP autorisées ou mot de passe).
-- **Réseau** : `server.port` (8790) et `server.host` (`0.0.0.0`, toutes les interfaces ; `127.0.0.1` derrière un reverse proxy sur la même machine). Ordre : option `--port`/`--host`, puis `PORT`, puis le fichier. `server.publicUrl` : l'adresse publique, dont l'origine peut ouvrir le WebSocket.
+- **Réseau** : `server.port` (8790) et `server.host` (`0.0.0.0`, toutes les interfaces ; `127.0.0.1` derrière un reverse proxy sur la même machine). Ordre : option `--port`/`--host`, puis `PORT`, puis le fichier. `server.publicUrl` : l'adresse publique, dont l'origine peut ouvrir le WebSocket. `server.trustProxy` : nombre de proxys devant le serveur ; l'adresse du client (limite des PIN) se lit alors dans `X-Forwarded-For`.
 - **Plus tard** : comptes nominatifs (mot de passe ou passkey, journal par personne) et liens ou QR secrets.
 
 ## Déploiement et dimensionnement

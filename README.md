@@ -67,10 +67,11 @@ Pas pendant que le serveur HTTP tourne sur les mêmes données : le show aurait 
 Pour un client hors du réseau local (claude.ai, un téléphone, un régisseur à distance), publier le serveur derrière un **reverse proxy HTTPS** sur votre domaine, comme pour wing-mcp-server. Dans `data/machine/config.json` :
 
 ```json
-{ "server": { "publicUrl": "https://lumiere.example.com", "host": "127.0.0.1", "port": 8790 } }
+{ "server": { "publicUrl": "https://lumiere.example.com", "trustProxy": 1, "host": "127.0.0.1", "port": 8790 } }
 ```
 
-- `publicUrl` : l'adresse publique. Les liens de partage la reprennent et son origine peut ouvrir le WebSocket.
+- `publicUrl` : l'adresse publique. Les liens de partage la reprennent, son origine peut ouvrir le WebSocket, OAuth (claude.ai) et les clés de sécurité s'y activent.
+- `trustProxy` : le nombre de proxys devant le serveur (`1` pour un Caddy ou un nginx). Sans lui, toutes les requêtes arrivent avec l'adresse du proxy : la limite des essais de PIN serait commune à tous, et un seul attaquant bloquerait tout le monde. Un nombre, jamais « tout » : sinon un client pourrait inventer son adresse.
 - `host` : `127.0.0.1` quand le proxy tourne sur la même machine (seul le proxy joint alors le serveur) ; `0.0.0.0` pour garder aussi le réseau local (tablettes).
 - Redémarrer le serveur après la modification.
 
@@ -99,6 +100,7 @@ location / {
 Une fois exposé sur Internet :
 - le **jeton** donne la main sur toute la lumière : le garder secret. Pour le changer, retirer `server.authToken` du fichier puis redémarrer ;
 - préférer les **clés de sécurité** aux PIN pour qui entre par Internet : une clé ne se devine pas ;
-- les **PIN** sont limités à 5 essais faux par minute et par adresse. Derrière un proxy, tous les clients partagent l'adresse du proxy : préférer des PIN de 8 chiffres ;
+- les **PIN** sont limités à 5 essais faux par minute et par adresse (celle du client, avec `trustProxy`) : préférer tout de même des PIN de 8 chiffres ;
 - un **lien de partage** (Réglages, utilisateur + PIN) fait entrer avec ce rôle quiconque l'a. Changer le PIN annule le lien ;
-- un tunnel (`npx tunnelmole 8790`, ngrok, Cloudflare Tunnel) dépanne, mais son adresse change souvent : penser à mettre `publicUrl` à jour.
+- les **clés de sécurité** sont liées à l'adresse : une clé enregistrée par `localhost` ne marche pas par l'adresse publique, et inversement. Enregistrer la clé depuis l'adresse où on s'en servira ;
+- un tunnel (`npx tunnelmole 8790`, ngrok, Cloudflare Tunnel) dépanne, mais son adresse change souvent : penser à mettre `publicUrl` à jour (et les clés sont à refaire).

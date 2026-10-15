@@ -62,7 +62,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
         log(`OAuth désactivé (server.publicUrl doit être en HTTPS) : ${(err as Error).message}`);
       }
     }
-    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, ...listen, publicUrl, passkeys, oauth, webRoot: webRoot(), log });
+    gateway = new Gateway({ plugins, eventBus, auth, toolVisibility, ...listen, publicUrl, passkeys, oauth, trustProxy: configStore.getServerTrustProxy(), webRoot: webRoot(), log });
     await gateway.start();
   }
   let stdio: StdioEndpoint | undefined;

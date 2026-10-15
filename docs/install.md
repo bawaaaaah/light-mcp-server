@@ -38,7 +38,7 @@ Dans `data/machine/config.json`, section `server` (à la main, serveur arrêté 
 
 - `port` : 8790 par défaut. L'option `--port` et la variable `PORT` passent avant le fichier.
 - `host` : `0.0.0.0` (défaut) écoute sur toutes les interfaces, donc les tablettes du réseau local ; `127.0.0.1` réserve le serveur à la machine, par exemple derrière un reverse proxy installé dessus. `--host` passe avant.
-- `publicUrl` : l'adresse publique derrière un reverse proxy (voir le [README](../README.md#accès-depuis-lextérieur-reverse-proxy)).
+- `publicUrl` : l'adresse publique derrière un reverse proxy (voir le [README](../README.md#accès-depuis-lextérieur-reverse-proxy)) ; avec elle, `trustProxy` (nombre de proxys devant le serveur, `1` en général).
 
 ## 3. Reprendre un show QLC+
 1. Copier les définitions de fixtures (`.qxf`) dans `data/fixtures/` : celles de la bibliothèque QLC+ du Mac et les tiennes.

@@ -39,6 +39,8 @@ export interface GatewayOptions {
   passkeys?: PasskeyService;
   /** OAuth in front of /mcp (claude.ai connectors), when server.publicUrl is set. */
   oauth?: OAuthIntegration;
+  /** Reverse proxies in front (server.trustProxy): the client's address comes from X-Forwarded-For. */
+  trustProxy?: number;
   /** Built web UI (web/dist); served when present. */
   webRoot?: string;
   log?: (msg: string) => void;
@@ -62,6 +64,7 @@ export class Gateway {
 
   constructor(private readonly opts: GatewayOptions) {
     this.app = express();
+    if (opts.trustProxy) this.app.set("trust proxy", opts.trustProxy);
     this.app.disable("x-powered-by");
     this.mountCoreRoutes();
     this.mountMcp();
@@ -119,7 +122,8 @@ export class Gateway {
     app.post("/api/auth/login", express.json(), (req, res) => {
       const pin = bodyString(req.body, "pin");
       if (!pin) throw new HttpError(400, "pin requis");
-      const { token, role, user } = auth.login(pin, bodyString(req.body, "user") ?? bodyString(req.body, "role"), req.socket.remoteAddress);
+      // req.ip: the client's own address behind a trusted proxy (server.trustProxy), else the socket's
+      const { token, role, user } = auth.login(pin, bodyString(req.body, "user") ?? bodyString(req.body, "role"), req.ip ?? req.socket.remoteAddress);
       res.json({ token, role: signedInView(role, user) });
     });
     app.get("/api/auth/login-users", (_req, res) => res.json({ users: auth.loginUsers(), keys: passkeys?.hasPasskeys() ?? false }));

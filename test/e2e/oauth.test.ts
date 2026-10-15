@@ -17,7 +17,7 @@ async function freePort(): Promise<number> {
   });
 }
 
-describe("OAuth in front of /mcp (claude.ai connectors)", function () {
+describe("behind a reverse proxy: OAuth in front of /mcp (claude.ai connectors), PIN limit per client", function () {
   this.timeout(15000);
   let running: Running;
   let base: string;
@@ -29,9 +29,10 @@ describe("OAuth in front of /mcp (claude.ai connectors)", function () {
     mkdirSync(join(dir, "data"), { recursive: true });
     writeFileSync(
       join(dir, "config.json"),
-      JSON.stringify({ version: 1, server: { authToken: "master-token", publicUrl: base }, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }),
+      JSON.stringify({ version: 1, server: { authToken: "master-token", publicUrl: base, trustProxy: 1 }, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }),
     );
     running = await bootstrap({ configPath: join(dir, "config.json"), port, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
+    await running.auth.setPin("regisseur", "1234");
   });
 
   after(async () => {
@@ -88,5 +89,13 @@ describe("OAuth in front of /mcp (claude.ai connectors)", function () {
     expect(clients[0]).to.deep.include({ activeGrants: 1, approvedBy: [""] });
     expect((await fetch(`${base}/api/auth/oauth/clients/${registered.client_id}`, { method: "DELETE", headers: { authorization: "Bearer master-token" } })).status).to.equal(204);
     expect((await initialize(tokens.access_token)).status).to.equal(401);
+  });
+
+  it("limits wrong PINs per client behind the proxy (X-Forwarded-For), not for everyone at once", async () => {
+    const tryPin = (pin: string, client: string) =>
+      fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": client }, body: JSON.stringify({ pin }) });
+    for (let i = 0; i < 5; i++) expect((await tryPin("0000", "203.0.113.7")).status).to.equal(401);
+    expect((await tryPin("1234", "203.0.113.7")).status).to.equal(429);
+    expect((await tryPin("1234", "198.51.100.2")).status).to.equal(200); // another client is not locked out
   });
 });
