@@ -45,6 +45,8 @@ export interface ForeignSource {
   port: number;
   portAddresses: number[];
   lastSeen: number;
+  /** From one of this machine's addresses: another instance, or QLC+ on the same computer. */
+  local: boolean;
 }
 
 const FOREIGN_EXPIRY_MS = 3000;
@@ -85,7 +87,13 @@ export class OutputRouter {
   private readonly cid = randomBytes(16);
   private nodeListener: ((change: { added?: KnownNode; lost?: KnownNode[] }) => void) | undefined;
   private readonly foreign = new Map<string, ForeignSource>();
-  private locals = localAddresses();
+  /**
+   * The ArtDmx packets this router sent in the last seconds, by fingerprint. A broadcast comes back
+   * to its sender: a copy of one of these is our own; anything else is another console, even from
+   * this machine and the same port (two instances share 6454), so it is never excluded by address.
+   */
+  private readonly recentlySent = new Map<string, number>();
+  private readonly locals = localAddresses();
 
   constructor(private config: OutputConfig) {}
 
@@ -174,15 +182,24 @@ export class OutputRouter {
     this.stats.packetsSent += 1;
   }
 
-  /** Records an ArtDmx from another controller (our own packets come from a local IP and our port). */
+  /** Records an ArtDmx from another controller: any packet but the copies of our own. */
   received(msg: Buffer, ip: string, port: number, nowMs = Date.now()): void {
     const dmx = decodeDmx(msg);
     if (!dmx) return;
-    if (this.locals.has(ip) && port === (this.artnet?.address().port ?? -1)) return;
+    const seen = this.recentlySent.get(fingerprint(msg));
+    if (seen !== undefined && nowMs - seen <= SELF_ECHO_MS) return;
     const key = `${ip}:${port}`;
     const known = this.foreign.get(key);
     const portAddresses = known ? [...new Set([...known.portAddresses, dmx.portAddress])].sort((a, b) => a - b) : [dmx.portAddress];
-    this.foreign.set(key, { ip, port, portAddresses, lastSeen: nowMs });
+    this.foreign.set(key, { ip, port, portAddresses, lastSeen: nowMs, local: this.locals.has(ip) });
+  }
+
+  private rememberSent(packet: Buffer, nowMs: number): void {
+    for (const [key, at] of this.recentlySent) {
+      if (nowMs - at <= SELF_ECHO_MS) break; // insertion order: the rest is newer
+      this.recentlySent.delete(key);
+    }
+    this.recentlySent.set(fingerprint(packet), nowMs);
   }
 
   /** Controllers seen sending Art-Net in the last seconds. */
@@ -223,6 +240,7 @@ export class OutputRouter {
       sentAny = true;
       if (route.artnet) {
         const packet = encodeDmx({ sequence: this.nextSequence(`a${route.universe}`), physical: 0, portAddress: route.artnet.portAddress, data });
+        this.rememberSent(packet, nowMs);
         const targets = route.artnet.targets?.length ? route.artnet.targets : this.registry.outputsFor(route.artnet.portAddress).map((n) => n.ip);
         if (targets.length > 0) for (const ip of [...new Set(targets)]) this.send(this.artnet, packet, ARTNET_PORT, ip);
         else if (route.artnet.broadcast !== false) this.send(this.artnet, packet, ARTNET_PORT, broadcastFor(this.config.bindAddress));
@@ -253,4 +271,14 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
+}
+
+/** How long a packet we sent may take to come back to us (broadcast echo). */
+const SELF_ECHO_MS = 2000;
+
+/** FNV-1a over the whole packet (sequence, port-address and data included): cheap enough per frame. */
+function fingerprint(buf: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < buf.length; i++) h = Math.imul(h ^ buf[i]!, 0x01000193);
+  return `${buf.length}:${(h >>> 0).toString(36)}`;
 }

@@ -65,6 +65,21 @@ describe("sharing the nodes with another console", () => {
     expect(r.merging).to.deep.equal([1]);
   });
 
+  it("tells its own packets (echoed by the broadcast) from another instance on the same machine and port", () => {
+    const router = new OutputRouter({ routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["192.0.2.30"] } }] });
+    const frame = new Uint8Array(512);
+    frame[0] = 200;
+    router.sendFrame([frame], 1000);
+    const ours = encodeDmx({ sequence: 1, physical: 0, portAddress: 0, data: frame });
+    router.received(ours, "127.0.0.1", 6454, 1100); // our own broadcast, back to us
+    expect(router.foreignSources(1200)).to.deep.equal([]);
+    const twin = encodeDmx({ sequence: 1, physical: 0, portAddress: 0, data: new Uint8Array(512) });
+    router.received(twin, "127.0.0.1", 6454, 1100); // another instance on this computer, same port
+    expect(router.foreignSources(1200)).to.deep.include({ ip: "127.0.0.1", port: 6454, portAddresses: [0], lastSeen: 1100, local: true });
+    router.received(ours, "127.0.0.1", 6454, 4000); // the same bytes long after: not an echo any more
+    expect(router.foreignSources(4000).map((f) => f.ip)).to.deep.equal(["127.0.0.1"]);
+  });
+
   it("notices another controller sending Art-Net, and forgets it when it stops", () => {
     const router = new OutputRouter({ routes: [] });
     router.received(dmx(0), "192.0.2.10", 6454, 1000);
