@@ -14,6 +14,7 @@ import { StepsEditor } from "./StepsEditor";
 import { LookPreview, type Preview } from "./LookPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
+import { Versions } from "./Versions";
 
 type Every = { beats: number } | { seconds: number };
 interface Move {
@@ -345,6 +346,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           </span>
         )}
       </div>
+      {!isNew && <Versions collection="looks" id={initial.id} onRestored={() => onClose()} />}
     </section>
   );
 }

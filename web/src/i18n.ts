@@ -569,6 +569,11 @@ const fr = {
   fadersCount: "faders",
   autoBackupsHelp: "Une sauvegarde automatique par jour, quand le show a changé ; les 14 dernières sont gardées. Les sauvegardes faites à la main restent.",
   autoBadge: "auto",
+  versions: "Versions précédentes",
+  versionsHelp: "Le serveur garde une copie à chaque modification. En remettre une garde aussi la version actuelle : on peut revenir en arrière de la même façon. Le niveau en direct d'un DCA ou d'un fader ne bouge pas.",
+  noVersions: "Aucune version précédente.",
+  replacedOn: "remplacée le",
+  restoreVersionConfirm: "Remettre cette version ?",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1140,6 +1145,11 @@ const en: typeof fr = {
   fadersCount: "faders",
   autoBackupsHelp: "One automatic backup a day, when the show changed; the last 14 are kept. Backups made by hand stay.",
   autoBadge: "auto",
+  versions: "Earlier versions",
+  versionsHelp: "The server keeps a copy at each change. Putting one back keeps the current version too, so you can go back the same way. A DCA's or fader's live level does not move.",
+  noVersions: "No earlier version.",
+  replacedOn: "replaced on",
+  restoreVersionConfirm: "Put this version back?",
 };
 
 export type Lang = "fr" | "en";

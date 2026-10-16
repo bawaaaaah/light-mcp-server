@@ -9,6 +9,7 @@ import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { Checklist } from "./GroupEditor";
 import { confirmDelete } from "./confirmDelete";
+import { Versions } from "./Versions";
 
 export interface FaderDraft {
   id: string;
@@ -131,6 +132,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
           </span>
         )}
       </div>
+      {!isNew && <Versions collection="faders" id={initial.id} onRestored={onClose} />}
     </section>
   );
 }

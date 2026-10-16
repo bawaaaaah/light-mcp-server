@@ -12,6 +12,7 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { ZodType, ZodTypeDef } from "zod";
+import { historyTime } from "./retention.js";
 
 export const SCHEMA_VERSION = 1;
 
@@ -160,6 +161,16 @@ export class Collection<T extends { id: string }> {
     }
   }
 
+  /** Earlier versions of an object: the copies kept when it changed or was deleted, newest first. */
+  versions(id: string): { stamp: string; at: string }[] {
+    return this.store.history(`${this.name}/${id}.json`);
+  }
+
+  /** An earlier version as it was stored (not parsed: it may predate today's schema). */
+  version(id: string, stamp: string): unknown {
+    return this.store.readHistory(stamp, `${this.name}/${id}.json`);
+  }
+
   delete(id: string): boolean {
     if (!this.items.delete(id)) return false;
     const path = join(this.store.root, this.name, `${id}.json`);
@@ -237,6 +248,24 @@ export class FolderStore {
 
   emit(e: ChangeEvent): void {
     for (const l of this.listeners) l(e);
+  }
+
+  /** The history entries holding a copy of this file, newest first, with when the copy was made. */
+  history(relative: string): { stamp: string; at: string }[] {
+    const root = this.backupRoot;
+    if (!root || !existsSync(root)) return [];
+    return readdirSync(root)
+      .map((stamp) => ({ stamp, t: historyTime(stamp) }))
+      .filter((e): e is { stamp: string; t: number } => e.t !== undefined && existsSync(join(root, e.stamp, relative)))
+      .sort((a, b) => b.t - a.t)
+      .map((e) => ({ stamp: e.stamp, at: new Date(e.t).toISOString() }));
+  }
+
+  /** One copy from the history; undefined when the entry or the file is not there. */
+  readHistory(stamp: string, relative: string): unknown {
+    if (!this.backupRoot || historyTime(stamp) === undefined || !/^[\w-]+$/.test(stamp)) return undefined;
+    const file = join(this.backupRoot, stamp, relative);
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : undefined;
   }
 
   backup(relative: string, path: string): void {

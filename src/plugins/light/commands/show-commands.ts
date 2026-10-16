@@ -413,6 +413,37 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: ({ id: i, name }) => dashboards.put({ ...defaultDashboard(show.looks.list(), show.groups.list(), show.movingHeads().length > 0, show.faders.list()), id: i, name }),
   });
 
+  // ---- versions: the copy kept of an object at each change (FolderStore history), put back on demand
+  const VERSIONED = { looks: { coll: show.looks, put: "look.put", key: "look" }, groups: { coll: show.groups, put: "group.put", key: "group" }, faders: { coll: show.faders, put: "fader.put", key: "fader" }, dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" } } as const;
+  const versioned = z.enum(["looks", "groups", "faders", "dashboards"]);
+  reg.register({
+    name: "history.list",
+    title: "Versions",
+    description: "Earlier versions of a look, group, channel fader or dashboard (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
+    right: "show:write",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ collection: versioned, id: z.string() }),
+    run: ({ collection, id: i }) => VERSIONED[collection].coll.versions(i).slice(0, 100),
+  });
+  reg.register({
+    name: "history.restore",
+    title: "Restaurer une version",
+    description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks; the current version goes to the history in turn, so a restore is undone the same way.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ collection: versioned, id: z.string(), stamp: z.string() }),
+    run: async ({ collection, id: i, stamp }, ctx) => {
+      const v = VERSIONED[collection];
+      const old = v.coll.version(i, stamp) as { id?: string; master?: unknown; level?: unknown } | undefined;
+      if (!old || old.id !== i) throw new Error(`version introuvable : ${collection}/${i} ${stamp}`);
+      // a DCA's level and a fader's level are live state: putting back a design never moves the light
+      const now = v.coll.get(i) as { master?: unknown; level?: unknown } | undefined;
+      const restored = collection === "groups" && old.master && now?.master ? { ...old, master: now.master } : collection === "faders" && now ? { ...old, level: now.level } : old;
+      return reg.invoke(v.put, { [v.key]: restored }, ctx);
+    },
+  });
+
   // ---- notes everywhere
   const noteCollections = () =>
     ({

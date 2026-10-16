@@ -691,6 +691,16 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   expect(mine.technique.kind).toBe("pas");
   expect(mine.technique.steps[0]![0]).toBe("-");
   await expect.poll(async () => (await dmx(page)).slice(3, 9)).toEqual([0, 0, 0, 255, 255, 255]); // head 1 off, head 2 white
+
+  // the damier comes back from the earlier versions
+  await page.getByRole("button", { name: "Modifier Mon damier" }).click();
+  await editor.locator("summary", { hasText: "Versions précédentes" }).click();
+  page.once("dialog", (d) => void d.accept());
+  await editor.locator(".versions li").first().getByRole("button", { name: "Restaurer" }).click();
+  await expect(editor).toHaveCount(0);
+  await expect
+    .poll(async () => ((await api(page, "look.list")) as { id: string; technique: { kind: string } }[]).find((l) => l.id === "mon-damier")!.technique.kind)
+    .toBe("damier");
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });

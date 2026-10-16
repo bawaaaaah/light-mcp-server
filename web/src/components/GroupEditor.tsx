@@ -7,6 +7,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
+import { Versions } from "./Versions";
 
 export interface GroupDraft {
   id: string;
@@ -127,6 +128,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           </span>
         )}
       </div>
+      {!isNew && <Versions collection="groups" id={initial.id} onRestored={onClose} />}
     </section>
   );
 }
