@@ -10,6 +10,7 @@ import { z } from "zod";
 import { packArchive, readArchive, type ArchiveManifest } from "../data/archive.js";
 import { ID_RE, slugify, stableStringify } from "../data/store.js";
 import { ShowSettingsSchema } from "../show/model.js";
+import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
 import type { CommandRegistry } from "./registry.js";
 
 export interface FileServices {
@@ -34,6 +35,40 @@ const stamp = (d = new Date()): string => {
 };
 const BACKUP_RE = /^[\w.-]+\.lightshow$/;
 
+/** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */
+export function writeBackup(s: FileServices, label?: string, now = new Date()): string {
+  s.flush();
+  const { show, venue } = s.current();
+  const backupsDir = path.join(s.dataRoot, "backups");
+  mkdirSync(backupsDir, { recursive: true });
+  const name = `${show}-${stamp(now)}${label ? `-${slugify(label)}` : ""}.lightshow`;
+  writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: path.join(s.dataRoot, "shows", show) }, venue: { id: venue, dir: path.join(s.dataRoot, "venues", venue) } }));
+  return name;
+}
+
+/**
+ * The day's automatic backup of the open show when it is due, then the pruning of old automatic
+ * backups and of old object history (rules in data/retention.ts). Returns the file written, if any.
+ */
+export function runAutoBackup(s: FileServices, changedSince: boolean, now = new Date()): string | undefined {
+  const backupsDir = path.join(s.dataRoot, "backups");
+  const { show } = s.current();
+  const files = existsSync(backupsDir) ? readdirSync(backupsDir) : [];
+  const last = autoBackupsOf(files, show)[0];
+  const written = autoBackupDue(now, last ? autoBackupTime(last, show) : undefined, changedSince) ? writeBackup(s, "auto", now) : undefined;
+  for (const f of autoBackupsToPrune(written ? [...files, written] : files, show)) rmSync(path.join(backupsDir, f), { force: true });
+  for (const kind of ["shows", "venues"]) {
+    const root = path.join(backupsDir, kind);
+    if (!existsSync(root)) continue;
+    for (const store of readdirSync(root)) {
+      const dir = path.join(root, store);
+      if (!statSync(dir).isDirectory()) continue;
+      for (const entry of historyToPrune(readdirSync(dir), now)) rmSync(path.join(dir, entry), { recursive: true, force: true });
+    }
+  }
+  return written;
+}
+
 export function registerFileCommands(reg: CommandRegistry, s: FileServices): void {
   const showsDir = path.join(s.dataRoot, "shows");
   const venuesDir = path.join(s.dataRoot, "venues");
@@ -55,15 +90,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     for (let i = 2; existsSync(path.join(dir, id)); i++) id = `${slugify(base).slice(0, 60)}-${i}`;
     return id;
   };
-  /** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */
-  const backup = (label?: string): string => {
-    s.flush();
-    const { show, venue } = s.current();
-    mkdirSync(backupsDir, { recursive: true });
-    const name = `${show}-${stamp()}${label ? `-${slugify(label)}` : ""}.lightshow`;
-    writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: showDir(show) }, venue: { id: venue, dir: path.join(venuesDir, venue) } }));
-    return name;
-  };
+  const backup = (label?: string): string => writeBackup(s, label);
   const backupFile = (file: string) => {
     if (!BACKUP_RE.test(file) || !existsSync(path.join(backupsDir, file))) throw new Error(`sauvegarde inconnue : ${file}`);
     return path.join(backupsDir, file);
@@ -229,7 +256,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ label: z.string().optional() }),
-    run: ({ label }) => ({ file: backup(label) }),
+    // « auto » names the automatic backups, which rotate: a backup made by hand never does
+    run: ({ label }) => ({ file: backup(label && slugify(label) === "auto" ? "auto-manuel" : label) }),
   });
 
   reg.register({

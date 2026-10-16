@@ -153,13 +153,17 @@ export function FilesPage({ role }: { role: Role }) {
           </div>
         )}
         <p className="hint">{t.archiveFileHelp}</p>
+        <p className="hint">{t.autoBackupsHelp}</p>
         <ArchiveButtons onError={setError} onRestored={() => location.reload()} />
         {backups.length === 0 && <p className="hint">{t.noBackups}</p>}
         <table className="backups">
           <tbody>
             {backups.map((b) => (
               <tr key={b.file}>
-                <td>{when(b.createdAt)}</td>
+                <td>
+                  {when(b.createdAt)}
+                  {b.file.endsWith("-auto.lightshow") && <span className="badge"> {t.autoBadge}</span>}
+                </td>
                 <td className="hint">{b.file}</td>
                 <td className="hint">{Math.max(1, Math.round(b.size / 1024))} {t.kib}</td>
                 <td className="row">

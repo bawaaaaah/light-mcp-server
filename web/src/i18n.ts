@@ -567,6 +567,8 @@ const fr = {
   usedBy: "est encore utilisé :",
   deleteAnyway: "Le supprimer quand même ? Ces endroits perdront leur cible.",
   fadersCount: "faders",
+  autoBackupsHelp: "Une sauvegarde automatique par jour, quand le show a changé ; les 14 dernières sont gardées. Les sauvegardes faites à la main restent.",
+  autoBadge: "auto",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1136,6 +1138,8 @@ const en: typeof fr = {
   usedBy: "is still used by:",
   deleteAnyway: "Delete it anyway? These places will lose their target.",
   fadersCount: "faders",
+  autoBackupsHelp: "One automatic backup a day, when the show changed; the last 14 are kept. Backups made by hand stay.",
+  autoBadge: "auto",
 };
 
 export type Lang = "fr" | "en";

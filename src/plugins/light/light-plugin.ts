@@ -20,7 +20,7 @@ import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
-import { backupPath, registerFileCommands } from "./commands/file-commands.js";
+import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -45,6 +45,9 @@ import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
 
 export const PLUGIN_ID = "light";
+/** First look for the day's automatic backup after start (a short test server never writes one), then hourly. */
+const AUTO_BACKUP_FIRST_MS = 5 * 60_000;
+const AUTO_BACKUP_EVERY_MS = 3600_000;
 
 const RouteSchema = z.object({
   universe: z.number().int().min(1),
@@ -110,6 +113,9 @@ export class LightPlugin implements McpPlugin {
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
+  private readonly files: FileServices;
+  private changedSinceAutoBackup = false;
+  private autoBackupTimers: NodeJS.Timeout[] = [];
   private songs: SongServices | undefined;
   private readonly liveFile: LiveSnapshotFile;
   private readonly dataRoot: string;
@@ -191,7 +197,7 @@ export class LightPlugin implements McpPlugin {
     let kb: Knowledge | undefined;
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), () => (kb ??= loadKnowledge(knowledgePath)));
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
-    registerFileCommands(this.commands, {
+    this.files = {
       dataRoot,
       current: () => ({ show: this.config.show, venue: this.config.venue }),
       open: (id) => this.openShow(id),
@@ -205,7 +211,11 @@ export class LightPlugin implements McpPlugin {
       },
       restore: (bytes) => this.restoreArchive(bytes),
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
-    });
+    };
+    registerFileCommands(this.commands, this.files);
+    // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
+    this.show.onChange(() => (this.changedSinceAutoBackup = true));
+    this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
 
     const publishFrame = throttleMerge<number>(
@@ -390,11 +400,31 @@ export class LightPlugin implements McpPlugin {
       lastState = key;
     }, 250);
     this.tempoTimer.unref();
+    // the day's automatic backup (data/retention.ts): a first look a few minutes in, then every hour
+    const check = () => this.autoBackup();
+    this.autoBackupTimers = [setTimeout(check, AUTO_BACKUP_FIRST_MS), setInterval(check, AUTO_BACKUP_EVERY_MS)];
+    for (const t of this.autoBackupTimers) t.unref();
     this.started = true;
+  }
+
+  /** Writes the day's automatic backup when due, and prunes old copies; never stops the show for it. */
+  autoBackup(now = new Date()): string | undefined {
+    try {
+      const file = runAutoBackup(this.files, this.changedSinceAutoBackup, now);
+      if (file) {
+        this.changedSinceAutoBackup = false;
+        console.log(`Sauvegarde automatique : data/backups/${file}`);
+      }
+      return file;
+    } catch (err) {
+      console.warn(`Sauvegarde automatique impossible : ${(err as Error).message}`);
+      return undefined;
+    }
   }
 
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
+    for (const t of this.autoBackupTimers) clearTimeout(t);
     if (this.started) this.saveLive();
     this.show.flushLive();
     this.osc.stop();

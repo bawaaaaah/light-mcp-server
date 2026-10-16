@@ -43,6 +43,8 @@ data/shows/<id>/
 - **Renommer** (le dossier garde son identifiant), **supprimer** (un show fermé seulement, déplacé dans `data/backups/deleted/`, récupérable à la main).
 - **Réinitialiser** (`show.reset`, administrateur) : vide le show ouvert, et sur demande son lieu, après une sauvegarde automatique.
 - **Sauvegardes** : archives `.lightshow` du show ouvert et de son lieu gardées dans `data/backups/` (nom : show, date et heure locales, libellé), listées, restaurées (avec copie de l'existant) ou téléchargées depuis l'interface (page **Fichiers**).
+- **Sauvegardes automatiques** (`data/retention.ts`) : au plus une par jour et par show (`<show>-<date>-auto.lightshow`), quand le show ou son lieu a changé depuis la précédente, ou s'il n'en a encore aucune ; première vérification 5 minutes après le démarrage, puis toutes les heures. Les **14** plus récentes sont gardées ; les sauvegardes faites à la main (même libellées « auto ») et celles d'avant une réinitialisation ou une restauration ne sont jamais supprimées. Marquées « auto » dans **Fichiers**.
+- **Historique par objet** : chaque modification garde une copie de l'objet dans `data/backups/shows|venues/<id>/<horodatage>/` (récupération à la main). Une copie n'est élaguée que si elle a **plus de 90 jours et** n'est pas parmi les **500** plus récentes de son show ou lieu.
 
 ## Versions et sécurité des données
 - `schemaVersion` sur chaque manifeste. Les migrations sont versionnées et testées.
