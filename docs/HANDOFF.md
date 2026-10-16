@@ -2,10 +2,10 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-15)
+## Où on en est (2026-10-16)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
-- **Serveur** (`npm test` : 248 tests verts), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 301 tests verts ; `npm run test:ui` : 67), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -27,8 +27,16 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - **utilisateurs** nommés (rôle, PIN, clés de sécurité YubiKey / passkeys) et **OAuth** pour claude.ai, repris de wing-mcp-server ;
   - **import QLC+ guidé** (définitions `.qxf` depuis le navigateur, workspace dans le show ouvert ou dans un nouveau show) ;
   - **clic droit sur les widgets** des dashboards (cible, libellé, mode, couleur, apprentissage MIDI, retrait ; appui long sur tablette) ;
-  - **droits appliqués partout** (pages, contrôles du Live, outils MCP), **éditeur de rôles**, page **Mon compte** (clés), nouvelle **mise en page** (barre latérale, bande d'onglets sur tablette et téléphone), tour Playwright de chaque rôle ;
-  - **connexion** : jeton d'authentification par défaut, PIN pour un utilisateur choisi, liens de partage (utilisateur + PIN), essais de PIN limités ; `server.port` / `server.host` dans `data/machine/config.json` ; page **Connexion IA** et doc du reverse proxy (README).
+  - **droits appliqués partout** (pages, contrôles du Live, outils MCP), **éditeur de rôles**, page **Mon compte** (clés), nouvelle **mise en page** (barre latérale ; onglets sur tablette, bande qui défile sur téléphone), tour Playwright de chaque rôle (ordinateur, tablette, téléphone, anglais, show vide) ;
+  - **connexion** : jeton d'authentification par défaut, PIN pour un utilisateur choisi, liens de partage (utilisateur + PIN), essais de PIN limités ; `server.port` / `server.host` dans `data/machine/config.json` ; page **Connexion IA** et doc du reverse proxy (README) ;
+  - **2026-10-16** :
+    - dashboards : glisser-déposer, coins pour redimensionner, grille magnétique, jusqu'à 64 colonnes (défilement horizontal), palette, annuler/rétablir, plein écran, couleurs des widgets, appui long ;
+    - séparation des deux workspaces en deux shows ; « autre console » reconnue au contenu des paquets (une autre instance sur la même machine est signalée « cette machine ») ;
+    - console DMX par projecteur ; onglets sur deux lignes sur tablette ; interface entièrement traduite en anglais (hors messages du serveur, en français) ; guide **Pour commencer** sur un show neuf ;
+    - **sessions** gardées par empreinte et prolongées à l'usage (un redémarrage ne déconnecte plus les tablettes) ; bandeau « liaison coupée » ; retour à la connexion si la session est refusée ;
+    - page Show : recherche et filtre par dossier QLC+, pastilles de couleur, faders de canaux nommés ; **suppression refusée** tant qu'un objet sert (`show.references`, `force`) ; noms en double signalés par « Vérifier le show » ;
+    - **sauvegarde automatique** quotidienne (14 gardées), historique par objet borné, **versions précédentes** et **récemment supprimés** (looks, groupes, faders, dashboards) ;
+    - en-têtes anti-encadrement (clickjacking) ; **journal d'activité** (qui, d'où, quoi) dans Réglages et via `activity.list`.
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
@@ -38,7 +46,8 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - premier coup d'œil à l'interface dans un navigateur ;
    - répétition v0 avec QLC+ en secours, en suivant [bascule-qlc.md](bascule-qlc.md).
 2. Corriger d'après ses retours. **Demandes de l'utilisateur du 2026-10-15, pas encore faites** :
-   - **interface** : retours de l'utilisateur sur la nouvelle mise en page et les couleurs.
+   - **interface** : retours de l'utilisateur sur la nouvelle mise en page, les couleurs et l'édition des dashboards.
+   - choisi par l'utilisateur le 2026-10-16 : la liste des utilisateurs à PIN reste visible sur l'écran de connexion, même depuis l'adresse publique.
 3. Non encore fait :
    - cascade complète des règles.
 4. Plus tard (roadmap) : IA en live, Max for Live, AbleSet, audio, 3D, comptes et QR.

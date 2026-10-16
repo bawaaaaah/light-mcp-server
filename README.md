@@ -18,7 +18,9 @@ Contrôleur lumière DMX (Art-Net / sACN) open source. On le pilote depuis une i
   - modes Déclencher, Latch et Momentané, registre de notes, retour sur port distinct, MIDI clock et SPP ;
   - export de **MIDI Effect Rack** Ableton et génération de Live Set.
 - **Chants et setlist** : grille de conception, boutons et/ou timeline, feuille de conduite, planche.
-- **Dashboards** modulables FR/EN, console DMX, éditeurs d'effets, d'easing et de timing, notes partout.
+- **Dashboards** modulables FR/EN : glisser-déposer, redimensionnement par les coins, grille magnétique, couleurs, plein écran, sur ordinateur, tablette et téléphone ; console DMX par projecteur ; éditeurs d'effets, d'easing et de timing ; notes partout.
+- **Shows et sauvegardes** comme une console lumière : nouveau, dupliquer, réinitialiser, sauvegarde automatique quotidienne, **versions précédentes** et objets supprimés récupérables ; un objet encore utilisé ne se supprime pas par mégarde.
+- **Utilisateurs et rôles** (PIN, clés de sécurité, OAuth pour claude.ai), droits appliqués à l'interface comme au MCP, **journal d'activité** (qui a fait quoi, d'où).
 - **Données** en fichiers texte (git) et archives `.lightshow`, **CLI** `light` et **SDK** de scripts, **plugins**.
 
 ## Démarrer
