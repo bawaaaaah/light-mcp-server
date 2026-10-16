@@ -90,6 +90,21 @@ function setToken(t: string | null): void {
   }
 }
 
+/**
+ * A show switch this page asked for: the app's reload on « another show opened » waits for it, so
+ * the page keeps what it needs first (an import report) and then reloads itself.
+ */
+let ownShowSwitches = 0;
+export async function switchingShow<T>(run: () => Promise<T>): Promise<T> {
+  ownShowSwitches++;
+  try {
+    return await run();
+  } finally {
+    ownShowSwitches--;
+  }
+}
+export const switchInProgress = () => ownShowSwitches > 0;
+
 const signedOutListeners = new Set<() => void>();
 // The page's calls that ignore their errors would each report a refused session: it is handled
 // once, by going back to the sign-in page (onSignedOut).

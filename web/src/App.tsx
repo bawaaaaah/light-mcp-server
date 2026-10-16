@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, unreachable, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, switchInProgress, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -219,7 +219,8 @@ export function App() {
   useEffect(() => {
     const id = output?.show?.id;
     if (!id) return;
-    if (openShow.current && openShow.current !== id) location.reload();
+    // the page that switched shows itself reloads once it has kept what it needs (switchingShow)
+    if (openShow.current && openShow.current !== id && !switchInProgress()) location.reload();
     openShow.current = id;
   }, [output?.show?.id]);
 

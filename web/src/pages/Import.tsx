@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { cmd } from "../api";
+import { cmd, switchingShow } from "../api";
 import { useT } from "../App";
 
 interface Proposal {
@@ -48,16 +48,25 @@ export function ImportPage() {
   const [openShow, setOpenShow] = useState("");
   const [definitions, setDefinitions] = useState<number | null>(null);
   const [added, setAdded] = useState<DefinitionResult[]>([]);
-  const [done, setDone] = useState("");
-  const [proposal, setProposal] = useState<Proposal | null>(() => {
+  /** An import into a new show reloads the page: its report and message come back from here, once. */
+  const [kept] = useState<{ proposal: Proposal; done?: string } | null>(() => {
     try {
       const saved = sessionStorage.getItem(LAST_IMPORT);
-      sessionStorage.removeItem(LAST_IMPORT);
-      return saved ? (JSON.parse(saved) as { proposal: Proposal }).proposal : null;
+      return saved ? (JSON.parse(saved) as { proposal: Proposal; done?: string }) : null;
     } catch {
       return null;
     }
   });
+  // forgotten once the page is shown: a render React drops (Suspense) must not consume it
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(LAST_IMPORT);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+  const [done] = useState(kept?.done ?? "");
+  const [proposal, setProposal] = useState<Proposal | null>(kept?.proposal ?? null);
   const [selftest, setSelftest] = useState<Selftest | null>(null);
   const [rebuild, setRebuild] = useState<Rebuild | null>(null);
   const [error, setError] = useState("");
@@ -106,15 +115,15 @@ export function ImportPage() {
       void cmd<Proposal>("import.qxw", { xml, apply: true }).then(setProposal, (e: Error) => setError(e.message));
       return;
     }
-    void cmd<{ name: string; imported: Proposal }>("show.create", { name: newShow.name.trim(), venue: newShow.venue, qxw: xml }).then(
+    // the report is kept before the reload onto the new show (switchingShow holds the app's own)
+    void switchingShow(() => cmd<{ name: string; imported: Proposal }>("show.create", { name: newShow.name.trim(), venue: newShow.venue, qxw: xml })).then(
       (r) => {
         try {
-          sessionStorage.setItem(LAST_IMPORT, JSON.stringify({ proposal: r.imported }));
+          sessionStorage.setItem(LAST_IMPORT, JSON.stringify({ proposal: r.imported, done: `${t.importNewShowDone} ${r.name}` }));
         } catch {
-          /* the app reloads on the new show: the report is only lost */
+          /* storage unavailable: the report is only lost */
         }
-        setProposal(r.imported);
-        setDone(`${t.importNewShowDone} ${r.name}`);
+        location.reload();
       },
       (e: Error) => setError(e.message),
     );
