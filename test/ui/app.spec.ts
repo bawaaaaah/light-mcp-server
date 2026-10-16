@@ -499,6 +499,35 @@ test("DCA limits: a max set on the Show page stops the fader on the dashboard", 
   expect(errors).toEqual([]);
 });
 
+test("getting started: a new empty show becomes playable from the Live page", async ({ page, request }) => {
+  const errors = watchErrors(page);
+  // setup and cleanup with the master token: opening a show reloads the app under page.evaluate
+  const call = async (name: string, args: unknown = {}) =>
+    ((await (await request.post(`/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+  const before = ((await call("show.list")) as { id: string; active: boolean }[]).find((s) => s.active)!.id;
+  await login(page);
+  const guide = page.getByRole("region", { name: "Pour commencer" });
+  await expect(guide).toHaveCount(0); // the test show is ready to play
+  const created = (await call("show.create", { name: "Premier show", venue: "new" })) as { id: string };
+  try {
+    await expect(page.locator("header.top")).toContainText("Premier show"); // the app reloads on the new show
+    await expect(guide).toBeVisible();
+    await expect(guide.getByRole("button", { name: "Un canevas avec tout le patch" })).toBeDisabled();
+    await call("venue.fixture.put", { fixture: { id: "bar-a", name: "Bar A", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 } });
+    await expect(guide.getByText("Patcher les projecteurs (1)")).toBeVisible();
+    await guide.getByRole("button", { name: "Un canevas avec tout le patch" }).click();
+    await guide.getByRole("button", { name: /Presets automatiques/ }).click();
+    await guide.getByRole("button", { name: "Générer depuis le show" }).click();
+    await expect(guide).toHaveCount(0);
+    await expect(page.locator(".dgrid button.look").first()).toBeVisible();
+  } finally {
+    await page.goto("about:blank"); // leave before the app reloads on the show switch: no request cut mid-flight
+    await call("show.open", { id: before });
+    await call("show.delete", { id: created.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("DMX console: shows live values and parks a channel", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

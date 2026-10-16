@@ -63,3 +63,29 @@ test("tour in English · admin: every page, nothing wider than the screen", asyn
   await page.locator("header select").selectOption("fr");
   expect(errors).toEqual([]);
 });
+
+test("tour of a new empty show · admin: first-run states, then back to the test show", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await signIn(page, "admin", "9999");
+  // through the API with the master token: opening a show reloads the page under page.evaluate
+  const call = async (name: string, args: unknown = {}) =>
+    ((await (await request.post(`/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+  const before = ((await call("show.list")) as { id: string; active: boolean }[]).find((s) => s.active)!.id;
+  const created = (await call("show.create", { name: "Show vide", venue: "new" })) as { id: string };
+  try {
+    await expect(page.locator("header.top")).toContainText("Show vide"); // the app reloads itself on the new show
+    const pages = await page.locator("nav.pages button").allTextContents();
+    for (const name of pages) {
+      await page.locator("nav.pages button", { hasText: name }).first().click();
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: `test-results/tour/empty-${name.replace(/\s/g, "-")}.png`, fullPage: true });
+    }
+  } finally {
+    await page.goto("about:blank"); // leave before the app reloads on the show switch: no request cut mid-flight
+    await call("show.open", { id: before });
+    await call("show.delete", { id: created.id });
+  }
+  expect(errors).toEqual([]);
+});

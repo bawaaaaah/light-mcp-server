@@ -5,6 +5,7 @@ import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
+import { GettingStarted } from "../components/GettingStarted";
 import { isHex, textOn } from "../color";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
@@ -235,7 +236,7 @@ export function DashboardsPage({ role }: { role: Role }) {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
-  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot."], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets"], refresh);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -796,6 +797,8 @@ export function DashboardsPage({ role }: { role: Role }) {
         </div>
         </div>
       )}
+      {/* under the grid: the safety bar stays at the top, where the hand looks for it */}
+      {!edit && !kiosk && <GettingStarted role={role} looks={looks.length} dashboards={dashboards} current={dash} onDashboard={() => void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l)))} />}
       {menu && dash?.widgets.some((w) => w.id === menu.id) && (
         <WidgetMenu
           key={menu.id}

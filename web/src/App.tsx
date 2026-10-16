@@ -19,8 +19,11 @@ import { AccountPage } from "./pages/Account";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
+/** Opens another page from inside one (the getting-started guide, links between pages). */
+export const Nav = createContext<(page: Page) => void>(() => undefined);
+export const useNav = () => useContext(Nav);
 
-type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
+export type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
 /** The pages by what one does there; the side bar (or the tab strip on a tablet) shows these groups. */
 const GROUPS: [keyof Texts, Page[]][] = [
   ["navPlay", ["live", "songs"]],
@@ -189,6 +192,7 @@ export function App() {
   const shown: Page = allowed(page) ? page : (pages[0] ?? "account");
   return (
     <I18n.Provider value={t}>
+      <Nav.Provider value={(p) => allowed(p) && setPage(p)}>
       <div className="app">
       <aside className="sidebar">
         <div className="brand">{t.appName}</div>
@@ -269,6 +273,7 @@ export function App() {
       </main>
       </div>
       </div>
+      </Nav.Provider>
     </I18n.Provider>
   );
 }

@@ -79,6 +79,7 @@ export function VenuePage() {
       <div className="cols" id="venue-patch">
         <section>
           <h2>{t.patch} ({fixtures.length})</h2>
+          {fixtures.length === 0 && <p className="hint">{t.noPatchYet}</p>}
           <table>
             <tbody>
               {fixtures.map((f) => (

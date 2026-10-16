@@ -24,7 +24,7 @@ export function ConsolePage() {
   const [count, setCount] = useState(1);
   const [values, setValues] = useState<Uint8Array>(new Uint8Array(512));
   const [parked, setParked] = useState<Record<number, number>>({});
-  const [patch, setPatch] = useState<Patched[]>([]);
+  const [patch, setPatch] = useState<Patched[] | null>(null);
   const [patchedOnly, setPatchedOnly] = useState(() => {
     try {
       return localStorage.getItem(PATCHED_ONLY) !== "0";
@@ -92,7 +92,7 @@ export function ConsolePage() {
     }
   };
 
-  const fixtures = patch.filter((f) => f.universe === universe && f.channels.length > 0).sort((a, b) => a.address - b.address);
+  const fixtures = (patch ?? []).filter((f) => f.universe === universe && f.channels.length > 0).sort((a, b) => a.address - b.address);
   const names = new Map<number, { fixture: string; channel: string }>();
   for (const f of fixtures) for (const c of f.channels) names.set(f.address + c.offset, { fixture: f.name, channel: c.name });
   const byFixture = patchedOnly && fixtures.length > 0;
@@ -160,6 +160,7 @@ export function ConsolePage() {
           </span>
         )}
       </section>
+      {patch !== null && fixtures.length === 0 && <p className="hint">{t.noPatchHere}</p>}
       {byFixture ? (
         <div className="channels by-fixture">
           {fixtures.map((f) => (

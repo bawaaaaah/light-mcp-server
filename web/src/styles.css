@@ -1395,3 +1395,53 @@ body.kiosk header.top {
 body.kiosk .app {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* « Pour commencer » on the Live page of a show not ready to play (components/GettingStarted.tsx) */
+.getting-started {
+  max-width: 760px;
+  margin: 0.5em 0 1.5em;
+  padding: 0.8em 1em;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.getting-started h2 {
+  margin: 0;
+}
+.getting-started ol {
+  list-style: none;
+  margin: 0.6em 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7em;
+}
+.getting-started li {
+  display: grid;
+  grid-template-columns: 1.8em 1fr;
+  gap: 0.6em;
+  align-items: start;
+}
+.getting-started li .mark {
+  display: grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.getting-started li.next .mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.getting-started li.done .mark {
+  border-color: var(--on);
+  color: var(--on);
+}
+.getting-started li.done strong {
+  color: var(--muted);
+}
+.getting-started li p {
+  margin: 0.2em 0 0.4em;
+}

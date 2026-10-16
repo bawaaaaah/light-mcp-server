@@ -201,6 +201,7 @@ export function ShowPage() {
 
       <section>
         <h2>{t.fromIntent}</h2>
+        {canvases.length === 0 && <p className="hint">{t.needCanvas}</p>}
         <div className="editor">
           <input placeholder={t.name} value={intent.name} onChange={(e) => setIntent({ ...intent, name: e.target.value })} />
           <input placeholder={t.moods} value={intent.mood} onChange={(e) => setIntent({ ...intent, mood: e.target.value })} />
