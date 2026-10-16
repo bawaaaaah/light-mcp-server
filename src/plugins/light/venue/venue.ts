@@ -13,6 +13,7 @@ import type { FolderStore, Collection } from "../data/store.js";
 import { findDefinition, findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
+import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -195,6 +196,22 @@ export class Venue {
     const r = this.resolve(c.fixture);
     if (!("error" in r) && c.offset >= r.mode.channels.length) return `${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`;
     return undefined;
+  }
+
+  /** Each patched fixture's DMX footprint (one channel when its definition is missing). */
+  patchRanges(): PatchedRange[] {
+    return this.fixtures.list().map((f) => {
+      const r = this.resolve(f.id);
+      return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels: "error" in r ? 1 : r.mode.channels.length, kind: `${f.manufacturer}|${f.model}|${f.mode}` };
+    });
+  }
+
+  /** Channels shared by two fixtures (twins on one address aside), each said as people read it. */
+  patchProblems(onlyFor?: string): { a: string; b: string; universe: number; from: number; to: number; message: string }[] {
+    const name = (id: string) => this.fixtures.get(id)?.name ?? id;
+    return patchOverlaps(this.patchRanges())
+      .filter((o) => !onlyFor || o.a === onlyFor || o.b === onlyFor)
+      .map((o) => ({ ...o, message: overlapMessage(o, name) }));
   }
 
   resolve(fixtureId: string): ResolvedFixture | { error: string } {

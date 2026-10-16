@@ -44,9 +44,18 @@ export function VenuePage() {
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
   const [error, setError] = useState("");
+  /** Fixtures sharing DMX channels (venue.patch.check), by fixture id: the others' messages. */
+  const [overlaps, setOverlaps] = useState<Record<string, string[]>>({});
 
   const refresh = useCallback(() => {
     void cmd<Fixture[]>("venue.fixture.list").then(setFixtures).catch((e: Error) => setError(e.message));
+    void cmd<{ overlaps: { a: string; b: string; message: string }[] }>("venue.patch.check")
+      .then(({ overlaps: list }) => {
+        const by: Record<string, string[]> = {};
+        for (const o of list) for (const id of [o.a, o.b]) (by[id] ??= []).push(o.message);
+        setOverlaps(by);
+      })
+      .catch(() => undefined);
     void cmd<Canvas[]>("venue.canvas.list").then(setCanvases).catch(() => undefined);
     void cmd<Zone[]>("stage.zone.list").then(setZones).catch(() => undefined);
   }, []);
@@ -82,8 +91,10 @@ export function VenuePage() {
           {fixtures.length === 0 && <p className="hint">{t.noPatchYet}</p>}
           <table>
             <tbody>
-              {fixtures.map((f) => (
-                <tr key={f.id}>
+              {[...fixtures]
+                .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
+                .map((f) => (
+                <tr key={f.id} className={overlaps[f.id] ? "conflict" : undefined}>
                   <td>
                     <input type="checkbox" checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>
@@ -93,8 +104,9 @@ export function VenuePage() {
                       {f.manufacturer} {f.model} · {f.mode}
                     </small>
                   </td>
-                  <td>
+                  <td className="nowrap" title={overlaps[f.id]?.join("\n")}>
                     U{f.universe}.{f.address}
+                    {overlaps[f.id] && <span className="badge conflict"> ⚠ {t.overlapBadge}</span>}
                   </td>
                   <td>{f.role}</td>
                   <td>
@@ -181,7 +193,11 @@ export function VenuePage() {
               onClick={() =>
                 void run("venue.fixture.put", {
                   fixture: { id: slug(draft.name), name: draft.name, manufacturer: def!.manufacturer, model: def!.model, mode: draft.mode, universe: draft.universe, address: draft.address, ...(draft.role ? { role: draft.role } : {}) },
-                }).then(() => setDraft({ ...draft, name: "" }))
+                }).then((r) => {
+                  setDraft({ ...draft, name: "" });
+                  const warning = (r as { warning?: string } | undefined)?.warning;
+                  if (warning) setError(warning); // patched, but said: channels already used, definition missing…
+                })
               }
             >
               {t.patchIt}

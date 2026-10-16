@@ -91,8 +91,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: ({ fixture }) => {
       const saved = venue.fixtures.put(fixture);
       const r = venue.resolve(saved.id);
-      return { fixture: saved, warning: "error" in r ? r.error : undefined };
+      // patched anyway (two lamps on one address can be wanted), but said at once
+      const warnings = ["error" in r ? r.error : "", ...venue.patchProblems(saved.id).map((o) => o.message)].filter(Boolean);
+      return { fixture: saved, warning: warnings.length ? warnings.join(" ; ") : undefined };
     },
+  });
+  reg.register({
+    name: "venue.patch.check",
+    title: "Vérifier le patch",
+    description: "Fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported): both fixtures, universe, shared channels and a sentence.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({}),
+    run: () => ({ overlaps: venue.patchProblems() }),
   });
   reg.register({
     name: "venue.fixture.delete",

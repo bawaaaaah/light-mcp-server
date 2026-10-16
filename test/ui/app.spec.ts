@@ -595,6 +595,22 @@ test("midi page: mappings in number order, and a search past a handful", async (
   expect(errors).toEqual([]);
 });
 
+test("venue: the patch reads by address, and fixtures sharing channels are flagged", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "extra", name: "Extra", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 10 } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    const universe1 = page.locator("tr", { hasText: /U1\.\d+/ });
+    await expect(universe1.locator("td:nth-child(2)")).toHaveText(["Bar 0", "Extra", "Bar 1"]);
+    await expect(page.locator("tr", { hasText: "Extra" }).locator(".badge.conflict")).toContainText("chevauche");
+    await expect(page.locator("tr", { hasText: "Bar 0" }).locator(".badge.conflict")).toHaveCount(1);
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "extra" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);

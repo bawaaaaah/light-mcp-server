@@ -103,7 +103,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, fixtures whose DMX channels overlap.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -152,6 +152,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           else first.set(key, x.id);
         }
       };
+      for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
       sameName("look", runtime.looks.list());
       sameName("groupe", runtime.groups.list());
       sameName("fader", runtime.faders.list());
