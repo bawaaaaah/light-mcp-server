@@ -118,7 +118,12 @@ export interface AuthMiddleware {
 }
 
 const STREAM_TICKET_TTL_MS = 30_000;
+/** A session left unused this long ends; one in use is extended (see `sessionOf`). */
 const SESSION_TTL_MS = 12 * 3600_000;
+const SessionSchema = z.object({ hash: z.string(), userId: z.string(), expiresAt: z.number() });
+
+/** Sessions are kept by hash: the stored copy (config file) holds no usable token. */
+const hashToken = (token: string) => crypto.createHash("sha256").update(token, "utf8").digest("hex");
 /** Wrong PINs allowed per client address within the window, before logins answer 429. */
 const MAX_PIN_FAILURES = 5;
 const PIN_FAILURE_WINDOW_MS = 60_000;
@@ -126,6 +131,7 @@ const PIN_FAILURE_WINDOW_MS = 60_000;
 export class AuthService implements AuthMiddleware {
   // a copy: the state is edited in place, the built-in roles must stay as they are
   private state: AuthState = { roles: DEFAULT_ROLES.map((r) => ({ ...r, rights: [...r.rights] })), users: [] };
+  /** By token hash; persisted, so a server restart signs no tablet out in the middle of a service. */
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private resolveToken: ((token: string) => { userId?: string } | undefined) | undefined;
   private readonly tickets = new Map<string, { credential: string; expiresAt: number }>();
@@ -143,6 +149,11 @@ export class AuthService implements AuthMiddleware {
     for (const role of DEFAULT_ROLES) if (!this.state.roles.some((r) => r.id === role.id)) this.state.roles.push({ ...role, rights: [...role.rights] });
     const admin = this.state.roles.find((r) => r.id === "admin")!;
     if (!admin.rights.includes("*")) admin.rights = ["*"];
+    const stored = configStore?.getAuthSessions();
+    for (const entry of Array.isArray(stored) ? stored : []) {
+      const parsed = SessionSchema.safeParse(entry);
+      if (parsed.success && parsed.data.expiresAt > this.now()) this.sessions.set(parsed.data.hash, { userId: parsed.data.userId, expiresAt: parsed.data.expiresAt });
+    }
     // per-role PINs (before users): one user per role, same id, name and PIN
     for (const role of this.state.roles) {
       if (!role.pinHash) continue;
@@ -295,12 +306,45 @@ export class AuthService implements AuthMiddleware {
     const user = this.user(userId);
     if (user.disabled) throw new HttpError(403, "utilisateur désactivé");
     const token = crypto.randomBytes(24).toString("base64url");
-    this.sessions.set(token, { userId: user.id, expiresAt: this.now() + SESSION_TTL_MS });
+    this.sessions.set(hashToken(token), { userId: user.id, expiresAt: this.now() + SESSION_TTL_MS });
+    this.saveSessions();
     return { token, user: this.summary(user), role: this.role(user.role) };
   }
 
   private closeSessions(userId: string): void {
-    for (const [token, s] of this.sessions) if (s.userId === userId) this.sessions.delete(token);
+    for (const [hash, s] of this.sessions) if (s.userId === userId) this.sessions.delete(hash);
+    this.saveSessions();
+  }
+
+  /**
+   * The live session behind a token. One in use is extended once half its time has gone (so a
+   * whole day of service never ends on an expired tablet, and the file is written rarely); an
+   * expired one is dropped.
+   */
+  private sessionOf(credential: string): { userId: string; expiresAt: number } | undefined {
+    const hash = hashToken(credential);
+    const session = this.sessions.get(hash);
+    if (!session) return undefined;
+    const now = this.now();
+    if (session.expiresAt < now) {
+      this.sessions.delete(hash);
+      this.saveSessions();
+      return undefined;
+    }
+    if (session.expiresAt - now < SESSION_TTL_MS / 2) {
+      session.expiresAt = now + SESSION_TTL_MS;
+      this.saveSessions();
+    }
+    return session;
+  }
+
+  /** Expired sessions are dropped on the way; a failed write only costs the sign-ins of a restart. */
+  private saveSessions(): void {
+    if (!this.configStore) return;
+    const now = this.now();
+    for (const [hash, s] of this.sessions) if (s.expiresAt < now) this.sessions.delete(hash);
+    const entries = [...this.sessions].map(([hash, s]) => ({ hash, ...s }));
+    void this.configStore.setAuthSessions(entries).catch((e: Error) => console.error("Could not save the sessions:", e.message));
   }
 
   /**
@@ -327,7 +371,7 @@ export class AuthService implements AuthMiddleware {
   }
 
   logout(token: string): void {
-    this.sessions.delete(token);
+    if (this.sessions.delete(hashToken(token))) this.saveSessions();
   }
 
   bearerOf(req: Pick<Request, "headers">): string | undefined {
@@ -338,14 +382,8 @@ export class AuthService implements AuthMiddleware {
   /** The user behind a credential: none for the master token (the administrator itself). */
   userOf(credential: string | undefined): UserSummary | undefined {
     if (!credential || tokensMatch(credential, this.masterToken)) return undefined;
-    const session = this.sessions.get(credential);
-    if (session) {
-      if (session.expiresAt < this.now()) {
-        this.sessions.delete(credential);
-        return undefined;
-      }
-      return this.userById(session.userId);
-    }
+    const session = this.sessionOf(credential);
+    if (session) return this.userById(session.userId);
     const resolved = this.resolveToken?.(credential);
     return resolved?.userId ? this.userById(resolved.userId) : undefined;
   }
@@ -355,12 +393,8 @@ export class AuthService implements AuthMiddleware {
     const admin = () => this.state.roles.find((r) => r.id === "admin") ?? DEFAULT_ROLES[0];
     if (tokensMatch(credential, this.masterToken)) return admin();
     let userId: string;
-    const session = this.sessions.get(credential);
+    const session = this.sessionOf(credential);
     if (session) {
-      if (session.expiresAt < this.now()) {
-        this.sessions.delete(credential);
-        return undefined;
-      }
       userId = session.userId;
     } else {
       const resolved = this.resolveToken?.(credential);
@@ -384,7 +418,7 @@ export class AuthService implements AuthMiddleware {
     const c = this.bearerOf(req);
     if (!c || !this.roleOf(c)) return undefined;
     if (tokensMatch(c, this.masterToken)) return "static";
-    return this.sessions.has(c) ? "session" : "oauth";
+    return this.sessions.has(hashToken(c)) ? "session" : "oauth";
   }
 
   /** The web UI and its API: the master token or a session; an OAuth token is good for /mcp only. */

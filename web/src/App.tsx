@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, restoreSession, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, restoreSession, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -137,6 +137,21 @@ export function App() {
   const [checked, setChecked] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [up, setUp] = useState(false);
+  // The link down for more than a moment (server restarting, network): said plainly, buttons are dead.
+  const [lost, setLost] = useState(false);
+  useEffect(() => {
+    if (up || !role) return setLost(false);
+    const timer = window.setTimeout(() => setLost(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [up, role]);
+  useEffect(
+    () =>
+      onSignedOut(() => {
+        setRole(null);
+        setLinkError(TEXTS[lang].sessionEnded);
+      }),
+    [lang],
+  );
   const live = useTopic<LightState | null>("light:state", null);
   const sourceName = (ip: string) => (output?.foreignLocal?.includes(ip) ? `${ip} (${t.thisMachine})` : ip);
   // The topic only speaks on a change: read the current state once signed in.
@@ -214,6 +229,11 @@ export function App() {
         </nav>
       </aside>
       <div className="main-col">
+      {lost && (
+        <div className="link-lost" role="alert">
+          ⚠ {t.linkLost}
+        </div>
+      )}
       <header className="top">
         <div className="status">
           {output?.show && (

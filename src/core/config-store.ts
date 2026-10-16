@@ -27,6 +27,8 @@ export interface PersistedConfigFile {
     tools?: unknown;
     /** Roles, PIN hashes and their rights (core/auth.ts). */
     auth?: unknown;
+    /** Signed-in sessions, by token hash, so a restart keeps them (core/auth.ts). */
+    sessions?: unknown;
   };
   plugins: Record<string, unknown>;
 }
@@ -68,6 +70,7 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     tools: z.unknown().optional(),
     // Roles and PIN hashes (core/auth.ts); validated over there, same rationale as above.
     auth: z.unknown().optional(),
+    sessions: z.unknown().optional(),
   }),
   plugins: z.record(z.unknown()),
 });
@@ -259,6 +262,15 @@ export class ConfigStore {
 
   getAuthState(): unknown {
     return this.data.server.auth;
+  }
+
+  getAuthSessions(): unknown {
+    return this.data.server.sessions;
+  }
+
+  async setAuthSessions(sessions: unknown): Promise<void> {
+    this.data.server.sessions = sessions;
+    await this.persist();
   }
 
   async setAuthState(state: unknown): Promise<void> {

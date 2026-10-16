@@ -558,6 +558,8 @@ const fr = {
   noPatchHere: "Aucun projecteur patché dans cet univers : les canaux prennent un nom une fois patchés (page Lieu).",
   noPatchYet: "Aucun projecteur : choisissez un modèle dans la bibliothèque, ou importez un workspace QLC+ (page Import).",
   needCanvas: "Créez d'abord un canevas (page Lieu) : les looks se dessinent dessus.",
+  linkLost: "Liaison avec le serveur coupée, reconnexion en cours… Les boutons ne répondent pas tant qu'elle n'est pas revenue.",
+  sessionEnded: "Session terminée (fermée, expirée ou utilisateur désactivé) : reconnectez-vous.",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1118,6 +1120,8 @@ const en: typeof fr = {
   noPatchHere: "No fixture patched in this universe: channels get a name once patched (Venue page).",
   noPatchYet: "No fixture yet: pick a model from the library, or import a QLC+ workspace (Import page).",
   needCanvas: "Make a canvas first (Venue page): looks are drawn on it.",
+  linkLost: "Link to the server lost, reconnecting… Buttons do nothing until it is back.",
+  sessionEnded: "Session ended (signed out, expired or user disabled): sign in again.",
 };
 
 export type Lang = "fr" | "en";

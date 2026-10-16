@@ -69,8 +69,26 @@ function setToken(t: string | null): void {
   }
 }
 
+const signedOutListeners = new Set<() => void>();
+// The page's calls that ignore their errors would each report a refused session: it is handled
+// once, by going back to the sign-in page (onSignedOut).
+window.addEventListener("unhandledrejection", (e) => {
+  if (e.reason instanceof ApiError && e.reason.status === 401) e.preventDefault();
+});
+/** Called when the server refuses this browser's session (revoked, expired, user disabled). */
+export function onSignedOut(fn: () => void): () => void {
+  signedOutListeners.add(fn);
+  return () => signedOutListeners.delete(fn);
+}
+
 async function json<T>(res: Response): Promise<T> {
   const body = (await res.json().catch(() => ({}))) as { error?: string };
+  // A 401 on a signed-in call means the session is gone: back to the sign-in page, rather than
+  // buttons that silently fail (a wrong PIN is a 401 too, but on the sign-in routes).
+  if (res.status === 401 && token && !/\/api\/auth\/(login|passkeys\/login)/.test(res.url)) {
+    setToken(null);
+    for (const l of signedOutListeners) l();
+  }
   if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText);
   return body as T;
 }

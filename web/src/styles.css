@@ -1445,3 +1445,15 @@ body.kiosk .app {
 .getting-started li p {
   margin: 0.2em 0 0.4em;
 }
+
+/* The link to the server is down (App.tsx): above everything, full screen included */
+.link-lost {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 0.5em 1em;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+}

@@ -111,6 +111,28 @@ describe("named users", () => {
     expect(auth.users().map((u) => u.id)).to.deep.equal(["regie-jardin-2"]);
   });
 
+  it("keeps the sessions across a restart, by hash only, extends one in use and drops an idle one", async () => {
+    let now = 1_000_000;
+    const config = await store(undefined);
+    const first = new AuthService("master", config, () => now);
+    await first.setPin("regisseur", "1234");
+    const { token } = first.login("1234", "regisseur");
+    const idle = first.login("1234", "regisseur").token;
+    await new Promise((r) => setTimeout(r, 20)); // the write is not awaited by login
+    const saved = JSON.stringify(config.getAuthSessions());
+    expect(saved).to.not.include(token); // a copy of the file signs nobody in
+    // restart: a new service on the same file knows both sessions
+    now += 7 * 3600_000;
+    const second = new AuthService("master", config, () => now);
+    expect(second.roleOf(token)?.id).to.equal("regisseur"); // used past half its life: extended by 12 h
+    now += 6 * 3600_000; // 13 h after sign-in
+    expect(second.roleOf(token)?.id).to.equal("regisseur");
+    expect(second.roleOf(idle)).to.equal(undefined); // unused for 13 h: ended
+    second.logout(token);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(new AuthService("master", config, () => now).roleOf(token)).to.equal(undefined); // a sign-out survives the restart too
+  });
+
   it("resolves outside tokens (OAuth) to a user, or to the administrator when the master token approved them", () => {
     const auth = new AuthService("master");
     auth.setTokenResolver((t) => (t === "grant-admin" ? {} : t === "grant-x" ? { userId: "nobody" } : undefined));

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
 /** Collects page errors and console errors; every test asserts there are none. */
 function watchErrors(page: Page): string[] {
@@ -499,6 +499,38 @@ test("DCA limits: a max set on the Show page stops the fader on the dashboard", 
   expect(errors).toEqual([]);
 });
 
+test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const token = await page.evaluate(() => sessionStorage.getItem("token"));
+  await request.post("/api/auth/logout", { headers: { authorization: `Bearer ${token}` } });
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click(); // its first command gets a 401
+  await expect(page.locator("form.pin-login")).toBeVisible();
+  await expect(page.getByText(/Session terminée/)).toBeVisible();
+  // the browser itself logs the refused requests and a socket whose ticket predates the sign-out
+  expect(errors.filter((e) => !e.includes("401") && !e.includes("WebSocket connection"))).toEqual([]);
+});
+
+test("a lost link to the server is said plainly, and goes away once it is back", async ({ page }) => {
+  // the WebSockets go through the test: cut them as a server restart would, then let them back
+  let down = false;
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    if (down) return void ws.close();
+    ws.connectToServer();
+    sockets.push(ws);
+  });
+  await login(page);
+  await expect(page.locator(".dot.ok")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  down = true;
+  for (const ws of sockets) await ws.close();
+  await expect(page.getByRole("alert")).toContainText("Liaison avec le serveur coupée", { timeout: 10_000 });
+  down = false;
+  await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.locator(".dot.ok")).toBeVisible();
+});
+
 test("getting started: a new empty show becomes playable from the Live page", async ({ page, request }) => {
   const errors = watchErrors(page);
   // setup and cleanup with the master token: opening a show reloads the app under page.evaluate
@@ -508,9 +540,12 @@ test("getting started: a new empty show becomes playable from the Live page", as
   await login(page);
   const guide = page.getByRole("region", { name: "Pour commencer" });
   await expect(guide).toHaveCount(0); // the test show is ready to play
+  await expect(page.locator(".show-name")).toBeVisible(); // the app knows the open show: a switch reloads it
+  const reloaded = page.waitForEvent("load");
   const created = (await call("show.create", { name: "Premier show", venue: "new" })) as { id: string };
   try {
-    await expect(page.locator("header.top")).toContainText("Premier show"); // the app reloads on the new show
+    await reloaded; // the header shows the new name a moment before the reload: wait for the reload itself
+    await expect(page.locator("header.top")).toContainText("Premier show");
     await expect(guide).toBeVisible();
     await expect(guide.getByRole("button", { name: "Un canevas avec tout le patch" })).toBeDisabled();
     await call("venue.fixture.put", { fixture: { id: "bar-a", name: "Bar A", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 } });
