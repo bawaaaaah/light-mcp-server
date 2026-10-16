@@ -26,7 +26,7 @@ interface Named {
 }
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
-const ACTIONS = ["look", "dca", "fader", "flash", "section", "program", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
+const ACTIONS = ["look", "dca", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
 export type Action = (typeof ACTIONS)[number];
 /** Target meaning « no program » (program.select with id null). */
 const NO_PROGRAM = "-";
@@ -37,6 +37,7 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
   if (m.on.command === "group.level") return { action: "dca", target: id };
   if (m.on.command === "fader.level") return { action: "fader", target: id };
   if (m.on.command === "group.flash") return { action: "flash", target: id };
+  if (m.on.command === "snapshot.recall") return { action: "snapshot", target: String(m.on.args.id ?? "") };
   if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : String(m.on.args.id ?? "") };
   if (m.on.command === "song.section.go") return { action: "section", target: `${String(m.on.args.song ?? "")}/${String(m.on.args.section ?? "")}` };
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
@@ -59,6 +60,8 @@ export function build(m: MappingDraft, action: Action, target: string): MappingD
     }
     case "program":
       return { ...base, mode: "trigger", on: { command: "program.select", args: { id: target === NO_PROGRAM ? null : target } } };
+    case "snapshot":
+      return { ...base, mode: "trigger", on: { command: "snapshot.recall", args: { id: target } } };
     case "blackout":
       return { ...base, on: { command: "blackout", args: { on: true } }, off: m.mode === "trigger" ? undefined : { command: "blackout", args: { on: false } } };
     default:
@@ -77,6 +80,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [songs, setSongs] = useState<Named[]>([]);
   const [faders, setFaders] = useState<Named[]>([]);
   const [programs, setPrograms] = useState<Named[]>([]);
+  const [snapshots, setSnapshots] = useState<Named[]>([]);
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
 
@@ -86,10 +90,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     void cmd<Named[]>("song.list").then(setSongs);
     void cmd<Named[]>("fader.list").then(setFaders);
     void cmd<{ programs: Named[] }>("program.list").then((r) => setPrograms(r.programs));
+    void cmd<Named[]>("snapshot.list").then(setSnapshots, () => undefined);
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })

@@ -7,7 +7,7 @@ import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
 import { isHex, textOn } from "../color";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
 interface Widget {
   id: string;
   kind: Kind;
@@ -87,7 +87,10 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
+/** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
+const DRAG_TYPE = "application/x-light-widget";
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
 export function DashboardsPage({ role }: { role: Role }) {
@@ -112,7 +115,33 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [looks, setLooks] = useState<Look[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
+  const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
   const [edit, setEdit] = useState(false);
+  const [paletteSearch, setPaletteSearch] = useState("");
+  // Full screen to play: no side bar, no top bar, only the dashboards.
+  const [kiosk, setKiosk] = useState(false);
+  useEffect(() => {
+    document.body.classList.toggle("kiosk", kiosk);
+    const out = () => !document.fullscreenElement && setKiosk(false);
+    document.addEventListener("fullscreenchange", out);
+    return () => {
+      document.removeEventListener("fullscreenchange", out);
+      document.body.classList.remove("kiosk");
+    };
+  }, [kiosk]);
+  const toggleKiosk = () => {
+    if (kiosk) {
+      if (document.fullscreenElement) void document.exitFullscreen?.();
+      setKiosk(false);
+    } else {
+      void document.documentElement.requestFullscreen?.().catch(() => undefined);
+      setKiosk(true);
+    }
+  };
+  /** Layout undo / redo while editing (⌘Z, ⇧⌘Z); a whole drag is one step. */
+  const past = useRef<Dashboard[]>([]);
+  const future = useRef<Dashboard[]>([]);
+  const dragging = useRef(false);
   const [selected, setSelected] = useState<string | null>(null);
   /** The widget whose right-click menu is open, and where. */
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -151,6 +180,8 @@ export function DashboardsPage({ role }: { role: Role }) {
     const cw = grid.getBoundingClientRect().width / dash.columns;
     const rh = Number.parseFloat(getComputedStyle(grid).gridAutoRows) * SUB;
     drag.current = { id: w.id, mode, x0: w.x, y0: w.y, w0: w.w, h0: w.h, px: e.clientX, py: e.clientY, cw, rh };
+    remember();
+    dragging.current = true;
     setSelected(w.id);
   };
   const moveDrag = (e: React.PointerEvent) => {
@@ -186,8 +217,9 @@ export function DashboardsPage({ role }: { role: Role }) {
     const g = drag.current;
     drag.current = null;
     if (g) update((d) => ({ ...d, widgets: settle(d.widgets, g.id) }));
+    dragging.current = false;
   };
-  const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav"].includes(w.kind));
+  const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot"].includes(w.kind));
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean } | null>("light:state", null);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
@@ -197,28 +229,58 @@ export function DashboardsPage({ role }: { role: Role }) {
     void cmd<Look[]>("look.list").then(setLooks).catch(() => undefined);
     void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
     void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
+    void cmd<{ id: string; name: string }[]>("snapshot.list").then(setSnapshots).catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
-  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist."], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot."], refresh);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (edit && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
       const n = Number(e.key);
       if (n >= 1 && n <= 9 && n <= dashboards.length) setCurrent(n - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dashboards.length]);
+  });
 
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
   const dash = dashboards[current];
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
   const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
 
-  const update = (fn: (d: Dashboard) => Dashboard) => setDashboards((ds) => ds.map((d, i) => (i === current ? fn(d) : d)));
+  /** Keeps the layout as it is, before a change (undo); a drag remembers once, at its start. */
+  const remember = () => {
+    if (!dash) return;
+    past.current.push(clone(dash));
+    if (past.current.length > 100) past.current.shift();
+    future.current = [];
+  };
+  const replaceCurrent = (next: Dashboard) => setDashboards((ds) => ds.map((d, i) => (i === current ? next : d)));
+  const undo = () => {
+    const prev = past.current.pop();
+    if (!prev || !dash) return;
+    future.current.push(clone(dash));
+    replaceCurrent(prev);
+  };
+  const redo = () => {
+    const next = future.current.pop();
+    if (!next || !dash) return;
+    past.current.push(clone(dash));
+    replaceCurrent(next);
+  };
+  const update = (fn: (d: Dashboard) => Dashboard) => {
+    if (edit && !dragging.current) remember();
+    setDashboards((ds) => ds.map((d, i) => (i === current ? fn(d) : d)));
+  };
   const updateWidget = (id: string, patch: Partial<Widget>) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)) }));
   /** A change from the right-click menu: applied and saved at once (no edit mode needed). */
   const persist = (fn: (d: Dashboard) => Dashboard) => {
@@ -230,14 +292,63 @@ export function DashboardsPage({ role }: { role: Role }) {
   const save = () =>
     dash &&
     void cmd("dashboard.put", { dashboard: dash })
-      .then(() => setEdit(false))
+      .then(() => {
+        setEdit(false);
+        setSelected(null);
+        past.current = [];
+        future.current = [];
+      })
       .catch((e: Error) => setError(e.message));
-  const addWidget = (kind: Kind) => {
+  /** A new widget: where it is dropped (what is under it goes down), or under the others. */
+  const addWidget = (kind: Kind, at?: { x: number; y: number }, target?: string) => {
     if (!dash) return;
-    const y = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+    const size = SIZE[kind] ?? { w: 2, h: 1 };
+    const y = at?.y ?? dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+    const x = Math.max(0, Math.min(at?.x ?? 0, dash.columns - size.w));
     const id = `${kind}-${Date.now().toString(36)}`;
-    update((d) => ({ ...d, widgets: [...d.widgets, { id, kind, x: 0, y, ...(SIZE[kind] ?? { w: 2, h: 1 }) }] }));
+    update((d) => ({ ...d, widgets: settle([...d.widgets, { id, kind, x, y, ...size, ...(target ? { target } : {}) }], id) }));
     setSelected(id);
+  };
+  /** The grid cell under a drop, snapped. */
+  const dropAt = (e: React.DragEvent) => {
+    const grid = gridRef.current!;
+    const r = grid.getBoundingClientRect();
+    const cw = r.width / (dash?.columns ?? 12);
+    const rh = Number.parseFloat(getComputedStyle(grid).gridAutoRows) * SUB;
+    const q = (v: number) => Math.max(0, Math.floor(v / step) * step);
+    return { x: q((e.clientX - r.left) / cw), y: q((e.clientY - r.top) / rh) };
+  };
+  // ---- dashboards themselves: the current one is saved first, then the action applies
+  const reloadDashboards = async (select?: string) => {
+    const list = mine(await cmd<Dashboard[]>("dashboard.list"));
+    setDashboards(list);
+    const i = select ? list.findIndex((d) => d.id === select) : 0;
+    setCurrent(Math.max(0, i));
+    past.current = [];
+    future.current = [];
+  };
+  const freeId = (base: string) => {
+    let id = base;
+    for (let i = 2; dashboards.some((d) => d.id === id); i++) id = `${base}-${i}`;
+    return id;
+  };
+  const manage = async (action: "new" | "duplicate" | "generate" | "delete") => {
+    if (!dash) return;
+    try {
+      await cmd("dashboard.put", { dashboard: dash });
+      if (action === "delete") {
+        if (dashboards.length < 2 || !confirm(`${t.deleteDashboardConfirm} « ${dash.name} »`)) return;
+        await cmd("dashboard.delete", { id: dash.id });
+        return await reloadDashboards();
+      }
+      const id = freeId(action === "duplicate" ? `${dash.id}-copie` : action === "generate" ? "genere" : "dashboard");
+      if (action === "new") await cmd("dashboard.put", { dashboard: { id, name: t.newDashboardName, columns: 12, widgets: [] } });
+      if (action === "duplicate") await cmd("dashboard.put", { dashboard: { ...clone(dash), id, name: `${dash.name} (${t.copySuffix})` } });
+      if (action === "generate") await cmd("dashboard.generate", { id, name: t.generatedDashboardName });
+      await reloadDashboards(id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   /**
@@ -323,6 +434,15 @@ export function DashboardsPage({ role }: { role: Role }) {
             {l.manualOnly ? "✋ " : ""}
             {w.label ?? l.name}
             {w.mode && w.mode !== "latch" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
+          </button>
+        );
+      }
+      case "snapshot": {
+        const snap = snapshots.find((x) => x.id === w.target);
+        if (!snap) return <div className="fill missing">{w.target}</div>;
+        return (
+          <button className="fill snapshot" title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => void run("snapshot.recall", { id: snap.id })}>
+            ◉ {w.label ?? snap.name}
           </button>
         );
       }
@@ -430,14 +550,12 @@ export function DashboardsPage({ role }: { role: Role }) {
         <span className="grow" />
         {edit ? (
           <>
-            <select value="" onChange={(e) => e.target.value && addWidget(e.target.value as Kind)}>
-              <option value="">+ widget</option>
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {t.widgetKinds[k]}
-                </option>
-              ))}
-            </select>
+            <button title={`${t.undo} (⌘Z)`} aria-label={t.undo} disabled={!past.current.length} onClick={undo}>
+              ↶
+            </button>
+            <button title={`${t.redo} (⇧⌘Z)`} aria-label={t.redo} disabled={!future.current.length} onClick={redo}>
+              ↷
+            </button>
             <button className={snap ? "toggle on" : "toggle"} aria-pressed={snap} title={t.snapHelp} onClick={toggleSnap}>
               {t.snapGrid}
             </button>
@@ -466,6 +584,9 @@ export function DashboardsPage({ role }: { role: Role }) {
             <button
               onClick={() => {
                 setEdit(false);
+                setSelected(null);
+                past.current = [];
+                future.current = [];
                 void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l)));
               }}
             >
@@ -473,16 +594,23 @@ export function DashboardsPage({ role }: { role: Role }) {
             </button>
           </>
         ) : (
-          editor && <button
-            className="ghost"
-            title={t.editLayoutHelp}
-            onClick={() => {
-              refresh(); // the lists the editor offers (looks, groups, faders) are read afresh
-              setEdit(true);
-            }}
-          >
-            ✎
-          </button>
+          <>
+            <button className="ghost" title={t.fullScreenHelp} aria-label={t.fullScreen} aria-pressed={kiosk} onClick={toggleKiosk}>
+              {kiosk ? "⤡" : "⛶"}
+            </button>
+            {editor && (
+              <button
+                className="ghost"
+                title={t.editLayoutHelp}
+                onClick={() => {
+                  refresh(); // the lists the editor offers (looks, groups, faders) are read afresh
+                  setEdit(true);
+                }}
+              >
+                ✎
+              </button>
+            )}
+          </>
         )}
         {error && (
           <span className="error" onClick={() => setError("")}>
@@ -490,6 +618,56 @@ export function DashboardsPage({ role }: { role: Role }) {
           </span>
         )}
       </section>
+
+      {edit && dash && (
+        <section className="dash-manage">
+          <label className="inline">
+            {t.dashboardName}
+            <input aria-label={t.dashboardName} value={dash.name} onChange={(e) => update((d) => ({ ...d, name: e.target.value }))} />
+          </label>
+          <button onClick={() => void manage("new")}>+ {t.newDashboard}</button>
+          <button onClick={() => void manage("duplicate")}>{t.duplicate}</button>
+          <button title={t.generateDashboardHelp} onClick={() => void manage("generate")}>
+            {t.generateDashboard}
+          </button>
+          <button className="ghost" disabled={dashboards.length < 2} onClick={() => void manage("delete")}>
+            {t.delete}
+          </button>
+        </section>
+      )}
+      {edit && dash && (
+        <section className="palette" aria-label={t.palette}>
+          <span className="hint">{t.paletteHelp}</span>
+          <div className="chips">
+            {KINDS.map((k) => (
+              <button key={k} className="chip" draggable onDragStart={(e) => e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: k }))} onClick={() => addWidget(k)}>
+                {t.widgetKinds[k]}
+              </button>
+            ))}
+          </div>
+          <input className="search" placeholder={t.paletteSearch} aria-label={t.paletteSearch} value={paletteSearch} onChange={(e) => setPaletteSearch(e.target.value)} />
+          <div className="chips bound">
+            {[
+              ...looks.map((l) => ({ kind: "look" as Kind, id: l.id, name: l.name, color: l.swatch })),
+              ...snapshots.map((x) => ({ kind: "snapshot" as Kind, id: x.id, name: `◉ ${x.name}`, color: undefined })),
+            ]
+              .filter((c) => !paletteSearch || c.name.toLowerCase().includes(paletteSearch.toLowerCase()))
+              .slice(0, 60)
+              .map((c) => (
+                <button
+                  key={`${c.kind}:${c.id}`}
+                  className="chip"
+                  draggable
+                  style={c.color ? ({ "--wc": c.color } as React.CSSProperties) : undefined}
+                  onDragStart={(e) => e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: c.kind, target: c.id }))}
+                  onClick={() => addWidget(c.kind, undefined, c.id)}
+                >
+                  {c.name}
+                </button>
+              ))}
+          </div>
+        </section>
+      )}
 
       {edit && sel && (
         <section className="editor">
@@ -545,6 +723,14 @@ export function DashboardsPage({ role }: { role: Role }) {
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onDragOver={(e) => edit && e.dataTransfer.types.includes(DRAG_TYPE) && e.preventDefault()}
+          onDrop={(e) => {
+            const raw = e.dataTransfer.getData(DRAG_TYPE);
+            if (!edit || !raw) return;
+            e.preventDefault();
+            const { kind, target } = JSON.parse(raw) as { kind: Kind; target?: string };
+            addWidget(kind, dropAt(e), target);
+          }}
         >
           {(narrow && !edit ? [...dash.widgets].sort((a, b) => a.y - b.y || a.x - b.x) : dash.widgets).map((w) => (
             <div
@@ -618,6 +804,7 @@ export function DashboardsPage({ role }: { role: Role }) {
           looks={looks}
           groups={groups}
           faders={faders}
+          snapshots={snapshots}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}
           onRemove={() => {
             persist((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== menu.id) }));

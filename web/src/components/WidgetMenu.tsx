@@ -5,7 +5,7 @@ import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
 import { isHex, SWATCHES } from "../color";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
+export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
 export type ButtonMode = "trigger" | "latch" | "momentary";
 export interface MenuWidget {
   id: string;
@@ -31,6 +31,8 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
       return w.target ? { action: "fader", target: w.target } : undefined;
     case "section":
       return w.target ? { action: "section", target: w.target.replace(":", "/") } : undefined;
+    case "snapshot":
+      return w.target ? { action: "snapshot", target: w.target } : undefined;
     case "blackout":
       return { action: "blackout", target: "" };
     case "panic":
@@ -57,6 +59,7 @@ export function WidgetMenu({
   looks,
   groups,
   faders,
+  snapshots = [],
   onChange,
   onRemove,
   onClose,
@@ -66,6 +69,7 @@ export function WidgetMenu({
   looks: Named[];
   groups: Named[];
   faders: Named[];
+  snapshots?: Named[];
   onChange: (patch: Partial<MenuWidget>) => void;
   onRemove: () => void;
   onClose: () => void;
@@ -95,7 +99,7 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
-  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" ? groups : [];
+  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" ? groups : widget.kind === "snapshot" ? snapshots : [];
   const learn = () => {
     if (!action) return;
     setLearning(true);

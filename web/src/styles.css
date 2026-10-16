@@ -1222,6 +1222,7 @@ nav.jump a:hover {
 .dgrid.fine.editing {
   user-select: none;
   touch-action: none;
+  min-height: calc(var(--row) * 8); /* room to drop, even on an empty dashboard */
   background-image:
     linear-gradient(to right, color-mix(in srgb, var(--line) 85%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in srgb, var(--line) 85%, transparent) 1px, transparent 1px);
@@ -1289,4 +1290,50 @@ nav.jump a:hover {
 button.toggle.on {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Dashboard editing: the dashboards themselves, and the palette to drag widgets from. */
+.dash-manage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  align-items: center;
+  padding: 0.4em 0;
+}
+.dash-manage label.inline input {
+  width: 14em;
+}
+.palette {
+  display: grid;
+  gap: 0.4em;
+  padding: 0.5em;
+  margin-bottom: 0.6em;
+  background: var(--panel);
+  border-radius: 8px;
+}
+.palette .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+.palette .chips.bound {
+  max-height: 7.5em;
+  overflow-y: auto;
+}
+.palette .chip {
+  padding: 0.25em 0.6em;
+  font-size: 0.85rem;
+  cursor: grab;
+  border-left: 4px solid var(--wc, var(--line));
+}
+.snapshot {
+  font-weight: 600;
+}
+/* Full screen to play (Live): the dashboards and nothing else. */
+body.kiosk .sidebar,
+body.kiosk header.top {
+  display: none;
+}
+body.kiosk .app {
+  grid-template-columns: minmax(0, 1fr);
 }

@@ -392,6 +392,44 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   expect(errors).toEqual([]);
 });
 
+test("dashboards: a new one, a look dragged from the palette, undo and redo, a snapshot button, full screen, then deleted", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "breath" });
+  await api(page, "snapshot.save", { name: "Respire" });
+  await api(page, "look.stopall");
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.getByRole("button", { name: "+ Nouveau" }).click();
+  await expect(page.locator(".dashboards .bar .tab.active")).toContainText("Nouveau dashboard");
+  await page.getByLabel("Nom", { exact: true }).fill("Louange");
+  const grid = page.locator(".dgrid.fine");
+  await page.locator(".palette .chips.bound .chip", { hasText: "hole" }).dragTo(grid, { targetPosition: { x: 200, y: 20 } });
+  await expect(grid.locator(".cell", { hasText: "hole" })).toHaveCount(1);
+  await page.getByRole("button", { name: "Annuler" }).click();
+  await expect(grid.locator(".cell", { hasText: "hole" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Rétablir" }).click();
+  await expect(grid.locator(".cell", { hasText: "hole" })).toHaveCount(1);
+  await page.locator(".palette .chips.bound .chip", { hasText: "Respire" }).click(); // a click adds it under the others
+  await page.getByRole("button", { name: "✔" }).click();
+  await expect(page.locator(".dashboards .bar .tab.active")).toContainText("Louange");
+  await page.locator(".dgrid button.snapshot", { hasText: "Respire" }).click();
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active).toBe(true);
+  await page.getByRole("button", { name: "Plein écran" }).click();
+  await expect(page.locator(".sidebar")).toBeHidden();
+  await page.screenshot({ path: "test-results/kiosk.png" });
+  await page.getByRole("button", { name: "Plein écran" }).click();
+  await expect(page.locator(".sidebar")).toBeVisible();
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(".dash-manage").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".dashboards .bar .tab", { hasText: "Louange" })).toHaveCount(0);
+  await page.getByRole("button", { name: "✕", exact: true }).first().click();
+  await api(page, "look.stopall");
+  await api(page, "snapshot.delete", { id: "respire" });
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -896,7 +934,7 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
   await api(page, "look.stopall");
   await api(page, "fader.put", { fader: { id: "blanc", name: "Blanc", channels: [{ fixture: "bar-0", offset: 2 }], level: 0 } });
   await page.getByRole("button", { name: "✎" }).click();
-  await page.locator(".dashboards .bar select").selectOption("channel-fader");
+  await page.locator(".palette").getByRole("button", { name: "Fader de canaux", exact: true }).click();
   await page.locator(".dashboards .editor select").first().selectOption("blanc");
   await page.getByRole("button", { name: "✔" }).click();
   const fader = page.getByLabel("Fader de canaux Blanc");
@@ -1038,7 +1076,7 @@ test("dashboard editor: add a label widget and save", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.getByRole("button", { name: "✎" }).click();
-  await page.locator(".dashboards .bar select").selectOption("label"); // value stays the kind id
+  await page.locator(".palette").getByRole("button", { name: "Titre", exact: true }).click();
   await page.locator(".editor input[placeholder=label]").fill("Mon repère");
   await page.getByRole("button", { name: "✔" }).click();
   await expect(page.locator(".w-label", { hasText: "Mon repère" })).toBeVisible();
@@ -1083,7 +1121,7 @@ test("live stage widget on a dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.getByRole("button", { name: "✎" }).click();
-  await page.locator(".dashboards .bar select").selectOption("preview");
+  await page.locator(".palette").getByRole("button", { name: "Scène en direct", exact: true }).click();
   await page.getByRole("button", { name: "✔" }).click();
   const widget = page.locator(".preview-widget svg");
   await expect(widget).toBeVisible();
