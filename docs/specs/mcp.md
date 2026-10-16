@@ -6,6 +6,8 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 
 **Priorité (analyse critique) : la conception d'abord.** La vraie valeur de l'IA est de préparer, générer, vérifier et documenter les shows. Le pilotage en direct par l'IA viendra plus tard.
 
+**Instructions à l'initialisation** (`getInstructions` du plugin) : un guide court que le client reçoit avant tout appel : sécurité (Panic, Blackout, veille, looks réservés à la main), lecture économe (`light_look_list` résumé, `light_look_get`), modifications sûres (références, suppressions refusées, versions, objets supprimés), vérifications et journal, chemin de conception. Un test vérifie que chaque outil cité existe.
+
 ## Périmètre
 | v1 | Plus tard |
 |---|---|

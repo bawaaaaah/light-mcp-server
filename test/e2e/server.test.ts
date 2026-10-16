@@ -196,6 +196,10 @@ describe("server end to end", function () {
     await client.connect(transport);
     const tools = (await client.listTools()).tools.map((t) => t.name);
     expect(tools).to.include.members(["light_dmx_set", "light_blackout", "light_panic", "light_nodes_list"]);
+    // every tool the instructions name exists: a model is told nothing it cannot call
+    const named = [...new Set(client.getInstructions()?.match(/light_[a-z_]+/g) ?? [])];
+    expect(named).to.include.members(["light_panic", "light_look_get", "light_show_references", "light_history_restore", "light_activity_list"]);
+    expect(named.filter((n) => !tools.includes(n))).to.deep.equal([]);
     const zero = node.next((d) => d[0] === 0);
     const result = await client.callTool({ name: "light_blackout", arguments: { on: true } });
     expect(result.isError).to.not.equal(true);
