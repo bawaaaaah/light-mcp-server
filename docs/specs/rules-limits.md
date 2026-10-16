@@ -63,6 +63,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 
 ## Clignotement (sécurité photosensible)
 - « Vérifier le show » signale les looks qui clignotent **plus de 3 fois par seconde** (seuil de la norme WCAG 2.3.1) : un éclat est une cellule qui passe du noir à l'allumé ; une attaque en fondu (≥ 0,2) ne compte pas. Un look calé sur les temps est évalué au tempo du chant le plus rapide du show (120 BPM au moins). C'est une alerte : la sortie n'est pas modifiée (`show/flashes.ts`).
+- « Vérifier le show » signale aussi un look dont les **canaux bruts** (UV, strobe, machines) sont ramenés par une règle toujours active : le look ne rend pas ce qu'il dit (valeur écrite, valeur bornée, règle).
 - Le bornage de la fréquence d'un canal strobe (`rate`, plus bas) reste à faire : il demande les plages en Hz des définitions et les seuils choisis par le lieu.
 
 ## Marqueurs sur widgets

@@ -37,4 +37,25 @@ describe("flashes per second (photosensitive safety)", () => {
     const flagged = lint.issues.filter((i) => i.message.includes("photosensibles")).map((i) => i.where);
     expect(flagged).to.include("look strobe-vite").and.not.include.members(["look doux", "look lent"]);
   });
+
+  it("flags a look whose raw channel the rules bring back, and says by how much", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-bound-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
+    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
+    const name = channels.find((f) => f.id === "bar-0")!.channels.find((c) => c.offset === 2)!.name;
+    await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", scope: {}, target: { channel: name }, max: 100 } });
+    const machine = (id: string, value: number) => ({ id, name: id, canvas, technique: { kind: "aucune" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, channels: { targets: [{ fixture: "bar-0", offset: 2 }], steps: [[value]] } });
+    await run("look.put", { look: machine("trop-fort", 200) });
+    await run("look.put", { look: machine("sage", 80) });
+    const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
+    const bound = lint.issues.filter((i) => i.message.includes("le ramène"));
+    expect(bound.map((i) => i.where)).to.deep.equal(["look trop-fort"]);
+    expect(bound[0]!.message).to.contain(`${name} à 200`).and.contain("à 100");
+  });
 });

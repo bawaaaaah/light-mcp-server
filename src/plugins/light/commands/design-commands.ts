@@ -15,6 +15,8 @@ import type { Group, Look, Palette } from "../show/model.js";
 import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
 import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
+import { applyRules } from "../rules/rules.js";
+import { zoneOf } from "../venue/stage.js";
 
 /**
  * Automatic presets (docs/specs/presets-songs-notes.md, Wolfmix): base palettes from the knowledge
@@ -104,7 +106,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo).",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -154,6 +156,35 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         }
       };
       for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
+      // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
+      // nobody would know why. Rules that always apply (no program); each written value is tried.
+      const always = runtime.rulesInForce().filter((r) => !r.program);
+      if (always.length) {
+        const zones = runtime.zones.list();
+        const zoneById = (id: string) => {
+          const f = runtime.venue.fixtures.get(id);
+          return f ? zoneOf(f, zones)?.id : undefined;
+        };
+        for (const l of runtime.looks.list()) {
+          if (!l.channels) continue;
+          const said = new Set<string>();
+          l.channels.targets.forEach((t, k) => {
+            const r = runtime.venue.resolve(t.fixture);
+            if ("error" in r) return;
+            const name = r.mode.channels[t.offset];
+            for (const value of new Set(l.channels!.steps.map((row) => row[k] ?? 0))) {
+              const buf = new Uint8Array(512);
+              const index = r.patch.address - 1 + t.offset;
+              if (index < 0 || index >= 512) continue;
+              buf[index] = value;
+              const c = applyRules(always, r, buf, zoneById).find((x) => x.channel === name);
+              if (!c || said.has(`${t.fixture}/${name}`)) continue;
+              said.add(`${t.fixture}/${name}`);
+              warn(`look ${l.id}`, `écrit ${r.patch.name} · ${name} à ${c.from}, mais la règle ${c.rule || "du lieu"} le ramène à ${c.to} : le look ne rend pas ce qu'il dit`);
+            }
+          });
+        }
+      }
       // photosensitive safety (WCAG 2.3.1): a look timed in beats flashes fastest on the show's fastest song
       const bpm = Math.max(120, ...songs.list().map((x) => x.bpm ?? 0));
       for (const l of runtime.looks.list()) {
