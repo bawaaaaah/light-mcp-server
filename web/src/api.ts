@@ -29,11 +29,30 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The session token lives in this tab (sessionStorage); « stay signed in on this device » also keeps
+ * it in localStorage, so a tablet's home-screen app that the system closed opens signed in.
+ */
+const DEVICE_TOKEN = "token.device";
 let token: string | null = null;
+let rememberHere = false;
 try {
   token = sessionStorage.getItem("token");
+  const kept = localStorage.getItem(DEVICE_TOKEN);
+  rememberHere = Boolean(kept);
+  token ??= kept;
 } catch {
   token = null;
+}
+
+/** Whether the next sign-in (and the current session) is kept on this device beyond the tab. */
+export function rememberOnDevice(on: boolean): void {
+  rememberHere = on;
+  setToken(token);
+}
+
+export function remembered(): boolean {
+  return rememberHere;
 }
 /**
  * Links that sign in: `#token=<authToken>` (menu bar app) with the master token, and
@@ -64,6 +83,8 @@ function setToken(t: string | null): void {
   try {
     if (t) sessionStorage.setItem("token", t);
     else sessionStorage.removeItem("token");
+    if (t && rememberHere) localStorage.setItem(DEVICE_TOKEN, t);
+    else localStorage.removeItem(DEVICE_TOKEN);
   } catch {
     /* storage unavailable: keep it in memory */
   }

@@ -677,6 +677,30 @@ test("full screen keeps the tablet awake, and lets it sleep again on the way out
   await expect.poll(wakeLog).toEqual(["request", "release"]);
 });
 
+test("« stay signed in on this device »: a new tab opens signed in, until « Quitter »", async ({ page, context }) => {
+  await page.goto("/");
+  await page.getByLabel("Rester connecté sur cet appareil").check();
+  await page.locator("form.pin-login select").selectOption("regisseur");
+  await page.getByPlaceholder(/PIN/).fill("1234");
+  await page.locator("form.pin-login button").click();
+  await expect(page.locator("header.top")).toBeVisible();
+  const tab = await context.newPage(); // a new tab, or the home-screen app opened again: no sessionStorage
+  await tab.goto("/");
+  await expect(tab.locator("header.top")).toBeVisible();
+  await tab.getByRole("button", { name: "Quitter" }).click();
+  const another = await context.newPage();
+  await another.goto("/");
+  await expect(another.locator("form.pin-login")).toBeVisible(); // signed out on this device too
+  await expect(another.getByLabel("Rester connecté sur cet appareil")).not.toBeChecked();
+});
+
+test("without « stay signed in », a new tab asks to sign in", async ({ page, context }) => {
+  await login(page);
+  const tab = await context.newPage();
+  await tab.goto("/");
+  await expect(tab.locator("form.pin-login")).toBeVisible();
+});
+
 test("reloading while the server restarts keeps the session: it waits, then comes back signed in", async ({ page }) => {
   await login(page);
   await page.route("**/api/auth/me", (route) => route.fulfill({ status: 502, body: "Bad Gateway" })); // the proxy, server down

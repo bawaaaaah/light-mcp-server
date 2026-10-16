@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, restoreSession, unreachable, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -65,6 +65,8 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
   const [user, setUser] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState(initialError);
+  const [stay, setStay] = useState(remembered());
+  useEffect(() => rememberOnDevice(stay), [stay]);
   useEffect(() => {
     void loginUsers()
       .then((r) => {
@@ -126,6 +128,9 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
           </button>
         </form>
       )}
+      <label className="inline stay" title={t.staySignedInHelp}>
+        <input type="checkbox" checked={stay} onChange={(e) => setStay(e.target.checked)} /> {t.staySignedIn}
+      </label>
       {error && <p className="error">{error}</p>}
     </div>
   );

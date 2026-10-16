@@ -43,7 +43,7 @@ Dans `data/machine/config.json`, section `server` (à la main, serveur arrêté 
 ### Tablettes et téléphones
 - Ouvrir l'adresse du serveur dans le navigateur, puis **« Ajouter à l'écran d'accueil »** (Safari : bouton de partage ; Chrome : menu) : l'interface s'ouvre ensuite comme une application, sur le Live, sans les barres du navigateur (Safari sur iPad ne sait pas mettre une page en plein écran autrement).
 - En plein écran (⛶ sur le Live), l'**écran reste allumé** pendant le service, là où le navigateur le permet (adresse HTTPS ou localhost ; pas sur une adresse IP du réseau local en http).
-- La session tient d'un redémarrage du serveur à l'autre ; une application de l'écran d'accueil que le système a fermée redemande le PIN.
+- La session tient d'un redémarrage du serveur à l'autre. Par défaut elle reste dans l'onglet : une application de l'écran d'accueil que le système a fermée redemande le PIN. Sur une tablette dédiée à la scène, cocher **« Rester connecté sur cet appareil »** à la connexion (la session survit alors à la fermeture, jusqu'à 12 h sans servir ; « Quitter » l'efface) ; à éviter sur un appareil partagé.
 
 ## 3. Reprendre un show QLC+
 1. Copier les définitions de fixtures (`.qxf`) dans `data/fixtures/` : celles de la bibliothèque QLC+ du Mac et les tiennes.
