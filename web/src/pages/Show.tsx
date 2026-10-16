@@ -16,7 +16,11 @@ interface Look {
   timing: { every: { beats?: number; seconds?: number }; attack: number; order: string };
   tags: string[];
   active: boolean;
+  /** Dominant colour of the look (look.list), for the dot before its name. */
+  swatch?: string;
 }
+/** The folder of an imported look (QLC+ « dossier » tag), to filter a long list by. */
+const FOLDER = "dossier:";
 interface Group {
   id: string;
   name: string;
@@ -72,6 +76,10 @@ export function ShowPage() {
   const [editing, setEditing] = useState<LookDraft | null>(null);
   const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
   const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
+  const [lookSearch, setLookSearch] = useState("");
+  const [folder, setFolder] = useState("");
+  /** Fixture and channel names, to show what a channel fader drives instead of ids and offsets. */
+  const [channelNames, setChannelNames] = useState<Record<string, { name: string; channels: string[] }>>({});
 
   const refresh = useCallback(() => {
     void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
@@ -83,6 +91,9 @@ export function ShowPage() {
     });
     void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
     void cmd<Snapshot[]>("snapshot.list").then(setSnapshots).catch(() => undefined);
+    void cmd<{ id: string; name: string; channels: { offset: number; name: string }[] }[]>("venue.fixture.channels")
+      .then((l) => setChannelNames(Object.fromEntries(l.map((f) => [f.id, { name: f.name, channels: f.channels.map((c) => c.name) }]))))
+      .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
   useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
@@ -98,6 +109,24 @@ export function ShowPage() {
     ...(intent.energy ? { energy: intent.energy } : {}),
     save,
   });
+  const folders = [...new Set(looks.flatMap((l) => l.tags.filter((g) => g.startsWith(FOLDER)).map((g) => g.slice(FOLDER.length))))].sort((a, b) => a.localeCompare(b));
+  const needle = lookSearch.trim().toLowerCase();
+  const shownLooks = looks.filter(
+    (l) =>
+      (!folder || l.tags.includes(FOLDER + folder)) &&
+      (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
+  );
+  /** « Spot 3 · Dimmer/CW » per fixture, in the order of the fader's channels; ids for an unknown fixture. */
+  const faderTargets = (f: ChannelFader) => {
+    const byFixture = new Map<string, number[]>();
+    for (const c of f.channels) byFixture.set(c.fixture, [...(byFixture.get(c.fixture) ?? []), c.offset]);
+    return [...byFixture]
+      .map(([id, offsets]) => {
+        const known = channelNames[id];
+        return known ? `${known.name} · ${offsets.map((o) => known.channels[o] ?? `ch ${o + 1}`).join("/")}` : `${id}+${offsets.map((o) => o + 1).join("/")}`;
+      })
+      .join(", ");
+  };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
 
   return (
@@ -253,17 +282,33 @@ export function ShowPage() {
 
       <section>
         <h2>
-          {t.looks} ({looks.length}){" "}
+          {t.looks} ({shownLooks.length === looks.length ? looks.length : `${shownLooks.length} / ${looks.length}`}){" "}
           <button className="ghost" onClick={() => setEditing(newLook(canvases[0]?.id ?? ""))}>
             + {t.newLook}
           </button>
         </h2>
+        {looks.length > 8 && (
+          <div className="row look-filters">
+            <input className="search" type="search" aria-label={t.searchLooks} placeholder={t.searchLooks} title={t.searchLooksHelp} value={lookSearch} onChange={(e) => setLookSearch(e.target.value)} />
+            {folders.length > 0 && (
+              <select aria-label={t.folder} value={folder} onChange={(e) => setFolder(e.target.value)}>
+                <option value="">{t.allFolders}</option>
+                {folders.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
         <table>
           <tbody>
-            {looks.map((l) => (
+            {shownLooks.map((l) => (
               <tr key={l.id}>
                 <td>
                   <button className={`look ${l.active ? "on" : ""}`} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
+                    {l.swatch && <span className="swatch-dot" style={{ background: l.swatch }} aria-hidden />}
                     {l.name}
                   </button>
                 </td>
@@ -275,7 +320,7 @@ export function ShowPage() {
                 <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
                 <td>{labelOf(t.orders, l.timing.order)}</td>
                 <td>
-                  <small>{l.tags.join(" · ")}</small>
+                  <small>{l.tags.filter((g) => !folder || g !== FOLDER + folder).join(" · ")}</small>
                 </td>
                 <td>
                   <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => setEditing(l as unknown as LookDraft)}>
@@ -387,14 +432,14 @@ export function ShowPage() {
           <tbody>
             {faders.map((f) => (
               <tr key={f.id}>
-                <td>
+                <td className="nowrap">
                   <button className="ghost" aria-label={`${t.edit} ${f.name}`} onClick={() => setEditingFader(f)}>
                     ✎
                   </button>{" "}
                   {f.name}
                 </td>
                 <td>
-                  <small>{f.channels.map((c) => `${c.fixture}+${c.offset + 1}`).join(", ")}</small>
+                  <small>{faderTargets(f)}</small>
                 </td>
                 <td>{Math.round(f.level * 100)} %</td>
               </tr>

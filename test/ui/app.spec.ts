@@ -499,6 +499,34 @@ test("DCA limits: a max set on the Show page stops the fader on the dashboard", 
   expect(errors).toEqual([]);
 });
 
+test("show page: a long list of looks is searched and filtered by its QLC+ folder", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = Array.from({ length: 6 }, (_, i) => ({
+    id: `long-${i}`,
+    name: `Long ${i}`,
+    canvas,
+    technique: { kind: "plat", color: "#ff0000" },
+    timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 },
+    tags: [i < 2 ? "dossier:Machines" : "dossier:Chants"],
+  }));
+  for (const look of extra) await api(page, "look.put", { look });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await expect(page.getByRole("heading", { name: /Looks \(11\)/ })).toBeVisible();
+    await page.getByLabel("Dossier").selectOption("Machines");
+    await expect(page.getByRole("heading", { name: /Looks \(2 \/ 11\)/ })).toBeVisible();
+    await page.getByLabel("Dossier").selectOption("");
+    await page.getByRole("searchbox", { name: "Chercher un look" }).fill("long 5");
+    await expect(page.locator("button.look", { hasText: "Long 5" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Looks \(1 \/ 11\)/ })).toBeVisible();
+  } finally {
+    for (const look of extra) await api(page, "look.delete", { id: look.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);

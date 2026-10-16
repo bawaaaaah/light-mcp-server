@@ -1457,3 +1457,20 @@ body.kiosk .app {
   font-weight: 600;
   text-align: center;
 }
+
+/* Show page: a long list of looks (an imported workspace has a hundred) */
+.look-filters {
+  margin-bottom: 0.6em;
+}
+.look-filters .search {
+  min-width: 18em;
+}
+.swatch-dot {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  vertical-align: baseline;
+}

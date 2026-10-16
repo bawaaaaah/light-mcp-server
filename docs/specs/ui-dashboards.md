@@ -16,7 +16,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 | **Scène** | vue de dessus et vue de face, zones, rôles, calibration, post-it ; live preview 2D |
 | **Canevas** | définition des canevas et de leur rendu sur le kit |
 | **Groupes** | arbre des groupes : master, exclusif, limites, presets inclus ou exclus ([groups-masters](groups-masters.md)) |
-| **Looks et techniques** | looks, techniques, effets, cue stacks, palettes, presets ; **instantanés** (enregistrer l'état actuel, rappeler, remplacer) et choix du **secours** du Panic (instantané ou look) |
+| **Looks et techniques** | looks (pastille de leur couleur dominante ; au-delà de 8, **recherche** par nom, technique ou tag et filtre par **dossier** QLC+ importé), techniques, effets, cue stacks, palettes, presets ; faders de canaux avec le **nom des projecteurs et des canaux** pilotés ; **instantanés** (enregistrer l'état actuel, rappeler, remplacer) et choix du **secours** du Panic (instantané ou look) |
 | **Éditeur d'effets** | voir plus bas |
 | **Chants** | setlist, grille de chant, boutons, timeline, **planche**, feuille de conduite |
 | **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton |

@@ -560,6 +560,10 @@ const fr = {
   needCanvas: "Créez d'abord un canevas (page Lieu) : les looks se dessinent dessus.",
   linkLost: "Liaison avec le serveur coupée, reconnexion en cours… Les boutons ne répondent pas tant qu'elle n'est pas revenue.",
   sessionEnded: "Session terminée (fermée, expirée ou utilisateur désactivé) : reconnectez-vous.",
+  searchLooks: "Chercher un look",
+  searchLooksHelp: "Par nom, technique ou tag",
+  folder: "Dossier",
+  allFolders: "Tous les dossiers",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1122,6 +1126,10 @@ const en: typeof fr = {
   needCanvas: "Make a canvas first (Venue page): looks are drawn on it.",
   linkLost: "Link to the server lost, reconnecting… Buttons do nothing until it is back.",
   sessionEnded: "Session ended (signed out, expired or user disabled): sign in again.",
+  searchLooks: "Find a look",
+  searchLooksHelp: "By name, technique or tag",
+  folder: "Folder",
+  allFolders: "All folders",
 };
 
 export type Lang = "fr" | "en";
