@@ -19,6 +19,9 @@ Pendant la transition (v0), **QLC+ reste prêt à reprendre la main** ([roadmap]
 3. Lancer **QLC+** avec le workspace habituel, sortie Art-Net active : c'est lui qui tient la lumière.
 4. Lancer le serveur **en veille** : `npm run serve -- --standby`. L'état est enregistré : un redémarrage reste en veille.
 5. Vérifier dans l'interface du serveur que les sections suivent Ableton (page Live ou Chants, moniteur de la console DMX).
+6. Page **Show → « Vérifier le show »** : aucune erreur (✖). Les alertes (⚠) se lisent une à une : chevauchement d'adresses, projecteur sans définition, libellés ambigus, une même entrée MIDI qui pilote deux cibles (voulu si le workspace QLC+ le faisait).
+7. Page **Fichiers** : une **sauvegarde nommée** juste avant le service (la sauvegarde automatique du jour ne date que du dernier changement).
+8. **Tablettes** : ouvertes depuis l'écran d'accueil, « Rester connecté sur cet appareil » coché sur les tablettes dédiées, Live en plein écran (l'écran reste allumé en HTTPS). **Réglages → « En ligne maintenant »** dit lesquelles sont connectées, et sous quel compte ; le **journal d'activité**, plus bas, dit après coup qui a fait quoi.
 
 ## Passer à light-mcp-server
 1. QLC+ : onglet **Entrées/Sorties** (*Inputs/Outputs*), univers concerné, **décocher la sortie Art-Net** (ou fermer QLC+). Le bouton *Blackout* de QLC+ ne suffit pas : il continue d'envoyer des zéros.
