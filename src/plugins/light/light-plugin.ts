@@ -2,7 +2,7 @@
  * The light plugin: engine + output + command layer, exposed as MCP tools, HTTP routes and live
  * WebSocket topics — all generated from the command registry (docs/architecture.md, principle 2).
  */
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
 import { diffFolder, packArchive, readArchive, restoreFolder } from "./data/archive.js";
 import { z } from "zod";
@@ -589,6 +589,32 @@ export class LightPlugin implements McpPlugin {
     }));
     server.registerResource("osc-map", "light://osc/map", { title: "Table OSC", description: "OSC addresses, their parameters and the command each one runs.", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("osc.table", {}, as(extra))));
     server.registerResource("notes", "light://notes", { title: "Notes", description: "Every note of the show and the venue (looks, groups, fixtures, songs…).", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("notes.search", { query: "" }, as(extra))));
+    type SongRow = { id: string; title: string; sections: { look?: string }[] };
+    const lookName = (id?: string) => (id ? (this.runtime.looks.get(id)?.name ?? id) : undefined);
+    // one song, its sections with their looks by name; listed so a client can browse the songs
+    server.registerResource(
+      "song",
+      new ResourceTemplate("light://song/{id}", {
+        list: async (extra) => ({ resources: ((await this.commands.invoke("song.list", {}, as(extra))) as SongRow[]).map((s) => ({ uri: `light://song/${s.id}`, name: s.title })) }),
+      }),
+      { title: "Chant", description: "One song: sections with their looks (by name), cues, tempo and mood.", mimeType: "application/json" },
+      async (uri, vars, extra) => {
+        const song = ((await this.commands.invoke("song.list", {}, as(extra))) as SongRow[]).find((x) => x.id === String(vars.id));
+        if (!song) throw new Error(`chant inconnu : ${String(vars.id)}`);
+        return json(uri, { ...song, sections: song.sections.map((x) => ({ ...x, lookName: lookName(x.look) })) });
+      },
+    );
+    server.registerResource("setlist", "light://setlist", { title: "Setlist", description: "The setlist in use with its songs in order, where the service is (song, section), and the other setlists.", mimeType: "application/json" }, async (uri, extra) => {
+      const state = (await this.commands.invoke("song.state", {}, as(extra))) as { setlist?: string; song?: string; section?: string };
+      const setlists = (await this.commands.invoke("setlist.list", {}, as(extra))) as { id: string; name: string; songs: string[] }[];
+      const songs = (await this.commands.invoke("song.list", {}, as(extra))) as SongRow[];
+      const current = setlists.find((x) => x.id === state.setlist);
+      return json(uri, {
+        current: current ? { ...current, songs: current.songs.map((id) => ({ id, title: songs.find((x) => x.id === id)?.title ?? id })) } : null,
+        position: { song: state.song ?? null, section: state.section ?? null },
+        setlists: setlists.map(({ id, name }) => ({ id, name })),
+      });
+    });
     server.registerResource("log", "light://log", { title: "Journal d'activité", description: "Who did what, from where, on which object, over the last week (needs the show:write right).", mimeType: "application/json" }, async (uri, extra) =>
       json(uri, await this.commands.invoke("activity.list", { limit: 500 }, as(extra))),
     );
