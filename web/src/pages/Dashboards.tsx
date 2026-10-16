@@ -63,6 +63,30 @@ interface SongState {
   section?: string;
 }
 
+/** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
+const SUB = 4;
+type Handle = "move" | "nw" | "ne" | "sw" | "se";
+const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
+
+/** A widget dropped onto others pushes them down (in cascade), as in a classic dashboard editor. */
+function settle<T extends { id: string; x: number; y: number; w: number; h: number }>(widgets: T[], movedId: string): T[] {
+  const ws = widgets.map((w) => ({ ...w }));
+  const overlap = (a: T, b: T) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const queue = [movedId];
+  for (let guard = 0; queue.length && guard < 1000; guard++) {
+    const id = queue.shift();
+    const a = ws.find((w) => w.id === id);
+    if (!a) continue;
+    for (const b of ws) {
+      if (b.id !== a.id && overlap(a, b)) {
+        b.y = a.y + a.h;
+        queue.push(b.id);
+      }
+    }
+  }
+  return ws;
+}
+
 const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
 const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
@@ -98,6 +122,71 @@ export function DashboardsPage({ role }: { role: Role }) {
    */
   const press$ = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
   const LONG_PRESS_MS = 600;
+
+  // ---- layout editing: drag to move, corners to resize, on a grid of quarter cells
+  /** Magnetic grid: moves and sizes go by whole cells; off, by quarters. Remembered by this browser. */
+  const [snap, setSnap] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dashboardSnap") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSnap = () => {
+    setSnap(!snap);
+    try {
+      localStorage.setItem("dashboardSnap", snap ? "0" : "1");
+    } catch {
+      /* per-browser comfort only */
+    }
+  };
+  const step = snap ? 1 : 1 / SUB;
+  const gridRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: string; mode: Handle; x0: number; y0: number; w0: number; h0: number; px: number; py: number; cw: number; rh: number } | null>(null);
+  const startDrag = (e: React.PointerEvent, w: Widget, mode: Handle) => {
+    const grid = gridRef.current;
+    if (!edit || !grid || !dash || e.button !== 0) return;
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    const cw = grid.getBoundingClientRect().width / dash.columns;
+    const rh = Number.parseFloat(getComputedStyle(grid).gridAutoRows) * SUB;
+    drag.current = { id: w.id, mode, x0: w.x, y0: w.y, w0: w.w, h0: w.h, px: e.clientX, py: e.clientY, cw, rh };
+    setSelected(w.id);
+  };
+  const moveDrag = (e: React.PointerEvent) => {
+    const g = drag.current;
+    if (!g || !dash) return;
+    const q = (v: number) => Math.round(v / step) * step;
+    const dx = (e.clientX - g.px) / g.cw;
+    const dy = (e.clientY - g.py) / g.rh;
+    let { x0: x, y0: y, w0: w, h0: h } = g;
+    if (g.mode === "move") {
+      x = q(g.x0 + dx);
+      y = q(g.y0 + dy);
+    } else {
+      if (g.mode.includes("e")) w = q(g.w0 + dx);
+      if (g.mode.includes("s")) h = q(g.h0 + dy);
+      if (g.mode.includes("w")) {
+        x = Math.min(q(g.x0 + dx), g.x0 + g.w0 - step);
+        w = g.w0 + g.x0 - x;
+      }
+      if (g.mode.includes("n")) {
+        y = Math.min(q(g.y0 + dy), g.y0 + g.h0 - step);
+        h = g.h0 + g.y0 - y;
+      }
+    }
+    w = Math.max(step, Math.min(w, dash.columns));
+    h = Math.max(step, h);
+    x = Math.max(0, Math.min(x, dash.columns - w));
+    y = Math.max(0, y);
+    const cur = dash.widgets.find((c) => c.id === g.id);
+    if (cur && (cur.x !== x || cur.y !== y || cur.w !== w || cur.h !== h)) updateWidget(g.id, { x, y, w, h });
+  };
+  const endDrag = () => {
+    const g = drag.current;
+    drag.current = null;
+    if (g) update((d) => ({ ...d, widgets: settle(d.widgets, g.id) }));
+  };
   const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav"].includes(w.kind));
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean } | null>("light:state", null);
@@ -349,6 +438,22 @@ export function DashboardsPage({ role }: { role: Role }) {
                 </option>
               ))}
             </select>
+            <button className={snap ? "toggle on" : "toggle"} aria-pressed={snap} title={t.snapHelp} onClick={toggleSnap}>
+              {t.snapGrid}
+            </button>
+            <label className="inline" title={t.columnsHelp}>
+              {t.columns}
+              <input
+                type="number"
+                min={4}
+                max={64}
+                value={dash?.columns ?? 12}
+                onChange={(e) => {
+                  const columns = Math.max(4, Math.min(64, Number(e.target.value) || 12));
+                  update((d) => ({ ...d, columns }));
+                }}
+              />
+            </label>
             <button
               title={t.autoColorsHelp}
               onClick={() => update((d) => ({ ...d, widgets: d.widgets.map((w) => (w.kind === "look" && !w.color ? { ...w, color: "auto" } : w)) }))}
@@ -404,14 +509,17 @@ export function DashboardsPage({ role }: { role: Role }) {
               ))}
             </select>
           )}
-          <button onClick={() => updateWidget(sel.id, { x: Math.max(0, sel.x - 1) })}>←</button>
-          <button onClick={() => updateWidget(sel.id, { x: Math.min((dash?.columns ?? 12) - sel.w, sel.x + 1) })}>→</button>
-          <button onClick={() => updateWidget(sel.id, { y: Math.max(0, sel.y - 1) })}>↑</button>
-          <button onClick={() => updateWidget(sel.id, { y: sel.y + 1 })}>↓</button>
-          <button onClick={() => updateWidget(sel.id, { w: Math.max(1, sel.w - 1) })}>⇠</button>
-          <button onClick={() => updateWidget(sel.id, { w: Math.min(dash?.columns ?? 12, sel.w + 1) })}>⇢</button>
-          <button onClick={() => updateWidget(sel.id, { h: Math.max(1, sel.h - 1) })}>⇡</button>
-          <button onClick={() => updateWidget(sel.id, { h: sel.h + 1 })}>⇣</button>
+          <button onClick={() => updateWidget(sel.id, { x: Math.max(0, sel.x - step) })}>←</button>
+          <button onClick={() => updateWidget(sel.id, { x: Math.min((dash?.columns ?? 12) - sel.w, sel.x + step) })}>→</button>
+          <button onClick={() => updateWidget(sel.id, { y: Math.max(0, sel.y - step) })}>↑</button>
+          <button onClick={() => updateWidget(sel.id, { y: sel.y + step })}>↓</button>
+          <button onClick={() => updateWidget(sel.id, { w: Math.max(step, sel.w - step) })}>⇠</button>
+          <button onClick={() => updateWidget(sel.id, { w: Math.min(dash?.columns ?? 12, sel.w + step) })}>⇢</button>
+          <button onClick={() => updateWidget(sel.id, { h: Math.max(step, sel.h - step) })}>⇡</button>
+          <button onClick={() => updateWidget(sel.id, { h: sel.h + step })}>⇣</button>
+          <span className="hint">
+            {sel.x},{sel.y} · {sel.w}×{sel.h}
+          </span>
           <button
             className="danger"
             onClick={() => {
@@ -425,12 +533,30 @@ export function DashboardsPage({ role }: { role: Role }) {
       )}
 
       {dash && (
-        <div className="dgrid" style={{ gridTemplateColumns: `repeat(${narrow && !edit ? 4 : dash.columns}, minmax(0, 1fr))`, gridAutoFlow: narrow && !edit ? "row" : undefined }}>
+        <div className="dgrid-scroll">
+        <div
+          ref={gridRef}
+          className={narrow && !edit ? "dgrid" : `dgrid fine${edit ? " editing" : ""}${edit && !snap ? " free" : ""}`}
+          style={
+            narrow && !edit
+              ? { gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gridAutoFlow: "row" }
+              : ({ "--cols": dash.columns, gridTemplateColumns: `repeat(${dash.columns * SUB}, minmax(calc(var(--colmin) / ${SUB}), 1fr))`, minWidth: `calc(${dash.columns} * var(--colmin))` } as React.CSSProperties)
+          }
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
           {(narrow && !edit ? [...dash.widgets].sort((a, b) => a.y - b.y || a.x - b.x) : dash.widgets).map((w) => (
             <div
               key={w.id}
+              data-widget={w.id}
               className={`cell ${edit ? "editing" : ""} ${selected === w.id ? "selected" : ""}${tint(w).className}`}
-              style={{ ...tint(w).style, ...(narrow && !edit ? { gridColumn: `span ${Math.min(w.w, 4)}`, gridRow: `span ${w.h}` } : { gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }) }}
+              style={{
+                ...tint(w).style,
+                ...(narrow && !edit
+                  ? { gridColumn: `span ${Math.min(Math.ceil(w.w), 4)}`, gridRow: `span ${Math.ceil(w.h)}` }
+                  : { gridColumn: `${Math.round(w.x * SUB) + 1} / span ${Math.round(w.w * SUB)}`, gridRow: `${Math.round(w.y * SUB) + 1} / span ${Math.round(w.h * SUB)}` }),
+              }}
               onClickCapture={(e) => {
                 if (press$.current?.fired) {
                   // the click that ends a long press only opened the menu
@@ -451,7 +577,8 @@ export function DashboardsPage({ role }: { role: Role }) {
                 setMenu({ id: w.id, x: e.clientX, y: e.clientY });
               }}
               onPointerDown={(e) => {
-                if (!editor || edit || e.pointerType !== "touch" || !holdable(w)) return;
+                if (edit) return startDrag(e, w, "move");
+                if (!editor || e.pointerType !== "touch" || !holdable(w)) return;
                 const at = { x: e.clientX, y: e.clientY };
                 const timer = window.setTimeout(() => {
                   if (!press$.current) return;
@@ -477,8 +604,10 @@ export function DashboardsPage({ role }: { role: Role }) {
               }}
             >
               {render(w)}
+              {edit && CORNERS.map((c) => <span key={c} className={`handle ${c}`} aria-hidden onPointerDown={(e) => startDrag(e, w, c)} />)}
             </div>
           ))}
+        </div>
         </div>
       )}
       {menu && dash?.widgets.some((w) => w.id === menu.id) && (

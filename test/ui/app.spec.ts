@@ -348,6 +348,50 @@ test("tablet: a long press opens the widget menu, without starting the look", as
   await ctx.close();
 });
 
+test("layout editing: drag to move, a corner to resize, magnetic grid on or off, wide dashboards scroll sideways", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const [dash] = (await api(page, "dashboard.list")) as { widgets: { id: string; kind: string; target?: string; x: number; y: number; w: number }[] }[];
+  const hole = dash!.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  await page.getByRole("button", { name: "✎" }).click();
+  const cell = page.locator(`.dgrid .cell[data-widget="${hole.id}"]`);
+  const grid = page.locator(".dgrid.fine");
+  const pos = page.locator(".dashboards .editor .hint");
+  const columns = Number(await page.getByLabel("Colonnes").inputValue());
+  const cw = (await grid.boundingBox())!.width / columns;
+  const drag = async (from: { x: number; y: number }, dx: number, dy: number) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + dx / 2, from.y + dy / 2, { steps: 4 });
+    await page.mouse.move(from.x + dx, from.y + dy, { steps: 4 });
+    await page.mouse.up();
+  };
+  await cell.click(); // select: its position shows in the editor bar
+  const [x0, y0, w0] = (await pos.textContent())!.match(/[\d.]+/g)!.map(Number);
+  let box = (await cell.boundingBox())!;
+  await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, cw * 2, 0); // two columns right
+  await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0}×1`);
+  box = (await cell.boundingBox())!;
+  await drag({ x: box.x + box.width - 3, y: box.y + box.height - 3 }, cw, 0); // the bottom-right corner: one column wider
+  await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0! + 1}×1`);
+  await page.getByRole("button", { name: "Grille magnétique" }).click(); // off: quarters
+  box = (await cell.boundingBox())!;
+  await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, cw * 0.27, 0);
+  await expect(pos).toHaveText(`${x0! + 2.25},${y0} · ${w0! + 1}×1`);
+  await page.screenshot({ path: "test-results/layout-editing.png" });
+  // what it was dropped onto went down, nothing overlaps
+  const boxes = await page.locator(".dgrid .cell").evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ l: r.left, t: r.top, r: r.right, b: r.bottom })));
+  const overlaps = boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) => a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1));
+  expect(overlaps).toEqual([]);
+  await page.getByRole("button", { name: "Grille magnétique" }).click(); // back on for the other tests
+  await page.getByLabel("Colonnes").fill("32");
+  await expect.poll(() => page.locator(".dgrid-scroll").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  await page.getByRole("button", { name: "✕", exact: true }).first().click(); // cancel: nothing saved
+  await expect(page.locator(".dgrid-scroll")).toBeVisible();
+  expect(((await api(page, "dashboard.list")) as { columns: number }[])[0]!.columns).toBe(columns);
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -965,7 +1009,8 @@ test("dashboard buttons: on while held (momentary), or on/off (latch)", async ({
   await api(page, "look.stopall");
   const active = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "masks")!.active;
   await page.getByRole("button", { name: "✎" }).click();
-  await page.locator(".dgrid button.look", { hasText: "masks" }).click(); // selects the widget in edit mode
+  const masksCell = page.locator(".dgrid .cell", { has: page.locator("button.look", { hasText: "masks" }) });
+  await masksCell.click(); // selects the widget in edit mode (its button does not take clicks there)
   await expect.poll(active).toBe(false); // editing never fires
   await page.getByLabel("Mode").selectOption("momentary");
   await page.getByRole("button", { name: "✔" }).click();
@@ -983,7 +1028,7 @@ test("dashboard buttons: on while held (momentary), or on/off (latch)", async ({
   await expect(hole).not.toHaveClass(/on/);
   // back to latch for the other tests
   await page.getByRole("button", { name: "✎" }).click();
-  await button.click();
+  await masksCell.click();
   await page.getByLabel("Mode").selectOption("latch");
   await page.getByRole("button", { name: "✔" }).click();
   expect(errors).toEqual([]);

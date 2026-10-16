@@ -8,11 +8,14 @@ import type { ChannelFader, Group, Look } from "../show/model.js";
 export const WidgetSchema = z.object({
   id: z.string(),
   kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview", "channel-fader"]),
-  /** Grid position (columns × rows of the dashboard). */
-  x: z.number().int().min(0),
-  y: z.number().int().min(0),
-  w: z.number().int().min(1).default(2),
-  h: z.number().int().min(1).default(1),
+  /**
+   * Grid position (columns × rows of the dashboard), by quarters of a cell: whole cells with the
+   * magnetic grid, quarters without it.
+   */
+  x: z.number().min(0).multipleOf(0.25),
+  y: z.number().min(0).multipleOf(0.25),
+  w: z.number().min(0.25).multipleOf(0.25).default(2),
+  h: z.number().min(0.25).multipleOf(0.25).default(1),
   /** Target: look id, group id (faders; XY pad: its moving heads, none = all), "song:section", or label text. */
   target: z.string().optional(),
   label: z.string().optional(),
@@ -25,7 +28,8 @@ export type Widget = z.infer<typeof WidgetSchema>;
 export const DashboardSchema = z.object({
   id: z.string(),
   name: z.string(),
-  columns: z.number().int().min(4).max(24).default(12),
+  /** More columns than fit on the screen: the dashboard scrolls sideways. */
+  columns: z.number().int().min(4).max(64).default(12),
   widgets: z.array(WidgetSchema).default([]),
   /** Roles allowed to see it; absent = everyone. */
   roles: z.array(z.string()).optional(),
