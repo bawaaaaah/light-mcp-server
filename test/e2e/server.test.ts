@@ -179,6 +179,11 @@ describe("server end to end", function () {
     expect(reader.names).to.include("light_look_list").and.not.include.members(["light_look_go", "light_show_reset", "light_dmx_set"]);
     const refused = await reader.client.callTool({ name: "light_look_go", arguments: { id: "x" } });
     expect(refused.isError).to.equal(true);
+    // resources read with the caller's rights: the rules yes, the activity log (show:write) no
+    expect((await reader.client.readResource({ uri: "light://rules" })).contents).to.have.length(1);
+    let logRefused = false;
+    await reader.client.readResource({ uri: "light://log" }).catch(() => (logRefused = true));
+    expect(logRefused).to.equal(true);
     await reader.client.close();
     const regisseur = await tools(await login("1234"));
     expect(regisseur.names).to.include("light_look_go").and.not.include("light_show_reset"); // show:admin is the administrator's
@@ -201,6 +206,11 @@ describe("server end to end", function () {
     expect(named).to.include.members(["light_panic", "light_look_get", "light_show_references", "light_history_restore", "light_activity_list"]);
     expect(named.filter((n) => !tools.includes(n))).to.deep.equal([]);
     // the guided workflows (prompts) of the spec, each citing only tools that exist
+    const uris = (await client.listResources()).resources.map((r) => r.uri);
+    expect(uris).to.include.members(["light://show", "light://rules", "light://midi/map", "light://osc/map", "light://notes", "light://log"]);
+    const midi = (await client.readResource({ uri: "light://midi/map" })).contents[0] as { text: string; mimeType?: string };
+    expect(midi.mimeType).to.equal("text/markdown");
+    expect(midi.text).to.contain("| Type | Canal |");
     const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
     expect(prompts).to.have.members(["preshow_check", "import_qlc_project", "setup_venue", "define_canvas", "program_song", "build_setlist", "rehearsal_review"]);
     const song = await client.getPrompt({ name: "program_song", arguments: { title: "Chant test", bpm: "100" } });

@@ -35,6 +35,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 - `light://knowledge` : base de connaissances couleur active (générique, ou privée via plugin).
 - `light://midi/map`, `light://osc/map`, `light://notes`, `light://log/{date}`.
 - `light://live` : état en langage naturel.
+- Fait : `light://show`, `light://venue` (patch, canevas, règles du lieu), `light://live`, `light://stage`, `light://knowledge`, et `light://rules` (règles, programmes, programme actif), `light://midi/map` (table Markdown), `light://osc/map`, `light://notes`, `light://log` (journal de la dernière semaine, droit `show:write`) ; ces cinq-là se lisent avec les droits de l'appelant. Restent : par chant, setlist, palettes et presets à part (dans `light://show`).
 - Les ressources sont abonnables.
 
 ## Prompts (workflows guidés)

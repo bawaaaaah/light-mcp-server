@@ -568,6 +568,23 @@ export class LightPlugin implements McpPlugin {
       contents: [{ uri: uri.href, mimeType: "text/plain", text: String(await this.commands.invoke("stage.describe", {}, sys)) }],
     }));
     server.registerResource("knowledge", "light://knowledge", { title: "Base de connaissances couleur", description: "Mood → colours and design rules.", mimeType: "application/json" }, async (uri) => json(uri, await this.commands.invoke("knowledge.get", {}, sys)));
+
+    // Read with the caller's own rights: a resource gives nothing its tools would refuse (the log needs show:write).
+    const as = (extra: { authInfo?: { token: string } } | undefined) => {
+      const token = extra?.authInfo?.token;
+      return { origin: "mcp" as const, can: (right: string) => token === undefined || !this.opts.auth || this.opts.auth.can(token, right) };
+    };
+    server.registerResource("rules", "light://rules", { title: "Règles", description: "Rules of the venue and the show, the rule programs and the active one.", mimeType: "application/json" }, async (uri, extra) =>
+      json(uri, { rules: await this.commands.invoke("rule.list", {}, as(extra)), programs: await this.commands.invoke("program.list", {}, as(extra)), activeProgram: this.runtime.activeProgram ?? null }),
+    );
+    server.registerResource("midi-map", "light://midi/map", { title: "Table MIDI", description: "MIDI mappings as a Markdown table: input, mode, action, label.", mimeType: "text/markdown" }, async (uri, extra) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: String(await this.commands.invoke("export.notes", {}, as(extra))) }],
+    }));
+    server.registerResource("osc-map", "light://osc/map", { title: "Table OSC", description: "OSC addresses, their parameters and the command each one runs.", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("osc.table", {}, as(extra))));
+    server.registerResource("notes", "light://notes", { title: "Notes", description: "Every note of the show and the venue (looks, groups, fixtures, songs…).", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("notes.search", { query: "" }, as(extra))));
+    server.registerResource("log", "light://log", { title: "Journal d'activité", description: "Who did what, from where, on which object, over the last week (needs the show:write right).", mimeType: "application/json" }, async (uri, extra) =>
+      json(uri, await this.commands.invoke("activity.list", { limit: 500 }, as(extra))),
+    );
   }
 
   async getToolCatalogue(): Promise<PluginToolCatalogue> {
