@@ -551,12 +551,15 @@ export class LightPlugin implements McpPlugin {
     server.registerResource("venue", "light://venue", { title: "Lieu", description: "Patch, canvases and rules of the venue.", mimeType: "application/json" }, (uri) =>
       json(uri, { fixtures: this.venue.fixtures.list(), canvases: this.venue.canvases.list().map(({ render, ...c }) => ({ ...c, renderedRanges: render.length })), rules: this.runtime.venueRules.list() }),
     );
-    server.registerResource("live", "light://live", { title: "En direct", description: "What is playing now, in plain French: looks, masters, blackout, tempo, song and section.", mimeType: "text/plain" }, async (uri) => {
+    server.registerResource("live", "light://live", { title: "En direct", description: "What is playing now, in plain French: standby, forced channels, looks, masters, blackout, tempo, song and section.", mimeType: "text/plain" }, async (uri) => {
       const t = this.tempo.state();
       const looks = this.runtime.activeLooks().map((id) => this.runtime.looks.get(id)?.name ?? id);
       const masters = this.runtime.groups.list().filter((g) => g.master).map((g) => `${g.name} ${Math.round((g.master!.mute ? 0 : g.master!.level) * 100)} % (effectif ${Math.round(this.runtime.effectiveLevel(g.id) * 100)} %)`);
       const song = (await this.commands.invoke("song.state", {}, sys)) as { song?: string; section?: string };
+      const parked = this.engine.parkedCount();
       const text = [
+        this.router.isStandby() ? "Sortie EN VEILLE : rien n'atteint les projecteurs (une autre console tient peut-être la lumière)." : "",
+        parked ? `${parked} canal(aux) FORCÉ(S) depuis la console DMX, par-dessus le show tant qu'ils ne sont pas relâchés.` : "",
         this.engine.isBlackout() ? "BLACKOUT actif." : "",
         `Looks en cours : ${looks.length ? looks.join(", ") : "aucun"}.`,
         masters.length ? `Masters : ${masters.join(" ; ")}.` : "",
