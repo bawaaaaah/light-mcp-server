@@ -1576,3 +1576,11 @@ ul.online {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.unreachable {
+  margin: 3em auto;
+  max-width: 30em;
+  padding: 1em;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  text-align: center;
+}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, restoreSession, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, restoreSession, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -135,6 +135,7 @@ export function App() {
   const [lang, setLang] = useState<Lang>(initialLang());
   const [role, setRole] = useState<Role | null>(null);
   const [checked, setChecked] = useState(false);
+  const [unreachableServer, setUnreachableServer] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [up, setUp] = useState(false);
   // The link down for more than a moment (server restarting, network): said plainly, buttons are dead.
@@ -162,9 +163,33 @@ export function App() {
   const t = TEXTS[lang];
 
   useEffect(() => {
-    void restoreSession()
-      .then(setRole, (err: unknown) => setLinkError(pinError(err, TEXTS[lang])))
-      .finally(() => setChecked(true));
+    let stop = false;
+    let timer: number | undefined;
+    // the server restarting (or the network) is no reason to sign out: say so and try again
+    const attempt = () =>
+      void restoreSession().then(
+        (r) => {
+          if (stop) return;
+          setUnreachableServer(false);
+          setRole(r);
+          setChecked(true);
+        },
+        (err: unknown) => {
+          if (stop) return;
+          if (unreachable(err)) {
+            setUnreachableServer(true);
+            timer = window.setTimeout(attempt, 2000);
+            return;
+          }
+          setLinkError(pinError(err, TEXTS[lang]));
+          setChecked(true);
+        },
+      );
+    attempt();
+    return () => {
+      stop = true;
+      window.clearTimeout(timer);
+    };
   }, []);
   useEffect(() => {
     if (role) void lightState().then(setSeed, () => undefined);
@@ -202,7 +227,7 @@ export function App() {
     }
   };
 
-  if (!checked) return null;
+  if (!checked) return unreachableServer ? <p className="unreachable" role="alert">{t.serverUnreachable}</p> : null;
   if (!role) return <Login t={t} onLogin={setRole} initialError={linkError} />;
   const allowed = (p: Page) => !PAGE_RIGHTS[p] || can(role, PAGE_RIGHTS[p]);
   const pages = PAGES.filter(allowed);

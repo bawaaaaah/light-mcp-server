@@ -171,15 +171,25 @@ export async function serverInfo(): Promise<{ version: string; publicUrl: string
   return json(await fetch("/api/server", { headers: { authorization: `Bearer ${token}` } }));
 }
 
+/**
+ * Who this browser is signed in as. Only a refusal forgets the session: a network error or a
+ * proxy's 502 (the server restarting) is thrown, and the page tries again.
+ */
 export async function me(): Promise<Role | null> {
   if (!token) return null;
   try {
     return await json<Role>(await fetch("/api/auth/me", { headers: { authorization: `Bearer ${token}` } }));
-  } catch {
-    setToken(null);
-    return null;
+  } catch (e) {
+    if (e instanceof ApiError && e.status < 500) {
+      setToken(null);
+      return null;
+    }
+    throw e;
   }
 }
+
+/** The server could not be reached or answered with its own failure (as opposed to a refusal). */
+export const unreachable = (e: unknown) => !(e instanceof ApiError) || e.status >= 500;
 
 /** Forgets the token here first, so leaving the page right away cannot sign back in. */
 export async function logout(): Promise<void> {

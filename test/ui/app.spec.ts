@@ -651,6 +651,16 @@ test("a session closed on the server sends the page back to sign-in, with the re
   expect(errors.filter((e) => !e.includes("401") && !e.includes("WebSocket connection"))).toEqual([]);
 });
 
+test("reloading while the server restarts keeps the session: it waits, then comes back signed in", async ({ page }) => {
+  await login(page);
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 502, body: "Bad Gateway" })); // the proxy, server down
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("Serveur injoignable");
+  await expect(page.locator("form.pin-login")).toHaveCount(0);
+  await page.unroute("**/api/auth/me");
+  await expect(page.locator("header.top")).toBeVisible({ timeout: 10_000 }); // the next try gets in, no sign-in asked
+});
+
 test("a lost link to the server is said plainly, and goes away once it is back", async ({ page }) => {
   // the WebSockets go through the test: cut them as a server restart would, then let them back
   let down = false;
