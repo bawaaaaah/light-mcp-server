@@ -14,6 +14,8 @@ interface Entry {
   target?: string;
   ok: boolean;
   error?: string;
+  /** A design change history.undo can take back. */
+  undo?: { collection: string; id: string };
 }
 
 interface Client {
@@ -60,7 +62,9 @@ const time = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "
 
 /**
  * What changed since the server started (activity.list): when, who, from where, what, on which
- * object. Read again at most once a second while commands come in.
+ * object. Read again at most once a second while commands come in. A change to a look, group,
+ * channel fader or dashboard can be undone from its line (history.undo), after saying what was
+ * changed on that object since, and by whom.
  */
 export function ActivityPanel() {
   const t = useT();
@@ -68,11 +72,19 @@ export function ActivityPanel() {
   const [who, setWho] = useState("");
   const [origin, setOrigin] = useState("");
   const [failedOnly, setFailedOnly] = useState(false);
+  const [error, setError] = useState("");
   const timer = useRef<number | null>(null);
   const load = useCallback(() => void cmd<Entry[]>("activity.list", { limit: 300 }).then(setEntries, () => undefined), []);
   useEffect(load, [load]);
   useEffect(() => () => void (timer.current !== null && window.clearTimeout(timer.current)), []);
   const shown = entries?.filter((e) => (!who || (e.who ?? "—") === who) && (!origin || e.origin === origin) && (!failedOnly || !e.ok));
+  const undo = (e: Entry) => {
+    const since = (entries ?? []).filter((x) => x.target === e.target && x.undo && x.at > e.until).reverse();
+    const question = [`« ${e.target} » : ${t.undoQuestion} (${time(e.at)}) ?`, ...(since.length ? [`\n${t.undoAlso}`, ...since.map((x) => `• ${time(x.at)} · ${x.who ?? "—"} · ${x.title}`)] : [])].join("\n");
+    if (!confirm(question)) return;
+    setError("");
+    void cmd("history.undo", { ...e.undo, at: e.at, until: e.until }).then(load, (err: Error) => setError(err.message));
+  };
   useCommandEvents([""], () => {
     if (timer.current !== null) return;
     timer.current = window.setTimeout(() => {
@@ -109,6 +121,7 @@ export function ActivityPanel() {
         </div>
       )}
       {shown && shown.length === 0 && entries && entries.length > 0 && <p className="hint">{t.activityNoMatch}</p>}
+      {error && <p className="error">{error}</p>}
       {shown && shown.length > 0 && (
         <div>
           <table className="activity">
@@ -126,6 +139,13 @@ export function ActivityPanel() {
                     {e.target && <small className="hint"> · {e.target}</small>}
                   </td>
                   <td title={e.error}>{e.ok ? "✔" : `✖ ${e.error ?? ""}`}</td>
+                  <td>
+                    {e.undo && (
+                      <button className="ghost" title={t.undoChange} aria-label={`${t.undoChange} · ${e.title} · ${e.target}`} onClick={() => undo(e)}>
+                        ↶
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

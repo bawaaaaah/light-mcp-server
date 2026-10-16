@@ -21,7 +21,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
-import { ActivityLog, commandNotice } from "./activity.js";
+import { ActivityLog, commandNotice, undoOf } from "./activity.js";
 import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
@@ -225,12 +225,21 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
-      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count.",
+      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader or dashboard: what history.undo takes (with the line's at and until) to put it back as it was.",
       right: "show:write",
       readOnly: true,
       profiles: ["setup", "design", "live"],
       schema: z.object({ limit: z.number().int().min(1).max(500).default(100) }),
-      run: ({ limit }) => this.activity.list(limit),
+      run: ({ limit }) => {
+        const designWrite = (name: string) => {
+          const def = this.commands.get(name);
+          return def?.right === "show:write" && !def.readOnly;
+        };
+        return this.activity.list(limit).map((e) => {
+          const undo = undoOf(e, designWrite);
+          return undo ? { ...e, undo } : e;
+        });
+      },
     });
     // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
     this.show.onChange(() => (this.changedSinceAutoBackup = true));

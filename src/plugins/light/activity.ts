@@ -56,6 +56,20 @@ export function targetOf(args: unknown): string | undefined {
   return undefined;
 }
 
+/** The collections whose changes history.undo takes back, by command prefix (look.put → looks). */
+const UNDOABLE = { look: "looks", group: "groups", fader: "faders", dashboard: "dashboards" } as const;
+export type UndoableCollection = (typeof UNDOABLE)[keyof typeof UNDOABLE];
+
+/**
+ * What history.undo would take back for an activity line: a design change that worked, on a named
+ * look, group, channel fader or dashboard (`designWrite` tells a design command from a live one:
+ * a fader moved is state, not a change to undo).
+ */
+export function undoOf(e: ActivityEntry, designWrite: (name: string) => boolean): { collection: UndoableCollection; id: string } | undefined {
+  const collection = UNDOABLE[e.name.split(".")[0] as keyof typeof UNDOABLE];
+  return collection && e.ok && e.target && designWrite(e.name) ? { collection, id: e.target } : undefined;
+}
+
 /** Arguments longer than this stay off the broadcast: an import carries a whole QLC+ workspace. */
 export const ARGS_BROADCAST_MAX = 2048;
 

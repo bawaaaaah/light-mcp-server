@@ -118,6 +118,7 @@ export const PROMPTS: LightPrompt[] = [
         "2. light_notes_search : les notes prises.",
         "3. light_show_lint : ce qui reste à corriger.",
         "Rends : ce qui a bien marché, les looks ou réglages souvent retouchés, et les corrections proposées (une par ligne, avec l'outil qui la ferait), à valider par l'utilisateur.",
+        "Une modification regrettée se reprend avec light_history_undo (le undo, at et until de sa ligne d'activité), après avoir dit ce qui a été changé depuis sur le même objet.",
       ].join("\n"),
   },
 ];

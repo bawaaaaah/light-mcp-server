@@ -59,6 +59,35 @@ describe("versions: earlier versions of looks, groups, faders and dashboards", (
     expect(now.master?.level).to.equal(0.3);
   });
 
+  it("undoes a change from its activity line: an edit, a deletion; not a creation nor a live move", async () => {
+    type Line = { name: string; target?: string; at: number; until: number; undo?: { collection: string; id: string } };
+    const lines = async () => (await run("activity.list")) as Line[];
+    const undo = (l: Line) => run("history.undo", { ...l.undo, at: l.at, until: l.until });
+    const look = plugin.runtime.looks.get("hole")!;
+    await tick();
+    const as = (who: string) => ({ ...systemContext(), who });
+    await plugin.commands.invoke("look.put", { look: { ...look, name: "Creux bleu" } }, as("Alice"));
+    await tick();
+    await plugin.commands.invoke("look.put", { look: { ...look, name: "Creux rouge" } }, as("Bob")); // another line: another caller
+    const edits = (await lines()).filter((l) => l.name === "look.put" && l.target === "hole");
+    expect(edits).to.have.length(2);
+    expect(edits[1]!.undo).to.deep.equal({ collection: "looks", id: "hole" });
+    await undo(edits[1]!); // Alice's change, and Bob's after it with it
+    expect(plugin.runtime.looks.get("hole")!.name).to.equal(look.name);
+    // a deletion comes back
+    await run("look.delete", { id: "breath", force: true });
+    const deleted = (await lines()).find((l) => l.name === "look.delete")!;
+    await undo(deleted);
+    expect(plugin.runtime.looks.get("breath")).to.not.equal(undefined);
+    // a creation replaced nothing; a level moved is state, nothing to undo
+    await run("look.put", { look: { ...look, id: "neuf", name: "Neuf" } });
+    let refused = "";
+    await undo((await lines()).find((l) => l.target === "neuf")!).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("une création s'annule en supprimant");
+    await run("group.level", { id: "master", level: 0.5 });
+    expect((await lines()).find((l) => l.name === "group.level")!.undo).to.equal(undefined);
+  });
+
   it("refuses a version that is not there", async () => {
     let refused = "";
     await run("history.restore", { collection: "looks", id: "hole", stamp: "2026-01-01T00-00-00-000Z-000000" }).catch((e: Error) => (refused = e.message));

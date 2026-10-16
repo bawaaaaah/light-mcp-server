@@ -518,6 +518,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- versions: the copy kept of an object at each change (FolderStore history), put back on demand
   const VERSIONED = { looks: { coll: show.looks, put: "look.put", key: "look" }, groups: { coll: show.groups, put: "group.put", key: "group" }, faders: { coll: show.faders, put: "fader.put", key: "fader" }, dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" } } as const;
   const versioned = z.enum(["looks", "groups", "faders", "dashboards"]);
+  /** How long after its activity line a change's history copy may be stamped. */
+  const UNDO_SLACK_MS = 2000;
   reg.register({
     name: "history.list",
     title: "Versions",
@@ -553,6 +555,26 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const now = v.coll.get(i) as { master?: unknown; level?: unknown } | undefined;
       const restored = collection === "groups" && old.master && now?.master ? { ...old, master: now.master } : collection === "faders" && now ? { ...old, level: now.level } : old;
       return reg.invoke(v.put, { [v.key]: restored }, ctx);
+    },
+  });
+
+  reg.register({
+    name: "history.undo",
+    title: "Annuler une modification",
+    description:
+      "Undoes one change to a look, group, channel fader or dashboard, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ collection: versioned, id: z.string(), at: z.number(), until: z.number().optional() }),
+    run: async ({ collection, id: i, at, until }, ctx) => {
+      const versions = VERSIONED[collection].coll.versions(i); // newest first
+      // the copy a change keeps is written while it runs: just after its line's time
+      const end = (until ?? at) + UNDO_SLACK_MS;
+      const replaced = versions.filter((x) => Date.parse(x.at) >= at && Date.parse(x.at) <= end);
+      const before = replaced[replaced.length - 1];
+      if (!before) throw new Error(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`);
+      await reg.invoke("history.restore", { collection, id: i, stamp: before.stamp }, ctx);
+      return { id: i, restored: before.stamp };
     },
   });
 

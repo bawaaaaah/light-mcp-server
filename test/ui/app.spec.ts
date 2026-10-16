@@ -618,6 +618,23 @@ test("settings: recent activity says who did what, from where, a dragged fader o
   expect(errors).toEqual([]);
 });
 
+test("settings: a change is undone from its line in the recent activity, after saying what came since", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const look = (await api(page, "look.get", { id: "masks" })) as { name: string };
+  await api(page, "look.put", { look: { ...look, name: "Masques bleus" } });
+  await page.locator("nav.pages").getByRole("button", { name: "Réglages" }).click();
+  const line = page.locator("table.activity tr", { hasText: "masks" }).filter({ has: page.getByRole("button", { name: /Annuler cette modification/ }) }).first();
+  await expect(line).toBeVisible();
+  await expect(page.locator("table.activity tr", { hasText: "Niveau de groupe" }).getByRole("button", { name: /Annuler/ })).toHaveCount(0); // a level is state
+  let asked = "";
+  page.once("dialog", (d) => ((asked = d.message()), void d.accept()));
+  await line.getByRole("button", { name: /Annuler cette modification/ }).click();
+  await expect.poll(async () => ((await api(page, "look.get", { id: "masks" })) as { name: string }).name).toBe(look.name);
+  expect(asked).toContain("« masks »");
+  expect(errors).toEqual([]);
+});
+
 test("settings: who is online, this page included", async ({ page, browser }) => {
   const errors = watchErrors(page);
   const other = await browser.newContext({ locale: "fr-FR" });
