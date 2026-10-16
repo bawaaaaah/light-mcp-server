@@ -4,7 +4,7 @@ import { useT } from "../App";
 
 interface Proposal {
   applied: boolean;
-  report: { converted: string[]; warnings: string[] };
+  report: { converted: string[]; warnings: string[]; missingDefinitions?: string[] };
   counts: Record<string, number>;
   collisions?: string[];
   conflicts?: string[];
@@ -119,7 +119,7 @@ export function ImportPage() {
       (e: Error) => setError(e.message),
     );
   };
-  const missing = proposal?.report.warnings.filter((w) => w.startsWith("définition manquante")).length ?? 0;
+  const missing = proposal?.report.missingDefinitions ?? [];
   const blocked = target === "open" && Boolean(proposal?.otherWorkspace);
 
   return (
@@ -236,7 +236,11 @@ export function ImportPage() {
                 </table>
               </>
             )}
-            {missing > 0 && <p className="warn">{t.missingDefinitionsHint}</p>}
+            {missing.length > 0 && (
+              <p className="warn">
+                {t.missingDefinitionsHint} <small>({missing.join(", ")})</small>
+              </p>
+            )}
             {blocked && (
               <p className="error">
                 ⚠ {proposal.otherWorkspace}{" "}

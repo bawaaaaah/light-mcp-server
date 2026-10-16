@@ -14,6 +14,13 @@ const fixture = (n: string) => readFileSync(new URL(`../../fixtures/${n}`, impor
 describe("QLC+ workspace → venue + show", () => {
   const p = qxwToShow(parseQxw(fixture("synthetic.qxw")), [parseQxf(fixture("bar4.qxf"))]);
 
+  it("names each missing definition once, so the page can ask for it", () => {
+    expect(p.report.missingDefinitions).to.deep.equal([]);
+    const without = qxwToShow(parseQxw(fixture("synthetic.qxw")), []);
+    expect(without.report.missingDefinitions).to.have.length(1); // two bars of one model, one entry
+    expect(without.report.missingDefinitions[0]).to.match(/Bar 4 \(.+\)$/);
+  });
+
   it("patches fixtures with 1-based universes and addresses", () => {
     expect(p.fixtures.map((f) => [f.id, f.universe, f.address])).to.deep.equal([
       ["bar-0", 1, 1],

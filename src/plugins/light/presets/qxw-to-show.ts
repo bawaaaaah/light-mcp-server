@@ -44,7 +44,8 @@ export interface ImportProposal {
   mappings: Mapping[];
   pinnedNotes: { action: string; channel: number; note: number }[];
   tempoFromMidiClock: boolean;
-  report: { converted: string[]; warnings: string[] };
+  /** `missingDefinitions`: « Manufacturer Model (Mode) » without a .qxf, once each (the UI asks for them by name). */
+  report: { converted: string[]; warnings: string[]; missingDefinitions: string[] };
 }
 
 const hex = (c: Rgbw | null): string => {
@@ -138,6 +139,7 @@ function rawChannels(fn: QxwFunction, fixtureIds: Map<number, string>): LookChan
 export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportProposal {
   const warnings: string[] = [];
   const converted: string[] = [];
+  const missingDefinitions = new Set<string>();
   const fixtureIds = new Map<number, string>();
   const taken = new Set<string>();
   const fixtures: PatchedFixture[] = ws.fixtures.map((f) => {
@@ -145,7 +147,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     fixtureIds.set(f.id, id);
     const def = findDefinition(defs, f.manufacturer, f.model);
     const mode = def ? findMode(def, f.mode, f.channels) : undefined;
-    if (!def || !mode) warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
+    if (!def || !mode) {
+      warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
+      missingDefinitions.add(`${f.manufacturer} ${f.model} (${f.mode})`);
+    }
     else if (findMode(def, f.mode) !== mode) warnings.push(`« ${f.name} » : mode « ${f.mode} » absent de la définition, « ${mode.name} » retenu (même nombre de canaux)`);
     return { id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: mode?.name ?? f.mode, universe: f.universe + 1, address: f.address + 1, tags: [], notes: undefined } as PatchedFixture;
   });
@@ -415,7 +420,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   }
   converted.push(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`);
   if (tempoFromMidiClock) converted.push("tempo : horloge MIDI (molette QLC+ sur l'horloge de Live)");
-  return { fixtures, canvas: canvas ?? efxCanvas, matrixCanvases: [...matrixCanvases.values()], looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings } };
+  return { fixtures, canvas: canvas ?? efxCanvas, matrixCanvases: [...matrixCanvases.values()], looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings, missingDefinitions: [...missingDefinitions] } };
 }
 
 /** Entry fade in seconds when step 0 is a soft entry (fade ≥ 1 s and ≥ 3× the other steps' fades), else 0. */
