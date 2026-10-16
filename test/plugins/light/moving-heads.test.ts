@@ -48,6 +48,9 @@ describe("moving heads", () => {
       expect([def.panMax, def.tiltMax]).to.deep.equal([540, 270]);
       const basic = findMode(def, "Basic")!;
       expect([basic.panMax, basic.tiltMax]).to.deep.equal([360, 180]); // the mode's own physical section wins
+      expect(def.beamAngle).to.equal(undefined); // a lens of 0° says nothing
+      const zoom = parseQxf(spotXml.replace('<Lens Name="Other" DegreesMin="0" DegreesMax="0"/>', '<Lens Name="Other" DegreesMin="12" DegreesMax="30"/>'));
+      expect(zoom.beamAngle).to.equal(30); // the widest of the zoom
       const wheel = def.channels.get("Color Wheel")!;
       expect(wheel.attribute).to.equal("colorWheel");
       expect(wheel.capabilities.map((c) => c.color)).to.deep.equal(["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffbf00", undefined]);

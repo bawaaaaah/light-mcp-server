@@ -108,6 +108,8 @@ export interface ResolvedFixture {
   tilt?: CoarseFine;
   panMax: number;
   tiltMax: number;
+  /** Beam opening in degrees, when the definition gives it. */
+  beamAngle?: number;
   /** Colour wheel: channel offset and its coloured slots. */
   wheel?: { offset: number; slots: { value: number; color: Color }[] };
   /** Shutter channels and their « open » value, written when nothing else drives them. */
@@ -290,7 +292,7 @@ export class Venue {
           heads.set(-1, comps);
         }
         const lampOnly = [...heads.values()].every((c) => Object.keys(c).length === 0);
-        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, wheel, shutterOpen, lampOnly };
+        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, wheel, shutterOpen, lampOnly };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -435,11 +437,12 @@ export class Venue {
 
   /**
    * Where each placed fixture's beam goes, for the live preview: a moving head from the pan/tilt it
-   * outputs (inversions and swap undone), another from its orientation; unit vectors, stage frame.
-   * Fixtures neither placed nor oriented have none.
+   * outputs (inversions and swap undone), another from its orientation; unit vectors, stage frame,
+   * with the beam opening in degrees when the definition gives it. Fixtures neither placed nor
+   * oriented have none.
    */
-  beams(buffers: readonly Uint8Array[]): Record<string, { x: number; y: number; z: number }> {
-    const out: Record<string, { x: number; y: number; z: number }> = {};
+  beams(buffers: readonly Uint8Array[]): Record<string, { x: number; y: number; z: number; angle?: number }> {
+    const out: Record<string, { x: number; y: number; z: number; angle?: number }> = {};
     const round = (d: { x: number; y: number; z: number }) => ({ x: Math.round(d.x * 1000) / 1000, y: Math.round(d.y * 1000) / 1000, z: Math.round(d.z * 1000) / 1000 });
     for (const patch of this.fixtures.list()) {
       if (!patch.position) continue;
@@ -455,6 +458,7 @@ export class Venue {
         if (o?.invertTilt) tilt = 1 - tilt;
         out[patch.id] = round(pointing(aimSetupOf(r)!, { pan, tilt }));
       } else if (patch.orientation) out[patch.id] = round(beamDirection(patch.orientation));
+      if (out[patch.id] && r.beamAngle) out[patch.id]!.angle = r.beamAngle;
     }
     return out;
   }

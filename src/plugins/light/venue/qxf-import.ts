@@ -39,6 +39,8 @@ export interface FixtureMode {
   /** Pan/tilt travel in degrees (mode-specific physical section, else the fixture's). */
   panMax?: number;
   tiltMax?: number;
+  /** Beam opening in degrees (<Lens DegreesMax>, the widest of a zoom). */
+  beamAngle?: number;
 }
 
 export interface FixtureDefinition {
@@ -49,6 +51,7 @@ export interface FixtureDefinition {
   modes: FixtureMode[];
   panMax?: number;
   tiltMax?: number;
+  beamAngle?: number;
 }
 
 const ARRAYS = new Set(["Channel", "Capability", "Mode", "Head"]);
@@ -164,13 +167,14 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   return { name, attribute, color, fine: /Fine$/.test(preset ?? "") || /fine/i.test(name), capabilities, tags: [...tags] };
 }
 
-/** PanMax / TiltMax of a <Physical><Focus> section, when present. */
-function focusOf(node: unknown): { panMax?: number; tiltMax?: number } {
-  const focus = (node as Record<string, Record<string, unknown>> | undefined)?.["Focus"];
+/** PanMax / TiltMax (<Focus>) and the beam opening (<Lens>, its widest) of a <Physical> section, when present. */
+function physicalOf(node: unknown): { panMax?: number; tiltMax?: number; beamAngle?: number } {
+  const physical = node as Record<string, Record<string, unknown>> | undefined;
   const num = (v: unknown) => (v !== undefined && Number(v) > 0 ? Number(v) : undefined);
-  const panMax = num(focus?.["@_PanMax"]);
-  const tiltMax = num(focus?.["@_TiltMax"]);
-  return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}) };
+  const panMax = num(physical?.["Focus"]?.["@_PanMax"]);
+  const tiltMax = num(physical?.["Focus"]?.["@_TiltMax"]);
+  const beamAngle = num(physical?.["Lens"]?.["@_DegreesMax"]) ?? num(physical?.["Lens"]?.["@_DegreesMin"]);
+  return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}), ...(beamAngle ? { beamAngle } : {}) };
 }
 
 export function parseQxf(xml: string): FixtureDefinition {
@@ -185,9 +189,9 @@ export function parseQxf(xml: string): FixtureDefinition {
     const chans = ((m["Channel"] as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
     chans.sort((a, b) => a.n - b.n);
     const heads = ((m["Head"] as Record<string, unknown>[]) ?? []).map((h) => ((h["Channel"] as unknown[]) ?? []).map((x) => Number(text(x))));
-    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads, ...focusOf(m["Physical"]) };
+    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads, ...physicalOf(m["Physical"]) };
   });
-  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes, ...focusOf(root["Physical"]) };
+  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes, ...physicalOf(root["Physical"]) };
 }
 
 /**

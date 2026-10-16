@@ -33,8 +33,8 @@ export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceil
 export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
 const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
 type Vec = { x: number; y: number; z: number };
-/** Half the opening of the drawn cone: a typical wash; the plan shows where light lands, not the lens. */
-const BEAM_HALF_ANGLE = (12 * Math.PI) / 180;
+/** The opening drawn when the definition gives none: a typical wash. */
+const DEFAULT_BEAM_ANGLE = 24;
 
 /** The beam as a unit vector, stage frame (X cour, Y upstage, Z up): the convention of venue/orientation.ts. */
 function beam(o?: { yaw: number; pitch?: number }): { x: number; y: number; z: number } {
@@ -74,7 +74,7 @@ export function StagePlan({
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [strobe, setStrobe] = useState<Record<string, number | null>>({});
-  const [beams, setBeams] = useState<Record<string, Vec>>({});
+  const [beams, setBeams] = useState<Record<string, Vec & { angle?: number }>>({});
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -103,7 +103,7 @@ export function StagePlan({
   useEffect(
     () =>
       stream.subscribe("light:preview", (d) => {
-        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null>; beams?: Record<string, Vec> };
+        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null>; beams?: Record<string, Vec & { angle?: number }> };
         setColors(update.fixtures);
         setStrobe(update.strobe ?? {});
         setBeams(update.beams ?? {});
@@ -202,7 +202,9 @@ export function StagePlan({
     const [ex, ey] = view(end);
     const len = Math.hypot(ex - ox, ey - oy);
     if (len < 6) return null; // straight at the viewer: the halo says it
-    const half = Math.hypot(end.x - f.position.x, end.y - f.position.y, end.z - f.position.z) * Math.tan(BEAM_HALF_ANGLE) * scale;
+    // the opening from the definition's lens, kept readable: a 2° pin spot still shows as a line
+    const halfAngle = (Math.min(Math.max(d.angle ?? DEFAULT_BEAM_ANGLE, 4), 120) * Math.PI) / 360;
+    const half = Math.hypot(end.x - f.position.x, end.y - f.position.y, end.z - f.position.z) * Math.tan(halfAngle) * scale;
     const [nx, ny] = [-(ey - oy) / len, (ex - ox) / len];
     return (
       <g key={`beam-${f.id}`} className="light-cone" data-beam={f.id} fill={color}>
