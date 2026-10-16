@@ -115,6 +115,8 @@ export interface AuthMiddleware {
   isValidCredential(candidate: string): boolean;
   roleOf(credential: string | undefined): Role | undefined;
   can(credential: string | undefined, right: string): boolean;
+  /** Who a credential is, as people read it: the user's name, or what kind of key it is. */
+  nameOf(credential: string | undefined): string | undefined;
 }
 
 const STREAM_TICKET_TTL_MS = 30_000;
@@ -404,6 +406,14 @@ export class AuthService implements AuthMiddleware {
     }
     const user = this.state.users.find((u) => u.id === userId);
     return user && !user.disabled ? this.state.roles.find((r) => r.id === user.role) : undefined;
+  }
+
+  nameOf(credential: string | undefined): string | undefined {
+    if (!credential) return undefined;
+    if (tokensMatch(credential, this.masterToken)) return "jeton maître";
+    const user = this.userOf(credential);
+    if (user) return user.name;
+    return this.roleOf(credential) ? "client IA (jeton maître)" : undefined; // an OAuth grant approved with the master token
   }
 
   can(credential: string | undefined, right: string): boolean {

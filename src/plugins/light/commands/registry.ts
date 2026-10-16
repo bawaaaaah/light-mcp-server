@@ -16,6 +16,8 @@ export interface CommandContext {
   origin: Origin;
   /** Right check for the current caller; system/cli callers pass everything. */
   can(right: string): boolean;
+  /** Who is calling, as people read it (user name, « jeton maître »…), for the activity log. */
+  who?: string;
 }
 
 export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
@@ -49,6 +51,7 @@ export interface CommandEvent {
   ok: boolean;
   error?: string;
   at: number;
+  who?: string;
 }
 
 export class CommandRegistry {
@@ -82,7 +85,7 @@ export class CommandRegistry {
     if (!ctx.can(def.right)) throw new CommandError("forbidden", `droit requis : ${def.right}`);
     const parsed = def.schema.safeParse(rawArgs ?? {});
     if (!parsed.success) throw new CommandError("invalid", `arguments invalides pour ${name}`, parsed.error.flatten());
-    const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now() };
+    const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}) };
     try {
       const result = await def.run(parsed.data, ctx);
       if (!def.readOnly) this.onStateChange();

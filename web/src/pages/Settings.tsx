@@ -3,6 +3,7 @@ import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { UsersPanel } from "../components/UsersPanel";
 import { RolesPanel } from "../components/RolesPanel";
+import { ActivityPanel } from "../components/ActivityPanel";
 import { jumpTo } from "../util";
 
 interface Node {
@@ -42,6 +43,7 @@ export function SettingsPage({ role }: { role: Role }) {
         <a href="#settings-output" onClick={(e) => jumpTo(e, "settings-output")}>{t.output}</a>
         <a href="#settings-users" onClick={(e) => jumpTo(e, "settings-users")}>{t.users}</a>
         {can(role, "auth:admin") && <a href="#settings-roles" onClick={(e) => jumpTo(e, "settings-roles")}>{t.roles}</a>}
+        <a href="#settings-activity" onClick={(e) => jumpTo(e, "settings-activity")}>{t.activity}</a>
       </nav>
       <div className="cols" id="settings-output">
         <section>
@@ -102,6 +104,9 @@ export function SettingsPage({ role }: { role: Role }) {
           <RolesPanel />
         </section>
       )}
+      <section id="settings-activity">
+        <ActivityPanel />
+      </section>
     </div>
   );
 }

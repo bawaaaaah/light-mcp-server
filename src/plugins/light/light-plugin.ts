@@ -21,6 +21,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
+import { ActivityLog } from "./activity.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -115,6 +116,7 @@ export class LightPlugin implements McpPlugin {
   private tempoTimer: NodeJS.Timeout | undefined;
   private readonly files: FileServices;
   private changedSinceAutoBackup = false;
+  readonly activity = new ActivityLog();
   private autoBackupTimers: NodeJS.Timeout[] = [];
   private songs: SongServices | undefined;
   private readonly liveFile: LiveSnapshotFile;
@@ -213,6 +215,17 @@ export class LightPlugin implements McpPlugin {
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
     };
     registerFileCommands(this.commands, this.files);
+    this.commands.onCommand((e) => this.activity.record(e, this.commands.get(e.name)?.title ?? e.name));
+    this.commands.register({
+      name: "activity.list",
+      title: "Activité récente",
+      description: "What changed since the server started, newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count.",
+      right: "show:write",
+      readOnly: true,
+      profiles: ["setup", "design", "live"],
+      schema: z.object({ limit: z.number().int().min(1).max(500).default(100) }),
+      run: ({ limit }) => this.activity.list(limit),
+    });
     // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
     this.show.onChange(() => (this.changedSinceAutoBackup = true));
     this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
@@ -347,7 +360,8 @@ export class LightPlugin implements McpPlugin {
 
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
   invoke(name: string, args: unknown, origin: Origin, credential?: string): Promise<unknown> {
-    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true) };
+    const who = this.opts.auth?.nameOf(credential);
+    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true), ...(who ? { who } : {}) };
     return this.commands.invoke(name, args, ctx);
   }
 
@@ -472,7 +486,8 @@ export class LightPlugin implements McpPlugin {
             // role; over stdio the client launched the server itself and may do everything.
             const token = extra?.authInfo?.token;
             const can = (right: string) => token === undefined || !this.opts.auth || this.opts.auth.can(token, right);
-            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can });
+            const who = token === undefined ? "stdio" : this.opts.auth?.nameOf(token);
+            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can, ...(who ? { who } : {}) });
             return { content: [{ type: "text" as const, text: JSON.stringify(result ?? { ok: true }, null, 2) }] };
           } catch (err) {
             return { isError: true, content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }] };

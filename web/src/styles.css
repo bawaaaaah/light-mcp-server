@@ -1526,3 +1526,12 @@ body.kiosk .app {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+/* Settings → Recent activity (components/ActivityPanel.tsx) */
+table.activity td {
+  padding: 0.2em 0.8em 0.2em 0;
+  vertical-align: top;
+}
+table.activity tr.failed td {
+  color: var(--danger);
+}

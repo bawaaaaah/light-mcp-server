@@ -579,6 +579,10 @@ const fr = {
   deletedOn: "supprimé le",
   restoreDeletedConfirm: "Remettre",
   collectionNames: { looks: "Looks", groups: "Groupes et DCA", faders: "Faders de canaux", dashboards: "Dashboards" },
+  activity: "Activité récente",
+  activityHelp: "Ce qui a changé depuis le démarrage du serveur : quand, qui, d'où, sur quoi. Un fader qu'on glisse fait une seule ligne.",
+  noActivity: "Rien encore depuis le démarrage.",
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1160,6 +1164,10 @@ const en: typeof fr = {
   deletedOn: "deleted on",
   restoreDeletedConfirm: "Bring back",
   collectionNames: { looks: "Looks", groups: "Groups and DCAs", faders: "Channel faders", dashboards: "Dashboards" },
+  activity: "Recent activity",
+  activityHelp: "What changed since the server started: when, who, from where, on what. A dragged fader is one line.",
+  noActivity: "Nothing yet since the start.",
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
 };
 
 export type Lang = "fr" | "en";

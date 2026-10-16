@@ -546,6 +546,21 @@ test("show page: a deleted look comes back from « Récemment supprimés »", as
   expect(errors).toEqual([]);
 });
 
+test("settings: recent activity says who did what, from where, a dragged fader on one line", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page); // the régisseur
+  await page.locator("button.look", { hasText: "hole" }).first().click();
+  for (const level of [0.2, 0.4, 0.6]) await api(page, "group.level", { id: "master", level });
+  await api(page, "group.level", { id: "master", level: 1 });
+  await page.locator("nav.pages").getByRole("button", { name: "Réglages" }).click();
+  const log = page.locator("table.activity");
+  await expect(log.locator("tr", { hasText: "Niveau de groupe" }).first()).toContainText("×4");
+  await expect(log.locator("tr", { hasText: "Lancer un look" }).first()).toContainText("Régisseur");
+  await expect(log.locator("tr", { hasText: "Lancer un look" }).first()).toContainText("hole");
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);
