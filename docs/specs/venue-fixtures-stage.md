@@ -46,7 +46,8 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
     - lyre sans mélange de couleurs : la couleur peinte par le look choisit le **créneau de roue** le plus proche et son niveau pilote le gradateur ; le shutter est mis sur sa valeur « ouvert » ;
     - **Blackout** éteint la lumière mais **garde pan/tilt** (les lyres ne partent pas en butée) ;
     - **calibration guidée** (v1, comme dans Lightkey ; page Lieu, « Calibrer les lyres ») : on vise à la main (pad XY) deux ou trois repères au sol connus (centre d'une zone ou point), on les enregistre (`calibration.record`, valeurs réellement envoyées, inversions comprises), puis `calibration.solve` trouve le **yaw**, le **décalage de tilt** et les **inversions pan/tilt** (recherche exhaustive, écart angulaire par repère). Le décalage de pan est confondu avec le yaw pour une lyre de niveau. Un écart moyen au-delà de 3° est signalé, et l'application demande confirmation ;
-    - plus tard : pan/tilt → point (sens inverse), lyre non horizontale.
+    - pan/tilt → direction (sens inverse de la visée, v1) : ce que montre la scène en direct ;
+    - plus tard : lyre non horizontale.
   - **Rôle** : `face | contre | douche | latéral | wash-public | blinder | effet | découpe | wall-wash | décor | machine`.
 - **Usages** :
   - effets spatiaux (balayage par X, vague par Y, montée par Z, radial) ;
@@ -73,7 +74,8 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
   - **Vue de face** (v1, bouton « Face ») : hauteurs vues depuis le public (X, Z), praticables à leur hauteur de plancher ; en mode « Placer », glisser un projecteur y règle sa **hauteur** (la profondeur est conservée).
   - **Strobe** (v1) : un projecteur allumé dont un canal est dans une plage strobe porte un cadre pointillé fixe et « ⚡ », avec la fréquence quand sa définition la donne (« ⚡ 12 Hz ») ; l'écran ne clignote jamais, un écran qui clignote étant lui-même un risque photosensible.
   - **Orienter** (v1, case de la « Scène en direct ») : un clic sur un projecteur, puis les six directions en boutons (Public, Mur de scène, Mur jardin, Mur cour, Plafond, Sol), ⟲ / ⟳ 15°, un cap et une inclinaison en degrés, ou un glisser autour du projecteur pour le tourner (par 15°, librement avec Maj ; en vue de dessus). Vu de dessus, le corps du projecteur tourne avec son cap ; une flèche montre le faisceau, ⊙ quand il pointe vers celui qui regarde (le plafond vu de dessus, le public vu de face), ⊗ à l'opposé.
-  - Plus tard : zoom, faisceaux des lyres.
+  - **Faisceaux** (v1) : un projecteur allumé dont on connaît la direction projette un cône de sa couleur jusqu'à l'endroit où la lumière touche le plancher de la zone en dessous (2 m sinon) ; vu de dessus, une tache marque l'impact. Pour un projecteur fixe, la direction vient de son orientation ; pour une **lyre**, du pan/tilt **réellement envoyé** (sujet `light:preview`, `beams`), relu en sens inverse de la visée (inversions et swap défaits, `pointing` dans `aim.ts`) : la scène montre où pointent les lyres, à la main, par « Viser » ou par un Move FX. Sans position ni orientation, le halo reste.
+  - Plus tard : zoom, ouverture réelle des optiques.
 
 ## MCP
 `light_venue_*`, `light_fixture_search` et `light_fixture_import`, `light_patch_plan` puis `light_apply`, `light_stage_zone` et `light_stage_place`, `light_stage_query`, `light_protect_zone`, `light_canvas_*`, `light_venue_map_canvas`, `light_identify`, `light_calibrate_pantilt`, `light_position_aim` (et `light_position_set`, `light_position_release`). Ressource `light://stage`.

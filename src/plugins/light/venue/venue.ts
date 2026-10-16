@@ -14,6 +14,8 @@ import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
+import { pointing, type AimSetup } from "./aim.js";
+import { beamDirection, isHung } from "./orientation.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -75,6 +77,14 @@ export interface AttributeFrame {
   raw: Map<string, Map<number, number>>;
   /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
   positions: Map<string, Position>;
+}
+
+/** A placed moving head's geometry for aiming and reading back where it points (aim.ts). */
+export function aimSetupOf(r: ResolvedFixture): AimSetup | undefined {
+  const f = r.patch;
+  if (!f.position) return undefined;
+  const o = f.orientation;
+  return { position: f.position, hung: isHung(f), yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 };
 }
 
 export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map() });
@@ -419,6 +429,32 @@ export class Venue {
         const hz = strobeHz(v, ch);
         out[patch.id] = hz === undefined ? (out[patch.id] ?? null) : Math.max(hz, out[patch.id] ?? 0);
       });
+    }
+    return out;
+  }
+
+  /**
+   * Where each placed fixture's beam goes, for the live preview: a moving head from the pan/tilt it
+   * outputs (inversions and swap undone), another from its orientation; unit vectors, stage frame.
+   * Fixtures neither placed nor oriented have none.
+   */
+  beams(buffers: readonly Uint8Array[]): Record<string, { x: number; y: number; z: number }> {
+    const out: Record<string, { x: number; y: number; z: number }> = {};
+    const round = (d: { x: number; y: number; z: number }) => ({ x: Math.round(d.x * 1000) / 1000, y: Math.round(d.y * 1000) / 1000, z: Math.round(d.z * 1000) / 1000 });
+    for (const patch of this.fixtures.list()) {
+      if (!patch.position) continue;
+      const r = this.resolve(patch.id);
+      const buf = buffers[patch.universe - 1];
+      if ("error" in r || !buf) continue;
+      if (r.pan || r.tilt) {
+        const read = (ch?: CoarseFine) => (ch ? ((buf[patch.address - 1 + ch.coarse] ?? 0) * 256 + (ch.fine !== undefined ? (buf[patch.address - 1 + ch.fine] ?? 0) : 0)) / (ch.fine !== undefined ? 65535 : 255 * 256) : 0.5);
+        let [pan, tilt] = [read(r.pan), read(r.tilt)];
+        const o = patch.orientation;
+        if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
+        if (o?.invertPan) pan = 1 - pan;
+        if (o?.invertTilt) tilt = 1 - tilt;
+        out[patch.id] = round(pointing(aimSetupOf(r)!, { pan, tilt }));
+      } else if (patch.orientation) out[patch.id] = round(beamDirection(patch.orientation));
     }
     return out;
   }

@@ -9,7 +9,9 @@
  * dashed outline and its rate: the screen never flashes (a flashing screen is a photosensitive risk too).
  * « Orienter »: click a fixture, then pick where it points (audience, upstage wall, jardin, cour,
  * ceiling, floor), turn it by 15°, type an angle, or drag around it to turn it; an arrow shows the
- * beam, ⊙ / ⊗ when it points at / away from the viewer.
+ * beam, ⊙ / ⊗ when it points at / away from the viewer. A lit fixture whose beam is known (its
+ * orientation, or a moving head's pan/tilt read back from the output: light:preview beams) casts a
+ * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -30,6 +32,9 @@ export interface PlanFixture {
 export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
 export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
 const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
+type Vec = { x: number; y: number; z: number };
+/** Half the opening of the drawn cone: a typical wash; the plan shows where light lands, not the lens. */
+const BEAM_HALF_ANGLE = (12 * Math.PI) / 180;
 
 /** The beam as a unit vector, stage frame (X cour, Y upstage, Z up): the convention of venue/orientation.ts. */
 function beam(o?: { yaw: number; pitch?: number }): { x: number; y: number; z: number } {
@@ -69,6 +74,7 @@ export function StagePlan({
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [strobe, setStrobe] = useState<Record<string, number | null>>({});
+  const [beams, setBeams] = useState<Record<string, Vec>>({});
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -97,9 +103,10 @@ export function StagePlan({
   useEffect(
     () =>
       stream.subscribe("light:preview", (d) => {
-        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null> };
+        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null>; beams?: Record<string, Vec> };
         setColors(update.fixtures);
         setStrobe(update.strobe ?? {});
+        setBeams(update.beams ?? {});
       }),
     [],
   );
@@ -175,6 +182,36 @@ export function StagePlan({
     if (turning !== was && onOrient) onOrient(selectedFixture, { yaw: turning });
   };
 
+  /** Where a beam lands: the floor of the zone under it (the stage floor at first guess), else 2 m out. */
+  const landing = (o: Vec, d: Vec): Vec => {
+    if (d.z < -0.05) {
+      let t = -o.z / d.z;
+      const zone = zones.find((z) => inside(o.x + t * d.x, o.y + t * d.y, z.polygon));
+      if (zone?.floorHeight) t = (zone.floorHeight - o.z) / d.z;
+      if (t > 0 && t < 20) return { x: o.x + t * d.x, y: o.y + t * d.y, z: o.z + t * d.z };
+    }
+    return { x: o.x + 2 * d.x, y: o.y + 2 * d.y, z: o.z + 2 * d.z };
+  };
+  /** The beam's cone on the view: from the fixture to where it lands, opening with the distance. */
+  const cone = (f: PlanFixture, color: string) => {
+    const d = beams[f.id];
+    if (!d || !f.position || drag?.id === f.id) return null;
+    const end = landing(f.position, d);
+    const view = (v: Vec) => [sx(v.x), sy(front ? v.z : v.y)] as const;
+    const [ox, oy] = view(f.position);
+    const [ex, ey] = view(end);
+    const len = Math.hypot(ex - ox, ey - oy);
+    if (len < 6) return null; // straight at the viewer: the halo says it
+    const half = Math.hypot(end.x - f.position.x, end.y - f.position.y, end.z - f.position.z) * Math.tan(BEAM_HALF_ANGLE) * scale;
+    const [nx, ny] = [-(ey - oy) / len, (ex - ox) / len];
+    return (
+      <g key={`beam-${f.id}`} className="light-cone" data-beam={f.id} fill={color}>
+        <polygon points={`${ox},${oy} ${ex + nx * half},${ey + ny * half} ${ex - nx * half},${ey - ny * half}`} opacity={0.18} />
+        {!front && d.z < -0.05 && <circle cx={ex} cy={ey} r={half} opacity={0.3} />}
+      </g>
+    );
+  };
+
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!aiming || placing || orienting || front || !svg.current) return;
     const p = eventToStage(e);
@@ -245,11 +282,13 @@ export function StagePlan({
             </text>
           </g>
         ))}
-        {/* halos first, under every fixture */}
+        {/* light first, under every fixture: a cone where the beam is known, a halo otherwise */}
         {fixtures.map((f) => {
           const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
+          const beam = cone(f, lit[Math.floor(lit.length / 2)]!);
+          if (beam) return beam;
           const w = Math.min(1.2, Math.max(0.3, (colors[f.id]?.length ?? 1) * 0.2)) * scale;
           const h = Math.max(8, Math.min(28, 0.2 * scale));
           return <ellipse key={`halo-${f.id}`} cx={sx(p.x)} cy={sy(p.y)} rx={w * 0.75} ry={h * 1.5} fill={lit[Math.floor(lit.length / 2)]} opacity={0.22} />;

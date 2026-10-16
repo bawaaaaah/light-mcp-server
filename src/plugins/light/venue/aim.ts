@@ -62,6 +62,23 @@ export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }):
   return { pan: panDeg / f.panMax + 0.5, tilt: tiltDeg / f.tiltMax + 0.5, panDeg, tiltDeg };
 }
 
+/** The beam's unit vector, stage frame, for an angle pair in the fixture frame: the inverse of rawAngles. */
+export function directionOf(f: Pick<AimSetup, "hung" | "yaw">, a: { heading: number; tilt: number }): { x: number; y: number; z: number } {
+  const [h, t] = [rad(a.heading), rad(a.tilt)];
+  let x = Math.sin(t) * Math.sin(h);
+  const y = -Math.sin(t) * Math.cos(h);
+  let z = Math.cos(t);
+  if (f.hung) [x, z] = [-x, -z];
+  const c = Math.cos(rad(f.yaw));
+  const s = Math.sin(rad(f.yaw));
+  return { x: x * c - y * s, y: x * s + y * c, z };
+}
+
+/** Where a moving head points from its logical pan/tilt (0..1, inversions undone): the inverse of aimAt. */
+export function pointing(f: AimSetup, p: Position): { x: number; y: number; z: number } {
+  return directionOf(f, { heading: (p.pan - 0.5) * f.panMax + f.panOffset, tilt: (p.tilt - 0.5) * f.tiltMax + f.tiltOffset });
+}
+
 /** A calibration sample: the head aimed by hand at a known point, in output (DMX) values 0..1. */
 export interface CalibrationSample {
   target: { x: number; y: number; z: number };

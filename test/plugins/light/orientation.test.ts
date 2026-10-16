@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { rawAngles } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, pointing, rawAngles } from "../../../src/plugins/light/venue/aim.js";
 import { beamDirection, FACINGS, facingOf, isHung, orientTo, wrapYaw } from "../../../src/plugins/light/venue/orientation.js";
 
 describe("fixture orientation", () => {
@@ -67,5 +67,21 @@ describe("fixture orientation", () => {
     expect(isHung({ mount: "truss", orientation: o(90) })).to.equal(false);
     expect(isHung({ mount: "truss", orientation: o(0) })).to.equal(true);
     expect(isHung({ mount: "stand" })).to.equal(false);
+  });
+});
+
+describe("where a moving head points, from its pan/tilt", () => {
+  it("undoes the aiming: aimed at a point, it points at that point", () => {
+    for (const hung of [false, true])
+      for (const yaw of [0, 90, -135])
+        for (const target of [{ x: 2, y: 3, z: 0 }, { x: -1.5, y: 0.5, z: 1.5 }, { x: 0, y: 4, z: 0 }]) {
+          const f = { position: { x: 0.5, y: 2, z: hung ? 5 : 0.2 }, hung, yaw, panMax: 540, tiltMax: 270, panOffset: 3, tiltOffset: -4 };
+          const res = aimAt(f, target);
+          if ("error" in res) continue;
+          const d = pointing(f, res);
+          const v = { x: target.x - f.position.x, y: target.y - f.position.y, z: target.z - f.position.z };
+          const len = Math.hypot(v.x, v.y, v.z);
+          expect(d.x * v.x + d.y * v.y + d.z * v.z, `${hung} ${yaw} ${JSON.stringify(target)}`).to.be.closeTo(len, 1e-6); // same direction
+        }
   });
 });

@@ -1555,6 +1555,12 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   const line = bar.locator(".beam line");
   expect(Number(await line.getAttribute("x2"))).toBeLessThan(Number(await line.getAttribute("x1")));
   await expect(bar.locator("g[transform^='rotate(90']")).toHaveCount(1); // the body turns with it
+  // lit, it casts its light that way: a cone of its colour, towards jardin
+  await api(page, "look.go", { id: "masks" });
+  const cone = page.locator('.stage-plan .light-cone[data-beam="bar-0"] polygon');
+  await expect(cone).toHaveCount(1);
+  const xs = ((await cone.getAttribute("points")) ?? "").split(" ").map((pt) => Number(pt.split(",")[0]));
+  expect(Math.min(...xs.slice(1))).toBeLessThan(xs[0]!);
   await page.screenshot({ path: "test-results/orient-jardin.png", fullPage: true });
   await panel.getByRole("button", { name: "Plafond" }).click();
   await expect.poll(async () => (await facing()).orientation).toEqual(expect.objectContaining({ yaw: -90, pitch: 90 }));
@@ -1574,6 +1580,7 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   await panel.getByRole("button", { name: "Public" }).click();
   await expect.poll(async () => (await facing()).facing).toBe("audience");
   await page.getByLabel("Orienter").uncheck();
+  await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
 

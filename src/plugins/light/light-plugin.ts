@@ -737,13 +737,13 @@ export class LightPlugin implements McpPlugin {
           return { universes: universes.map((u) => [u, buffers[u - 1]!.slice()]) };
         },
       },
-      /** Live 2D preview: screen colour of every fixture head and the strobing fixtures, read from the output; on change (and every second). */
+      /** Live 2D preview: screen colour of every fixture head, the strobing fixtures and where beams go, read from the output; on change (and every second). */
       preview: {
         channel: "stream",
         source: "frame",
         encode: (payload) => {
           const { buffers } = payload as { buffers: Uint8Array[] };
-          const update = { fixtures: this.venue.displayColors(buffers), strobe: this.venue.strobing(buffers) };
+          const update = { fixtures: this.venue.displayColors(buffers), strobe: this.venue.strobing(buffers), beams: this.venue.beams(buffers) };
           const key = JSON.stringify(update);
           const now = Date.now();
           if (key === lastPreview && now - lastPreviewAt < 1000) return null; // unchanged: once a second for late subscribers

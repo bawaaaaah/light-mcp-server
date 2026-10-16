@@ -769,6 +769,9 @@ table.cues select {
   font-size: 11px;
   fill: #f5d90a;
 }
+.stage-plan .light-cone {
+  pointer-events: none;
+}
 .stage-plan .beam line {
   stroke: #ffb454;
   stroke-width: 2;

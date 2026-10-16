@@ -180,6 +180,20 @@ describe("moving heads", () => {
       expect(pos(b, 11)[0]).to.equal(Math.round(0.75 * 65535)); // spot-r: pan inverted
     });
 
+    it("reads back where each head points from the output, for the 2D preview (inversions undone)", () => {
+      const { venue, show, dmx } = setup();
+      const target = { x: 0.5, y: 0, z: 0 };
+      expect(show.aim(["spot-l", "spot-r"], target).every((r) => !r.error)).to.equal(true);
+      const beams = venue.beams([dmx()]);
+      for (const id of ["spot-l", "spot-r"]) {
+        const p = venue.fixtures.get(id)!.position!;
+        const v = { x: target.x - p.x, y: target.y - p.y, z: target.z - p.z };
+        const len = Math.hypot(v.x, v.y, v.z);
+        const d = beams[id]!;
+        expect((d.x * v.x + d.y * v.y + d.z * v.z) / len, id).to.be.closeTo(1, 1e-3); // 16-bit pan/tilt, rounded to 1/1000
+      }
+    });
+
     it("shows a lamp head in its wheel colour for the 2D preview", () => {
       const { venue, show, dmx } = setup();
       show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });
