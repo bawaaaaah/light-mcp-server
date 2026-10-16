@@ -228,7 +228,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   const song = useTopic<SongState>("light:song", {});
 
   const refresh = useCallback(() => {
-    void cmd<Look[]>("look.list").then(setLooks).catch(() => undefined);
+    void cmd<Look[]>("look.list", { brief: true }).then(setLooks).catch(() => undefined);
     void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
     void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
     void cmd<{ id: string; name: string }[]>("snapshot.list").then(setSnapshots).catch(() => undefined);

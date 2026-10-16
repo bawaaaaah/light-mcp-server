@@ -180,7 +180,36 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return undefined; // a palette gone: no colour to show
     }
   };
-  reg.register({ name: "look.list", title: "Looks", description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button).", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => show.looks.list().map((l) => ({ ...l, active: show.isActive(l.id), swatch: swatch(l) })) });
+  reg.register({
+    name: "look.list",
+    title: "Looks",
+    description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button). brief: true leaves out what only editing needs (technique parameters and steps, raw channels, move details, notes): an imported look's exact steps weigh tens of kilobytes; look.get gives one look whole.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design", "live"],
+    schema: z.object({ brief: z.boolean().default(false) }),
+    run: ({ brief }) =>
+      show.looks.list().map((l) => {
+        const extra = { active: show.isActive(l.id), swatch: swatch(l) };
+        if (!brief) return { ...l, ...extra };
+        const { technique, channels: _c, move, notes: _n, ...rest } = l;
+        return { ...rest, technique: { kind: technique.kind }, ...(move ? { move: { shape: move.shape } } : {}), ...extra };
+      }),
+  });
+  reg.register({
+    name: "look.get",
+    title: "Look",
+    description: "One look whole (technique with its parameters and steps, raw channels, move, notes), whether it plays, and its swatch.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: id,
+    run: ({ id: i }) => {
+      const l = show.looks.get(i);
+      if (!l) throw new Error(`look inconnu : ${i}`);
+      return { ...l, active: show.isActive(l.id), swatch: swatch(l) };
+    },
+  });
   reg.register({
     name: "look.put",
     title: "Look",

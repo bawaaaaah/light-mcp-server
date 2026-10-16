@@ -83,7 +83,7 @@ export function ShowPage() {
   const [channelNames, setChannelNames] = useState<Record<string, { name: string; channels: string[] }>>({});
 
   const refresh = useCallback(() => {
-    void cmd<Look[]>("look.list").then(setLooks).catch((e: Error) => setError(e.message));
+    void cmd<Look[]>("look.list", { brief: true }).then(setLooks).catch((e: Error) => setError(e.message));
     void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
     void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
     void cmd<Canvas[]>("venue.canvas.list").then((c) => {
@@ -335,7 +335,7 @@ export function ShowPage() {
                   <small>{l.tags.filter((g) => !folder || g !== FOLDER + folder).join(" · ")}</small>
                 </td>
                 <td>
-                  <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => setEditing(l as unknown as LookDraft)}>
+                  <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => void cmd<LookDraft>("look.get", { id: l.id }).then(setEditing, (e: Error) => setError(e.message)) /* the list is brief: the editor needs the whole look */}>
                     ✎
                   </button>
                 </td>

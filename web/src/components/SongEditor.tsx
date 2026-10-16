@@ -89,7 +89,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   const isNew = !song.id;
 
   useEffect(() => {
-    void cmd<Named[]>("look.list").then(setLooks);
+    void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
     void cmd<Named[]>("palette.list").then(setPalettes);
     void cmd<Named[]>("group.list").then(setGroups);
     void cmd<{ programs: Named[] }>("program.list").then((r) => setPrograms(r.programs));
@@ -126,7 +126,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
       await cmd("song.grid_fill", { song: saved, canvas, save: true });
       const fresh = (await cmd<SongDraft[]>("song.list")).find((s) => s.id === saved);
       if (fresh) setSong(fresh);
-      void cmd<Named[]>("look.list").then(setLooks);
+      void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
     } catch (e) {
       setError((e as Error).message);
     }

@@ -56,7 +56,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
 
   useEffect(() => {
     void cmd<Named[]>("venue.fixture.list").then(setFixtures);
-    void cmd<Named[]>("look.list").then(setLooks);
+    void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
     void cmd<Named[]>("group.list").then((list) => setGroups(list.filter((x) => x.id !== initial.id)));
   }, [initial.id]);
 

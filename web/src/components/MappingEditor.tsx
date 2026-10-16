@@ -85,7 +85,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void cmd<Named[]>("look.list").then(setLooks);
+    void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
     void cmd<Named[]>("group.list").then(setGroups);
     void cmd<Named[]>("song.list").then(setSongs);
     void cmd<Named[]>("fader.list").then(setFaders);
