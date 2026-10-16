@@ -15,6 +15,9 @@ import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, ty
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 
+/** How long a Panic stays undoable. */
+export const PANIC_UNDO_MS = 60_000;
+
 export interface TempoSource {
   state(): { beats: number };
 }
@@ -144,6 +147,39 @@ export class ShowRuntime {
     }
   }
   private readonly playbackStarted = new Set<string>();
+
+  /** The state just before the last Panic, kept a minute: a Panic pressed by mistake is undone. */
+  private beforePanic: { snap: Omit<Snapshot, "id" | "name" | "notes">; until: number; after?: string } | undefined;
+
+  /** What a snapshot holds, timeless: two equal keys are the same live state. */
+  private stateKey(blackout: boolean): string {
+    const { savedAt: _t, ...s } = this.captureSnapshot(blackout);
+    return JSON.stringify(s);
+  }
+
+  rememberBeforePanic(blackout: boolean, now = Date.now()): void {
+    // A Panic again with nothing changed since the last (the finger insisted) keeps the state from
+    // before the first one; anything played or moved in between makes this one the Panic to undo.
+    if (this.panicUndoUntil(now) !== undefined && this.beforePanic?.after === this.stateKey(blackout)) return;
+    this.beforePanic = { snap: this.captureSnapshot(blackout), until: now + PANIC_UNDO_MS };
+  }
+
+  /** The state the Panic left, to tell a repeated Panic from a new one. */
+  notePanicDone(blackout: boolean): void {
+    if (this.beforePanic) this.beforePanic.after = this.stateKey(blackout);
+  }
+
+  /** Whether a Panic can still be undone (and until when). */
+  panicUndoUntil(now = Date.now()): number | undefined {
+    return this.beforePanic && now <= this.beforePanic.until ? this.beforePanic.until : undefined;
+  }
+
+  /** Takes the state from before the Panic, once, while it is fresh; undefined otherwise. */
+  takeBeforePanic(now = Date.now()): Snapshot | undefined {
+    const kept = this.beforePanic;
+    this.beforePanic = undefined;
+    return kept && now <= kept.until ? { id: "avant-panic", name: "Avant le Panic", ...kept.snap } : undefined;
+  }
 
   /** The live state a snapshot saves: looks playing, DCA, channel faders, grand master, program. */
   captureSnapshot(blackout: boolean): Omit<Snapshot, "id" | "name" | "notes"> {

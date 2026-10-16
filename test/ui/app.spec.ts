@@ -680,6 +680,23 @@ test("a session closed on the server sends the page back to sign-in, with the re
   expect(errors.filter((e) => !e.includes("401") && !e.includes("WebSocket connection"))).toEqual([]);
 });
 
+test("a Panic pressed by mistake is undone with « Revenir », within the minute", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("button.look", { hasText: "hole" }).first().click();
+  await expect(page.locator("button.look", { hasText: "hole" }).first()).toHaveClass(/on/);
+  await page.getByRole("button", { name: "Panic neutre" }).first().click();
+  await expect(page.locator("button.look", { hasText: "hole" }).first()).not.toHaveClass(/on/);
+  const undo = page.getByRole("button", { name: /Revenir/ });
+  await expect(undo).toBeVisible({ timeout: 5000 });
+  await page.screenshot({ path: "test-results/panic-undo.png", clip: { x: 190, y: 50, width: 700, height: 140 } });
+  await undo.click();
+  await expect(page.locator("button.look", { hasText: "hole" }).first()).toHaveClass(/on/);
+  await expect(undo).toHaveCount(0, { timeout: 5000 }); // once
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("full screen keeps the tablet awake, and lets it sleep again on the way out", async ({ page }) => {
   // a stand-in for the Screen Wake Lock: what the page asked for, and what it gave back
   await page.addInitScript(() => {
@@ -839,7 +856,7 @@ test("every page loads without errors, in French and English", async ({ page }) 
   await page.locator("nav.pages button", { hasText: "Import" }).click();
   await expect(page.getByText("Choisir un fichier .qxw")).toBeVisible();
   await page.locator("nav.pages button", { hasText: "OSC" }).click();
-  await expect(page.getByText("/light/panic")).toBeVisible();
+  await expect(page.getByText("/light/panic", { exact: true })).toBeVisible();
   await page.locator("header select").selectOption("en");
   await expect(page.locator("nav.pages button", { hasText: "Settings" })).toBeVisible();
   await page.locator("header select").selectOption("fr");

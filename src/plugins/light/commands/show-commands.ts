@@ -630,6 +630,26 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     },
   });
 
+  /** Panic's second half: everything stopped, then the show's safe state. */
+  const safeState = () => {
+    show.stopAll();
+    show.releasePositions();
+    engine.release();
+    const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
+    if (snap) {
+      const done = show.applySnapshot(snap);
+      engine.setBlackout(snap.blackout);
+      return { action: "safe-snapshot", snapshot: snap.id, ...done };
+    }
+    const safe = show.settings.safeLook;
+    if (safe && show.looks.get(safe)) {
+      engine.setBlackout(false);
+      show.go(safe);
+      return { action: "safe-look", look: safe };
+    }
+    engine.setBlackout(true);
+    return { action: "blackout", reason: "aucun look de secours défini" };
+  };
   reg.register({
     name: "panic",
     title: "Panic neutre",
@@ -639,23 +659,25 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
     run: () => {
-      show.stopAll();
-      show.releasePositions();
-      engine.release();
-      const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
-      if (snap) {
-        const done = show.applySnapshot(snap);
-        engine.setBlackout(snap.blackout);
-        return { action: "safe-snapshot", snapshot: snap.id, ...done };
-      }
-      const safe = show.settings.safeLook;
-      if (safe && show.looks.get(safe)) {
-        engine.setBlackout(false);
-        show.go(safe);
-        return { action: "safe-look", look: safe };
-      }
-      engine.setBlackout(true);
-      return { action: "blackout", reason: "aucun look de secours défini" };
+      show.rememberBeforePanic(engine.isBlackout()); // a Panic pressed by mistake is undone for a minute (panic.undo)
+      const result = safeState();
+      show.notePanicDone(engine.isBlackout());
+      return result;
+    },
+  });
+  reg.register({
+    name: "panic.undo",
+    title: "Annuler le Panic",
+    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout); the DMX console forcing and hand-aimed heads it released stay released.",
+    right: "commands:panic",
+    profiles: ["live"],
+    schema: z.object({}),
+    run: () => {
+      const before = show.takeBeforePanic();
+      if (!before) throw new Error("rien à annuler : pas de Panic dans la dernière minute");
+      const done = show.applySnapshot(before);
+      engine.setBlackout(before.blackout);
+      return { undone: true, ...done };
     },
   });
 }

@@ -55,7 +55,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - Cue list.
 - **Molette de cadence** : BPM, tap, source, voyant « horloge reçue » et alerte si absente.
 - **Contrôleur FX façon Wolfmix** : vitesse, taille, phase, couleurs.
-- **Panic neutre** (rappelle le look de secours du show, sinon Blackout) et **Blackout**. Le look de secours se choisit dans les réglages du show, et le bouton indique s'il est défini.
+- **Panic neutre** (rappelle l'instantané de secours, sinon le look de secours, sinon Blackout) et **Blackout**. Le secours se choisit dans la page Show. Pendant **une minute** après un Panic, « ↶ Revenir » apparaît à côté (`panic.undo`, même droit que le Panic) : il remet ce qui jouait juste avant (looks, DCA, faders, grand master, programme, Blackout) ; les forçages de la console DMX et les lyres visées à la main que le Panic a relâchés le restent. Un Panic répété sans rien changer entre-temps garde l'état d'avant le premier.
 - Momentanés : strobe (fader désigné), fumée, blinder.
 - Sélecteur de chant ou de setlist.
 - Label ou cadre, mini moniteur DMX, mini preview 2D (v1 : widget « Scène en direct », le plan de la page Lieu en compact), note épinglée.

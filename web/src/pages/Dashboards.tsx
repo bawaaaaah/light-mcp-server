@@ -246,7 +246,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot"].includes(w.kind));
   const [error, setError] = useState("");
-  const state = useTopic<{ blackout: boolean } | null>("light:state", null);
+  const state = useTopic<{ blackout: boolean; panicUndo?: boolean } | null>("light:state", null);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
   const song = useTopic<SongState>("light:song", {});
 
@@ -401,9 +401,17 @@ export function DashboardsPage({ role }: { role: Role }) {
         return <div className="w-label">{w.label ?? w.target}</div>;
       case "panic":
         return (
-          <button className="panic fill" {...locked("commands:panic")} onClick={() => void run("panic")}>
-            {t.panic}
-          </button>
+          <div className="panic-cell">
+            <button className="panic fill" {...locked("commands:panic")} onClick={() => void run("panic")}>
+              {t.panic}
+            </button>
+            {/* a Panic pressed by mistake: what played just before comes back, for a minute */}
+            {state?.panicUndo && (
+              <button className="panic-undo" title={t.panicUndoHelp} {...locked("commands:panic")} onClick={() => void run("panic.undo")}>
+                ↶ {t.panicUndo}
+              </button>
+            )}
+          </div>
         );
       case "blackout":
         return (
