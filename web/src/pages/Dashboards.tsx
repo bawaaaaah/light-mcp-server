@@ -423,7 +423,7 @@ export function DashboardsPage({ role }: { role: Role }) {
         return (
           <button
             className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""}`}
-            title={`${t.modes[w.mode ?? "latch"]} · ${l.tags.join(" · ")}`}
+            title={[w.label ?? l.name, t.modes[w.mode ?? "latch"], ...l.tags].join(" · ") /* the whole name: a long one is cut on the button */}
             {...locked("commands:trigger")}
             {...press(
               w.mode ?? "latch",

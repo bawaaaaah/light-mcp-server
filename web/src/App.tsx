@@ -182,6 +182,8 @@ export function App() {
   }, [role]);
   useEffect(() => {
     location.hash = page;
+    // on a phone the page strip scrolls: keep the open page in sight
+    document.querySelector("nav.pages .tab.active")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [page]);
   // Another show opened (here or on another screen): every page reloads its data.
   useEffect(() => {

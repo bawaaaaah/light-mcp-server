@@ -1071,14 +1071,15 @@ button:disabled,
   .nav-title {
     display: none;
   }
+  /* a tablet shows every page, on two lines if need be: a strip cut at the edge hides some */
   nav.pages {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.2em;
-    overflow-x: auto;
-    scrollbar-width: none;
   }
   .nav-group {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.2em;
   }
   nav.pages .tab {
@@ -1089,6 +1090,16 @@ button:disabled,
   }
 }
 @media (max-width: 600px) {
+  /* a phone keeps one line that scrolls; the faded edge says there is more */
+  nav.pages,
+  .nav-group {
+    flex-wrap: nowrap;
+  }
+  nav.pages {
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+  }
   header.top {
     flex-wrap: wrap;
     padding: 0.4em 0.6em;
@@ -1473,4 +1484,15 @@ body.kiosk .app {
   border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
   vertical-align: baseline;
+}
+
+/* M and F under a fader one column wide (56 px on a tablet): smaller, so neither is cut */
+.cell .fader .row {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+.cell .fader .row button {
+  padding: 0.25em 0.4em;
+  font-size: 0.75rem;
+  min-width: 0;
 }
