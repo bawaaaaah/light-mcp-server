@@ -19,7 +19,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 | **Looks et techniques** | looks (pastille de leur couleur dominante ; au-delà de 8, **recherche** par nom, technique ou tag et filtre par **dossier** QLC+ importé), techniques, effets, cue stacks, palettes, presets ; faders de canaux avec le **nom des projecteurs et des canaux** pilotés ; **instantanés** (enregistrer l'état actuel, rappeler, remplacer) et choix du **secours** du Panic (instantané ou look) |
 | **Éditeur d'effets** | voir plus bas |
 | **Chants** | setlist, grille de chant, boutons, timeline, **planche**, feuille de conduite |
-| **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton |
+| **MIDI** | entrées détectées et surveillées, profils d'entrées (local ou RTP), moniteur, mappings, learn, registre de notes, testeur de feedback, export Ableton ; mappings triés par canal puis numéro (notes, CC, program change), recherche au-delà de 8 |
 | **OSC** | explorateur d'adresses (recherche, copier), export de la table |
 | **Import** | guidé en 4 étapes : 1. définitions `.qxf` (nombre dans la bibliothèque, ajout depuis le navigateur vers `data/fixtures`) ; 2. workspace `.qxw` importé **dans le show ouvert** (réimportation qui garde les retouches) ou **dans un nouveau show** (avec son propre lieu ou sur le lieu ouvert), proposition puis application, définitions manquantes signalées et proposition recalculée dès qu'on en ajoute ; 3. reconstruction en techniques ; 4. auto-test |
 | **Notes** | recherche globale |

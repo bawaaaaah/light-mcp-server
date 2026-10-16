@@ -576,6 +576,25 @@ test("settings: who is online, this page included", async ({ page, browser }) =>
   expect(errors).toEqual([]);
 });
 
+test("midi page: mappings in number order, and a search past a handful", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const numbers = [30, 3, 100, 29, 5, 12, 4];
+  for (const n of numbers) await api(page, "midi.mapping.put", { mapping: { id: `sort-${n}`, label: `Tri ${n}`, input: { type: "note", channel: 9, number: n }, on: { command: "look.go", args: { id: "hole" } } } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "MIDI" }).click();
+    const rows = page.locator("tr", { hasText: "Tri " });
+    await expect(rows).toHaveCount(numbers.length);
+    expect(await rows.locator("td:nth-child(3)").allTextContents()).toEqual(["Tri 3", "Tri 4", "Tri 5", "Tri 12", "Tri 29", "Tri 30", "Tri 100"]);
+    await page.getByRole("searchbox", { name: /Chercher/ }).fill("note 29");
+    await expect(rows).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: /Mappings \(1 \/ \d+\)/ })).toBeVisible();
+  } finally {
+    for (const n of numbers) await api(page, "midi.mapping.delete", { id: `sort-${n}` });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);

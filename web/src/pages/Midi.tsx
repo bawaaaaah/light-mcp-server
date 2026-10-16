@@ -69,11 +69,18 @@ export function MidiPage() {
   const t = useT();
   const [status, setStatus] = useState<Status | null>(null);
   const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [mappingSearch, setMappingSearch] = useState("");
   const [monitor, setMonitor] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const [webMidi, setWebMidi] = useState(false);
   const [editing, setEditing] = useState<MappingDraft | null>(null);
   const [error, setError] = useState("");
+  // by channel, then notes, CCs and program changes, each in number order (not « note 29, note 3, note 30 »)
+  const TYPE_ORDER: Record<string, number> = { note: 0, cc: 1, programchange: 2 };
+  const needle = mappingSearch.trim().toLowerCase();
+  const shownMappings = [...mappings]
+    .sort((a, b) => a.input.channel - b.input.channel || (TYPE_ORDER[a.input.type] ?? 9) - (TYPE_ORDER[b.input.type] ?? 9) || a.input.number - b.input.number || a.id.localeCompare(b.id))
+    .filter((m) => !needle || [`${m.input.type} ${m.input.number}`, m.label, m.on.command, String(m.on.args.id ?? "")].some((x) => x.toLowerCase().includes(needle)));
   const loadMappings = () => void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
   /** Watch or stop watching a port in the active profile (patterns match by substring). */
   const saveProfile = (patch: Partial<NonNullable<Status["profileConfig"]>>) => {
@@ -163,7 +170,7 @@ export function MidiPage() {
         </section>
         <section>
           <h2>
-            {t.mappings} ({mappings.length}){" "}
+            {t.mappings} ({shownMappings.length === mappings.length ? mappings.length : `${shownMappings.length} / ${mappings.length}`}){" "}
             <button className="ghost" onClick={() => setEditing(newMapping())}>
               + {t.newMapping}
             </button>
@@ -179,9 +186,12 @@ export function MidiPage() {
               }}
             />
           )}
+          {mappings.length > 8 && (
+            <input className="search" type="search" aria-label={t.searchMappings} placeholder={t.searchMappings} value={mappingSearch} onChange={(e) => setMappingSearch(e.target.value)} />
+          )}
           <table>
             <tbody>
-              {mappings.map((m) => (
+              {shownMappings.map((m) => (
                 <tr key={m.id}>
                   <td>
                     {m.input.type} {m.input.number} <small>ch{m.input.channel}</small>
