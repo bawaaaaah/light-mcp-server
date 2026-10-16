@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -57,5 +57,24 @@ describe("flashes per second (photosensitive safety)", () => {
     const bound = lint.issues.filter((i) => i.message.includes("le ramène"));
     expect(bound.map((i) => i.where)).to.deep.equal(["look trop-fort"]);
     expect(bound[0]!.message).to.contain(`${name} à 200`).and.contain("à 100");
+  });
+
+  it("says where a « Hz max » does nothing: definitions without strobe frequencies", async () => {
+    const blindTo = async (qxf: string) => {
+      const dataRoot = join(mkdtempSync(join(tmpdir(), "light-hz-")), "data");
+      mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+      writeFileSync(join(dataRoot, "fixtures", "bar4.qxf"), qxf);
+      const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+      const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+      const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+      await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+      await run("rule.put", { rule: { id: "photo", name: "Photosensibles", level: "venue", scope: {}, target: { attribute: "strobe" }, maxHz: 3 } });
+      const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
+      return lint.issues.filter((i) => i.message.includes("Hz max sans effet"));
+    };
+    const bar4 = readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8");
+    const blind = await blindTo(bar4);
+    expect(blind.map((i) => i.where)).to.deep.equal(["règle photo"]);
+    expect(await blindTo(bar4.replace('Preset="StrobeSlowToFast"', 'Preset="StrobeFreqRange" Res1="1" Res2="25"'))).to.deep.equal([]);
   });
 });

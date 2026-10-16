@@ -28,6 +28,12 @@ export const RuleSchema = z.object({
   max: z.number().int().min(0).max(255).optional(),
   values: z.array(z.number().int().min(0).max(255)).optional(),
   forbidTags: z.array(z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"])).optional(),
+  /**
+   * Strobe no faster than this (Hz), where the fixture definition gives its strobe ranges in Hz:
+   * the value moves to the nearest setting at or under it. Chosen by the venue (photosensitive
+   * guidance speaks of 3 flashes a second); without frequencies in a definition it has no effect.
+   */
+  maxHz: z.number().positive().max(100).optional(),
   locked: z.boolean().default(false),
   /** Rule program it belongs to: the rule applies only while that program is active (absent = always). */
   program: z.string().optional(),
@@ -63,7 +69,7 @@ export interface Clamp {
   rule: string;
 }
 
-function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel, zoneOfFixture?: (id: string) => string | undefined): boolean {
+export function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel, zoneOfFixture?: (id: string) => string | undefined): boolean {
   if (rule.scope.zone && fx.patch.target !== rule.scope.zone && zoneOfFixture?.(fx.patch.id) !== rule.scope.zone) return false;
   const model = `${fx.def.manufacturer} ${fx.def.model}`.toLowerCase();
   if (rule.scope.model && !model.includes(rule.scope.model.toLowerCase())) return false;
@@ -91,12 +97,13 @@ function avoidForbidden(value: number, ch: FixtureChannel, forbid: string[]): nu
 const scopeRank = (r: Rule) => (r.scope.fixture ? 3 : r.scope.zone ? 2 : r.scope.model ? 1 : 0);
 const specificity = (r: Rule) => LEVEL_RANK[r.level] * 10 + scopeRank(r);
 
-type Constraint = "forbidTags" | "values" | "min" | "max";
-const CONSTRAINTS: Constraint[] = ["forbidTags", "values", "min", "max"];
+type Constraint = "forbidTags" | "values" | "min" | "max" | "maxHz";
+const CONSTRAINTS: Constraint[] = ["forbidTags", "values", "min", "max", "maxHz"];
 
 export interface EffectiveRule {
   min?: number;
   max?: number;
+  maxHz?: number;
   values?: number[];
   forbidTags?: string[];
   /** constraint → id of the rule it comes from */
@@ -136,9 +143,31 @@ export function effectiveRule(rules: Rule[], fx: ResolvedFixture, ch: FixtureCha
   return eff;
 }
 
+/** The strobe frequency (Hz) a value sets, when its capability says; undefined otherwise. */
+export function strobeHz(v: number, ch: FixtureChannel): number | undefined {
+  const cap = ch.capabilities.find((c) => c.hz && v >= c.min && v <= c.max);
+  if (!cap?.hz) return undefined;
+  const [h1, h2] = cap.hz;
+  return cap.max === cap.min ? h1 : h1 + ((v - cap.min) / (cap.max - cap.min)) * (h2 - h1);
+}
+
+/** Moves a strobe value to the nearest one at or under maxHz: inside its range, else just outside it. */
+function limitHz(v: number, ch: FixtureChannel, maxHz: number): number {
+  const hz = strobeHz(v, ch);
+  if (hz === undefined || hz <= maxHz) return v;
+  const cap = ch.capabilities.find((c) => c.hz && v >= c.min && v <= c.max)!;
+  let best: number | undefined;
+  for (let x = cap.min; x <= cap.max; x++) if (strobeHz(x, ch)! <= maxHz && (best === undefined || Math.abs(x - v) < Math.abs(best - v))) best = x;
+  if (best !== undefined) return best;
+  // even the slowest setting of the range is too fast: the nearest value outside it (usually « open »)
+  const outside = [cap.min - 1, cap.max + 1].filter((x) => x >= 0 && x <= 255 && (strobeHz(x, ch) ?? 0) <= maxHz);
+  return outside.sort((a, b) => Math.abs(a - v) - Math.abs(b - v))[0] ?? v;
+}
+
 /** Applies constraints to a value; returns the new value. */
-function enforce(v: number, c: { min?: number; max?: number; values?: number[]; forbidTags?: string[] }, ch: FixtureChannel): number {
+function enforce(v: number, c: { min?: number; max?: number; maxHz?: number; values?: number[]; forbidTags?: string[] }, ch: FixtureChannel): number {
   if (c.forbidTags?.length) v = avoidForbidden(v, ch, c.forbidTags);
+  if (c.maxHz !== undefined) v = limitHz(v, ch, c.maxHz);
   if (c.values?.length) v = c.values.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), c.values[0]!);
   if (c.min !== undefined && v < c.min) v = c.min;
   if (c.max !== undefined && v > c.max) v = c.max;

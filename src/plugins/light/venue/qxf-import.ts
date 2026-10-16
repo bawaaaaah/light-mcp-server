@@ -16,6 +16,8 @@ export interface FixtureCapability {
   preset?: string;
   /** Colour of a wheel slot ("#rrggbb"), from QLC+'s Res1 / Color attribute. */
   color?: string;
+  /** Strobe frequency from min to max of the range, in Hz, when the definition gives it (StrobeFreqRange, StrobeFrequency). */
+  hz?: [number, number];
   tags: CapabilityTag[];
 }
 
@@ -120,7 +122,10 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
     const capName = text(c);
     const capPreset = c["@_Preset"] as string | undefined;
     const hex = [c["@_Res1"], c["@_Res"], c["@_Color"]].find((v): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
-    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, ...(hex ? { color: hex.toLowerCase() } : {}), tags: capabilityTags(capName, capPreset) };
+    const res = (k: string) => (c[k] === undefined || c[k] === "" ? Number.NaN : Number(c[k]));
+    const hz: [number, number] | undefined =
+      capPreset === "StrobeFreqRange" && Number.isFinite(res("@_Res1")) && Number.isFinite(res("@_Res2")) ? [res("@_Res1"), res("@_Res2")] : capPreset === "StrobeFrequency" && Number.isFinite(res("@_Res1")) ? [res("@_Res1"), res("@_Res1")] : undefined;
+    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, ...(hex ? { color: hex.toLowerCase() } : {}), ...(hz ? { hz } : {}), tags: capabilityTags(capName, capPreset) };
   });
 
   let attribute: FixtureChannel["attribute"] = "other";

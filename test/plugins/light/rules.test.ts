@@ -20,6 +20,23 @@ const fx: ResolvedFixture = {
 const rule = (r: unknown) => RuleSchema.parse(r);
 
 describe("rules mask", () => {
+  it("keeps a strobe under a frequency where the definition gives it, and leaves it free where not", () => {
+    const xml = readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8").replace('Preset="StrobeSlowToFast"', 'Preset="StrobeFreqRange" Res1="1" Res2="25"');
+    const withHz = parseQxf(xml);
+    expect(withHz.channels.get("Strobe")!.capabilities[1]!.hz).to.deep.equal([1, 25]);
+    const strobe = { ...fx, def: withHz, mode: withHz.modes[0]! };
+    const limit = (value: number, maxHz: number, target = strobe) => {
+      const buf = new Uint8Array(512);
+      buf[1] = value;
+      applyRules([rule({ id: "photo", level: "venue", target: { attribute: "strobe" }, maxHz })], target, buf);
+      return buf[1];
+    };
+    expect(limit(255, 10)).to.equal(102); // 25 Hz → the fastest setting at or under 10 Hz
+    expect(limit(50, 10)).to.equal(50); // ≈ 4.8 Hz: free
+    expect(limit(255, 0.5)).to.equal(10); // even 1 Hz is too fast: just outside the range (strobe off)
+    expect(limit(255, 10, fx)).to.equal(255); // no frequencies in this definition: no effect
+  });
+
   it("imposes a minimum value on a fixture type channel (a bar black under 32)", () => {
     const buf = new Uint8Array(512);
     const clamps = applyRules([rule({ id: "strobing-min", level: "type", scope: { model: "Bar 4" }, target: { channel: "Strobe" }, min: 32 })], fx, buf);

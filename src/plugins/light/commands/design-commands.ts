@@ -15,7 +15,7 @@ import type { Group, Look, Palette } from "../show/model.js";
 import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
 import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
-import { applyRules } from "../rules/rules.js";
+import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
 
 /**
@@ -158,13 +158,13 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
       // nobody would know why. Rules that always apply (no program); each written value is tried.
+      const zones = runtime.zones.list();
+      const zoneById = (id: string) => {
+        const f = runtime.venue.fixtures.get(id);
+        return f ? zoneOf(f, zones)?.id : undefined;
+      };
       const always = runtime.rulesInForce().filter((r) => !r.program);
       if (always.length) {
-        const zones = runtime.zones.list();
-        const zoneById = (id: string) => {
-          const f = runtime.venue.fixtures.get(id);
-          return f ? zoneOf(f, zones)?.id : undefined;
-        };
         for (const l of runtime.looks.list()) {
           if (!l.channels) continue;
           const said = new Set<string>();
@@ -184,6 +184,19 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
             }
           });
         }
+      }
+      // a « Hz max » only bounds strobes whose definition gives their frequencies: say where it does nothing
+      for (const rule of [...runtime.venueRules.list(), ...runtime.rules.list()].filter((r) => r.maxHz !== undefined)) {
+        const blind = new Set<string>();
+        for (const f of runtime.venue.fixtures.list()) {
+          const r = runtime.venue.resolve(f.id);
+          if ("error" in r) continue;
+          for (const name of r.mode.channels) {
+            const ch = r.def.channels.get(name);
+            if (ch && ruleApplies(rule, r, ch, zoneById) && !ch.capabilities.some((c) => c.hz)) blind.add(f.name);
+          }
+        }
+        if (blind.size) warn(`règle ${rule.id}`, `Hz max sans effet sur ${[...blind].join(", ")} : leur définition ne donne pas les fréquences du strobe ; les borner par une valeur max`);
       }
       // photosensitive safety (WCAG 2.3.1): a look timed in beats flashes fastest on the show's fastest song
       const bpm = Math.max(120, ...songs.list().map((x) => x.bpm ?? 0));

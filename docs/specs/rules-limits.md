@@ -55,7 +55,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 | `values` | 0, 50 ou 100 % seulement | arrondit à la valeur autorisée la plus proche |
 | `forbidCapability` | son-actif, programmes auto, macros, reset | remplace par la valeur par défaut ou la plage permise la plus proche |
 | `allowCapabilities` | seulement couleur fixe et dimmer | liste blanche |
-| `rate` | strobe ≤ 10 Hz, pan/tilt ≤ X°/s | borne la fréquence ou la vitesse |
+| `rate` | strobe ≤ 10 Hz (`maxHz`, fait), pan/tilt ≤ X°/s | borne la fréquence ou la vitesse |
 | `duration` | blinder ≥ 80 % pendant 3 s au maximum | borne la durée |
 | `aim` | ne jamais viser *audience* sous 2 m | interdit un angle ou une cible (via la scène) |
 
@@ -64,7 +64,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 ## Clignotement (sécurité photosensible)
 - « Vérifier le show » signale les looks qui clignotent **plus de 3 fois par seconde** (seuil de la norme WCAG 2.3.1) : un éclat est une cellule qui passe du noir à l'allumé ; une attaque en fondu (≥ 0,2) ne compte pas. Un look calé sur les temps est évalué au tempo du chant le plus rapide du show (120 BPM au moins). C'est une alerte : la sortie n'est pas modifiée (`show/flashes.ts`).
 - « Vérifier le show » signale aussi un look dont les **canaux bruts** (UV, strobe, machines) sont ramenés par une règle toujours active : le look ne rend pas ce qu'il dit (valeur écrite, valeur bornée, règle).
-- Le bornage de la fréquence d'un canal strobe (`rate`, plus bas) reste à faire : il demande les plages en Hz des définitions et les seuils choisis par le lieu.
+- **Strobe max (Hz)** (`maxHz` d'une règle, champ « Strobe max (Hz) » du formulaire) : le lieu ou le show choisit la fréquence ; la valeur d'un canal strobe est ramenée au réglage le plus proche qui reste sous elle (au besoin, juste hors de la plage strobe : strobe arrêté). Il ne vaut que là où la définition QLC+ donne les fréquences (capacités `StrobeFreqRange` ou `StrobeFrequency`, gardées à l'import) ; « Vérifier le show » nomme les projecteurs sur lesquels il reste sans effet, à borner par une valeur max. Aucun seuil n'est imposé par défaut.
 
 ## Marqueurs sur widgets
 - **Fader** : marqueur max (trait rouge). En mode `clamp` il bute ; en mode `scale` la course est remappée de 0 au max.

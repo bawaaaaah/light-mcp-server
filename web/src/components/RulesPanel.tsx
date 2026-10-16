@@ -17,6 +17,7 @@ interface Rule {
   target: { channel?: string; attribute?: string; color?: string; tag?: string };
   min?: number;
   max?: number;
+  maxHz?: number;
   forbidTags?: string[];
   locked: boolean;
   program?: string;
@@ -33,6 +34,7 @@ interface Effective {
   attribute: string;
   min?: number;
   max?: number;
+  maxHz?: number;
   values?: number[];
   forbidTags?: string[];
   from: Record<string, string>;
@@ -62,7 +64,7 @@ const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100
 export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }) {
   const t = useT();
   const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
-  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", forbid: [] as string[], locked: false, program: "" });
+  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", forbid: [] as string[], locked: false, program: "" });
   const [programs, setPrograms] = useState<{ active: string | null; programs: Program[] }>({ active: null, programs: [] });
   const [progDraft, setProgDraft] = useState({ name: "", pc: "", channel: "1" });
   const loadPrograms = useCallback(() => void cmd<typeof programs>("program.list").then(setPrograms).catch(() => undefined), []);
@@ -92,7 +94,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
 
   const add = () => {
     const target = draft.target === "channel" ? { channel: draft.channel } : TARGETS[draft.target]!;
-    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}`;
+    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}`;
     const rule = {
       id: uniqueId(slug(name, "regle"), all.map((r) => r.id)),
       name,
@@ -101,12 +103,13 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       target,
       ...(draft.min ? { min: toDmx(draft.min) } : {}),
       ...(draft.max ? { max: toDmx(draft.max) } : {}),
+      ...(draft.maxHz ? { maxHz: Number(draft.maxHz) } : {}),
       ...(draft.forbid.length ? { forbidTags: draft.forbid } : {}),
       locked: draft.locked,
       ...(draft.program ? { program: draft.program } : {}),
     };
     void cmd("rule.put", { where: draft.level === "show" ? "show" : "venue", rule })
-      .then(() => setDraft({ ...draft, name: "", min: "", max: "", forbid: [] }))
+      .then(() => setDraft({ ...draft, name: "", min: "", max: "", maxHz: "", forbid: [] }))
       .catch((e: Error) => onError(e.message));
   };
 
@@ -197,6 +200,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
               <td>
                 {r.min !== undefined && `min ${pct(r.min)} `}
                 {r.max !== undefined && `max ${pct(r.max)} `}
+                {r.maxHz !== undefined && `≤ ${r.maxHz} Hz `}
                 {r.forbidTags?.length ? `${t.forbidden} : ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
@@ -273,6 +277,10 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
             <input type="number" min={0} max={100} aria-label={`${k} %`} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
           </label>
         ))}
+        <label className="field" title={t.maxHzHint}>
+          <span>{t.maxHz}</span>
+          <input type="number" min={0.1} max={100} step={0.5} aria-label={t.maxHz} value={draft.maxHz} onChange={(e) => setDraft({ ...draft, maxHz: e.target.value })} />
+        </label>
         <fieldset className="checklist">
           <legend>{t.forbidden}</legend>
           {TAGS.map((tag) => (
@@ -301,7 +309,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           <span>{t.name}</span>
           <input placeholder={t.optional} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         </label>
-        <button className="primary" disabled={!draft.min && !draft.max && !draft.forbid.length} onClick={add}>
+        <button className="primary" disabled={!draft.min && !draft.max && !draft.maxHz && !draft.forbid.length} onClick={add}>
           + {t.addRule}
         </button>
       </div>
@@ -331,6 +339,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                 <td>
                   {e.min !== undefined && `min ${pct(e.min)} `}
                   {e.max !== undefined && `max ${pct(e.max)} `}
+                  {e.maxHz !== undefined && `≤ ${e.maxHz} Hz `}
                   {e.forbidTags?.length ? `${t.forbidden} : ${e.forbidTags.join(", ")}` : ""}
                 </td>
                 <td>
