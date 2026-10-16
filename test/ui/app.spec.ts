@@ -31,15 +31,25 @@ async function dmx(page: Page, universe = 1): Promise<number[]> {
   }, universe);
 }
 
-/** Runs a command with the session token of the page. */
+/**
+ * Runs a command with the session token of the page. The app reloads itself when the open show
+ * changes (a switch, a restore): a call caught by that reload waits for it and runs again.
+ */
 async function api(page: Page, name: string, args: unknown = {}): Promise<unknown> {
-  return page.evaluate(
-    async ([n, a]) => {
-      const res = await fetch(`/api/plugins/light/commands/${n}`, { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify(a) });
-      return ((await res.json()) as { result: unknown }).result;
-    },
-    [name, args] as const,
-  );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await page.evaluate(
+        async ([n, a]) => {
+          const res = await fetch(`/api/plugins/light/commands/${n}`, { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify(a) });
+          return ((await res.json()) as { result: unknown }).result;
+        },
+        [name, args] as const,
+      );
+    } catch (err) {
+      if (attempt >= 3 || !/Execution context was destroyed|navigation/i.test(String(err))) throw err;
+      await page.waitForLoadState("load");
+    }
+  }
 }
 
 test("signs in with the token by default, and the menu bar's token link signs in at once", async ({ page }) => {
@@ -116,7 +126,9 @@ test("files: a new show opens on every screen, keeps backups, resets, and the fi
   await files.getByRole("button", { name: "Réinitialiser le show" }).click();
   await expect(files.getByText("Show réinitialisé")).toBeVisible();
   await page.screenshot({ path: "test-results/files.png", fullPage: true });
+  const reloaded = page.waitForEvent("load"); // the header shows the name a moment before the app reloads onto it
   await files.locator(".shows tr", { hasText: "Show" }).first().getByRole("button", { name: "Ouvrir" }).click();
+  await reloaded;
   await expect(page.locator("header .show-name")).toHaveText("Show");
   expect(((await api(page, "look.list")) as unknown[]).length).toBeGreaterThan(0);
   await files.locator(".shows tr", { hasText: "Essai" }).getByRole("button", { name: "Supprimer" }).click();
@@ -360,6 +372,8 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   const columns = Number(await page.getByLabel("Colonnes").inputValue());
   const cw = (await grid.boundingBox())!.width / columns;
   const drag = async (from: { x: number; y: number }, dx: number, dy: number) => {
+    // pointer events only reach what is on screen: points taken off-screen would never land
+    expect(from.y, "drag start on screen").toBeLessThan(page.viewportSize()!.height);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + dx / 2, from.y + dy / 2, { steps: 4 });
@@ -369,13 +383,18 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   await cell.evaluate((e) => e.scrollIntoView({ block: "center" })); // its corners must be on screen to be dragged
   await cell.click(); // select: its position shows in the editor bar
   const [x0, y0, w0] = (await pos.textContent())!.match(/[\d.]+/g)!.map(Number);
+  // centred before each drag: the widget bar above the grid grows (two lines with wider fonts) and pushes it down
+  const centre = () => cell.evaluate((e) => e.scrollIntoView({ block: "center" }));
+  await centre();
   let box = (await cell.boundingBox())!;
   await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, cw * 2, 0); // two columns right
   await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0}×1`);
+  await centre();
   box = (await cell.boundingBox())!;
   await drag({ x: box.x + box.width - 3, y: box.y + box.height - 3 }, cw, 0); // the bottom-right corner: one column wider
   await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0! + 1}×1`);
   await page.getByRole("button", { name: "Grille magnétique" }).click(); // off: quarters
+  await centre();
   box = (await cell.boundingBox())!;
   await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, cw * 0.27, 0);
   await expect(pos).toHaveText(`${x0! + 2.25},${y0} · ${w0! + 1}×1`);
