@@ -62,6 +62,6 @@ export async function connect(opts: { configPath: string; dataRoot: string; url?
         throw new CliError(`${command} : ${(err as Error).message}`);
       }
     },
-    close: async () => undefined,
+    close: async () => plugin.saveActivity(), // what it changed shows in the activity log too
   };
 }

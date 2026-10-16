@@ -63,7 +63,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 |---|---|
 | `light serve [--standby \| --live]` | lance le serveur (en veille : n'envoie rien, voir [bascule](../bascule-qlc.md)) |
 | `light token` / `pin <rôle> <pin>` / `roles` | jeton maître, PIN des rôles |
-| `light check` | lint du show (schémas, conflits de notes, contraste, sections inertes) ; sortie 1 en cas d'erreur |
+| `light check` | lint du show (schémas, conflits de notes, contraste, sections inertes, chevauchements d'adresses, définitions manquantes, noms ambigus) ; sortie 1 en cas d'erreur |
 | `light selftest [--cadence]` | auto-test : mappings, exclusivité, latence, cadence mesurée ; sortie 1 en cas d'échec |
 | `light import qxw <fichier> [--apply]` | import d'un workspace QLC+ : proposition, puis `--apply` pour écrire |
 | `light export cuesheet [--setlist id]` / `notes [--csv]` / `board [--song id]` | feuille de conduite, table des notes, planche SVG d'un chant |
@@ -74,6 +74,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light pack [fichier] [--no-venue]` / `light unpack <fichier>` | sauvegarde `.lightshow`, restauration avec copie de l'existant |
 | `light standby on\|off` | sortie en veille, reprendre la main |
 | `light osc-table` | adresses OSC |
+| `light activity [--limit 30]` | activité récente, la plus ancienne d'abord : quand, qui, d'où, quoi, sur quel objet ; hors ligne, ce que la CLI change y figure aussi |
 | `light call <commande> [json]` / `light commands` | n'importe quelle commande du registre, liste des commandes |
 
 Plus tard : `--check` généralisé aux commandes d'écriture.

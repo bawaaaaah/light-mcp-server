@@ -46,6 +46,7 @@ const USAGE = `light <commande>
   pack [fichier] [--no-venue]     sauvegarde .lightshow
   unpack <fichier> [--check]      restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement
   standby on|off                  sortie en veille / reprendre la main
+  activity [--limit 30]           activité récente : quand, qui, d'où, quoi, sur quel objet
   call <commande> [json]          n'importe quelle commande (voir « commands »)
   commands                        liste des commandes
 Options communes : --offline (ouvre les données sans passer par le serveur), --url http://hôte:port`;
@@ -142,6 +143,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       from: { type: "string" },
       venue: { type: "string" },
       "with-venue": { type: "boolean", default: false },
+      limit: { type: "string" },
     },
   });
   const caller = await connect({ configPath, dataRoot: DATA_ROOT, url: values.url, offline: values.offline, token: async () => (await machine()).token });
@@ -224,6 +226,15 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       case "commands": {
         const list = caller.plugin ? caller.plugin.commands.list() : ((await (await caller.http!("/commands")).json()) as { name: string; title: string; readOnly?: boolean }[]);
         for (const c of list) console.log(`${c.name.padEnd(28)} ${c.readOnly ? "lecture" : "écriture"}  ${c.title}`);
+        return 0;
+      }
+      case "activity": {
+        type Entry = { at: number; count: number; title: string; origin: string; who?: string; target?: string; ok: boolean; error?: string };
+        const list = await caller.call<Entry[]>("activity.list", { limit: Math.min(500, Math.max(1, Number(values.limit ?? 30) || 30)) });
+        const when = (ms: number) => new Date(ms).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        if (!list.length) console.log("Rien sur la dernière semaine.");
+        // oldest first, as a terminal reads
+        for (const e of [...list].reverse()) console.log(`${when(e.at)}  ${(e.who ?? "—").padEnd(18)} ${e.origin.padEnd(8)} ${e.ok ? "✔" : "✖"} ${e.title}${e.target ? ` · ${e.target}` : ""}${e.count > 1 ? ` ×${e.count}` : ""}${e.error ? ` (${e.error})` : ""}`);
         return 0;
       }
       case "call": {

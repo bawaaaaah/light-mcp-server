@@ -447,7 +447,8 @@ export class LightPlugin implements McpPlugin {
     return path.join(this.dataRoot, "machine", "activity.json");
   }
 
-  private saveActivity(): void {
+  /** Writes the activity log when it changed (also called by the CLI, which runs commands in its own process). */
+  saveActivity(): void {
     const lines = this.activity.takeChanges();
     if (!lines) return;
     try {

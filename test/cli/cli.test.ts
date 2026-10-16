@@ -34,6 +34,13 @@ describe("CLI light (offline)", function () {
     expect(selftest.out).to.match(/Mappings : 3\/3/);
   });
 
+  it("lists the recent activity, the CLI's own commands included", () => {
+    expect(light("call", "show.settings.set", "{}").code).to.equal(0);
+    const r = light("activity", "--limit", "5");
+    expect(r.code).to.equal(0);
+    expect(r.out).to.match(/cli\s+✔ Modifier les réglages du show/);
+  });
+
   it("packs a .lightshow and reports errors with a non-zero exit code", () => {
     const out = join(dir, "backup.lightshow");
     expect(light("pack", out).code).to.equal(0);
