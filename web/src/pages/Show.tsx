@@ -6,6 +6,7 @@ import { labelOf } from "../util";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
+import { RecentlyDeleted } from "../components/Versions";
 
 interface Look {
   id: string;
@@ -455,6 +456,9 @@ export function ShowPage() {
             ))}
           </tbody>
         </table>
+      </section>
+      <section>
+        <RecentlyDeleted collections={["looks", "groups", "faders"]} onRestored={refresh} />
       </section>
     </div>
   );

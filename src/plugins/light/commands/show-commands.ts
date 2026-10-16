@@ -427,6 +427,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: ({ collection, id: i }) => VERSIONED[collection].coll.versions(i).slice(0, 100),
   });
   reg.register({
+    name: "history.deleted",
+    title: "Récemment supprimés",
+    description: "Looks, groups, channel faders or dashboards deleted from the show whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
+    right: "show:write",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ collection: versioned }),
+    run: ({ collection }) => VERSIONED[collection].coll.deleted().slice(0, 50),
+  });
+  reg.register({
     name: "history.restore",
     title: "Restaurer une version",
     description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks; the current version goes to the history in turn, so a restore is undone the same way.",

@@ -166,6 +166,21 @@ export class Collection<T extends { id: string }> {
     return this.store.history(`${this.name}/${id}.json`);
   }
 
+  /**
+   * Objects gone from the collection (deleted) whose last copy the history still holds, newest
+   * first: a deletion leaves a copy, stamped when it happened.
+   */
+  deleted(): { id: string; name?: string; stamp: string; at: string }[] {
+    return this.store
+      .historyLatest(this.name)
+      .filter((e) => !this.items.has(e.id))
+      .map((e) => {
+        const last = this.store.readHistory(e.stamp, `${this.name}/${e.id}.json`) as { name?: unknown; title?: unknown } | undefined;
+        const name = typeof last?.name === "string" ? last.name : typeof last?.title === "string" ? last.title : undefined;
+        return { ...e, ...(name ? { name } : {}) };
+      });
+  }
+
   /** An earlier version as it was stored (not parsed: it may predate today's schema). */
   version(id: string, stamp: string): unknown {
     return this.store.readHistory(stamp, `${this.name}/${id}.json`);
@@ -259,6 +274,26 @@ export class FolderStore {
       .filter((e): e is { stamp: string; t: number } => e.t !== undefined && existsSync(join(root, e.stamp, relative)))
       .sort((a, b) => b.t - a.t)
       .map((e) => ({ stamp: e.stamp, at: new Date(e.t).toISOString() }));
+  }
+
+  /** Every object of a collection folder the history holds a copy of, with its newest copy, newest first. */
+  historyLatest(dir: string): { id: string; stamp: string; at: string }[] {
+    const root = this.backupRoot;
+    if (!root || !existsSync(root)) return [];
+    const seen = new Map<string, { id: string; stamp: string; at: string }>();
+    const entries = readdirSync(root)
+      .map((stamp) => ({ stamp, t: historyTime(stamp) }))
+      .filter((e): e is { stamp: string; t: number } => e.t !== undefined)
+      .sort((a, b) => b.t - a.t);
+    for (const e of entries) {
+      const folder = join(root, e.stamp, dir);
+      if (!existsSync(folder)) continue;
+      for (const file of readdirSync(folder)) {
+        const id = file.replace(/\.json$/, "");
+        if (file.endsWith(".json") && !seen.has(id)) seen.set(id, { id, stamp: e.stamp, at: new Date(e.t).toISOString() });
+      }
+    }
+    return [...seen.values()];
   }
 
   /** One copy from the history; undefined when the entry or the file is not there. */

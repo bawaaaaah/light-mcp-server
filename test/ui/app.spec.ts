@@ -366,6 +366,7 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
     await page.mouse.move(from.x + dx, from.y + dy, { steps: 4 });
     await page.mouse.up();
   };
+  await cell.evaluate((e) => e.scrollIntoView({ block: "center" })); // its corners must be on screen to be dragged
   await cell.click(); // select: its position shows in the editor bar
   const [x0, y0, w0] = (await pos.textContent())!.match(/[\d.]+/g)!.map(Number);
   let box = (await cell.boundingBox())!;
@@ -524,6 +525,24 @@ test("show page: a long list of looks is searched and filtered by its QLC+ folde
   } finally {
     for (const look of extra) await api(page, "look.delete", { id: look.id, force: true });
   }
+  expect(errors).toEqual([]);
+});
+
+test("show page: a deleted look comes back from « Récemment supprimés »", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "look.put", { look: { id: "ephemere", name: "Éphémère", canvas, technique: { kind: "plat", color: "#00ff00" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } } });
+  await api(page, "look.delete", { id: "ephemere" });
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  await expect(page.locator("button.look", { hasText: "Éphémère" })).toHaveCount(0);
+  const bin = page.locator("details.recently-deleted");
+  await bin.locator("summary").click();
+  page.once("dialog", (d) => void d.accept());
+  await bin.locator("li", { hasText: "Éphémère" }).getByRole("button", { name: "Restaurer" }).click();
+  await expect(page.locator("button.look", { hasText: "Éphémère" })).toBeVisible();
+  await expect(bin.locator("li", { hasText: "Éphémère" })).toHaveCount(0);
+  await api(page, "look.delete", { id: "ephemere", force: true });
   expect(errors).toEqual([]);
 });
 

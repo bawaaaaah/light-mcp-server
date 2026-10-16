@@ -1514,3 +1514,15 @@ body.kiosk .app {
   max-height: 14em;
   overflow-y: auto;
 }
+/* on the line of the manage buttons: edit mode already stacks enough bars above the grid */
+.dash-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.5em;
+  margin-left: 1em;
+}
+.recently-deleted h3 {
+  margin: 0.6em 0 0.2em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

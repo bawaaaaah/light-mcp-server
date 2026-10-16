@@ -574,6 +574,11 @@ const fr = {
   noVersions: "Aucune version précédente.",
   replacedOn: "remplacée le",
   restoreVersionConfirm: "Remettre cette version ?",
+  recentlyDeleted: "Récemment supprimés",
+  nothingDeleted: "Rien à récupérer.",
+  deletedOn: "supprimé le",
+  restoreDeletedConfirm: "Remettre",
+  collectionNames: { looks: "Looks", groups: "Groupes et DCA", faders: "Faders de canaux", dashboards: "Dashboards" },
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1150,6 +1155,11 @@ const en: typeof fr = {
   noVersions: "No earlier version.",
   replacedOn: "replaced on",
   restoreVersionConfirm: "Put this version back?",
+  recentlyDeleted: "Recently deleted",
+  nothingDeleted: "Nothing to bring back.",
+  deletedOn: "deleted on",
+  restoreDeletedConfirm: "Bring back",
+  collectionNames: { looks: "Looks", groups: "Groups and DCAs", faders: "Channel faders", dashboards: "Dashboards" },
 };
 
 export type Lang = "fr" | "en";

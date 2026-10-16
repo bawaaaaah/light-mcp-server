@@ -36,11 +36,15 @@ describe("versions: earlier versions of looks, groups, faders and dashboards", (
     expect(plugin.runtime.looks.get("hole")!.name).to.equal("Creux bleu");
   });
 
-  it("brings back a deleted look", async () => {
+  it("lists a deleted look, and brings it back", async () => {
+    const name = plugin.runtime.looks.get("breath")!.name;
     await run("look.delete", { id: "breath", force: true });
-    const [last] = await versions("looks", "breath");
-    await run("history.restore", { collection: "looks", id: "breath", stamp: last!.stamp });
+    const gone = (await run("history.deleted", { collection: "looks" })) as { id: string; name?: string; stamp: string }[];
+    expect(gone.map((g) => g.id)).to.deep.equal(["breath"]); // the others were changed, not deleted
+    expect(gone[0]!.name).to.equal(name);
+    await run("history.restore", { collection: "looks", id: "breath", stamp: gone[0]!.stamp });
     expect(plugin.runtime.looks.get("breath")).to.not.equal(undefined);
+    expect(await run("history.deleted", { collection: "looks" })).to.deep.equal([]);
   });
 
   it("restores a DCA's design without moving its live level", async () => {

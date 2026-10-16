@@ -6,6 +6,7 @@ import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
 import { GettingStarted } from "../components/GettingStarted";
+import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, textOn } from "../color";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
@@ -634,6 +635,10 @@ export function DashboardsPage({ role }: { role: Role }) {
           <button className="ghost" disabled={dashboards.length < 2} onClick={() => void manage("delete")}>
             {t.delete}
           </button>
+          <div className="dash-history">
+            <Versions key={dash.id} collection="dashboards" id={dash.id} onRestored={() => void reloadDashboards(dash.id)} />
+            <RecentlyDeleted collections={["dashboards"]} onRestored={() => void reloadDashboards(dash.id)} />
+          </div>
         </section>
       )}
       {edit && dash && (
