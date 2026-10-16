@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
+import { confirmDelete } from "./confirmDelete";
 
 export interface GroupDraft {
   id: string;
@@ -114,7 +115,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           <button
             className="ghost danger"
             onClick={() => {
-              if (confirm(`${t.delete} « ${initial.name} » ?`)) void cmd("group.delete", { id: initial.id }).then(onClose);
+              void confirmDelete("group", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message));
             }}
           >
             {t.delete}

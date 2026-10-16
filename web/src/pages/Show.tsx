@@ -127,6 +127,17 @@ export function ShowPage() {
       })
       .join(", ");
   };
+  /** What a group drives, zeros left out: a DCA of channel faders is not « empty » (it scales them). */
+  const groupSummary = (g: Group) =>
+    [
+      [g.members.looks.length, "looks"],
+      [g.members.fixtures.length, "fixtures"],
+      [g.members.groups.length, t.subGroups.toLowerCase()],
+      [faders.filter((f) => f.dca === g.id).length, t.fadersCount],
+    ]
+      .filter(([n]) => n)
+      .map(([n, what]) => `${n} ${what}`)
+      .join(" · ") || "—";
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
 
   return (
@@ -400,9 +411,7 @@ export function ShowPage() {
                   )}
                 </td>
                 <td>
-                  <small>
-                    {g.members.looks.length} looks · {g.members.fixtures.length} fixtures · {g.members.groups.length} {t.subGroups.toLowerCase()}
-                  </small>
+                  <small>{groupSummary(g)}</small>
                 </td>
               </tr>
             ))}

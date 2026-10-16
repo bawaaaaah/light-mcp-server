@@ -103,7 +103,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -141,6 +141,20 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(`groupe ${g.id}`, `look inconnu ${l}`);
         for (const sub of g.members.groups) if (!runtime.groups.get(sub)) err(`groupe ${g.id}`, `sous-groupe inconnu ${sub}`);
       }
+      // Same name, different objects (a QLC+ workspace often has several « Master » sliders): on the
+      // Live, in the MIDI page and to the AI they look alike, and one can be taken for a duplicate.
+      const sameName = (kind: string, list: { id: string; name: string }[]) => {
+        const first = new Map<string, string>();
+        for (const x of list) {
+          const key = x.name.trim().toLocaleLowerCase("fr");
+          const other = first.get(key);
+          if (other) warn(`${kind} ${x.id}`, `même nom que ${other} (« ${x.name} ») : renommer l'un des deux pour les distinguer`);
+          else first.set(key, x.id);
+        }
+      };
+      sameName("look", runtime.looks.list());
+      sameName("groupe", runtime.groups.list());
+      sameName("fader", runtime.faders.list());
       const checkChannels = (where: string, channels: { fixture: string; offset: number }[]) => {
         for (const c of channels) {
           const problem = runtime.venue.channelProblem(c);

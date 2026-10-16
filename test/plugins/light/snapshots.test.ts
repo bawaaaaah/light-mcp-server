@@ -61,7 +61,7 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     expect(panic).to.deep.include({ action: "safe-snapshot" });
     expect(plugin.runtime.activeLooks()).to.deep.equal(["hole"]);
     expect(plugin.runtime.faders.get("uv")!.level).to.equal(0.5);
-    await run("look.delete", { id: "hole" });
+    await run("look.delete", { id: "hole", force: true }); // still in the snapshot: deleted anyway
     const after = (await run("snapshot.recall", { id: "secours" })) as { skipped: string[] };
     expect(after.skipped).to.deep.equal(["hole"]);
     // deleting the safe snapshot leaves the safe look

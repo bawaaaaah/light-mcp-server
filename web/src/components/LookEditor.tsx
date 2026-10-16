@@ -13,6 +13,7 @@ import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
 import { StepsEditor } from "./StepsEditor";
 import { LookPreview, type Preview } from "./LookPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
+import { confirmDelete } from "./confirmDelete";
 
 type Every = { beats: number } | { seconds: number };
 interface Move {
@@ -332,7 +333,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           <button
             className="ghost danger"
             onClick={() => {
-              if (confirm(`${t.delete} « ${initial.name} » ?`)) void cmd("look.delete", { id: initial.id }).then(() => onClose());
+              void confirmDelete("look", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message));
             }}
           >
             {t.delete}

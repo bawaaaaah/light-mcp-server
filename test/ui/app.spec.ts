@@ -522,7 +522,7 @@ test("show page: a long list of looks is searched and filtered by its QLC+ folde
     await expect(page.locator("button.look", { hasText: "Long 5" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Looks \(1 \/ 11\)/ })).toBeVisible();
   } finally {
-    for (const look of extra) await api(page, "look.delete", { id: look.id });
+    for (const look of extra) await api(page, "look.delete", { id: look.id, force: true });
   }
   expect(errors).toEqual([]);
 });
@@ -717,7 +717,7 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   expect(mine.channels).toEqual({ targets: [{ fixture: "bar-0", offset: 2 }], steps: [[200]] });
   await api(page, "look.stopall");
   await expect.poll(async () => (await dmx(page))[2]).toBe(0);
-  await api(page, "look.delete", { id: "machine" });
+  await api(page, "look.delete", { id: "machine", force: true });
   expect(errors).toEqual([]);
 });
 
@@ -961,12 +961,23 @@ test("group editor: nested DCAs multiply", async ({ page }) => {
   const list = (await api(page, "group.list")) as { id: string; effectiveLevel: number }[];
   expect(list.find((g) => g.id === "led-bar-public")!.effectiveLevel).toBe(0.25); // 50 % × 50 %
   await page.screenshot({ path: "test-results/groups.png", fullPage: true });
+  // a sub-group still in use: the question says where, and « no » keeps it
+  await page.getByRole("button", { name: "Modifier LED bar public" }).click();
+  let question = "";
+  page.once("dialog", (d) => {
+    question = d.message();
+    void d.dismiss();
+  });
+  await page.locator(".group-editor").getByRole("button", { name: "Supprimer" }).click();
+  await expect.poll(() => question).toContain("groupe « Ambiance » (sous-groupe)");
+  expect(((await api(page, "group.list")) as { id: string }[]).some((g) => g.id === "led-bar-public")).toBe(true);
+  await page.locator(".group-editor").getByRole("button", { name: "Fermer", exact: true }).click();
   // edit then delete
   await page.getByRole("button", { name: "Modifier Ambiance" }).click();
   page.once("dialog", (d) => void d.accept());
   await page.locator(".group-editor").getByRole("button", { name: "Supprimer" }).click();
   await expect.poll(async () => ((await api(page, "group.list")) as { id: string }[]).some((g) => g.id === "ambiance")).toBe(false);
-  await api(page, "group.delete", { id: "led-bar-public" });
+  await api(page, "group.delete", { id: "led-bar-public", force: true });
   expect(errors).toEqual([]);
 });
 
@@ -1041,7 +1052,7 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
   await expect.poll(async () => (await dmx(page))[2]).toBe(255);
   await page.locator("nav.pages button", { hasText: "Show" }).click();
   await expect(page.locator("section", { hasText: "Faders de canaux" }).locator("tr", { hasText: "Blanc" })).toContainText("100 %");
-  await api(page, "fader.delete", { id: "blanc" });
+  await api(page, "fader.delete", { id: "blanc", force: true }); // still on the dashboard
   await expect.poll(async () => (await dmx(page))[2]).toBe(0);
   expect(errors).toEqual([]);
 });

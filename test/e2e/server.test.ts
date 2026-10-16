@@ -323,7 +323,7 @@ describe("server end to end", function () {
     expect(res.headers.get("content-type")).to.contain("application/zip");
     const zip = new Uint8Array(await res.arrayBuffer());
     const looksBefore = running.light.runtime.looks.list().length;
-    await command(token, "look.delete", { id: "secours" });
+    await command(token, "look.delete", { id: "secours", force: true }); // the safe look: deleted anyway
     expect(running.light.runtime.looks.get("secours")).to.equal(undefined);
     // preview first: what the restore would change, nothing written
     const preview = await fetch(`${base}/api/plugins/light/archive?dryRun=1`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip });

@@ -564,6 +564,9 @@ const fr = {
   searchLooksHelp: "Par nom, technique ou tag",
   folder: "Dossier",
   allFolders: "Tous les dossiers",
+  usedBy: "est encore utilisé :",
+  deleteAnyway: "Le supprimer quand même ? Ces endroits perdront leur cible.",
+  fadersCount: "faders",
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1130,6 +1133,9 @@ const en: typeof fr = {
   searchLooksHelp: "By name, technique or tag",
   folder: "Folder",
   allFolders: "All folders",
+  usedBy: "is still used by:",
+  deleteAnyway: "Delete it anyway? These places will lose their target.",
+  fadersCount: "faders",
 };
 
 export type Lang = "fr" | "en";

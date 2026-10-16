@@ -13,6 +13,7 @@ import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
+import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
@@ -21,6 +22,26 @@ import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
   const id = z.object({ id: z.string() });
+  /**
+   * What uses a look, a group or a fader (show/references.ts). Songs and mappings are opened on
+   * call: a store collection keeps the schema of its first opening, and the plugin opens those two
+   * with their own schemas after these commands are registered.
+   */
+  const parts = (): ShowParts => ({
+    groups: show.groups.list(),
+    faders: show.faders.list(),
+    mappings: show.store.collection("mappings", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["mappings"],
+    dashboards: dashboards.list(),
+    snapshots: show.snapshots.list(),
+    songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
+    safeLook: show.settings.safeLook,
+  });
+  /** Deleting what is still used is refused (the error says where), unless `force`. */
+  const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean) => {
+    const uses = usesOf(kind, i, parts());
+    if (uses.length && !force) throw new Error(inUseMessage(name ?? i, uses));
+  };
+  const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
 
   /** Raw channels (fixture + offset) must exist: refused otherwise. */
   const checkChannels = (channels: { fixture: string; offset: number }[]) => {
@@ -193,7 +214,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: show.stepsOf(look).map((step) => step.map((c) => (c ? displayHex(c) : null))) };
     },
   });
-  reg.register({ name: "look.delete", title: "Supprimer un look", description: "Deletes a look.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => (show.stop(i), { deleted: show.looks.delete(i) }) });
+  reg.register({
+    name: "look.delete",
+    title: "Supprimer un look",
+    description: "Deletes a look. Refused while something uses it (see show.references), unless force.",
+    right: "show:write",
+    profiles: ["design"],
+    schema: deletable,
+    run: ({ id: i, force }) => (removable("look", i, show.looks.get(i)?.name, force), show.stop(i), { deleted: show.looks.delete(i) }),
+  });
   reg.register({
     name: "look.go",
     title: "Lancer un look",
@@ -209,7 +238,25 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- groups
   reg.register({ name: "group.list", title: "Groupes", description: "Groups (members, sub-groups, master, exclusive, limits) with their effective level.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.groups.list().map((g) => ({ ...g, effectiveLevel: show.effectiveLevel(g.id) })) });
   reg.register({ name: "group.put", title: "Groupe", description: "Creates or updates a unified group: members (fixtures, looks, sub-groups), selector, optional master, exclusive, limits, included/excluded presets.", right: "show:write", profiles: ["setup", "design"], schema: z.object({ group: GroupSchema }), run: ({ group }) => show.groups.put(group) });
-  reg.register({ name: "group.delete", title: "Supprimer un groupe", description: "Deletes a group.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: show.groups.delete(i) }) });
+  reg.register({
+    name: "group.delete",
+    title: "Supprimer un groupe",
+    description: "Deletes a group. Refused while something uses it (sub-group, channel fader DCA, mapping, dashboard, snapshot, song), unless force.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: deletable,
+    run: ({ id: i, force }) => (removable("group", i, show.groups.get(i)?.name, force), { deleted: show.groups.delete(i) }),
+  });
+  reg.register({
+    name: "show.references",
+    title: "Où c'est utilisé",
+    description: "Where a look, a group (DCA) or a channel fader is used: groups, channel faders, MIDI mappings, dashboards, snapshots, songs, safe state. Empty when nothing uses it.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ kind: z.enum(["look", "group", "fader"]), id: z.string() }),
+    run: ({ kind, id: i }) => ({ uses: usesOf(kind, i, parts()) }),
+  });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {
     const g = show.groups.get(groupId);
     if (!g) throw new Error(`groupe inconnu : ${groupId}`);
@@ -237,7 +284,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return show.faders.put(fader);
     },
   });
-  reg.register({ name: "fader.delete", title: "Supprimer un fader de canaux", description: "Deletes a channel fader.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: show.faders.delete(i) }) });
+  reg.register({
+    name: "fader.delete",
+    title: "Supprimer un fader de canaux",
+    description: "Deletes a channel fader. Refused while something uses it (mapping, dashboard, snapshot, song), unless force.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: deletable,
+    run: ({ id: i, force }) => (removable("fader", i, show.faders.get(i)?.name, force), { deleted: show.faders.delete(i) }),
+  });
   reg.register({
     name: "fader.level",
     title: "Niveau d'un fader de canaux",
