@@ -601,7 +601,9 @@ export class LightPlugin implements McpPlugin {
     });
     router.post("/commands/:name", async (req: Request, res: Response) => {
       try {
-        res.json({ ok: true, result: await this.invoke(String(req.params.name), req.body, "ui", credential(req)) });
+        // the CLI says so (activity log); anything else over HTTP is the interface or a script
+        const origin = req.get("x-light-origin") === "cli" ? "cli" : "ui";
+        res.json({ ok: true, result: await this.invoke(String(req.params.name), req.body, origin, credential(req)) });
       } catch (err) {
         const status = err instanceof CommandError ? { unknown: 404, invalid: 400, forbidden: 403, failed: 422 }[err.code] : 500;
         res.status(status).json({ ok: false, error: err instanceof Error ? err.message : String(err), detail: err instanceof CommandError ? err.detail : undefined });

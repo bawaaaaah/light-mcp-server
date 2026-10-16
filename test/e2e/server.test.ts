@@ -79,6 +79,17 @@ describe("server end to end", function () {
     expect(h.status).to.equal("HEALTHY");
   });
 
+  it("logs who did what and from where: the CLI says so, the rest is the interface", async () => {
+    const token = await login("1234");
+    const call = (headers: Record<string, string>) => fetch(`${base}/api/plugins/light/commands/show.settings.set`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...headers }, body: "{}" });
+    await call({ "x-light-origin": "cli" });
+    await call({ "x-light-origin": "anything" });
+    const res = await command(token, "activity.list", { limit: 2 });
+    const [last, before] = ((await res.json()) as { result: { origin: string; who?: string; name: string }[] }).result;
+    expect(before).to.deep.include({ name: "show.settings.set", origin: "cli", who: "Régisseur" });
+    expect(last).to.deep.include({ origin: "ui" });
+  });
+
   it("lets no other site frame any page, the refusals included", async () => {
     for (const res of [await fetch(`${base}/health`), await fetch(`${base}/api/auth/me`)]) {
       expect(res.headers.get("x-frame-options")).to.equal("DENY");

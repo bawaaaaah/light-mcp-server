@@ -37,7 +37,8 @@ export async function connect(opts: { configPath: string; dataRoot: string; url?
   const base = (opts.url ?? process.env.LIGHT_URL ?? localBaseUrl(resolveListen({ port: store.getServerPort(), host: store.getServerHost() }))).replace(/\/$/, "");
   if (!opts.offline && (await reachable(base))) {
     const token = await opts.token();
-    const http = (route: string, init: RequestInit = {}) => fetch(`${base}/api/plugins/light${route}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });
+    // x-light-origin: the activity log says « CLI », not « interface »
+    const http = (route: string, init: RequestInit = {}) => fetch(`${base}/api/plugins/light${route}`, { ...init, headers: { authorization: `Bearer ${token}`, "x-light-origin": "cli", ...(init.headers ?? {}) } });
     return {
       mode: "server",
       http,
@@ -56,7 +57,7 @@ export async function connect(opts: { configPath: string; dataRoot: string; url?
     plugin,
     async call<T>(command: string, args: unknown = {}): Promise<T> {
       try {
-        return (await plugin.commands.invoke(command, args, systemContext())) as T;
+        return (await plugin.commands.invoke(command, args, systemContext("cli"))) as T;
       } catch (err) {
         throw new CliError(`${command} : ${(err as Error).message}`);
       }
