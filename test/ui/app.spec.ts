@@ -798,7 +798,7 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   await editor.locator(".steps-editor .step-row .cell").first().dispatchEvent("pointerdown");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
-  const look = (await api(page, "look.list")) as { id: string; technique: { kind: string; steps: string[][] } }[];
+  const look = (await api(page, "look.list", { brief: false })) as { id: string; technique: { kind: string; steps: string[][] } }[];
   const mine = look.find((l) => l.id === "mon-damier")!;
   expect(mine.technique.kind).toBe("pas");
   expect(mine.technique.steps[0]![0]).toBe("-");
@@ -835,7 +835,7 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
   await expect(editor).toHaveCount(0);
   await expect.poll(async () => (await dmx(page))[2]).toBe(200);
-  const mine = ((await api(page, "look.list")) as { id: string; channels?: unknown }[]).find((l) => l.id === "machine")!;
+  const mine = ((await api(page, "look.list", { brief: false })) as { id: string; channels?: unknown }[]).find((l) => l.id === "machine")!;
   expect(mine.channels).toEqual({ targets: [{ fixture: "bar-0", offset: 2 }], steps: [[200]] });
   await api(page, "look.stopall");
   await expect.poll(async () => (await dmx(page))[2]).toBe(0);
@@ -1016,7 +1016,7 @@ test("restoring a backup shows the differences first", async ({ page }) => {
   await input.setInputFiles(file);
   await expect(page.locator(".files .error")).toContainText("identique");
   // a look renamed since the backup: the dialog lists it, accepting restores it
-  const look = ((await api(page, "look.list")) as { id: string; name: string }[]).find((l) => l.id === "hole")!;
+  const look = (await api(page, "look.get", { id: "hole" })) as { id: string; name: string };
   await api(page, "look.put", { look: { ...look, name: "Renommé" } });
   let message = "";
   page.once("dialog", (d) => {

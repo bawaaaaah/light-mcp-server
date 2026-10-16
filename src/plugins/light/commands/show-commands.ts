@@ -183,17 +183,18 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.list",
     title: "Looks",
-    description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button). brief: true leaves out what only editing needs (technique parameters and steps, raw channels, move details, notes): an imported look's exact steps weigh tens of kilobytes; look.get gives one look whole.",
+    description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button). Brief by default: what only editing needs (technique parameters and steps, raw channels, move details, notes) is left out, since an imported show's exact steps weigh about a megabyte; look.get gives one look whole, brief: false every look whole.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "live"],
-    schema: z.object({ brief: z.boolean().default(false) }),
+    schema: z.object({ brief: z.boolean().default(true) }),
     run: ({ brief }) =>
       show.looks.list().map((l) => {
         const extra = { active: show.isActive(l.id), swatch: swatch(l) };
         if (!brief) return { ...l, ...extra };
         const { technique, channels: _c, move, notes: _n, ...rest } = l;
-        return { ...rest, technique: { kind: technique.kind }, ...(move ? { move: { shape: move.shape } } : {}), ...extra };
+        // partial: look.put refuses it, so a list → edit → put round trip cannot drop the steps or raw channels
+        return { ...rest, technique: { kind: technique.kind }, ...(move ? { move: { shape: move.shape } } : {}), ...extra, partial: true };
       }),
   });
   reg.register({
@@ -216,7 +217,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis, center, size, every, spread, fan, group).",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ look: LookSchema }),
+    // a look from the brief list (partial) is refused before anything else: saved, it would lose its steps or raw channels
+    schema: z.object({
+      look: z.preprocess(
+        (v, ctx) => {
+          if (v && typeof v === "object" && (v as { partial?: unknown }).partial === true) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "look partiel (liste résumée, sans ses pas ni ses canaux) : le lire entier avec look.get avant de le modifier" });
+            return z.NEVER;
+          }
+          return v;
+        },
+        LookSchema,
+      ),
+    }),
     run: ({ look }) => {
       if (!venue.canvases.get(look.canvas)) throw new Error(`canevas inconnu : ${look.canvas}`);
       // « jamais coupé » (noCut): only techniques that never switch a cell off

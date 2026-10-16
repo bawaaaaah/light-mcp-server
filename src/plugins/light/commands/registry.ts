@@ -84,7 +84,12 @@ export class CommandRegistry {
     if (!def) throw new CommandError("unknown", `commande inconnue : ${name}`);
     if (!ctx.can(def.right)) throw new CommandError("forbidden", `droit requis : ${def.right}`);
     const parsed = def.schema.safeParse(rawArgs ?? {});
-    if (!parsed.success) throw new CommandError("invalid", `arguments invalides pour ${name}`, parsed.error.flatten());
+    if (!parsed.success) {
+      // the first problem, where it is: a person or an AI client can act on it without the details
+      const first = parsed.error.issues[0];
+      const where = first?.path.length ? `${first.path.join(".")} : ` : "";
+      throw new CommandError("invalid", `arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, parsed.error.flatten());
+    }
     const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}) };
     try {
       const result = await def.run(parsed.data, ctx);

@@ -19,15 +19,25 @@ describe("look list: brief for buttons, whole for the editor", () => {
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
   });
 
-  it("leaves the steps out of the brief list, keeps what a button and the Show table show", async () => {
-    const full = (await run("look.list")) as Record<string, unknown>[];
-    const brief = (await run("look.list", { brief: true })) as { id: string; name: string; active: boolean; swatch?: string; technique: Record<string, unknown>; timing: unknown; tags: string[]; notes?: string }[];
+  it("is brief by default: no steps, but what a button and the Show table show", async () => {
+    const full = (await run("look.list", { brief: false })) as Record<string, unknown>[];
+    const brief = (await run("look.list")) as { id: string; name: string; active: boolean; swatch?: string; technique: Record<string, unknown>; timing: unknown; tags: string[]; notes?: string }[];
     expect(brief.map((l) => l.id)).to.deep.equal(full.map((l) => l.id));
     const checker = brief.find((l) => l.id === "checker")!;
     expect(checker.technique).to.deep.equal({ kind: "pas" });
     expect(checker).to.include.keys("name", "active", "swatch", "timing", "tags");
     expect(checker.notes).to.equal(undefined);
     expect(JSON.stringify(brief).length).to.be.below(JSON.stringify(full).length / 2);
+  });
+
+  it("refuses to save a look taken from the brief list, which would drop its steps", async () => {
+    const brief = ((await run("look.list")) as { id: string; name: string }[]).find((l) => l.id === "checker")!;
+    let refused = "";
+    await run("look.put", { look: { ...brief, name: "Renommé" } }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("look.get");
+    const whole = (await run("look.get", { id: "checker" })) as Record<string, unknown>;
+    await run("look.put", { look: { ...whole, name: "Renommé" } }); // the whole look goes through
+    expect(plugin.runtime.looks.get("checker")!.name).to.equal("Renommé");
   });
 
   it("gives one look whole", async () => {
