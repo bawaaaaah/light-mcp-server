@@ -155,7 +155,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <input size={4} value={song.key ?? ""} onChange={(e) => set({ key: e.target.value || undefined })} />
         </label>
         <label className="field">
-          <span>BPM</span>
+          <span>{t.bpm}</span>
           <input type="number" min={20} max={400} value={song.bpm} onChange={(e) => set({ bpm: Number(e.target.value) })} />
         </label>
         <label className="field">
@@ -237,7 +237,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
                 <input type="number" min={0.25} step={1} value={s.bars} onChange={(e) => Number(e.target.value) > 0 && setSection(i, { bars: Number(e.target.value) })} />
               </td>
               <td>
-                <input type="number" min={0} placeholder="auto" value={s.atBar ?? ""} onChange={(e) => setSection(i, { atBar: optNumber(e.target.value) })} />
+                <input type="number" min={0} placeholder={t.auto} value={s.atBar ?? ""} onChange={(e) => setSection(i, { atBar: optNumber(e.target.value) })} />
               </td>
               {programs.length > 0 && (
                 <td>

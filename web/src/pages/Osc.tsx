@@ -29,7 +29,7 @@ export function OscPage() {
     });
   };
   const exportTable = () => {
-    const md = ["| Adresse | Paramètres | Action |", "|---|---|---|", ...routes.map((r) => `| \`${r.address}\` | ${r.params.join(" ")} | ${r.description} |`)].join("\n");
+    const md = [t.oscTableHeader, "|---|---|---|", ...routes.map((r) => `| \`${r.address}\` | ${r.params.join(" ")} | ${r.description} |`)].join("\n");
     copy(md);
   };
   return (

@@ -24,7 +24,7 @@ const mix = (a: string | null, b: string | null, k: number): string | null => {
   return `rgb(${x.map((v, i) => Math.round(v + (y[i]! - v) * k)).join(",")})`;
 };
 
-export function LookPreview({ preview, timing, bpm }: { preview: Preview; timing: Timing; bpm: number }) {
+export function LookPreview({ preview, timing, bpm, label }: { preview: Preview; timing: Timing; bpm: number; label: string }) {
   const [frame, setFrame] = useState<(string | null)[]>([]);
   const start = useRef(performance.now());
   const order = useRef<number[]>([]);
@@ -69,7 +69,7 @@ export function LookPreview({ preview, timing, bpm }: { preview: Preview; timing
 
   const columns = preview.topology === "grid" && preview.columns ? preview.columns : preview.cells;
   return (
-    <div className="preview" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} aria-label="aperçu">
+    <div className="preview" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} aria-label={label}>
       {Array.from({ length: preview.cells }, (_, k) => (
         <span key={k} className={frame[k] ? "cell" : "cell free"} style={{ background: frame[k] ?? undefined }} />
       ))}

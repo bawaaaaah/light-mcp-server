@@ -29,3 +29,6 @@ export function jumpTo(e: { preventDefault(): void }, id: string): void {
   e.preventDefault();
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+/** The label of a server identifier (technique, order, topology…), or the identifier itself when the UI has none. */
+export const labelOf = (labels: Record<string, string>, id: string) => labels[id] ?? id;

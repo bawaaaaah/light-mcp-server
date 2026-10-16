@@ -3,13 +3,35 @@ import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
 
-/** DMX console: one fader per channel, live output values, park/release (docs/specs/ui-dashboards.md). */
+interface Patched {
+  id: string;
+  name: string;
+  universe: number;
+  address: number;
+  channels: { offset: number; name: string }[];
+}
+
+const PATCHED_ONLY = "console.patchedOnly";
+
+/**
+ * DMX console: one fader per channel, live output values, park/release (docs/specs/ui-dashboards.md).
+ * By default it shows the patched channels grouped by fixture, with their names, as a console's
+ * fixture sheet does; « tous les canaux » brings back the 512.
+ */
 export function ConsolePage() {
   const t = useT();
   const [universe, setUniverse] = useState(1);
   const [count, setCount] = useState(1);
   const [values, setValues] = useState<Uint8Array>(new Uint8Array(512));
   const [parked, setParked] = useState<Record<number, number>>({});
+  const [patch, setPatch] = useState<Patched[]>([]);
+  const [patchedOnly, setPatchedOnly] = useState(() => {
+    try {
+      return localStorage.getItem(PATCHED_ONLY) !== "0";
+    } catch {
+      return true;
+    }
+  });
   const [error, setError] = useState("");
   const pending = useRef(new Map<number, number>());
   const timer = useRef<number | null>(null);
@@ -17,6 +39,12 @@ export function ConsolePage() {
   useEffect(() => {
     void lightState()
       .then((s) => setCount(s.universes))
+      .catch(() => undefined);
+    void Promise.all([
+      cmd<{ id: string; name: string; universe: number; address: number }[]>("venue.fixture.list"),
+      cmd<{ id: string; channels: { offset: number; name: string }[] }[]>("venue.fixture.channels"),
+    ])
+      .then(([fixtures, channels]) => setPatch(fixtures.map((f) => ({ ...f, channels: channels.find((c) => c.id === f.id)?.channels ?? [] }))))
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -47,6 +75,52 @@ export function ConsolePage() {
       });
     });
   };
+  const release = (ch: number) => {
+    void cmd("dmx.release", { universe, channels: [ch] });
+    setParked((p) => {
+      const n = { ...p };
+      delete n[ch];
+      return n;
+    });
+  };
+  const showPatchedOnly = (on: boolean) => {
+    setPatchedOnly(on);
+    try {
+      localStorage.setItem(PATCHED_ONLY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
+  const fixtures = patch.filter((f) => f.universe === universe && f.channels.length > 0).sort((a, b) => a.address - b.address);
+  const names = new Map<number, { fixture: string; channel: string }>();
+  for (const f of fixtures) for (const c of f.channels) names.set(f.address + c.offset, { fixture: f.name, channel: c.name });
+  const byFixture = patchedOnly && fixtures.length > 0;
+
+  const fader = (ch: number) => {
+    const isParked = parked[ch] !== undefined;
+    const v = values[ch - 1] ?? 0;
+    const name = names.get(ch);
+    return (
+      <div key={ch} className={isParked ? "ch parked" : "ch"} title={name ? `${name.fixture} · ${name.channel}` : undefined}>
+        <span className="num">{ch}</span>
+        <input
+          type="range"
+          min={0}
+          max={255}
+          aria-label={name ? `${ch} ${name.fixture} ${name.channel}` : String(ch)}
+          value={isParked ? parked[ch] : v}
+          onChange={(e) => park(ch, Number(e.target.value))}
+          onDoubleClick={() => release(ch)}
+          title={isParked ? `${t.parked} — ${t.release}: ${t.doubleClick}` : ""}
+        />
+        <span className="val" style={{ background: `rgba(255,190,90,${v / 255})` }}>
+          {v}
+        </span>
+        {name && <span className="lbl">{name.channel}</span>}
+      </div>
+    );
+  };
 
   return (
     <div className="console">
@@ -61,6 +135,16 @@ export function ConsolePage() {
             ))}
           </select>
         </label>
+        {fixtures.length > 0 && (
+          <span className="row view-switch" role="radiogroup" aria-label={t.consoleView}>
+            <button role="radio" aria-checked={byFixture} className={byFixture ? "ghost on" : "ghost"} onClick={() => showPatchedOnly(true)}>
+              {t.patchedChannels}
+            </button>
+            <button role="radio" aria-checked={!byFixture} className={byFixture ? "ghost" : "ghost on"} onClick={() => showPatchedOnly(false)}>
+              {t.allChannels}
+            </button>
+          </span>
+        )}
         <button
           onClick={() =>
             void cmd("dmx.release", { universe }).then(() => {
@@ -76,37 +160,20 @@ export function ConsolePage() {
           </span>
         )}
       </section>
-      <div className="channels">
-        {Array.from({ length: 512 }, (_, i) => {
-          const ch = i + 1;
-          const isParked = parked[ch] !== undefined;
-          const v = values[i] ?? 0;
-          return (
-            <div key={ch} className={isParked ? "ch parked" : "ch"}>
-              <span className="num">{ch}</span>
-              <input
-                type="range"
-                min={0}
-                max={255}
-                value={isParked ? parked[ch] : v}
-                onChange={(e) => park(ch, Number(e.target.value))}
-                onDoubleClick={() => {
-                  void cmd("dmx.release", { universe, channels: [ch] });
-                  setParked((p) => {
-                    const n = { ...p };
-                    delete n[ch];
-                    return n;
-                  });
-                }}
-                title={isParked ? `${t.parked} — ${t.release}: double-clic` : ""}
-              />
-              <span className="val" style={{ background: `rgba(255,190,90,${v / 255})` }}>
-                {v}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {byFixture ? (
+        <div className="channels by-fixture">
+          {fixtures.map((f) => (
+            <section key={f.id} className="fx" aria-label={f.name}>
+              <h3>
+                {f.name} <small>U{f.universe}.{f.address}</small>
+              </h3>
+              <div className="fx-ch">{f.channels.map((c) => fader(f.address + c.offset))}</div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="channels">{Array.from({ length: 512 }, (_, i) => fader(i + 1))}</div>
+      )}
     </div>
   );
 }

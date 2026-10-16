@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
-import { jumpTo, slug } from "../util";
+import { jumpTo, labelOf, slug } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
@@ -111,9 +111,11 @@ export function VenuePage() {
           <div className="editor">
             <input placeholder={t.name} value={canvasDraft.name} onChange={(e) => setCanvasDraft({ ...canvasDraft, name: e.target.value })} />
             <select value={canvasDraft.topology} onChange={(e) => setCanvasDraft({ ...canvasDraft, topology: e.target.value })}>
-              <option value="line">ligne</option>
-              <option value="line-mirror">ligne miroir</option>
-              <option value="ring">anneau</option>
+              {(["line", "line-mirror", "ring"] as const).map((k) => (
+                <option key={k} value={k}>
+                  {t.topologies[k]}
+                </option>
+              ))}
             </select>
             <button
               disabled={!canvasDraft.name || canvasDraft.fixtures.length === 0}
@@ -126,7 +128,7 @@ export function VenuePage() {
           <ul>
             {canvases.map((c) => (
               <li key={c.id}>
-                {c.name} <small>({c.topology}, {c.cells})</small>
+                {c.name} <small>({labelOf(t.topologies, c.topology)}, {c.cells})</small>
               </li>
             ))}
           </ul>
@@ -134,7 +136,7 @@ export function VenuePage() {
           <ul>
             {zones.map((z) => (
               <li key={z.id}>
-                {z.name} <small>({z.type})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
+                {z.name} <small>({labelOf(t.zoneTypes, z.type)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
               </li>
             ))}
           </ul>
@@ -152,10 +154,10 @@ export function VenuePage() {
               ))}
             </select>
             <select value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
-              <option value="">mode</option>
+              <option value="">{t.mode}</option>
               {def?.modes.map((m) => (
                 <option key={m.name} value={m.name}>
-                  {m.name} ({m.channels} ch{m.heads ? `, ${m.heads} têtes` : ""})
+                  {m.name} ({m.channels} ch{m.heads ? `, ${m.heads} ${t.headCount}` : ""})
                 </option>
               ))}
             </select>
@@ -168,10 +170,10 @@ export function VenuePage() {
               @
               <input type="number" min={1} max={512} value={draft.address} onChange={(e) => setDraft({ ...draft, address: Number(e.target.value) })} title={t.address} />
             </label>
-            <button className="ghost" onClick={() => setDraft({ ...draft, address: nextAddress(draft.universe) })}>
-              auto
+            <button className="ghost" title={t.firstFreeAddress} onClick={() => setDraft({ ...draft, address: nextAddress(draft.universe) })}>
+              {t.auto}
             </button>
-            <input placeholder="rôle (face, contre…)" value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} />
+            <input placeholder={t.rolePlaceholder} value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} />
             <button
               className="primary"
               disabled={!def || !draft.mode || !draft.name}

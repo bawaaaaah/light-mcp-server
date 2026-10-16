@@ -59,7 +59,7 @@ export function ConnectPage({ role }: { role: Role }) {
   const curl = snippet(
     (tok) => `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -H "Accept: application/json, text/event-stream" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'`,
   );
-  const stdio = "claude mcp add light -- node /chemin/vers/light-mcp-server/dist/cli/main.js serve --stdio --no-http";
+  const stdio = `claude mcp add light -- node ${t.pathToServer}/dist/cli/main.js serve --stdio --no-http`;
   const config = JSON.stringify({ server: { publicUrl: "https://lumiere.example.com", trustProxy: 1, host: "127.0.0.1", port: 8790 } }, null, 2);
   const caddy = "lumiere.example.com {\n  reverse_proxy 127.0.0.1:8790\n}";
   const nginx = [

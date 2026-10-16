@@ -71,7 +71,7 @@ export function SettingsPage({ role }: { role: Role }) {
           ))}
           {output && (
             <p>
-              {output.stats.framesSent} trames · {output.stats.packetsSent} paquets · {output.stats.errors} erreurs · découverte {output.stats.discovery}
+              {output.stats.framesSent} {t.outputStats.frames} · {output.stats.packetsSent} {t.outputStats.packets} · {output.stats.errors} {t.outputStats.errors} · {t.outputStats.discovery} {output.stats.discovery}
               {output.stats.discoveryError && <small className="warn"> ({output.stats.discoveryError})</small>}
             </p>
           )}
@@ -87,7 +87,7 @@ export function SettingsPage({ role }: { role: Role }) {
           <ul>
             {nodes.map((n) => (
               <li key={n.ip}>
-                <strong>{n.shortName}</strong> {n.ip} <small>sorties {n.outputAddresses.join(", ")}</small>
+                <strong>{n.shortName}</strong> {n.ip} <small>{t.nodeOutputs} {n.outputAddresses.join(", ")}</small>
               </li>
             ))}
           </ul>

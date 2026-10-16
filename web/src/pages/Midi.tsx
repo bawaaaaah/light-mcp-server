@@ -25,13 +25,14 @@ interface Mapping {
 
 /** Web MIDI: a controller plugged into this browser's device relays its messages to the server. */
 function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
+  const t = useT();
   const [inputs, setInputs] = useState<string[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!enabled) return;
     const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<MIDIAccess> };
     if (!nav.requestMIDIAccess) {
-      setError("Web MIDI indisponible dans ce navigateur (Safari, iPad) : utiliser Chrome ou Edge");
+      setError(t.webMidiUnavailable);
       return;
     }
     let access: MIDIAccess | undefined;

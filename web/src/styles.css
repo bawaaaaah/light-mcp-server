@@ -265,6 +265,46 @@ main {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+.nowrap {
+  white-space: nowrap;
+}
+.ch .lbl {
+  max-width: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+/* DMX console by fixture: one block per patched fixture, its channels side by side. */
+.channels.by-fixture {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fx {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px 6px;
+  max-width: 100%;
+}
+.fx h3 {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+}
+.fx h3 small {
+  color: var(--muted);
+  font-weight: normal;
+}
+.fx-ch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fx-ch .ch {
+  width: 44px;
+}
 .cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -369,12 +409,25 @@ button.danger {
 .cell .fader input[type="range"] {
   height: auto;
   flex: 1;
-  min-height: 120px;
+  min-height: 48px;
 }
+/* in a dashboard cell the fader takes the cell's height: the slider shrinks, the buttons and
+   the name stay visible */
 .cell .fader {
   display: flex;
   flex-direction: column;
   align-items: center;
+  height: 100%;
+  gap: 0.15em;
+}
+.cell .fader .track {
+  min-height: 0;
+}
+.cell .fader > * {
+  flex-shrink: 0;
+}
+.cell .fader > .track {
+  flex-shrink: 1;
 }
 
 .song h2 {
@@ -1209,6 +1262,11 @@ nav.jump a:hover {
 .dgrid-scroll {
   overflow-x: auto;
   padding-bottom: 0.4em;
+}
+@media (max-width: 999px) {
+  .dashboards {
+    --colmin: 56px; /* a tablet keeps a 12-column dashboard on screen */
+  }
 }
 .dgrid.fine {
   gap: 0;

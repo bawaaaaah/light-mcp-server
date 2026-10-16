@@ -517,10 +517,10 @@ export function DashboardsPage({ role }: { role: Role }) {
               </small>
             )}
             <div className="row">
-              <button className={g.master?.mute ? "mute on" : "mute"} {...locked("commands:level")} onClick={() => void run("group.mute", { id: g.id, mute: !g.master?.mute })}>
+              <button className={g.master?.mute ? "mute on" : "mute"} title={t.muteHelp} aria-label={`${t.muteHelp} ${w.label ?? g.name}`} {...locked("commands:level")} onClick={() => void run("group.mute", { id: g.id, mute: !g.master?.mute })}>
                 M
               </button>
-              <button {...locked("commands:trigger")} onPointerDown={() => void run("group.flash", { id: g.id, on: true })} onPointerUp={() => void run("group.flash", { id: g.id, on: false })}>
+              <button title={t.flashHelp} aria-label={`${t.flashHelp} ${w.label ?? g.name}`} {...locked("commands:trigger")} onPointerDown={() => void run("group.flash", { id: g.id, on: true })} onPointerUp={() => void run("group.flash", { id: g.id, on: false })}>
                 F
               </button>
             </div>
@@ -677,7 +677,7 @@ export function DashboardsPage({ role }: { role: Role }) {
             {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             {(sel.kind === "group-fader" || sel.kind === "xy") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
-          <input placeholder="label" value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
+          <input placeholder={t.labelText} aria-label={t.labelText} value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           {(sel.kind === "look" || sel.kind === "blackout") && (
             <select aria-label={t.mode} value={sel.mode ?? "latch"} onChange={(e) => updateWidget(sel.id, { mode: e.target.value as ButtonMode })}>
               {(["latch", "momentary", "trigger"] as const).map((m) => (

@@ -161,7 +161,7 @@ export function FilesPage({ role }: { role: Role }) {
               <tr key={b.file}>
                 <td>{when(b.createdAt)}</td>
                 <td className="hint">{b.file}</td>
-                <td className="hint">{Math.max(1, Math.round(b.size / 1024))} Kio</td>
+                <td className="hint">{Math.max(1, Math.round(b.size / 1024))} {t.kib}</td>
                 <td className="row">
                   {write && (
                     <button onClick={() => confirm(`${t.restoreBackupConfirm}\n\n${b.file}`) && act(cmd("backup.restore", { file: b.file }), t.restored)}>{t.restore}</button>

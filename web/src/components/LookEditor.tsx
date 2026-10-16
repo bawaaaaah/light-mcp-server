@@ -12,7 +12,7 @@ import { useTopic } from "../hooks/useTopic";
 import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
 import { StepsEditor } from "./StepsEditor";
 import { LookPreview, type Preview } from "./LookPreview";
-import { slug, splitList, uniqueId } from "../util";
+import { labelOf, slug, splitList, uniqueId } from "../util";
 
 type Every = { beats: number } | { seconds: number };
 interface Move {
@@ -129,7 +129,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   return (
     <section className="look-editor">
       <h2>{isNew ? t.newLook : `${t.editLook} · ${initial.name}`}</h2>
-      {preview && <LookPreview preview={preview} timing={look.timing} bpm={tempo?.bpm ?? 120} />}
+      {preview && <LookPreview preview={preview} timing={look.timing} bpm={tempo?.bpm ?? 120} label={t.preview} />}
       <div className="fields">
         <label className="field">
           <span>{t.name}</span>
@@ -150,7 +150,9 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           <span>{t.technique}</span>
           <select value={look.technique.kind} onChange={(e) => changeKind(e.target.value)}>
             {kinds.map((k) => (
-              <option key={k.kind}>{k.kind}</option>
+              <option key={k.kind} value={k.kind}>
+                {labelOf(t.techniqueNames, k.kind)}
+              </option>
             ))}
           </select>
         </label>
@@ -168,7 +170,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
         <label className="field">
           <span>{t.mirror}</span>
           <select value={look.mirror === undefined ? "" : String(look.mirror)} onChange={(e) => set({ mirror: e.target.value === "" ? undefined : e.target.value === "true" })}>
-            <option value="">auto</option>
+            <option value="">{t.auto}</option>
             <option value="true">{t.yes}</option>
             <option value="false">{t.no}</option>
           </select>
@@ -194,7 +196,9 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           <span>{t.order}</span>
           <select value={look.timing.order} onChange={(e) => setTiming({ order: e.target.value })}>
             {["loop", "pingpong", "random", "weighted"].map((o) => (
-              <option key={o}>{o}</option>
+              <option key={o} value={o}>
+                {labelOf(t.orders, o)}
+              </option>
             ))}
           </select>
         </label>
@@ -230,7 +234,9 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
                 <span>{t.shape}</span>
                 <select value={look.move.shape} onChange={(e) => setMove({ shape: e.target.value })}>
                   {["fixe", "cercle", "huit", "pan", "tilt", "tapis"].map((s) => (
-                    <option key={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {labelOf(t.moveShapes, s)}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -258,8 +264,8 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
                     <EveryInput value={look.move.every} onChange={(every) => setMove({ every })} />
                   </label>
                   <label className="field">
-                    <span>spread</span>
-                    <input type="number" min={0} max={4} step={0.25} placeholder="auto" value={look.move.spread ?? ""} onChange={(e) => setMove({ spread: e.target.value === "" ? undefined : Number(e.target.value) })} />
+                    <span>{t.fields.spread}</span>
+                    <input type="number" min={0} max={4} step={0.25} placeholder={t.auto} value={look.move.spread ?? ""} onChange={(e) => setMove({ spread: e.target.value === "" ? undefined : Number(e.target.value) })} />
                   </label>
                   <label className="field">
                     <span>{t.fields.wings}</span>
@@ -318,7 +324,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           {t.save}
         </button>
         <button onClick={() => void save(true)}>{t.saveAndPlay}</button>
-        {!isNew && <button onClick={() => setLook({ ...look, id: "", name: `${look.name} (copie)` })}>{t.duplicate}</button>}
+        {!isNew && <button onClick={() => setLook({ ...look, id: "", name: `${look.name} (${t.copySuffix})` })}>{t.duplicate}</button>}
         <button className="ghost" onClick={() => onClose()}>
           {t.close}
         </button>

@@ -13,6 +13,7 @@ const ROLES = [
 ] as const;
 const VIEWPORTS = [
   { label: "desktop", width: 1280, height: 800 },
+  { label: "tablet", width: 820, height: 1180 },
   { label: "phone", width: 390, height: 844 },
 ] as const;
 
@@ -46,3 +47,19 @@ for (const viewport of VIEWPORTS) {
     });
   }
 }
+
+test("tour in English · admin: every page, nothing wider than the screen", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await signIn(page, "admin", "9999");
+  await page.locator("header select").selectOption("en");
+  const pages = await page.locator("nav.pages button").allTextContents();
+  for (const name of pages) {
+    await page.locator("nav.pages button", { hasText: name }).first().click();
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: `test-results/tour/en-${name.replace(/\s/g, "-")}.png`, fullPage: true });
+  }
+  await page.locator("header select").selectOption("fr");
+  expect(errors).toEqual([]);
+});

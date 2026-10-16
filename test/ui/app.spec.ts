@@ -503,13 +503,19 @@ test("DMX console: shows live values and parks a channel", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.getByRole("button", { name: "Console DMX" }).click();
-  await expect(page.locator(".ch")).toHaveCount(512);
-  const ch10 = page.locator(".ch").nth(9);
+  // by default, the patched channels of universe 1, grouped by fixture and named
+  const bar0 = page.getByRole("region", { name: "Bar 0" });
+  await expect(bar0.locator(".ch")).toHaveCount(15);
+  await expect(page.locator(".fx")).toHaveCount(2);
+  const ch10 = bar0.locator(".ch").nth(9);
   await ch10.locator("input").fill("200");
   await expect(ch10).toHaveClass(/parked/);
   await expect(ch10.locator(".val")).toHaveText("200");
   await page.getByRole("button", { name: "Tout relâcher" }).click();
   await expect(ch10).not.toHaveClass(/parked/);
+  await page.getByRole("radio", { name: "Les 512 canaux" }).click();
+  await expect(page.locator(".ch")).toHaveCount(512);
+  await page.getByRole("radio", { name: "Canaux patchés" }).click(); // the choice is remembered: leave the default
   expect(errors).toEqual([]);
 });
 
@@ -1077,7 +1083,7 @@ test("dashboard editor: add a label widget and save", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "✎" }).click();
   await page.locator(".palette").getByRole("button", { name: "Titre", exact: true }).click();
-  await page.locator(".editor input[placeholder=label]").fill("Mon repère");
+  await page.locator(".editor").getByLabel("Libellé", { exact: true }).fill("Mon repère");
   await page.getByRole("button", { name: "✔" }).click();
   await expect(page.locator(".w-label", { hasText: "Mon repère" })).toBeVisible();
   await page.reload();

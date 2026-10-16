@@ -124,7 +124,7 @@ export function SongsPage() {
       {ordered.map((song) => (
         <section key={song.id} className={song.id === state.song ? "song current" : "song"}>
           <h2 onClick={() => void run("song.select", { id: song.id })}>
-            {song.title} <small>{[song.key, `${song.bpm} BPM`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>{" "}
+            {song.title} <small>{[song.key, `${song.bpm} ${t.bpm}`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>{" "}
             {song.id === state.song && state.transport?.playing ? (
               <button className="ghost" aria-label={`${t.stop} ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("song.stop"))}>
                 ■

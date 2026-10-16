@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import { labelOf } from "../util";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
@@ -97,7 +98,7 @@ export function ShowPage() {
     ...(intent.energy ? { energy: intent.energy } : {}),
     save,
   });
-  const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} t` : `${l.timing.every.seconds} s`);
+  const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
 
   return (
     <div className="show">
@@ -111,7 +112,7 @@ export function ShowPage() {
               void run("show.settings.set", kind === "snapshot" ? { safeSnapshot: id } : { safeSnapshot: undefined, safeLook: kind === "look" ? id : undefined });
             }}
           >
-            <option value="">{t.none} (Blackout)</option>
+            <option value="">{t.none} ({t.blackout})</option>
             <optgroup label={t.snapshots}>
               {snapshots.map((s) => (
                 <option key={s.id} value={`snapshot:${s.id}`}>
@@ -204,10 +205,14 @@ export function ShowPage() {
           <input placeholder={t.name} value={intent.name} onChange={(e) => setIntent({ ...intent, name: e.target.value })} />
           <input placeholder={t.moods} value={intent.mood} onChange={(e) => setIntent({ ...intent, mood: e.target.value })} />
           <select value={intent.energy} onChange={(e) => setIntent({ ...intent, energy: e.target.value })}>
-            <option value="">{t.energy} auto</option>
-            <option value="pose">posé</option>
-            <option value="dynamique">dynamique</option>
-            <option value="survolte">survolté</option>
+            <option value="">
+              {t.energy} {t.auto}
+            </option>
+            {(["pose", "dynamique", "survolte"] as const).map((e) => (
+              <option key={e} value={e}>
+                {t.energies[e]}
+              </option>
+            ))}
           </select>
           <select value={intent.canvas} onChange={(e) => setIntent({ ...intent, canvas: e.target.value })}>
             {canvases.map((c) => (
@@ -262,12 +267,12 @@ export function ShowPage() {
                   </button>
                 </td>
                 <td>
-                  {l.technique.kind}
-                  {l.move && <small> · ↻ {l.move.shape}</small>}
+                  {labelOf(t.techniqueNames, l.technique.kind)}
+                  {l.move && <small> · ↻ {labelOf(t.moveShapes, l.move.shape)}</small>}
                 </td>
                 <td>{cadence(l)}</td>
-                <td>{l.timing.attack < 0.2 ? "claque" : l.timing.attack > 0.8 ? "respire" : `${Math.round(l.timing.attack * 100)} %`}</td>
-                <td>{l.timing.order}</td>
+                <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
+                <td>{labelOf(t.orders, l.timing.order)}</td>
                 <td>
                   <small>{l.tags.join(" · ")}</small>
                 </td>
@@ -304,7 +309,7 @@ export function ShowPage() {
           <tbody>
             {groups.map((g) => (
               <tr key={g.id}>
-                <td>
+                <td className="nowrap">
                   <button className="ghost" aria-label={`${t.edit} ${g.name}`} onClick={() => setEditingGroup(g as unknown as GroupDraft)}>
                     ✎
                   </button>{" "}
@@ -350,7 +355,7 @@ export function ShowPage() {
                 </td>
                 <td>
                   <small>
-                    {g.members.looks.length} looks · {g.members.fixtures.length} fixtures · {g.members.groups.length} sous-groupes
+                    {g.members.looks.length} looks · {g.members.fixtures.length} fixtures · {g.members.groups.length} {t.subGroups.toLowerCase()}
                   </small>
                 </td>
               </tr>
