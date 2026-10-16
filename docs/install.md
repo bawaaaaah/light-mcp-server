@@ -40,6 +40,11 @@ Dans `data/machine/config.json`, section `server` (à la main, serveur arrêté 
 - `host` : `0.0.0.0` (défaut) écoute sur toutes les interfaces, donc les tablettes du réseau local ; `127.0.0.1` réserve le serveur à la machine, par exemple derrière un reverse proxy installé dessus. `--host` passe avant.
 - `publicUrl` : l'adresse publique derrière un reverse proxy (voir le [README](../README.md#accès-depuis-lextérieur-reverse-proxy)) ; avec elle, `trustProxy` (nombre de proxys devant le serveur, `1` en général).
 
+### Tablettes et téléphones
+- Ouvrir l'adresse du serveur dans le navigateur, puis **« Ajouter à l'écran d'accueil »** (Safari : bouton de partage ; Chrome : menu) : l'interface s'ouvre ensuite comme une application, sur le Live, sans les barres du navigateur (Safari sur iPad ne sait pas mettre une page en plein écran autrement).
+- En plein écran (⛶ sur le Live), l'**écran reste allumé** pendant le service, là où le navigateur le permet (adresse HTTPS ou localhost ; pas sur une adresse IP du réseau local en http).
+- La session tient d'un redémarrage du serveur à l'autre ; une application de l'écran d'accueil que le système a fermée redemande le PIN.
+
 ## 3. Reprendre un show QLC+
 1. Copier les définitions de fixtures (`.qxf`) dans `data/fixtures/` : celles de la bibliothèque QLC+ du Mac et les tiennes.
 2. Dans l'interface : **Import**, choisir le `.qxw`, lire la proposition, puis **Appliquer**.

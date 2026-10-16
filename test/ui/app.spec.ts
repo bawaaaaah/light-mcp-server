@@ -629,6 +629,17 @@ test("notes: grouped by kind, one line each, edited in place", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("installable on a tablet's home screen: manifest and icons are served", async ({ request, page }) => {
+  const manifest = await request.get("/manifest.webmanifest");
+  expect(manifest.status()).toBe(200);
+  const m = (await manifest.json()) as { start_url: string; display: string; icons: { src: string }[] };
+  expect(m).toMatchObject({ start_url: "/#live", display: "standalone" });
+  for (const icon of [...m.icons.map((i) => i.src), "/apple-touch-icon.png"]) expect((await request.get(icon)).status(), icon).toBe(200);
+  await page.goto("/");
+  await expect(page).toHaveTitle("Lumière");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+});
+
 test("built assets are cached for good, the page itself is checked each time", async ({ request }) => {
   const index = await request.get("/");
   expect(index.headers()["cache-control"]).toBe("public, max-age=0");
