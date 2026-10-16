@@ -614,6 +614,21 @@ test("venue: the patch reads by address, and fixtures sharing channels are flagg
   expect(errors).toEqual([]);
 });
 
+test("notes: grouped by kind, one line each, edited in place", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Notes" }).click();
+  const looks = page.locator("details.note-group", { has: page.locator("summary", { hasText: "Looks" }) });
+  await expect(looks).toHaveAttribute("open", "");
+  const row = looks.locator("li", { hasText: "note de test" });
+  await row.locator(".note-text").click();
+  await row.getByRole("textbox").fill("note de test, relue");
+  await row.getByRole("button", { name: "✔" }).click();
+  await expect(looks.locator("li", { hasText: "note de test, relue" })).toBeVisible();
+  await api(page, "notes.set", { collection: "looks", id: "checker", notes: "note de test" });
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);
