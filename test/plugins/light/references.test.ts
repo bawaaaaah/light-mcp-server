@@ -71,6 +71,13 @@ describe("references: what uses a look, a group or a fader", () => {
       const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
       expect(lint.issues.find((i) => i.where === "fader spare-2")?.message).to.contain("même nom que spare");
       expect(await run("fader.delete", { id: "spare-2" })).to.deep.equal({ deleted: true });
+      // mappings: one label for two targets is flagged, for the same target (note on/off pairs…) not
+      const mapping = (id: string, label: string, number: number, target: string) => ({ id, label, input: { type: "cc", channel: 5, number }, on: { command: "group.level", args: { id: target } }, levelArg: "level" });
+      await run("midi.mapping.put", { mapping: mapping("cc-a", "Master", 1, "master") });
+      await run("midi.mapping.put", { mapping: mapping("cc-b", "Master", 2, "master") });
+      await run("midi.mapping.put", { mapping: mapping("cc-c", "master", 3, "other") });
+      const again = (await run("show.lint")) as { issues: { where: string; message: string }[] };
+      expect(again.issues.filter((i) => i.message.includes("même libellé")).map((i) => i.where)).to.deep.equal(["mapping cc-c"]);
     });
   });
 });

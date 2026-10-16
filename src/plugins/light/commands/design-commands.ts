@@ -103,7 +103,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, fixtures whose DMX channels overlap, fixtures without a definition.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -160,6 +160,16 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       sameName("look", runtime.looks.list());
       sameName("groupe", runtime.groups.list());
       sameName("fader", runtime.faders.list());
+      // mappings: the same label for different targets (three QLC+ sliders all called « Master »)
+      const labels = new Map<string, { id: string; target: string }>();
+      for (const m of mappings()) {
+        if (!m.label.trim()) continue;
+        const target = `${m.on.command} ${String(m.on.args.id ?? "")}`;
+        const key = m.label.trim().toLocaleLowerCase("fr");
+        const other = labels.get(key);
+        if (other && other.target !== target) warn(`mapping ${m.id}`, `même libellé que ${other.id} (« ${m.label} ») pour une autre cible : renommer l'un des deux pour les distinguer`);
+        else if (!other) labels.set(key, { id: m.id, target });
+      }
       const checkChannels = (where: string, channels: { fixture: string; offset: number }[]) => {
         for (const c of channels) {
           const problem = runtime.venue.channelProblem(c);
