@@ -605,8 +605,11 @@ test("venue: the patch reads by address, and fixtures sharing channels are flagg
     await expect(universe1.locator("td:nth-child(2)")).toHaveText(["Bar 0", "Extra", "Bar 1"]);
     await expect(page.locator("tr", { hasText: "Extra" }).locator(".badge.conflict")).toContainText("chevauche");
     await expect(page.locator("tr", { hasText: "Bar 0" }).locator(".badge.conflict")).toHaveCount(1);
+    await api(page, "venue.fixture.put", { fixture: { id: "fog", name: "Fumée", manufacturer: "Acme", model: "Fog", mode: "Full", universe: 2, address: 100 } });
+    await expect(page.locator("tr", { hasText: "Fumée" })).toContainText("sans définition");
   } finally {
     await api(page, "venue.fixture.delete", { id: "extra" });
+    await api(page, "venue.fixture.delete", { id: "fog" });
   }
   expect(errors).toEqual([]);
 });

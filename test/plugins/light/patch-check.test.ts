@@ -29,10 +29,25 @@ describe("patch check: overlapping DMX channels", () => {
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
-    expect(await run("venue.patch.check")).to.deep.equal({ overlaps: [] }); // bars at 1 and 16, 15 channels each
+    expect(await run("venue.patch.check")).to.deep.equal({ overlaps: [], missingDefinitions: [] }); // bars at 1 and 16, 15 channels each
     const put = (await run("venue.fixture.put", { fixture: { id: "extra", name: "Extra", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 10 } })) as { warning?: string };
     expect(put.warning).to.contain("partagent U1.10–1.15").and.to.contain("« Extra »");
     const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
     expect(lint.issues.filter((i) => i.message.includes("mêmes canaux"))).to.have.length(2); // with each bar
+  });
+
+  it("names the fixtures without a definition, once per model in the show check", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-patch-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    for (const [id, address] of [["fog-a", 100], ["fog-b", 110]] as const) await run("venue.fixture.put", { fixture: { id, name: id, manufacturer: "Acme", model: "Fog", mode: "Full", universe: 1, address } });
+    const check = (await run("venue.patch.check")) as { missingDefinitions: { id: string; model: string }[] };
+    expect(check.missingDefinitions.map((m) => m.id)).to.deep.equal(["fog-a", "fog-b"]);
+    const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
+    const missing = lint.issues.filter((i) => i.message.startsWith("définition manquante"));
+    expect(missing).to.have.length(1);
+    expect(missing[0]!.where).to.equal("projecteur fog-a, fog-b");
   });
 });

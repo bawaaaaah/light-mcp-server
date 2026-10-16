@@ -99,12 +99,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
-    description: "Fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported): both fixtures, universe, shared channels and a sentence.",
+    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, and fixtures without a definition in the library (their channels are not decoded: add the .qxf).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => ({ overlaps: venue.patchProblems() }),
+    run: () => ({ overlaps: venue.patchProblems(), missingDefinitions: venue.missingDefinitions() }),
   });
   reg.register({
     name: "venue.fixture.delete",

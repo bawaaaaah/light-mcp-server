@@ -20,7 +20,7 @@ Le **lieu** est une des trois couches de données (machine / lieu / show, voir [
 
 ## Patch
 - Une instance porte : id, nom, type et mode, univers et adresse, tags, position sur la scène, montage, rôle, notes, et pour une lyre `orientation` (`yaw`, inversion pan/tilt, swap pan/tilt, décalages de calibration en degrés).
-- Le patch détecte les **conflits d'adresse** (`venue/patch-check.ts`) : deux projecteurs dont les canaux se chevauchent sont signalés au moment de patcher (le patch se fait quand même : avertissement), par `venue.patch.check`, par « Vérifier le show » et dans la page Lieu (⚠ « chevauche », détail au survol) ; deux projecteurs du même modèle et mode à la même adresse (jumelés exprès) ne le sont pas. La page Lieu liste le patch **par univers et adresse**, comme une console. Il propose un patch automatique (« auto » : première adresse libre).
+- Le patch détecte les **conflits d'adresse** (`venue/patch-check.ts`) : deux projecteurs dont les canaux se chevauchent sont signalés au moment de patcher (le patch se fait quand même : avertissement), par `venue.patch.check`, par « Vérifier le show » et dans la page Lieu (⚠ « chevauche », détail au survol) ; deux projecteurs du même modèle et mode à la même adresse (jumelés exprès) ne le sont pas. Les projecteurs **sans définition** (`.qxf` absent de la bibliothèque : canaux non décodés) sont signalés de même (badge « sans définition », une alerte par modèle dans la vérification). La page Lieu liste le patch **par univers et adresse**, comme une console. Il propose un patch automatique (« auto » : première adresse libre).
 - Le patch peut être importé depuis un `.qxw`.
 
 ## Scène virtuelle

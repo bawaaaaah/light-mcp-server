@@ -103,7 +103,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, fixtures whose DMX channels overlap.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, fixtures whose DMX channels overlap, fixtures without a definition.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -153,6 +153,10 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         }
       };
       for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
+      // once per model: the same .qxf fixes them all
+      const missing = new Map<string, string[]>();
+      for (const m of runtime.venue.missingDefinitions()) missing.set(m.model, [...(missing.get(m.model) ?? []), m.name]);
+      for (const [model, names] of missing) warn(`projecteur ${names.join(", ")}`, `définition manquante : ${model} — canaux non décodés, ajouter son .qxf (page Import)`);
       sameName("look", runtime.looks.list());
       sameName("groupe", runtime.groups.list());
       sameName("fader", runtime.faders.list());

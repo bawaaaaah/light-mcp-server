@@ -214,6 +214,14 @@ export class Venue {
       .map((o) => ({ ...o, message: overlapMessage(o, name) }));
   }
 
+  /** Patched fixtures whose definition (.qxf) is not in the library: their channels are not decoded. */
+  missingDefinitions(): { id: string; name: string; model: string }[] {
+    return this.fixtures.list().flatMap((f) => {
+      const r = this.resolve(f.id);
+      return "error" in r ? [{ id: f.id, name: f.name, model: `${f.manufacturer} ${f.model} (${f.mode})` }] : [];
+    });
+  }
+
   resolve(fixtureId: string): ResolvedFixture | { error: string } {
     const cached = this.resolved.get(fixtureId);
     if (cached) return cached;

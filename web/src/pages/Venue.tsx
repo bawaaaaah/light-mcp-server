@@ -46,11 +46,14 @@ export function VenuePage() {
   const [error, setError] = useState("");
   /** Fixtures sharing DMX channels (venue.patch.check), by fixture id: the others' messages. */
   const [overlaps, setOverlaps] = useState<Record<string, string[]>>({});
+  /** Fixtures whose .qxf is not in the library (their channels are not decoded). */
+  const [undefinedFixtures, setUndefinedFixtures] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     void cmd<Fixture[]>("venue.fixture.list").then(setFixtures).catch((e: Error) => setError(e.message));
-    void cmd<{ overlaps: { a: string; b: string; message: string }[] }>("venue.patch.check")
-      .then(({ overlaps: list }) => {
+    void cmd<{ overlaps: { a: string; b: string; message: string }[]; missingDefinitions: { id: string }[] }>("venue.patch.check")
+      .then(({ overlaps: list, missingDefinitions }) => {
+        setUndefinedFixtures(new Set(missingDefinitions.map((m) => m.id)));
         const by: Record<string, string[]> = {};
         for (const o of list) for (const id of [o.a, o.b]) (by[id] ??= []).push(o.message);
         setOverlaps(by);
@@ -103,6 +106,12 @@ export function VenuePage() {
                     <small>
                       {f.manufacturer} {f.model} · {f.mode}
                     </small>
+                    {undefinedFixtures.has(f.id) && (
+                      <span className="badge conflict" title={t.noDefinitionHelp}>
+                        {" "}
+                        {t.noDefinition}
+                      </span>
+                    )}
                   </td>
                   <td className="nowrap" title={overlaps[f.id]?.join("\n")}>
                     U{f.universe}.{f.address}
