@@ -1127,3 +1127,74 @@ nav.jump a:hover {
   max-height: none;
   max-width: 34em;
 }
+
+/* Coloured widgets (--wc, set per cell; --wc-text reads on it): tinted at rest, lit when on. */
+.cell.tinted > button.fill,
+.cell.tinted .look {
+  background: color-mix(in srgb, var(--wc) 26%, var(--panel));
+  border-color: color-mix(in srgb, var(--wc) 55%, var(--line));
+  border-left: 6px solid var(--wc);
+}
+.cell.tinted .look.on,
+.cell.tinted > button.fill.on {
+  background: var(--wc);
+  color: var(--wc-text);
+  border-color: var(--wc);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--wc) 45%, transparent), 0 0 22px color-mix(in srgb, var(--wc) 55%, transparent);
+}
+/* Panic stays a full block of its colour: a safety button must never look like the others. */
+.cell.tinted > button.panic {
+  background: var(--wc);
+  color: var(--wc-text);
+  border: none;
+}
+.cell.tinted .fader input[type="range"] {
+  accent-color: var(--wc);
+}
+.cell.tinted .fader label,
+.cell.tinted .w-label {
+  color: var(--wc);
+  font-weight: 600;
+}
+.cell.tinted .fader {
+  border-top: 4px solid var(--wc);
+  border-radius: 6px;
+  padding-top: 0.2em;
+}
+/* An untinted look that plays stays obvious too. */
+.look.on {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--on) 40%, transparent), 0 0 18px color-mix(in srgb, var(--on) 45%, transparent);
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  align-items: center;
+}
+.swatch {
+  width: 1.7em;
+  height: 1.7em;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+}
+.swatch.chosen {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--danger) 45% 55%, transparent 55%), var(--panel);
+}
+.swatch.auto {
+  background: conic-gradient(#ef4444, #eab308, #22c55e, #3b82f6, #a855f7, #ef4444);
+  color: #111;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.swatches input[type="color"] {
+  width: 2em;
+  height: 1.8em;
+  padding: 0;
+  border: none;
+  background: none;
+}

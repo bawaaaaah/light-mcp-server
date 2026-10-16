@@ -3,6 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
+import { isHex, SWATCHES } from "../color";
 
 export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
 export type ButtonMode = "trigger" | "latch" | "momentary";
@@ -12,6 +13,7 @@ export interface MenuWidget {
   target?: string;
   label?: string;
   mode?: ButtonMode;
+  color?: string;
 }
 interface Named {
   id: string;
@@ -134,6 +136,23 @@ export function WidgetMenu({
         <span>{t.widgetLabel}</span>
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
       </label>
+      {widget.kind !== "preview" && (
+        <div className="field">
+          <span>{t.widgetColor}</span>
+          <div className="swatches" role="radiogroup" aria-label={t.widgetColor}>
+            <button className={`swatch none ${!widget.color ? "chosen" : ""}`} role="radio" aria-checked={!widget.color} title={t.noColor} aria-label={t.noColor} onClick={() => onChange({ color: undefined })} />
+            {widget.kind === "look" && (
+              <button className={`swatch auto ${widget.color === "auto" ? "chosen" : ""}`} role="radio" aria-checked={widget.color === "auto"} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => onChange({ color: "auto" })}>
+                A
+              </button>
+            )}
+            {SWATCHES.map(([name, hex]) => (
+              <button key={hex} className={`swatch ${widget.color === hex ? "chosen" : ""}`} role="radio" aria-checked={widget.color === hex} title={t.swatchNames[name as keyof typeof t.swatchNames]} aria-label={t.swatchNames[name as keyof typeof t.swatchNames]} style={{ background: hex }} onClick={() => onChange({ color: hex })} />
+            ))}
+            <input type="color" aria-label={t.customColor} title={t.customColor} value={isHex(widget.color) ? widget.color : "#ffffff"} onChange={(e) => onChange({ color: e.target.value })} />
+          </div>
+        </div>
+      )}
       {(widget.kind === "look" || widget.kind === "blackout") && (
         <label className="field">
           <span>{t.mode}</span>

@@ -12,6 +12,7 @@ import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import { slugify } from "../data/store.js";
+import { swatchOf } from "../show/swatch.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
@@ -139,7 +140,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- palettes & looks
   reg.register({ name: "palette.list", title: "Palettes", description: "Colour palettes of the show.", right: "dashboards:view", readOnly: true, profiles: ["design"], schema: z.object({}), run: () => show.palettes.list() });
   reg.register({ name: "palette.put", title: "Palette", description: "Creates or updates a palette (used by reference: every look using it follows).", right: "show:write", profiles: ["design"], schema: z.object({ palette: PaletteSchema }), run: ({ palette }) => show.palettes.put(palette) });
-  reg.register({ name: "look.list", title: "Looks", description: "Looks of the show (technique, canvas, palette, timing, flags) and whether they play.", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => show.looks.list().map((l) => ({ ...l, active: show.isActive(l.id) })) });
+  const swatch = (l: Parameters<typeof show.resolvedTechnique>[0]) => {
+    try {
+      return swatchOf(show.resolvedTechnique(l));
+    } catch {
+      return undefined; // a palette gone: no colour to show
+    }
+  };
+  reg.register({ name: "look.list", title: "Looks", description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button).", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => show.looks.list().map((l) => ({ ...l, active: show.isActive(l.id), swatch: swatch(l) })) });
   reg.register({
     name: "look.put",
     title: "Look",

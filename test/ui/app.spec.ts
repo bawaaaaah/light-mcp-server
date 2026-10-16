@@ -299,6 +299,55 @@ test("my account: signed in with the token, create my administrator account, the
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
 });
 
+test("colours: a button gets a colour from its menu, or its look's own (auto), and lights up in it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const cell = page.locator(".dgrid .cell", { has: page.locator("button", { hasText: "hole" }) }).first();
+  await cell.locator("button").click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  await menu.getByRole("radio", { name: "bleu" }).click();
+  await expect(cell).toHaveClass(/tinted/);
+  await expect(cell).toHaveAttribute("style", /--wc: #3b82f6/);
+  await menu.getByRole("radio", { name: "Auto : la couleur de son look" }).click();
+  await expect(cell).toHaveAttribute("style", /--wc: #ff0000/); // « hole » is red
+  await page.keyboard.press("Escape");
+  await cell.locator("button").click(); // on: filled with its colour
+  await expect(cell.locator("button")).toHaveCSS("background-color", "rgb(255, 0, 0)");
+  await page.screenshot({ path: "test-results/colours.png" });
+  // back to neutral
+  await api(page, "look.stopall");
+  await cell.locator("button").click({ button: "right" });
+  await menu.getByRole("radio", { name: "Sans couleur" }).click();
+  await expect(cell).not.toHaveClass(/tinted/);
+  expect(errors).toEqual([]);
+});
+
+test("tablet: a long press opens the widget menu, without starting the look", async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  const box = (await button.boundingBox())!;
+  const cdp = await ctx.newCDPSession(page);
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [at] });
+  await page.waitForTimeout(800);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.getByRole("dialog", { name: "Réglages du widget" })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(false);
+  // a short tap still plays it
+  await page.keyboard.press("Escape");
+  await button.tap();
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(true);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");

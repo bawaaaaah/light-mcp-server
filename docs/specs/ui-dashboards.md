@@ -31,7 +31,8 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 ## Dashboards
 - Modèle `{id, name, columns, widgets[], notes}`, stocké dans le show et synchronisé entre clients (`light:dashboards`).
 - **Mode édition** (ajouter, déplacer, redimensionner, configurer) et **mode live**.
-- **Clic droit** sur un widget, en mode live comme en édition : ce qu'il pilote (look lancé, DCA, fader de canaux), libellé, mode du bouton, notes et CC MIDI qui le jouent (« Apprendre », retrait), retrait du dashboard ; enregistré aussitôt. Sur tablette (pas de clic droit), passer par le mode édition.
+- **Clic droit** sur un widget, en mode live comme en édition (sur tablette : **appui long**, sauf sur un bouton momentané ou un fader, qu'on tient ou qu'on glisse) : ce qu'il pilote (look lancé, DCA, fader de canaux), libellé, mode du bouton, **couleur**, notes et CC MIDI qui le jouent (« Apprendre », retrait), retrait du dashboard ; enregistré aussitôt.
+- **Couleurs** : chaque widget peut prendre une couleur (nuancier de 12 ou couleur libre), ou « auto » pour un bouton de look (la couleur dominante de son look, `swatch` de `look.list`) ; « Couleurs auto » en mode édition l'applique à tous les boutons de looks sans couleur. Un bouton coloré est teinté au repos et plein, avec un halo, quand il joue ; un fader prend sa couleur ; Panic reste toujours un bloc plein.
 - **Bascule** par onglets, raccourcis 1‑9, URL `/d/:id`, MIDI, OSC ou sélection d'un chant. On peut dupliquer, importer et exporter.
 - **Groupes de widgets** : on sélectionne des boutons ou faders et on les regroupe en un clic. Le groupe peut être **exclusif** et recevoir **sur demande un fader master** proportionnel ([groups-masters](groups-masters.md)).
 - **Mode par défaut des nouveaux boutons** (Déclencher, Latch, Momentané), réglable par show, dashboard ou groupe.

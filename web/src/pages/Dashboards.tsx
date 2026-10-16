@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
+import { isHex, textOn } from "../color";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader";
 interface Widget {
@@ -18,6 +19,8 @@ interface Widget {
   label?: string;
   /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
   mode?: ButtonMode;
+  /** "#rrggbb", or "auto" (a look button takes its look's colour); absent = neutral. */
+  color?: string;
 }
 type ButtonMode = "trigger" | "latch" | "momentary";
 interface Dashboard {
@@ -29,6 +32,8 @@ interface Dashboard {
 interface Look {
   id: string;
   name: string;
+  /** The colour that sums the look up (look.list), for « auto » buttons. */
+  swatch?: string;
   active: boolean;
   danger: boolean;
   manualOnly: boolean;
@@ -87,6 +92,13 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [selected, setSelected] = useState<string | null>(null);
   /** The widget whose right-click menu is open, and where. */
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  /**
+   * A finger has no right button: a long press opens the same menu on a tablet. Not on what one
+   * holds or drags anyway (momentary buttons, faders, the XY pad); the click that ends it is eaten.
+   */
+  const press$ = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null);
+  const LONG_PRESS_MS = 600;
+  const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav"].includes(w.kind));
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean } | null>("light:state", null);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
@@ -310,6 +322,12 @@ export function DashboardsPage({ role }: { role: Role }) {
     }
   };
 
+  /** The colour a widget shows: its own, or its look's for « auto ». */
+  const colorOf = (w: Widget): string | undefined => (w.color === "auto" ? lookById.get(w.target ?? "")?.swatch : isHex(w.color) ? w.color : undefined);
+  const tint = (w: Widget) => {
+    const c = colorOf(w);
+    return c ? { className: " tinted", style: { "--wc": c, "--wc-text": textOn(c) } as React.CSSProperties } : { className: "", style: {} };
+  };
   const sel = dash?.widgets.find((w) => w.id === selected);
   return (
     <div className="dashboards">
@@ -331,6 +349,12 @@ export function DashboardsPage({ role }: { role: Role }) {
                 </option>
               ))}
             </select>
+            <button
+              title={t.autoColorsHelp}
+              onClick={() => update((d) => ({ ...d, widgets: d.widgets.map((w) => (w.kind === "look" && !w.color ? { ...w, color: "auto" } : w)) }))}
+            >
+              {t.autoColors}
+            </button>
             <button className="primary" onClick={save}>
               ✔
             </button>
@@ -405,9 +429,16 @@ export function DashboardsPage({ role }: { role: Role }) {
           {(narrow && !edit ? [...dash.widgets].sort((a, b) => a.y - b.y || a.x - b.x) : dash.widgets).map((w) => (
             <div
               key={w.id}
-              className={`cell ${edit ? "editing" : ""} ${selected === w.id ? "selected" : ""}`}
-              style={narrow && !edit ? { gridColumn: `span ${Math.min(w.w, 4)}`, gridRow: `span ${w.h}` } : { gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }}
+              className={`cell ${edit ? "editing" : ""} ${selected === w.id ? "selected" : ""}${tint(w).className}`}
+              style={{ ...tint(w).style, ...(narrow && !edit ? { gridColumn: `span ${Math.min(w.w, 4)}`, gridRow: `span ${w.h}` } : { gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }) }}
               onClickCapture={(e) => {
+                if (press$.current?.fired) {
+                  // the click that ends a long press only opened the menu
+                  press$.current = null;
+                  e.stopPropagation();
+                  e.preventDefault();
+                  return;
+                }
                 if (!edit) return;
                 e.stopPropagation();
                 e.preventDefault();
@@ -418,6 +449,31 @@ export function DashboardsPage({ role }: { role: Role }) {
                 e.preventDefault();
                 refresh();
                 setMenu({ id: w.id, x: e.clientX, y: e.clientY });
+              }}
+              onPointerDown={(e) => {
+                if (!editor || edit || e.pointerType !== "touch" || !holdable(w)) return;
+                const at = { x: e.clientX, y: e.clientY };
+                const timer = window.setTimeout(() => {
+                  if (!press$.current) return;
+                  press$.current.fired = true;
+                  refresh();
+                  setMenu({ id: w.id, ...at });
+                }, LONG_PRESS_MS);
+                press$.current = { timer, ...at, fired: false };
+              }}
+              onPointerMove={(e) => {
+                const p = press$.current;
+                if (p && !p.fired && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) {
+                  window.clearTimeout(p.timer);
+                  press$.current = null;
+                }
+              }}
+              onPointerUp={() => {
+                const p = press$.current;
+                if (p && !p.fired) {
+                  window.clearTimeout(p.timer);
+                  press$.current = null;
+                }
               }}
             >
               {render(w)}
