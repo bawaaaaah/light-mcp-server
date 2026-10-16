@@ -1,9 +1,11 @@
 /**
  * Activity log: the commands that changed something, who ran them and from where (interface, MIDI,
- * OSC, AI, song timeline), kept in memory since the server started. A burst of the same command on
+ * OSC, AI, song timeline). A burst of the same command on
  * the same object by the same caller (a fader dragged, a CC turned) is one line with a count.
- * Pure: the plugin feeds it the registry's command events.
+ * Pure: the plugin feeds it the registry's command events, and keeps the last week in
+ * data/machine/activity.json across restarts.
  */
+import { z } from "zod";
 import type { CommandEvent, Origin } from "./commands/registry.js";
 
 export interface ActivityEntry {
@@ -26,6 +28,21 @@ export const BURST_MS = 2000;
 export const ACTIVITY_MAX = 500;
 /** How far back a repeat looks for its line: two faders moved together still merge each. */
 const BURST_LOOKBACK = 12;
+/** Lines older than this are not read back after a restart. */
+export const ACTIVITY_KEEP_MS = 7 * 86_400_000;
+
+const EntrySchema = z.object({
+  at: z.number(),
+  until: z.number(),
+  count: z.number().int().min(1),
+  name: z.string(),
+  title: z.string(),
+  origin: z.enum(["ui", "midi", "osc", "mcp", "timeline", "cli", "system"]),
+  who: z.string().optional(),
+  target: z.string().optional(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
 
 /** The object a command acts on: an `id`, or the id of the object it carries (look.put { look }…). */
 export function targetOf(args: unknown): string | undefined {
@@ -41,6 +58,7 @@ export function targetOf(args: unknown): string | undefined {
 
 export class ActivityLog {
   private readonly entries: ActivityEntry[] = [];
+  private changed = false;
 
   record(e: CommandEvent, title: string): void {
     const target = targetOf(e.args);
@@ -50,10 +68,29 @@ export class ActivityLog {
       if (x.name === e.name && x.who === e.who && x.origin === e.origin && x.target === target && x.ok === e.ok) {
         x.until = e.at;
         x.count++;
+        this.changed = true;
         return;
       }
     }
     this.entries.push({ at: e.at, until: e.at, count: 1, name: e.name, title, origin: e.origin, ...(e.who ? { who: e.who } : {}), ...(target ? { target } : {}), ok: e.ok, ...(e.error ? { error: e.error } : {}) });
+    if (this.entries.length > ACTIVITY_MAX) this.entries.splice(0, this.entries.length - ACTIVITY_MAX);
+    this.changed = true;
+  }
+
+  /** The lines to write (oldest first) when they changed since the last call, else undefined. */
+  takeChanges(): ActivityEntry[] | undefined {
+    if (!this.changed) return undefined;
+    this.changed = false;
+    return [...this.entries];
+  }
+
+  /** Lines read back after a restart: valid ones of the last week, before anything new. */
+  restore(saved: unknown, now: number, keepMs = ACTIVITY_KEEP_MS): void {
+    const lines = (Array.isArray(saved) ? saved : []).flatMap((x) => {
+      const p = EntrySchema.safeParse(x);
+      return p.success && now - p.data.until <= keepMs ? [p.data as ActivityEntry] : [];
+    });
+    this.entries.unshift(...lines.slice(-ACTIVITY_MAX));
     if (this.entries.length > ACTIVITY_MAX) this.entries.splice(0, this.entries.length - ACTIVITY_MAX);
   }
 

@@ -38,6 +38,19 @@ describe("activity log", () => {
     expect(log.list(1)[0]!.target).to.equal(`l${ACTIVITY_MAX + 19}`);
   });
 
+  it("is written when it changed and read back after a restart, the last week only", () => {
+    const log = new ActivityLog();
+    expect(log.takeChanges()).to.equal(undefined);
+    log.record(event(1_000, "look.go", { id: "old" }), "Lancer un look");
+    log.record(event(9 * 86_400_000, "look.go", { id: "recent" }, "Régie"), "Lancer un look");
+    const saved = JSON.parse(JSON.stringify(log.takeChanges()));
+    expect(log.takeChanges()).to.equal(undefined); // nothing new since
+    const after = new ActivityLog();
+    after.restore([...saved, { junk: true }], 10 * 86_400_000);
+    after.record(event(10 * 86_400_000, "blackout", { on: true }), "Blackout");
+    expect(after.list().map((l) => l.target ?? l.name)).to.deep.equal(["blackout", "recent"]); // « old » is 10 days old
+  });
+
   it("says who a credential is", async () => {
     const auth = new AuthService("master");
     await auth.setPin("regisseur", "1234");

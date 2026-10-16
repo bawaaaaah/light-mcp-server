@@ -14,7 +14,7 @@ import type { LiveTopic, McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import { summarizeDescription, type PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import type { ScopedConfigStore } from "../../core/config-store.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
@@ -215,11 +215,16 @@ export class LightPlugin implements McpPlugin {
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
     };
     registerFileCommands(this.commands, this.files);
+    try {
+      if (existsSync(this.activityFile)) this.activity.restore(JSON.parse(readFileSync(this.activityFile, "utf8")), Date.now());
+    } catch {
+      /* an unreadable log only loses the past lines */
+    }
     this.commands.onCommand((e) => this.activity.record(e, this.commands.get(e.name)?.title ?? e.name));
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
-      description: "What changed since the server started, newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count.",
+      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count.",
       right: "show:write",
       readOnly: true,
       profiles: ["setup", "design", "live"],
@@ -408,6 +413,7 @@ export class LightPlugin implements McpPlugin {
       // Output state (standby, other Art-Net sources) changes without commands: check it every second.
       if (++ticks % 4) return;
       this.saveLive();
+      if (ticks % 20 === 0) this.saveActivity(); // every 5 s at most, when something happened
       const state = this.state();
       const key = JSON.stringify(state);
       if (key !== lastState) this.publish("state", state);
@@ -436,8 +442,26 @@ export class LightPlugin implements McpPlugin {
     }
   }
 
+  /** The activity log survives a restart (data/machine/activity.json, the last week). */
+  private get activityFile(): string {
+    return path.join(this.dataRoot, "machine", "activity.json");
+  }
+
+  private saveActivity(): void {
+    const lines = this.activity.takeChanges();
+    if (!lines) return;
+    try {
+      mkdirSync(path.dirname(this.activityFile), { recursive: true });
+      writeFileSync(`${this.activityFile}.tmp`, JSON.stringify(lines));
+      renameSync(`${this.activityFile}.tmp`, this.activityFile);
+    } catch (err) {
+      console.warn(`Journal d'activité non enregistré : ${(err as Error).message}`);
+    }
+  }
+
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
+    this.saveActivity();
     for (const t of this.autoBackupTimers) clearTimeout(t);
     if (this.started) this.saveLive();
     this.show.flushLive();

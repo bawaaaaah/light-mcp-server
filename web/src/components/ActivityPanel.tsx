@@ -56,7 +56,7 @@ export function OnlinePanel() {
   );
 }
 
-const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const time = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /**
  * What changed since the server started (activity.list): when, who, from where, what, on which
