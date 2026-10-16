@@ -200,6 +200,16 @@ describe("server end to end", function () {
     const named = [...new Set(client.getInstructions()?.match(/light_[a-z_]+/g) ?? [])];
     expect(named).to.include.members(["light_panic", "light_look_get", "light_show_references", "light_history_restore", "light_activity_list"]);
     expect(named.filter((n) => !tools.includes(n))).to.deep.equal([]);
+    // the guided workflows (prompts) of the spec, each citing only tools that exist
+    const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
+    expect(prompts).to.have.members(["preshow_check", "import_qlc_project", "setup_venue", "define_canvas", "program_song", "build_setlist", "rehearsal_review"]);
+    const song = await client.getPrompt({ name: "program_song", arguments: { title: "Chant test", bpm: "100" } });
+    const songText = (song.messages[0]!.content as { text: string }).text;
+    expect(songText).to.contain("« Chant test », 100 BPM");
+    for (const name of prompts) {
+      const text = ((await client.getPrompt({ name, arguments: {} })).messages[0]!.content as { text: string }).text;
+      expect((text.match(/light_[a-z_]+/g) ?? []).filter((n) => !tools.includes(n)), name).to.deep.equal([]);
+    }
     const zero = node.next((d) => d[0] === 0);
     const result = await client.callTool({ name: "light_blackout", arguments: { on: true } });
     expect(result.isError).to.not.equal(true);

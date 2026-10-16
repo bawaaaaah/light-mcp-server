@@ -39,6 +39,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 
 ## Prompts (workflows guidés)
 `setup_venue`, `define_canvas`, `program_song` (grille), `build_setlist`, `import_qlc_project` (import puis reconstruction), `rehearsal_review`, `preshow_check`.
+- Fait (`plugins/light/mcp-prompts.ts`) : les sept, en français, sans logique propre : chacun enchaîne des outils existants (un test vérifie que chaque outil cité existe). `preshow_check` ne joue rien (l'auto-test seulement sortie en veille ou sur demande) ; `import_qlc_project` passe par la proposition, les définitions manquantes, puis l'application ; `rehearsal_review` part du journal d'activité.
 
 ## Principes des outils
 - **Proposer puis appliquer** : les outils lourds renvoient un **diff** et un `proposalId`. Rien n'est écrit avant `light_apply(proposalId)`, qui applique en une transaction avec une seule entrée d'undo.

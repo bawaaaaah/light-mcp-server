@@ -22,6 +22,7 @@ import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
 import { ActivityLog, commandNotice } from "./activity.js";
+import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -504,6 +505,11 @@ export class LightPlugin implements McpPlugin {
 
   registerTools(server: McpServer): void {
     this.registerResources(server);
+    for (const p of PROMPTS) {
+      server.registerPrompt(p.name, { title: p.title, description: p.description, argsSchema: promptArgs(p) }, (args: Record<string, string | undefined>) => ({
+        messages: [{ role: "user" as const, content: { type: "text" as const, text: p.text(args ?? {}) } }],
+      }));
+    }
     for (const def of this.commands.list()) {
       const shape = (def.schema as unknown as z.AnyZodObject).shape ?? {};
       server.registerTool(
