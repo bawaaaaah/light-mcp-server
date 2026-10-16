@@ -21,7 +21,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { registerShowCommands } from "./commands/show-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
-import { ActivityLog } from "./activity.js";
+import { ActivityLog, commandNotice } from "./activity.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
@@ -134,7 +134,7 @@ export class LightPlugin implements McpPlugin {
       this.publish("state", this.state());
     };
     this.commands.onCommand((e) => {
-      this.publish("command", e);
+      this.publish("command", commandNotice(e));
       if (e.ok) this.syncMidiFeedback();
     });
     registerCoreCommands(this.commands, this.engine, this.router, async (standby) => {

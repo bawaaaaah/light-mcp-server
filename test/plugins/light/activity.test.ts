@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { ActivityLog, ACTIVITY_MAX, targetOf } from "../../../src/plugins/light/activity.js";
+import { ActivityLog, ACTIVITY_MAX, commandNotice, targetOf } from "../../../src/plugins/light/activity.js";
 import type { CommandEvent } from "../../../src/plugins/light/commands/registry.js";
 import { AuthService } from "../../../src/core/auth.js";
 
@@ -49,6 +49,13 @@ describe("activity log", () => {
     after.restore([...saved, { junk: true }], 10 * 86_400_000);
     after.record(event(10 * 86_400_000, "blackout", { on: true }), "Blackout");
     expect(after.list().map((l) => l.target ?? l.name)).to.deep.equal(["blackout", "recent"]); // « old » is 10 days old
+  });
+
+  it("broadcasts a command without its caller, and without long arguments", () => {
+    expect(commandNotice(event(5, "look.go", { id: "hole" }, "Régie"))).to.deep.equal({ name: "look.go", origin: "ui", ok: true, at: 5, target: "hole", args: { id: "hole" } });
+    const big = commandNotice(event(6, "import.qxw", { xml: "x".repeat(10_000), apply: true }, "Régie"));
+    expect(big).to.not.have.property("args");
+    expect(big).to.not.have.property("who");
   });
 
   it("says who a credential is", async () => {
