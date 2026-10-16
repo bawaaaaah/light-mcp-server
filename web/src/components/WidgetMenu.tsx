@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
@@ -14,6 +14,7 @@ export interface MenuWidget {
   label?: string;
   mode?: ButtonMode;
   color?: string;
+  confirm?: boolean;
 }
 interface Named {
   id: string;
@@ -115,8 +116,14 @@ export function WidgetMenu({
       .finally(() => setLearning(false));
   };
 
+  // opened where the click was, kept on screen by its real height (it grows with MIDI notes and
+  // options); taller than the window, it scrolls inside
+  const [height, setHeight] = useState(380);
+  useLayoutEffect(() => {
+    if (box.current) setHeight(box.current.offsetHeight);
+  });
   const left = Math.max(8, Math.min(at.x, window.innerWidth - 340));
-  const top = Math.max(8, Math.min(at.y, window.innerHeight - 380));
+  const top = Math.max(8, Math.min(at.y, window.innerHeight - height - 8));
   return (
     <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
       <h3>
@@ -167,6 +174,12 @@ export function WidgetMenu({
               </option>
             ))}
           </select>
+        </label>
+      )}
+      {/* a held button is already deliberate: no second press for momentary ones */}
+      {(widget.kind === "look" || widget.kind === "blackout" || widget.kind === "snapshot") && widget.mode !== "momentary" && (
+        <label className="row" title={t.confirmPressHelp}>
+          <input type="checkbox" checked={Boolean(widget.confirm)} onChange={(e) => onChange({ confirm: e.target.checked || undefined })} /> {t.confirmPress}
         </label>
       )}
       {action && (

@@ -20,6 +20,8 @@ export const WidgetSchema = z.object({
   target: z.string().optional(),
   label: z.string().optional(),
   mode: z.enum(["trigger", "latch", "momentary"]).optional(),
+  /** Look, Blackout and snapshot buttons: a first press arms, a second within 3 s switches on (stopping never asks). */
+  confirm: z.boolean().optional(),
   color: z.string().optional(),
   notes: z.string().optional(),
 });

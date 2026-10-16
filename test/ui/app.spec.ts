@@ -335,6 +335,37 @@ test("colours: a button gets a colour from its menu, or its look's own (auto), a
   expect(errors).toEqual([]);
 });
 
+test("a button to confirm: the first press arms it, the second plays; stopping never asks", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const cell = page.locator(".dgrid .cell", { has: page.locator("button", { hasText: "hole" }) }).first();
+  const button = cell.locator("button");
+  const active = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+  await button.click({ button: "right" });
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("À confirmer (deux appuis)").check();
+  await page.keyboard.press("Escape");
+  await button.click();
+  await expect(button).toContainText("Appuyer encore");
+  expect(await active()).toBe(false);
+  await page.screenshot({ path: "test-results/confirm-armed.png" });
+  await button.click();
+  await expect.poll(active).toBe(true);
+  await expect(button).not.toContainText("Appuyer encore");
+  await button.click(); // a latch stops at once
+  await expect.poll(active).toBe(false);
+  await button.click(); // armed, then left alone: it disarms
+  await expect(button).toContainText("Appuyer encore");
+  await expect(button).not.toContainText("Appuyer encore", { timeout: 5000 });
+  expect(await active()).toBe(false);
+  // back to a plain button
+  await button.click({ button: "right" });
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("À confirmer (deux appuis)").uncheck();
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => JSON.stringify(await api(page, "dashboard.list"))).not.toContain('"confirm"'); // saved before the next test presses it
+  expect(errors).toEqual([]);
+});
+
 test("tablet: a long press opens the widget menu, without starting the look", async ({ browser }) => {
   const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
   const page = await ctx.newPage();

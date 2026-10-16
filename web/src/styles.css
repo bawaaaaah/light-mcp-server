@@ -208,6 +208,17 @@ main {
 .look.danger {
   border-color: var(--danger);
 }
+/* « À confirmer »: armed, waiting for the second press (still: nothing blinks) */
+.cell button.armed {
+  outline: 3px dashed var(--warn);
+  outline-offset: -5px;
+}
+.armed-mark {
+  display: block;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--warn);
+}
 .faders {
   display: flex;
   gap: 1em;
@@ -968,6 +979,8 @@ table.rules td {
   padding: 0.6em 0.9em 0.8em;
   display: grid;
   gap: 0.5em;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 .widget-menu h3 {
   margin: 0.2em 0;

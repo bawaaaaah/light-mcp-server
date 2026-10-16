@@ -23,6 +23,8 @@ interface Widget {
   mode?: ButtonMode;
   /** "#rrggbb", or "auto" (a look button takes its look's colour); absent = neutral. */
   color?: string;
+  /** Two presses to switch on (look, Blackout, snapshot). */
+  confirm?: boolean;
 }
 type ButtonMode = "trigger" | "latch" | "momentary";
 interface Dashboard {
@@ -67,6 +69,8 @@ interface SongState {
 
 /** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
 const SUB = 4;
+/** How long an « À confirmer » button waits for its second press. */
+const CONFIRM_MS = 3000;
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
 
@@ -380,7 +384,22 @@ export function DashboardsPage({ role }: { role: Role }) {
    * Press behaviour of a look or Blackout button (docs/specs/ui-dashboards.md): « Déclencher »
    * always switches on, « Latch » toggles, « Momentané » is on while the button is held.
    */
-  const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void) =>
+  // « À confirmer » buttons: the first press arms the button for a few seconds, the second fires.
+  // Only switching on asks: stopping a look or leaving a Blackout is never delayed.
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef(0);
+  const confirmed = (id: string | undefined, fire: () => void) => {
+    window.clearTimeout(armTimer.current);
+    if (!id || armed === id) {
+      setArmed(null);
+      fire();
+      return;
+    }
+    setArmed(id);
+    armTimer.current = window.setTimeout(() => setArmed(null), CONFIRM_MS);
+  };
+  const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
+  const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void, confirm?: string) =>
     mode === "momentary"
       ? {
           onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -393,7 +412,7 @@ export function DashboardsPage({ role }: { role: Role }) {
           onKeyDown: (e: React.KeyboardEvent) => !edit && !e.repeat && (e.key === " " || e.key === "Enter") && on(),
           onKeyUp: (e: React.KeyboardEvent) => !edit && (e.key === " " || e.key === "Enter") && off(),
         }
-      : { onClick: () => (mode === "latch" && active ? off() : on()) };
+      : { onClick: () => (mode === "latch" && active ? off() : confirmed(confirm, on)) };
 
   const render = (w: Widget) => {
     switch (w.kind) {
@@ -415,8 +434,14 @@ export function DashboardsPage({ role }: { role: Role }) {
         );
       case "blackout":
         return (
-          <button className={`fill blackout ${state?.blackout ? "on" : ""}`} title={t.modes[w.mode ?? "latch"]} {...locked("commands:blackout")} {...press(w.mode ?? "latch", Boolean(state?.blackout), () => void run("blackout", { on: true }), () => void run("blackout", { on: false }))}>
+          <button
+            className={`fill blackout ${state?.blackout ? "on" : ""} ${armed === w.id ? "armed" : ""}`}
+            title={t.modes[w.mode ?? "latch"]}
+            {...locked("commands:blackout")}
+            {...press(w.mode ?? "latch", Boolean(state?.blackout), () => void run("blackout", { on: true }), () => void run("blackout", { on: false }), w.confirm ? w.id : undefined)}
+          >
             {state?.blackout ? t.blackoutOn : t.blackout}
+            {armedMark(w)}
           </button>
         );
       case "stop-all":
@@ -454,7 +479,7 @@ export function DashboardsPage({ role }: { role: Role }) {
         if (!l) return <div className="fill missing">{w.target}</div>;
         return (
           <button
-            className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""}`}
+            className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""} ${armed === w.id ? "armed" : ""}`}
             title={[w.label ?? l.name, t.modes[w.mode ?? "latch"], ...l.tags].join(" · ") /* the whole name: a long one is cut on the button */}
             {...locked("commands:trigger")}
             {...press(
@@ -462,11 +487,13 @@ export function DashboardsPage({ role }: { role: Role }) {
               l.active,
               () => void run("look.go", { id: l.id }),
               () => void run("look.stop", { id: l.id }),
+              w.confirm ? w.id : undefined,
             )}
           >
             {l.manualOnly ? "✋ " : ""}
             {w.label ?? l.name}
             {w.mode && w.mode !== "latch" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
+            {armedMark(w)}
           </button>
         );
       }
@@ -474,8 +501,9 @@ export function DashboardsPage({ role }: { role: Role }) {
         const snap = snapshots.find((x) => x.id === w.target);
         if (!snap) return <div className="fill missing">{w.target}</div>;
         return (
-          <button className="fill snapshot" title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => void run("snapshot.recall", { id: snap.id })}>
+          <button className={`fill snapshot ${armed === w.id ? "armed" : ""}`} title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => confirmed(w.confirm ? w.id : undefined, () => void run("snapshot.recall", { id: snap.id }))}>
             ◉ {w.label ?? snap.name}
+            {armedMark(w)}
           </button>
         );
       }

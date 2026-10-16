@@ -68,7 +68,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 
 ## Marqueurs sur widgets
 - **Fader** : marqueur max (trait rouge). En mode `clamp` il bute ; en mode `scale` la course est remappée de 0 au max.
-- **Bouton** : **danger** (flashs, strobe : signalé en rouge partout, UI et export Ableton), **interdit à l'IA**, **à confirmer**.
+- **Bouton** : **danger** (flashs, strobe : signalé en rouge partout, UI et export Ableton), **interdit à l'IA** (`manualOnly` du look), **à confirmer** (v1 : deux appuis pour allumer, voir [ui-dashboards](ui-dashboards.md)).
 
 ## Moteur et visibilité
 - Chaque bornage émet un événement sur `light:rules`, avec la règle et l'origine de la commande, visible dans l'UI et expliqué à l'IA.
