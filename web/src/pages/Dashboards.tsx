@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { cmd } from "../api";
+import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
@@ -61,8 +61,23 @@ interface SongState {
 const KINDS: Kind[] = ["look", "group-fader", "section", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
 const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
-export function DashboardsPage() {
+export function DashboardsPage({ role }: { role: Role }) {
   const t = useT();
+  /** A control whose command the role may not run is shown, greyed, rather than refused on use. */
+  const may = (right: string) => can(role, right);
+  const locked = (right: string) => (may(right) ? {} : { disabled: true, title: t.noRight });
+  // A phone gets 4 columns and the widgets in reading order (a 12-column layout would crush them).
+  const [narrow, setNarrow] = useState(() => window.matchMedia?.("(max-width: 600px)").matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 600px)");
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const editor = may("show:write");
+  /** The dashboards this role sees (role.dashboards), all when it names none. */
+  const mine = (list: Dashboard[]) => (role.dashboards?.length ? list.filter((d) => role.dashboards!.includes(d.id)) : list);
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [current, setCurrent] = useState(0);
   const [looks, setLooks] = useState<Look[]>([]);
@@ -84,7 +99,7 @@ export function DashboardsPage() {
   }, []);
   useEffect(() => {
     refresh();
-    void cmd<Dashboard[]>("dashboard.list").then(setDashboards).catch((e: Error) => setError(e.message));
+    void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
   useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist."], refresh);
   useEffect(() => {
@@ -149,25 +164,25 @@ export function DashboardsPage() {
         return <div className="w-label">{w.label ?? w.target}</div>;
       case "panic":
         return (
-          <button className="panic fill" onClick={() => void run("panic")}>
+          <button className="panic fill" {...locked("commands:panic")} onClick={() => void run("panic")}>
             {t.panic}
           </button>
         );
       case "blackout":
         return (
-          <button className={`fill blackout ${state?.blackout ? "on" : ""}`} title={t.modes[w.mode ?? "latch"]} {...press(w.mode ?? "latch", Boolean(state?.blackout), () => void run("blackout", { on: true }), () => void run("blackout", { on: false }))}>
+          <button className={`fill blackout ${state?.blackout ? "on" : ""}`} title={t.modes[w.mode ?? "latch"]} {...locked("commands:blackout")} {...press(w.mode ?? "latch", Boolean(state?.blackout), () => void run("blackout", { on: true }), () => void run("blackout", { on: false }))}>
             {state?.blackout ? t.blackoutOn : t.blackout}
           </button>
         );
       case "stop-all":
         return (
-          <button className="fill" onClick={() => void run("look.stopall")}>
+          <button className="fill" {...locked("commands:trigger")} onClick={() => void run("look.stopall")}>
             ■ {t.looks}
           </button>
         );
       case "tap":
         return (
-          <button className="fill tap" onClick={() => void run("tempo.tap")}>
+          <button className="fill tap" {...locked("commands:tempo")} onClick={() => void run("tempo.tap")}>
             {t.tap} · {tempo ? tempo.bpm.toFixed(1) : "—"} <span className={`beat ${tempo && Math.floor(tempo.beats) % 2 === 0 ? "even" : ""}`} />
             {tempo?.clockMissing && <small className="warn"> ⚠</small>}
           </button>
@@ -175,16 +190,16 @@ export function DashboardsPage() {
       case "song-nav":
         return (
           <div className="fill row">
-            <button onClick={() => void run("song.prev")}>◀</button>
+            <button {...locked("commands:trigger")} onClick={() => void run("song.prev")}>◀</button>
             <span className="grow">{song.song ? `${song.song} · ${song.section ?? ""}` : "—"}</span>
-            <button onClick={() => void run("song.next")}>▶</button>
+            <button {...locked("commands:trigger")} onClick={() => void run("song.next")}>▶</button>
           </div>
         );
       case "section": {
         const [songId, sectionId] = (w.target ?? "").split(":");
         const on = song.song === songId && song.section === sectionId;
         return (
-          <button className={`fill look ${on ? "on" : ""}`} onClick={() => void run("song.section.go", { song: songId, section: sectionId })}>
+          <button className={`fill look ${on ? "on" : ""}`} {...locked("commands:trigger")} onClick={() => void run("song.section.go", { song: songId, section: sectionId })}>
             {w.label ?? sectionId}
           </button>
         );
@@ -196,6 +211,7 @@ export function DashboardsPage() {
           <button
             className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""}`}
             title={`${t.modes[w.mode ?? "latch"]} · ${l.tags.join(" · ")}`}
+            {...locked("commands:trigger")}
             {...press(
               w.mode ?? "latch",
               l.active,
@@ -216,7 +232,7 @@ export function DashboardsPage() {
           </div>
         );
       case "xy":
-        return <XyPad group={w.target || undefined} label={w.label} onError={setError} />;
+        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
@@ -228,6 +244,7 @@ export function DashboardsPage() {
                 min={0}
                 max={1000}
                 aria-label={`${t.channelFader} ${f.name}`}
+                disabled={!may("commands:level")}
                 value={Math.round(f.level * 1000)}
                 onChange={(e) => {
                   const level = Number(e.target.value) / 1000;
@@ -257,6 +274,7 @@ export function DashboardsPage() {
               min={0}
               max={1000}
               aria-label={`DCA ${g.name}`}
+              disabled={!may("commands:level")}
               value={Math.round(shown * 1000)}
               onChange={(e) => {
                 let level = Number(e.target.value) / 1000;
@@ -278,10 +296,10 @@ export function DashboardsPage() {
               </small>
             )}
             <div className="row">
-              <button className={g.master?.mute ? "mute on" : "mute"} onClick={() => void run("group.mute", { id: g.id, mute: !g.master?.mute })}>
+              <button className={g.master?.mute ? "mute on" : "mute"} {...locked("commands:level")} onClick={() => void run("group.mute", { id: g.id, mute: !g.master?.mute })}>
                 M
               </button>
-              <button onPointerDown={() => void run("group.flash", { id: g.id, on: true })} onPointerUp={() => void run("group.flash", { id: g.id, on: false })}>
+              <button {...locked("commands:trigger")} onPointerDown={() => void run("group.flash", { id: g.id, on: true })} onPointerUp={() => void run("group.flash", { id: g.id, on: false })}>
                 F
               </button>
             </div>
@@ -319,14 +337,14 @@ export function DashboardsPage() {
             <button
               onClick={() => {
                 setEdit(false);
-                void cmd<Dashboard[]>("dashboard.list").then(setDashboards);
+                void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l)));
               }}
             >
               ✕
             </button>
           </>
         ) : (
-          <button
+          editor && <button
             className="ghost"
             title={t.editLayoutHelp}
             onClick={() => {
@@ -383,12 +401,12 @@ export function DashboardsPage() {
       )}
 
       {dash && (
-        <div className="dgrid" style={{ gridTemplateColumns: `repeat(${dash.columns}, minmax(0, 1fr))` }}>
-          {dash.widgets.map((w) => (
+        <div className="dgrid" style={{ gridTemplateColumns: `repeat(${narrow && !edit ? 4 : dash.columns}, minmax(0, 1fr))`, gridAutoFlow: narrow && !edit ? "row" : undefined }}>
+          {(narrow && !edit ? [...dash.widgets].sort((a, b) => a.y - b.y || a.x - b.x) : dash.widgets).map((w) => (
             <div
               key={w.id}
               className={`cell ${edit ? "editing" : ""} ${selected === w.id ? "selected" : ""}`}
-              style={{ gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }}
+              style={narrow && !edit ? { gridColumn: `span ${Math.min(w.w, 4)}`, gridRow: `span ${w.h}` } : { gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }}
               onClickCapture={(e) => {
                 if (!edit) return;
                 e.stopPropagation();
@@ -396,6 +414,7 @@ export function DashboardsPage() {
                 setSelected(w.id);
               }}
               onContextMenu={(e) => {
+                if (!editor) return;
                 e.preventDefault();
                 refresh();
                 setMenu({ id: w.id, x: e.clientX, y: e.clientY });

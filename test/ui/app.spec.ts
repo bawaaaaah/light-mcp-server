@@ -62,7 +62,7 @@ test("signs in with the token by default, and the menu bar's token link signs in
 test("share link: Settings builds it from a user and a PIN, and it signs in as that user", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "9999");
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   const share = page.locator(".share-link");
   await share.locator("select").selectOption("benevole");
   await share.getByPlaceholder("PIN").fill("5678");
@@ -86,7 +86,7 @@ test("share link: Settings builds it from a user and a PIN, and it signs in as t
 test("AI connection page: the token holder gets ready-to-paste snippets, a volunteer has no such page", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/#token=ui-test-token");
-  await page.locator("header nav button", { hasText: "Connexion IA" }).click();
+  await page.locator("nav.pages button", { hasText: "Connexion IA" }).click();
   await expect(page.locator(".connect-fields")).toContainText("/mcp");
   await expect(page.locator(".code-block").first()).toContainText("claude mcp add --transport http light");
   await expect(page.locator(".code-block").first()).not.toContainText("ui-test-token");
@@ -96,7 +96,7 @@ test("AI connection page: the token holder gets ready-to-paste snippets, a volun
   await page.getByRole("button", { name: "Quitter" }).click();
   await expect(page.locator("form.token-login")).toBeVisible();
   await login(page, "5678");
-  await expect(page.locator("header nav button", { hasText: "Connexion IA" })).toHaveCount(0);
+  await expect(page.locator("nav.pages button", { hasText: "Connexion IA" })).toHaveCount(0);
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
 });
 
@@ -104,7 +104,7 @@ test("files: a new show opens on every screen, keeps backups, resets, and the fi
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());
   await login(page, "9999");
-  await page.locator("header nav button", { hasText: "Fichiers" }).click();
+  await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
   const files = page.locator(".files");
   await files.getByPlaceholder("Nom du show", { exact: true }).fill("Essai");
   await files.getByRole("button", { name: "Créer et ouvrir" }).click();
@@ -131,7 +131,7 @@ test("snapshots: save the whole state, choose it as Panic's safe state, Panic br
   await api(page, "look.stopall");
   await api(page, "look.go", { id: "hole" });
   await api(page, "group.level", { id: "master", level: 0.6 });
-  await page.locator("header nav button", { hasText: "Show" }).first().click();
+  await page.locator("nav.pages button", { hasText: "Show" }).first().click();
   const box = page.locator(".snapshots");
   await box.getByPlaceholder("Nom de l'instantané").fill("Accueil");
   await box.getByRole("button", { name: "Enregistrer l'état actuel" }).click();
@@ -162,7 +162,7 @@ test("users: the administrator adds a user with a PIN and a security key, who th
   await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true } });
   const origin = "http://localhost:8799";
   await page.goto(`${origin}/#token=ui-test-token`);
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   const users = page.locator(".users");
   await users.getByLabel("Nom de l'utilisateur").fill("Régie test");
   await users.getByLabel("Rôle", { exact: true }).selectOption("regisseur");
@@ -188,7 +188,7 @@ test("users: the administrator adds a user with a PIN and a security key, who th
   await page.getByRole("button", { name: "Quitter" }).click();
   await page.goto("about:blank");
   await page.goto(`${origin}/#token=ui-test-token`);
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.locator(".users-table tr", { hasText: "Régie test" }).getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".users-table")).not.toContainText("Régie test");
   expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
@@ -197,7 +197,7 @@ test("users: the administrator adds a user with a PIN and a security key, who th
 test("guided import: a .qxf added from the browser, then a QLC+ workspace into a new show of its own", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "9999");
-  await page.locator("header nav button", { hasText: "Import" }).click();
+  await page.locator("nav.pages button", { hasText: "Import" }).click();
   const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
   await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: fixture("spot.qxf") });
   await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
@@ -242,6 +242,61 @@ test("right-click on a dashboard button: assign another look, learn a MIDI note 
   await api(page, "look.stopall");
   expect(((await api(page, "dashboard.list")) as { widgets: { target?: string }[] }[])[0]!.widgets.filter((w) => w.target === "hole").length).toBe(1);
   expect(errors).toEqual([]);
+});
+
+test("roles: a volunteer sees only Live and their account; a right taken away greys its button", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "5678");
+  expect(await page.locator("nav.pages button").allTextContents()).toEqual(["Live", "Mon compte"]);
+  await expect(page.locator(".dgrid button", { hasText: "Panic neutre" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "✎" })).toHaveCount(0); // no layout editing
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await login(page, "9999");
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  const panic = page.getByLabel("Bénévole · Panic");
+  await expect(panic).toBeChecked();
+  await panic.uncheck();
+  await expect(panic).not.toBeChecked();
+  await page.screenshot({ path: "test-results/roles.png", fullPage: true });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await login(page, "5678");
+  await expect(page.locator(".dgrid button", { hasText: "Panic neutre" })).toBeDisabled();
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await login(page, "9999");
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  await page.getByLabel("Bénévole · Panic").check();
+  await expect(page.getByLabel("Bénévole · Panic")).toBeChecked();
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+});
+
+test("my account: signed in with the token, create my administrator account, then add my security key", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true } });
+  await page.goto("http://localhost:8799/#token=ui-test-token");
+  await page.locator(".role").click(); // the name in the top bar leads to « Mon compte »
+  const account = page.locator(".account");
+  await expect(account).toContainText("Créer mon compte administrateur");
+  await account.getByLabel("Nom de l'utilisateur").fill("Moi");
+  await account.getByRole("button", { name: "Créer le compte" }).click();
+  await account.getByRole("button", { name: "Ajouter une clé" }).click();
+  await expect(account.locator(".keys-table")).toContainText("Clé de Moi");
+  await page.screenshot({ path: "test-results/account.png", fullPage: true });
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await page.getByRole("button", { name: "Entrer avec une clé de sécurité" }).click();
+  await expect(page.locator(".role")).toHaveText("Moi");
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  await expect(page.locator(".users-table tr", { hasText: "Moi" })).toContainText("c'est vous"); // one cannot delete oneself
+  // clean up with the token
+  await page.getByRole("button", { name: "Quitter" }).click();
+  await page.goto("about:blank");
+  await page.goto("http://localhost:8799/#token=ui-test-token");
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  await page.locator(".users-table tr", { hasText: "Moi" }).getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".users-table")).not.toContainText("Moi");
+  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
 });
 
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
@@ -293,19 +348,19 @@ test("group fader drives the master and the dimmer", async ({ page }) => {
 test("DCA limits: a max set on the Show page stops the fader on the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   const max = page.getByLabel("max Master");
   await max.fill("50");
   await max.blur();
   await expect.poll(async () => ((await api(page, "group.list")) as { id: string; limits?: { max?: number } }[]).find((g) => g.id === "master")?.limits?.max).toBe(0.5);
-  await page.locator("header nav button", { hasText: "Live" }).click();
+  await page.locator("nav.pages button", { hasText: "Live" }).click();
   await expect(page.locator(".fader .mark.max")).toBeVisible();
   const fader = page.getByLabel("DCA Master");
   await fader.fill("1000"); // pushed to the top…
   await expect(page.locator(".cell .fader .value").first()).toHaveText(/^50%/); // …it stops at the max, and is shown there
   await expect.poll(async () => (await dmx(page))[0]).toBe(128);
   await page.screenshot({ path: "test-results/dca-limits.png", fullPage: true });
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByLabel("max Master").fill("");
   await page.getByLabel("max Master").blur();
   await expect.poll(async () => ((await api(page, "group.list")) as { id: string; limits?: { max?: number } }[]).find((g) => g.id === "master")?.limits?.max).toBeUndefined();
@@ -343,20 +398,20 @@ test("every page loads without errors, in French and English", async ({ page }) 
   const errors = watchErrors(page);
   await login(page, "9999"); // admin: Settings shows the roles
   for (const name of ["Show", "Lieu", "MIDI", "OSC", "Import", "Notes", "Réglages", "Chants", "Console DMX", "Live"]) {
-    await page.locator("header nav button", { hasText: name }).first().click();
+    await page.locator("nav.pages button", { hasText: name }).first().click();
     await page.waitForTimeout(150);
     await page.screenshot({ path: `test-results/page-${name.replace(/\s/g, "-")}.png`, fullPage: true });
   }
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await expect(page.locator(".users-table strong", { hasText: "Régisseur" })).toBeVisible();
-  await page.locator("header nav button", { hasText: "Notes" }).click();
+  await page.locator("nav.pages button", { hasText: "Notes" }).click();
   await expect(page.getByText("note de test")).toBeVisible();
-  await page.locator("header nav button", { hasText: "Import" }).click();
+  await page.locator("nav.pages button", { hasText: "Import" }).click();
   await expect(page.getByText("Choisir un fichier .qxw")).toBeVisible();
-  await page.locator("header nav button", { hasText: "OSC" }).click();
+  await page.locator("nav.pages button", { hasText: "OSC" }).click();
   await expect(page.getByText("/light/panic")).toBeVisible();
   await page.locator("header select").selectOption("en");
-  await expect(page.locator("header nav button", { hasText: "Settings" })).toBeVisible();
+  await expect(page.locator("nav.pages button", { hasText: "Settings" })).toBeVisible();
   await page.locator("header select").selectOption("fr");
   expect(errors).toEqual([]);
 });
@@ -380,7 +435,7 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "+ Nouveau look" }).click();
   const editor = page.locator(".look-editor");
   await editor.getByLabel("Nom", { exact: true }).fill("Mon damier");
@@ -415,7 +470,7 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "+ Nouveau look" }).click();
   const editor = page.locator(".look-editor");
   await editor.getByLabel("Nom", { exact: true }).fill("Machine");
@@ -441,7 +496,7 @@ test("automatic presets light a venue in one click", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());
   await login(page);
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "★ Presets automatiques" }).click();
   const auto = page.locator("button.look", { hasText: "Blanc chaud" });
   await expect(auto).toBeVisible();
@@ -455,7 +510,7 @@ test("automatic presets light a venue in one click", async ({ page }) => {
 test("song editor: sections, timeline, grid fill, then a setlist", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
   await page.getByRole("button", { name: "+ Nouveau chant" }).click();
   const editor = page.locator(".song-editor");
   await editor.getByLabel("Titre").fill("Mon chant");
@@ -495,7 +550,7 @@ test("song editor: sections, timeline, grid fill, then a setlist", async ({ page
 test("timeline action: placed in the song editor, fired by ▶ playback", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
   await page.getByRole("button", { name: "Modifier Chant test" }).click();
   const editor = page.locator(".song-editor");
   await editor.getByRole("button", { name: "+ Action" }).click();
@@ -518,7 +573,7 @@ test("timeline action: placed in the song editor, fired by ▶ playback", async 
 test("storyboard of a song, shown and downloadable", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
   await page.getByRole("button", { name: "Planche Chant test" }).click();
   const board = page.locator(".board-view svg");
   await expect(board).toBeVisible();
@@ -533,7 +588,7 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   const plan = page.locator(".stage-plan svg");
   await expect(plan).toBeVisible();
   await expect(plan.locator("g.fixture")).toHaveCount(3);
@@ -604,11 +659,11 @@ test("restoring a backup shows the differences first", async ({ page }) => {
     return Array.from(new Uint8Array(await res.arrayBuffer()));
   });
   const file = { name: "show.lightshow", mimeType: "application/zip", buffer: Buffer.from(backup) };
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
   const input = page.locator('input[type=file][accept*="lightshow"]');
   // identical backup: nothing to restore
   await input.setInputFiles(file);
-  await expect(page.locator(".show .error")).toContainText("identique");
+  await expect(page.locator(".files .error")).toContainText("identique");
   // a look renamed since the backup: the dialog lists it, accepting restores it
   const look = ((await api(page, "look.list")) as { id: string; name: string }[]).find((l) => l.id === "hole")!;
   await api(page, "look.put", { look: { ...look, name: "Renommé" } });
@@ -629,7 +684,7 @@ test("guided calibration of a moving head", async ({ page }) => {
   const spot = ((await api(page, "venue.fixture.list")) as { id: string }[]).find((f) => f.id === "spot")!;
   await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 2, z: 5 }, mount: "hung" } });
   await api(page, "stage.zone.put", { zone: { id: "marque", name: "Marque", type: "stage", polygon: [[-3, 0], [-2, 0], [-2, 1], [-3, 1]] } });
-  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   await page.getByText("Calibrer les lyres").click();
   const box = page.locator(".calibration");
   await box.getByLabel("Repère").selectOption("marque");
@@ -657,7 +712,7 @@ test("guided calibration of a moving head", async ({ page }) => {
 test("group editor: nested DCAs multiply", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   // a DCA on one bar
   await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
   let editor = page.locator(".group-editor");
@@ -691,7 +746,7 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   await login(page);
   await api(page, "look.stopall");
   await api(page, "look.go", { id: "masks" });
-  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   const panel = page.locator(".rules-panel");
   const form = panel.locator(".rule-form");
   // type level: Bar 4 dimmer max 50 %
@@ -721,7 +776,7 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  await page.locator("header nav button", { hasText: "MIDI" }).click();
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
   await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
   const editor = page.locator(".mapping-editor");
   await editor.getByRole("button", { name: "Apprendre" }).click();
@@ -755,7 +810,7 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
   await expect(fader).toBeVisible();
   await fader.fill("1000");
   await expect.poll(async () => (await dmx(page))[2]).toBe(255);
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await expect(page.locator("section", { hasText: "Faders de canaux" }).locator("tr", { hasText: "Blanc" })).toContainText("100 %");
   await api(page, "fader.delete", { id: "blanc" });
   await expect.poll(async () => (await dmx(page))[2]).toBe(0);
@@ -765,7 +820,7 @@ test("channel fader: on a dashboard, it drives its channels", async ({ page }) =
 test("channel fader editor: one fader on the same channel of several fixtures", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Show" }).click();
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
   const editor = page.locator(".fader-editor");
   await editor.getByLabel("Nom").fill("Strobes");
@@ -795,7 +850,7 @@ test("rule program: created, holds a rule, activated by hand and by a Program Ch
   await login(page);
   await api(page, "look.stopall");
   await api(page, "look.go", { id: "masks" });
-  await page.locator("header nav button", { hasText: "Lieu" }).click();
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   const panel = page.locator(".rules-panel");
   await panel.getByLabel("Nom du programme").fill("Prière");
   await panel.getByLabel("Program Change (#, comme dans Live)").fill("100");
@@ -826,7 +881,7 @@ test("rule program triggered by a MIDI note mapping", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await api(page, "program.put", { program: { id: "annonces", name: "Annonces" } });
-  await page.locator("header nav button", { hasText: "MIDI" }).click();
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
   await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
   const editor = page.locator(".mapping-editor");
   await editor.getByLabel("Note / CC").fill("51");
@@ -846,7 +901,7 @@ test("rule program triggered by a MIDI note mapping", async ({ page }) => {
 test("song MIDI file downloaded from the songs page", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Chants" }).click();
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "MIDI Chant test" }).click()]);
   expect(download.suggestedFilename()).toBe("Chant test.mid");
   const path = await download.path();
@@ -902,13 +957,13 @@ test("output standby: visible everywhere, then take over", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());
   await login(page, "9999");
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.getByRole("button", { name: "⏸ Mettre en veille" }).click();
   await expect(page.locator("header .badge.standby")).toContainText("Veille");
-  await page.locator("header nav button", { hasText: "Live" }).click();
+  await page.locator("nav.pages button", { hasText: "Live" }).click();
   await expect(page.locator("header .badge.standby")).toBeVisible(); // on every page
   await page.screenshot({ path: "test-results/standby.png" });
-  await page.locator("header nav button", { hasText: "Réglages" }).click();
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.getByRole("button", { name: "▶ Reprendre la main" }).click();
   await expect(page.locator("header .badge.standby")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -918,7 +973,7 @@ test("self-test with the real-time cadence of every look", async ({ page }) => {
   test.setTimeout(60_000);
   const errors = watchErrors(page);
   await login(page);
-  await page.locator("header nav button", { hasText: "Import" }).click();
+  await page.locator("nav.pages button", { hasText: "Import" }).click();
   await page.getByLabel("Mesurer aussi la cadence").check();
   await page.getByRole("button", { name: "Lancer l'auto-test" }).click();
   const table = page.locator("table.cadence");
@@ -943,12 +998,14 @@ test("live stage widget on a dashboard", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("a volunteer cannot write the show", async ({ page }) => {
+test("a volunteer cannot write the show: no DMX console offered, and the server refuses it anyway", async ({ page }) => {
   await login(page, "5678");
-  await page.getByRole("button", { name: "Console DMX" }).click();
-  await page.locator(".ch").nth(3).locator("input").fill("90");
-  await expect(page.locator(".console .error")).toContainText("droit requis"); // refusal is shown
-  await expect(page.locator(".ch").nth(3)).not.toHaveClass(/parked/); // and rolled back
+  await expect(page.locator("nav.pages button", { hasText: "Console DMX" })).toHaveCount(0);
+  const status = await page.evaluate(async () => {
+    const res = await fetch("/api/plugins/light/commands/dmx.set", { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify({ universe: 1, channel: 4, value: 90 }) });
+    return res.status;
+  });
+  expect(status).toBe(403);
   const parked = await page.evaluate(async () => {
     const res = await fetch("/api/plugins/light/commands/dmx.get", { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify({ universe: 1 }) });
     return ((await res.json()) as { result: { parked: Record<string, number> } }).result.parked;

@@ -31,7 +31,7 @@
 
 ## Veille et autre console (v1)
 - **Sortie en veille** (`output.standby`, `light serve --standby | --live`, gardée au redémarrage) : le show tourne et suit le MIDI, rien n'est envoyé ; le retour MIDI est coupé aussi. En entrant en veille, le serveur envoie une dernière trame **à zéro** (3 fois) : un node qui fusionne garde la dernière trame d'une source muette ~10 s, et des zéros sont neutres en HTP. En sortant de veille, tous les univers et tout le retour MIDI repartent aussitôt.
-- **Autre console** : un ArtDmx reçu d'une autre source (autre IP, ou autre port sur cette machine) est signalé 3 s ; l'en-tête de l'interface alerte si le serveur envoie en même temps. Nécessite la découverte (port 6454).
+- **Autre console** : tout ArtDmx reçu qui n'est pas la copie d'un paquet que le serveur vient d'envoyer (même séquence, même port-address, mêmes données, moins de 2 s : l'écho de sa propre diffusion) est signalé 3 s ; l'en-tête de l'interface alerte si le serveur envoie en même temps. Jamais d'exclusion par adresse : une autre instance ou QLC+ **sur la même machine**, même sur le port 6454, est signalée, avec la mention « cette machine ». Nécessite la découverte (port 6454).
 - **Fusion côté node** : le bit 3 de *GoodOutput* de l'ArtPollReply (port en fusion) est remonté par port-address.
 - Procédure complète : [bascule-qlc.md](../bascule-qlc.md).
 

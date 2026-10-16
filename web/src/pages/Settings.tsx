@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { cmd, type Role } from "../api";
+import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { UsersPanel } from "../components/UsersPanel";
+import { RolesPanel } from "../components/RolesPanel";
+import { jumpTo } from "../util";
 
 interface Node {
   ip: string;
@@ -11,7 +13,7 @@ interface Node {
 }
 interface Output {
   standby: boolean;
-  foreignSources: { ip: string; portAddresses: number[] }[];
+  foreignSources: { ip: string; portAddresses: number[]; local?: boolean }[];
   merging: { ip: string; shortName: string; portAddresses: number[] }[];
   stats: { framesSent: number; packetsSent: number; errors: number; discovery: string; discoveryError?: string };
   config: { routes: { universe: number; artnet?: { portAddress: number }; sacn?: { universe: number } }[] };
@@ -36,7 +38,12 @@ export function SettingsPage({ role }: { role: Role }) {
   return (
     <div className="settings">
       {message && <p className="hint">{message}</p>}
-      <div className="cols">
+      <nav className="jump" aria-label={t.onThisPage}>
+        <a href="#settings-output" onClick={(e) => jumpTo(e, "settings-output")}>{t.output}</a>
+        <a href="#settings-users" onClick={(e) => jumpTo(e, "settings-users")}>{t.users}</a>
+        {can(role, "auth:admin") && <a href="#settings-roles" onClick={(e) => jumpTo(e, "settings-roles")}>{t.roles}</a>}
+      </nav>
+      <div className="cols" id="settings-output">
         <section>
           <h2>{t.output}</h2>
           {output && (
@@ -53,7 +60,8 @@ export function SettingsPage({ role }: { role: Role }) {
           )}
           {output?.foreignSources.map((f) => (
             <p key={f.ip} className={output.standby ? "hint" : "error"}>
-              {output.standby ? t.otherHolds : `⚠ ${t.otherSource} :`} {f.ip} (Art-Net {f.portAddresses.join(", ")})
+              {output.standby ? t.otherHolds : `⚠ ${t.otherSource} :`} {f.ip}
+              {f.local ? ` (${t.thisMachine})` : ""} (Art-Net {f.portAddresses.join(", ")})
             </p>
           ))}
           {output?.merging.map((n) => (
@@ -86,9 +94,14 @@ export function SettingsPage({ role }: { role: Role }) {
           <button onClick={() => void cmd("nodes.discover")}>{t.discover}</button>
         </section>
       </div>
-      <section>
+      <section id="settings-users">
         <UsersPanel role={role} />
       </section>
+      {can(role, "auth:admin") && (
+        <section id="settings-roles">
+          <RolesPanel />
+        </section>
+      )}
     </div>
   );
 }

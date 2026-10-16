@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { can, cmd, downloadBackup, type Role } from "../api";
 import { useT } from "../App";
+import { ArchiveButtons } from "../components/ArchiveButtons";
 
 interface ShowRow {
   id: string;
@@ -151,6 +152,8 @@ export function FilesPage({ role }: { role: Role }) {
             <button onClick={() => act(cmd("backup.create", label.trim() ? { label: label.trim() } : {}).then(() => setLabel("")), t.backupSaved)}>{t.saveBackup}</button>
           </div>
         )}
+        <p className="hint">{t.archiveFileHelp}</p>
+        <ArchiveButtons onError={setError} onRestored={() => location.reload()} />
         {backups.length === 0 && <p className="hint">{t.noBackups}</p>}
         <table className="backups">
           <tbody>

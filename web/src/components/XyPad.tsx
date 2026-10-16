@@ -11,7 +11,7 @@ interface Head {
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). Sends `position.set` at most every 40 ms
  * while dragging (the last position is always sent), « ⟲ » releases back to the looks.
  */
-export function XyPad({ group, fixture, label, onError }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void }) {
+export function XyPad({ group, fixture, label, onError, disabled = false }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void; disabled?: boolean }) {
   const t = useT();
   const [pos, setPos] = useState<{ pan: number; tilt: number } | null>(null);
   const pad = useRef<HTMLDivElement>(null);
@@ -53,12 +53,14 @@ export function XyPad({ group, fixture, label, onError }: { group?: string; fixt
         role="slider"
         aria-label={label ?? t.heads}
         aria-valuetext={pos ? `pan ${Math.round(pos.pan * 100)} %, tilt ${Math.round(pos.tilt * 100)} %` : "—"}
+        aria-disabled={disabled || undefined}
         onPointerDown={(e) => {
+          if (disabled) return; // the role may not move the heads (commands:position)
           e.currentTarget.setPointerCapture(e.pointerId);
           send(fromEvent(e));
         }}
         onPointerMove={(e) => {
-          if (e.buttons) send(fromEvent(e));
+          if (e.buttons && !disabled) send(fromEvent(e));
         }}
       >
         <span className="cross" />
@@ -69,6 +71,7 @@ export function XyPad({ group, fixture, label, onError }: { group?: string; fixt
         <small>{pos ? `${Math.round(pos.pan * 100)} / ${Math.round(pos.tilt * 100)}` : t.followsLooks}</small>
         <button
           title={t.releaseHeads}
+          disabled={disabled}
           onClick={() => {
             pending.current = null;
             setPos(null);

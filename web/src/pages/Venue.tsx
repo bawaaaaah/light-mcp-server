@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
-import { slug } from "../util";
+import { jumpTo, slug } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
@@ -71,24 +71,12 @@ export function VenuePage() {
           {error}
         </p>
       )}
-      <section>
-        <h2>{t.stagePreview}</h2>
-        <StagePlan
-          fixtures={fixtures}
-          zones={zones}
-          onError={setError}
-          onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
-        />
-        <details className="calibration-box">
-          <summary>{t.calibrationTitle}</summary>
-          <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
-        </details>
-      </section>
-      <section>
-        <h2>{t.rulesTitle}</h2>
-        <RulesPanel fixtures={fixtures} zones={zones} onError={setError} />
-      </section>
-      <div className="cols">
+      <nav className="jump" aria-label={t.onThisPage}>
+        <a href="#venue-patch" onClick={(e) => jumpTo(e, "venue-patch")}>{t.patch}</a>
+        <a href="#venue-stage" onClick={(e) => jumpTo(e, "venue-stage")}>{t.stagePreview}</a>
+        <a href="#venue-rules" onClick={(e) => jumpTo(e, "venue-rules")}>{t.rulesTitle}</a>
+      </nav>
+      <div className="cols" id="venue-patch">
         <section>
           <h2>{t.patch} ({fixtures.length})</h2>
           <table>
@@ -198,6 +186,23 @@ export function VenuePage() {
           </div>
         </section>
       </div>
+      <section id="venue-stage">
+        <h2>{t.stagePreview}</h2>
+        <StagePlan
+          fixtures={fixtures}
+          zones={zones}
+          onError={setError}
+          onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
+        />
+        <details className="calibration-box">
+          <summary>{t.calibrationTitle}</summary>
+          <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
+        </details>
+      </section>
+      <section id="venue-rules">
+        <h2>{t.rulesTitle}</h2>
+        <RulesPanel fixtures={fixtures} zones={zones} onError={setError} />
+      </section>
     </div>
   );
 }

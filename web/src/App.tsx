@@ -15,14 +15,39 @@ import { NotesPage } from "./pages/Notes";
 import { SettingsPage } from "./pages/Settings";
 import { ConnectPage } from "./pages/Connect";
 import { FilesPage } from "./pages/Files";
+import { AccountPage } from "./pages/Account";
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 
-type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings";
-const PAGES: Page[] = ["live", "songs", "show", "venue", "console", "midi", "osc", "import", "notes", "files", "connect", "settings"];
-/** Pages a role sees only with a right; the others are for every role. */
-const PAGE_RIGHTS: Partial<Record<Page, string>> = { connect: "mcp:use" };
+type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
+/** The pages by what one does there; the side bar (or the tab strip on a tablet) shows these groups. */
+const GROUPS: [keyof Texts, Page[]][] = [
+  ["navPlay", ["live", "songs"]],
+  ["navDesign", ["show", "venue", "console"]],
+  ["navConnect", ["midi", "osc", "connect"]],
+  ["navData", ["import", "files", "notes"]],
+  ["navSystem", ["settings", "account"]],
+];
+const PAGES: Page[] = GROUPS.flatMap(([, pages]) => pages);
+/**
+ * The right a page needs: the one its commands ask for, so a role only sees what it can use
+ * (a volunteer gets Live and their account; the server refuses the rest anyway).
+ */
+const PAGE_RIGHTS: Partial<Record<Page, string>> = {
+  live: "dashboards:view",
+  songs: "show:write",
+  show: "show:write",
+  venue: "show:write",
+  console: "commands:dmx",
+  midi: "midi:configure",
+  osc: "show:write",
+  import: "show:write",
+  files: "show:write",
+  notes: "show:write",
+  connect: "mcp:use",
+  settings: "show:write",
+};
 
 type LightState = Awaited<ReturnType<typeof lightState>>;
 
@@ -110,6 +135,7 @@ export function App() {
   const [linkError, setLinkError] = useState("");
   const [up, setUp] = useState(false);
   const live = useTopic<LightState | null>("light:state", null);
+  const sourceName = (ip: string) => (output?.foreignLocal?.includes(ip) ? `${ip} (${t.thisMachine})` : ip);
   // The topic only speaks on a change: read the current state once signed in.
   const [seed, setSeed] = useState<LightState | null>(null);
   const output = live ?? seed;
@@ -158,31 +184,47 @@ export function App() {
 
   if (!checked) return null;
   if (!role) return <Login t={t} onLogin={setRole} initialError={linkError} />;
-  const pages = PAGES.filter((p) => !PAGE_RIGHTS[p] || can(role, PAGE_RIGHTS[p]));
+  const allowed = (p: Page) => !PAGE_RIGHTS[p] || can(role, PAGE_RIGHTS[p]);
+  const pages = PAGES.filter(allowed);
+  const shown: Page = allowed(page) ? page : (pages[0] ?? "account");
   return (
     <I18n.Provider value={t}>
-      <header className="top">
-        <nav>
-          {pages.map((p) => (
-            <button key={p} className={p === page ? "tab active" : "tab"} onClick={() => setPage(p)}>
-              {t[p]}
-            </button>
-          ))}
+      <div className="app">
+      <aside className="sidebar">
+        <div className="brand">{t.appName}</div>
+        <nav className="pages" aria-label={t.navigation}>
+          {GROUPS.map(([group, ps]) => {
+            const visible = ps.filter(allowed);
+            if (!visible.length) return null;
+            return (
+              <div className="nav-group" key={group}>
+                <span className="nav-title">{t[group] as string}</span>
+                {visible.map((p) => (
+                  <button key={p} className={p === shown ? "tab active" : "tab"} aria-current={p === shown ? "page" : undefined} onClick={() => setPage(p)}>
+                    {t[p] as string}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
-        <div className="right">
+      </aside>
+      <div className="main-col">
+      <header className="top">
+        <div className="status">
           {output?.show && (
-            <button className="badge show-name" title={t.openShow} onClick={() => setPage("files")}>
+            <button className="badge show-name" title={t.openShow} onClick={() => allowed("files") && setPage("files")}>
               {output.show.name}
             </button>
           )}
           {output?.standby && (
-            <span className="badge standby" title={`${t.standby}${output.foreignSources?.length ? ` · ${t.otherHolds} ${output.foreignSources.join(", ")}` : ""}. ${t.standbyHelp}`}>
+            <span className="badge standby" title={`${t.standby}${output.foreignSources?.length ? ` · ${t.otherHolds} ${output.foreignSources.map(sourceName).join(", ")}` : ""}. ${t.standbyHelp}`}>
               ⏸ {t.standbyShort}
             </span>
           )}
           {!output?.standby && output?.foreignSources?.length ? (
             <span className="badge conflict" title={t.otherSourceHelp}>
-              ⚠ {t.otherSource} : {output.foreignSources.join(", ")}
+              ⚠ {t.otherSource} : {output.foreignSources.map(sourceName).join(", ")}
             </span>
           ) : null}
           {output?.program && (
@@ -190,8 +232,12 @@ export function App() {
               {t.programLabel} : {output.program}
             </span>
           )}
+        </div>
+        <div className="right">
           <span className={up ? "dot ok" : "dot ko"} title={up ? t.connected : t.disconnected} />
-          <span className="role">{role.name}</span>
+          <button className="role ghost" title={`${role.role ?? role.name} · ${t.account}`} onClick={() => setPage("account")}>
+            {role.name}
+          </button>
           <select aria-label={t.language} value={lang} onChange={(e) => switchLang(e.target.value as Lang)}>
             <option value="fr">FR</option>
             <option value="en">EN</option>
@@ -207,19 +253,22 @@ export function App() {
         </div>
       </header>
       <main>
-        {page === "live" && <DashboardsPage />}
-        {page === "songs" && <SongsPage />}
-        {page === "show" && <ShowPage />}
-        {page === "venue" && <VenuePage />}
-        {page === "console" && <ConsolePage />}
-        {page === "midi" && <MidiPage />}
-        {page === "osc" && <OscPage />}
-        {page === "import" && <ImportPage />}
-        {page === "notes" && <NotesPage />}
-        {page === "files" && <FilesPage role={role} />}
-        {page === "connect" && pages.includes("connect") && <ConnectPage role={role} />}
-        {page === "settings" && <SettingsPage role={role} />}
+        {shown === "live" && <DashboardsPage role={role} />}
+        {shown === "songs" && <SongsPage />}
+        {shown === "show" && <ShowPage />}
+        {shown === "venue" && <VenuePage />}
+        {shown === "console" && <ConsolePage />}
+        {shown === "midi" && <MidiPage />}
+        {shown === "osc" && <OscPage />}
+        {shown === "import" && <ImportPage />}
+        {shown === "notes" && <NotesPage />}
+        {shown === "files" && <FilesPage role={role} />}
+        {shown === "connect" && <ConnectPage role={role} />}
+        {shown === "settings" && <SettingsPage role={role} />}
+        {shown === "account" && <AccountPage role={role} />}
       </main>
+      </div>
+      </div>
     </I18n.Provider>
   );
 }

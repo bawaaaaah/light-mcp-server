@@ -9,6 +9,8 @@ export interface Role {
   role?: string;
   user?: { id: string; name: string };
   rights: string[];
+  /** Dashboards this role sees; absent = all. */
+  dashboards?: string[];
   /** "static": signed in with the master token (server.authToken); "session": with a PIN. */
   kind?: "static" | "session";
 }
@@ -186,6 +188,8 @@ export async function lightState(): Promise<{
   discovery: string;
   standby?: boolean;
   foreignSources?: string[];
+  /** Those of foreignSources on this very computer (another instance, QLC+). */
+  foreignLocal?: string[];
   program?: string | null;
 }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));

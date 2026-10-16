@@ -923,3 +923,207 @@ table.rules td {
   margin: 0.2em 0 0.4em;
   padding-left: 1.1em;
 }
+
+/* App layout: side bar on a computer, one scrolling tab strip on a tablet or a phone. */
+.app {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding: 0.8em 0.6em;
+  background: var(--bg);
+}
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 0.2em 0.4em 0.6em;
+}
+nav.pages {
+  display: grid;
+  gap: 0.9em;
+}
+.nav-group {
+  display: grid;
+  gap: 0.2em;
+}
+.nav-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 0 0.5em;
+}
+nav.pages .tab {
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.45em 0.6em;
+}
+nav.pages .tab:hover {
+  background: var(--panel);
+}
+nav.pages .tab.active {
+  background: var(--panel);
+  border-color: var(--accent);
+}
+.main-col {
+  min-width: 0;
+}
+header.top {
+  flex-wrap: nowrap;
+}
+header.top .status,
+header.top .right {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+header.top .right {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+header.top .role {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button:disabled,
+.pad[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@media (max-width: 999px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 0.35em 0.5em;
+  }
+  .sidebar .brand,
+  .nav-title {
+    display: none;
+  }
+  nav.pages {
+    display: flex;
+    gap: 0.2em;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-group {
+    display: flex;
+    gap: 0.2em;
+  }
+  nav.pages .tab {
+    white-space: nowrap;
+  }
+  header.top {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  header.top {
+    flex-wrap: wrap;
+    padding: 0.4em 0.6em;
+  }
+  header.top .role {
+    max-width: 8em;
+  }
+  main {
+    padding: 0.6em;
+  }
+}
+
+/* Narrow screens: a wide table scrolls inside the page instead of widening it. */
+main table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.code-block,
+.code-block pre {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 600px) {
+  .row {
+    flex-wrap: wrap;
+  }
+  .cols {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  input,
+  select {
+    max-width: 100%;
+  }
+}
+
+/* Roles and rights (components/RolesPanel.tsx). */
+.roles-table th {
+  font-weight: 600;
+  text-align: center;
+  padding: 0.3em 0.6em;
+  white-space: nowrap;
+}
+.roles-table td {
+  padding: 0.25em 0.6em;
+}
+.roles-table td.check {
+  text-align: center;
+}
+.roles-table tr.area td {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 0.9em;
+}
+.roles-table tbody tr:not(.area):hover {
+  background: var(--panel);
+}
+
+/* In-page jump links (Lieu, Réglages): the hash names the page, so they scroll instead. */
+nav.jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.2em;
+  padding: 0.6em 0 0.2em;
+  font-size: 0.9rem;
+}
+nav.jump a {
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--line);
+}
+nav.jump a:hover {
+  color: var(--accent);
+}
+[id^="venue-"],
+[id^="settings-"] {
+  scroll-margin-top: 4em;
+}
+/* The rule form: fields top-aligned, the forbidden capabilities as one wrapping row. */
+.fields.rule-form {
+  align-items: flex-start;
+}
+.rule-form fieldset.checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.9em;
+  max-height: none;
+  max-width: 34em;
+}

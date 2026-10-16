@@ -112,14 +112,18 @@ export function UsersPanel({ role }: { role: Role }) {
                     </div>
                   </td>
                   <td>
-                    <div className="row">
-                      <label className="inline">
-                        <input type="checkbox" checked={!u.disabled} onChange={(e) => patch(u.id, { disabled: !e.target.checked })} /> {t.enabled}
-                      </label>
-                      <button className="ghost" onClick={() => confirm(`${t.deleteUserConfirm} « ${u.name} »`) && act(api(`/api/auth/users/${u.id}`, "DELETE"), t.deleted)}>
-                        {t.delete}
-                      </button>
-                    </div>
+                    {u.id === role.user?.id ? (
+                      <span className="hint">{t.thatsYou}</span>
+                    ) : (
+                      <div className="row">
+                        <label className="inline">
+                          <input type="checkbox" checked={!u.disabled} onChange={(e) => patch(u.id, { disabled: !e.target.checked })} /> {t.enabled}
+                        </label>
+                        <button className="ghost" onClick={() => confirm(`${t.deleteUserConfirm} « ${u.name} »`) && act(api(`/api/auth/users/${u.id}`, "DELETE"), t.deleted)}>
+                          {t.delete}
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

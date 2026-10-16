@@ -14,7 +14,7 @@ for (const [label, viewport] of [
     await expect(page.locator("header.top")).toBeVisible();
     const wide: string[] = [];
     for (const name of ["Live", "Show", "Lieu", "Chants", "MIDI", "OSC", "Import", "Notes", "Fichiers", "Connexion IA", "Réglages", "Console DMX"]) {
-      await page.locator("header nav button", { hasText: name }).first().click();
+      await page.locator("nav.pages button", { hasText: name }).first().click();
       await page.waitForTimeout(150);
       const width = await page.evaluate<number>("document.documentElement.scrollWidth");
       if (width > viewport.width) wide.push(`${name}: ${width}px`);

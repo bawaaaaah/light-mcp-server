@@ -138,6 +138,13 @@ export class Gateway {
       const credential = auth.bearerOf(req);
       res.json({ ...signedInView(auth.roleOf(credential)!, auth.userOf(credential)), kind: auth.authKind(req) });
     });
+    // one's own PIN (a signed-in user, not the master token)
+    app.put("/api/auth/me/pin", auth.requireAuth(), express.json(), (req, res, next) => {
+      const user = auth.userOf(auth.bearerOf(req));
+      if (!user) return next(new HttpError(400, "entré avec le jeton : pas de compte à qui donner un PIN"));
+      const pin = bodyString(req.body, "pin");
+      auth.setPin(user.id, pin ? pin : null).then(() => res.status(204).end(), next);
+    });
     app.post("/api/auth/ws-ticket", auth.requireAuth(), (req, res) => {
       res.json({ ticket: auth.issueStreamTicket(auth.bearerOf(req)!) });
     });

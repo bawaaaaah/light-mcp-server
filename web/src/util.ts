@@ -23,3 +23,9 @@ export const splitList = (s: string) =>
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+
+/** In-page links: scroll to a section without touching the address (its hash names the page). */
+export function jumpTo(e: { preventDefault(): void }, id: string): void {
+  e.preventDefault();
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
