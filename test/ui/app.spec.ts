@@ -595,6 +595,24 @@ test("midi page: mappings in number order, and a search past a handful", async (
   expect(errors).toEqual([]);
 });
 
+test("show check: a summary first, errors before warnings, and it closes", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "overlap", name: "Chevauche", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 5 } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.getByRole("button", { name: "Vérifier le show" }).click();
+    const report = page.locator(".lint-report");
+    await expect(report.locator("strong")).toContainText(/⚠ \d+ alerte\(s\)/);
+    await expect(report.locator("li", { hasText: "Chevauche" }).first()).toContainText("mêmes canaux");
+    await report.getByRole("button", { name: "Fermer" }).click();
+    await expect(report).toHaveCount(0);
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "overlap" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: the patch reads by address, and fixtures sharing channels are flagged", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

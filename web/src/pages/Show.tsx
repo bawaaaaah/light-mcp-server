@@ -139,6 +139,13 @@ export function ShowPage() {
       .filter(([n]) => n)
       .map(([n, what]) => `${n} ${what}`)
       .join(" · ") || "—";
+  /** « ✖ 2 erreurs · ⚠ 4 alertes », or « ✔ Rien à signaler »: a check mark above six warnings misled. */
+  const lintSummary = (l: Lint) => {
+    const errors = l.issues.filter((i) => i.level === "erreur").length;
+    const warnings = l.issues.length - errors;
+    if (!l.issues.length) return `✔ ${t.lintClean}`;
+    return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : ""].filter(Boolean).join(" · ");
+  };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
 
   return (
@@ -193,14 +200,22 @@ export function ShowPage() {
       </section>
 
       {lint && (
-        <div className="report">
-          <strong>{lint.ok ? "✔" : "✖"}</strong>
+        <div className="report lint-report" role="status">
+          <div className="row">
+            <strong>{lintSummary(lint)}</strong>
+            <span className="grow" />
+            <button className="ghost" aria-label={t.close} onClick={() => setLint(null)}>
+              ✕
+            </button>
+          </div>
           <ul className="warnings">
-            {lint.issues.map((i, k) => (
-              <li key={k} className={i.level === "erreur" ? "error" : ""}>
-                {i.where} : {i.message}
-              </li>
-            ))}
+            {[...lint.issues]
+              .sort((a, b) => Number(b.level === "erreur") - Number(a.level === "erreur")) /* errors first */
+              .map((i, k) => (
+                <li key={k} className={i.level === "erreur" ? "error" : ""}>
+                  {i.level === "erreur" ? "✖" : "⚠"} {i.where} : {i.message}
+                </li>
+              ))}
           </ul>
         </div>
       )}
