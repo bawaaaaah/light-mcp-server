@@ -5,7 +5,8 @@
  * Fixtures with no stage position are lined up along the front edge. With moving heads, « Viser »
  * points them at the clicked spot (position.aim, at a standing person's height). « Placer » lets
  * fixtures be dragged to their place (snapped to 10 cm). The front view shows heights (X, Z): risers
- * at their floor height, and dragging there sets a fixture's height.
+ * at their floor height, and dragging there sets a fixture's height. A strobing fixture gets a still
+ * dashed outline and its rate: the screen never flashes (a flashing screen is a photosensitive risk too).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -36,6 +37,7 @@ const defaultHeight = (mount?: string) => (mount === "hung" || mount === "truss"
 export function StagePlan({ fixtures, zones, onError, onMove, compact = false }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void; onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void; compact?: boolean }) {
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
+  const [strobe, setStrobe] = useState<Record<string, number | null>>({});
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -57,7 +59,15 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
   const [heads, setHeads] = useState(0);
   const svg = useRef<SVGSVGElement>(null);
 
-  useEffect(() => stream.subscribe("light:preview", (d) => setColors((d as { fixtures: Record<string, string[]> }).fixtures)), []);
+  useEffect(
+    () =>
+      stream.subscribe("light:preview", (d) => {
+        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null> };
+        setColors(update.fixtures);
+        setStrobe(update.strobe ?? {});
+      }),
+    [],
+  );
   useEffect(() => {
     void cmd<unknown[]>("position.list").then((h) => setHeads(h.length)).catch(() => undefined);
   }, [fixtures]);
@@ -205,6 +215,15 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
               {cols.map((c, i) => (
                 <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
               ))}
+              {f.id in strobe && cols.some((c) => c !== "#000000") && (
+                <g className="strobe-mark">
+                  <title>{strobe[f.id] === null ? t.strobing : `${t.strobing} · ${Math.round(strobe[f.id]!)} Hz`}</title>
+                  <rect x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />
+                  <text x={sx(p.x)} y={y0 - 6} textAnchor="middle">
+                    ⚡{strobe[f.id] === null ? "" : ` ${Math.round(strobe[f.id]!)} Hz`}
+                  </text>
+                </g>
+              )}
               <text x={sx(p.x)} y={y0 + h + 14} textAnchor="middle" className="fixture-name">
                 {f.name}
               </text>

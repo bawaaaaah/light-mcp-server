@@ -94,6 +94,14 @@ const NAME_COLORS: [RegExp, ColorComponent][] = [
 ];
 
 /** Deduces capability tags from names and presets; the user can correct them later. */
+/** The strobe frequency (Hz) a value sets, when its capability says; undefined otherwise. */
+export function strobeHz(v: number, ch: FixtureChannel): number | undefined {
+  const cap = ch.capabilities.find((c) => c.hz && v >= c.min && v <= c.max);
+  if (!cap?.hz) return undefined;
+  const [h1, h2] = cap.hz;
+  return cap.max === cap.min ? h1 : h1 + ((v - cap.min) / (cap.max - cap.min)) * (h2 - h1);
+}
+
 export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const text = `${name} ${preset ?? ""}`;

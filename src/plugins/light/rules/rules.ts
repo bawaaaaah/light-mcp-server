@@ -9,7 +9,7 @@
  * value). The most specific level wins unless a broader rule is `locked`.
  */
 import { z } from "zod";
-import type { CapabilityTag, FixtureChannel } from "../venue/qxf-import.js";
+import { strobeHz, type CapabilityTag, type FixtureChannel } from "../venue/qxf-import.js";
 import type { ResolvedFixture } from "../venue/venue.js";
 
 export const RuleSchema = z.object({
@@ -141,14 +141,6 @@ export function effectiveRule(rules: Rule[], fx: ResolvedFixture, ch: FixtureCha
     }
   }
   return eff;
-}
-
-/** The strobe frequency (Hz) a value sets, when its capability says; undefined otherwise. */
-export function strobeHz(v: number, ch: FixtureChannel): number | undefined {
-  const cap = ch.capabilities.find((c) => c.hz && v >= c.min && v <= c.max);
-  if (!cap?.hz) return undefined;
-  const [h1, h2] = cap.hz;
-  return cap.max === cap.min ? h1 : h1 + ((v - cap.min) / (cap.max - cap.min)) * (h2 - h1);
 }
 
 /** Moves a strobe value to the nearest one at or under maxHz: inside its range, else just outside it. */

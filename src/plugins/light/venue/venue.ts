@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
-import { findDefinition, findMode, parseQxf, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
@@ -395,6 +395,27 @@ export class Venue {
         const c: Color = {};
         for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) c[comp] = at(off) * dimmer;
         return displayHex(c);
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Fixtures whose output sits in a strobe range, for the live preview: the frequency in Hz when
+   * the definition gives it, null when it only says « slow to fast ».
+   */
+  strobing(buffers: readonly Uint8Array[]): Record<string, number | null> {
+    const out: Record<string, number | null> = {};
+    for (const patch of this.fixtures.list()) {
+      const r = this.resolve(patch.id);
+      const buf = buffers[patch.universe - 1];
+      if ("error" in r || !buf) continue;
+      r.mode.channels.forEach((name, off) => {
+        const ch = r.def.channels.get(name);
+        const v = buf[patch.address - 1 + off] ?? 0;
+        if (!ch?.capabilities.some((c) => c.tags.includes("strobe") && v >= c.min && v <= c.max)) return;
+        const hz = strobeHz(v, ch);
+        out[patch.id] = hz === undefined ? (out[patch.id] ?? null) : Math.max(hz, out[patch.id] ?? 0);
       });
     }
     return out;

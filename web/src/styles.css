@@ -749,6 +749,15 @@ table.cues select {
   font-size: 10px;
   fill: #c9ced9;
 }
+.stage-plan .strobe-mark rect {
+  stroke: #f5f7fa;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.stage-plan .strobe-mark text {
+  font-size: 11px;
+  fill: #f5d90a;
+}
 .stage-plan svg.placing {
   user-select: none;
   touch-action: none;

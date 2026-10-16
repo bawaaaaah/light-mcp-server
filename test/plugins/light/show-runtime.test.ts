@@ -47,6 +47,10 @@ describe("show runtime", () => {
     show.groups.put({ id: "m", name: "M", members: { fixtures: ["bar-l"] }, master: { level: 0.5, mute: false } });
     expect(venue.displayColors([dmx()])["bar-l"]![0]).to.equal("#800000"); // the dimmer is applied
     expect(venue.displayColors([new Uint8Array(512)])["bar-r"]).to.deep.equal(["#000000", "#000000", "#000000", "#000000"]);
+    expect(venue.strobing([dmx()])).to.deep.equal({}); // the shutter is held open
+    const strobe = dmx();
+    strobe[1] = 200; // bar-l's strobe channel, in its « slow to fast » range: no frequency given
+    expect(venue.strobing([strobe])).to.deep.equal({ "bar-l": null });
   });
 
   it("plays a look on the canvas and follows the beat", () => {

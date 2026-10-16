@@ -1081,6 +1081,16 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   await api(page, "look.go", { id: "masks" });
   await expect.poll(async () => (await bar.evaluateAll((rs) => rs.map((r) => r.getAttribute("fill")))).some((f) => f !== "#000000")).toBe(true); // lit, live
   await page.screenshot({ path: "test-results/stage-preview.png", fullPage: true });
+  // a strobing fixture: a still marker, never a flashing screen
+  const patch = ((await api(page, "venue.fixture.list")) as { id: string; universe: number; address: number }[]).find((f) => f.id === "bar-0")!;
+  const strobeOffset = ((await api(page, "venue.fixture.channels")) as { id: string; channels: { offset: number; attribute: string }[] }[]).find((f) => f.id === "bar-0")!.channels.find((c) => c.attribute === "strobe")!.offset;
+  const strobeChannel = patch.address + strobeOffset;
+  await expect(plan.locator(".strobe-mark")).toHaveCount(0);
+  await api(page, "dmx.set", { universe: patch.universe, channel: strobeChannel, value: 200 });
+  await expect(plan.locator('g.fixture[data-fixture="bar-0"] .strobe-mark')).toBeVisible();
+  await page.screenshot({ path: "test-results/stage-preview-strobe.png", fullPage: true });
+  await api(page, "dmx.release", { universe: patch.universe, channels: [strobeChannel] });
+  await expect(plan.locator(".strobe-mark")).toHaveCount(0);
   // a modelled stage: zones and positions
   await api(page, "stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]] } });
   await api(page, "stage.zone.put", { zone: { id: "pupitre", name: "Pupitre", type: "riser", polygon: [[2.5, 0.5], [3.5, 0.5], [3.5, 1.5], [2.5, 1.5]], protected: true } });
