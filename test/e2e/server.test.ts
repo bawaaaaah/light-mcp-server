@@ -79,6 +79,14 @@ describe("server end to end", function () {
     expect(h.status).to.equal("HEALTHY");
   });
 
+  it("lets no other site frame any page, the refusals included", async () => {
+    for (const res of [await fetch(`${base}/health`), await fetch(`${base}/api/auth/me`)]) {
+      expect(res.headers.get("x-frame-options")).to.equal("DENY");
+      expect(res.headers.get("content-security-policy")).to.equal("frame-ancestors 'none'");
+      expect(res.headers.get("x-content-type-options")).to.equal("nosniff");
+    }
+  });
+
   it("refuses a wrong PIN", async () => {
     const res = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "0000" }) });
     expect(res.status).to.equal(401);

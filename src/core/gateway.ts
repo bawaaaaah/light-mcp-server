@@ -69,6 +69,14 @@ export class Gateway {
     this.app = express();
     if (opts.trustProxy) this.app.set("trust proxy", opts.trustProxy);
     this.app.disable("x-powered-by");
+    // Nothing here is meant to sit in another site's frame: a page that framed the controls (or the
+    // OAuth approval page) could disguise what a click does. No MIME sniffing either.
+    this.app.use((_req, res, next) => {
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      next();
+    });
     this.mountCoreRoutes();
     this.mountMcp();
     this.mountPlugins();
