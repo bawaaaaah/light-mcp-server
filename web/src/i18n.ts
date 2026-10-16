@@ -582,6 +582,9 @@ const fr = {
   activity: "Activité récente",
   activityHelp: "Ce qui a changé depuis le démarrage du serveur : quand, qui, d'où, sur quoi. Un fader qu'on glisse fait une seule ligne.",
   noActivity: "Rien encore depuis le démarrage.",
+  online: "En ligne maintenant",
+  thisPage: "cette page",
+  since: "depuis",
   origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
 };
 const en: typeof fr = {
@@ -1167,6 +1170,9 @@ const en: typeof fr = {
   activity: "Recent activity",
   activityHelp: "What changed since the server started: when, who, from where, on what. A dragged fader is one line.",
   noActivity: "Nothing yet since the start.",
+  online: "Online now",
+  thisPage: "this page",
+  since: "since",
   origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
 };
 

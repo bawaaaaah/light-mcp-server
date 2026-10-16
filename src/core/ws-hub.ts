@@ -190,6 +190,7 @@ interface Connection {
   inFlight: number;
   /** Aborted when the connection goes away, so its in-flight requests stop with it. */
   readonly gone: AbortController;
+  readonly connectedAt: number;
 }
 
 interface SubscriberGroup {
@@ -261,6 +262,20 @@ export class WsHub {
 
   get connectionCount(): number {
     return this.connections.size;
+  }
+
+  /**
+   * The open pages (one control connection each): their credential (for the caller to name, never
+   * to send), the client's address (first X-Forwarded-For hop behind a proxy) and since when.
+   */
+  clients(): { credential: string; address: string | undefined; since: number }[] {
+    return [...this.connections]
+      .filter((c) => c.channel === "control")
+      .map((c) => ({
+        credential: c.credential,
+        address: (c.forwardedHeaders["x-forwarded-for"]?.split(",")[0]?.trim() || c.remoteAddress)?.replace(/^::ffff:/, ""),
+        since: c.connectedAt,
+      }));
   }
 
   /** The `upgrade` listener for the HTTP server. Never throws; every refusal is an HTTP status. */
@@ -396,6 +411,7 @@ export class WsHub {
       forwardedHeaders: pickHeaders(upgrade, FORWARDED_HEADERS),
       inFlight: 0,
       gone: new AbortController(),
+      connectedAt: Date.now(),
     };
     this.connections.add(conn);
 

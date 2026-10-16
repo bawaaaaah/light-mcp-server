@@ -1535,3 +1535,9 @@ table.activity td {
 table.activity tr.failed td {
   color: var(--danger);
 }
+ul.online {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.25em;
+}

@@ -561,6 +561,21 @@ test("settings: recent activity says who did what, from where, a dragged fader o
   expect(errors).toEqual([]);
 });
 
+test("settings: who is online, this page included", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  const other = await browser.newContext({ locale: "fr-FR" });
+  const tablet = await other.newPage();
+  await login(tablet, "5678"); // a volunteer on a tablet
+  await login(page, "9999");
+  await page.locator("nav.pages").getByRole("button", { name: "Réglages" }).click();
+  const online = page.locator("ul.online");
+  await expect(online.locator("li", { hasText: "Bénévole" })).toBeVisible();
+  await expect(online.locator("li", { hasText: "cette page" })).toContainText("Administrateur");
+  await other.close();
+  await expect(online.locator("li", { hasText: "Bénévole" })).toHaveCount(0, { timeout: 10_000 }); // gone with its page
+  expect(errors).toEqual([]);
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);

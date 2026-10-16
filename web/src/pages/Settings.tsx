@@ -3,7 +3,7 @@ import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { UsersPanel } from "../components/UsersPanel";
 import { RolesPanel } from "../components/RolesPanel";
-import { ActivityPanel } from "../components/ActivityPanel";
+import { ActivityPanel, OnlinePanel } from "../components/ActivityPanel";
 import { jumpTo } from "../util";
 
 interface Node {
@@ -105,6 +105,7 @@ export function SettingsPage({ role }: { role: Role }) {
         </section>
       )}
       <section id="settings-activity">
+        <OnlinePanel />
         <ActivityPanel />
       </section>
     </div>

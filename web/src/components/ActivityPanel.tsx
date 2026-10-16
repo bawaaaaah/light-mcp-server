@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cmd } from "../api";
+import { api, cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 
@@ -14,6 +14,46 @@ interface Entry {
   target?: string;
   ok: boolean;
   error?: string;
+}
+
+interface Client {
+  who: string;
+  role?: string;
+  address?: string;
+  since: string;
+  self: boolean;
+}
+
+/** Who has the interface open right now (one line per open page), read every 5 s. */
+export function OnlinePanel() {
+  const t = useT();
+  const [clients, setClients] = useState<Client[] | null>(null);
+  useEffect(() => {
+    const load = () => void api<Client[]>("/api/clients").then(setClients, () => undefined);
+    load();
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <>
+      <h2>
+        {t.online} {clients && `(${clients.length})`}
+      </h2>
+      <ul className="online">
+        {clients?.map((c, i) => (
+          <li key={`${c.since}-${i}`}>
+            <strong>{c.who}</strong>
+            {c.role && c.role !== c.who && <small className="hint"> · {c.role}</small>}
+            {c.self && <span className="badge"> {t.thisPage}</span>}
+            <small className="hint">
+              {" "}
+              · {c.address ?? "?"} · {t.since} {time(Date.parse(c.since))}
+            </small>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });

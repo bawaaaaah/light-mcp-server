@@ -138,6 +138,14 @@ export class Gateway {
       res.json({ token, role: signedInView(role, user) });
     });
     app.get("/api/auth/login-users", (_req, res) => res.json({ users: auth.loginUsers(), keys: passkeys?.hasPasskeys() ?? false }));
+    // who has the interface open right now (tablets, régie…): names and addresses, never credentials
+    app.get("/api/clients", auth.requireRight("show:write"), (req, res) => {
+      const me = auth.bearerOf(req);
+      const clients = (this.wsHub?.clients() ?? [])
+        .map((c) => ({ who: auth.nameOf(c.credential) ?? "?", role: auth.roleOf(c.credential)?.name, address: c.address, since: new Date(c.since).toISOString(), self: c.credential === me }))
+        .sort((a, b) => a.since.localeCompare(b.since));
+      res.json(clients);
+    });
     app.post("/api/auth/logout", auth.requireAuth(), (req, res) => {
       auth.logout(auth.bearerOf(req)!);
       res.status(204).end();
