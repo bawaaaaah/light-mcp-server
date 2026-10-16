@@ -350,7 +350,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -361,6 +361,8 @@ export class LightPlugin implements McpPlugin {
       foreignSources: this.router.foreignSources().map((f) => f.ip),
       // another instance or QLC+ on this very computer: said as such, it is not a stranger on the network
       foreignLocal: this.router.foreignSources().filter((f) => f.local).map((f) => f.ip),
+      // channels forced from the DMX console: over the show until released, so said on every page
+      parked: this.engine.parkedCount(),
     };
   }
 

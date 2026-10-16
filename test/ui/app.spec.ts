@@ -793,8 +793,11 @@ test("DMX console: shows live values and parks a channel", async ({ page }) => {
   await ch10.locator("input").fill("200");
   await expect(ch10).toHaveClass(/parked/);
   await expect(ch10.locator(".val")).toHaveText("200");
+  // a forced channel is said on every page, until released
+  await expect(page.locator("header.top")).toContainText("🔧 1 canal(aux) forcé(s)", { timeout: 5000 });
   await page.getByRole("button", { name: "Tout relâcher" }).click();
   await expect(ch10).not.toHaveClass(/parked/);
+  await expect(page.locator("header.top")).not.toContainText("forcé", { timeout: 5000 });
   await page.getByRole("radio", { name: "Les 512 canaux" }).click();
   await expect(page.locator(".ch")).toHaveCount(512);
   await page.getByRole("radio", { name: "Canaux patchés" }).click(); // the choice is remembered: leave the default

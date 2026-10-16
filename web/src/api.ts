@@ -240,6 +240,8 @@ export async function lightState(): Promise<{
   /** Those of foreignSources on this very computer (another instance, QLC+). */
   foreignLocal?: string[];
   program?: string | null;
+  /** Channels forced from the DMX console (over the show until released). */
+  parked?: number;
 }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }

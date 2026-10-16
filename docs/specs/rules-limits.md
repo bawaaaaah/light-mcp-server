@@ -68,6 +68,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 ## Moteur et visibilité
 - Chaque bornage émet un événement sur `light:rules`, avec la règle et l'origine de la commande, visible dans l'UI et expliqué à l'IA.
 - **Forçage technicien** : depuis la console DMX, on peut ignorer les règles non `locked`, avec un bandeau d'avertissement et une entrée au journal.
+  - Fait : les canaux forcés comptent dans `light:state` (`parked`) et l'en-tête de **toutes les pages** affiche « 🔧 N canal(aux) forcé(s) » (vers la console DMX) tant qu'ils ne sont pas relâchés ; chaque forçage figure au journal d'activité (`dmx.set`).
 
 ## MCP
 `light_rules_get(selector)` (règles effectives et provenance), `light_rules_set` et `light_rules_remove`. Ressource `light://rules`. Les réponses des outils d'écriture indiquent les bornages appliqués.

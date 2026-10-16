@@ -283,6 +283,11 @@ export function App() {
               ⚠ {t.otherSource} : {output.foreignSources.map(sourceName).join(", ")}
             </span>
           ) : null}
+          {output?.parked ? (
+            <button className="badge conflict" title={t.parkedHelp} onClick={() => allowed("console") && setPage("console")}>
+              🔧 {output.parked} {t.parkedChannels}
+            </button>
+          ) : null}
           {output?.program && (
             <span className="badge standby" title={t.programActiveHelp}>
               {t.programLabel} : {output.program}

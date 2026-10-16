@@ -76,6 +76,11 @@ export class DmxEngine {
     return n;
   }
 
+  /** Channels forced from the DMX console, every universe together. */
+  parkedCount(): number {
+    return [...this.programmer.values()].reduce((n, u) => n + u.size, 0);
+  }
+
   parked(universe: number): Record<number, number> {
     return Object.fromEntries(this.programmer.get(universe) ?? []);
   }
