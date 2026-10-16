@@ -61,6 +61,10 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 
 `onViolation` : `clamp` (défaut, on borne et on informe), `confirm` (confirmation dans l'UI) ou `reject`.
 
+## Clignotement (sécurité photosensible)
+- « Vérifier le show » signale les looks qui clignotent **plus de 3 fois par seconde** (seuil de la norme WCAG 2.3.1) : un éclat est une cellule qui passe du noir à l'allumé ; une attaque en fondu (≥ 0,2) ne compte pas. Un look calé sur les temps est évalué au tempo du chant le plus rapide du show (120 BPM au moins). C'est une alerte : la sortie n'est pas modifiée (`show/flashes.ts`).
+- Le bornage de la fréquence d'un canal strobe (`rate`, plus bas) reste à faire : il demande les plages en Hz des définitions et les seuils choisis par le lieu.
+
 ## Marqueurs sur widgets
 - **Fader** : marqueur max (trait rouge). En mode `clamp` il bute ; en mode `scale` la course est remappée de 0 au max.
 - **Bouton** : **danger** (flashs, strobe : signalé en rouge partout, UI et export Ableton), **interdit à l'IA**, **à confirmer**.

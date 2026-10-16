@@ -14,6 +14,7 @@ import { deltaE, proposeLook, type Energy, type Knowledge } from "../knowledge/k
 import type { Group, Look, Palette } from "../show/model.js";
 import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
+import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 
 /**
  * Automatic presets (docs/specs/presets-songs-notes.md, Wolfmix): base palettes from the knowledge
@@ -103,7 +104,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -153,6 +154,20 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         }
       };
       for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
+      // photosensitive safety (WCAG 2.3.1): a look timed in beats flashes fastest on the show's fastest song
+      const bpm = Math.max(120, ...songs.list().map((x) => x.bpm ?? 0));
+      for (const l of runtime.looks.list()) {
+        let steps;
+        try {
+          steps = runtime.stepsOf(l);
+        } catch {
+          continue; // an unknown canvas is reported above
+        }
+        const every = l.timing.every;
+        const stepSeconds = "seconds" in every ? every.seconds : (every.beats * 60) / bpm;
+        const rate = flashesPerSecond(steps, stepSeconds, l.timing.attack);
+        if (rate > MAX_FLASHES_PER_SECOND) warn(`look ${l.id}`, `jusqu'à ${rate.toFixed(1)} éclats par seconde${"beats" in every ? ` à ${bpm} BPM` : ""} : au-delà de ${MAX_FLASHES_PER_SECOND}, un risque pour les personnes photosensibles (WCAG 2.3.1) ; ralentir la cadence ou adoucir l'attaque`);
+      }
       // once per model: the same .qxf fixes them all
       const missing = new Map<string, string[]>();
       for (const m of runtime.venue.missingDefinitions()) missing.set(m.model, [...(missing.get(m.model) ?? []), m.name]);
