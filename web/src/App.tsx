@@ -1,21 +1,22 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, switchInProgress, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
 import { DashboardsPage } from "./pages/Dashboards";
-import { ConsolePage } from "./pages/Console";
-import { MidiPage } from "./pages/Midi";
-import { ImportPage } from "./pages/Import";
-import { SongsPage } from "./pages/Songs";
-import { ShowPage } from "./pages/Show";
-import { OscPage } from "./pages/Osc";
-import { VenuePage } from "./pages/Venue";
-import { NotesPage } from "./pages/Notes";
-import { SettingsPage } from "./pages/Settings";
-import { ConnectPage } from "./pages/Connect";
-import { FilesPage } from "./pages/Files";
-import { AccountPage } from "./pages/Account";
+// The Live loads first (a tablet on stage needs nothing else); every other page comes on demand.
+const ConsolePage = lazy(() => import("./pages/Console").then((m) => ({ default: m.ConsolePage })));
+const MidiPage = lazy(() => import("./pages/Midi").then((m) => ({ default: m.MidiPage })));
+const ImportPage = lazy(() => import("./pages/Import").then((m) => ({ default: m.ImportPage })));
+const SongsPage = lazy(() => import("./pages/Songs").then((m) => ({ default: m.SongsPage })));
+const ShowPage = lazy(() => import("./pages/Show").then((m) => ({ default: m.ShowPage })));
+const OscPage = lazy(() => import("./pages/Osc").then((m) => ({ default: m.OscPage })));
+const VenuePage = lazy(() => import("./pages/Venue").then((m) => ({ default: m.VenuePage })));
+const NotesPage = lazy(() => import("./pages/Notes").then((m) => ({ default: m.NotesPage })));
+const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
+const ConnectPage = lazy(() => import("./pages/Connect").then((m) => ({ default: m.ConnectPage })));
+const FilesPage = lazy(() => import("./pages/Files").then((m) => ({ default: m.FilesPage })));
+const AccountPage = lazy(() => import("./pages/Account").then((m) => ({ default: m.AccountPage })));
 
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
@@ -315,6 +316,7 @@ export function App() {
         </div>
       </header>
       <main>
+        <Suspense fallback={<p className="hint">…</p>}>
         {shown === "live" && <DashboardsPage role={role} />}
         {shown === "songs" && <SongsPage />}
         {shown === "show" && <ShowPage />}
@@ -328,6 +330,7 @@ export function App() {
         {shown === "connect" && <ConnectPage role={role} />}
         {shown === "settings" && <SettingsPage role={role} />}
         {shown === "account" && <AccountPage role={role} />}
+        </Suspense>
       </main>
       </div>
       </div>
