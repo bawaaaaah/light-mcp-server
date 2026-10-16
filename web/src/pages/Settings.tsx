@@ -24,7 +24,6 @@ export function SettingsPage({ role }: { role: Role }) {
   const t = useT();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [output, setOutput] = useState<Output | null>(null);
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const load = () => {
@@ -38,7 +37,6 @@ export function SettingsPage({ role }: { role: Role }) {
 
   return (
     <div className="settings">
-      {message && <p className="hint">{message}</p>}
       <nav className="jump" aria-label={t.onThisPage}>
         <a href="#settings-output" onClick={(e) => jumpTo(e, "settings-output")}>{t.output}</a>
         <a href="#settings-users" onClick={(e) => jumpTo(e, "settings-users")}>{t.users}</a>
