@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import type { PatchedFixture } from "./venue.js";
+import { facingText } from "./orientation.js";
 
 export const ZoneSchema = z.object({
   id: z.string(),
@@ -93,5 +94,7 @@ export function describeStage(fixtures: PatchedFixture[], zones: Zone[]): string
   }
   const unplaced = fixtures.filter((f) => !f.position);
   if (unplaced.length) lines.push(`Sans position : ${unplaced.map((f) => f.name).join(", ")}.`);
+  const oriented = fixtures.filter((f) => f.orientation);
+  if (oriented.length) lines.push(`Orientation : ${oriented.map((f) => `${f.name} ${facingText(f.orientation!)}`).join(", ")}.`);
   return lines.join("\n");
 }

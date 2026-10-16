@@ -1521,6 +1521,45 @@ test("self-test with the real-time cadence of every look", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("orient a fixture on the live stage: towards a wall, the ceiling, turned by 15° or by dragging", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const facing = async () => ((await api(page, "venue.fixture.list")) as { id: string; facing?: string; orientation?: { yaw: number; pitch?: number } }[]).find((f) => f.id === "bar-0")!;
+  await page.getByLabel("Orienter").check();
+  await expect(page.locator(".orient-panel")).toContainText("Cliquer un projecteur");
+  const bar = page.locator('.stage-plan g.fixture[data-fixture="bar-0"]');
+  await bar.locator("rect").first().click();
+  const panel = page.locator(".orient-panel");
+  await panel.getByRole("button", { name: "Mur jardin (gauche)" }).click();
+  await expect.poll(async () => (await facing()).facing).toBe("houseLeft");
+  await expect(panel.getByRole("button", { name: "Mur jardin (gauche)" })).toHaveAttribute("aria-pressed", "true");
+  await expect(bar.locator(".beam line")).toHaveCount(1); // the beam, towards jardin: to the left of the plan
+  const line = bar.locator(".beam line");
+  expect(Number(await line.getAttribute("x2"))).toBeLessThan(Number(await line.getAttribute("x1")));
+  await expect(bar.locator("g[transform^='rotate(90']")).toHaveCount(1); // the body turns with it
+  await page.screenshot({ path: "test-results/orient-jardin.png", fullPage: true });
+  await panel.getByRole("button", { name: "Plafond" }).click();
+  await expect.poll(async () => (await facing()).orientation).toEqual(expect.objectContaining({ yaw: -90, pitch: 90 }));
+  await expect(bar.locator(".beam .dot")).toHaveCount(1); // ⊙: towards whoever looks from above
+  await panel.getByRole("button", { name: "Public" }).click();
+  await panel.getByRole("button", { name: /15° \(sens des aiguilles/ }).click();
+  await expect.poll(async () => (await facing()).orientation?.yaw).toBe(-15);
+  // drag around it: pointing at the right of the plan is cour
+  await bar.locator("g").first().scrollIntoViewIfNeeded();
+  const box = (await bar.locator("g").first().boundingBox())!; // the body: its centre is the fixture's
+  const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 150, cy, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await facing()).facing).toBe("houseRight");
+  await panel.getByRole("button", { name: "Public" }).click();
+  await expect.poll(async () => (await facing()).facing).toBe("audience");
+  await page.getByLabel("Orienter").uncheck();
+  expect(errors).toEqual([]);
+});
+
 test("live stage widget on a dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -32,8 +32,10 @@ export const PatchedFixtureSchema = z.object({
   /** Moving heads: orientation and calibration (docs/specs/venue-fixtures-stage.md, « Lyres »). */
   orientation: z
     .object({
-      /** Heading of the fixture's front, degrees from the audience, clockwise seen from above. */
+      /** Heading of the fixture's front in degrees: 0 the audience, 90 cour (house right, +X), 180 upstage, −90 jardin (orientation.ts). */
       yaw: z.number().default(0),
+      /** Where the beam points at rest, from −90 (the floor) to 90 (the ceiling); 0 = level. A moving head's tells whether it hangs. */
+      pitch: z.number().min(-90).max(90).optional(),
       invertPan: z.boolean().default(false),
       invertTilt: z.boolean().default(false),
       swapPanTilt: z.boolean().default(false),

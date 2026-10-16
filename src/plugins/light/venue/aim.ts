@@ -5,7 +5,7 @@
  * Stage frame (stage.ts): metres, X stage left → right seen from the audience, Y front → upstage,
  * Z up. Fixture frame: pan 0 / tilt 0 = along the base axis (up when standing, down when hung);
  * `yaw` = heading of the fixture's front (where pan 0 + positive tilt points), in degrees from the
- * audience (−Y), clockwise seen from above. Calibration offsets correct the rest.
+ * audience (−Y): 90 = cour (+X), −90 = jardin (orientation.ts). Calibration offsets correct the rest.
  */
 import type { Position } from "../engine/move.js";
 

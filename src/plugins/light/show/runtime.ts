@@ -13,6 +13,7 @@ import { aimAt } from "../venue/aim.js";
 import { emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
+import { isHung } from "../venue/orientation.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 
 /** How long a Panic stays undoable. */
@@ -437,7 +438,7 @@ export class ShowRuntime {
       if (!r.pan && !r.tilt) return { fixture: id, error: "pas de pan/tilt" };
       if (!f.position) return { fixture: id, error: "position sur la scène inconnue" };
       const o = f.orientation;
-      const res = aimAt({ position: f.position, hung: f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling", yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 }, target);
+      const res = aimAt({ position: f.position, hung: isHung(f), yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 }, target);
       if ("error" in res) return { fixture: id, error: res.error };
       this.setPosition([id], res);
       return { fixture: id, pan: res.pan, tilt: res.tilt };

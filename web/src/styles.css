@@ -760,7 +760,7 @@ table.cues select {
   font-size: 10px;
   fill: #c9ced9;
 }
-.stage-plan .strobe-mark rect {
+.stage-plan .strobe-outline {
   stroke: #f5f7fa;
   stroke-width: 1.5;
   stroke-dasharray: 3 3;
@@ -768,6 +768,42 @@ table.cues select {
 .stage-plan .strobe-mark text {
   font-size: 11px;
   fill: #f5d90a;
+}
+.stage-plan .beam line {
+  stroke: #ffb454;
+  stroke-width: 2;
+}
+.stage-plan .beam .dot {
+  fill: #ffb454;
+}
+.stage-plan .beam circle:first-child,
+.stage-plan .beam path {
+  stroke: #ffb454;
+  stroke-width: 1.5;
+}
+.stage-plan .fixture .selection {
+  stroke: #ffb454;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+.stage-plan svg.orienting {
+  user-select: none;
+  touch-action: none;
+}
+.stage-plan svg.orienting .fixture {
+  cursor: pointer;
+}
+.orient-panel {
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-top: 0.5em;
+}
+.orient-panel button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.orient-panel input[type="number"] {
+  width: 4.5em;
 }
 .stage-plan svg.placing {
   user-select: none;

@@ -221,6 +221,7 @@ export function VenuePage() {
           zones={zones}
           onError={setError}
           onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
+          onOrient={(f, change) => void run("venue.fixture.orient", { id: f.id, ...change }).then(refresh)}
         />
         <details className="calibration-box">
           <summary>{t.calibrationTitle}</summary>

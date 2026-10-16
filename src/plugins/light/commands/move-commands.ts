@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { calibrate, type CalibrationSample } from "../venue/aim.js";
+import { isHung } from "../venue/orientation.js";
 
 /** Fixtures given directly or through a group, kept to the moving heads. */
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
@@ -129,7 +130,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
     schema: z.object({ fixture: z.string(), apply: z.boolean().default(false) }),
     run: ({ fixture, apply }) => {
       const { f, r } = head(fixture);
-      const result = calibrate({ position: f.position!, hung: f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling", panMax: r.panMax, tiltMax: r.tiltMax }, samples.get(fixture) ?? []);
+      const result = calibrate({ position: f.position!, hung: isHung(f), panMax: r.panMax, tiltMax: r.tiltMax }, samples.get(fixture) ?? []);
       if ("error" in result) throw new Error(result.error);
       if (apply) {
         show.venue.fixtures.put({ ...f, orientation: { yaw: result.yaw, invertPan: result.invertPan, invertTilt: result.invertTilt, swapPanTilt: f.orientation?.swapPanTilt ?? false, panOffset: 0, tiltOffset: result.tiltOffset } });

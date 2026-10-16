@@ -18,6 +18,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
+import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -65,7 +66,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         .filter((d) => !search || `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase()))
         .map((d) => ({ manufacturer: d.manufacturer, model: d.model, type: d.type, modes: d.modes.map((m) => ({ name: m.name, channels: m.channels.length, heads: m.heads.length })) })),
   });
-  reg.register({ name: "venue.fixture.list", title: "Patch", description: "Patched fixtures of the venue (address, mode, role, position).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.fixtures.list() });
+  reg.register({
+    name: "venue.fixture.list",
+    title: "Patch",
+    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({}),
+    run: () =>
+      venue.fixtures.list().map((f) => {
+        const facing = facingOf(f.orientation);
+        return facing ? { ...f, facing } : f;
+      }),
+  });
   reg.register({
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
@@ -94,6 +108,27 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       // patched anyway (two lamps on one address can be wanted), but said at once
       const warnings = ["error" in r ? r.error : "", ...venue.patchProblems(saved.id).map((o) => o.message)].filter(Boolean);
       return { fixture: saved, warning: warnings.length ? warnings.join(" ; ") : undefined };
+    },
+  });
+  reg.register({
+    name: "venue.fixture.orient",
+    title: "Orienter une fixture",
+    description:
+      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional() }),
+    run: ({ id: fixtureId, facing, yaw, pitch, turn }) => {
+      const f = venue.fixtures.get(fixtureId);
+      if (!f) throw new Error(`fixture inconnue : ${fixtureId}`);
+      let o = { yaw: f.orientation?.yaw ?? 0, pitch: f.orientation?.pitch ?? 0 };
+      if (facing) o = orientTo(o, facing);
+      if (yaw !== undefined) o.yaw = yaw;
+      if (pitch !== undefined) o.pitch = pitch;
+      if (turn !== undefined) o.yaw += turn;
+      const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch };
+      const saved = venue.fixtures.put({ ...f, orientation });
+      return { fixture: saved, facing: facingOf(saved.orientation) };
     },
   });
   reg.register({
@@ -161,7 +196,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ role: z.string().optional(), inZone: z.string().optional(), aimingAt: z.string().optional(), tags: z.array(z.string()).optional(), sortBy: z.enum(["x", "y", "z"]).optional() }),
     run: (q) => queryStage(venue.fixtures.list(), show.zones.list(), q).map((r) => ({ id: r.fixture.id, name: r.fixture.name, role: r.fixture.role, zone: r.zone, position: r.fixture.position, why: r.why })),
   });
-  reg.register({ name: "stage.describe", title: "Décrire la scène", description: "Plain-French description of the stage: zones, what is in them and what lights them.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
+  reg.register({ name: "stage.describe", title: "Décrire la scène", description: "Plain-French description of the stage: zones, what is in them, what lights them, and where the oriented fixtures point.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
 
   reg.register({
     name: "venue.canvas.auto",

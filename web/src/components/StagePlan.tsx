@@ -7,6 +7,9 @@
  * fixtures be dragged to their place (snapped to 10 cm). The front view shows heights (X, Z): risers
  * at their floor height, and dragging there sets a fixture's height. A strobing fixture gets a still
  * dashed outline and its rate: the screen never flashes (a flashing screen is a photosensitive risk too).
+ * « Orienter »: click a fixture, then pick where it points (audience, upstage wall, jardin, cour,
+ * ceiling, floor), turn it by 15°, type an angle, or drag around it to turn it; an arrow shows the
+ * beam, ⊙ / ⊗ when it points at / away from the viewer.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -19,6 +22,20 @@ export interface PlanFixture {
   role?: string;
   mount?: string;
   position?: { x: number; y: number; z: number };
+  /** yaw: 0 audience, 90 cour, 180 upstage, −90 jardin; pitch: −90 floor … 90 ceiling (venue/orientation.ts). */
+  orientation?: { yaw: number; pitch?: number };
+  /** The named facing the orientation matches (venue.fixture.list). */
+  facing?: Facing;
+}
+export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
+export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
+const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
+
+/** The beam as a unit vector, stage frame (X cour, Y upstage, Z up): the convention of venue/orientation.ts. */
+function beam(o?: { yaw: number; pitch?: number }): { x: number; y: number; z: number } {
+  const yaw = ((o?.yaw ?? 0) * Math.PI) / 180;
+  const pitch = ((o?.pitch ?? 0) * Math.PI) / 180;
+  return { x: Math.sin(yaw) * Math.cos(pitch), y: -Math.cos(yaw) * Math.cos(pitch), z: Math.sin(pitch) };
 }
 export interface PlanZone {
   id: string;
@@ -34,13 +51,31 @@ const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", 
 /** Default height of a fixture placed for the first time, from its mount (metres). */
 const defaultHeight = (mount?: string) => (mount === "hung" || mount === "truss" || mount === "ceiling" ? 5 : mount === "stand" ? 1.8 : mount === "wall" || mount === "pillar" ? 3 : 0.3);
 
-export function StagePlan({ fixtures, zones, onError, onMove, compact = false }: { fixtures: PlanFixture[]; zones: PlanZone[]; onError: (msg: string) => void; onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void; compact?: boolean }) {
+export function StagePlan({
+  fixtures,
+  zones,
+  onError,
+  onMove,
+  onOrient,
+  compact = false,
+}: {
+  fixtures: PlanFixture[];
+  zones: PlanZone[];
+  onError: (msg: string) => void;
+  onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void;
+  onOrient?: (fixture: PlanFixture, change: OrientChange) => void;
+  compact?: boolean;
+}) {
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [strobe, setStrobe] = useState<Record<string, number | null>>({});
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [orienting, setOrienting] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  /** Heading while dragging around the selected fixture, saved on release. */
+  const [turning, setTurning] = useState<number | null>(null);
   const [view, setView] = useState<"top" | "front">("top");
   const front = view === "front";
   // The drawing works on (x, y) pairs: top view = stage plan, front view = (x, height).
@@ -122,8 +157,26 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
     if (f && onMove) onMove(f, front ? { x: snap(drag.x), y: f.position?.y ?? 1, z: Math.max(0, snap(drag.y)) } : { x: snap(drag.x), y: snap(drag.y), z: f.position?.z ?? defaultHeight(f.mount) });
   };
 
+  // « Orienter »: dragging around the selected fixture turns it (by 15°, or freely with Shift)
+  const selectedFixture = fixtures.find((f) => f.id === selected);
+  const turnTo = (e: React.PointerEvent) => {
+    const at = selected ? layout.pos.get(selected) : undefined;
+    if (turning === null || !at || front) return;
+    const p = eventToStage(e);
+    const [dx, dy] = [p.x - at.x, p.y - at.y];
+    if (Math.hypot(dx, dy) * scale < 12) return; // too close to the centre to tell a direction
+    const raw = (Math.atan2(dx, -dy) * 180) / Math.PI;
+    setTurning(e.shiftKey ? Math.round(raw) : Math.round(raw / 15) * 15);
+  };
+  const dropTurn = () => {
+    if (turning === null || !selectedFixture) return;
+    const was = selectedFixture.orientation?.yaw ?? 0;
+    setTurning(null);
+    if (turning !== was && onOrient) onOrient(selectedFixture, { yaw: turning });
+  };
+
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!aiming || placing || front || !svg.current) return;
+    if (!aiming || placing || orienting || front || !svg.current) return;
     const p = eventToStage(e);
     const zone = zones.find((z) => inside(p.x, p.y, z.polygon));
     void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 } })
@@ -143,7 +196,12 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
         </small>
         {onMove && (
           <label className="row">
-            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false))} /> {t.placeMode}
+            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false))} /> {t.placeMode}
+          </label>
+        )}
+        {onOrient && (
+          <label className="row">
+            <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), setSelected(null))} /> {t.orientMode}
           </label>
         )}
         <span className="row view-switch">
@@ -154,7 +212,7 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
             {t.viewFront}
           </button>
         </span>
-        {heads > 0 && !placing && !front && (
+        {heads > 0 && !placing && !orienting && !front && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
@@ -164,13 +222,18 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
-        className={aiming ? "aiming" : placing ? "placing" : ""}
+        className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : ""}
         onClick={aimAt}
-        onPointerMove={(e) => drag && setDrag({ ...drag, ...eventToStage(e) })}
-        onPointerUp={dropDrag}
+        onPointerMove={(e) => (drag ? setDrag({ ...drag, ...eventToStage(e) }) : turnTo(e))}
+        onPointerUp={() => (dropDrag(), dropTurn())}
         role="img"
         aria-label={t.stagePreview}
       >
+        <defs>
+          <marker id="beam-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb454" />
+          </marker>
+        </defs>
         <rect width={W} height={H} fill="#12141a" />
         {front && <line x1={0} x2={W} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((z) => (
@@ -200,38 +263,114 @@ export function StagePlan({ fixtures, zones, onError, onMove, compact = false }:
           const cw = w / cols.length;
           const x0 = sx(p.x) - w / 2;
           const y0 = sy(p.y) - h / 2;
+          const isSelected = orienting && selected === f.id;
+          const o = isSelected && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
+          // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0)
+          const body = !front && o?.yaw ? `rotate(${-o.yaw} ${sx(p.x)} ${sy(p.y)})` : undefined;
+          // the beam, projected on the view; what is left points at or away from the viewer
+          const d = beam(o);
+          const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
+          const reach = Math.max(w, h) / 2 + 16;
+          // half the height the turned body takes on the plan: the name goes under it
+          const turn = body ? ((o?.yaw ?? 0) * Math.PI) / 180 : 0;
+          const halfHeight = Math.abs((w / 2) * Math.sin(turn)) + Math.abs((h / 2) * Math.cos(turn));
+          const showBeam = Boolean(f.orientation) || isSelected;
           return (
             <g
               key={f.id}
-              className="fixture"
+              className={isSelected ? "fixture selected" : "fixture"}
               data-fixture={f.id}
               onPointerDown={(e) => {
+                if (orienting) {
+                  e.stopPropagation();
+                  setSelected(f.id);
+                  if (!front) {
+                    svg.current?.setPointerCapture(e.pointerId);
+                    setTurning(f.orientation?.yaw ?? 0);
+                  }
+                  return;
+                }
                 if (!placing) return;
                 e.stopPropagation();
                 svg.current?.setPointerCapture(e.pointerId);
                 setDrag({ id: f.id, ...eventToStage(e) });
               }}
             >
-              {cols.map((c, i) => (
-                <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
-              ))}
+              <g transform={body}>
+                {cols.map((c, i) => (
+                  <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
+                ))}
+                {isSelected && <rect className="selection" x={x0 - 4} y={y0 - 4} width={w + 8} height={h + 8} fill="none" />}
+                {f.id in strobe && cols.some((c) => c !== "#000000") && <rect className="strobe-outline" x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />}
+              </g>
+              {showBeam && (
+                <g className="beam">
+                  <title>{f.facing ? `${t.facingLabel} : ${t.facings[f.facing]}` : `${t.heading} ${Math.round(o?.yaw ?? 0)}° · ${t.pitchLabel} ${Math.round(o?.pitch ?? 0)}°`}</title>
+                  {Math.hypot(px, py) >= 0.35 && <line x1={sx(p.x)} y1={sy(p.y)} x2={sx(p.x) + px * reach} y2={sy(p.y) + py * reach} markerEnd="url(#beam-head)" />}
+                  {Math.abs(toward) > 0.7 && (
+                    <g transform={`translate(${x0 + w + 10} ${y0 - 2})`}>
+                      <circle r={6} fill="#12141a" />
+                      {toward > 0 ? <circle r={1.8} className="dot" /> : <path d="M -3.5 -3.5 L 3.5 3.5 M -3.5 3.5 L 3.5 -3.5" />}
+                    </g>
+                  )}
+                </g>
+              )}
               {f.id in strobe && cols.some((c) => c !== "#000000") && (
                 <g className="strobe-mark">
                   <title>{strobe[f.id] === null ? t.strobing : `${t.strobing} · ${Math.round(strobe[f.id]!)} Hz`}</title>
-                  <rect x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />
                   <text x={sx(p.x)} y={y0 - 6} textAnchor="middle">
                     ⚡{strobe[f.id] === null ? "" : ` ${Math.round(strobe[f.id]!)} Hz`}
                   </text>
                 </g>
               )}
-              <text x={sx(p.x)} y={y0 + h + 14} textAnchor="middle" className="fixture-name">
+              <text x={sx(p.x)} y={sy(p.y) + halfHeight + 14} textAnchor="middle" className="fixture-name">
                 {f.name}
               </text>
             </g>
           );
         })}
       </svg>
+      {orienting && !compact && (
+        <div className="orient-panel row">
+          {selectedFixture && onOrient ? (
+            <>
+              <strong>{selectedFixture.name}</strong>
+              <span className="hint">{t.facingLabel}</span>
+              {FACINGS.map((facing) => (
+                <button key={facing} className={selectedFixture.facing === facing ? "on" : ""} aria-pressed={selectedFixture.facing === facing} onClick={() => onOrient(selectedFixture, { facing })}>
+                  {t.facings[facing]}
+                </button>
+              ))}
+              <button title={t.turnLeft} aria-label={t.turnLeft} onClick={() => onOrient(selectedFixture, { turn: 15 })}>
+                ⟲ 15°
+              </button>
+              <button title={t.turnRight} aria-label={t.turnRight} onClick={() => onOrient(selectedFixture, { turn: -15 })}>
+                ⟳ 15°
+              </button>
+              <AngleField key={`yaw-${selectedFixture.orientation?.yaw ?? 0}`} label={t.heading} value={selectedFixture.orientation?.yaw ?? 0} min={-180} max={180} onCommit={(yaw) => onOrient(selectedFixture, { yaw })} />
+              <AngleField key={`pitch-${selectedFixture.orientation?.pitch ?? 0}`} label={t.pitchLabel} value={selectedFixture.orientation?.pitch ?? 0} min={-90} max={90} onCommit={(pitch) => onOrient(selectedFixture, { pitch })} />
+            </>
+          ) : (
+            <span className="hint">{front ? t.orientHintFront : t.orientHint}</span>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+/** A number of degrees, saved on Enter or when leaving the field. */
+function AngleField({ label, value, min, max, onCommit }: { label: string; value: number; min: number; max: number; onCommit: (v: number) => void }) {
+  const [text, setText] = useState(String(Math.round(value)));
+  const commit = () => {
+    const v = Number(text);
+    if (text.trim() !== "" && Number.isFinite(v) && v >= min && v <= max && v !== value) onCommit(v);
+  };
+  return (
+    <label className="row">
+      {label}
+      <input type="number" min={min} max={max} step={15} aria-label={`${label} (°)`} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />°
+    </label>
   );
 }
 

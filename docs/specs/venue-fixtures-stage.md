@@ -34,7 +34,10 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
 - **Fixture sur scène** :
   - `position {x,y,z}`, zone d'accroche ;
   - `mount` : `floor | stand | truss | hung | wall | pillar | ceiling` ;
-  - `orientation {yaw,pitch,roll}`, avec des raccourcis : « vers le public », « vers le mur du fond », « douche », « contre-jour », « rasant mur », « vise la zone X ou le point P ».
+  - **Orientation** (v1, demandée le 2026-10-17) : où pointe le projecteur au repos. `yaw` = cap de sa face avant, en degrés : 0 vers le public, 90 vers le mur **cour** (à droite vu du public, +X), 180 vers le **mur de scène** (fond), −90 vers le mur **jardin** (à gauche vu du public, −X) ; `pitch` = inclinaison, de −90 (vers le **sol**) à 90 (vers le **plafond**), 0 = à l'horizontale (`venue/orientation.ts`).
+    - `venue.fixture.orient {id, facing | yaw | pitch | turn}` : six directions nommées (`audience`, `upstage`, `houseLeft` = jardin, `houseRight` = cour, `ceiling`, `floor` ; plafond et sol gardent le cap, une barre garde sa ligne), un angle, ou une rotation relative. `venue.fixture.list` nomme la direction (`facing`) quand l'orientation en est une.
+    - Une **lyre** tournée vers le sol est accrochée (tête en bas), vers le plafond posée, quel que soit son montage ; à moins de 45° de l'horizontale, le montage décide. La visée et la calibration en tiennent compte.
+    - Plus tard : `roll`, et des raccourcis « douche », « contre-jour », « rasant mur », « vise la zone X ou le point P ».
   - `target` calculé dans les deux sens.
   - **Lyres** (v1) :
     - la définition donne les canaux pan/tilt (8 ou 16 bits, avec `fine`) et la course en degrés (`<Physical><Focus PanMax TiltMax>` du mode, sinon de la fixture, sinon 540°/270°) ;
@@ -69,7 +72,8 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
   - v1 (page Lieu, « Scène en direct ») : vue de dessus, public en bas ; zones d'après leurs polygones (zones protégées en pointillé rouge) ; chaque tête colorée **d'après la sortie DMX réelle** (après règles, forçages et Blackout ; sujet `light:preview`, à chaque changement et au moins une fois par seconde) ; les projecteurs sans position sont alignés devant la scène. Avec des lyres, un mode « Viser » les pointe sur l'endroit cliqué (`position.aim`, à 1,5 m au-dessus du plancher de la zone). Un mode « Placer » permet de **glisser les projecteurs** à leur place (pas de 10 cm ; hauteur par défaut selon le montage : 5 m accroché, 1,8 m sur pied, 3 m au mur, 0,3 m au sol).
   - **Vue de face** (v1, bouton « Face ») : hauteurs vues depuis le public (X, Z), praticables à leur hauteur de plancher ; en mode « Placer », glisser un projecteur y règle sa **hauteur** (la profondeur est conservée).
   - **Strobe** (v1) : un projecteur allumé dont un canal est dans une plage strobe porte un cadre pointillé fixe et « ⚡ », avec la fréquence quand sa définition la donne (« ⚡ 12 Hz ») ; l'écran ne clignote jamais, un écran qui clignote étant lui-même un risque photosensible.
-  - Plus tard : zoom, faisceaux des lyres, orientation à la souris.
+  - **Orienter** (v1, case de la « Scène en direct ») : un clic sur un projecteur, puis les six directions en boutons (Public, Mur de scène, Mur jardin, Mur cour, Plafond, Sol), ⟲ / ⟳ 15°, un cap et une inclinaison en degrés, ou un glisser autour du projecteur pour le tourner (par 15°, librement avec Maj ; en vue de dessus). Vu de dessus, le corps du projecteur tourne avec son cap ; une flèche montre le faisceau, ⊙ quand il pointe vers celui qui regarde (le plafond vu de dessus, le public vu de face), ⊗ à l'opposé.
+  - Plus tard : zoom, faisceaux des lyres.
 
 ## MCP
 `light_venue_*`, `light_fixture_search` et `light_fixture_import`, `light_patch_plan` puis `light_apply`, `light_stage_zone` et `light_stage_place`, `light_stage_query`, `light_protect_zone`, `light_canvas_*`, `light_venue_map_canvas`, `light_identify`, `light_calibrate_pantilt`, `light_position_aim` (et `light_position_set`, `light_position_release`). Ressource `light://stage`.
