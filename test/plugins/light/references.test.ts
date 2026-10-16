@@ -76,6 +76,7 @@ describe("references: what uses a look, a group or a fader", () => {
       await run("midi.mapping.put", { mapping: mapping("cc-a", "Master", 1, "master") });
       await run("midi.mapping.put", { mapping: mapping("cc-b", "Master", 2, "master") });
       await run("midi.mapping.put", { mapping: mapping("cc-c", "master", 3, "other") });
+      await run("midi.mapping.put", { mapping: { id: "note-d", label: "MASTER", input: { type: "note", channel: 5, number: 4 }, on: { command: "look.go", args: { id: "master" } } } }); // a button for the same object
       const again = (await run("show.lint")) as { issues: { where: string; message: string }[] };
       expect(again.issues.filter((i) => i.message.includes("même libellé")).map((i) => i.where)).to.deep.equal(["mapping cc-c"]);
     });

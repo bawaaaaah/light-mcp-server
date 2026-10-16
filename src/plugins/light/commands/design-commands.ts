@@ -164,7 +164,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const labels = new Map<string, { id: string; target: string }>();
       for (const m of mappings()) {
         if (!m.label.trim()) continue;
-        const target = `${m.on.command} ${String(m.on.args.id ?? "")}`;
+        // the object, not the command: a fader and a button for one thing (a DCA and a look sharing its id) are a pair
+        const target = typeof m.on.args.id === "string" ? m.on.args.id : m.on.command;
         const key = m.label.trim().toLocaleLowerCase("fr");
         const other = labels.get(key);
         if (other && other.target !== target) warn(`mapping ${m.id}`, `même libellé que ${other.id} (« ${m.label} ») pour une autre cible : renommer l'un des deux pour les distinguer`);
