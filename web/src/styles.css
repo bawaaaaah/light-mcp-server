@@ -749,6 +749,16 @@ table.cues select {
   border-radius: 8px;
   border: 1px solid var(--line);
 }
+.stage-plan .plan-scroll {
+  max-width: 1100px;
+  max-height: 75vh;
+  overflow: auto;
+  border-radius: 8px;
+}
+.stage-plan .zoom small {
+  min-width: 2.5em;
+  text-align: center;
+}
 .stage-plan svg.aiming {
   cursor: crosshair;
 }
@@ -848,6 +858,12 @@ table.cues select {
 .stage-plan.compact svg {
   height: 100%;
   max-width: none;
+}
+.stage-plan.compact,
+.stage-plan.compact .plan-scroll {
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
 }
 .view-switch button.on {
   color: var(--accent);

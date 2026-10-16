@@ -13,7 +13,7 @@
  * orientation, or a moving head's pan/tilt read back from the output: light:preview beams) casts a
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -33,6 +33,8 @@ export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceil
 export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
 const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
 type Vec = { x: number; y: number; z: number };
+/** Zoom steps of the plan; above 1 it scrolls inside its frame. */
+const ZOOMS = [1, 1.5, 2, 3, 4];
 /** The opening drawn when the definition gives none: a typical wash. */
 const DEFAULT_BEAM_ANGLE = 24;
 
@@ -99,6 +101,22 @@ export function StagePlan({
   }, [fixtures, zones, front]);
   const [heads, setHeads] = useState(0);
   const svg = useRef<SVGSVGElement>(null);
+  // zoom: the drawing grows inside a scrolling frame, keeping what was at the centre there
+  const [zoom, setZoom] = useState(1);
+  const scroller = useRef<HTMLDivElement>(null);
+  const centre = useRef<[number, number] | null>(null);
+  const zoomTo = (z: number) => {
+    const el = scroller.current;
+    if (el) centre.current = [(el.scrollLeft + el.clientWidth / 2) / el.scrollWidth, (el.scrollTop + el.clientHeight / 2) / el.scrollHeight];
+    setZoom(z);
+  };
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || !centre.current) return;
+    el.scrollLeft = centre.current[0] * el.scrollWidth - el.clientWidth / 2;
+    el.scrollTop = centre.current[1] * el.scrollHeight - el.clientHeight / 2;
+    centre.current = null;
+  }, [zoom]);
 
   useEffect(
     () =>
@@ -251,6 +269,15 @@ export function StagePlan({
             {t.viewFront}
           </button>
         </span>
+        <span className="row zoom">
+          <button className="ghost" aria-label={t.zoomOut} title={t.zoomOut} disabled={zoom <= ZOOMS[0]!} onClick={() => zoomTo(ZOOMS[ZOOMS.indexOf(zoom) - 1] ?? 1)}>
+            −
+          </button>
+          <small>×{zoom}</small>
+          <button className="ghost" aria-label={t.zoomIn} title={t.zoomIn} disabled={zoom >= ZOOMS[ZOOMS.length - 1]!} onClick={() => zoomTo(ZOOMS[ZOOMS.indexOf(zoom) + 1] ?? zoom)}>
+            +
+          </button>
+        </span>
         {heads > 0 && !placing && !orienting && !front && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
@@ -258,10 +285,12 @@ export function StagePlan({
         )}
         </div>
       )}
+      <div className="plan-scroll" ref={scroller}>
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
         className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : ""}
+        style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : undefined}
         onClick={aimAt}
         onPointerMove={(e) => (drag ? setDrag({ ...drag, ...eventToStage(e) }) : turnTo(e))}
         onPointerUp={() => (dropDrag(), dropTurn())}
@@ -371,6 +400,7 @@ export function StagePlan({
           );
         })}
       </svg>
+      </div>
       {orienting && !compact && (
         <div className="orient-panel row">
           {selectedFixture && onOrient ? (
