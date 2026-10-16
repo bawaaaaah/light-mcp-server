@@ -31,7 +31,7 @@ jobs:
   npm:
     name: Publish to GitHub Packages
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19, Playwright --with-deps may not follow at once
     timeout-minutes: 20
     permissions:
       contents: read
@@ -64,7 +64,7 @@ jobs:
   docker:
     name: Publish the image to GHCR
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19, Playwright --with-deps may not follow at once
     timeout-minutes: 90
     permissions:
       contents: read

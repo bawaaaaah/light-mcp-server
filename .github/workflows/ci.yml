@@ -19,7 +19,7 @@ permissions:
 jobs:
   check:
     name: Node ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19, Playwright --with-deps may not follow at once
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -46,7 +46,7 @@ jobs:
 
   ui:
     name: Browser tests (Playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19, Playwright --with-deps may not follow at once
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
