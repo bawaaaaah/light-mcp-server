@@ -9,6 +9,7 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import http, { type Server as HttpServer } from "node:http";
+import path from "node:path";
 import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -81,6 +82,9 @@ export class Gateway {
     this.mountMcp();
     this.mountPlugins();
     if (opts.webRoot && existsSync(opts.webRoot)) {
+      // Vite names every built asset after its content: cached for good, while index.html is checked each time
+      this.app.use("/assets", express.static(path.join(opts.webRoot, "assets"), { maxAge: "1y", immutable: true }));
+      this.app.use("/assets", (_req, res) => void res.status(404).end()); // a missing asset is not the app page
       this.app.use(express.static(opts.webRoot));
       this.app.get(/^\/(?!api\/|mcp).*/, (_req, res) => res.sendFile("index.html", { root: opts.webRoot }));
     }

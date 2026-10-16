@@ -629,6 +629,16 @@ test("notes: grouped by kind, one line each, edited in place", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("built assets are cached for good, the page itself is checked each time", async ({ request }) => {
+  const index = await request.get("/");
+  expect(index.headers()["cache-control"]).toBe("public, max-age=0");
+  const asset = /assets\/index-[^"]+\.js/.exec(await index.text())![0];
+  const res = await request.get(`/${asset}`);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["cache-control"]).toContain("immutable");
+  expect((await request.get("/assets/nope.js")).status()).toBe(404); // a missing asset is not the app page
+});
+
 test("a session closed on the server sends the page back to sign-in, with the reason", async ({ page, request }) => {
   const errors = watchErrors(page);
   await login(page);
