@@ -288,6 +288,42 @@ export class ShowRuntime {
     return level;
   }
 
+  /**
+   * Why a DMX channel has its value (groups-masters.md, « Console DMX »): the fixture and channel
+   * it belongs to, the grand master and the DCAs dosing that fixture, the channel faders and the
+   * raw-channel looks writing it, and the rules that bounded it on the last frame. The caller adds
+   * the output value and any forcing from the console, which live in the engine.
+   */
+  explainChannel(universe: number, channel: number) {
+    const fixture = this.venue.fixtures.list().find((f) => {
+      if (f.universe !== universe || channel < f.address) return false;
+      const r = this.venue.resolve(f.id);
+      return channel < f.address + ("error" in r ? 1 : r.mode.channels.length);
+    });
+    if (!fixture) return { fixture: undefined, faders: [], rawLooks: [], clamps: [] };
+    const offset = channel - fixture.address;
+    const r = this.venue.resolve(fixture.id);
+    const name = "error" in r ? undefined : r.mode.channels[offset];
+    const attribute = name && !("error" in r) ? r.def.channels.get(name)?.attribute : undefined;
+    const dcas = this.groups
+      .list()
+      .filter((g) => (g.master || this.flashes.has(g.id)) && (g.members.fixtures.includes(fixture.id) || (g.selector && this.fixturesOf(g.id).has(fixture.id) && !g.members.groups.length)))
+      .map((g) => ({ id: g.id, name: g.name, own: this.ownLevel(g), effective: this.effectiveLevel(g.id) }));
+    const faders = this.faders
+      .list()
+      .filter((f) => f.channels.some((c) => c.fixture === fixture.id && c.offset === offset))
+      .map((f) => ({ id: f.id, name: f.name, level: f.level, dca: f.dca, effective: f.level * (f.dca && this.groups.get(f.dca) ? this.effectiveLevel(f.dca) : 1) }));
+    const rawLooks = [...this.active.values()].filter(({ look }) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset)).map(({ look }) => ({ id: look.id, name: look.name }));
+    const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to }));
+    return {
+      fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r) },
+      intensity: { grandMaster: this.settings.grandMaster, dcas, factor: this.intensityOf(fixture.id) },
+      faders,
+      rawLooks,
+      clamps,
+    };
+  }
+
   /** Intensity per fixture: product over the groups directly holding it × grand master. */
   intensityOf(fixtureId: string): number {
     let level = this.settings.grandMaster;

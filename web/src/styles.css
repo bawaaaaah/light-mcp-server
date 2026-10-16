@@ -1584,3 +1584,23 @@ ul.online {
   border-radius: 8px;
   text-align: center;
 }
+
+/* DMX console: the channel number explains its value (pages/Console.tsx, dmx.explain) */
+.ch button.num {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: inherit;
+  cursor: help;
+}
+.ch.explained {
+  outline: 1px solid var(--text);
+}
+.report.why ul {
+  margin: 0.4em 0 0;
+  padding-left: 1.2em;
+}
+.report.why li.warn {
+  color: var(--warn);
+}

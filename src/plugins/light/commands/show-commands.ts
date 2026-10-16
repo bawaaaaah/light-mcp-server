@@ -97,6 +97,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     },
   });
   reg.register({
+    name: "dmx.explain",
+    title: "Pourquoi ce canal",
+    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design", "live"],
+    schema: z.object({ universe: z.number().int().min(1), channel: z.number().int().min(1).max(512) }),
+    run: ({ universe, channel }) => {
+      engine.output.check(universe, channel); // an unknown universe is an error, not an empty answer
+      return { universe, channel, value: engine.output.get(universe)[channel - 1] ?? 0, parked: engine.parked(universe)[channel], ...show.explainChannel(universe, channel) };
+    },
+  });
+  reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
     description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, and fixtures without a definition in the library (their channels are not decoded: add the .qxf).",

@@ -795,6 +795,14 @@ test("DMX console: shows live values and parks a channel", async ({ page }) => {
   await expect(ch10.locator(".val")).toHaveText("200");
   // a forced channel is said on every page, until released
   await expect(page.locator("header.top")).toContainText("🔧 1 canal(aux) forcé(s)", { timeout: 5000 });
+  // and the console says why a channel has its value
+  await ch10.getByRole("button", { name: "Pourquoi ce canal 10" }).click();
+  const why = page.getByRole("region", { name: "Pourquoi ce canal 10" });
+  await expect(why).toContainText("U1.10 = 200");
+  await expect(why).toContainText("Bar 0 · canal 10");
+  await expect(why).toContainText("Forcé à 200");
+  await why.getByRole("button", { name: "Fermer" }).click();
+  await expect(why).toHaveCount(0);
   await page.getByRole("button", { name: "Tout relâcher" }).click();
   await expect(ch10).not.toHaveClass(/parked/);
   await expect(page.locator("header.top")).not.toContainText("forcé", { timeout: 5000 });

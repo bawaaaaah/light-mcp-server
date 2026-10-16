@@ -13,6 +13,73 @@ interface Patched {
 
 const PATCHED_ONLY = "console.patchedOnly";
 
+interface Explain {
+  universe: number;
+  channel: number;
+  value: number;
+  parked?: number;
+  fixture?: { id: string; name: string; offset: number; channel?: string; attribute?: string; definition: boolean };
+  intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number };
+  faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
+  rawLooks: { id: string; name: string }[];
+  clamps: { rule: string; from: number; to: number }[];
+}
+
+const pct = (x: number) => `${Math.round(x * 100)} %`;
+
+/** Why a channel has its value, one line per cause, as the console's « why » panel says it. */
+function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
+  const t = useT();
+  const f = why.fixture;
+  return (
+    <section className="report why" aria-label={`${t.whyChannel} ${why.channel}`}>
+      <div className="row">
+        <strong>
+          U{why.universe}.{why.channel} = {why.value}
+        </strong>
+        <span className="grow" />
+        <button className="ghost" aria-label={t.close} onClick={onClose}>
+          ✕
+        </button>
+      </div>
+      <ul>
+        {why.parked !== undefined && <li className="warn">{t.whyParked.replace("{v}", String(why.parked))}</li>}
+        {f ? (
+          <li>
+            {f.name} · {t.whyChannelOf} {f.offset}
+            {f.channel ? ` (${f.channel}${f.attribute ? `, ${f.attribute}` : ""})` : ""}
+            {!f.definition && <span className="badge conflict"> {t.noDefinition}</span>}
+          </li>
+        ) : (
+          <li className="hint">{t.whyNoFixture}</li>
+        )}
+        {why.intensity && (
+          <li>
+            {t.whyIntensity} : {t.grandMasterShort} {pct(why.intensity.grandMaster)}
+            {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.effective)}${d.effective !== d.own ? ` (${t.whyOwn} ${pct(d.own)})` : ""}`).join("")} = {pct(why.intensity.factor)}
+          </li>
+        )}
+        {why.faders.map((x) => (
+          <li key={x.id}>
+            {t.whyFader} « {x.name} » {pct(x.level)}
+            {x.dca ? ` × DCA → ${pct(x.effective)}` : ""}
+          </li>
+        ))}
+        {why.rawLooks.map((l) => (
+          <li key={l.id}>
+            {t.whyRawLook} « {l.name} »
+          </li>
+        ))}
+        {why.clamps.map((c, i) => (
+          <li key={i} className="warn">
+            {t.whyClamp.replace("{rule}", c.rule).replace("{from}", String(c.from)).replace("{to}", String(c.to))}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /**
  * DMX console: one fader per channel, live output values, park/release (docs/specs/ui-dashboards.md).
  * By default it shows the patched channels grouped by fixture, with their names, as a console's
@@ -33,6 +100,16 @@ export function ConsolePage() {
     }
   });
   const [error, setError] = useState("");
+  /** The channel whose value is explained (dmx.explain), read again every second while open. */
+  const [explained, setExplained] = useState<number | null>(null);
+  const [why, setWhy] = useState<Explain | null>(null);
+  useEffect(() => {
+    if (explained === null) return setWhy(null);
+    const load = () => void cmd<Explain>("dmx.explain", { universe, channel: explained }).then(setWhy, (e: Error) => setError(e.message));
+    load();
+    const timer = window.setInterval(load, 1000);
+    return () => window.clearInterval(timer);
+  }, [explained, universe]);
   const pending = useRef(new Map<number, number>());
   const timer = useRef<number | null>(null);
 
@@ -102,8 +179,10 @@ export function ConsolePage() {
     const v = values[ch - 1] ?? 0;
     const name = names.get(ch);
     return (
-      <div key={ch} className={isParked ? "ch parked" : "ch"} title={name ? `${name.fixture} · ${name.channel}` : undefined}>
-        <span className="num">{ch}</span>
+      <div key={ch} className={`ch${isParked ? " parked" : ""}${explained === ch ? " explained" : ""}`} title={name ? `${name.fixture} · ${name.channel}` : undefined}>
+        <button className="num" aria-label={`${t.whyChannel} ${ch}`} aria-pressed={explained === ch} onClick={() => setExplained(explained === ch ? null : ch)}>
+          {ch}
+        </button>
         <input
           type="range"
           min={0}
@@ -161,6 +240,8 @@ export function ConsolePage() {
         )}
       </section>
       {patch !== null && fixtures.length === 0 && <p className="hint">{t.noPatchHere}</p>}
+      {why && <WhyPanel why={why} onClose={() => setExplained(null)} />}
+      {!why && <p className="hint">{t.whyChannelHelp}</p>}
       {byFixture ? (
         <div className="channels by-fixture">
           {fixtures.map((f) => (
