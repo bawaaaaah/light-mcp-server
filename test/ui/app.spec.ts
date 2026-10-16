@@ -557,6 +557,13 @@ test("settings: recent activity says who did what, from where, a dragged fader o
   await expect(log.locator("tr", { hasText: "Niveau de groupe" }).first()).toContainText("×4");
   await expect(log.locator("tr", { hasText: "Lancer un look" }).first()).toContainText("Régisseur");
   await expect(log.locator("tr", { hasText: "Lancer un look" }).first()).toContainText("hole");
+  // filters: only what came from the server itself (the test show's setup), then back to everything
+  await page.getByLabel("D'où").selectOption({ label: "serveur" });
+  await expect(log.locator("tr", { hasText: "Lancer un look" })).toHaveCount(0);
+  await expect(log.locator("tr").first()).toContainText("serveur");
+  await page.getByLabel("D'où").selectOption("");
+  await page.getByLabel("Qui").selectOption("Régisseur");
+  await expect(log.locator("tr", { hasText: "Lancer un look" }).first()).toBeVisible();
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });

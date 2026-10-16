@@ -65,10 +65,14 @@ const time = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "
 export function ActivityPanel() {
   const t = useT();
   const [entries, setEntries] = useState<Entry[] | null>(null);
+  const [who, setWho] = useState("");
+  const [origin, setOrigin] = useState("");
+  const [failedOnly, setFailedOnly] = useState(false);
   const timer = useRef<number | null>(null);
-  const load = useCallback(() => void cmd<Entry[]>("activity.list", { limit: 100 }).then(setEntries, () => undefined), []);
+  const load = useCallback(() => void cmd<Entry[]>("activity.list", { limit: 300 }).then(setEntries, () => undefined), []);
   useEffect(load, [load]);
   useEffect(() => () => void (timer.current !== null && window.clearTimeout(timer.current)), []);
+  const shown = entries?.filter((e) => (!who || (e.who ?? "—") === who) && (!origin || e.origin === origin) && (!failedOnly || !e.ok));
   useCommandEvents([""], () => {
     if (timer.current !== null) return;
     timer.current = window.setTimeout(() => {
@@ -82,10 +86,34 @@ export function ActivityPanel() {
       <p className="hint">{t.activityHelp}</p>
       {entries?.length === 0 && <p className="hint">{t.noActivity}</p>}
       {entries && entries.length > 0 && (
+        <div className="row activity-filters">
+          <select aria-label={t.activityWho} value={who} onChange={(e) => setWho(e.target.value)}>
+            <option value="">{t.activityEveryone}</option>
+            {[...new Set(entries.map((e) => e.who ?? "—"))].sort().map((w) => (
+              <option key={w} value={w}>
+                {w}
+              </option>
+            ))}
+          </select>
+          <select aria-label={t.activityOrigin} value={origin} onChange={(e) => setOrigin(e.target.value)}>
+            <option value="">{t.activityEverywhere}</option>
+            {[...new Set(entries.map((e) => e.origin))].map((o) => (
+              <option key={o} value={o}>
+                {t.origins[o]}
+              </option>
+            ))}
+          </select>
+          <label className="inline">
+            <input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} /> {t.activityFailedOnly}
+          </label>
+        </div>
+      )}
+      {shown && shown.length === 0 && entries && entries.length > 0 && <p className="hint">{t.activityNoMatch}</p>}
+      {shown && shown.length > 0 && (
         <div>
           <table className="activity">
             <tbody>
-              {entries.map((e) => (
+              {shown.map((e) => (
                 <tr key={`${e.at}-${e.name}-${e.target ?? ""}-${e.who ?? ""}`} className={e.ok ? undefined : "failed"}>
                   <td className="nowrap">
                     {time(e.at)}
