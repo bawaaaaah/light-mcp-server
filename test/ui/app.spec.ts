@@ -651,6 +651,21 @@ test("a session closed on the server sends the page back to sign-in, with the re
   expect(errors.filter((e) => !e.includes("401") && !e.includes("WebSocket connection"))).toEqual([]);
 });
 
+test("full screen keeps the tablet awake, and lets it sleep again on the way out", async ({ page }) => {
+  // a stand-in for the Screen Wake Lock: what the page asked for, and what it gave back
+  await page.addInitScript(() => {
+    const log: string[] = [];
+    (globalThis as unknown as { wakeLog: string[] }).wakeLog = log;
+    Object.defineProperty(navigator, "wakeLock", { value: { request: async () => (log.push("request"), { release: async () => void log.push("release") }) } });
+  });
+  await login(page);
+  const wakeLog = () => page.evaluate(() => (globalThis as unknown as { wakeLog: string[] }).wakeLog);
+  await page.getByRole("button", { name: "Plein écran" }).click();
+  await expect.poll(wakeLog).toEqual(["request"]);
+  await page.getByRole("button", { name: "Plein écran" }).click();
+  await expect.poll(wakeLog).toEqual(["request", "release"]);
+});
+
 test("reloading while the server restarts keeps the session: it waits, then comes back signed in", async ({ page }) => {
   await login(page);
   await page.route("**/api/auth/me", (route) => route.fulfill({ status: 502, body: "Bad Gateway" })); // the proxy, server down

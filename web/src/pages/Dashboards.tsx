@@ -131,6 +131,29 @@ export function DashboardsPage({ role }: { role: Role }) {
       document.body.classList.remove("kiosk");
     };
   }, [kiosk]);
+  // a tablet left on the Live must not fall asleep mid-service: full screen keeps the screen awake
+  // (Screen Wake Lock, where the browser allows it: HTTPS or localhost)
+  useEffect(() => {
+    if (!kiosk) return;
+    type Sentinel = { release(): Promise<void> };
+    const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<Sentinel> } };
+    let lock: Sentinel | undefined;
+    let stop = false;
+    const take = () => {
+      if (stop || document.visibilityState !== "visible" || !nav.wakeLock) return;
+      void nav.wakeLock.request("screen").then(
+        (l) => (stop ? void l.release() : (lock = l)),
+        () => undefined,
+      );
+    };
+    take();
+    document.addEventListener("visibilitychange", take); // the browser drops the lock when the page hides: taken again on return
+    return () => {
+      stop = true;
+      document.removeEventListener("visibilitychange", take);
+      void lock?.release().catch(() => undefined);
+    };
+  }, [kiosk]);
   const toggleKiosk = () => {
     if (kiosk) {
       if (document.fullscreenElement) void document.exitFullscreen?.();
