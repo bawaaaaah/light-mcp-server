@@ -8,14 +8,24 @@ export function useTopic<T>(topic: string, initial: T): T {
   return value;
 }
 
-/** Calls `fn` whenever a command whose name starts with one of `prefixes` succeeds. */
+/**
+ * Calls `fn` whenever a command whose name starts with one of `prefixes` succeeds, and whenever the
+ * live link comes up: what changed while it was down (a server restart, a tablet's Wi-Fi) or before
+ * it first connected was not heard, so the page reads it again.
+ */
 export function useCommandEvents(prefixes: string[], fn: () => void): void {
   useEffect(
-    () =>
-      control.subscribe("light:command", (d) => {
+    () => {
+      const offEvents = control.subscribe("light:command", (d) => {
         const e = d as { name: string; ok: boolean };
         if (e.ok && prefixes.some((p) => e.name.startsWith(p))) fn();
-      }),
+      });
+      const offStatus = control.onStatus((up) => up && fn());
+      return () => {
+        offEvents();
+        offStatus();
+      };
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [prefixes.join(",")],
   );

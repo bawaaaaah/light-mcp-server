@@ -56,8 +56,9 @@ class Channel {
     ws.onmessage = (ev) => {
       const msg = (typeof ev.data === "string" ? JSON.parse(ev.data) : decode(new Uint8Array(ev.data as ArrayBuffer))) as { t: string; topic?: string; data?: unknown };
       if (msg.t === "hello") {
-        this.setStatus(true);
+        // subscribed again first: whoever reads again on « up » hears what follows
         for (const s of this.subs.values()) this.send({ t: "sub", id: this.nextId++, topic: s.topic, params: s.params });
+        this.setStatus(true);
       } else if (msg.t === "evt" && msg.topic) {
         for (const h of this.subs.get(msg.topic)?.handlers ?? []) h(msg.data);
       }
