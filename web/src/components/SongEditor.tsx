@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, splitList, uniqueId } from "../util";
+import { TempoFromAudio } from "./TempoFromAudio";
 
 export interface SectionDraft {
   id: string;
@@ -156,8 +157,9 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
         </label>
         <label className="field">
           <span>{t.bpm}</span>
-          <input type="number" min={20} max={400} value={song.bpm} onChange={(e) => set({ bpm: Number(e.target.value) })} />
+          <input type="number" min={20} max={400} step={0.1} value={song.bpm} onChange={(e) => set({ bpm: Number(e.target.value) })} />
         </label>
+        <TempoFromAudio onBpm={(bpm) => set({ bpm })} />
         <label className="field">
           <span>{t.beatsPerBar}</span>
           <input type="number" min={1} max={16} value={song.beatsPerBar} onChange={(e) => set({ beatsPerBar: Number(e.target.value) })} />

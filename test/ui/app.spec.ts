@@ -1163,6 +1163,46 @@ test("song editor: sections, timeline, grid fill, then a setlist", async ({ page
   expect(errors).toEqual([]);
 });
 
+test("song editor: the tempo heard in a recording fills the BPM", async ({ page }) => {
+  const errors = watchErrors(page);
+  // a 20 s recording at 124 BPM: clicks on a soft noise, 16-bit WAV
+  const rate = 22050;
+  const samples = new Int16Array(20 * rate);
+  let seed = 7;
+  const noise = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  for (let i = 0; i < samples.length; i++) samples[i] = Math.round(300 * noise());
+  for (let k = 0; (k * 60 * rate) / 124 < samples.length; k++) {
+    const start = Math.round((k * 60 * rate) / 124);
+    for (let i = 0; i < 600 && start + i < samples.length; i++) samples[start + i] = Math.max(-32767, Math.min(32767, samples[start + i]! + Math.round(20000 * noise() * Math.exp(-i / 130))));
+  }
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + samples.byteLength, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(samples.byteLength, 40);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
+  await page.getByRole("button", { name: "+ Nouveau chant" }).click();
+  const editor = page.locator(".song-editor");
+  await editor.getByLabel("Tempo depuis un fichier audio").setInputFiles({ name: "chant.wav", mimeType: "audio/wav", buffer: Buffer.concat([header, Buffer.from(samples.buffer)]) });
+  const found = editor.locator(".tempo-audio strong");
+  await expect(found).toContainText("BPM", { timeout: 10_000 });
+  const bpm = Number(((await found.textContent()) ?? "").replace(/[^\d.]/g, ""));
+  expect(bpm).toBeGreaterThan(123.7);
+  expect(bpm).toBeLessThan(124.3);
+  await editor.getByRole("button", { name: "Utiliser" }).click();
+  expect(Number(await editor.getByLabel("BPM").inputValue())).toBe(bpm);
+  expect(errors).toEqual([]);
+});
+
 test("timeline action: placed in the song editor, fired by ▶ playback", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
