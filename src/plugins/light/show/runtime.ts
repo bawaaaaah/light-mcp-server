@@ -11,7 +11,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import { aimSetupOf, emptyFrame, type Venue } from "../venue/venue.js";
-import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
+import { applyHolds, applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
@@ -544,10 +544,14 @@ export class ShowRuntime {
     }
   }
 
-  /** Applies rules to every fixture's channels in the buffers; what they bounded. */
+  /** Since when each channel bound by a duration rule has been above its level (rules.ts, applyHolds). */
+  private readonly holdSince = new Map<string, number>();
+
+  /** Applies rules to every fixture's channels in the buffers, durations included; what they bounded. */
   private mask(buffers: Uint8Array[], rules: Rule[]): Clamp[] {
     const clamps: Clamp[] = [];
     if (!rules.length) return clamps;
+    const now = this.now();
     const zones = this.zones.list();
     const zoneById = (id: string) => {
       const f = this.venue.fixtures.get(id);
@@ -557,7 +561,7 @@ export class ShowRuntime {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
       if ("error" in r || !buf) continue;
-      clamps.push(...applyRules(rules, r, buf, zoneById));
+      clamps.push(...applyRules(rules, r, buf, zoneById), ...applyHolds(rules, r, buf, now, this.holdSince, zoneById));
     }
     return clamps;
   }

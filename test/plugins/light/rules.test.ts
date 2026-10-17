@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { readFileSync } from "node:fs";
 import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
-import { applyRules, effectiveRule, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
+import { applyHolds, applyRules, effectiveRule, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
 import type { ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
 const def = parseQxf(readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8"));
@@ -20,6 +20,25 @@ const fx: ResolvedFixture = {
 const rule = (r: unknown) => RuleSchema.parse(r);
 
 describe("rules mask", () => {
+  it("holds a channel under its level once it has stayed above it too long, until it comes down", () => {
+    const name = fx.mode.channels[0]!;
+    const blinder = [rule({ id: "blinder", level: "venue", target: { channel: name }, hold: { above: 204, seconds: 3 } })];
+    const since = new Map<string, number>();
+    const frame = (value: number, now: number) => {
+      const buf = new Uint8Array(512);
+      buf[0] = value;
+      applyHolds(blinder, fx, buf, now, since);
+      return buf[0];
+    };
+    expect(frame(255, 0)).to.equal(255);
+    expect(frame(255, 2900)).to.equal(255); // within its 3 s
+    expect(frame(255, 3100)).to.equal(203); // past them: just under 80 %
+    expect(frame(255, 9000)).to.equal(203); // as long as it is asked for
+    expect(frame(100, 9100)).to.equal(100); // down: the count starts again
+    expect(frame(255, 9200)).to.equal(255);
+    expect(frame(220, 12300)).to.equal(203);
+  });
+
   it("keeps a strobe under a frequency where the definition gives it, and leaves it free where not", () => {
     const xml = readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8").replace('Preset="StrobeSlowToFast"', 'Preset="StrobeFreqRange" Res1="1" Res2="25"');
     const withHz = parseQxf(xml);

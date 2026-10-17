@@ -34,6 +34,11 @@ export const RuleSchema = z.object({
    * guidance speaks of 3 flashes a second); without frequencies in a definition it has no effect.
    */
   maxHz: z.number().positive().max(100).optional(),
+  /**
+   * Duration bound: at or above `above` (DMX value) for `seconds` at most — a blinder at full, a
+   * hot lamp. After that the channel is held just under it until what drives it comes down.
+   */
+  hold: z.object({ above: z.number().int().min(1).max(255), seconds: z.number().positive().max(600) }).optional(),
   locked: z.boolean().default(false),
   /** Rule program it belongs to: the rule applies only while that program is active (absent = always). */
   program: z.string().optional(),
@@ -167,6 +172,37 @@ function enforce(v: number, c: { min?: number; max?: number; maxHz?: number; val
 }
 
 /** Applies the effective rules to a fixture's channels in a DMX buffer; returns what was moved. */
+/**
+ * Duration bounds (`hold`): a channel at or above a rule's level for longer than its seconds is held
+ * just under it until it comes down. `since` remembers, per fixture, channel and rule, when the
+ * channel went above; that memory is the only state. Returns what it held.
+ */
+export function applyHolds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, now: number, since: Map<string, number>, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
+  const holds = rules.filter((r) => r.hold);
+  const clamps: Clamp[] = [];
+  if (!holds.length) return clamps;
+  fx.mode.channels.forEach((name, offset) => {
+    const ch = fx.def.channels.get(name);
+    const index = fx.patch.address - 1 + offset;
+    if (!ch || index < 0 || index >= 512) return;
+    for (const r of holds) {
+      if (!ruleApplies(r, fx, ch, zoneOfFixture)) continue;
+      const key = `${fx.patch.id}/${name}/${r.id}`;
+      const v = buffer[index]!;
+      if (v < r.hold!.above) {
+        since.delete(key);
+        continue;
+      }
+      const start = since.get(key) ?? (since.set(key, now), now);
+      if (now - start > r.hold!.seconds * 1000) {
+        buffer[index] = r.hold!.above - 1;
+        clamps.push({ fixture: fx.patch.id, channel: name, from: v, to: r.hold!.above - 1, rule: r.id });
+      }
+    }
+  });
+  return clamps;
+}
+
 export function applyRules(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
   const byId = new Map(rules.map((r) => [r.id, r]));

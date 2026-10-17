@@ -41,8 +41,8 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 - **Drapeaux de section** (posés sur une section de chant, actifs pendant cette section) :
   - `manualOnly` : jamais déclenchée par la timeline ni par l'IA, au doigt seulement (v1 : vérifié dans le moteur lui-même, donc aussi pour les sections lancées par l'IA, par une action de timeline ou par le suivi de position ; le suivi passe la section sans lancer le look. Le MIDI reste autorisé : un pad est un doigt — une note envoyée par un clip d'Ableton aussi, à éviter sur ces looks) ;
   - `noCut` : seules les techniques qui n'éteignent rien sont admises (v1 : vérifié à l'enregistrement du look) ;
-  - **plancher d'intensité** : « le sol n'est jamais noir » ;
-  - **règles machines** : « pas de bulles pendant une prise de parole », « brume jamais au tempo ».
+  - **plancher d'intensité** : « le sol n'est jamais noir » (v1 : une règle `min` dans un programme posé sur la section) ;
+  - **règles machines** : « pas de bulles pendant une prise de parole », « brume jamais au tempo » (v1 : une règle `max` 0 sur le canal de la machine, dans un programme ; le tempo d'une machine reste à faire).
 
 ## Options de show (activées par défaut à la création)
 - **Scènes sans intensité** : les looks portent couleur et effets, et le **niveau** vient exclusivement des groupes et masters, parce qu'il dépend de la salle du soir. Le moteur refuse d'enregistrer de l'intensité dans un look. L'UI rappelle « master en bas = rien ne s'allume ».
@@ -57,10 +57,13 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 | `forbidCapability` | son-actif, programmes auto, macros, reset | remplace par la valeur par défaut ou la plage permise la plus proche |
 | `allowCapabilities` | seulement couleur fixe et dimmer | liste blanche |
 | `rate` | strobe ≤ 10 Hz (`maxHz`, fait), pan/tilt ≤ X°/s | borne la fréquence ou la vitesse |
-| `duration` | blinder ≥ 80 % pendant 3 s au maximum | borne la durée |
+| `duration` | blinder ≥ 80 % pendant 3 s au maximum (`hold`, fait) | borne la durée |
 | `aim` | ne jamais viser *audience* sous 2 m | interdit un angle ou une cible (via la scène) |
 
 `onViolation` : `clamp` (défaut, on borne et on informe), `confirm` (confirmation dans l'UI) ou `reject`.
+
+- **Durée bornée** (v1, `hold {above, seconds}` d'une règle, champs « au-dessus de (%) » et « pendant (s) au plus » du formulaire) : un canal qui reste au-dessus du niveau plus longtemps que la durée est tenu juste en dessous tant que ce qui le pilote ne redescend pas ; le compte repart quand il redescend. Le moteur se souvient depuis quand chaque canal est au-dessus (seul état des règles) ; comme les autres bornes, une règle verrouillée tient aussi contre les forçages.
+- En v1, seul `clamp` existe ; `confirm`, `reject`, `allowCapabilities` (liste blanche) et les vitesses de pan/tilt (`rate` en °/s) restent à faire.
 
 ## Clignotement (sécurité photosensible)
 - « Vérifier le show » signale les looks qui clignotent **plus de 3 fois par seconde** (seuil de la norme WCAG 2.3.1) : un éclat est une cellule qui passe du noir à l'allumé ; une attaque en fondu (≥ 0,2) ne compte pas. Un look calé sur les temps est évalué au tempo du chant le plus rapide du show (120 BPM au moins). C'est une alerte : la sortie n'est pas modifiée (`show/flashes.ts`).

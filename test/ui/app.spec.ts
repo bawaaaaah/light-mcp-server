@@ -1358,6 +1358,14 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   await page.screenshot({ path: "test-results/rules.png", fullPage: true });
   for (const name of ["Gradateur max 80 %", "Gradateur max 50 %"]) await panel.getByRole("button", { name: `Supprimer ${name}` }).click();
   await expect.poll(async () => (await dmx(page))[0]).toBe(255);
+  // a bounded duration: at full for a second at most, then held just under 90 %
+  await form.getByLabel("au-dessus de (%)").fill("90");
+  await form.getByLabel("pendant (s) au plus").fill("1");
+  await form.getByRole("button", { name: "+ Ajouter la règle" }).click();
+  await expect(panel.locator("table.rules tr", { hasText: "Gradateur ≥ 90 % 1 s max" })).toBeVisible();
+  await expect.poll(async () => (await dmx(page))[0], { timeout: 5000 }).toBe(229);
+  await panel.getByRole("button", { name: "Supprimer Gradateur ≥ 90 % 1 s max" }).click();
+  await expect.poll(async () => (await dmx(page))[0]).toBe(255);
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });
