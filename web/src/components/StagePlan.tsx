@@ -11,7 +11,8 @@
  * ceiling, floor), turn it by 15° (buttons, ← / →), type an angle, or drag around it to turn it; an arrow shows the
  * beam, ⊙ / ⊗ when it points at / away from the viewer. A lit fixture whose beam is known (its
  * orientation, or a moving head's pan/tilt read back from the output: light:preview beams) casts a
- * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise.
+ * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
+ * no moving head may point into is hatched.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
@@ -51,6 +52,8 @@ export interface PlanZone {
   polygon: [number, number][];
   floorHeight: number;
   protected: boolean;
+  /** No moving head may point into it: hatched on the plan. */
+  noAim?: boolean;
 }
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
@@ -76,7 +79,7 @@ export function StagePlan({
   const t = useT();
   const [colors, setColors] = useState<Record<string, string[]>>({});
   const [strobe, setStrobe] = useState<Record<string, number | null>>({});
-  const [beams, setBeams] = useState<Record<string, Vec & { angle?: number }>>({});
+  const [beams, setBeams] = useState<Record<string, Vec & { angle?: number; to: Vec }>>({});
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -121,7 +124,7 @@ export function StagePlan({
   useEffect(
     () =>
       stream.subscribe("light:preview", (d) => {
-        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null>; beams?: Record<string, Vec & { angle?: number }> };
+        const update = d as { fixtures: Record<string, string[]>; strobe?: Record<string, number | null>; beams?: Record<string, Vec & { angle?: number; to: Vec }> };
         setColors(update.fixtures);
         setStrobe(update.strobe ?? {});
         setBeams(update.beams ?? {});
@@ -214,21 +217,11 @@ export function StagePlan({
     if (turning !== was && onOrient) onOrient(selectedFixture, { yaw: turning });
   };
 
-  /** Where a beam lands: the floor of the zone under it (the stage floor at first guess), else 2 m out. */
-  const landing = (o: Vec, d: Vec): Vec => {
-    if (d.z < -0.05) {
-      let t = -o.z / d.z;
-      const zone = zones.find((z) => inside(o.x + t * d.x, o.y + t * d.y, z.polygon));
-      if (zone?.floorHeight) t = (zone.floorHeight - o.z) / d.z;
-      if (t > 0 && t < 20) return { x: o.x + t * d.x, y: o.y + t * d.y, z: o.z + t * d.z };
-    }
-    return { x: o.x + 2 * d.x, y: o.y + 2 * d.y, z: o.z + 2 * d.z };
-  };
-  /** The beam's cone on the view: from the fixture to where it lands, opening with the distance. */
+  /** The beam's cone on the view: from the fixture to where it lands (worked out by the server), opening with the distance. */
   const cone = (f: PlanFixture, color: string) => {
     const d = beams[f.id];
     if (!d || !f.position || drag?.id === f.id) return null;
-    const end = landing(f.position, d);
+    const end = d.to;
     const view = (v: Vec) => [sx(v.x), sy(front ? v.z : v.y)] as const;
     const [ox, oy] = view(f.position);
     const [ex, ey] = view(end);
@@ -315,15 +308,20 @@ export function StagePlan({
           <marker id="beam-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb454" />
           </marker>
+          <pattern id="no-aim" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#e5484d" strokeWidth="2" opacity="0.5" />
+          </pattern>
         </defs>
         <rect width={W} height={H} fill="#12141a" />
         {front && <line x1={0} x2={W} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((z) => (
           <g key={z.id} className="zone">
-            <polygon points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill={ZONE_FILL[z.type] ?? "#262a33"} stroke={z.protected ? "#e5484d" : "#3b4150"} strokeDasharray={z.protected ? "6 4" : undefined} />
+            <polygon points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill={ZONE_FILL[z.type] ?? "#262a33"} stroke={z.protected || z.noAim ? "#e5484d" : "#3b4150"} strokeDasharray={z.protected || z.noAim ? "6 4" : undefined} />
+            {z.noAim && <polygon className="no-aim" points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill="url(#no-aim)" />}
             <text x={sx(z.polygon.reduce((a, p) => a + p[0], 0) / z.polygon.length)} y={sy(Math.max(...z.polygon.map((p) => p[1]))) + 14} textAnchor="middle" className="zone-name">
               {z.name}
               {z.protected ? ` (${t.protectedZone})` : ""}
+              {z.noAim ? ` (${t.noAimZone})` : ""}
             </text>
           </g>
         ))}

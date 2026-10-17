@@ -155,6 +155,7 @@ export class LightPlugin implements McpPlugin {
     );
     this.runtime = new ShowRuntime(this.show, this.venue, this.tempo);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
+    this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     registerShowCommands(this.commands, this.engine, this.runtime);
     registerMoveCommands(this.commands, this.runtime);
@@ -744,7 +745,7 @@ export class LightPlugin implements McpPlugin {
         source: "frame",
         encode: (payload) => {
           const { buffers } = payload as { buffers: Uint8Array[] };
-          const update = { fixtures: this.venue.displayColors(buffers), strobe: this.venue.strobing(buffers), beams: this.venue.beams(buffers) };
+          const update = { fixtures: this.venue.displayColors(buffers), strobe: this.venue.strobing(buffers), beams: this.venue.beams(buffers, this.runtime.zones.list()) };
           const key = JSON.stringify(update);
           const now = Date.now();
           if (key === lastPreview && now - lastPreviewAt < 1000) return null; // unchanged: once a second for late subscribers

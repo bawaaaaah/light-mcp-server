@@ -37,6 +37,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 
 ## Toujours actifs en v1 (hors cascade)
 - **Zones protégées** : une zone marquée `protected` (pupitre, public) a ses propres limites. Par exemple « intensité ≤ 60 % vers *audience* », « aucune lyre ne vise *pupitre* sauf look autorisé ».
+  - **Interdite aux lyres** (v1, `noAim` de la zone, case dans la page Lieu) : une lyre dont le faisceau **traverse** la zone, jusqu'à 2,5 m au-dessus de son plancher, est éteinte (gradateur, ou couleurs sans gradateur) tant qu'elle y pointe. La direction vient du pan/tilt **réellement envoyé** (visée inversée), donc quel que soit celui qui l'a visée : look, Move FX, pad XY, « Viser », console DMX. Appliqué après les forçages ; le bornage figure dans « pourquoi ce canal » (`zone:<id>`). Plus tard : un look autorisé à y pointer.
 - **Drapeaux de section** (posés sur une section de chant, actifs pendant cette section) :
   - `manualOnly` : jamais déclenchée par la timeline ni par l'IA, au doigt seulement (v1 : vérifié dans le moteur lui-même, donc aussi pour les sections lancées par l'IA, par une action de timeline ou par le suivi de position ; le suivi passe la section sans lancer le look. Le MIDI reste autorisé : un pad est un doigt — une note envoyée par un clip d'Ableton aussi, à éviter sur ces looks) ;
   - `noCut` : seules les techniques qui n'éteignent rien sont admises (v1 : vérifié à l'enregistrement du look) ;
@@ -73,6 +74,7 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 ## Moteur et visibilité
 - Chaque bornage émet un événement sur `light:rules`, avec la règle et l'origine de la commande, visible dans l'UI et expliqué à l'IA.
 - **Forçage technicien** : depuis la console DMX, on peut ignorer les règles non `locked`, avec un bandeau d'avertissement et une entrée au journal.
+  - v1 : les **règles verrouillées** sont réappliquées **après** les canaux forcés (étape de garde du moteur, avant le Blackout) : un forçage passe outre le show et les règles ordinaires, jamais une limite matérielle du lieu ; « pourquoi ce canal » nomme la règle qui l'a ramené.
   - Fait : les canaux forcés comptent dans `light:state` (`parked`) et l'en-tête de **toutes les pages** affiche « 🔧 N canal(aux) forcé(s) » (vers la console DMX) tant qu'ils ne sont pas relâchés ; chaque forçage figure au journal d'activité (`dmx.set`).
 
 ## MCP

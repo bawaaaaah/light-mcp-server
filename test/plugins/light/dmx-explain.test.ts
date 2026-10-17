@@ -31,4 +31,24 @@ describe("dmx.explain: why a channel has its value", () => {
     await run("dmx.explain", { universe: 9, channel: 1 }).catch((err: Error) => (refused = err.message));
     expect(refused).to.not.equal("");
   });
+
+  it("lets a forced channel override the show and ordinary rules, never a locked one", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-locked-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
+    const name = channels.find((f) => f.id === "bar-0")!.channels.find((c) => c.offset === 2)!.name;
+    const out = () => plugin.engine.render()[0]![2];
+    await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100 } });
+    await run("dmx.set", { universe: 1, channel: 3, value: 250 });
+    expect(out()).to.equal(250); // the technician's forcing passes an ordinary rule
+    await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "venue", target: { channel: name }, max: 100, locked: true } });
+    expect(out()).to.equal(100); // a locked one holds
+    const e = (await run("dmx.explain", { universe: 1, channel: 3 })) as { value: number; rules?: { rule: string }[] };
+    expect(JSON.stringify(e)).to.contain("plafond"); // and it says so
+  });
 });

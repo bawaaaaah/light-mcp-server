@@ -46,11 +46,11 @@ export function VenuePage() {
   /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
   const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
   /** A rectangular zone: width × depth, centred on x, its front edge at y (metres; x towards cour, y upstage). */
-  const [zoneDraft, setZoneDraft] = useState({ name: "", type: "stage", width: "", depth: "", x: "0", y: "0", floor: "0", protected: false });
+  const [zoneDraft, setZoneDraft] = useState({ name: "", type: "stage", width: "", depth: "", x: "0", y: "0", floor: "0", protected: false, noAim: false });
   const addZone = () => {
     const [w, d, x, y] = [Number(zoneDraft.width), Number(zoneDraft.depth), Number(zoneDraft.x) || 0, Number(zoneDraft.y) || 0];
     const polygon = [[x - w / 2, y], [x + w / 2, y], [x + w / 2, y + d], [x - w / 2, y + d]];
-    const zone = { id: uniqueId(slug(zoneDraft.name, "zone"), zones.map((z) => z.id)), name: zoneDraft.name, type: zoneDraft.type, polygon, floorHeight: Number(zoneDraft.floor) || 0, protected: zoneDraft.protected };
+    const zone = { id: uniqueId(slug(zoneDraft.name, "zone"), zones.map((z) => z.id)), name: zoneDraft.name, type: zoneDraft.type, polygon, floorHeight: Number(zoneDraft.floor) || 0, protected: zoneDraft.protected, noAim: zoneDraft.noAim };
     void run("stage.zone.put", { zone }).then(() => (setZoneDraft({ ...zoneDraft, name: "" }), refresh()));
   };
   const size = (z: Zone) => {
@@ -217,7 +217,10 @@ export function VenuePage() {
           <ul>
             {zones.map((z) => (
               <li key={z.id}>
-                {z.name} <small>({labelOf(t.zoneTypes, z.type)} · {size(z)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
+                {z.name} <small>({labelOf(t.zoneTypes, z.type)} · {size(z)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}{" "}
+                <label className="inline" title={t.noAimHelp}>
+                  <input type="checkbox" checked={Boolean(z.noAim)} onChange={(e) => void run("stage.zone.put", { zone: { ...z, noAim: e.target.checked } }).then(refresh)} /> {t.noAimZone}
+                </label>
                 <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} « ${z.name} » ?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
                   ✕
                 </button>
@@ -249,6 +252,9 @@ export function VenuePage() {
             ))}
             <label className="row">
               <input type="checkbox" checked={zoneDraft.protected} onChange={(e) => setZoneDraft({ ...zoneDraft, protected: e.target.checked })} /> {t.protectedZone}
+            </label>
+            <label className="row" title={t.noAimHelp}>
+              <input type="checkbox" checked={zoneDraft.noAim} onChange={(e) => setZoneDraft({ ...zoneDraft, noAim: e.target.checked })} /> {t.noAimZone}
             </label>
             <button disabled={!zoneDraft.name || !(Number(zoneDraft.width) > 0) || !(Number(zoneDraft.depth) > 0)} onClick={addZone}>
               + {t.addZone}

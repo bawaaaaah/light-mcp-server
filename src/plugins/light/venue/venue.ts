@@ -16,6 +16,7 @@ import { displayHex } from "../engine/display.js";
 import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
 import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
+import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
 
 export const PatchedFixtureSchema = z.object({
@@ -443,26 +444,33 @@ export class Venue {
    * with the beam opening in degrees when the definition gives it. Fixtures neither placed nor
    * oriented have none.
    */
-  beams(buffers: readonly Uint8Array[]): Record<string, { x: number; y: number; z: number; angle?: number }> {
-    const out: Record<string, { x: number; y: number; z: number; angle?: number }> = {};
+  beams(buffers: readonly Uint8Array[], zones: Zone[] = []): Record<string, { x: number; y: number; z: number; angle?: number; to: { x: number; y: number; z: number } }> {
+    const out: Record<string, { x: number; y: number; z: number; angle?: number; to: { x: number; y: number; z: number } }> = {};
     const round = (d: { x: number; y: number; z: number }) => ({ x: Math.round(d.x * 1000) / 1000, y: Math.round(d.y * 1000) / 1000, z: Math.round(d.z * 1000) / 1000 });
     for (const patch of this.fixtures.list()) {
       if (!patch.position) continue;
       const r = this.resolve(patch.id);
       const buf = buffers[patch.universe - 1];
       if ("error" in r || !buf) continue;
-      if (r.pan || r.tilt) {
-        const read = (ch?: CoarseFine) => (ch ? ((buf[patch.address - 1 + ch.coarse] ?? 0) * 256 + (ch.fine !== undefined ? (buf[patch.address - 1 + ch.fine] ?? 0) : 0)) / (ch.fine !== undefined ? 65535 : 255 * 256) : 0.5);
-        let [pan, tilt] = [read(r.pan), read(r.tilt)];
-        const o = patch.orientation;
-        if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
-        if (o?.invertPan) pan = 1 - pan;
-        if (o?.invertTilt) tilt = 1 - tilt;
-        out[patch.id] = round(pointing(aimSetupOf(r)!, { pan, tilt }));
-      } else if (patch.orientation) out[patch.id] = round(beamDirection(patch.orientation));
-      if (out[patch.id] && r.beamAngle) out[patch.id]!.angle = r.beamAngle;
+      const d = r.pan || r.tilt ? this.pointingOf(r, buf) : patch.orientation ? beamDirection(patch.orientation) : undefined;
+      if (!d) continue;
+      // where the light lands: the floor of the zone under it, 2 m out otherwise
+      const { floor: _, ...to } = landing(patch.position, d, zones);
+      out[patch.id] = { ...round(d), to: round(to), ...(r.beamAngle ? { angle: r.beamAngle } : {}) };
     }
     return out;
+  }
+
+  /** Where a moving head points from the pan/tilt in the output (inversions and swap undone). */
+  pointingOf(r: ResolvedFixture, buf: Uint8Array): { x: number; y: number; z: number } {
+    const at = r.patch.address - 1;
+    const read = (ch?: CoarseFine) => (ch ? ((buf[at + ch.coarse] ?? 0) * 256 + (ch.fine !== undefined ? (buf[at + ch.fine] ?? 0) : 0)) / (ch.fine !== undefined ? 65535 : 255 * 256) : 0.5);
+    let [pan, tilt] = [read(r.pan), read(r.tilt)];
+    const o = r.patch.orientation;
+    if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
+    if (o?.invertPan) pan = 1 - pan;
+    if (o?.invertTilt) tilt = 1 - tilt;
+    return pointing(aimSetupOf(r)!, { pan, tilt });
   }
 
   /** DMX slots (0-based, per universe) holding pan/tilt: kept on Blackout so heads do not swing. */

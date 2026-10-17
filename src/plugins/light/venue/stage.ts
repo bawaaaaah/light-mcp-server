@@ -21,6 +21,11 @@ export const ZoneSchema = z.object({
   tags: z.array(z.string()).default([]),
   /** Protected: rules targeting it (e.g. intensity cap toward the audience, never the lectern). */
   protected: z.boolean().default(false),
+  /**
+   * No moving head may point into it (the lectern, the musicians' eyes): a head whose beam crosses
+   * it, up to 2.5 m above its floor, is dimmed while it does (docs/specs/rules-limits.md).
+   */
+  noAim: z.boolean().default(false),
   notes: z.string().optional(),
 });
 export type Zone = z.infer<typeof ZoneSchema>;
@@ -33,6 +38,29 @@ export function pointInPolygon(x: number, y: number, poly: [number, number][]): 
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
+}
+
+type Vec = { x: number; y: number; z: number };
+
+/** Where a beam from `o` along `d` meets the floor of the zone under it (the stage floor at first guess), else 2 m out. */
+export function landing(o: Vec, d: Vec, zones: Zone[]): Vec & { floor: boolean } {
+  if (d.z < -0.05) {
+    let t = -o.z / d.z;
+    const zone = zones.find((z) => pointInPolygon(o.x + t * d.x, o.y + t * d.y, z.polygon));
+    if (zone?.floorHeight) t = (zone.floorHeight - o.z) / d.z;
+    if (t > 0 && t < 20) return { x: o.x + t * d.x, y: o.y + t * d.y, z: o.z + t * d.z, floor: true };
+  }
+  return { x: o.x + 2 * d.x, y: o.y + 2 * d.y, z: o.z + 2 * d.z, floor: false };
+}
+
+/** Whether a beam crosses a zone up to `height` above its floor (head height and more), within 20 m. */
+export function beamCrosses(o: Vec, d: Vec, zone: Zone, height = 2.5): boolean {
+  for (let t = 0.1; t <= 20; t += 0.1) {
+    const [x, y, z] = [o.x + t * d.x, o.y + t * d.y, o.z + t * d.z];
+    if (z < zone.floorHeight - 0.05) return false; // below its floor: the beam has hit the ground
+    if (z <= zone.floorHeight + height && pointInPolygon(x, y, zone.polygon)) return true;
+  }
+  return false;
 }
 
 export function zoneOf(f: PatchedFixture, zones: Zone[]): Zone | undefined {

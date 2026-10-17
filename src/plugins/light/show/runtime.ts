@@ -12,7 +12,7 @@ import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import { aimSetupOf, emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
-import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
+import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
 
@@ -511,23 +511,55 @@ export class ShowRuntime {
       }
     }
     // Rules mask: last stage of the show's output.
-    const rules = this.rulesInForce();
-    const clamps: Clamp[] = [];
-    if (rules.length) {
-      const zones = this.zones.list();
-      const zoneById = (id: string) => {
-        const f = this.venue.fixtures.get(id);
-        return f ? zoneOf(f, zones)?.id : undefined;
-      };
-      for (const f of this.venue.fixtures.list()) {
-        const r = this.venue.resolve(f.id);
-        const buf = buffers[f.universe - 1];
-        if ("error" in r || !buf) continue;
-        clamps.push(...applyRules(rules, r, buf, zoneById));
+    this.lastClamps = this.mask(buffers, this.rulesInForce());
+    this.lastErrors = errors;
+  }
+
+  /**
+   * What holds over the whole output, after the DMX console's forced channels (docs/specs/rules-
+   * limits.md): forcing a channel overrides the show and the ordinary rules, never a locked one —
+   * the venue's hardware limits hold whoever writes the channel; and no moving head lights a zone
+   * it may not point into (the lectern), whoever aimed it, while its beam crosses that zone.
+   */
+  guard(buffers: Uint8Array[]): void {
+    const locked = this.rulesInForce().filter((r) => r.locked);
+    if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
+    const noAim = this.zones.list().filter((z) => z.noAim);
+    if (!noAim.length) return;
+    for (const f of this.venue.fixtures.list()) {
+      const r = this.venue.resolve(f.id);
+      const buf = buffers[f.universe - 1];
+      if (!f.position || "error" in r || !buf || (!r.pan && !r.tilt)) continue;
+      const d = this.venue.pointingOf(r, buf);
+      const zone = noAim.find((z) => beamCrosses(f.position!, d, z));
+      if (!zone) continue;
+      // its dimmer, or its colours when it has none
+      const offsets = r.dimmers.length ? r.dimmers : [...r.heads.values()].flatMap((h) => Object.values(h));
+      for (const off of offsets) {
+        const i = f.address - 1 + off;
+        if (!buf[i]) continue;
+        this.lastClamps.push({ fixture: f.id, channel: r.mode.channels[off] ?? String(off), from: buf[i]!, to: 0, rule: `zone:${zone.id}` });
+        buf[i] = 0;
       }
     }
-    this.lastClamps = clamps;
-    this.lastErrors = errors;
+  }
+
+  /** Applies rules to every fixture's channels in the buffers; what they bounded. */
+  private mask(buffers: Uint8Array[], rules: Rule[]): Clamp[] {
+    const clamps: Clamp[] = [];
+    if (!rules.length) return clamps;
+    const zones = this.zones.list();
+    const zoneById = (id: string) => {
+      const f = this.venue.fixtures.get(id);
+      return f ? zoneOf(f, zones)?.id : undefined;
+    };
+    for (const f of this.venue.fixtures.list()) {
+      const r = this.venue.resolve(f.id);
+      const buf = buffers[f.universe - 1];
+      if ("error" in r || !buf) continue;
+      clamps.push(...applyRules(rules, r, buf, zoneById));
+    }
+    return clamps;
   }
 }
 

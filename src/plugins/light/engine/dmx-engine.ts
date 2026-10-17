@@ -20,6 +20,8 @@ export class DmxEngine {
   private readonly listeners = new Set<EngineFrameListener>();
   /** Show renderer (looks, groups, venue conversion), called before parks and blackout. */
   private renderer: ((buffers: Uint8Array[]) => void) | undefined;
+  /** What still holds after the parks (the locked rules): a forced channel overrides the show, not that. */
+  private guard: ((buffers: Uint8Array[]) => void) | undefined;
   frames = 0;
 
   constructor(universes: number, tickerOptions: TickerOptions = {}) {
@@ -47,6 +49,10 @@ export class DmxEngine {
 
   setRenderer(fn: (buffers: Uint8Array[]) => void): void {
     this.renderer = fn;
+  }
+
+  setGuard(fn: (buffers: Uint8Array[]) => void): void {
+    this.guard = fn;
   }
 
   park(universe: number, channel: number, value: number): void {
@@ -110,6 +116,11 @@ export class DmxEngine {
     for (let u = 1; u <= this.output.count; u++) {
       const buf = this.output.buffers[u - 1]!;
       for (const [ch, v] of this.programmer.get(u) ?? []) buf[ch - 1] = v;
+    }
+    try {
+      this.guard?.(this.output.buffers);
+    } catch (err) {
+      console.warn("guard:", (err as Error).message);
     }
     if (this.blackout) {
       // Light goes out, heads stay where they are (a blackout must not make them swing).

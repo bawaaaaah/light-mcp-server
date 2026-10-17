@@ -197,6 +197,23 @@ describe("moving heads", () => {
       }
     });
 
+    it("dims a head while its beam crosses a zone no head may point into, whoever aimed it", () => {
+      const { show, dmx } = setup();
+      show.zones.put({ id: "pupitre", name: "Pupitre", type: "riser", polygon: [[0, -0.5], [1, -0.5], [1, 0.5], [0, 0.5]], floorHeight: 0.2, noAim: true });
+      show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });
+      show.go("rouge");
+      const guarded = () => {
+        const b = dmx();
+        show.guard([b]);
+        return b;
+      };
+      show.aim(["spot-l"], { x: 0.5, y: 0, z: 1.7 }); // the speaker's face
+      expect(guarded()[5]).to.equal(0); // spot-l's dimmer, cut
+      expect(show.lastClamps.some((c) => c.fixture === "spot-l" && c.rule === "zone:pupitre")).to.equal(true);
+      show.aim(["spot-l"], { x: -2, y: 3, z: 0 }); // the stage floor, away from it
+      expect(guarded()[5]).to.equal(255);
+    });
+
     it("shows a lamp head in its wheel colour for the 2D preview", () => {
       const { venue, show, dmx } = setup();
       show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });

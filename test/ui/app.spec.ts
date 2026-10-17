@@ -1666,6 +1666,12 @@ test("venue: a rectangular zone made from its size, shown on the plan, then dele
   const zone = ((await api(page, "stage.zone.list")) as { id: string; polygon: number[][] }[]).find((z) => z.id === "parvis")!;
   expect(zone.polygon).toEqual([[-3, -4], [3, -4], [3, -1], [-3, -1]]);
   await expect(page.locator(".stage-plan g.zone", { hasText: "Parvis" })).toHaveCount(1);
+  // no moving head may point into it: ticked on its line, hatched on the plan
+  const line = page.locator("#venue-patch li", { hasText: "Parvis" });
+  await line.getByLabel("interdite aux lyres").click(); // saved, then shown ticked
+  await expect(line.getByLabel("interdite aux lyres")).toBeChecked();
+  await expect(page.locator(".stage-plan g.zone", { hasText: "Parvis" }).locator("polygon.no-aim")).toHaveCount(1);
+  expect(((await api(page, "stage.zone.list")) as { id: string; noAim?: boolean }[]).find((z) => z.id === "parvis")!.noAim).toBe(true);
   await form.scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/zone-editor.png" });
   page.once("dialog", (d) => void d.accept());
