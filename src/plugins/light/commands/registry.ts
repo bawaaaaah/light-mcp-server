@@ -19,6 +19,8 @@ export interface CommandContext {
   can(right: string): boolean;
   /** Who is calling, as people read it (user name, « jeton maître »…), for the activity log. */
   who?: string;
+  /** The caller's role (id), for rules that apply to some roles only. */
+  role?: string;
 }
 
 export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {

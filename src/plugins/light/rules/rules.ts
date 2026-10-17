@@ -56,6 +56,17 @@ export const RuleSchema = z.object({
    * MIDI, OSC or a song, where nobody can answer), or reject (never launched).
    */
   onViolation: z.enum(["clamp", "confirm", "reject"]).default("clamp"),
+  /**
+   * For some callers only: the rule does not bound the output (it mixes every source) but checks the
+   * looks these callers launch — AI clients, MIDI, a volunteer's role — refusing or asking as
+   * onViolation says (clamp refuses here). Absent: everyone, on the output.
+   */
+  appliesTo: z
+    .object({
+      origins: z.array(z.enum(["ui", "midi", "osc", "mcp", "timeline", "cli"])).optional(),
+      roles: z.array(z.string()).optional(),
+    })
+    .optional(),
   /** Rule program it belongs to: the rule applies only while that program is active (absent = always). */
   program: z.string().optional(),
   notes: z.string().optional(),

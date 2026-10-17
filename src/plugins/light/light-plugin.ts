@@ -382,7 +382,8 @@ export class LightPlugin implements McpPlugin {
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
   invoke(name: string, args: unknown, origin: Origin, credential?: string): Promise<unknown> {
     const who = this.opts.auth?.nameOf(credential);
-    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true), ...(who ? { who } : {}) };
+    const role = this.opts.auth?.roleOf(credential)?.id;
+    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true), ...(who ? { who } : {}), ...(role ? { role } : {}) };
     return this.commands.invoke(name, args, ctx);
   }
 
@@ -537,7 +538,8 @@ export class LightPlugin implements McpPlugin {
             const token = extra?.authInfo?.token;
             const can = (right: string) => token === undefined || !this.opts.auth || this.opts.auth.can(token, right);
             const who = token === undefined ? "stdio" : this.opts.auth?.nameOf(token);
-            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can, ...(who ? { who } : {}) });
+            const role = token === undefined ? undefined : this.opts.auth?.roleOf(token)?.id;
+            const result = await this.commands.invoke(def.name, args, { origin: "mcp", can, ...(who ? { who } : {}), ...(role ? { role } : {}) });
             return { content: [{ type: "text" as const, text: JSON.stringify(result ?? { ok: true }, null, 2) }] };
           } catch (err) {
             return { isError: true, content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }] };

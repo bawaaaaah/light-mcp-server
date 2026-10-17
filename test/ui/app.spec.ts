@@ -1389,6 +1389,17 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   await expect.poll(async () => (await dmx(page))[0], { timeout: 5000 }).toBe(229);
   await panel.getByRole("button", { name: "Supprimer Gradateur ≥ 90 % 1 s max" }).click();
   await expect.poll(async () => (await dmx(page))[0]).toBe(255);
+  // for some callers only: it checks their launches and leaves the output alone
+  await form.getByLabel("max %").fill("50");
+  await form.locator("fieldset", { hasText: "seulement pour" }).getByLabel("IA (MCP)").check();
+  await form.locator("fieldset", { hasText: "seulement pour" }).getByLabel("Bénévole").check();
+  await form.getByRole("button", { name: "+ Ajouter la règle" }).click();
+  const scoped = panel.locator("table.rules tr", { hasText: "Gradateur max 50 % (IA (MCP), Bénévole)" });
+  await expect(scoped).toContainText("seulement pour : IA (MCP), Bénévole");
+  await expect.poll(async () => (await dmx(page))[0]).toBe(255); // the output is not bounded by it
+  const saved = ((await api(page, "rule.list")) as { show: { id: string; appliesTo?: { origins?: string[]; roles?: string[] } }[] }).show.find((r) => r.appliesTo);
+  expect(saved!.appliesTo).toEqual({ origins: ["mcp"], roles: ["benevole"] });
+  await panel.getByRole("button", { name: "Supprimer Gradateur max 50 % (IA (MCP), Bénévole)" }).click();
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
 });

@@ -23,6 +23,9 @@ export const useT = () => useContext(I18n);
 /** Opens another page from inside one (the getting-started guide, links between pages). */
 export const Nav = createContext<(page: Page) => void>(() => undefined);
 export const useNav = () => useContext(Nav);
+/** Who is signed in (role and rights), for a component that offers more to some. */
+export const Me = createContext<Role | null>(null);
+export const useMe = () => useContext(Me);
 
 export type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
 /** The pages by what one does there; the side bar (or the tab strip on a tablet) shows these groups. */
@@ -243,6 +246,7 @@ export function App() {
   return (
     <I18n.Provider value={t}>
       <Nav.Provider value={(p) => allowed(p) && setPage(p)}>
+      <Me.Provider value={role}>
       <div className="app">
       <aside className="sidebar">
         <div className="brand">{t.appName}</div>
@@ -335,6 +339,7 @@ export function App() {
       </main>
       </div>
       </div>
+      </Me.Provider>
       </Nav.Provider>
     </I18n.Provider>
   );

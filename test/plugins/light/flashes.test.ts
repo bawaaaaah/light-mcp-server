@@ -91,6 +91,18 @@ describe("flashes per second (photosensitive safety)", () => {
     expect(refused.detail?.confirm).to.equal(false);
     await as("ui")("look.go", { id: "fort", confirm: true }); // on the user's yes: launched, and bounded
     expect(plugin.runtime.activeLooks()).to.include("fort");
+    await run("look.stopall");
+    // for some callers only: AI clients and a volunteer may not launch it, the interface may, unbounded
+    await run("rule.delete", { where: "show", id: "plafond" });
+    await run("rule.put", { rule: { id: "ia", name: "Pas pour l'IA", level: "show", target: { channel: name }, max: 100, appliesTo: { origins: ["mcp"], roles: ["benevole"] } } });
+    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "mcp", can: () => true }).catch((e) => (refused = e));
+    expect(refused.message).to.contain("Pas pour l'IA");
+    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "ui", role: "benevole", can: () => true }).catch((e) => (refused = e));
+    expect(plugin.runtime.activeLooks()).to.not.include("fort");
+    await as("ui")("look.go", { id: "fort" });
+    expect(plugin.runtime.activeLooks()).to.include("fort");
+    const channelValue = plugin.engine.render()[0]![2];
+    expect(channelValue).to.equal(200); // the output is not bounded by it
   });
 
   it("says where a « Hz max » does nothing: definitions without strobe frequencies", async () => {

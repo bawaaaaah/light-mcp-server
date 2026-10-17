@@ -373,8 +373,16 @@ export class ShowRuntime {
   }
 
   /** Venue and show rules in force now (the active program's included). */
+  /** The rules bounding the output now: those of no program or of the active one; not those for some callers only. */
   rulesInForce(program = this.activeProgram): Rule[] {
-    return rulesInForce([...this.venueRules.list(), ...this.rules.list()], program);
+    return rulesInForce([...this.venueRules.list(), ...this.rules.list()], program).filter((r) => !r.appliesTo);
+  }
+
+  /** The rules in force for some callers only (appliesTo) that concern this one. */
+  callerRules(caller: { origin?: string; role?: string }): Rule[] {
+    return rulesInForce([...this.venueRules.list(), ...this.rules.list()], this.activeProgram).filter(
+      (r) => r.appliesTo && ((caller.origin !== undefined && r.appliesTo.origins?.includes(caller.origin as never)) || (caller.role !== undefined && r.appliesTo.roles?.includes(caller.role))),
+    );
   }
 
   /** Activates a rule program (undefined = none); returns whether it changed. */
@@ -457,8 +465,10 @@ export class ShowRuntime {
    * (`onViolation`): its first four seconds are played in memory, with what plays now, and compared
    * with the same seconds without it. Nothing reaches the output and no state changes.
    */
-  strictBounds(lookId: string): { rule: Rule; clamps: Clamp[] }[] {
-    const strict = this.rulesInForce().filter((r) => r.onViolation === "reject" || r.onViolation === "confirm");
+  strictBounds(lookId: string, caller: { origin?: string; role?: string } = {}): { rule: Rule; clamps: Clamp[] }[] {
+    // a rule for some callers only bounds nothing on the output: on their launches, a clamp refuses
+    const forCaller = this.callerRules(caller).map((r) => (r.onViolation === "clamp" ? { ...r, onViolation: "reject" as const } : r));
+    const strict = [...this.rulesInForce().filter((r) => r.onViolation === "reject" || r.onViolation === "confirm"), ...forCaller];
     const look = this.looks.get(lookId);
     if (!strict.length || !look || this.active.has(lookId)) return [];
     const universes = Math.max(1, ...this.venue.fixtures.list().map((f) => f.universe));

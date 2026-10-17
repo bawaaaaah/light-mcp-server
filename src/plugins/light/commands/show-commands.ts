@@ -362,7 +362,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string(), confirm: z.boolean().default(false).describe("the user agreed to launch it although a confirm rule bounds it") }),
     run: ({ id: i, confirm }, ctx) => {
       // rules that refuse or ask rather than clamp (rules-limits.md, onViolation)
-      const bounds = show.strictBounds(i);
+      const bounds = show.strictBounds(i, { origin: ctx.origin, ...(ctx.role ? { role: ctx.role } : {}) });
       const named = (list: typeof bounds) => list.map((b) => `${b.rule.name || b.rule.id} (${[...new Set(b.clamps.map((c) => c.fixture))].join(", ")})`).join(" ; ");
       const rejected = bounds.filter((b) => b.rule.onViolation === "reject");
       if (rejected.length) throw new CommandError("failed", say(`look refusé : la règle ${named(rejected)} le bornerait`, `look refused: rule ${named(rejected)} would bound it`), { rules: rejected.map((b) => b.rule.id) });
@@ -457,7 +457,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const where = z.enum(["venue", "show"]).default("show");
   const coll = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
   reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
-  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
+  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
   reg.register({
     name: "rule.effective",
     title: "Règles en vigueur",

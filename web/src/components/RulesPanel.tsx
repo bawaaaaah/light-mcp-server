@@ -4,8 +4,8 @@
  * and the values the rules moved on the last frame. Values are shown in % of the DMX range.
  */
 import { useCallback, useEffect, useState } from "react";
-import { cmd } from "../api";
-import { useT } from "../App";
+import { api, can, cmd } from "../api";
+import { useMe, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { slug, uniqueId } from "../util";
 
@@ -23,6 +23,7 @@ interface Rule {
   steadySeconds?: number;
   allowCapabilities?: string[];
   onViolation?: "clamp" | "confirm" | "reject";
+  appliesTo?: { origins?: string[]; roles?: string[] };
   forbidTags?: string[];
   locked: boolean;
   program?: string;
@@ -65,14 +66,28 @@ const TARGETS: Record<string, Rule["target"]> = {
 const TAGS = ["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"] as const;
 /** Kinds of capability ranges an allowlist names (qxf-import.ts, CAPABILITY_KINDS). */
 const KINDS = ["colour", "intensity", "strobe", "gobo", "prism", "beam", "rotation", "speed", "effect", "maintenance"] as const;
+/** Callers a rule can be for, beside everyone: where the command comes from. */
+const ORIGINS = ["mcp", "midi", "osc", "timeline"] as const;
+/** The built-in roles, when the full list (an administrator's) is not readable. */
+const BUILT_IN_ROLES = [
+  { id: "regisseur", name: "Régisseur" },
+  { id: "benevole", name: "Bénévole" },
+  { id: "lecture", name: "Lecture seule" },
+];
 const pct = (v?: number) => (v === undefined ? "" : `${Math.round((v / 255) * 100)} %`);
 const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100) * 255));
 
 export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }) {
   const t = useT();
   const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
-  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [] as string[], onViolation: "clamp", forbid: [] as string[], locked: false, program: "" });
+  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [] as string[], onViolation: "clamp", forOrigins: [] as string[], forRoles: [] as string[], forbid: [] as string[], locked: false, program: "" });
   const [programs, setPrograms] = useState<{ active: string | null; programs: Program[] }>({ active: null, programs: [] });
+  const [roles, setRoles] = useState<{ id: string; name: string }[]>(BUILT_IN_ROLES);
+  // the custom roles too, for whoever may read them (an administrator)
+  const me = useMe();
+  useEffect(() => {
+    if (me && can(me, "auth:admin")) void api<{ id: string; name: string }[]>("/api/auth/roles").then((list) => setRoles(list.filter((r) => r.id !== "admin")), () => undefined);
+  }, [me]);
   const [progDraft, setProgDraft] = useState({ name: "", pc: "", channel: "1" });
   const loadPrograms = useCallback(() => void cmd<typeof programs>("program.list").then(setPrograms).catch(() => undefined), []);
   const [inspect, setInspect] = useState("");
@@ -101,7 +116,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
 
   const add = () => {
     const target = draft.target === "channel" ? { channel: draft.channel } : TARGETS[draft.target]!;
-    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}`;
+    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}${draft.forOrigins.length || draft.forRoles.length ? ` (${[...draft.forOrigins.map((o) => t.origins[o as keyof typeof t.origins]), ...draft.forRoles.map((id) => roles.find((x) => x.id === id)?.name ?? id)].join(", ")})` : ""}`;
     const rule = {
       id: uniqueId(slug(name, "regle"), all.map((r) => r.id)),
       name,
@@ -116,12 +131,13 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       ...(draft.steady ? { steadySeconds: Number(draft.steady) } : {}),
       ...(draft.allow.length ? { allowCapabilities: draft.allow } : {}),
       ...(draft.onViolation !== "clamp" ? { onViolation: draft.onViolation } : {}),
+      ...(draft.forOrigins.length || draft.forRoles.length ? { appliesTo: { ...(draft.forOrigins.length ? { origins: draft.forOrigins } : {}), ...(draft.forRoles.length ? { roles: draft.forRoles } : {}) } } : {}),
       ...(draft.forbid.length ? { forbidTags: draft.forbid } : {}),
       locked: draft.locked,
       ...(draft.program ? { program: draft.program } : {}),
     };
     void cmd("rule.put", { where: draft.level === "show" ? "show" : "venue", rule })
-      .then(() => setDraft({ ...draft, name: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [], onViolation: "clamp", forbid: [] }))
+      .then(() => setDraft({ ...draft, name: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [], onViolation: "clamp", forOrigins: [], forRoles: [], forbid: [] }))
       .catch((e: Error) => onError(e.message));
   };
 
@@ -218,6 +234,11 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                 {r.steadySeconds !== undefined && `${t.steadyShort} ${r.steadySeconds} s `}
                 {r.allowCapabilities?.length ? `${t.allowOnly} ${r.allowCapabilities.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds] ?? k).join(", ")} ` : ""}
                 {r.onViolation && r.onViolation !== "clamp" && <span className="badge conflict">{t.onViolations[r.onViolation]}</span>}
+                {r.appliesTo && (
+                  <span className="badge">
+                    {t.forCallers} {[...(r.appliesTo.origins ?? []).map((o) => t.origins[o as keyof typeof t.origins] ?? o), ...(r.appliesTo.roles ?? []).map((id) => roles.find((x) => x.id === id)?.name ?? id)].join(", ")}
+                  </span>
+                )}
                 {r.forbidTags?.length ? `${t.forbidden} : ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
@@ -329,6 +350,21 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
             <label key={k} className="row">
               <input type="checkbox" checked={draft.allow.includes(k)} onChange={(e) => setDraft({ ...draft, allow: e.target.checked ? [...draft.allow, k] : draft.allow.filter((x) => x !== k) })} />
               {t.capabilityKinds[k]}
+            </label>
+          ))}
+        </fieldset>
+        <fieldset className="checklist" title={t.forCallersHint}>
+          <legend>{t.forCallers}</legend>
+          {ORIGINS.map((o) => (
+            <label key={o} className="row">
+              <input type="checkbox" checked={draft.forOrigins.includes(o)} onChange={(e) => setDraft({ ...draft, forOrigins: e.target.checked ? [...draft.forOrigins, o] : draft.forOrigins.filter((x) => x !== o) })} />
+              {t.origins[o]}
+            </label>
+          ))}
+          {roles.map((r) => (
+            <label key={r.id} className="row">
+              <input type="checkbox" checked={draft.forRoles.includes(r.id)} onChange={(e) => setDraft({ ...draft, forRoles: e.target.checked ? [...draft.forRoles, r.id] : draft.forRoles.filter((x) => x !== r.id) })} />
+              {r.name}
             </label>
           ))}
         </fieldset>
