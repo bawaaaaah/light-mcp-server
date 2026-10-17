@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
-import { jumpTo, labelOf, slug } from "../util";
+import { jumpTo, labelOf, slug, uniqueId } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
@@ -45,6 +45,20 @@ export function VenuePage() {
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
   /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
   const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
+  /** A rectangular zone: width × depth, centred on x, its front edge at y (metres; x towards cour, y upstage). */
+  const [zoneDraft, setZoneDraft] = useState({ name: "", type: "stage", width: "", depth: "", x: "0", y: "0", floor: "0", protected: false });
+  const addZone = () => {
+    const [w, d, x, y] = [Number(zoneDraft.width), Number(zoneDraft.depth), Number(zoneDraft.x) || 0, Number(zoneDraft.y) || 0];
+    const polygon = [[x - w / 2, y], [x + w / 2, y], [x + w / 2, y + d], [x - w / 2, y + d]];
+    const zone = { id: uniqueId(slug(zoneDraft.name, "zone"), zones.map((z) => z.id)), name: zoneDraft.name, type: zoneDraft.type, polygon, floorHeight: Number(zoneDraft.floor) || 0, protected: zoneDraft.protected };
+    void run("stage.zone.put", { zone }).then(() => (setZoneDraft({ ...zoneDraft, name: "" }), refresh()));
+  };
+  const size = (z: Zone) => {
+    const xs = z.polygon.map((p) => p[0]);
+    const ys = z.polygon.map((p) => p[1]);
+    const m = (v: number) => Math.round(v * 10) / 10;
+    return `${m(Math.max(...xs) - Math.min(...xs))} × ${m(Math.max(...ys) - Math.min(...ys))} m${z.floorHeight ? `, ${t.floorAt} ${z.floorHeight} m` : ""}`;
+  };
   const [error, setError] = useState("");
   /** Fixtures sharing DMX channels (venue.patch.check), by fixture id: the others' messages. */
   const [overlaps, setOverlaps] = useState<Record<string, string[]>>({});
@@ -203,10 +217,43 @@ export function VenuePage() {
           <ul>
             {zones.map((z) => (
               <li key={z.id}>
-                {z.name} <small>({labelOf(t.zoneTypes, z.type)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
+                {z.name} <small>({labelOf(t.zoneTypes, z.type)} · {size(z)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}
+                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} « ${z.name} » ?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
+                  ✕
+                </button>
               </li>
             ))}
           </ul>
+          <div className="editor zone-editor" title={t.zoneHelp}>
+            <input placeholder={t.name} aria-label={t.zoneName} value={zoneDraft.name} onChange={(e) => setZoneDraft({ ...zoneDraft, name: e.target.value })} />
+            <select aria-label={t.zoneType} value={zoneDraft.type} onChange={(e) => setZoneDraft({ ...zoneDraft, type: e.target.value })}>
+              {Object.entries(t.zoneTypes).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            {(
+              [
+                ["width", t.zoneWidth],
+                ["depth", t.zoneDepth],
+                ["x", t.zoneCentreX],
+                ["y", t.zoneFrontY],
+                ["floor", t.zoneFloor],
+              ] as const
+            ).map(([k, label]) => (
+              <label key={k} className="field">
+                <span>{label}</span>
+                <input type="number" step={0.1} aria-label={label} value={zoneDraft[k]} onChange={(e) => setZoneDraft({ ...zoneDraft, [k]: e.target.value })} />
+              </label>
+            ))}
+            <label className="row">
+              <input type="checkbox" checked={zoneDraft.protected} onChange={(e) => setZoneDraft({ ...zoneDraft, protected: e.target.checked })} /> {t.protectedZone}
+            </label>
+            <button disabled={!zoneDraft.name || !(Number(zoneDraft.width) > 0) || !(Number(zoneDraft.depth) > 0)} onClick={addZone}>
+              + {t.addZone}
+            </button>
+          </div>
         </section>
         <section>
           <h2>{t.library} ({library.length})</h2>

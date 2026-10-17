@@ -1625,6 +1625,29 @@ test("place the checked fixtures along the front of a zone, turned towards the a
   expect(errors).toEqual([]);
 });
 
+test("venue: a rectangular zone made from its size, shown on the plan, then deleted", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const form = page.locator(".zone-editor");
+  await form.getByLabel("Nom de la zone").fill("Parvis");
+  await form.getByLabel("Type de zone").selectOption("floor");
+  await form.getByLabel("largeur (m)").fill("6");
+  await form.getByLabel("profondeur (m)").fill("3");
+  await form.getByLabel("bord avant Y (m)").fill("-4");
+  await form.getByRole("button", { name: "+ Zone" }).click();
+  await expect(page.locator("#venue-patch li", { hasText: "Parvis" })).toContainText("6 × 3 m");
+  const zone = ((await api(page, "stage.zone.list")) as { id: string; polygon: number[][] }[]).find((z) => z.id === "parvis")!;
+  expect(zone.polygon).toEqual([[-3, -4], [3, -4], [3, -1], [-3, -1]]);
+  await expect(page.locator(".stage-plan g.zone", { hasText: "Parvis" })).toHaveCount(1);
+  await form.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/zone-editor.png" });
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "Supprimer Parvis" }).click();
+  await expect(page.locator("#venue-patch li", { hasText: "Parvis" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("live stage widget on a dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

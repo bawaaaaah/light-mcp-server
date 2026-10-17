@@ -67,6 +67,7 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
 
 ## UI
 - **Page Lieu** : fixtures, patch, nodes.
+  - **Zones** (v1) : liste avec leur taille et suppression ; création d'une zone **rectangulaire** par sa largeur (de jardin à cour) et sa profondeur, centrée sur X (0 au milieu, cour en positif), son bord avant à Y (0 au nez de scène, le public en négatif), hauteur de plancher, protégée ou non. Les formes plus complexes passent par l'IA (`light_stage_zone_put`, polygone).
 - **Page Scène** : vue de dessus éditable (formes, truss, image de fond à l'échelle) et vue de face, post-it d'annotation.
 - **Page Canevas** : définition, rendu par glisser-déposer des blocs sur les fixtures, aperçu.
 - **Live preview 2D** : faisceaux qui reflètent intensité, couleur, zoom et strobe, à partir des valeurs du moteur.
