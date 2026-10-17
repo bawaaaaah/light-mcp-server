@@ -20,7 +20,7 @@ src/
   cli/                         # CLI headless `light` (voir specs/data-cli-sdk.md)
   core/                        # générique (repris de wing)
     plugin.ts, config-store.ts, env.ts, event-bus.ts, health.ts, http-errors.ts
-    auth/                      # rôles, PIN (v1), comptes et liens/QR (plus tard), tickets WS
+    auth/                      # rôles, utilisateurs (PIN, clés), liens de partage, tickets WS
     ws-hub.ts, ws-codec.ts, ws-rest.ts
     mcp-gateway-server.ts, mcp-runtime.ts, mcp-server-factory.ts, stdio-endpoint.ts, tool-catalogue.ts
     extensions/                # chargement des plugins (manifeste, apiVersion, permissions, secrets)
@@ -110,7 +110,7 @@ docs/
 - **Aucune page ne se laisse encadrer** par un autre site (`X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, plus `X-Content-Type-Options: nosniff`) : une page piégée ne peut pas déguiser un clic sur les commandes ou sur la page d'autorisation OAuth. Le serveur les envoie lui-même, proxy ou pas.
 - Les droits s'appliquent à **l'UI, au WS, au MCP (token par rôle) et à l'OSC** (liste d'IP autorisées ou mot de passe).
 - **Réseau** : `server.port` (8790) et `server.host` (`0.0.0.0`, toutes les interfaces ; `127.0.0.1` derrière un reverse proxy sur la même machine). Ordre : option `--port`/`--host`, puis `PORT`, puis le fichier. `server.publicUrl` : l'adresse publique, dont l'origine peut ouvrir le WebSocket. `server.trustProxy` : nombre de proxys devant le serveur ; l'adresse du client (limite des PIN) se lit alors dans `X-Forwarded-For`.
-- **Plus tard** : comptes nominatifs (mot de passe ou passkey, journal par personne) et liens ou QR secrets.
+- **Comptes nominatifs** (fait) : utilisateurs nommés avec PIN et clés de sécurité (passkeys), journal d'activité par personne ; **liens de partage** (utilisateur + PIN) et leur **QR code** (Réglages, sur demande : il contient le PIN). Pas de mot de passe : PIN et clés suffisent à la régie.
 
 ## Déploiement et dimensionnement
 - **Référence v1 : natif sur le Mac de régie** (CoreMIDI, bus IAC, même machine qu'Ableton).

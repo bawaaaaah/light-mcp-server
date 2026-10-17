@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, shareLink, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
 import { CopyButton } from "./Copy";
+import { QrCode } from "./QrCode";
 
 interface RoleRow {
   id: string;
@@ -24,6 +25,8 @@ export function UsersPanel({ role }: { role: Role }) {
   const [pins, setPins] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState({ name: "", role: "benevole", pin: "" });
   const [share, setShare] = useState({ user: "", pin: "" });
+  /** The QR code shows on request: it carries the PIN, like the link. */
+  const [showQr, setShowQr] = useState(false);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -189,9 +192,20 @@ export function UsersPanel({ role }: { role: Role }) {
             <input type="password" inputMode="numeric" placeholder="PIN" aria-label={t.sharePin} value={share.pin} onChange={(e) => setShare({ ...share, pin: e.target.value })} />
           </div>
           {link && (
-            <p className="row">
-              <code className="link">{link}</code> <CopyButton text={link} />
-            </p>
+            <>
+              <p className="row">
+                <code className="link">{link}</code> <CopyButton text={link} />
+                <button className="ghost" aria-pressed={showQr} onClick={() => setShowQr(!showQr)}>
+                  {showQr ? t.hideQr : t.showQr}
+                </button>
+              </p>
+              {showQr && (
+                <div className="qr-box">
+                  <QrCode text={link} label={t.qrLabel} />
+                  <p className="hint">{t.qrHelp}</p>
+                </div>
+              )}
+            </>
           )}
           {localOnly && <p className="warn">{t.shareLocal}</p>}
         </div>

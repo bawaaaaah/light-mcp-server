@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
 /** Collects page errors and console errors; every test asserts there are none. */
@@ -78,6 +79,25 @@ test("share link: Settings builds it from a user and a PIN, and it signs in as t
   await share.getByPlaceholder("PIN").fill("5678");
   const link = (await share.locator("code.link").textContent())!;
   expect(link).toMatch(/\/#user=benevole&pin=5678$/);
+  // a QR code of it, on request, for a tablet's camera
+  await share.getByRole("button", { name: "QR code" }).click();
+  const qr = share.getByRole("img", { name: "QR code du lien de partage" });
+  await expect(qr).toBeVisible();
+  // read back with a QR decoder (jsQR) from its pixels: what a camera would get
+  await page.addScriptTag({ path: fileURLToPath(new URL("../../node_modules/jsqr/dist/jsQR.js", import.meta.url)) });
+  const read = (await page.evaluate(`(async () => {
+    const svg = document.querySelector(".share-link svg.qr-code");
+    const img = new Image();
+    img.src = "data:image/svg+xml;utf8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 440;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, 440, 440);
+    const found = jsQR(ctx.getImageData(0, 0, 440, 440).data, 440, 440);
+    return found ? found.data : "";
+  })()`)) as string;
+  expect(read).toBe(link);
   await page.screenshot({ path: "test-results/share-link.png", fullPage: true });
   await page.getByRole("button", { name: "Quitter" }).click();
   await expect(page.locator("form.token-login")).toBeVisible();

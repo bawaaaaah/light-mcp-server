@@ -1743,3 +1743,16 @@ ul.online {
   color: var(--warn);
   font-weight: 600;
 }
+
+/* QR code of a share link (components/QrCode.tsx) */
+.qr-box {
+  display: flex;
+  gap: 1em;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.qr-box .qr-code {
+  border-radius: 6px;
+  max-width: 100%;
+  height: auto;
+}

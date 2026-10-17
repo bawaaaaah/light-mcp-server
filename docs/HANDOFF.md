@@ -66,7 +66,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - choisi par l'utilisateur le 2026-10-16 : la liste des utilisateurs à PIN reste visible sur l'écran de connexion, même depuis l'adresse publique.
 3. Non encore fait :
    - cascade complète des règles.
-4. Plus tard (roadmap) : Max for Live, AbleSet, audio, 3D, comptes et QR (l'IA en live est faite, v1).
+4. Plus tard (roadmap) : Max for Live, AbleSet, audio, 3D (l'IA en live, les comptes et le QR sont faits).
 
 ## Démarrer
 ```bash
@@ -111,7 +111,7 @@ Le journal complet et daté est dans [decisions.md](decisions.md). Résumé :
 | Chants | Grille, boutons et/ou timeline (SPP), setlist, feuille de conduite, planche |
 | Existant | Import `.qxw` puis reconstruction en techniques |
 | UI | Dashboards modulables, groupes de widgets, FR + EN, console DMX, éditeurs |
-| Rôles | Utilisateurs nommés (rôle, PIN, clés de sécurité), jeton par défaut, liens de partage, OAuth pour les clients IA. QR plus tard |
+| Rôles | Utilisateurs nommés (rôle, PIN, clés de sécurité), jeton par défaut, liens de partage et leur QR code, OAuth pour les clients IA |
 | IA | **Conception d'abord** (MCP, lint, selftest). Live plus tard |
 | Panic | « Panic neutre » : rappelle l'instantané de secours (état complet), sinon le look de secours, sinon Blackout ; plus un bouton « Blackout » |
 | Dépôt | Public, open source, **licence MIT** |
