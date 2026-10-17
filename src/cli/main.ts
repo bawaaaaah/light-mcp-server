@@ -47,7 +47,8 @@ const USAGE = `light <commande>
   unpack <fichier> [--check]      restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement
   standby on|off                  sortie en veille / reprendre la main
   activity [--limit 30]           activité récente : quand, qui, d'où, quoi, sur quel objet
-  call <commande> [json]          n'importe quelle commande (voir « commands »)
+  call <commande> [json] [--check]  n'importe quelle commande (voir « commands ») ;
+                                  --check : ce qu'un enregistrement (*.put) changerait, sans écrire
   commands                        liste des commandes
 Options communes : --offline (ouvre les données sans passer par le serveur), --url http://hôte:port`;
 
@@ -239,8 +240,9 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       }
       case "call": {
         const [command, args] = positionals;
-        if (!command) throw new CliError("usage : light call <commande> [json]");
-        json(await caller.call(command, args ? JSON.parse(args) : {}));
+        if (!command) throw new CliError("usage : light call <commande> [json] [--check]");
+        // --check: what the write would change (show.diff), nothing written
+        json(values.check ? await caller.call("show.diff", { command, args: args ? JSON.parse(args) : {} }) : await caller.call(command, args ? JSON.parse(args) : {}));
         return 0;
       }
       default:

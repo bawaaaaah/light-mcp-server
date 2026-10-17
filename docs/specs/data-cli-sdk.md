@@ -77,7 +77,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light activity [--limit 30]` | activité récente, la plus ancienne d'abord : quand, qui, d'où, quoi, sur quel objet ; hors ligne, ce que la CLI change y figure aussi |
 | `light call <commande> [json]` / `light commands` | n'importe quelle commande du registre, liste des commandes |
 
-Plus tard : `--check` généralisé aux commandes d'écriture.
+`light call <commande> <json> --check` (v1) : pour un enregistrement (`look.put`, `group.put`, `fader.put`, `dashboard.put`, `palette.put`, `stage.zone.put`, `rule.put`, `venue.fixture.put`, `venue.canvas.put`), ce qu'il changerait, champ par champ, sans rien écrire (`show.diff`) ; une autre commande est refusée plutôt qu'exécutée. Plus tard : `--check` pour les autres commandes d'écriture.
 
 ## SDK de scripts (v1)
 Voir [`sdk/README.md`](../../sdk/README.md). Fait : client TypeScript `src/sdk/index.ts` (publié comme `@bawaaaaah/light-mcp-server/sdk`) (commandes, état, sauvegardes, sujets en direct par WebSocket, types du show), client Python `sdk/python/light_client.py` (bibliothèque standard, banc d'auto-test en ligne de commande), description **OpenAPI 3** générée depuis le registre (`GET /api/plugins/light/openapi.json`, validée avec Redocly). Paquet publié sur GitHub Packages à chaque version ([install-npm.md](../install-npm.md)).

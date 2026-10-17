@@ -592,16 +592,39 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     fixtures: venue.fixtures,
     canvases: venue.canvases,
   } as const;
+  type Diffable = keyof typeof DIFFABLE;
+  /** The write commands show.diff can stand in for (light call … --check): their collection and argument. */
+  const PUT_COMMANDS: Record<string, (args: Record<string, unknown>) => { collection: Diffable; object: unknown }> = {
+    "look.put": (a) => ({ collection: "looks", object: a.look }),
+    "group.put": (a) => ({ collection: "groups", object: a.group }),
+    "fader.put": (a) => ({ collection: "faders", object: a.fader }),
+    "dashboard.put": (a) => ({ collection: "dashboards", object: a.dashboard }),
+    "palette.put": (a) => ({ collection: "palettes", object: a.palette }),
+    "stage.zone.put": (a) => ({ collection: "zones", object: a.zone }),
+    "rule.put": (a) => ({ collection: a.where === "venue" ? "venueRules" : "rules", object: a.rule }),
+    "venue.fixture.put": (a) => ({ collection: "fixtures", object: a.fixture }),
+    "venue.canvas.put": (a) => ({ collection: "canvases", object: a.canvas }),
+  };
   reg.register({
     name: "show.diff",
     title: "Ce que changerait un enregistrement",
     description:
-      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Collections: looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases.",
+      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, venue.canvas.put).",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ collection: z.enum(Object.keys(DIFFABLE) as [keyof typeof DIFFABLE, ...(keyof typeof DIFFABLE)[]]), object: z.record(z.string(), z.unknown()) }),
-    run: ({ collection, object }) => {
+    schema: z
+      .object({
+        collection: z.enum(Object.keys(DIFFABLE) as [Diffable, ...Diffable[]]).optional(),
+        object: z.record(z.string(), z.unknown()).optional(),
+        command: z.string().optional(),
+        args: z.record(z.string(), z.unknown()).optional(),
+      })
+      .refine((a) => (a.collection && a.object) || (a.command && a.args), { message: "collection et object, ou command et args" }),
+    run: (a) => {
+      const put = a.command ? PUT_COMMANDS[a.command] : undefined;
+      if (a.command && !put) throw new Error(`pas de proposition pour ${a.command} : ${Object.keys(PUT_COMMANDS).join(", ")}`);
+      const { collection, object } = put ? put(a.args!) : { collection: a.collection!, object: a.object };
       const coll = DIFFABLE[collection] as { validate(v: unknown): { id: string }; get(id: string): unknown };
       let parsed: { id: string };
       try {

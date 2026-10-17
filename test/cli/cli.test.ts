@@ -41,6 +41,15 @@ describe("CLI light (offline)", function () {
     expect(r.out).to.match(/cli\s+✔ Modifier les réglages du show/);
   });
 
+  it("checks a write without making it (--check): what it would change", () => {
+    const zone = { id: "parvis", name: "Parvis", type: "floor", polygon: [[0, 0], [2, 0], [2, 2], [0, 2]] };
+    const check = light("call", "stage.zone.put", JSON.stringify({ zone }), "--check");
+    expect(check.code).to.equal(0);
+    expect(JSON.parse(check.out)).to.include({ valid: true, new: true, id: "parvis" });
+    expect(JSON.parse(light("call", "stage.zone.list").out)).to.deep.equal([]); // nothing written
+    expect(light("call", "show.reset", "{}", "--check").code).to.not.equal(0); // no proposal for that one: said, not run
+  });
+
   it("packs a .lightshow and reports errors with a non-zero exit code", () => {
     const out = join(dir, "backup.lightshow");
     expect(light("pack", out).code).to.equal(0);
