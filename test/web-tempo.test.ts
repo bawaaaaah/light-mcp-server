@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { detectTempo } from "../web/src/audio/tempo.js";
+import { detectSections } from "../web/src/audio/sections.js";
 
 /** A click track: a short decaying burst on every beat, accents on the bar, over soft noise. */
 function clicks(bpm: number, seconds: number, jitter = 0, sampleRate = 22050, seed = 1): Float32Array {
@@ -34,5 +35,37 @@ describe("tempo from audio", () => {
   it("says nothing of silence or of a sound too short", () => {
     expect(detectTempo(new Float32Array(22050 * 10), 22050)).to.equal(null);
     expect(detectTempo(clicks(120, 1), 22050)).to.equal(null);
+  });
+
+  it("finds the first beat, and where the song's character changes, in bars", () => {
+    const rate = 22050;
+    const bpm = 100;
+    const bar = (60 / bpm) * 4;
+    const lead = 0.37; // the recording starts before the first beat
+    const plan = [8, 16, 8]; // verse, chorus, verse
+    const total = plan.reduce((a, b) => a + b, 0);
+    let s = 3;
+    const noise = () => ((s = (s * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    const out = new Float32Array(Math.round((lead + total * bar + 0.5) * rate));
+    let low = 0;
+    for (let i = 0; i < out.length; i++) {
+      const barIndex = Math.floor((i / rate - lead) / bar);
+      const chorus = barIndex >= plan[0]! && barIndex < plan[0]! + plan[1]!;
+      // the verse: soft and dark (low-passed noise); the chorus: loud and bright (white noise)
+      low = 0.97 * low + 0.03 * noise();
+      out[i] = chorus ? 0.25 * noise() : 0.6 * low;
+    }
+    for (let k = 0; lead + (k * 60) / bpm < total * bar + lead; k++) {
+      const start = Math.round((lead + (k * 60) / bpm) * rate);
+      for (let i = 0; i < 0.03 * rate && start + i < out.length; i++) out[start + i]! += 0.8 * noise() * Math.exp(-i / (0.006 * rate));
+    }
+    const tempo = detectTempo(out, rate)!;
+    expect(tempo.bpm).to.be.closeTo(bpm, 0.2);
+    expect(tempo.firstBeat).to.be.closeTo(lead, 0.03);
+    expect(detectSections(out, rate, tempo.bpm, tempo.firstBeat)).to.deep.equal(plan);
+  });
+
+  it("proposes no sections for less than eight bars", () => {
+    expect(detectSections(new Float32Array(22050 * 5), 22050, 120)).to.equal(null);
   });
 });

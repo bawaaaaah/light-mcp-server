@@ -10,6 +10,8 @@ export interface TempoEstimate {
   bpm: number;
   /** 0..1: how clearly one period stands out of the others. */
   confidence: number;
+  /** When the first beat falls (seconds from the start), when the attacks line up well enough to say. */
+  firstBeat?: number;
 }
 
 const HOP_SECONDS = 0.01;
@@ -51,7 +53,7 @@ export function onsetEnvelope(samples: Float32Array, sampleRate: number): Float3
  * parabola) that fall on the beats of the coarse period, and a straight line through their times —
  * its slope is the period, averaged over the whole song. Undefined when too few attacks line up.
  */
-function alignBeats(o: Float32Array, period: number): number | undefined {
+function alignBeats(o: Float32Array, period: number): { period: number; phase: number } | undefined {
   const top = o.reduce((m, v) => Math.max(m, v), 0);
   const peaks: number[] = [];
   for (let i = 1; i < o.length - 1; i++) {
@@ -62,6 +64,7 @@ function alignBeats(o: Float32Array, period: number): number | undefined {
   }
   if (peaks.length < 8) return undefined;
   let p = period;
+  let phase = peaks[0]!;
   for (let round = 0; round < 3; round++) {
     const t0 = peaks[0]!;
     const fit: [number, number][] = [];
@@ -76,8 +79,9 @@ function alignBeats(o: Float32Array, period: number): number | undefined {
     const slope = (n * skt - sk * st) / (n * skk - sk * sk);
     if (!(slope > 0) || Math.abs(slope - period) > 0.1 * period) return undefined;
     p = slope;
+    phase = (st - slope * sk) / n; // the line's time at beat 0
   }
-  return p;
+  return { period: p, phase: ((phase % p) + p) % p };
 }
 
 /** Autocorrelation at a fractional lag (linear interpolation). */
@@ -116,8 +120,8 @@ export function detectTempo(samples: Float32Array, sampleRate: number, range: { 
     if (v > best.value) best = { bpm, value: v };
   }
   const precise = alignBeats(o, lagOf(best.bpm));
-  if (precise) best = { ...best, bpm: 60 / (precise * frame) };
+  if (precise) best = { ...best, bpm: 60 / (precise.period * frame) };
   const mean = values.reduce((a, v) => a + v, 0) / values.length;
   const confidence = Math.max(0, Math.min(1, 1 - mean / best.value));
-  return { bpm: Math.round(best.bpm * 10) / 10, confidence: Math.round(confidence * 100) / 100 };
+  return { bpm: Math.round(best.bpm * 10) / 10, confidence: Math.round(confidence * 100) / 100, ...(precise ? { firstBeat: Math.round(precise.phase * frame * 1000) / 1000 } : {}) };
 }

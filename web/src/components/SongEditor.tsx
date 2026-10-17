@@ -159,7 +159,15 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <span>{t.bpm}</span>
           <input type="number" min={20} max={400} step={0.1} value={song.bpm} onChange={(e) => set({ bpm: Number(e.target.value) })} />
         </label>
-        <TempoFromAudio onBpm={(bpm) => set({ bpm })} />
+        <TempoFromAudio
+          beatsPerBar={song.beatsPerBar}
+          onBpm={(bpm) => set({ bpm })}
+          onSections={(bars) => {
+            // a draft: named by their order, their looks to choose; asked first over sections already there
+            if (song.sections.length > 1 && !confirm(t.sectionsReplace)) return;
+            set({ sections: bars.map((n, i) => ({ id: `partie-${i + 1}`, name: `${t.sectionPart} ${i + 1}`, bars: n })) });
+          }}
+        />
         <label className="field">
           <span>{t.beatsPerBar}</span>
           <input type="number" min={1} max={16} value={song.beatsPerBar} onChange={(e) => set({ beatsPerBar: Number(e.target.value) })} />
