@@ -1756,3 +1756,16 @@ ul.online {
   max-width: 100%;
   height: auto;
 }
+
+/* 3D view of the live stage (components/Stage3D.tsx) */
+.stage-3d {
+  max-width: 1100px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.stage-3d canvas {
+  display: block;
+  max-width: 100%;
+  touch-action: none;
+}

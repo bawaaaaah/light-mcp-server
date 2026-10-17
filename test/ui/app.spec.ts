@@ -1729,6 +1729,37 @@ test("place the checked fixtures along the front of a zone, turned towards the a
   expect(errors).toEqual([]);
 });
 
+test("live stage in 3D: zones, fixtures and beams drawn, loaded on demand", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.go", { id: "masks" });
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  await page.locator(".stage-plan").getByRole("button", { name: "3D", exact: true }).click();
+  const view = page.getByRole("img", { name: "Scène en 3D" });
+  await expect(view).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".stage-plan svg[aria-label='Scène en direct']")).toBeHidden(); // the plan steps aside
+  // something drawn: the canvas is not one flat colour
+  await expect
+    .poll(async () => (await page.evaluate(`(() => {
+      const c = document.querySelector(".stage-3d canvas");
+      const g = document.createElement("canvas");
+      g.width = 64; g.height = 64;
+      const ctx = g.getContext("2d");
+      ctx.drawImage(c, 0, 0, 64, 64);
+      const d = ctx.getImageData(0, 0, 64, 64).data;
+      const seen = new Set();
+      for (let i = 0; i < d.length; i += 4) seen.add(d[i] + "," + d[i + 1] + "," + d[i + 2]);
+      return seen.size;
+    })()`)) as number)
+    .toBeGreaterThan(10);
+  await view.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/stage-3d.png" });
+  await page.locator(".stage-plan").getByRole("button", { name: "Dessus" }).click();
+  await expect(page.locator(".stage-plan svg[aria-label='Scène en direct']")).toBeVisible();
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("venue: a rectangular zone made from its size, shown on the plan, then deleted", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

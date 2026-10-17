@@ -81,6 +81,7 @@ Ces chantiers avancent ensemble. Chacun a sa spec :
 - ~~IA en live (retouches) et cascade complète des règles~~ : faits le 2026-10-17 (`light_live_adjust`, règles complètes).
 - ~~Comptes nominatifs, liens et QR~~ : faits (utilisateurs, liens de partage, QR code).
 - Max for Live (avec Live Suite) et connecteur AbleSet.
+- ~~Vue 3D de la scène~~ : faite (Scène en direct, bouton « 3D »).
 - Synchronisation audio (plugin) et analyse audio des chants.
 - Vue 3D, Ableton Link, OS2L.
 - MIDI clock en sortie, RDM.

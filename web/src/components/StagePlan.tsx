@@ -14,10 +14,13 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
+
+/** The 3D view, loaded when first opened: three.js stays out of the rest of the interface. */
+const Stage3D = lazy(() => import("./Stage3D"));
 
 export interface PlanFixture {
   id: string;
@@ -89,8 +92,9 @@ export function StagePlan({
   const [selected, setSelected] = useState<string | null>(null);
   /** Heading while dragging around the selected fixture, saved on release. */
   const [turning, setTurning] = useState<number | null>(null);
-  const [view, setView] = useState<"top" | "front">("top");
+  const [view, setView] = useState<"top" | "front" | "3d">("top");
   const front = view === "front";
+  const in3d = view === "3d";
   // The drawing works on (x, y) pairs: top view = stage plan, front view = (x, height).
   const shown = useMemo(() => {
     const fx = fixtures.map((f) => (front && f.position ? { ...f, position: { x: f.position.x, y: f.position.z, z: f.position.y } } : f));
@@ -260,24 +264,28 @@ export function StagePlan({
         <small className="hint">
           {front ? t.audienceFacing : `${t.audience} ↓`}{layout.unplaced ? ` · ${layout.unplaced} ${t.unplaced}` : ""}
         </small>
-        {onMove && (
+        {onMove && !in3d && (
           <label className="row">
             <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false))} /> {t.placeMode}
           </label>
         )}
-        {onOrient && (
+        {onOrient && !in3d && (
           <label className="row">
             <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), setSelected(null))} /> {t.orientMode}
           </label>
         )}
         <span className="row view-switch">
-          <button className={front ? "ghost" : "ghost on"} onClick={() => setView("top")}>
+          <button className={view === "top" ? "ghost on" : "ghost"} onClick={() => setView("top")}>
             {t.viewTop}
           </button>
           <button className={front ? "ghost on" : "ghost"} onClick={() => (setView("front"), setAiming(false))}>
             {t.viewFront}
           </button>
+          <button className={in3d ? "ghost on" : "ghost"} title={t.view3dHelp} onClick={() => (setView("3d"), setAiming(false), setPlacing(false), setOrienting(false))}>
+            {t.view3d}
+          </button>
         </span>
+        {!in3d && (
         <span className="row zoom">
           <button className="ghost" aria-label={t.zoomOut} title={t.zoomOut} disabled={zoom <= ZOOMS[0]!} onClick={() => zoomTo(ZOOMS[ZOOMS.indexOf(zoom) - 1] ?? 1)}>
             −
@@ -287,14 +295,20 @@ export function StagePlan({
             +
           </button>
         </span>
-        {heads > 0 && !placing && !orienting && !front && (
+        )}
+        {heads > 0 && !placing && !orienting && !front && !in3d && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
         )}
         </div>
       )}
-      <div className="plan-scroll" ref={scroller}>
+      {in3d && !compact && (
+        <Suspense fallback={<p className="hint">…</p>}>
+          <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} />
+        </Suspense>
+      )}
+      <div className="plan-scroll" ref={scroller} hidden={in3d && !compact}>
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}

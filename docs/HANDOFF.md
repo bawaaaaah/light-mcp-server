@@ -52,7 +52,8 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - lieu : **zones rectangulaires** créées depuis la page Lieu ; **placer la sélection** d'un coup le long d'un bord de zone (`venue.fixture.arrange`) ;
     - **messages du serveur en anglais** quand l'interface l'est (`core/lang.ts`, en-tête `x-light-lang`), français par défaut ;
     - **sécurité** : les règles verrouillées tiennent malgré les forçages de la console DMX ; zones **interdites aux lyres** (une lyre qui y pointe est éteinte, sauf pendant un look autorisé) ; **durée bornée** (un blinder au-dessus d'un niveau pendant N s au plus) ; **vitesse de pan/tilt**, **valeur stable** (machines jamais au tempo), **liste blanche** de plages ; règles qui **refusent** ou **demandent** avant de lancer un look, et règles **pour certains appelants** (l'IA, un rôle) ;
-    - **IA en live** : retouches en direct (`light_live_adjust`) quand la régie l'active (page Show), signalée sur toutes les pages.
+    - **IA en live** : retouches en direct (`light_live_adjust`) quand la régie l'active (page Show), signalée sur toutes les pages ;
+    - **QR code** des liens de partage ; **vue 3D** de la scène en direct.
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, orientation des projecteurs sur la scène en direct, boutons à confirmer, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
@@ -66,7 +67,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - choisi par l'utilisateur le 2026-10-16 : la liste des utilisateurs à PIN reste visible sur l'écran de connexion, même depuis l'adresse publique.
 3. Non encore fait :
    - cascade complète des règles.
-4. Plus tard (roadmap) : Max for Live, AbleSet, audio, 3D (l'IA en live, les comptes et le QR sont faits).
+4. Plus tard (roadmap) : Max for Live, AbleSet, audio (l'IA en live, les comptes, le QR et la vue 3D sont faits).
 
 ## Démarrer
 ```bash
