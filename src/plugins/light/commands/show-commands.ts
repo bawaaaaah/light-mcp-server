@@ -19,6 +19,7 @@ import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js"
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
 import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
+import { diff } from "../data/diff.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -575,6 +576,42 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (!before) throw new Error(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`);
       await reg.invoke("history.restore", { collection, id: i, stamp: before.stamp }, ctx);
       return { id: i, restored: before.stamp };
+    },
+  });
+
+  // A proposal before a write: what a put would change, validated by the same schema, nothing written.
+  const DIFFABLE = {
+    looks: show.looks,
+    groups: show.groups,
+    faders: show.faders,
+    dashboards,
+    palettes: show.palettes,
+    zones: show.zones,
+    rules: show.rules,
+    venueRules: show.venueRules,
+    fixtures: venue.fixtures,
+    canvases: venue.canvases,
+  } as const;
+  reg.register({
+    name: "show.diff",
+    title: "Ce que changerait un enregistrement",
+    description:
+      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Collections: looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases.",
+    right: "show:write",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({ collection: z.enum(Object.keys(DIFFABLE) as [keyof typeof DIFFABLE, ...(keyof typeof DIFFABLE)[]]), object: z.record(z.string(), z.unknown()) }),
+    run: ({ collection, object }) => {
+      const coll = DIFFABLE[collection] as { validate(v: unknown): { id: string }; get(id: string): unknown };
+      let parsed: { id: string };
+      try {
+        parsed = coll.validate(object);
+      } catch (err) {
+        const issues = err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".") || "(objet)"} : ${i.message}`) : [String(err)];
+        return { valid: false, issues };
+      }
+      const current = coll.get(parsed.id);
+      return { valid: true, id: parsed.id, new: current === undefined, changes: current === undefined ? [] : diff(current, parsed) };
     },
   });
 

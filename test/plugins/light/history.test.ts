@@ -88,6 +88,19 @@ describe("versions: earlier versions of looks, groups, faders and dashboards", (
     expect((await lines()).find((l) => l.name === "group.level")!.undo).to.equal(undefined);
   });
 
+  it("proposes before writing: what a put would change, nothing written", async () => {
+    const look = plugin.runtime.looks.get("hole")!;
+    const proposal = (await run("show.diff", { collection: "looks", object: { ...look, name: "Creux bleu", timing: { ...look.timing, attack: 0.5 } } })) as { valid: boolean; new: boolean; changes: { path: string; before?: unknown; after?: unknown }[] };
+    expect(proposal).to.include({ valid: true, new: false });
+    expect(proposal.changes).to.deep.include({ path: "name", before: look.name, after: "Creux bleu" });
+    expect(proposal.changes.map((c) => c.path)).to.include("timing.attack");
+    expect(plugin.runtime.looks.get("hole")!.name).to.equal(look.name); // nothing written
+    expect(await run("show.diff", { collection: "looks", object: { ...look, id: "neuf" } })).to.include({ valid: true, new: true });
+    const bad = (await run("show.diff", { collection: "groups", object: { id: "g" } })) as { valid: boolean; issues: string[] };
+    expect(bad.valid).to.equal(false);
+    expect(bad.issues.join(" ")).to.contain("name");
+  });
+
   it("refuses a version that is not there", async () => {
     let refused = "";
     await run("history.restore", { collection: "looks", id: "hole", stamp: "2026-01-01T00-00-00-000Z-000000" }).catch((e: Error) => (refused = e.message));

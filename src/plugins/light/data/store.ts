@@ -75,6 +75,11 @@ export class Collection<T extends { id: string }> {
     this.reload();
   }
 
+  /** A value as this collection would store it (defaults filled in), or the schema's error: nothing written. */
+  validate(value: unknown): T {
+    return this.schema.parse(value);
+  }
+
   /** Re-reads every object from disk (after an archive was restored). */
   reload(): void {
     // the disk wins (archive restored, file edited): pending live values are dropped

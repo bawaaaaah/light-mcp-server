@@ -43,12 +43,14 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 - Fait (`plugins/light/mcp-prompts.ts`) : les sept, en français, sans logique propre : chacun enchaîne des outils existants (un test vérifie que chaque outil cité existe). `preshow_check` ne joue rien (l'auto-test seulement sortie en veille ou sur demande) ; `import_qlc_project` passe par la proposition, les définitions manquantes, puis l'application ; `rehearsal_review` part du journal d'activité.
 
 ## Principes des outils
-- **Proposer puis appliquer** : les outils lourds renvoient un **diff** et un `proposalId`. Rien n'est écrit avant `light_apply(proposalId)`, qui applique en une transaction avec une seule entrée d'undo.
+- **Proposer puis appliquer** :
+  - v1 : `light_show_diff {collection, object}` dit ce qu'un enregistrement changerait, champ par champ (chemin, avant, après), validé par le même schéma que la commande d'écriture, sans rien écrire (`new` pour un objet qui n'existe pas encore ; `valid: false` et les erreurs sinon). Les instructions MCP demandent de le montrer et d'écrire sur l'accord de l'utilisateur ; la commande d'écriture garde ses propres contrôles (cycle de groupes, look partiel). Collections : looks, groupes, faders, dashboards, palettes, zones, règles du show et du lieu, projecteurs, canevas. L'import QLC+ et la reconstruction des looks ont déjà leur proposition (sans `apply`).
+  - plus tard : `proposalId` et `light_apply` pour appliquer plusieurs changements en une transaction, avec une seule entrée d'undo.
 - **Prévisualiser sans sortir** : `light_preview` calcule un rendu sans envoyer de DMX (valeurs, résumé texte, image 2D). `light_preview_live` l'envoie sur un univers ou un node de test.
 - **Écritures vérifiées** (comme wing) : relecture et `MISMATCH` en cas d'écart. Chaque réponse contient l'état en langage naturel et les **bornages appliqués** par les règles.
 - **Sélecteurs par le sens** : `{ role, zone, group, tag, canvas, near, except }`, partagés avec l'UI. `light_select` explique ce qu'il retient.
 - **Réutilisation** : les outils sont de minces adaptateurs sur les commandes existantes. **Aucune logique métier propre au MCP.**
-- **Undo et versions** : `light_undo`, `light_redo`, `light_history` (avec l'origine) ; `light_show_snapshot`, `light_show_diff`, `light_show_restore`.
+- **Undo et versions** (v1) : `light_history_undo` reprend une modification depuis sa ligne de `light_activity_list` (qui, d'où, quand) ; `light_history_list`, `light_history_restore` et `light_history_deleted` pour les versions précédentes ; `light_snapshot_*` pour l'état en direct. Plus tard : `light_redo`.
 - **Profils** : `setup`, `design`, `full` (et plus tard `live`). On change de profil avec `light_tool_profile`, notifié par `tools/list_changed`.
 
 ## Outils de vérification et d'export
