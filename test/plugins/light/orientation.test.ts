@@ -59,6 +59,16 @@ describe("fixture orientation", () => {
     let failed = "";
     await run("venue.fixture.orient", { id: "nope", facing: "audience" }).catch((e: Error) => (failed = e.message));
     expect(failed).to.contain("nope");
+    // several at once, along the front of a riser, turned towards the audience
+    await run("stage.zone.put", { zone: { id: "estrade", name: "Estrade", type: "riser", polygon: [[-2, 1], [2, 1], [2, 3], [-2, 3]], floorHeight: 0.5 } });
+    const placed = (await run("venue.fixture.arrange", { fixtures: ["bar-1", "bar-0"], zone: "estrade", edge: "front", facing: "audience" })) as { id: string; position: { x: number; y: number; z: number }; facing?: string }[];
+    expect(placed).to.deep.equal([
+      { id: "bar-1", position: { x: -1, y: 1.3, z: 0.8 }, facing: "audience" }, // the order given: bar-1 on the jardin side
+      { id: "bar-0", position: { x: 1, y: 1.3, z: 0.8 }, facing: "audience" },
+    ]);
+    expect(((await run("venue.fixture.arrange", { fixtures: ["bar-0"], zone: "estrade", edge: "back", height: 2 })) as { position: { z: number } }[])[0]!.position).to.deep.equal({ x: 0, y: 2.7, z: 2.5 });
+    await run("venue.fixture.arrange", { fixtures: ["bar-0"], zone: "nulle-part" }).catch((e: Error) => (failed = e.message));
+    expect(failed).to.contain("zone inconnue");
   });
 
   it("hangs a moving head pointed at the floor, whatever its mount; the mount decides otherwise", () => {

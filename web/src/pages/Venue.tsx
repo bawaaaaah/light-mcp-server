@@ -43,6 +43,8 @@ export function VenuePage() {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
+  /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
+  const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
   const [error, setError] = useState("");
   /** Fixtures sharing DMX channels (venue.patch.check), by fixture id: the others' messages. */
   const [overlaps, setOverlaps] = useState<Record<string, string[]>>({});
@@ -146,6 +148,49 @@ export function VenuePage() {
               {t.makeCanvas} ({canvasDraft.fixtures.length})
             </button>
           </div>
+          {zones.length > 0 && (
+            <div className="editor arrange" title={t.arrangeHelp}>
+              <span className="hint">{t.arrangeTitle}</span>
+              <select aria-label={t.zones} value={arrangeDraft.zone} onChange={(e) => setArrangeDraft({ ...arrangeDraft, zone: e.target.value })}>
+                <option value="">{t.zones}…</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.name}
+                  </option>
+                ))}
+              </select>
+              <select aria-label={t.arrangeEdge} value={arrangeDraft.edge} onChange={(e) => setArrangeDraft({ ...arrangeDraft, edge: e.target.value })}>
+                {(["front", "back", "houseLeft", "houseRight", "middle"] as const).map((k) => (
+                  <option key={k} value={k}>
+                    {t.edges[k]}
+                  </option>
+                ))}
+              </select>
+              <input type="number" min={0} max={30} step={0.1} aria-label={t.arrangeHeight} placeholder={t.arrangeHeight} value={arrangeDraft.height} onChange={(e) => setArrangeDraft({ ...arrangeDraft, height: e.target.value })} />
+              <select aria-label={t.facingLabel} value={arrangeDraft.facing} onChange={(e) => setArrangeDraft({ ...arrangeDraft, facing: e.target.value })}>
+                <option value="">{t.facingKeep}</option>
+                {(["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"] as const).map((k) => (
+                  <option key={k} value={k}>
+                    {t.facingLabel} : {t.facings[k]}
+                  </option>
+                ))}
+              </select>
+              <button
+                disabled={!arrangeDraft.zone || canvasDraft.fixtures.length === 0}
+                onClick={() =>
+                  void run("venue.fixture.arrange", {
+                    fixtures: canvasDraft.fixtures,
+                    zone: arrangeDraft.zone,
+                    edge: arrangeDraft.edge,
+                    ...(arrangeDraft.height !== "" ? { height: Number(arrangeDraft.height) } : {}),
+                    ...(arrangeDraft.facing ? { facing: arrangeDraft.facing } : {}),
+                  }).then(refresh)
+                }
+              >
+                {t.arrange} ({canvasDraft.fixtures.length})
+              </button>
+            </div>
+          )}
           <h2>{t.canvases}</h2>
           <ul>
             {canvases.map((c) => (

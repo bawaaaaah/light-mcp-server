@@ -806,6 +806,9 @@ table.cues select {
 .stage-plan svg.orienting .fixture {
   cursor: pointer;
 }
+.editor.arrange input[type="number"] {
+  width: 9.5em;
+}
 .orient-panel {
   flex-wrap: wrap;
   gap: 0.4em;

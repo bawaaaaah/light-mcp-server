@@ -1601,6 +1601,30 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   expect(errors).toEqual([]);
 });
 
+test("place the checked fixtures along the front of a zone, turned towards the audience", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const zones = (await api(page, "stage.zone.list")) as { id: string }[];
+  if (!zones.some((z) => z.id === "scene")) await api(page, "stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]] } });
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const row = (name: string) => page.locator("#venue-patch tr", { hasText: name }).getByRole("checkbox");
+  await row("Bar 1").check(); // checked first: placed first, on the jardin side
+  await row("Bar 0").check();
+  const form = page.locator(".editor.arrange");
+  await form.getByLabel("Zones").selectOption({ label: "Scène" });
+  await form.getByLabel("Bord de la zone").selectOption("front");
+  await form.getByLabel("Vers").selectOption("audience");
+  await form.getByRole("button", { name: "Placer (2)" }).click();
+  const at = async (id: string) => ((await api(page, "venue.fixture.list")) as { id: string; position?: { x: number; y: number }; facing?: string }[]).find((f) => f.id === id)!;
+  await expect.poll(async () => (await at("bar-1")).position).toEqual(expect.objectContaining({ x: -2, y: 0.3 }));
+  expect((await at("bar-0")).position).toEqual(expect.objectContaining({ x: 2, y: 0.3 }));
+  expect((await at("bar-0")).facing).toBe("audience");
+  await page.screenshot({ path: "test-results/arrange.png" });
+  await row("Bar 1").uncheck();
+  await row("Bar 0").uncheck();
+  expect(errors).toEqual([]);
+});
+
 test("live stage widget on a dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

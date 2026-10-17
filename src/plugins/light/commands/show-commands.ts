@@ -19,6 +19,7 @@ import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js"
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
 import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
+import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
@@ -130,6 +131,30 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch };
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };
+    },
+  });
+  reg.register({
+    name: "venue.fixture.arrange",
+    title: "Placer des fixtures",
+    description:
+      "Places several fixtures at once, evenly spaced along one edge of a zone in the order given: front (the edge on the audience side), back, houseLeft (jardin side) or houseRight (cour side), from jardin to cour or from the front to the back; middle runs across the zone. height: metres above the zone floor (default from each mount: 5 hung, 1.8 on a stand, 3 on a wall, 0.3 on the floor); facing turns them all (as venue.fixture.orient).",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ fixtures: z.array(z.string()).min(1), zone: z.string(), edge: z.enum(EDGES).default("front"), height: z.number().min(0).max(30).optional(), facing: z.enum(FACING_NAMES).optional() }),
+    run: ({ fixtures: ids, zone: zoneId, edge, height, facing }) => {
+      const zone = show.zones.get(zoneId);
+      if (!zone) throw new Error(`zone inconnue : ${zoneId}`);
+      const missing = ids.filter((i) => !venue.fixtures.get(i));
+      if (missing.length) throw new Error(`fixture inconnue : ${missing.join(", ")}`);
+      const points = arrangeAlong(zone.polygon, edge, ids.length);
+      return ids.map((i, k) => {
+        const f = venue.fixtures.get(i)!;
+        // hung fixtures hang from the rig whatever the floor; the others stand on the zone
+        const z = height !== undefined ? zone.floorHeight + height : mountHeight(f.mount) + (f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling" ? 0 : zone.floorHeight);
+        const orientation = facing ? { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, ...orientTo(f.orientation, facing) } : f.orientation;
+        const saved = venue.fixtures.put({ ...f, position: { ...points[k]!, z: Math.round(z * 10) / 10 }, ...(orientation ? { orientation } : {}) });
+        return { id: i, position: saved.position, ...(orientation ? { facing: facingOf(saved.orientation) } : {}) };
+      });
     },
   });
   reg.register({

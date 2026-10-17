@@ -59,7 +59,7 @@ export const PROMPTS: LightPrompt[] = [
         `Prépare le lieu${opt(description, " : ")}.`,
         "1. light_venue_library : les modèles disponibles ; light_venue_fixture_list : ce qui est déjà patché.",
         "2. Patch : light_venue_fixture_put pour chaque projecteur (modèle, mode, univers, adresse, rôle) ; light_venue_patch_check après chaque série.",
-        "3. Scène : zones avec light_stage_zone_put (scène, public, pupitre…, protégées au besoin) ; où pointe chaque projecteur avec light_venue_fixture_orient (public, mur de scène, jardin, cour, plafond, sol) ; light_stage_describe pour relire.",
+        "3. Scène : zones avec light_stage_zone_put (scène, public, pupitre…, protégées au besoin) ; une ligne de projecteurs se place d'un coup le long d'un bord de zone avec light_venue_fixture_arrange ; où pointe chaque projecteur avec light_venue_fixture_orient (public, mur de scène, jardin, cour, plafond, sol) ; light_stage_describe pour relire.",
         "4. Canevas : light_venue_canvas_auto avec les projecteurs qui jouent ensemble, dans l'ordre de la scène.",
         "5. Garde-fous du lieu : light_rule_put (UV max, modes son-actif interdits…).",
         "Demande confirmation avant d'écrire si l'utilisateur n'a pas donné le patch complet.",
