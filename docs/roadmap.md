@@ -39,7 +39,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Presets automatiques (premier allumage immédiat) | ✅ |
 | Actions de la timeline des chants, lecture sans DAW | ✅ |
 | Planche (storyboard SVG d'un chant) | ✅ |
-| Aperçu 2D en direct de la scène (couleurs relues dans la sortie) | ✅ |
+| Aperçu 2D en direct de la scène (couleurs relues dans la sortie ; orientation, faisceaux, strobe, zoom) | ✅ |
 | Lyres (pan/tilt 16 bits, Move FX, viser une zone, pad XY, roue de couleurs, import des EFX QLC+) | ✅ calibration guidée comprise (à valider sur une vraie lyre et un vrai workspace avec EFX) |
 
 ## Étape 1 : v0 « prochain culte »

@@ -2,10 +2,10 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-16)
+## Où on en est (2026-10-17)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), P6 et la bascule QLC+ sur le réseau lumière, hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
-- **Serveur** (`npm test` : 313 tests verts ; `npm run test:ui` : 78), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 330 tests verts ; `npm run test:ui` : 82), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -42,6 +42,12 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - **tablettes de scène** : installable sur l'écran d'accueil (manifeste, icône), écran gardé allumé en plein écran, « Rester connecté sur cet appareil » en option ; un rechargement pendant un redémarrage garde la session (« Serveur injoignable », nouvel essai) ;
     - **MCP** : instructions d'initialisation à jour (un test vérifie chaque outil cité), les **sept prompts** de la spec (`preshow_check`, `import_qlc_project`, `setup_venue`, `define_canvas`, `program_song`, `build_setlist`, `rehearsal_review`), ressources `light://rules`, `light://midi/map`, `light://osc/map`, `light://notes`, `light://log` (lues avec les droits de l'appelant) ; `light://live` dit la veille et les canaux forcés ; l'événement `light:command` allégé ;
     - **console DMX** : « pourquoi ce canal » (`dmx.explain` : projecteur, DCA, faders, looks, règles, forçage) ; les canaux forcés s'affichent dans l'en-tête de toutes les pages ; « Vérifier le show » ouvre sur un résumé ; `light activity` dans la CLI.
+    - **sécurité** : « ↶ Revenir » après un Panic appuyé par erreur (une minute) ; « Vérifier le show » signale les looks qui clignotent plus de 3 fois par seconde et les canaux bruts ramenés par une règle.
+  - **2026-10-17** :
+    - **scène en direct** : orientation des projecteurs (public, mur de scène, jardin, cour, plafond, sol ; rotation par boutons, clavier, angle ou glisser ; `venue.fixture.orient`), **faisceaux** de la couleur de chaque projecteur jusqu'à l'impact au sol (lyres d'après le pan/tilt réellement envoyé, ouverture de l'optique de la définition), repère fixe du **strobe** en cours, **zoom** ×1 à ×4 ;
+    - règles : **Strobe max (Hz)** là où la définition donne les fréquences, et « Vérifier le show » nomme les projecteurs où il reste sans effet ;
+    - dashboards : boutons **à confirmer** (deux appuis pour allumer) ; le menu d'un widget tient dans l'écran ;
+    - **annuler une modification** depuis sa ligne du journal d'activité (`history.undo`, bouton ↶ dans Réglages, aussi pour l'IA).
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, orientation des projecteurs sur la scène en direct, boutons à confirmer, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
