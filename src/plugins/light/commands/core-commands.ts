@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import type { OutputRouter } from "../output/output-router.js";
+import { say } from "../../../core/lang.js";
 
 const universe = z.number().int().min(1).describe("Univers (1..N)");
 const channel = z.number().int().min(1).max(512).describe("Canal DMX (1..512)");
@@ -32,10 +33,10 @@ export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, ro
     run: ({ universe: u, channel: c, value: v, values }) => {
       const entries: [number, number][] = values ? Object.entries(values).map(([k, x]) => [Number(k), x]) : [];
       if (c !== undefined) {
-        if (v === undefined) throw new Error("value requis avec channel");
+        if (v === undefined) throw new Error(say("value requis avec channel", "value required with channel"));
         entries.push([c, v]);
       }
-      if (entries.length === 0) throw new Error("rien à forcer : donner channel+value ou values");
+      if (entries.length === 0) throw new Error(say("rien à forcer : donner channel+value ou values", "nothing to force: give channel+value or values"));
       for (const [ch, x] of entries) engine.park(u, ch, x);
       return { parked: entries.length };
     },

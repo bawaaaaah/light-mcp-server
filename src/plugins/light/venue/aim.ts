@@ -8,6 +8,7 @@
  * audience (−Y): 90 = cour (+X), −90 = jardin (orientation.ts). Calibration offsets correct the rest.
  */
 import type { Position } from "../engine/move.js";
+import { say } from "../../../core/lang.js";
 
 export interface AimSetup {
   position: { x: number; y: number; z: number };
@@ -47,7 +48,7 @@ export function angleCandidates(a: { heading: number; tilt: number }): [number, 
 /** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach. */
 export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): (Position & { panDeg: number; tiltDeg: number }) | { error: string } {
   const raw = rawAngles(f, target);
-  if (!raw) return { error: "la cible est sur la fixture" };
+  if (!raw) return { error: say("la cible est sur la fixture", "the target is on the fixture") };
   // keep the solution in range closest to the centre
   const fit = angleCandidates(raw)
     .map(([p, t]) => [p - f.panOffset, t - f.tiltOffset] as [number, number])
@@ -57,7 +58,7 @@ export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }):
       const d = Math.abs(a[0]) + Math.abs(a[1]) - (Math.abs(b[0]) + Math.abs(b[1]));
       return Math.abs(d) > 1e-6 ? d : Number(a[1] < 0) - Number(b[1] < 0);
     })[0];
-  if (!fit) return { error: `hors de portée (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)` };
+  if (!fit) return { error: say(`hors de portée (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`, `out of reach (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`) };
   const [panDeg, tiltDeg] = fit;
   return { pan: panDeg / f.panMax + 0.5, tilt: tiltDeg / f.tiltMax + 0.5, panDeg, tiltDeg };
 }
@@ -104,7 +105,7 @@ export interface Calibration {
  * Brute force over yaw (1°, then 0.05° around the best) and the four inversions. Pure.
  */
 export function calibrate(f: Pick<AimSetup, "position" | "hung" | "panMax" | "tiltMax">, samples: CalibrationSample[]): Calibration | { error: string } {
-  if (samples.length < 2) return { error: "au moins deux repères visés sont nécessaires (trois conseillés)" };
+  if (samples.length < 2) return { error: say("au moins deux repères visés sont nécessaires (trois conseillés)", "at least two aimed marks are needed (three advised)") };
   const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
   const evaluate = (yaw: number, invertPan: boolean, invertTilt: boolean): Calibration | null => {
     const residuals: [number, number][] = [];
@@ -130,7 +131,7 @@ export function calibrate(f: Pick<AimSetup, "position" | "hung" | "panMax" | "ti
         const c = evaluate(yaw, invertPan, invertTilt);
         if (c && (!best || c.errorDeg < best.errorDeg)) best = c;
       }
-  if (!best) return { error: "un repère est sur la fixture elle-même" };
+  if (!best) return { error: say("un repère est sur la fixture elle-même", "a mark is on the fixture itself") };
   for (let yaw = best.yaw - 1; yaw <= best.yaw + 1; yaw += 0.05) {
     const c = evaluate(yaw, best.invertPan, best.invertTilt);
     if (c && c.errorDeg < best.errorDeg) best = c;

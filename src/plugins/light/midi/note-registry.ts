@@ -4,6 +4,7 @@
  * note stays reserved. Collisions are never resolved silently: they throw, for a human decision.
  */
 import { z } from "zod";
+import { say } from "../../../core/lang.js";
 
 export const BandSchema = z.object({ id: z.string(), from: z.number().int().min(0).max(127), to: z.number().int().min(0).max(127), channel: z.number().int().min(1).max(16).default(1) });
 export type Band = z.infer<typeof BandSchema>;
@@ -36,11 +37,11 @@ export class NoteRegistry {
   /** Returns the action's pinned note, assigning the first free note of its band if new. */
   assign(actionKey: string, bandId: string): { channel: number; note: number } {
     const band = this.data.bands.find((b) => b.id === bandId);
-    if (!band) throw new Error(`bande de notes inconnue : ${bandId}`);
+    if (!band) throw new Error(say(`bande de notes inconnue : ${bandId}`, `unknown note band: ${bandId}`));
     const existing = this.data.pinned[actionKey];
     if (existing) {
       if (existing.band !== bandId || existing.note < band.from || existing.note > band.to) {
-        throw new NoteCollision(`« ${actionKey} » est épinglé sur la note ${existing.note} (bande ${existing.band}), hors de la bande ${bandId} : arbitrage humain requis`);
+        throw new NoteCollision(say(`« ${actionKey} » est épinglé sur la note ${existing.note} (bande ${existing.band}), hors de la bande ${bandId} : arbitrage humain requis`, `“${actionKey}” is pinned on note ${existing.note} (band ${existing.band}), outside band ${bandId}: a person has to decide`));
       }
       return { channel: existing.channel, note: existing.note };
     }
@@ -57,11 +58,11 @@ export class NoteRegistry {
   /** Pins a precise note (manual choice). Throws if another action holds or reserved it. */
   pin(actionKey: string, bandId: string, note: number): void {
     const band = this.data.bands.find((b) => b.id === bandId);
-    if (!band) throw new Error(`bande de notes inconnue : ${bandId}`);
+    if (!band) throw new Error(say(`bande de notes inconnue : ${bandId}`, `unknown note band: ${bandId}`));
     const holder = Object.entries(this.data.pinned).find(([k, p]) => k !== actionKey && p.channel === band.channel && p.note === note);
-    if (holder) throw new NoteCollision(`la note ${note} est déjà épinglée sur « ${holder[0]} »`);
+    if (holder) throw new NoteCollision(say(`la note ${note} est déjà épinglée sur « ${holder[0]} »`, `note ${note} is already pinned on “${holder[0]}”`));
     const reservedFor = this.data.reserved[`${band.channel}:${note}`];
-    if (reservedFor && reservedFor !== actionKey) throw new NoteCollision(`la note ${note} est réservée (anciennement « ${reservedFor} »)`);
+    if (reservedFor && reservedFor !== actionKey) throw new NoteCollision(say(`la note ${note} est réservée (anciennement « ${reservedFor} »)`, `note ${note} is reserved (formerly “${reservedFor}”)`));
     delete this.data.reserved[`${band.channel}:${note}`];
     this.data.pinned[actionKey] = { band: bandId, channel: band.channel, note };
   }

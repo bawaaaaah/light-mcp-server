@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
-import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, switchInProgress, unreachable, type Role } from "./api";
+import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, setApiLang, switchInProgress, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
@@ -227,6 +227,7 @@ export function App() {
 
   const switchLang = (l: Lang) => {
     setLang(l);
+    setApiLang(l);
     try {
       localStorage.setItem("lang", l);
     } catch {

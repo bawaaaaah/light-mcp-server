@@ -5,6 +5,7 @@
  * forced, so a QLC+ import's look-alike objects (three DCAs all named « Master ») cannot be
  * cleaned up by mistake.
  */
+import { say } from "../../../core/lang.js";
 export type ReferenceKind = "look" | "group" | "fader";
 
 /** A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). */
@@ -26,29 +27,29 @@ export interface ShowParts {
 export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string[] {
   const uses: string[] = [];
   for (const g of show.groups) {
-    if (kind === "look" && (g.members.looks.includes(id) || g.presets?.included.includes(id) || g.presets?.excluded.includes(id))) uses.push(`groupe « ${g.name} »`);
-    if (kind === "group" && g.id !== id && g.members.groups.includes(id)) uses.push(`groupe « ${g.name} » (sous-groupe)`);
+    if (kind === "look" && (g.members.looks.includes(id) || g.presets?.included.includes(id) || g.presets?.excluded.includes(id))) uses.push(say(`groupe « ${g.name} »`, `group “${g.name}”`));
+    if (kind === "group" && g.id !== id && g.members.groups.includes(id)) uses.push(say(`groupe « ${g.name} » (sous-groupe)`, `group “${g.name}” (sub-group)`));
   }
-  if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(`fader de canaux « ${f.name} » (DCA)`);
+  if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
   const named = (args: Record<string, unknown>) => args.id === id;
-  for (const m of show.mappings) if (m.on.command.startsWith(COMMAND_PREFIX[kind]) && named(m.on.args)) uses.push(`mapping MIDI « ${m.label || m.id} »`);
-  for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(`dashboard « ${d.name} »`);
+  for (const m of show.mappings) if (m.on.command.startsWith(COMMAND_PREFIX[kind]) && named(m.on.args)) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
+  for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
     const inIt = kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : id in s.faders;
-    if (inIt) uses.push(`instantané « ${s.name} »`);
+    if (inIt) uses.push(say(`instantané « ${s.name} »`, `snapshot “${s.name}”`));
   }
   for (const song of show.songs) {
     const sections = kind === "look" ? song.sections.filter((s) => s.look === id) : [];
     const cues = (song.cues ?? []).filter((c) => c.command.startsWith(COMMAND_PREFIX[kind]) && named(c.args));
-    if (sections.length) uses.push(`chant « ${song.title} » (${sections.map((s) => s.name ?? s.id).join(", ")})`);
-    if (cues.length) uses.push(`chant « ${song.title} » (${cues.length} action${cues.length > 1 ? "s" : ""} de la piste)`);
+    if (sections.length) uses.push(say(`chant « ${song.title} » (${sections.map((s) => s.name ?? s.id).join(", ")})`, `song “${song.title}” (${sections.map((s) => s.name ?? s.id).join(", ")})`));
+    if (cues.length) uses.push(say(`chant « ${song.title} » (${cues.length} action${cues.length > 1 ? "s" : ""} de la piste)`, `song “${song.title}” (${cues.length} track cue${cues.length > 1 ? "s" : ""})`));
   }
-  if (kind === "look" && show.safeLook === id) uses.push("secours du Panic");
+  if (kind === "look" && show.safeLook === id) uses.push(say("secours du Panic", "the Panic's fallback"));
   return uses;
 }
 
 /** The refusal of a delete: what still uses the object, and how to delete it anyway. */
 export function inUseMessage(name: string, uses: string[]): string {
   const shown = uses.slice(0, 6).join(", ");
-  return `« ${name} » est encore utilisé : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. Le supprimer quand même : force: true`;
+  return say(`« ${name} » est encore utilisé : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. Le supprimer quand même : force: true`, `“${name}” is still used: ${shown}${uses.length > 6 ? ` and ${uses.length - 6} more` : ""}. Delete it anyway: force: true`);
 }

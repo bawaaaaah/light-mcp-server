@@ -17,6 +17,7 @@ import type { Timing } from "../engine/player.js";
 import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
+import { say } from "../../../core/lang.js";
 
 /**
  * Automatic presets (docs/specs/presets-songs-notes.md, Wolfmix): base palettes from the knowledge
@@ -60,7 +61,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     profiles: ["design"],
     schema: z.object({ name: z.string(), canvas: z.string(), mood: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).optional(), colors: z.array(z.string()).optional(), cut: z.boolean().optional(), id: z.string().optional(), save: z.boolean().default(false) }),
     run: ({ name, canvas, mood, energy, colors, cut, id, save }) => {
-      if (!runtime.venue.canvases.get(canvas)) throw new Error(`canevas inconnu : ${canvas}`);
+      if (!runtime.venue.canvases.get(canvas)) throw new Error(say(`canevas inconnu : ${canvas}`, `unknown canvas: ${canvas}`));
       const p = proposeLook(knowledge(), { mood, energy, colors, cut });
       const look = { id: id ?? slugify(name), name, canvas, technique: p.technique, timing: p.timing, manualOnly: false, noCut: false, danger: false, tags: mood.map((m) => `ambiance:${m}`), notes: p.explanation.join(" ; ") } as Look;
       if (save) runtime.looks.put(look);
@@ -78,8 +79,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     schema: z.object({ song: z.string(), canvas: z.string(), energies: z.record(z.string(), z.enum(["pose", "dynamique", "survolte"])).default({}), save: z.boolean().default(false) }),
     run: ({ song: songId, canvas, energies, save }) => {
       const song = songs.get(songId);
-      if (!song) throw new Error(`chant inconnu : ${songId}`);
-      if (!song.mood.length) throw new Error("le chant n'a pas d'ambiance globale (mood) : c'est le garde-fou de la grille");
+      if (!song) throw new Error(say(`chant inconnu : ${songId}`, `unknown song: ${songId}`));
+      if (!song.mood.length) throw new Error(say("le chant n'a pas d'ambiance globale (mood) : c'est le garde-fou de la grille", "the song has no overall mood: the grid relies on it"));
       const proposals: { section: string; look: Look; explanation: string[] }[] = [];
       let flip = false;
       for (const sec of song.sections) {
@@ -116,12 +117,12 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const err = (where: string, message: string) => issues.push({ level: "erreur", where, message });
       const warn = (where: string, message: string) => issues.push({ level: "attention", where, message });
       for (const l of runtime.looks.list()) {
-        if (!runtime.venue.canvases.get(l.canvas)) err(`look ${l.id}`, `canevas inconnu ${l.canvas}`);
-        if (l.palette && !runtime.palettes.get(l.palette)) err(`look ${l.id}`, `palette inconnue ${l.palette}`);
+        if (!runtime.venue.canvases.get(l.canvas)) err(`look ${l.id}`, say(`canevas inconnu ${l.canvas}`, `unknown canvas ${l.canvas}`));
+        if (l.palette && !runtime.palettes.get(l.palette)) err(`look ${l.id}`, say(`palette inconnue ${l.palette}`, `unknown palette ${l.palette}`));
         const t = l.technique;
         if ((t.kind === "damier" || t.kind === "creux" || t.kind === "masques") && !l.palette) {
           const d = deltaE(t.colors[0], t.colors[1]);
-          if (d < 25 && t.colors[0] !== t.colors[1]) warn(`look ${l.id}`, `contraste faible entre ${t.colors[0]} et ${t.colors[1]} (ΔE ${d.toFixed(0)})`);
+          if (d < 25 && t.colors[0] !== t.colors[1]) warn(`look ${l.id}`, say(`contraste faible entre ${t.colors[0]} et ${t.colors[1]} (ΔE ${d.toFixed(0)})`, `low contrast between ${t.colors[0]} and ${t.colors[1]} (ΔE ${d.toFixed(0)})`));
         }
       }
       const seen = new Map<string, string>();
@@ -129,20 +130,20 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const key = mappingInputKey(m);
         // The mapper fires every mapping of an input, as QLC+ fires every widget bound to it: one CC
         // driving a DCA and a channel fader is by design, so this is worth a look, not an error.
-        if (seen.has(key)) warn(`mapping ${m.id}`, `même entrée que ${seen.get(key)} : les deux se déclenchent ensemble`);
+        if (seen.has(key)) warn(`mapping ${m.id}`, say(`même entrée que ${seen.get(key)} : les deux se déclenchent ensemble`, `same input as ${seen.get(key)}: both fire together`));
         seen.set(key, m.id);
         const target = m.on.args.id;
         if (typeof target === "string" && target) {
-          if (m.on.command.startsWith("look.") && !runtime.looks.get(target)) err(`mapping ${m.id}`, `look inconnu ${target}`);
-          if (m.on.command.startsWith("group.") && !runtime.groups.get(target)) err(`mapping ${m.id}`, `groupe inconnu ${target}`);
-          if (m.on.command.startsWith("fader.") && !runtime.faders.get(target)) err(`mapping ${m.id}`, `fader de canaux inconnu ${target}`);
-          if (m.on.command === "program.select" && !runtime.programs.get(target)) err(`mapping ${m.id}`, `programme inconnu ${target}`);
+          if (m.on.command.startsWith("look.") && !runtime.looks.get(target)) err(`mapping ${m.id}`, say(`look inconnu ${target}`, `unknown look ${target}`));
+          if (m.on.command.startsWith("group.") && !runtime.groups.get(target)) err(`mapping ${m.id}`, say(`groupe inconnu ${target}`, `unknown group ${target}`));
+          if (m.on.command.startsWith("fader.") && !runtime.faders.get(target)) err(`mapping ${m.id}`, say(`fader de canaux inconnu ${target}`, `unknown channel fader ${target}`));
+          if (m.on.command === "program.select" && !runtime.programs.get(target)) err(`mapping ${m.id}`, say(`programme inconnu ${target}`, `unknown program ${target}`));
         }
       }
       for (const g of runtime.groups.list()) {
-        for (const f of g.members.fixtures) if (!runtime.venue.fixtures.get(f)) err(`groupe ${g.id}`, `projecteur inconnu ${f}`);
-        for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(`groupe ${g.id}`, `look inconnu ${l}`);
-        for (const sub of g.members.groups) if (!runtime.groups.get(sub)) err(`groupe ${g.id}`, `sous-groupe inconnu ${sub}`);
+        for (const f of g.members.fixtures) if (!runtime.venue.fixtures.get(f)) err(say(`groupe ${g.id}`, `group ${g.id}`), say(`projecteur inconnu ${f}`, `unknown fixture ${f}`));
+        for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(say(`groupe ${g.id}`, `group ${g.id}`), say(`look inconnu ${l}`, `unknown look ${l}`));
+        for (const sub of g.members.groups) if (!runtime.groups.get(sub)) err(say(`groupe ${g.id}`, `group ${g.id}`), say(`sous-groupe inconnu ${sub}`, `unknown sub-group ${sub}`));
       }
       // Same name, different objects (a QLC+ workspace often has several « Master » sliders): on the
       // Live, in the MIDI page and to the AI they look alike, and one can be taken for a duplicate.
@@ -151,11 +152,11 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         for (const x of list) {
           const key = x.name.trim().toLocaleLowerCase("fr");
           const other = first.get(key);
-          if (other) warn(`${kind} ${x.id}`, `même nom que ${other} (« ${x.name} ») : renommer l'un des deux pour les distinguer`);
+          if (other) warn(`${kind} ${x.id}`, say(`même nom que ${other} (« ${x.name} ») : renommer l'un des deux pour les distinguer`, `same name as ${other} (“${x.name}”): rename one of them to tell them apart`));
           else first.set(key, x.id);
         }
       };
-      for (const o of runtime.venue.patchProblems()) warn(`projecteur ${o.b}`, `${o.message} : deux projecteurs écrivent les mêmes canaux`);
+      for (const o of runtime.venue.patchProblems()) warn(say(`projecteur ${o.b}`, `fixture ${o.b}`), say(`${o.message} : deux projecteurs écrivent les mêmes canaux`, `${o.message}: two fixtures write the same channels`));
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
       // nobody would know why. Rules that always apply (no program); each written value is tried.
       const zones = runtime.zones.list();
@@ -180,7 +181,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
               const c = applyRules(always, r, buf, zoneById).find((x) => x.channel === name);
               if (!c || said.has(`${t.fixture}/${name}`)) continue;
               said.add(`${t.fixture}/${name}`);
-              warn(`look ${l.id}`, `écrit ${r.patch.name} · ${name} à ${c.from}, mais la règle ${c.rule || "du lieu"} le ramène à ${c.to} : le look ne rend pas ce qu'il dit`);
+              warn(`look ${l.id}`, say(`écrit ${r.patch.name} · ${name} à ${c.from}, mais la règle ${c.rule || "du lieu"} le ramène à ${c.to} : le look ne rend pas ce qu'il dit`, `writes ${r.patch.name} · ${name} at ${c.from}, but rule ${c.rule || "of the venue"} brings it to ${c.to}: the look does not show what it says`));
             }
           });
         }
@@ -196,7 +197,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
             if (ch && ruleApplies(rule, r, ch, zoneById) && !ch.capabilities.some((c) => c.hz)) blind.add(f.name);
           }
         }
-        if (blind.size) warn(`règle ${rule.id}`, `Hz max sans effet sur ${[...blind].join(", ")} : leur définition ne donne pas les fréquences du strobe ; les borner par une valeur max`);
+        if (blind.size) warn(say(`règle ${rule.id}`, `rule ${rule.id}`), say(`Hz max sans effet sur ${[...blind].join(", ")} : leur définition ne donne pas les fréquences du strobe ; les borner par une valeur max`, `Hz max has no effect on ${[...blind].join(", ")}: their definition gives no strobe frequencies; bound them with a max value`));
       }
       // photosensitive safety (WCAG 2.3.1): a look timed in beats flashes fastest on the show's fastest song
       const bpm = Math.max(120, ...songs.list().map((x) => x.bpm ?? 0));
@@ -210,14 +211,14 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const every = l.timing.every;
         const stepSeconds = "seconds" in every ? every.seconds : (every.beats * 60) / bpm;
         const rate = flashesPerSecond(steps, stepSeconds, l.timing.attack);
-        if (rate > MAX_FLASHES_PER_SECOND) warn(`look ${l.id}`, `jusqu'à ${rate.toFixed(1)} éclats par seconde${"beats" in every ? ` à ${bpm} BPM` : ""} : au-delà de ${MAX_FLASHES_PER_SECOND}, un risque pour les personnes photosensibles (WCAG 2.3.1) ; ralentir la cadence ou adoucir l'attaque`);
+        if (rate > MAX_FLASHES_PER_SECOND) warn(`look ${l.id}`, say(`jusqu'à ${rate.toFixed(1)} éclats par seconde${"beats" in every ? ` à ${bpm} BPM` : ""} : au-delà de ${MAX_FLASHES_PER_SECOND}, un risque pour les personnes photosensibles (WCAG 2.3.1) ; ralentir la cadence ou adoucir l'attaque`, `up to ${rate.toFixed(1)} flashes a second${"beats" in every ? ` at ${bpm} BPM` : ""}: above ${MAX_FLASHES_PER_SECOND}, a risk for photosensitive people (WCAG 2.3.1); slow the rate down or soften the attack`));
       }
       // once per model: the same .qxf fixes them all
       const missing = new Map<string, string[]>();
       for (const m of runtime.venue.missingDefinitions()) missing.set(m.model, [...(missing.get(m.model) ?? []), m.name]);
-      for (const [model, names] of missing) warn(`projecteur ${names.join(", ")}`, `définition manquante : ${model} — canaux non décodés, ajouter son .qxf (page Import)`);
+      for (const [model, names] of missing) warn(say(`projecteur ${names.join(", ")}`, `fixture ${names.join(", ")}`), say(`définition manquante : ${model} — canaux non décodés, ajouter son .qxf (page Import)`, `missing definition: ${model} — channels not decoded, add its .qxf (Import page)`));
       sameName("look", runtime.looks.list());
-      sameName("groupe", runtime.groups.list());
+      sameName(say("groupe", "group"), runtime.groups.list());
       sameName("fader", runtime.faders.list());
       // mappings: the same label for different targets (three QLC+ sliders all called « Master »)
       const labels = new Map<string, { id: string; target: string }>();
@@ -227,7 +228,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const target = typeof m.on.args.id === "string" ? m.on.args.id : m.on.command;
         const key = m.label.trim().toLocaleLowerCase("fr");
         const other = labels.get(key);
-        if (other && other.target !== target) warn(`mapping ${m.id}`, `même libellé que ${other.id} (« ${m.label} ») pour une autre cible : renommer l'un des deux pour les distinguer`);
+        if (other && other.target !== target) warn(`mapping ${m.id}`, say(`même libellé que ${other.id} (« ${m.label} ») pour une autre cible : renommer l'un des deux pour les distinguer`, `same label as ${other.id} (“${m.label}”) for another target: rename one of them to tell them apart`));
         else if (!other) labels.set(key, { id: m.id, target });
       }
       const checkChannels = (where: string, channels: { fixture: string; offset: number }[]) => {
@@ -238,17 +239,17 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       };
       for (const f of runtime.faders.list()) {
         checkChannels(`fader ${f.id}`, f.channels);
-        if (f.dca && !runtime.groups.get(f.dca)) err(`fader ${f.id}`, `DCA inconnu ${f.dca}`);
+        if (f.dca && !runtime.groups.get(f.dca)) err(`fader ${f.id}`, say(`DCA inconnu ${f.dca}`, `unknown DCA ${f.dca}`));
       }
       for (const l of runtime.looks.list()) if (l.channels) checkChannels(`look ${l.id}`, l.channels.targets);
       for (const s of songs.list()) {
-        if (!s.mood.length) warn(`chant ${s.id}`, "pas d'ambiance globale");
+        if (!s.mood.length) warn(say(`chant ${s.id}`, `song ${s.id}`), say("pas d'ambiance globale", "no overall mood"));
         s.sections.forEach((sec, i) => {
-          if (!sec.look) warn(`chant ${s.id}`, `section ${sec.id} sans look`);
-          else if (!runtime.looks.get(sec.look)) err(`chant ${s.id}`, `section ${sec.id} : look inconnu ${sec.look}`);
-          if (sec.program && !runtime.programs.get(sec.program)) err(`chant ${s.id}`, `section ${sec.id} : programme inconnu ${sec.program}`);
+          if (!sec.look) warn(say(`chant ${s.id}`, `song ${s.id}`), say(`section ${sec.id} sans look`, `section ${sec.id} without a look`));
+          else if (!runtime.looks.get(sec.look)) err(say(`chant ${s.id}`, `song ${s.id}`), say(`section ${sec.id} : look inconnu ${sec.look}`, `section ${sec.id}: unknown look ${sec.look}`));
+          if (sec.program && !runtime.programs.get(sec.program)) err(say(`chant ${s.id}`, `song ${s.id}`), say(`section ${sec.id} : programme inconnu ${sec.program}`, `section ${sec.id}: unknown program ${sec.program}`));
           const prev = s.sections[i - 1];
-          if (prev?.look && prev.look === sec.look && prev.idea !== sec.idea) warn(`chant ${s.id}`, `${prev.id} et ${sec.id} ont le même look alors que l'idée change`);
+          if (prev?.look && prev.look === sec.look && prev.idea !== sec.idea) warn(say(`chant ${s.id}`, `song ${s.id}`), say(`${prev.id} et ${sec.id} ont le même look alors que l'idée change`, `${prev.id} and ${sec.id} have the same look though the idea changes`));
         });
       }
       return { ok: !issues.some((i) => i.level === "erreur"), issues };
@@ -265,7 +266,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     schema: z.object({ canvas: z.string().optional(), apply: z.boolean().default(false) }),
     run: ({ canvas: canvasId, apply }) => {
       const canvas = canvasId ? runtime.venue.canvases.get(canvasId) : runtime.venue.canvases.list()[0];
-      if (!canvas) throw new Error(canvasId ? `canevas inconnu : ${canvasId}` : "aucun canevas : définir d'abord le patch et un canevas (venue.canvas.auto)");
+      if (!canvas) throw new Error(canvasId ? say(`canevas inconnu : ${canvasId}`, `unknown canvas: ${canvasId}`) : say("aucun canevas : définir d'abord le patch et un canevas (venue.canvas.auto)", "no canvas: set up the patch and a canvas first (venue.canvas.auto)"));
       const kb = knowledge();
       const palettes: Palette[] = [];
       const looks: Look[] = [];

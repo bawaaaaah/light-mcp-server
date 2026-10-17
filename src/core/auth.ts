@@ -16,6 +16,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 import type { ConfigStore } from "./config-store.js";
 import { HttpError } from "./http-errors.js";
+import { say } from "./lang.js";
 
 export type AuthKind = "static" | "session" | "oauth";
 
@@ -171,12 +172,12 @@ export class AuthService implements AuthMiddleware {
   /** A right: "*", "<area>:*" or "<area>:<action>". */
   private checkRights(rights: string[]): string[] {
     const bad = rights.find((r) => !/^(\*|[a-z]+:(\*|[a-z-]+))$/.test(r));
-    if (bad) throw new HttpError(400, `droit invalide : ${bad}`);
+    if (bad) throw new HttpError(400, say(`droit invalide : ${bad}`, `invalid right: ${bad}`));
     return [...new Set(rights)];
   }
 
   async addRole(input: { name: string; rights: string[]; dashboards?: string[] }): Promise<Role> {
-    if (!input.name.trim()) throw new HttpError(400, "nom requis");
+    if (!input.name.trim()) throw new HttpError(400, say("nom requis", "name required"));
     const base = input.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "role";
     let id = base;
     for (let i = 2; this.state.roles.some((r) => r.id === id); i++) id = `${base}-${i}`;
@@ -199,9 +200,9 @@ export class AuthService implements AuthMiddleware {
   /** Built-in roles stay; a role still given to a user cannot go. */
   async deleteRole(id: string): Promise<void> {
     this.role(id);
-    if (DEFAULT_ROLES.some((r) => r.id === id)) throw new HttpError(400, "un rôle de base ne se supprime pas");
+    if (DEFAULT_ROLES.some((r) => r.id === id)) throw new HttpError(400, say("un rôle de base ne se supprime pas", "a built-in role cannot be deleted"));
     const users = this.state.users.filter((u) => u.role === id).map((u) => u.name);
-    if (users.length) throw new HttpError(409, `rôle encore donné à : ${users.join(", ")}`);
+    if (users.length) throw new HttpError(409, say(`rôle encore donné à : ${users.join(", ")}`, `role still given to: ${users.join(", ")}`));
     this.state.roles = this.state.roles.filter((r) => r.id !== id);
     await this.save();
   }
@@ -213,13 +214,13 @@ export class AuthService implements AuthMiddleware {
 
   private role(id: string): Role {
     const role = this.state.roles.find((r) => r.id === id);
-    if (!role) throw new HttpError(400, `rôle inconnu : ${id}`);
+    if (!role) throw new HttpError(400, say(`rôle inconnu : ${id}`, `unknown role: ${id}`));
     return role;
   }
 
   private user(id: string): User {
     const user = this.state.users.find((u) => u.id === id);
-    if (!user) throw new HttpError(404, `utilisateur inconnu : ${id}`);
+    if (!user) throw new HttpError(404, say(`utilisateur inconnu : ${id}`, `unknown user: ${id}`));
     return user;
   }
 
@@ -242,9 +243,9 @@ export class AuthService implements AuthMiddleware {
 
   /** A PIN is unique among users, so a PIN alone (no user picked) still finds its user. */
   private checkPin(pin: string, exceptUser: string): string {
-    if (!PIN_RE.test(pin)) throw new HttpError(400, "PIN : 4 à 8 chiffres");
+    if (!PIN_RE.test(pin)) throw new HttpError(400, say("PIN : 4 à 8 chiffres", "PIN: 4 to 8 digits"));
     if (this.state.users.some((u) => u.id !== exceptUser && u.pinHash && verifyPin(pin, u.pinHash))) {
-      throw new HttpError(409, "ce PIN est déjà celui d'un autre utilisateur");
+      throw new HttpError(409, say("ce PIN est déjà celui d'un autre utilisateur", "this PIN already belongs to another user"));
     }
     return hashPin(pin);
   }
@@ -306,7 +307,7 @@ export class AuthService implements AuthMiddleware {
   /** A session for a user who proved who they are some other way (a hardware key). */
   openSession(userId: string): { token: string; user: UserSummary; role: Role } {
     const user = this.user(userId);
-    if (user.disabled) throw new HttpError(403, "utilisateur désactivé");
+    if (user.disabled) throw new HttpError(403, say("utilisateur désactivé", "user disabled"));
     const token = crypto.randomBytes(24).toString("base64url");
     this.sessions.set(hashToken(token), { userId: user.id, expiresAt: this.now() + SESSION_TTL_MS });
     this.saveSessions();
@@ -359,14 +360,14 @@ export class AuthService implements AuthMiddleware {
     for (const [c, e] of this.pinFailures) if (e.resetAt <= now) this.pinFailures.delete(c);
     const failures = this.pinFailures.get(client);
     if (failures && failures.count >= MAX_PIN_FAILURES) {
-      throw new HttpError(429, `trop d'essais : réessayer dans ${Math.ceil((failures.resetAt - now) / 1000)} s`);
+      throw new HttpError(429, say(`trop d'essais : réessayer dans ${Math.ceil((failures.resetAt - now) / 1000)} s`, `too many attempts: try again in ${Math.ceil((failures.resetAt - now) / 1000)} s`));
     }
     const user = this.state.users.find((u) => (!userId || u.id === userId) && !u.disabled && u.pinHash && verifyPin(pin, u.pinHash));
     if (!user) {
       const entry = this.pinFailures.get(client) ?? { count: 0, resetAt: now + PIN_FAILURE_WINDOW_MS };
       entry.count++;
       this.pinFailures.set(client, entry);
-      throw new HttpError(401, "PIN incorrect");
+      throw new HttpError(401, say("PIN incorrect", "wrong PIN"));
     }
     this.pinFailures.delete(client);
     return this.openSession(user.id);
@@ -448,7 +449,7 @@ export class AuthService implements AuthMiddleware {
     return (req: Request, _res: Response, next: NextFunction) => {
       const credential = this.bearerOf(req);
       if (!this.isAuthorized(req)) return next(new HttpError(401, "Unauthorized"));
-      if (!this.can(credential, right)) return next(new HttpError(403, `droit requis : ${right}`));
+      if (!this.can(credential, right)) return next(new HttpError(403, say(`droit requis : ${right}`, `right required: ${right}`)));
       next();
     };
   }

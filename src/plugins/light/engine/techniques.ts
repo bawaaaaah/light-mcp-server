@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import type { Color } from "../venue/venue.js";
+import { say } from "../../../core/lang.js";
 
 export type CellState = Color | null; // null: cell not driven by this technique
 export type Step = CellState[];
@@ -63,7 +64,7 @@ export type Technique = z.infer<typeof TechniqueSchema>;
 /** "#ff960f" or "#ff960f+w40" → colour (0..1 components). */
 export function hexToColor(hex: string): Color {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})(?:\+w(\d{1,3}))?$/i.exec(hex.trim());
-  if (!m) throw new Error(`couleur invalide : ${hex}`);
+  if (!m) throw new Error(say(`couleur invalide : ${hex}`, `invalid colour: ${hex}`));
   const c: Color = { red: parseInt(m[1]!, 16) / 255, green: parseInt(m[2]!, 16) / 255, blue: parseInt(m[3]!, 16) / 255 };
   if (m[4]) c.white = Number(m[4]) / 255;
   return c;

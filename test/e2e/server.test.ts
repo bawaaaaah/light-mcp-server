@@ -98,6 +98,19 @@ describe("server end to end", function () {
     }
   });
 
+  it("answers in English an interface set to English, in French everyone else", async () => {
+    const token = await login("1234");
+    const ask = async (headers: Record<string, string>) => {
+      const res = await fetch(`${base}/api/plugins/light/commands/look.go`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...headers }, body: JSON.stringify({ id: "nope" }) });
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await ask({ "x-light-lang": "en" })).to.contain("unknown look: nope");
+    expect(await ask({})).to.contain("look inconnu : nope");
+    expect(await ask({ "x-light-lang": "de" })).to.contain("look inconnu"); // a language the server does not speak: French
+    const pin = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json", "x-light-lang": "en" }, body: JSON.stringify({ pin: "0000" }) });
+    expect(((await pin.json()) as { error: string }).error).to.equal("wrong PIN");
+  });
+
   it("refuses a wrong PIN", async () => {
     const res = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "0000" }) });
     expect(res.status).to.equal(401);

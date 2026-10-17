@@ -9,6 +9,7 @@
 import { z } from "zod";
 import type { PatchedFixture } from "./venue.js";
 import { facingText } from "./orientation.js";
+import { say } from "../../../core/lang.js";
 
 export const ZoneSchema = z.object({
   id: z.string(),
@@ -57,19 +58,19 @@ export function queryStage(fixtures: PatchedFixture[], zones: Zone[], q: StageQu
     const reasons: string[] = [];
     if (q.role) {
       if (f.role !== q.role) continue;
-      reasons.push(`rôle ${f.role}`);
+      reasons.push(say(`rôle ${f.role}`, `role ${f.role}`));
     }
     if (q.inZone) {
       if (located?.id !== q.inZone) continue;
-      reasons.push(`dans ${located.name}`);
+      reasons.push(say(`dans ${located.name}`, `in ${located.name}`));
     }
     if (q.aimingAt) {
       if (f.target !== q.aimingAt) continue;
-      reasons.push(`vise ${q.aimingAt}`);
+      reasons.push(say(`vise ${q.aimingAt}`, `aims at ${q.aimingAt}`));
     }
     if (q.tags) {
       if (!q.tags.every((t) => f.tags.includes(t))) continue;
-      reasons.push(`tags ${q.tags.join(", ")}`);
+      reasons.push(say(`tags ${q.tags.join(", ")}`, `tags ${q.tags.join(", ")}`));
     }
     out.push({ fixture: f, zone: located?.id, why: reasons.join(" · ") || "toutes" });
   }

@@ -15,6 +15,7 @@ import { songBoard } from "../songs/board.js";
 import { writeMidiFile, type MidiFileEvent } from "../ableton/midi-file.js";
 import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
+import { say } from "../../../core/lang.js";
 
 export interface SongState {
   setlist?: string;
@@ -67,13 +68,13 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   const song = (songId?: string) => {
     const sid = songId ?? s.state.song;
     const found = sid ? s.songs.get(sid) : undefined;
-    if (!found) throw new Error(sid ? `chant inconnu : ${sid}` : "aucun chant sélectionné");
+    if (!found) throw new Error(sid ? say(`chant inconnu : ${sid}`, `unknown song: ${sid}`) : say("aucun chant sélectionné", "no song selected"));
     return found;
   };
   /** `auto`: asked by the timeline or the AI — a « manuel seulement » look then refuses. */
   const goSection = (sg: Song, sectionId: string, auto = false) => {
     const sec = sg.sections.find((x) => x.id === sectionId);
-    if (!sec) throw new Error(`section inconnue : ${sectionId}`);
+    if (!sec) throw new Error(say(`section inconnue : ${sectionId}`, `unknown section: ${sectionId}`));
     if (sec.look) s.runtime.go(sec.look, auto);
     applySectionProgram(s, sec);
     s.state.song = sg.id;
@@ -92,15 +93,15 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     schema: z.object({ song: SongSchema }),
     run: ({ song: sg }) => {
       for (const sec of sg.sections) {
-        if (sec.look && !s.runtime.looks.get(sec.look)) throw new Error(`section ${sec.id} : look inconnu ${sec.look}`);
-        if (sec.program && !s.runtime.programs.get(sec.program)) throw new Error(`section ${sec.id} : programme inconnu ${sec.program}`);
+        if (sec.look && !s.runtime.looks.get(sec.look)) throw new Error(say(`section ${sec.id} : look inconnu ${sec.look}`, `section ${sec.id}: unknown look ${sec.look}`));
+        if (sec.program && !s.runtime.programs.get(sec.program)) throw new Error(say(`section ${sec.id} : programme inconnu ${sec.program}`, `section ${sec.id}: unknown program ${sec.program}`));
       }
       for (const c of sg.cues) {
         const def = reg.get(c.command);
-        if (!def) throw new Error(`action ${c.id} : commande inconnue ${c.command}`);
-        if (/^song\.|^setlist\./.test(c.command)) throw new Error(`action ${c.id} : une action de chant ne peut pas piloter les chants (${c.command})`);
+        if (!def) throw new Error(say(`action ${c.id} : commande inconnue ${c.command}`, `cue ${c.id}: unknown command ${c.command}`));
+        if (/^song\.|^setlist\./.test(c.command)) throw new Error(say(`action ${c.id} : une action de chant ne peut pas piloter les chants (${c.command})`, `cue ${c.id}: a song cue cannot drive songs (${c.command})`));
         const parsed = def.schema.safeParse(c.args);
-        if (!parsed.success) throw new Error(`action ${c.id} (${c.command}) : ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", ")}`);
+        if (!parsed.success) throw new Error(say(`action ${c.id} (${c.command}) : ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", ")}`, `cue ${c.id} (${c.command}): ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", ")}`));
       }
       return s.songs.put(sg);
     },
@@ -137,7 +138,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       if (s.tempo.state().source !== "midi") s.tempo.setBpm(sg.bpm);
       const placed = placeSections(sg);
       const offset = section !== undefined ? placed.find((p) => p.section.id === section)?.startBeat : bar !== undefined ? bar * sg.beatsPerBar : 0;
-      if (offset === undefined) throw new Error(`section inconnue : ${section}`);
+      if (offset === undefined) throw new Error(say(`section inconnue : ${section}`, `unknown section: ${section}`));
       s.state.song = sg.id;
       s.state.section = undefined;
       s.state.transport = { playing: true, startBeats: s.tempo.state().beats, offset };
@@ -223,7 +224,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     const sg = song();
     const i = sg.sections.findIndex((x) => x.id === s.state.section);
     const next = sg.sections[Math.max(0, Math.min(sg.sections.length - 1, i + dir))];
-    if (!next) throw new Error("chant sans section");
+    if (!next) throw new Error(say("chant sans section", "song without sections"));
     return goSection(sg, next.id, isAuto(ctx.origin));
   };
   reg.register({ name: "song.next", title: "Section suivante", description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
@@ -247,10 +248,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({ name: "setlist.put", title: "Setlist", description: "Creates or updates a setlist (ordered song ids).", right: "show:write", profiles: ["design"], schema: z.object({ setlist: SetlistSchema }), run: ({ setlist }) => s.setlists.put(setlist) });
   const setlistStep = (dir: 1 | -1) => () => {
     const sl = s.state.setlist ? s.setlists.get(s.state.setlist) : undefined;
-    if (!sl) throw new Error("aucune setlist sélectionnée");
+    if (!sl) throw new Error(say("aucune setlist sélectionnée", "no setlist selected"));
     const i = sl.songs.indexOf(s.state.song ?? "");
     const next = sl.songs[Math.max(0, Math.min(sl.songs.length - 1, i + dir))];
-    if (!next) throw new Error("setlist vide");
+    if (!next) throw new Error(say("setlist vide", "empty setlist"));
     return reg.invoke("song.select", { id: next }, { origin: "system", can: () => true });
   };
   reg.register({
@@ -262,7 +263,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     schema: id,
     run: async ({ id: i }) => {
       const sl = s.setlists.get(i);
-      if (!sl) throw new Error(`setlist inconnue : ${i}`);
+      if (!sl) throw new Error(say(`setlist inconnue : ${i}`, `unknown setlist: ${i}`));
       s.state.setlist = i;
       return sl.songs[0] ? reg.invoke("song.select", { id: sl.songs[0] }, { origin: "system", can: () => true }) : { setlist: i };
     },
@@ -298,9 +299,9 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     schema: z.object({ setlist: z.string(), als: z.string(), track: z.string(), name: z.string().default("setlist"), gapBars: z.number().int().min(0).default(10) }),
     run: ({ setlist, als, track, name, gapBars }) => {
       const sl = s.setlists.get(setlist);
-      if (!sl) throw new Error(`setlist inconnue : ${setlist}`);
+      if (!sl) throw new Error(say(`setlist inconnue : ${setlist}`, `unknown setlist: ${setlist}`));
       const src = path.resolve(s.dataRoot, "private", als);
-      if (!src.startsWith(path.resolve(s.dataRoot, "private") + path.sep) || !existsSync(src)) throw new Error(`Live Set introuvable : data/private/${als}`);
+      if (!src.startsWith(path.resolve(s.dataRoot, "private") + path.sep) || !existsSync(src)) throw new Error(say(`Live Set introuvable : data/private/${als}`, `Live Set not found: data/private/${als}`));
       const locators: { time: number; name: string }[] = [];
       const clips: ClipSpec[] = [];
       const tempo: { start: number; end: number; bpm: number }[] = [];

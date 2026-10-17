@@ -45,6 +45,7 @@ import { getPackageVersion } from "../../core/version.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
+import { say } from "../../core/lang.js";
 
 export const PLUGIN_ID = "light";
 /** First look for the day's automatic backup after start (a short test server never writes one), then hourly. */
@@ -171,7 +172,7 @@ export class LightPlugin implements McpPlugin {
       profiles: () => this.config.midi.profiles,
       activeProfile: () => this.config.midi.active,
       selectProfile: async (name) => {
-        if (!this.config.midi.profiles[name]) throw new Error(`profil inconnu : ${name}`);
+        if (!this.config.midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
         this.config = { ...this.config, midi: { ...this.config.midi, active: name } };
         await this.hub.setConfig(this.activeMidiProfile());
         await this.opts.config?.set(this.config);
@@ -495,7 +496,7 @@ export class LightPlugin implements McpPlugin {
     return {
       status,
       detail: { frames: this.engine.frames, packets: s.packetsSent, errors: s.errors, discovery: s.discovery, nodes: this.router.registry.list().length },
-      ...(s.discovery === "unavailable" ? { errorMessage: `découverte Art-Net indisponible (port 6454 occupé ?) : ${s.discoveryError}` } : {}),
+      ...(s.discovery === "unavailable" ? { errorMessage: say(`découverte Art-Net indisponible (port 6454 occupé ?) : ${s.discoveryError}`, `Art-Net discovery unavailable (port 6454 taken?): ${s.discoveryError}`) } : {}),
       ...(warnings.length ? { warnings } : {}),
     };
   }
@@ -609,7 +610,7 @@ export class LightPlugin implements McpPlugin {
       { title: "Chant", description: "One song: sections with their looks (by name), cues, tempo and mood.", mimeType: "application/json" },
       async (uri, vars, extra) => {
         const song = ((await this.commands.invoke("song.list", {}, as(extra))) as SongRow[]).find((x) => x.id === String(vars.id));
-        if (!song) throw new Error(`chant inconnu : ${String(vars.id)}`);
+        if (!song) throw new Error(say(`chant inconnu : ${String(vars.id)}`, `unknown song: ${String(vars.id)}`));
         return json(uri, { ...song, sections: song.sections.map((x) => ({ ...x, lookName: lookName(x.look) })) });
       },
     );
@@ -657,7 +658,7 @@ export class LightPlugin implements McpPlugin {
 
   async setConfig(config: unknown): Promise<void> {
     const next = LightConfigSchema.parse(config);
-    if (next.universes !== this.config.universes) throw new HttpError(409, "changer le nombre d'univers demande un redémarrage");
+    if (next.universes !== this.config.universes) throw new HttpError(409, say("changer le nombre d'univers demande un redémarrage", "changing the number of universes needs a restart"));
     this.config = next;
     this.router.setConfig(next.output as OutputConfig);
     await this.opts.config?.set(next);
@@ -681,7 +682,7 @@ export class LightPlugin implements McpPlugin {
     });
     router.get("/state", (_req, res) => res.json(this.state()));
     router.get("/archive", (req: Request, res: Response) => {
-      if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, "droit requis : show:write");
+      if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
       const withVenue = req.query.venue !== "0";
       this.show.flushLive(); // live levels not yet on disk
       const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined });
@@ -690,12 +691,12 @@ export class LightPlugin implements McpPlugin {
       res.send(Buffer.from(zip));
     });
     router.post("/archive", express.raw({ type: () => true, limit: "64mb" }), (req: Request, res: Response) => {
-      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, "droit requis : show:write");
+      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
       let content: ReturnType<typeof readArchive>;
       try {
         content = readArchive(new Uint8Array(req.body as Buffer));
       } catch (err) {
-        throw new HttpError(400, `archive illisible : ${(err as Error).message}`);
+        throw new HttpError(400, say(`archive illisible : ${(err as Error).message}`, `unreadable archive: ${(err as Error).message}`));
       }
       if (req.query.dryRun === "1") {
         // preview: what restoring would change, nothing written
@@ -710,9 +711,9 @@ export class LightPlugin implements McpPlugin {
       res.json({ restored: true, ...this.restoreArchive(new Uint8Array(req.body as Buffer)) });
     });
     router.get("/backups/:file", (req: Request, res: Response) => {
-      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, "droit requis : show:write");
+      if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
       const file = backupPath(this.dataRoot, String(req.params.file));
-      if (!file) throw new HttpError(404, "sauvegarde inconnue");
+      if (!file) throw new HttpError(404, say("sauvegarde inconnue", "unknown backup"));
       res.download(file);
     });
   }

@@ -19,6 +19,7 @@ import { qxwToShow } from "../presets/qxw-to-show.js";
 import { NoteRegistry, NoteRegistrySchema } from "../midi/note-registry.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { rebuild } from "../presets/rebuild.js";
+import { say } from "../../../core/lang.js";
 
 export interface ImportServices {
   runtime: ShowRuntime;
@@ -44,7 +45,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       const def = parseQxf(xml); // throws on anything that is not a definition
       const file = `${path.basename(name).replace(/\.qxf$/i, "").replace(/[^\w.-]+/g, "-").slice(0, 100) || "definition"}.qxf`;
       const target = path.join(s.fixturesDir, file);
-      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace) throw new Error(`${file} existe déjà (replace pour le remplacer)`);
+      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace) throw new Error(say(`${file} existe déjà (replace pour le remplacer)`, `${file} already exists (replace to replace it)`));
       mkdirSync(s.fixturesDir, { recursive: true });
       writeFileSync(target, xml);
       s.runtime.venue.refreshDefinitions();
@@ -69,9 +70,9 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     run: ({ file, xml, apply, replace, force }) => {
       let text = xml;
       if (!text) {
-        if (!file) throw new Error("donner file ou xml");
+        if (!file) throw new Error(say("donner file ou xml", "give file or xml"));
         const resolved = path.resolve(s.importsDir, file);
-        if (!resolved.startsWith(path.resolve(s.importsDir) + path.sep)) throw new Error("fichier hors du dossier imports");
+        if (!resolved.startsWith(path.resolve(s.importsDir) + path.sep)) throw new Error(say("fichier hors du dossier imports", "file outside the imports folder"));
         text = readFileSync(resolved, "utf8");
       }
       const ws = parseQxw(text);
@@ -86,7 +87,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
         const owner = taken.get(mappingInputKey(m));
         return owner && owner !== m.id ? owner : undefined;
       };
-      const conflicts = p.mappings.filter((m) => ownerOf(m)).map((m) => `mapping « ${m.label || m.id} » non importé : son entrée MIDI est déjà celle de ${ownerOf(m)}`);
+      const conflicts = p.mappings.filter((m) => ownerOf(m)).map((m) => say(`mapping « ${m.label || m.id} » non importé : son entrée MIDI est déjà celle de ${ownerOf(m)}`, `mapping “${m.label || m.id}” not imported: its MIDI input is already ${ownerOf(m)}'s`));
       const freeMappings = p.mappings.filter((m) => !ownerOf(m));
       // Another workspace merged into this show would replace its canvases and looks of the same
       // name (a 101-cell canvas once became a 4-cell one): it belongs in a show of its own.
@@ -94,7 +95,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       const shared = p.fixtures.filter((f) => knownFixtures.includes(f.id)).length;
       const otherWorkspace =
         knownFixtures.length > 0 && shared < Math.min(knownFixtures.length, p.fixtures.length) / 2
-          ? `ce workspace n'est pas celui de ce show (${shared} projecteur(s) en commun sur ${p.fixtures.length}) : ses canevas et looks de même nom remplaceraient ceux du show. L'importer dans un autre show, ou forcer (force).`
+          ? say(`ce workspace n'est pas celui de ce show (${shared} projecteur(s) en commun sur ${p.fixtures.length}) : ses canevas et looks de même nom remplaceraient ceux du show. L'importer dans un autre show, ou forcer (force).`, `this workspace is not this show's (${shared} fixture(s) in common out of ${p.fixtures.length}): its canvases and looks of the same name would replace the show's. Import it into another show, or force it (force).`)
           : undefined;
       const leftOut = new Set(p.mappings.filter((m) => ownerOf(m)).map((m) => mappingInputKey(m)));
       const summary = {

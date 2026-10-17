@@ -7,6 +7,7 @@ import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { calibrate, type CalibrationSample } from "../venue/aim.js";
 import { isHung } from "../venue/orientation.js";
+import { say } from "../../../core/lang.js";
 
 /** Fixtures given directly or through a group, kept to the moving heads. */
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
@@ -14,9 +15,9 @@ const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.str
 export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): void {
   const targets = (t: z.infer<typeof Target>): string[] => {
     const heads = new Set(show.movingHeads());
-    if (t.group && !show.groups.get(t.group)) throw new Error(`groupe inconnu : ${t.group}`);
+    if (t.group && !show.groups.get(t.group)) throw new Error(say(`groupe inconnu : ${t.group}`, `unknown group: ${t.group}`));
     const ids = t.fixtures ?? (t.group ? [...show.fixturesOf(t.group)] : [...heads]);
-    for (const f of ids) if (!show.venue.fixtures.get(f)) throw new Error(`fixture inconnue : ${f}`);
+    for (const f of ids) if (!show.venue.fixtures.get(f)) throw new Error(say(`fixture inconnue : ${f}`, `unknown fixture: ${f}`));
     return ids.filter((f) => heads.has(f));
   };
 
@@ -68,11 +69,11 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
       let target = point;
       if (zone) {
         const zn = show.zones.get(zone);
-        if (!zn) throw new Error(`zone inconnue : ${zone}`);
+        if (!zn) throw new Error(say(`zone inconnue : ${zone}`, `unknown zone: ${zone}`));
         const n = zn.polygon.length;
         target = { x: zn.polygon.reduce((a, p) => a + p[0], 0) / n, y: zn.polygon.reduce((a, p) => a + p[1], 0) / n, z: zn.floorHeight + height };
       }
-      if (!target) throw new Error("zone ou point requis");
+      if (!target) throw new Error(say("zone ou point requis", "zone or point required"));
       return { target, results: show.aim(targets(t), target) };
     },
   });
@@ -82,16 +83,16 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
   const head = (id: string) => {
     const f = show.venue.fixtures.get(id);
     const r = show.venue.resolve(id);
-    if (!f || "error" in r) throw new Error(f ? (r as { error: string }).error : `fixture inconnue : ${id}`);
-    if (!r.pan && !r.tilt) throw new Error(`${f.name} : pas de pan/tilt`);
-    if (!f.position) throw new Error(`${f.name} : position sur la scène inconnue (la placer d'abord)`);
+    if (!f || "error" in r) throw new Error(f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`));
+    if (!r.pan && !r.tilt) throw new Error(say(`${f.name} : pas de pan/tilt`, `${f.name}: no pan/tilt`));
+    if (!f.position) throw new Error(say(`${f.name} : position sur la scène inconnue (la placer d'abord)`, `${f.name}: stage position unknown (place it first)`));
     return { f, r };
   };
   const pointOf = (zone: string | undefined, point: { x: number; y: number; z: number } | undefined, height: number) => {
     if (point) return point;
-    if (!zone) throw new Error("zone ou point requis");
+    if (!zone) throw new Error(say("zone ou point requis", "zone or point required"));
     const zn = show.zones.get(zone);
-    if (!zn) throw new Error(`zone inconnue : ${zone}`);
+    if (!zn) throw new Error(say(`zone inconnue : ${zone}`, `unknown zone: ${zone}`));
     const n = zn.polygon.length;
     return { x: zn.polygon.reduce((a, p) => a + p[0], 0) / n, y: zn.polygon.reduce((a, p) => a + p[1], 0) / n, z: zn.floorHeight + height };
   };
@@ -106,7 +107,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
     run: ({ fixture, zone, point, height }) => {
       const { f } = head(fixture);
       const manual = show.manualPosition(fixture);
-      if (!manual) throw new Error(`${f.name} : la viser d'abord à la main (pad XY), puis enregistrer`);
+      if (!manual) throw new Error(say(`${f.name} : la viser d'abord à la main (pad XY), puis enregistrer`, `${f.name}: aim it by hand first (XY pad), then record`));
       const o = f.orientation;
       // the output values, as the fixture really receives them (current inversion and swap)
       let pan = o?.invertPan ? 1 - manual.pan : manual.pan;

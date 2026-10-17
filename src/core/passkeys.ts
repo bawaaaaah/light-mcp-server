@@ -16,6 +16,7 @@ import { signedInView, type AuthService } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
 import { bodyField, bodyString } from "./http-body.js";
 import { HttpError } from "./http-errors.js";
+import { say } from "./lang.js";
 
 // A WebAuthn ceremony is a human-scale round trip (touching a key, a Touch ID prompt): a few
 // minutes is plenty, and anything unanswered after that is abandoned.
@@ -182,7 +183,7 @@ export class PasskeyService {
   async authenticate(rp: RelyingParty, response: AuthenticationResponseJSON): Promise<PasskeySummary> {
     if (!response || typeof response !== "object") throw new PasskeyError("réponse de la clé absente");
     const passkey = this.passkeys.find((p) => p.id === response.id);
-    if (!passkey) throw new PasskeyError("clé inconnue");
+    if (!passkey) throw new PasskeyError(say("clé inconnue", "unknown key"));
     let verification;
     try {
       verification = await verifyAuthenticationResponse({
@@ -246,7 +247,7 @@ export class PasskeyService {
 
 function requireRelyingParty(passkeys: PasskeyService, req: Request): RelyingParty {
   const rp = passkeys.relyingPartyFor(req);
-  if (!rp) throw new HttpError(400, "clés indisponibles depuis cette adresse : passer par localhost ou par l'adresse publique HTTPS (server.publicUrl)");
+  if (!rp) throw new HttpError(400, say("clés indisponibles depuis cette adresse : passer par localhost ou par l'adresse publique HTTPS (server.publicUrl)", "security keys are not available from this address: use localhost or the public HTTPS address (server.publicUrl)"));
   return rp;
 }
 
@@ -273,10 +274,10 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthService)
     const credential = auth.bearerOf(req);
     const self = auth.userOf(credential);
     const id = wanted ?? self?.id;
-    if (!id) throw new HttpError(400, "choisir l'utilisateur de la clé");
-    if (id !== self?.id && !auth.can(credential, "auth:admin")) throw new HttpError(403, "droit requis : auth:admin");
+    if (!id) throw new HttpError(400, say("choisir l'utilisateur de la clé", "choose the user of the key"));
+    if (id !== self?.id && !auth.can(credential, "auth:admin")) throw new HttpError(403, say("droit requis : auth:admin", "right required: auth:admin"));
     const user = auth.userById(id);
-    if (!user) throw new HttpError(404, `utilisateur inconnu : ${id}`);
+    if (!user) throw new HttpError(404, say(`utilisateur inconnu : ${id}`, `unknown user: ${id}`));
     return user;
   };
 
@@ -332,7 +333,7 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthService)
     handle(async (req, res) => {
       const id = String(req.params.id);
       const key = passkeys.list().find((p) => p.id === id);
-      if (!key) throw new HttpError(404, "clé inconnue");
+      if (!key) throw new HttpError(404, say("clé inconnue", "unknown key"));
       target(req, key.userId); // its own user, or an administrator
       await passkeys.remove(id);
       res.status(204).end();

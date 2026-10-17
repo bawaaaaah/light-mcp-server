@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { ZodType, ZodTypeDef } from "zod";
 import { historyTime } from "./retention.js";
+import { say } from "../../../core/lang.js";
 
 export const SCHEMA_VERSION = 1;
 
@@ -118,7 +119,7 @@ export class Collection<T extends { id: string }> {
 
   put(value: unknown): T {
     const item = this.schema.parse(value);
-    if (!ID_RE.test(item.id)) throw new Error(`identifiant invalide : « ${item.id} » (a-z, 0-9, - et _)`);
+    if (!ID_RE.test(item.id)) throw new Error(say(`identifiant invalide : « ${item.id} » (a-z, 0-9, - et _)`, `invalid id: “${item.id}” (a-z, 0-9, - and _)`));
     const dir = join(this.store.root, this.name);
     mkdirSync(dir, { recursive: true });
     const path = join(dir, `${item.id}.json`);

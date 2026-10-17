@@ -6,6 +6,7 @@
  */
 import { generateSteps, hexToColor, type Technique } from "../engine/techniques.js";
 import type { Color } from "../venue/venue.js";
+import { say } from "../../../core/lang.js";
 
 type Rgbw = [number, number, number, number];
 const toRgbw = (c: Color | null): Rgbw | null => (c ? [Math.round((c.red ?? 0) * 255), Math.round((c.green ?? 0) * 255), Math.round((c.blue ?? 0) * 255), Math.round((c.white ?? 0) * 255)] : null);
@@ -104,8 +105,8 @@ export function rebuild(steps: string[][], recognised: string, mirror: boolean):
     default:
       return { technique: null, fidelity: 0, reason: `pas de reconstruction pour « ${recognised} » : le look reste en pas exacts` };
   }
-  if (!candidate) return { technique: null, fidelity: 0, reason: "paramètres introuvables" };
+  if (!candidate) return { technique: null, fidelity: 0, reason: say("paramètres introuvables", "parameters not found") };
   // Try both mirror settings implicitly via the canvas topology passed in.
   const score = fidelity(steps, candidate, mirror);
-  return { technique: candidate, fidelity: score, reason: score >= 0.9 ? "fidèle" : `fidélité ${Math.round(score * 100)} % : à vérifier` };
+  return { technique: candidate, fidelity: score, reason: score >= 0.9 ? say("fidèle", "faithful") : say(`fidélité ${Math.round(score * 100)} % : à vérifier`, `fidelity ${Math.round(score * 100)} %: to check`) };
 }

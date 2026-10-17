@@ -9,6 +9,7 @@
  * MCP tools and HTTP routes are generated from this registry: no business logic lives in adapters.
  */
 import { z, type ZodTypeAny } from "zod";
+import { say } from "../../../core/lang.js";
 
 export type Origin = "ui" | "midi" | "osc" | "mcp" | "timeline" | "cli" | "system";
 
@@ -81,14 +82,14 @@ export class CommandRegistry {
 
   async invoke(name: string, rawArgs: unknown, ctx: CommandContext): Promise<unknown> {
     const def = this.commands.get(name);
-    if (!def) throw new CommandError("unknown", `commande inconnue : ${name}`);
-    if (!ctx.can(def.right)) throw new CommandError("forbidden", `droit requis : ${def.right}`);
+    if (!def) throw new CommandError("unknown", say(`commande inconnue : ${name}`, `unknown command: ${name}`));
+    if (!ctx.can(def.right)) throw new CommandError("forbidden", say(`droit requis : ${def.right}`, `right required: ${def.right}`));
     const parsed = def.schema.safeParse(rawArgs ?? {});
     if (!parsed.success) {
       // the first problem, where it is: a person or an AI client can act on it without the details
       const first = parsed.error.issues[0];
-      const where = first?.path.length ? `${first.path.join(".")} : ` : "";
-      throw new CommandError("invalid", `arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, parsed.error.flatten());
+      const where = first?.path.length ? `${first.path.join(".")}${say(" : ", ": ")}` : "";
+      throw new CommandError("invalid", say(`arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, `invalid arguments for ${name}${first ? ` (${where}${first.message})` : ""}`), parsed.error.flatten());
     }
     const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}) };
     try {

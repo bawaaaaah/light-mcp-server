@@ -8,6 +8,7 @@ import { MappingSchema, type Mapping, type MidiMapper } from "../midi/mapping.js
 import type { Collection } from "../data/store.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { oscRoutes } from "../osc/server.js";
+import { say } from "../../../core/lang.js";
 
 export const MidiProfileSchema = z.object({
   inputs: z.array(z.string()).default([]),
@@ -118,7 +119,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
       new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           s.hub.off("message", handler);
-          reject(new Error("aucun message MIDI reçu"));
+          reject(new Error(say("aucun message MIDI reçu", "no MIDI message received")));
         }, timeoutMs);
         const handler = (m: HubMessage) => {
           const msg = m.msg;

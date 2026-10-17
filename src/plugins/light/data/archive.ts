@@ -6,6 +6,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { say } from "../../../core/lang.js";
 
 export interface ArchiveManifest {
   format: "lightshow";
@@ -42,13 +43,13 @@ export interface ArchiveContent {
 export function readArchive(bytes: Uint8Array): ArchiveContent {
   const entries = unzipSync(bytes);
   const raw = entries["manifest.json"];
-  if (!raw) throw new Error("archive .lightshow invalide : manifest.json absent");
+  if (!raw) throw new Error(say("archive .lightshow invalide : manifest.json absent", "invalid .lightshow archive: manifest.json missing"));
   const manifest = JSON.parse(strFromU8(raw)) as ArchiveManifest;
-  if (manifest.format !== "lightshow") throw new Error("ce fichier n'est pas une archive .lightshow");
+  if (manifest.format !== "lightshow") throw new Error(say("ce fichier n'est pas une archive .lightshow", "this file is not a .lightshow archive"));
   const show: Record<string, string> = {};
   const venue: Record<string, string> = {};
   for (const [name, data] of Object.entries(entries)) {
-    if (name.includes("..") || path.isAbsolute(name)) throw new Error(`chemin interdit dans l'archive : ${name}`);
+    if (name.includes("..") || path.isAbsolute(name)) throw new Error(say(`chemin interdit dans l'archive : ${name}`, `forbidden path in the archive: ${name}`));
     if (!name.endsWith(".json")) continue;
     if (name.startsWith("show/")) show[name.slice(5)] = strFromU8(data);
     else if (name.startsWith("venue/")) venue[name.slice(6)] = strFromU8(data);
@@ -98,7 +99,7 @@ export function restoreFolder(dir: string, files: Record<string, string>, backup
   }
   for (const [rel, text] of Object.entries(files)) {
     const target = path.join(dir, rel);
-    if (!target.startsWith(path.resolve(dir) + path.sep)) throw new Error(`chemin interdit : ${rel}`);
+    if (!target.startsWith(path.resolve(dir) + path.sep)) throw new Error(say(`chemin interdit : ${rel}`, `forbidden path: ${rel}`));
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, text, "utf8");
   }

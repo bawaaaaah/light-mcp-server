@@ -24,7 +24,7 @@ src/
     ws-hub.ts, ws-codec.ts, ws-rest.ts
     mcp-gateway-server.ts, mcp-runtime.ts, mcp-server-factory.ts, stdio-endpoint.ts, tool-catalogue.ts
     extensions/                # chargement des plugins (manifeste, apiVersion, permissions, secrets)
-    i18n/                      # messages serveur et MCP FR/EN
+    lang.ts                    # langue de la réponse : say(fr, en), en-tête x-light-lang de l'interface, français par défaut
   plugins/light/
     light-plugin.ts
     commands/                  # couche de commandes unique

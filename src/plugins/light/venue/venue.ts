@@ -16,6 +16,7 @@ import { displayHex } from "../engine/display.js";
 import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
 import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
+import { say } from "../../../core/lang.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -206,9 +207,9 @@ export class Venue {
    * unpatched fixture, or a channel beyond its mode. Without a definition the count is unknown: fine.
    */
   channelProblem(c: { fixture: string; offset: number }): string | undefined {
-    if (!this.fixtures.get(c.fixture)) return `projecteur inconnu ${c.fixture}`;
+    if (!this.fixtures.get(c.fixture)) return say(`projecteur inconnu ${c.fixture}`, `unknown fixture ${c.fixture}`);
     const r = this.resolve(c.fixture);
-    if (!("error" in r) && c.offset >= r.mode.channels.length) return `${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`;
+    if (!("error" in r) && c.offset >= r.mode.channels.length) return say(`${c.fixture} n'a que ${r.mode.channels.length} canaux (canal ${c.offset + 1} demandé)`, `${c.fixture} has only ${r.mode.channels.length} channels (channel ${c.offset + 1} asked)`);
     return undefined;
   }
 
@@ -241,11 +242,12 @@ export class Venue {
     if (cached) return cached;
     const patch = this.fixtures.get(fixtureId);
     let result: ResolvedFixture | { error: string };
-    if (!patch) result = { error: `fixture inconnue : ${fixtureId}` };
+    // the result is cached: its message is worded when read, in the language of whoever reads it
+    if (!patch) result = { get error() { return say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`); } };
     else {
       const def = this.definitionFor(patch.manufacturer, patch.model);
       const mode = def ? findMode(def, patch.mode) : undefined;
-      if (!def || !mode) result = { error: `définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})` };
+      if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})`); } };
       else {
         const heads = new Map<number, Partial<Record<ColorComponent, number>>>();
         const dimmers: number[] = [];
@@ -302,7 +304,7 @@ export class Venue {
   /** Targets of each cell of a canvas (index → targets). */
   cellTargets(canvasId: string): { fixture: string; head: number }[][] {
     const canvas = this.canvases.get(canvasId);
-    if (!canvas) throw new Error(`canevas inconnu : ${canvasId}`);
+    if (!canvas) throw new Error(say(`canevas inconnu : ${canvasId}`, `unknown canvas: ${canvasId}`));
     const cells: { fixture: string; head: number }[][] = Array.from({ length: canvas.cells }, () => []);
     for (const r of canvas.render) for (let i = r.from; i <= Math.min(r.to, canvas.cells - 1); i++) cells[i]!.push(...r.targets.map((t) => ({ fixture: t.fixture, head: t.head })));
     return cells;

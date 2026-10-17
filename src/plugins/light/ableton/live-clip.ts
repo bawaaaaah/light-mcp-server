@@ -5,6 +5,7 @@
  * and Program Change change; everything else stays byte for byte (the groove pool's own clips are
  * left alone). Pure: XML text in, XML text out.
  */
+import { say } from "../../../core/lang.js";
 
 export interface ProgramClip {
   /** Clip name, e.g. « Prière #100 ». */
@@ -21,11 +22,11 @@ export const programClipName = (name: string, programChange: number) => `${name}
 export function cloneProgramClip(shellXml: string, clip: ProgramClip): string {
   const start = shellXml.indexOf("<MidiClip ");
   const end = start < 0 ? -1 : shellXml.indexOf("</MidiClip>", start);
-  if (start < 0 || end < 0) throw new Error("coquille .alc invalide : aucun clip MIDI (exporter un clip MIDI depuis Live)");
+  if (start < 0 || end < 0) throw new Error(say("coquille .alc invalide : aucun clip MIDI (exporter un clip MIDI depuis Live)", "invalid .alc shell: no MIDI clip (export a MIDI clip from Live)"));
   let body = shellXml.slice(start, end);
   const name = /<Name Value="[^"]*" \/>/;
   const pc = /<ProgramChange Value="-?\d+" \/>/;
-  if (!name.test(body) || !pc.test(body)) throw new Error("coquille .alc invalide : nom ou Program Change du clip introuvable");
+  if (!name.test(body) || !pc.test(body)) throw new Error(say("coquille .alc invalide : nom ou Program Change du clip introuvable", "invalid .alc shell: the clip's name or Program Change is missing"));
   body = body.replace(name, `<Name Value="${attr(clip.name)}" />`).replace(pc, `<ProgramChange Value="${clip.programChange}" />`);
   return shellXml.slice(0, start) + body + shellXml.slice(end);
 }

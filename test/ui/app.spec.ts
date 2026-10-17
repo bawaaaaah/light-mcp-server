@@ -681,7 +681,12 @@ test("show check: a summary first, errors before warnings, and it closes", async
     await expect(report.locator("li", { hasText: "Chevauche" }).first()).toContainText("mêmes canaux");
     await report.getByRole("button", { name: "Fermer" }).click();
     await expect(report).toHaveCount(0);
+    // in English, the server words its findings in English too
+    await page.locator("header select").selectOption("en");
+    await page.getByRole("button", { name: "Check the show" }).click();
+    await expect(report.locator("li", { hasText: "Chevauche" }).first()).toContainText("two fixtures write the same channels");
   } finally {
+    await page.locator("header select").selectOption("fr");
     await api(page, "venue.fixture.delete", { id: "overlap" });
   }
   expect(errors).toEqual([]);

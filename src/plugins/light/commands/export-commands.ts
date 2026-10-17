@@ -13,6 +13,7 @@ import { buildRackXml, readAdg, writeAdg } from "../ableton/midi-effect-rack.js"
 import { slugify } from "../data/store.js";
 import { readAls, writeAls } from "../ableton/live-set.js";
 import { cloneProgramClip, programClipName } from "../ableton/live-clip.js";
+import { say } from "../../../core/lang.js";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 /** Live names note 60 "C3" (note 0 = C-2). */
@@ -21,7 +22,7 @@ export const liveNoteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n 
 export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntime, mappings: () => Mapping[], dataRoot: string): void {
   const inside = (base: string, file: string) => {
     const resolved = path.resolve(base, file);
-    if (!resolved.startsWith(path.resolve(base) + path.sep)) throw new Error("chemin hors du dossier autorisé");
+    if (!resolved.startsWith(path.resolve(base) + path.sep)) throw new Error(say("chemin hors du dossier autorisé", "path outside the allowed folder"));
     return resolved;
   };
   const label = (m: Mapping) => {
@@ -67,12 +68,12 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
     schema: z.object({ shell: z.string().default("shell.adg"), name: z.string().default("light-rack"), channel: z.number().int().min(1).max(16).optional(), color: z.number().int().min(0).max(69).default(12) }),
     run: ({ shell, name, channel, color }) => {
       const shellPath = inside(path.join(dataRoot, "private"), shell);
-      if (!existsSync(shellPath)) throw new Error(`coquille introuvable : data/private/${shell} (exporter un MIDI Effect Rack à une chaîne depuis Live)`);
+      if (!existsSync(shellPath)) throw new Error(say(`coquille introuvable : data/private/${shell} (exporter un MIDI Effect Rack à une chaîne depuis Live)`, `shell not found: data/private/${shell} (export a one-chain MIDI Effect Rack from Live)`));
       const notes = mappings().filter((m) => m.input.type === "note" && (channel === undefined || m.input.channel === channel));
       const byNote = new Map<number, Mapping>();
       const skipped: string[] = [];
       for (const m of notes) {
-        if (byNote.has(m.input.number)) skipped.push(`note ${m.input.number} (${label(m)}) : déjà prise par « ${label(byNote.get(m.input.number)!)} »`);
+        if (byNote.has(m.input.number)) skipped.push(say(`note ${m.input.number} (${label(m)}) : déjà prise par « ${label(byNote.get(m.input.number)!)} »`, `note ${m.input.number} (${label(m)}): already taken by “${label(byNote.get(m.input.number)!)}”`));
         else byNote.set(m.input.number, m);
       }
       const ccs = mappings().filter((m) => m.input.type === "cc");
@@ -99,7 +100,7 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
     schema: z.object({ shell: z.string().default("shell.alc") }),
     run: ({ shell }) => {
       const shellPath = inside(path.join(dataRoot, "private"), shell);
-      if (!existsSync(shellPath)) throw new Error(`coquille introuvable : data/private/${shell} (glisser un clip MIDI de Live dans le navigateur, puis copier le .alc)`);
+      if (!existsSync(shellPath)) throw new Error(say(`coquille introuvable : data/private/${shell} (glisser un clip MIDI de Live dans le navigateur, puis copier le .alc)`, `shell not found: data/private/${shell} (drag a MIDI clip from Live into the browser, then copy the .alc)`));
       const xml = readAls(readFileSync(shellPath));
       const outDir = path.join(dataRoot, "exports", "programmes");
       mkdirSync(outDir, { recursive: true });
@@ -115,7 +116,7 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
         writeFileSync(file, writeAls(cloneProgramClip(xml, { name: clip, programChange: p.programChange })));
         written.push({ program: p.id, file: path.relative(dataRoot, file), clip });
       }
-      return { written, skipped, note: "Chaque clip envoie son Program Change sur le canal de la piste qui le joue : régler la sortie MIDI de la piste sur le canal du programme." };
+      return { written, skipped, note: say("Chaque clip envoie son Program Change sur le canal de la piste qui le joue : régler la sortie MIDI de la piste sur le canal du programme.", "Each clip sends its Program Change on the channel of the track playing it: set the track's MIDI output to the program's channel.") };
     },
   });
 }

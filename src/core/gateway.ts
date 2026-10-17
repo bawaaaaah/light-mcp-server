@@ -21,12 +21,14 @@ import type { OAuthIntegration } from "./oauth.js";
 import type { EventBus } from "./event-bus.js";
 import { bodyString } from "./http-body.js";
 import { errorHandler, HttpError } from "./http-errors.js";
+import { inLang, langOf } from "./lang.js";
 import { createMcpServer } from "./mcp-server-factory.js";
 import type { McpPlugin } from "./plugin.js";
 import type { ToolVisibilityController } from "./tool-visibility-controller.js";
 import { getPackageVersion } from "./version.js";
 import { WsHub } from "./ws-hub.js";
 import { replayThroughServer } from "./ws-rest.js";
+import { say } from "./lang.js";
 
 export interface GatewayOptions {
   plugins: McpPlugin[];
@@ -78,6 +80,8 @@ export class Gateway {
       res.setHeader("X-Content-Type-Options", "nosniff");
       next();
     });
+    // an interface set to English is answered in English (core/lang.ts); everyone else in French
+    this.app.use((req, _res, next) => inLang(langOf(req.headers["x-light-lang"]), next));
     this.mountCoreRoutes();
     this.mountMcp();
     this.mountPlugins();
@@ -136,7 +140,7 @@ export class Gateway {
     const userJson = (u: UserSummary) => ({ ...u, keys: passkeys?.count(u.id) ?? 0 });
     app.post("/api/auth/login", express.json(), (req, res) => {
       const pin = bodyString(req.body, "pin");
-      if (!pin) throw new HttpError(400, "pin requis");
+      if (!pin) throw new HttpError(400, say("pin requis", "PIN required"));
       // req.ip: the client's own address behind a trusted proxy (server.trustProxy), else the socket's
       const { token, role, user } = auth.login(pin, bodyString(req.body, "user") ?? bodyString(req.body, "role"), req.ip ?? req.socket.remoteAddress);
       res.json({ token, role: signedInView(role, user) });
@@ -161,7 +165,7 @@ export class Gateway {
     // one's own PIN (a signed-in user, not the master token)
     app.put("/api/auth/me/pin", auth.requireAuth(), express.json(), (req, res, next) => {
       const user = auth.userOf(auth.bearerOf(req));
-      if (!user) return next(new HttpError(400, "entré avec le jeton : pas de compte à qui donner un PIN"));
+      if (!user) return next(new HttpError(400, say("entré avec le jeton : pas de compte à qui donner un PIN", "signed in with the token: no account to give a PIN to")));
       const pin = bodyString(req.body, "pin");
       auth.setPin(user.id, pin ? pin : null).then(() => res.status(204).end(), next);
     });
@@ -211,7 +215,7 @@ export class Gateway {
       express.json(),
       wrap(async (req, res) => {
         const name = bodyString(req.body, "name")?.trim();
-        if (!name) throw new HttpError(400, "nom requis");
+        if (!name) throw new HttpError(400, say("nom requis", "name required"));
         res.status(201).json(userJson(await auth.addUser({ name, role: bodyString(req.body, "role") ?? "", pin: bodyString(req.body, "pin") || undefined })));
       }),
     );
@@ -252,7 +256,7 @@ export class Gateway {
         "/api/auth/oauth/clients/:id",
         admin,
         wrap(async (req, res) => {
-          if (!(await oauth.provider.revokeClient(String(req.params.id)))) throw new HttpError(404, "client inconnu");
+          if (!(await oauth.provider.revokeClient(String(req.params.id)))) throw new HttpError(404, say("client inconnu", "unknown client"));
           res.status(204).end();
         }),
       );
@@ -315,7 +319,7 @@ export class Gateway {
         if (this.opts.oauth) res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${this.opts.oauth.resourceMetadataUrl}"`);
         return next(new HttpError(401, "Unauthorized: send the token as a Bearer header"));
       }
-      if (!this.opts.auth.can(credential, "mcp:use")) return next(new HttpError(403, "ce rôle n'a pas accès au MCP"));
+      if (!this.opts.auth.can(credential, "mcp:use")) return next(new HttpError(403, say("ce rôle n'a pas accès au MCP", "this role has no access to MCP")));
       // The transport hands this to every tool call (extra.authInfo): each call is checked with its caller's rights.
       (req as Request & { auth?: AuthInfo }).auth = { token: credential, clientId: this.principalOf(credential), scopes: [] };
       next();

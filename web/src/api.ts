@@ -1,5 +1,12 @@
 /** HTTP client: login and the command layer (POST /api/plugins/light/commands/:name). */
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from "@simplewebauthn/browser";
+import { initialLang, type Lang } from "./i18n";
+
+/** The interface's language, sent with every request: the server answers its messages in it. */
+let apiLang: Lang = initialLang();
+export const setApiLang = (l: Lang) => void (apiLang = l);
+/** Every request of this module says the interface's language (x-light-lang). */
+const fetch = (input: RequestInfo | URL, init: RequestInit = {}) => window.fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "x-light-lang": apiLang } });
 
 export interface Role {
   id: string;

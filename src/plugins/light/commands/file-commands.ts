@@ -12,6 +12,7 @@ import { ID_RE, slugify, stableStringify } from "../data/store.js";
 import { ShowSettingsSchema } from "../show/model.js";
 import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
 import type { CommandRegistry } from "./registry.js";
+import { say } from "../../../core/lang.js";
 
 export interface FileServices {
   dataRoot: string;
@@ -83,7 +84,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     writeFileSync(path.join(showDir(id), "show.json"), stableStringify({ ...settingsOf(id), ...patch }));
   };
   const known = (id: string) => {
-    if (!ID_RE.test(id) || !existsSync(showDir(id))) throw new Error(`show inconnu : ${id}`);
+    if (!ID_RE.test(id) || !existsSync(showDir(id))) throw new Error(say(`show inconnu : ${id}`, `unknown show: ${id}`));
   };
   const freeId = (base: string, dir: string) => {
     let id = slugify(base);
@@ -92,7 +93,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   };
   const backup = (label?: string): string => writeBackup(s, label);
   const backupFile = (file: string) => {
-    if (!BACKUP_RE.test(file) || !existsSync(path.join(backupsDir, file))) throw new Error(`sauvegarde inconnue : ${file}`);
+    if (!BACKUP_RE.test(file) || !existsSync(path.join(backupsDir, file))) throw new Error(say(`sauvegarde inconnue : ${file}`, `unknown backup: ${file}`));
     return path.join(backupsDir, file);
   };
 
@@ -132,7 +133,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       qxw: z.string().optional(),
     }),
     run: async ({ name, from, venue, open, qxw }) => {
-      if (qxw && (from || !open)) throw new Error("un workspace QLC+ s'importe dans un show neuf, ouvert aussitôt");
+      if (qxw && (from || !open)) throw new Error(say("un workspace QLC+ s'importe dans un show neuf, ouvert aussitôt", "a QLC+ workspace is imported into a new show, opened at once"));
       if (from) known(from);
       s.flush();
       const id = freeId(name, showsDir);
@@ -191,7 +192,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     schema: z.object({ id: z.string() }),
     run: ({ id }) => {
       known(id);
-      if (id === s.current().show) throw new Error("impossible de supprimer le show ouvert : en ouvrir un autre d'abord");
+      if (id === s.current().show) throw new Error(say("impossible de supprimer le show ouvert : en ouvrir un autre d'abord", "the open show cannot be deleted: open another one first"));
       const deletedDir = path.join(backupsDir, "deleted");
       mkdirSync(deletedDir, { recursive: true });
       const target = path.join(deletedDir, freeId(`${stamp()}-${id}`, deletedDir));

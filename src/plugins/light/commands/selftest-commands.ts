@@ -11,6 +11,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { MidiMapper, type Mapping } from "../midi/mapping.js";
 import type { MidiMessage } from "../midi/parse.js";
 import type { ShowRuntime } from "../show/runtime.js";
+import { say } from "../../../core/lang.js";
 
 export interface SelftestResult {
   total: number;
@@ -37,7 +38,7 @@ export interface CadenceCheck {
  */
 export function checkCadence(changes: number[], expectedMs: number, toleranceMs = Math.max(25, expectedMs * 0.05)): Omit<CadenceCheck, "look"> {
   const intervals = changes.slice(1).map((t, i) => t - changes[i]!);
-  if (intervals.length < 2) return { expectedMs, ok: false, detail: `${changes.length} changement(s) observé(s) : pas assez pour mesurer` };
+  if (intervals.length < 2) return { expectedMs, ok: false, detail: say(`${changes.length} changement(s) observé(s) : pas assez pour mesurer`, `${changes.length} change(s) seen: not enough to measure`) };
   const perStep = intervals.map((d) => d / Math.max(1, Math.round(d / expectedMs)));
   perStep.sort((a, b) => a - b);
   const measuredMs = Math.round(perStep[Math.floor(perStep.length / 2)]! * 10) / 10;
@@ -50,8 +51,8 @@ export function checkCadence(changes: number[], expectedMs: number, toleranceMs 
   const hiccups = offsets.map((o) => Math.abs(o - base)).filter((d) => d > toleranceMs);
   const medianOk = Math.abs(measuredMs - expectedMs) <= toleranceMs;
   const ok = medianOk && hiccups.length <= 1;
-  const tol = `tolérance ${Math.round(toleranceMs)} ms`;
-  const detail = !medianOk ? `cadence ${measuredMs} ms au lieu de ${Math.round(expectedMs)} (${tol})` : hiccups.length > 1 ? `${hiccups.length} à-coups jusqu'à ${Math.round(Math.max(...hiccups))} ms (${tol})` : hiccups.length === 1 ? `un à-coup isolé de ${Math.round(hiccups[0]!)} ms, toléré` : undefined;
+  const tol = say(`tolérance ${Math.round(toleranceMs)} ms`, `tolerance ${Math.round(toleranceMs)} ms`);
+  const detail = !medianOk ? say(`cadence ${measuredMs} ms au lieu de ${Math.round(expectedMs)} (${tol})`, `rate ${measuredMs} ms instead of ${Math.round(expectedMs)} (${tol})`) : hiccups.length > 1 ? say(`${hiccups.length} à-coups jusqu'à ${Math.round(Math.max(...hiccups))} ms (${tol})`, `${hiccups.length} hiccups up to ${Math.round(Math.max(...hiccups))} ms (${tol})`) : hiccups.length === 1 ? say(`un à-coup isolé de ${Math.round(hiccups[0]!)} ms, toléré`, `a single hiccup of ${Math.round(hiccups[0]!)} ms, tolerated`) : undefined;
   return { expectedMs: Math.round(expectedMs * 10) / 10, measuredMs, ok, ...(detail ? { detail } : {}) };
 }
 
@@ -110,8 +111,8 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     const look = runtime.looks.get(lookId)!;
     const every = look.timing.every;
     const expectedMs = "seconds" in every ? every.seconds * 1000 : (every.beats * 60_000) / tempoBpm;
-    if (look.timing.attack > 0.5) return { look: lookId, expectedMs, ok: true, detail: "fondu (attaque) de plus d'un demi-pas : cadence non mesurable par changement, ignoré" };
-    if (expectedMs > 4000) return { look: lookId, expectedMs, ok: true, detail: "pas de plus de 4 s : ignoré" };
+    if (look.timing.attack > 0.5) return { look: lookId, expectedMs, ok: true, detail: say("fondu (attaque) de plus d'un demi-pas : cadence non mesurable par changement, ignoré", "fade (attack) longer than half a step: rate not measurable by changes, skipped") };
+    if (expectedMs > 4000) return { look: lookId, expectedMs, ok: true, detail: say("pas de plus de 4 s : ignoré", "steps longer than 4 s: skipped") };
     runtime.stopAll();
     runtime.go(lookId);
     // the entry fade changes the output on every frame: measure the steps once it is over
@@ -172,7 +173,7 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
               else if (!litFor(fixturesOfLook(id))) reason = `le look ${id} ne produit aucun DMX`;
             } else if (call.command === "group.level") {
               const g = runtime.groups.get(String(call.args.id));
-              if (!g || Math.abs((g.master?.level ?? -1) - Number(call.args.level)) > 0.01) reason = `niveau du groupe ${String(call.args.id)} non appliqué`;
+              if (!g || Math.abs((g.master?.level ?? -1) - Number(call.args.level)) > 0.01) reason = say(`niveau du groupe ${String(call.args.id)} non appliqué`, `level of group ${String(call.args.id)} not applied`);
             }
           }
           latencies.push(performance.now() - t0);
@@ -189,7 +190,7 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
             const playing = g.members.looks.filter((l) => runtime.isActive(l));
             if (playing.length !== 1) {
               ok = false;
-              detail = `${playing.length} looks actifs après ${look}`;
+              detail = say(`${playing.length} looks actifs après ${look}`, `${playing.length} looks playing after ${look}`);
               break;
             }
           }

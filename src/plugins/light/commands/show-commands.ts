@@ -21,6 +21,7 @@ import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js
 import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
 import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
+import { say } from "../../../core/lang.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -122,7 +123,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional() }),
     run: ({ id: fixtureId, facing, yaw, pitch, turn }) => {
       const f = venue.fixtures.get(fixtureId);
-      if (!f) throw new Error(`fixture inconnue : ${fixtureId}`);
+      if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
       let o = { yaw: f.orientation?.yaw ?? 0, pitch: f.orientation?.pitch ?? 0 };
       if (facing) o = orientTo(o, facing);
       if (yaw !== undefined) o.yaw = yaw;
@@ -143,9 +144,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fixtures: z.array(z.string()).min(1), zone: z.string(), edge: z.enum(EDGES).default("front"), height: z.number().min(0).max(30).optional(), facing: z.enum(FACING_NAMES).optional() }),
     run: ({ fixtures: ids, zone: zoneId, edge, height, facing }) => {
       const zone = show.zones.get(zoneId);
-      if (!zone) throw new Error(`zone inconnue : ${zoneId}`);
+      if (!zone) throw new Error(say(`zone inconnue : ${zoneId}`, `unknown zone: ${zoneId}`));
       const missing = ids.filter((i) => !venue.fixtures.get(i));
-      if (missing.length) throw new Error(`fixture inconnue : ${missing.join(", ")}`);
+      if (missing.length) throw new Error(say(`fixture inconnue : ${missing.join(", ")}`, `unknown fixture: ${missing.join(", ")}`));
       const points = arrangeAlong(zone.polygon, edge, ids.length);
       return ids.map((i, k) => {
         const f = venue.fixtures.get(i)!;
@@ -281,7 +282,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: id,
     run: ({ id: i }) => {
       const l = show.looks.get(i);
-      if (!l) throw new Error(`look inconnu : ${i}`);
+      if (!l) throw new Error(say(`look inconnu : ${i}`, `unknown look: ${i}`));
       return { ...l, active: show.isActive(l.id), swatch: swatch(l) };
     },
   });
@@ -296,7 +297,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       look: z.preprocess(
         (v, ctx) => {
           if (v && typeof v === "object" && (v as { partial?: unknown }).partial === true) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "look partiel (liste résumée, sans ses pas ni ses canaux) : le lire entier avec look.get avant de le modifier" });
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: say("look partiel (liste résumée, sans ses pas ni ses canaux) : le lire entier avec look.get avant de le modifier", "partial look (brief list, without its steps or channels): read it whole with look.get before changing it") });
             return z.NEVER;
           }
           return v;
@@ -305,15 +306,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       ),
     }),
     run: ({ look }) => {
-      if (!venue.canvases.get(look.canvas)) throw new Error(`canevas inconnu : ${look.canvas}`);
+      if (!venue.canvases.get(look.canvas)) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
       // « jamais coupé » (noCut): only techniques that never switch a cell off
       if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
-        throw new Error(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`);
+        throw new Error(say(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`, `“${look.name}” is marked “never cut” but its technique turns cells off (black steps, masks without a floor, flash…)`));
       }
       if (look.channels) {
         checkChannels(look.channels.targets);
         const bad = look.channels.steps.findIndex((row) => row.length !== look.channels!.targets.length);
-        if (bad >= 0) throw new Error(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`);
+        if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
       }
       return show.looks.put(look);
     },
@@ -338,7 +339,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ look: LookSchema }),
     run: ({ look }) => {
       const canvas = venue.canvases.get(look.canvas);
-      if (!canvas) throw new Error(`canevas inconnu : ${look.canvas}`);
+      if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
       return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: show.stepsOf(look).map((step) => step.map((c) => (c ? displayHex(c) : null))) };
     },
   });
@@ -387,7 +388,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {
     const g = show.groups.get(groupId);
-    if (!g) throw new Error(`groupe inconnu : ${groupId}`);
+    if (!g) throw new Error(say(`groupe inconnu : ${groupId}`, `unknown group: ${groupId}`));
     const master = { level: g.master?.level ?? 1, mute: g.master?.mute ?? false, ...patch };
     show.groups.putLive({ ...g, master }); // a fader moves many times a second: no backup per move
     if (g.playback) show.syncPlayback(groupId);
@@ -408,7 +409,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fader: ChannelFaderSchema }),
     run: ({ fader }) => {
       checkChannels(fader.channels);
-      if (fader.dca && !show.groups.get(fader.dca)?.master) throw new Error(`DCA inconnu : ${fader.dca}`);
+      if (fader.dca && !show.groups.get(fader.dca)?.master) throw new Error(say(`DCA inconnu : ${fader.dca}`, `unknown DCA: ${fader.dca}`));
       return show.faders.put(fader);
     },
   });
@@ -430,7 +431,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }),
     run: ({ id: i, level }) => {
       const f = show.faders.get(i);
-      if (!f) throw new Error(`fader inconnu : ${i}`);
+      if (!f) throw new Error(say(`fader inconnu : ${i}`, `unknown fader: ${i}`));
       return show.faders.putLive({ ...f, level });
     },
   });
@@ -487,7 +488,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ program: RuleProgramSchema }),
     run: ({ program }) => {
       const clash = program.programChange !== undefined && show.programs.list().find((p) => p.id !== program.id && p.programChange === program.programChange && p.channel === program.channel);
-      if (clash) throw new Error(`Program Change ${program.programChange} (canal ${program.channel}) déjà pris par « ${clash.name} »`);
+      if (clash) throw new Error(say(`Program Change ${program.programChange} (canal ${program.channel}) déjà pris par « ${clash.name} »`, `Program Change ${program.programChange} (channel ${program.channel}) already taken by “${clash.name}”`));
       return show.programs.put(program);
     },
   });
@@ -576,7 +577,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: async ({ collection, id: i, stamp }, ctx) => {
       const v = VERSIONED[collection];
       const old = v.coll.version(i, stamp) as { id?: string; master?: unknown; level?: unknown } | undefined;
-      if (!old || old.id !== i) throw new Error(`version introuvable : ${collection}/${i} ${stamp}`);
+      if (!old || old.id !== i) throw new Error(say(`version introuvable : ${collection}/${i} ${stamp}`, `version not found: ${collection}/${i} ${stamp}`));
       // a DCA's level and a fader's level are live state: putting back a design never moves the light
       const now = v.coll.get(i) as { master?: unknown; level?: unknown } | undefined;
       const restored = collection === "groups" && old.master && now?.master ? { ...old, master: now.master } : collection === "faders" && now ? { ...old, level: now.level } : old;
@@ -598,7 +599,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const end = (until ?? at) + UNDO_SLACK_MS;
       const replaced = versions.filter((x) => Date.parse(x.at) >= at && Date.parse(x.at) <= end);
       const before = replaced[replaced.length - 1];
-      if (!before) throw new Error(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`);
+      if (!before) throw new Error(say(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`, `nothing to undo for ${i}: this change replaced no version (a creation is undone by deleting the object)`));
       await reg.invoke("history.restore", { collection, id: i, stamp: before.stamp }, ctx);
       return { id: i, restored: before.stamp };
     },
@@ -648,7 +649,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       .refine((a) => (a.collection && a.object) || (a.command && a.args), { message: "collection et object, ou command et args" }),
     run: (a) => {
       const put = a.command ? PUT_COMMANDS[a.command] : undefined;
-      if (a.command && !put) throw new Error(`pas de proposition pour ${a.command} : ${Object.keys(PUT_COMMANDS).join(", ")}`);
+      if (a.command && !put) throw new Error(say(`pas de proposition pour ${a.command} : ${Object.keys(PUT_COMMANDS).join(", ")}`, `no proposal for ${a.command}: ${Object.keys(PUT_COMMANDS).join(", ")}`));
       const { collection, object } = put ? put(a.args!) : { collection: a.collection!, object: a.object };
       const coll = DIFFABLE[collection] as { validate(v: unknown): { id: string }; get(id: string): unknown };
       let parsed: { id: string };
@@ -708,7 +709,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: ({ collection, id: oid, notes }) => {
       const c = noteCollections()[collection]!;
       const obj = c.get(oid) as Record<string, unknown> | undefined;
-      if (!obj) throw new Error(`${collection}/${oid} introuvable`);
+      if (!obj) throw new Error(say(`${collection}/${oid} introuvable`, `${collection}/${oid} not found`));
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
       return c.put({ ...obj, notes: notes ? `${notes}${/\(\d{4}-/.test(notes) ? "" : ` (${stamp})`}` : undefined });
     },
@@ -724,8 +725,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }),
     run: (patch) => {
-      if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(`look inconnu : ${patch.safeLook}`);
-      if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(`instantané inconnu : ${patch.safeSnapshot}`);
+      if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
+      if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(say(`instantané inconnu : ${patch.safeSnapshot}`, `unknown snapshot: ${patch.safeSnapshot}`));
       return show.saveSettings(patch);
     },
   });
@@ -753,7 +754,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: id,
     run: ({ id: i }) => {
       const snap = show.snapshots.get(i);
-      if (!snap) throw new Error(`instantané inconnu : ${i}`);
+      if (!snap) throw new Error(say(`instantané inconnu : ${i}`, `unknown snapshot: ${i}`));
       const done = show.applySnapshot(snap);
       engine.setBlackout(snap.blackout);
       return { id: i, ...done };
@@ -790,7 +791,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { action: "safe-look", look: safe };
     }
     engine.setBlackout(true);
-    return { action: "blackout", reason: "aucun look de secours défini" };
+    return { action: "blackout", reason: say("aucun look de secours défini", "no fallback look set") };
   };
   reg.register({
     name: "panic",
@@ -816,7 +817,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({}),
     run: () => {
       const before = show.takeBeforePanic();
-      if (!before) throw new Error("rien à annuler : pas de Panic dans la dernière minute");
+      if (!before) throw new Error(say("rien à annuler : pas de Panic dans la dernière minute", "nothing to undo: no Panic in the last minute"));
       const done = show.applySnapshot(before);
       engine.setBlackout(before.blackout);
       return { undone: true, ...done };

@@ -29,6 +29,7 @@ const EFX_SHAPES: Record<string, Move["shape"]> = { Circle: "cercle", Eight: "hu
 import type { Mapping } from "../midi/mapping.js";
 import type { Technique } from "../engine/techniques.js";
 import type { QxwFixtureGroup, QxwMatrix } from "./qxw-import.js";
+import { say } from "../../../core/lang.js";
 
 /** QLC+ SpeedDial multiplier index → factor (VCSpeedDialFunction::SpeedMultiplier). */
 export const QLC_MULTIPLIERS = [NaN, 0, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16] as const;
@@ -148,13 +149,13 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     const def = findDefinition(defs, f.manufacturer, f.model);
     const mode = def ? findMode(def, f.mode, f.channels) : undefined;
     if (!def || !mode) {
-      warnings.push(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`);
+      warnings.push(say(`définition manquante : ${f.manufacturer} ${f.model} (${f.mode}) — « ${f.name} » patchée sans décodage`, `missing definition: ${f.manufacturer} ${f.model} (${f.mode}) — “${f.name}” patched without decoding`));
       missingDefinitions.add(`${f.manufacturer} ${f.model} (${f.mode})`);
     }
-    else if (findMode(def, f.mode) !== mode) warnings.push(`« ${f.name} » : mode « ${f.mode} » absent de la définition, « ${mode.name} » retenu (même nombre de canaux)`);
+    else if (findMode(def, f.mode) !== mode) warnings.push(say(`« ${f.name} » : mode « ${f.mode} » absent de la définition, « ${mode.name} » retenu (même nombre de canaux)`, `“${f.name}”: mode “${f.mode}” not in the definition, “${mode.name}” used (same channel count)`));
     return { id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: mode?.name ?? f.mode, universe: f.universe + 1, address: f.address + 1, tags: [], notes: undefined } as PatchedFixture;
   });
-  converted.push(`${fixtures.length} fixtures patchées`);
+  converted.push(say(`${fixtures.length} fixtures patchées`, `${fixtures.length} fixtures patched`));
 
   // Canvas from the decoded cells, in workspace order (fixture order, then heads).
   const { cells } = cellsFor(ws, defs);
@@ -195,7 +196,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       // no colour: machines (smoke, hazer) or lamps — played as raw channels, like QLC+ does
       const channels = rawChannels(fn, fixtureIds);
       if (!channels) {
-        warnings.push(fn.steps.length ? `« ${fn.name} » : aucune valeur enregistrée (tout à 0 ?) — non importée` : `« ${fn.name} » : séquence vide — non importée`);
+        warnings.push(fn.steps.length ? say(`« ${fn.name} » : aucune valeur enregistrée (tout à 0 ?) — non importée`, `“${fn.name}”: no value recorded (all at 0?) — not imported`) : say(`« ${fn.name} » : séquence vide — non importée`, `“${fn.name}”: empty sequence — not imported`));
         continue;
       }
       const id = uniqueId(fn.name || `seq-${fn.id}`, lookTaken);
@@ -230,7 +231,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       tags: [`technique:${analysis.technique}`, `attaque:${analysis.attackLabel}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
       notes: `Importé de QLC+ (#${fn.id}). Technique reconnue : ${analysis.technique} (${analysis.confidence}). Couleurs : ${analysis.colors.slice(0, 6).join(" ")}`,
     });
-    if (fn.speedModes && (fn.speedModes.duration === "PerStep" || fn.speedModes.fadeIn === "PerStep")) warnings.push(`« ${fn.name} » : timing par pas approximé par sa moyenne`);
+    if (fn.speedModes && (fn.speedModes.duration === "PerStep" || fn.speedModes.fadeIn === "PerStep")) warnings.push(say(`« ${fn.name} » : timing par pas approximé par sa moyenne`, `“${fn.name}”: per-step timing approximated by its average`));
   }
   // RGB matrices a widget starts: their fixture group becomes a canvas, their algorithm the nearest technique.
   const matrixCanvases = new Map<number, Canvas>();
@@ -240,7 +241,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     const fg = ws.fixtureGroups.find((g) => g.id === m.fixtureGroup);
     const mc = fg ? (matrixCanvases.get(fg.id) ?? groupCanvas(fg, ws, defs, fixtureIds)) : null;
     if (!fg || !mc) {
-      warnings.push(`matrice « ${fn.name} » : groupe de fixtures introuvable ou vide — non importée`);
+      warnings.push(say(`matrice « ${fn.name} » : groupe de fixtures introuvable ou vide — non importée`, `matrix “${fn.name}”: fixture group missing or empty — not imported`));
       continue;
     }
     matrixCanvases.set(fg.id, mc);
@@ -260,10 +261,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       tags: [`technique:${technique.kind}`, `matrice:${m.algorithm}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
       notes: `Importé de QLC+ (#${fn.id}) : matrice « ${m.algorithm} » sur le groupe « ${fg.name} »${approx ? " — approximée" : ""}.`,
     });
-    if (approx) warnings.push(`matrice « ${fn.name} » (${m.algorithm}) : approximée par la technique ${technique.kind}`);
+    if (approx) warnings.push(say(`matrice « ${fn.name} » (${m.algorithm}) : approximée par la technique ${technique.kind}`, `matrix “${fn.name}” (${m.algorithm}): approximated by the ${technique.kind} technique`));
     matrixLooks++;
   }
-  converted.push(`${looks.length} looks (pas exacts, technique reconnue en étiquette)`);
+  converted.push(say(`${looks.length} looks (pas exacts, technique reconnue en étiquette)`, `${looks.length} looks (exact steps, the technique recognised as a tag)`));
   if (matrixLooks) converted.push(`${matrixLooks} matrices RGB → looks sur ${matrixCanvases.size} canevas de groupe`);
 
   const groupTaken = new Set<string>();
@@ -274,15 +275,15 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
   for (const fn of efxFns) {
     const efx = fn.efx!;
     const moving = efx.fixtures.filter((f) => f.mode === 0 && fixtureIds.has(f.id));
-    if (efx.fixtures.some((f) => f.mode !== 0)) warnings.push(`EFX « ${fn.name} » : les parties gradateur ou RGB ne sont pas converties (seulement pan/tilt)`);
+    if (efx.fixtures.some((f) => f.mode !== 0)) warnings.push(say(`EFX « ${fn.name} » : les parties gradateur ou RGB ne sont pas converties (seulement pan/tilt)`, `EFX “${fn.name}”: dimmer or RGB parts are not converted (pan/tilt only)`));
     if (!moving.length) {
-      warnings.push(`EFX « ${fn.name} » : aucune fixture en mode position — non importé`);
+      warnings.push(say(`EFX « ${fn.name} » : aucune fixture en mode position — non importé`, `EFX “${fn.name}”: no fixture in position mode — not imported`));
       continue;
     }
     const shape = EFX_SHAPES[efx.algorithm];
-    if (!shape) warnings.push(`EFX « ${fn.name} » : forme ${efx.algorithm} approximée par un cercle`);
-    if (efx.rotation) warnings.push(`EFX « ${fn.name} » : rotation de ${efx.rotation}° ignorée`);
-    if (efx.propagation === "Asymmetric") warnings.push(`EFX « ${fn.name} » : propagation asymétrique approximée (ailes)`);
+    if (!shape) warnings.push(say(`EFX « ${fn.name} » : forme ${efx.algorithm} approximée par un cercle`, `EFX “${fn.name}”: ${efx.algorithm} shape approximated by a circle`));
+    if (efx.rotation) warnings.push(say(`EFX « ${fn.name} » : rotation de ${efx.rotation}° ignorée`, `EFX “${fn.name}”: ${efx.rotation}° rotation ignored`));
+    if (efx.propagation === "Asymmetric") warnings.push(say(`EFX « ${fn.name} » : propagation asymétrique approximée (ailes)`, `EFX “${fn.name}”: asymmetric propagation approximated (wings)`));
     const id = uniqueId(fn.name || `efx-${fn.id}`, lookTaken);
     const groupId = uniqueId(`efx-${id}`, groupTaken);
     const members = [...new Set(moving.map((f) => fixtureIds.get(f.id)!))];
@@ -363,12 +364,12 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       faders.push({ id, name: w.caption || `Fader ${w.id}`, channels: others, level: 0, notes: `Importé de QLC+ (fader #${w.id}, ${others.length} canal(aux) hors gradateur).` });
     }
   }
-  if (faders.length) converted.push(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`);
+  if (faders.length) converted.push(say(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`, `${faders.length} channel faders (white, UV, strobe, machines… driven as in QLC+)`));
   // Playback sliders: a playback DCA dosing the look of their function, started above 0.
   for (const w of ws.widgets.filter((x) => x.kind === "slider" && x.sliderMode === "Playback")) {
     const look = w.functionId !== undefined ? lookIds.get(w.functionId) : undefined;
     if (!look) {
-      warnings.push(`fader playback « ${w.caption} » : sa fonction n'est pas importée — non converti`);
+      warnings.push(say(`fader playback « ${w.caption} » : sa fonction n'est pas importée — non converti`, `playback fader “${w.caption}”: its function is not imported — not converted`));
       continue;
     }
     const id = uniqueId(w.caption || `playback-${w.id}`, groupTaken);
@@ -386,7 +387,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
     const dcasInFrame = inFrame.map((b) => sliderGroups.get(b.id)).filter((x): x is string => Boolean(x));
     const fadersInFrame = inFrame.map((b) => sliderFaders.get(b.id)).filter((x): x is string => Boolean(x));
     if (!looksInFrame.length && !dcasInFrame.length && !fadersInFrame.length) {
-      warnings.push(`submaster « ${w.caption} » : rien d'importé dans son cadre (look, fader) — non converti`);
+      warnings.push(say(`submaster « ${w.caption} » : rien d'importé dans son cadre (look, fader) — non converti`, `submaster “${w.caption}”: nothing imported in its frame (look, fader) — not converted`));
       continue;
     }
     const id = uniqueId(w.caption || `submaster-${w.id}`, groupTaken);
@@ -418,7 +419,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       if (f) mappings.push({ ...mapping(uniqueId(`cc-${midi.controller}-${f}`, mapTaken), w.caption, input, "trigger", { command: "fader.level", args: { id: f } }), levelArg: "level", feedback: "cc" });
     }
   }
-  converted.push(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`);
+  converted.push(say(`${mappings.length} mappings MIDI (${pinnedNotes.length} notes épinglées à l'identique)`, `${mappings.length} MIDI mappings (${pinnedNotes.length} notes pinned as they were)`));
   if (tempoFromMidiClock) converted.push("tempo : horloge MIDI (molette QLC+ sur l'horloge de Live)");
   return { fixtures, canvas: canvas ?? efxCanvas, matrixCanvases: [...matrixCanvases.values()], looks, groups, faders, mappings, pinnedNotes, tempoFromMidiClock, report: { converted, warnings, missingDefinitions: [...missingDefinitions] } };
 }

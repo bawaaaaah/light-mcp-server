@@ -14,6 +14,7 @@ import { aimSetupOf, emptyFrame, type Venue } from "../venue/venue.js";
 import { applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
+import { say } from "../../../core/lang.js";
 
 /** How long a Panic stays undoable. */
 export const PANIC_UNDO_MS = 60_000;
@@ -95,7 +96,7 @@ export class ShowRuntime {
     const t = look.technique;
     if (!look.palette) return t;
     const palette = this.palettes.get(look.palette);
-    if (!palette) throw new Error(`palette inconnue : ${look.palette}`);
+    if (!palette) throw new Error(say(`palette inconnue : ${look.palette}`, `unknown palette: ${look.palette}`));
     const cols = palette.colors;
     switch (t.kind) {
       case "plat":
@@ -120,7 +121,7 @@ export class ShowRuntime {
   /** The steps a look plays on its canvas (palette and mirror applied). */
   stepsOf(look: Look): Step[] {
     const canvas = this.venue.canvases.get(look.canvas);
-    if (!canvas) throw new Error(`canevas inconnu : ${look.canvas}`);
+    if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
     return generateSteps(this.resolvedTechnique(look), canvas.cells, look.mirror ?? canvas.topology === "line-mirror");
   }
 
@@ -237,8 +238,8 @@ export class ShowRuntime {
    */
   go(lookId: string, auto = false): { started: boolean; released: string[] } {
     const look = this.looks.get(lookId);
-    if (!look) throw new Error(`look inconnu : ${lookId}`);
-    if (auto && look.manualOnly) throw new Error(`« ${look.name} » est en manuel seulement`);
+    if (!look) throw new Error(say(`look inconnu : ${lookId}`, `unknown look: ${lookId}`));
+    if (auto && look.manualOnly) throw new Error(say(`« ${look.name} » est en manuel seulement`, `“${look.name}” is manual only`));
     const released: string[] = [];
     for (const g of this.groups.list()) {
       if (!g.exclusive || !g.members.looks.includes(lookId)) continue;
@@ -285,7 +286,7 @@ export class ShowRuntime {
   }
 
   setFlash(groupId: string, on: boolean): void {
-    if (!this.groups.get(groupId)) throw new Error(`groupe inconnu : ${groupId}`);
+    if (!this.groups.get(groupId)) throw new Error(say(`groupe inconnu : ${groupId}`, `unknown group: ${groupId}`));
     if (on) this.flashes.add(groupId);
     else this.flashes.delete(groupId);
   }
@@ -378,7 +379,7 @@ export class ShowRuntime {
 
   /** Activates a rule program (undefined = none); returns whether it changed. */
   selectProgram(id: string | undefined): boolean {
-    if (id !== undefined && !this.programs.get(id)) throw new Error(`programme inconnu : ${id}`);
+    if (id !== undefined && !this.programs.get(id)) throw new Error(say(`programme inconnu : ${id}`, `unknown program: ${id}`));
     const changed = this.activeProgram !== id;
     this.activeProgram = id;
     return changed;
@@ -433,9 +434,9 @@ export class ShowRuntime {
     return fixtures.map((id) => {
       const f = this.venue.fixtures.get(id);
       const r = this.venue.resolve(id);
-      if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : `fixture inconnue : ${id}` };
-      if (!r.pan && !r.tilt) return { fixture: id, error: "pas de pan/tilt" };
-      if (!f.position) return { fixture: id, error: "position sur la scène inconnue" };
+      if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`) };
+      if (!r.pan && !r.tilt) return { fixture: id, error: say("pas de pan/tilt", "no pan/tilt") };
+      if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown") };
       const res = aimAt(aimSetupOf(r)!, target);
       if ("error" in res) return { fixture: id, error: res.error };
       this.setPosition([id], res);

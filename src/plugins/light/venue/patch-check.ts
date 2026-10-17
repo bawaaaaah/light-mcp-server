@@ -4,6 +4,7 @@
  * the same address) are left alone: wiring two lamps to one address on purpose is common.
  * Pure: the venue passes each fixture with its channel count (1 when its definition is missing).
  */
+import { say } from "../../../core/lang.js";
 export interface PatchedRange {
   id: string;
   name: string;
@@ -44,5 +45,5 @@ export function patchOverlaps(ranges: PatchedRange[]): PatchOverlap[] {
 /** « Spot 3 » and « Spot 4 » share U1.12–1.15, as people read it. */
 export function overlapMessage(o: PatchOverlap, name: (id: string) => string): string {
   const span = o.from === o.to ? `U${o.universe}.${o.from}` : `U${o.universe}.${o.from}–${o.universe}.${o.to}`;
-  return `« ${name(o.a)} » et « ${name(o.b)} » partagent ${span}`;
+  return say(`« ${name(o.a)} » et « ${name(o.b)} » partagent ${span}`, `“${name(o.a)}” and “${name(o.b)}” share ${span}`);
 }
