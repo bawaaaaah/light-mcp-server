@@ -8,7 +8,7 @@
  * at their floor height, and dragging there sets a fixture's height. A strobing fixture gets a still
  * dashed outline and its rate: the screen never flashes (a flashing screen is a photosensitive risk too).
  * « Orienter »: click a fixture, then pick where it points (audience, upstage wall, jardin, cour,
- * ceiling, floor), turn it by 15°, type an angle, or drag around it to turn it; an arrow shows the
+ * ceiling, floor), turn it by 15° (buttons, ← / →), type an angle, or drag around it to turn it; an arrow shows the
  * beam, ⊙ / ⊗ when it points at / away from the viewer. A lit fixture whose beam is known (its
  * orientation, or a moving head's pan/tilt read back from the output: light:preview beams) casts a
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise.
@@ -193,6 +193,20 @@ export function StagePlan({
     const raw = (Math.atan2(dx, -dy) * 180) / Math.PI;
     setTurning(e.shiftKey ? Math.round(raw) : Math.round(raw / 15) * 15);
   };
+  // keyboard: ← / → turn the selected fixture by 15° (as ⟲ / ⟳), Escape lets it go
+  useEffect(() => {
+    if (!orienting || !selectedFixture || !onOrient) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        onOrient(selectedFixture, { turn: e.key === "ArrowLeft" ? 15 : -15 });
+      } else if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [orienting, selectedFixture, onOrient]);
   const dropTurn = () => {
     if (turning === null || !selectedFixture) return;
     const was = selectedFixture.orientation?.yaw ?? 0;

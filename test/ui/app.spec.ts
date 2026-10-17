@@ -1555,6 +1555,9 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   await login(page);
   await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   const facing = async () => ((await api(page, "venue.fixture.list")) as { id: string; facing?: string; orientation?: { yaw: number; pitch?: number } }[]).find((f) => f.id === "bar-0")!;
+  const placed = await facing();
+  if (!("position" in placed)) await api(page, "venue.fixture.put", { fixture: { ...placed, position: { x: -2, y: 4.5, z: 0.2 } } }); // a beam needs a place
+  await page.reload();
   await page.getByLabel("Orienter").check();
   await expect(page.locator(".orient-panel")).toContainText("Cliquer un projecteur");
   const bar = page.locator('.stage-plan g.fixture[data-fixture="bar-0"]');
@@ -1580,6 +1583,8 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   await panel.getByRole("button", { name: "Public" }).click();
   await panel.getByRole("button", { name: /15° \(sens des aiguilles/ }).click();
   await expect.poll(async () => (await facing()).orientation?.yaw).toBe(-15);
+  await page.keyboard.press("ArrowLeft"); // the keyboard turns it back
+  await expect.poll(async () => (await facing()).facing).toBe("audience");
   // drag around it: pointing at the right of the plan is cour
   await bar.locator("g").first().scrollIntoViewIfNeeded();
   const box = (await bar.locator("g").first().boundingBox())!; // the body: its centre is the fixture's
