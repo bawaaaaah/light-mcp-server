@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, cmd } from "../api";
+import { api, cmd, grants } from "../api";
 import { useT } from "../App";
 
 interface RoleRow {
@@ -13,13 +13,11 @@ interface RoleRow {
 const AREAS: [area: string, rights: string[]][] = [
   ["live", ["commands:trigger", "commands:level", "commands:panic", "commands:blackout", "commands:tempo", "commands:position", "commands:snapshot"]],
   ["technique", ["commands:dmx", "commands:output", "commands:selftest", "midi:configure", "midi:input"]],
-  ["design", ["show:write", "show:admin"]],
+  ["design", ["show:propose", "show:write", "show:admin"]],
   ["access", ["dashboards:view", "mcp:use", "auth:admin"]],
 ];
 const BUILT_IN = ["admin", "regisseur", "benevole", "lecture"];
 
-/** Same rule as the server's rightMatches (core/auth.ts). */
-const grants = (rights: string[], right: string) => rights.some((g) => g === "*" || g === right || (g.endsWith(":*") && right.startsWith(g.slice(0, -1))));
 
 /** Toggling one right expands a wildcard of its area (« commands:* ») into the rights it stood for. */
 function toggle(rights: string[], right: string): string[] {

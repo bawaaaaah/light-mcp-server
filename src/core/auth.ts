@@ -82,10 +82,13 @@ export function verifyPin(pin: string, stored: string): boolean {
   return crypto.timingSafeEqual(expected, actual);
 }
 
+/** Rights that come with another: whoever may change the show may propose a change to it. */
+const IMPLIED: Record<string, string> = { "show:propose": "show:write" };
+
 export function rightMatches(granted: string, wanted: string): boolean {
   if (granted === "*" || granted === wanted) return true;
   if (granted.endsWith(":*")) return wanted.startsWith(granted.slice(0, -1));
-  return false;
+  return IMPLIED[wanted] !== undefined && rightMatches(granted, IMPLIED[wanted]);
 }
 
 export function tokensMatch(candidate: string | undefined, token: string): boolean {

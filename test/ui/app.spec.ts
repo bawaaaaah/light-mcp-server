@@ -669,6 +669,27 @@ test("midi page: mappings in number order, and a search past a handful", async (
   expect(errors).toEqual([]);
 });
 
+test("a proposal is read on the Show page, applied at once, then taken back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const look = (await api(page, "look.get", { id: "masks" })) as { name: string };
+  const made = (await api(page, "show.propose", { title: "Renommer masks", changes: [{ command: "look.put", args: { look: { ...look, name: "Masques IA" } } }] })) as { id: string };
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  const card = page.locator(".proposal", { hasText: "Renommer masks" });
+  await expect(card).toContainText("name : « masks » → « Masques IA »");
+  await card.getByRole("button", { name: "Appliquer" }).click();
+  await expect(card).toContainText("appliquée");
+  expect(((await api(page, "look.get", { id: "masks" })) as { name: string }).name).toBe("Masques IA");
+  await card.getByRole("button", { name: /Défaire/ }).click();
+  await expect(card).toContainText("défaite");
+  expect(((await api(page, "look.get", { id: "masks" })) as { name: string }).name).toBe(look.name);
+  await page.screenshot({ path: "test-results/proposals.png" });
+  await card.getByRole("button", { name: "Écarter" }).click();
+  await expect(page.locator(".proposal", { hasText: "Renommer masks" })).toHaveCount(0);
+  expect(made.id).toMatch(/^p-/);
+  expect(errors).toEqual([]);
+});
+
 test("show check: a summary first, errors before warnings, and it closes", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

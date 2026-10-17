@@ -101,6 +101,40 @@ describe("versions: earlier versions of looks, groups, faders and dashboards", (
     expect(bad.issues.join(" ")).to.contain("name");
   });
 
+  it("applies a proposal all or nothing, takes it back together, and applies it again", async () => {
+    const look = plugin.runtime.looks.get("hole")!;
+    const changes = [
+      { command: "look.put", args: { look: { ...look, name: "Creux bleu" } } },
+      { command: "look.put", args: { look: { ...look, id: "creux-2", name: "Creux 2" } } },
+    ];
+    const proposerOnly = { origin: "mcp" as const, who: "Claude", can: (r: string) => r === "show:propose" };
+    const made = (await plugin.commands.invoke("show.propose", { changes, title: "Deux creux" }, proposerOnly)) as { valid: boolean; id: string; preview: { new: boolean }[] };
+    expect(made.valid).to.equal(true);
+    expect(made.preview.map((x) => x.new)).to.deep.equal([false, true]);
+    expect(plugin.runtime.looks.get("creux-2")).to.equal(undefined); // nothing written
+    let refused = "";
+    await plugin.commands.invoke("show.apply", { id: made.id }, proposerOnly).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("show:write"); // proposing is not applying
+    const listed = (await run("show.proposals")) as { id: string; who?: string; status: string }[];
+    expect(listed[0]).to.include({ id: made.id, who: "Claude", status: "pending" });
+    await run("show.apply", { id: made.id });
+    expect(plugin.runtime.looks.get("hole")!.name).to.equal("Creux bleu");
+    expect(plugin.runtime.looks.get("creux-2")).to.not.equal(undefined);
+    await run("show.revert", { id: made.id });
+    expect(plugin.runtime.looks.get("hole")!.name).to.equal(look.name);
+    expect(plugin.runtime.looks.get("creux-2")).to.equal(undefined);
+    await run("show.apply", { id: made.id }); // redo
+    expect(plugin.runtime.looks.get("creux-2")!.name).to.equal("Creux 2");
+    // one refused, none made
+    const bad = (await run("show.propose", { changes: [{ command: "look.put", args: { look: { ...look, name: "Creux vert" } } }, { command: "look.put", args: { look: { ...look, id: "nulle-part", canvas: "aucun" } } }] })) as { id: string };
+    await run("show.apply", { id: bad.id }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("rien n'a changé");
+    expect(plugin.runtime.looks.get("hole")!.name).to.equal("Creux bleu"); // the first change was taken back: as before the proposal
+    // an invalid change is not held at all
+    const invalid = (await run("show.propose", { changes: [{ command: "group.put", args: { group: { id: "g" } } }] })) as { valid: boolean };
+    expect(invalid.valid).to.equal(false);
+  });
+
   it("refuses a version that is not there", async () => {
     let refused = "";
     await run("history.restore", { collection: "looks", id: "hole", stamp: "2026-01-01T00-00-00-000Z-000000" }).catch((e: Error) => (refused = e.message));

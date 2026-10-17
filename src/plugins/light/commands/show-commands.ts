@@ -545,6 +545,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- versions: the copy kept of an object at each change (FolderStore history), put back on demand
   const VERSIONED = { looks: { coll: show.looks, put: "look.put", key: "look" }, groups: { coll: show.groups, put: "group.put", key: "group" }, faders: { coll: show.faders, put: "fader.put", key: "fader" }, dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" } } as const;
   const versioned = z.enum(["looks", "groups", "faders", "dashboards"]);
+  /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
+  const keepLive = (collection: string, old: unknown, now: unknown) => {
+    const [o, n] = [old as { master?: unknown; level?: unknown }, now as { master?: unknown; level?: unknown } | undefined];
+    return collection === "groups" && o.master && n?.master ? { ...o, master: n.master } : collection === "faders" && n ? { ...o, level: n.level } : old;
+  };
   /** How long after its activity line a change's history copy may be stamped. */
   const UNDO_SLACK_MS = 2000;
   reg.register({
@@ -578,10 +583,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const v = VERSIONED[collection];
       const old = v.coll.version(i, stamp) as { id?: string; master?: unknown; level?: unknown } | undefined;
       if (!old || old.id !== i) throw new Error(say(`version introuvable : ${collection}/${i} ${stamp}`, `version not found: ${collection}/${i} ${stamp}`));
-      // a DCA's level and a fader's level are live state: putting back a design never moves the light
-      const now = v.coll.get(i) as { master?: unknown; level?: unknown } | undefined;
-      const restored = collection === "groups" && old.master && now?.master ? { ...old, master: now.master } : collection === "faders" && now ? { ...old, level: now.level } : old;
-      return reg.invoke(v.put, { [v.key]: restored }, ctx);
+      return reg.invoke(v.put, { [v.key]: keepLive(collection, old, v.coll.get(i)) }, ctx);
     },
   });
 
@@ -619,24 +621,47 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     canvases: venue.canvases,
   } as const;
   type Diffable = keyof typeof DIFFABLE;
-  /** The write commands show.diff can stand in for (light call … --check): their collection and argument. */
-  const PUT_COMMANDS: Record<string, (args: Record<string, unknown>) => { collection: Diffable; object: unknown }> = {
-    "look.put": (a) => ({ collection: "looks", object: a.look }),
-    "group.put": (a) => ({ collection: "groups", object: a.group }),
-    "fader.put": (a) => ({ collection: "faders", object: a.fader }),
-    "dashboard.put": (a) => ({ collection: "dashboards", object: a.dashboard }),
-    "palette.put": (a) => ({ collection: "palettes", object: a.palette }),
-    "stage.zone.put": (a) => ({ collection: "zones", object: a.zone }),
-    "rule.put": (a) => ({ collection: a.where === "venue" ? "venueRules" : "rules", object: a.rule }),
-    "venue.fixture.put": (a) => ({ collection: "fixtures", object: a.fixture }),
-    "venue.canvas.put": (a) => ({ collection: "canvases", object: a.canvas }),
+  type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean };
+  /** The write commands a proposal can hold (and light call … --check): their collection, the argument carrying the object, the arguments kept beside it. */
+  const PUT_COMMANDS: Record<string, { collection: (a: Record<string, unknown>) => Diffable; key: string; keep?: string[] }> = {
+    "look.put": { collection: () => "looks", key: "look" },
+    "group.put": { collection: () => "groups", key: "group" },
+    "fader.put": { collection: () => "faders", key: "fader" },
+    "dashboard.put": { collection: () => "dashboards", key: "dashboard" },
+    "palette.put": { collection: () => "palettes", key: "palette" },
+    "stage.zone.put": { collection: () => "zones", key: "zone" },
+    "rule.put": { collection: (a) => (a.where === "venue" ? "venueRules" : "rules"), key: "rule", keep: ["where"] },
+    "venue.fixture.put": { collection: () => "fixtures", key: "fixture" },
+    "venue.canvas.put": { collection: () => "canvases", key: "canvas" },
+  };
+  const putOf = (command: string) => {
+    const p = PUT_COMMANDS[command];
+    if (!p) throw new Error(say(`pas de proposition pour ${command} : ${Object.keys(PUT_COMMANDS).join(", ")}`, `no proposal for ${command}: ${Object.keys(PUT_COMMANDS).join(", ")}`));
+    return p;
+  };
+  const targetOf = (command: string, args: Record<string, unknown>) => {
+    const p = putOf(command);
+    return { collection: p.collection(args), object: args[p.key] };
+  };
+  /** What putting `object` in `collection` would change, or why it is invalid. */
+  const diffOf = (collection: Diffable, object: unknown) => {
+    const coll = DIFFABLE[collection] as Store;
+    let parsed: { id: string };
+    try {
+      parsed = coll.validate(object);
+    } catch (err) {
+      const issues = err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".") || "(objet)"}${say(" : ", ": ")}${i.message}`) : [String(err)];
+      return { valid: false as const, collection, issues };
+    }
+    const current = coll.get(parsed.id);
+    return { valid: true as const, collection, id: parsed.id, new: current === undefined, changes: current === undefined ? [] : diff(current, parsed) };
   };
   reg.register({
     name: "show.diff",
     title: "Ce que changerait un enregistrement",
     description:
-      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, venue.canvas.put).",
-    right: "show:write",
+      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, venue.canvas.put). Several changes to apply together: show.propose.",
+    right: "show:propose",
     readOnly: true,
     profiles: ["setup", "design"],
     schema: z
@@ -648,19 +673,146 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       })
       .refine((a) => (a.collection && a.object) || (a.command && a.args), { message: "collection et object, ou command et args" }),
     run: (a) => {
-      const put = a.command ? PUT_COMMANDS[a.command] : undefined;
-      if (a.command && !put) throw new Error(say(`pas de proposition pour ${a.command} : ${Object.keys(PUT_COMMANDS).join(", ")}`, `no proposal for ${a.command}: ${Object.keys(PUT_COMMANDS).join(", ")}`));
-      const { collection, object } = put ? put(a.args!) : { collection: a.collection!, object: a.object };
-      const coll = DIFFABLE[collection] as { validate(v: unknown): { id: string }; get(id: string): unknown };
-      let parsed: { id: string };
-      try {
-        parsed = coll.validate(object);
-      } catch (err) {
-        const issues = err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".") || "(objet)"} : ${i.message}`) : [String(err)];
-        return { valid: false, issues };
+      const { collection, object } = a.command ? targetOf(a.command, a.args!) : { collection: a.collection!, object: a.object };
+      return diffOf(collection, object);
+    },
+  });
+
+  // Proposals (docs/specs/mcp.md, « Proposer puis appliquer »): several changes held together, shown
+  // field by field, applied all or nothing by someone who may write, taken back together. In
+  // memory: a proposal is for the session at hand, not for the show.
+  type Change = { command: string; args: Record<string, unknown> };
+  type Applied = Change & { collection: Diffable; id: string; before?: unknown };
+  interface Proposal {
+    id: string;
+    title?: string;
+    who?: string;
+    origin: string;
+    at: number;
+    status: "pending" | "applied" | "reverted" | "discarded";
+    changes: Change[];
+    applied?: Applied[];
+    appliedAt?: number;
+    appliedBy?: string;
+  }
+  const proposals = new Map<string, Proposal>();
+  const PROPOSAL_KEEP_MS = 24 * 3600_000;
+  const proposalOf = (id: string) => {
+    const p = proposals.get(id);
+    if (!p) throw new Error(say(`proposition inconnue : ${id}`, `unknown proposal: ${id}`));
+    return p;
+  };
+  const previewOf = (c: Change) => ({ command: c.command, ...diffOf(targetOf(c.command, c.args).collection, targetOf(c.command, c.args).object) });
+  /** Puts the objects back as they were before (newest first): the ones created go. */
+  const takeBack = async (done: Applied[], ctx: Parameters<Parameters<typeof reg.register>[0]["run"]>[1]) => {
+    for (const a of [...done].reverse()) {
+      const coll = DIFFABLE[a.collection] as Store;
+      if (a.before === undefined) coll.delete(a.id);
+      else {
+        const p = putOf(a.command);
+        await reg.invoke(a.command, { ...Object.fromEntries((p.keep ?? []).map((k) => [k, a.args[k]])), [p.key]: keepLive(a.collection, a.before, coll.get(a.id)) }, ctx);
       }
-      const current = coll.get(parsed.id);
-      return { valid: true, id: parsed.id, new: current === undefined, changes: current === undefined ? [] : diff(current, parsed) };
+    }
+  };
+  const ChangeSchema = z.object({ command: z.enum(Object.keys(PUT_COMMANDS) as [string, ...string[]]), args: z.record(z.string(), z.unknown()) });
+  reg.register({
+    name: "show.propose",
+    title: "Proposer des changements",
+    description:
+      "Holds several changes (put commands and their arguments, as show.diff takes them) as one proposal, nothing written: each is checked and described field by field. Someone who may write applies it all or nothing (show.apply, or the Show page), show.revert takes it back together. For an AI client: propose, show the user what it does, apply on their yes — or leave it for them in the interface.",
+    right: "show:propose",
+    profiles: ["setup", "design"],
+    schema: z.object({ changes: z.array(ChangeSchema).min(1).max(50), title: z.string().max(200).optional() }),
+    run: ({ changes, title }, ctx) => {
+      const preview = changes.map(previewOf);
+      const invalid = preview.filter((x) => !x.valid);
+      if (invalid.length) return { valid: false, preview };
+      const now = Date.now();
+      for (const [k, p] of proposals) if (now - p.at > PROPOSAL_KEEP_MS) proposals.delete(k);
+      const id = `p-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      proposals.set(id, { id, ...(title ? { title } : {}), ...(ctx.who ? { who: ctx.who } : {}), origin: ctx.origin, at: now, status: "pending", changes });
+      return { valid: true, id, preview };
+    },
+  });
+  reg.register({
+    name: "show.proposals",
+    title: "Propositions",
+    description: "Proposals of the last day, newest first: who made them, from where, their status (pending, applied, reverted, discarded) and, for one not applied, what applying it now would change.",
+    right: "show:propose",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({}),
+    run: () =>
+      [...proposals.values()]
+        .filter((p) => Date.now() - p.at <= PROPOSAL_KEEP_MS)
+        .sort((a, b) => b.at - a.at)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          who: p.who,
+          origin: p.origin,
+          at: p.at,
+          status: p.status,
+          appliedAt: p.appliedAt,
+          appliedBy: p.appliedBy,
+          preview: p.status === "applied" ? p.applied!.map((a) => ({ command: a.command, valid: true, collection: a.collection, id: a.id, new: a.before === undefined, changes: [] })) : p.changes.map(previewOf),
+        })),
+  });
+  reg.register({
+    name: "show.apply",
+    title: "Appliquer une proposition",
+    description: "Applies a pending (or reverted) proposal through the usual put commands and their checks, all or nothing: if one is refused, those already made are taken back and nothing has changed.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ id: z.string() }),
+    run: async ({ id }, ctx) => {
+      const p = proposalOf(id);
+      if (p.status !== "pending" && p.status !== "reverted") throw new Error(say(`proposition déjà ${p.status === "applied" ? "appliquée" : "écartée"}`, `proposal already ${p.status}`));
+      const done: Applied[] = [];
+      try {
+        for (const c of p.changes) {
+          const { collection, object } = targetOf(c.command, c.args);
+          const coll = DIFFABLE[collection] as Store;
+          const target = coll.validate(object).id;
+          const before = coll.get(target);
+          await reg.invoke(c.command, c.args, ctx);
+          done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}) });
+        }
+      } catch (err) {
+        await takeBack(done, ctx);
+        throw new Error(say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`));
+      }
+      Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), ...(ctx.who ? { appliedBy: ctx.who } : {}) });
+      return { id, applied: done.length };
+    },
+  });
+  reg.register({
+    name: "show.revert",
+    title: "Défaire une proposition",
+    description: "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed. show.apply applies it again (redo).",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ id: z.string() }),
+    run: async ({ id }, ctx) => {
+      const p = proposalOf(id);
+      if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
+      await takeBack(p.applied!, ctx);
+      p.status = "reverted";
+      return { id, reverted: p.applied!.length };
+    },
+  });
+  reg.register({
+    name: "show.discard",
+    title: "Écarter une proposition",
+    description: "Drops a pending proposal without applying it.",
+    right: "show:propose",
+    profiles: ["setup", "design"],
+    schema: z.object({ id: z.string() }),
+    run: ({ id }) => {
+      const p = proposalOf(id);
+      if (p.status === "applied") throw new Error(say("proposition appliquée : la défaire d'abord (show.revert)", "proposal applied: take it back first (show.revert)"));
+      p.status = "discarded";
+      return { id, discarded: true };
     },
   });
 

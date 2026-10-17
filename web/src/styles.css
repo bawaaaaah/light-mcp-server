@@ -1708,3 +1708,31 @@ ul.online {
   border: 1px solid var(--text);
   color: var(--text);
 }
+
+/* Proposals awaiting a decision (components/Proposals.tsx) */
+.proposals {
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 0.6em 0.9em;
+  margin-bottom: 1em;
+}
+.proposal {
+  border-top: 1px solid var(--line);
+  padding: 0.5em 0;
+}
+.proposal .row {
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: center;
+}
+.proposal ul {
+  margin: 0.3em 0;
+  padding-left: 1.2em;
+}
+.proposal ul.changes {
+  margin: 0.1em 0 0.3em;
+}
+.proposal.applied,
+.proposal.reverted {
+  opacity: 0.8;
+}

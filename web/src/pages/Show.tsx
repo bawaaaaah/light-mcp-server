@@ -7,6 +7,7 @@ import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 import { RecentlyDeleted } from "../components/Versions";
+import { Proposals } from "../components/Proposals";
 
 interface Look {
   id: string;
@@ -150,6 +151,7 @@ export function ShowPage() {
 
   return (
     <div className="show">
+      <Proposals onChanged={refresh} />
       <section className="bar">
         <label title={t.safeStateHelp}>
           {t.safeState}{" "}
