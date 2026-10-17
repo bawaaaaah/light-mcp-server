@@ -51,6 +51,7 @@ interface Settings {
   safeLook?: string;
   safeSnapshot?: string;
   grandMaster: number;
+  liveAi?: boolean;
 }
 interface Snapshot {
   id: string;
@@ -178,6 +179,9 @@ export function ShowPage() {
               ))}
             </optgroup>
           </select>
+        </label>
+        <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
+          <input type="checkbox" checked={Boolean(settings?.liveAi)} onChange={(e) => void run("show.settings.set", { liveAi: e.target.checked })} /> {t.liveAi}
         </label>
         <button onClick={() => void cmd<Lint>("show.lint").then(setLint)}>{t.lint}</button>
         <button

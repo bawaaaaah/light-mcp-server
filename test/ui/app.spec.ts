@@ -713,6 +713,22 @@ test("a proposal is read on the Show page, applied at once, then taken back", as
   expect(errors).toEqual([]);
 });
 
+test("live AI: switched on from the Show page, said in every page's header, then off", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  await page.getByLabel("IA en live").click(); // saved, then shown ticked
+  await expect(page.getByLabel("IA en live")).toBeChecked();
+  await expect(page.locator("header button.badge", { hasText: "IA en live" })).toBeVisible();
+  await page.locator("nav.pages").getByRole("button", { name: "Live" }).click();
+  await expect(page.locator("header button.badge", { hasText: "IA en live" })).toBeVisible(); // on every page
+  await page.locator("header button.badge", { hasText: "IA en live" }).click(); // back to where it is switched
+  await page.getByLabel("IA en live").click();
+  await expect(page.getByLabel("IA en live")).not.toBeChecked();
+  await expect(page.locator("header button.badge", { hasText: "IA en live" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("show check: a summary first, errors before warnings, and it closes", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

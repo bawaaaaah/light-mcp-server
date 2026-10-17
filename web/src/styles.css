@@ -1737,3 +1737,9 @@ ul.online {
 .proposal.reverted {
   opacity: 0.8;
 }
+
+/* « IA en live » switched on: seen at a glance (pages/Show.tsx) */
+.live-ai.on {
+  color: var(--warn);
+  font-weight: 600;
+}

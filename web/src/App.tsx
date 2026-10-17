@@ -290,6 +290,11 @@ export function App() {
               ⚠ {t.otherSource} : {output.foreignSources.map(sourceName).join(", ")}
             </span>
           ) : null}
+          {output?.liveAi && (
+            <button className="badge standby" title={t.liveAiHelp} onClick={() => allowed("show") && setPage("show")}>
+              ✦ {t.liveAi}
+            </button>
+          )}
           {output?.parked ? (
             <button className="badge conflict" title={t.parkedHelp} onClick={() => allowed("console") && setPage("console")}>
               🔧 {output.parked} {t.parkedChannels}

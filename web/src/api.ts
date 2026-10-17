@@ -269,6 +269,8 @@ export async function lightState(): Promise<{
   program?: string | null;
   /** Channels forced from the DMX console (over the show until released). */
   parked?: number;
+  /** AI clients may touch up the service live (show settings). */
+  liveAi?: boolean;
 }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }

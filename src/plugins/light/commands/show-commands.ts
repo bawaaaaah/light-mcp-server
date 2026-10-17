@@ -412,6 +412,53 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     return { id: groupId, ...master, effectiveLevel: show.effectiveLevel(groupId) };
   };
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
+  // Live touch-ups by AI (docs/specs/mcp.md, « Profil live »): small steps, within the rules, while the desk allows it.
+  const LIVE_STEP = 0.25;
+  reg.register({
+    name: "live.adjust",
+    title: "Retouche en direct",
+    description:
+      "Live touch-ups during the service, for an AI client, within the rules and the DCA limits, without asking each time — only while the show's « IA en live » setting (liveAi) is on, off by default. One call: a DCA level by a small step (delta up to ±0.25, or a level at most 0.25 from the current one) and its mute, a look started or stopped (never a manual-only or danger look; rules that refuse or ask still do). Returns what was done and what plays now.",
+    right: "commands:level",
+    profiles: ["live"],
+    schema: z
+      .object({
+        dca: z.object({ id: z.string(), delta: z.number().min(-LIVE_STEP).max(LIVE_STEP).optional(), level: z.number().min(0).max(1).optional(), mute: z.boolean().optional() }).optional(),
+        go: z.string().optional().describe("look to start"),
+        stop: z.string().optional().describe("look to stop"),
+      })
+      .refine((a) => a.dca || a.go || a.stop, { message: "dca, go ou stop" }),
+    run: async ({ dca, go, stop }, ctx) => {
+      if (!show.settings.liveAi) throw new Error(say("IA en live désactivée : l'activer dans les réglages du show (page Show, « IA en live »)", "live AI is off: switch it on in the show settings (Show page, « Live AI »)"));
+      const done: string[] = [];
+      if (dca) {
+        const g = show.groups.get(dca.id);
+        if (!g?.master) throw new Error(say(`DCA inconnu : ${dca.id}`, `unknown DCA: ${dca.id}`));
+        const now = g.master.level;
+        const level = Math.min(1, Math.max(0, dca.level ?? now + (dca.delta ?? 0)));
+        if (Math.abs(level - now) > LIVE_STEP + 1e-9) throw new Error(say(`pas plus de ${LIVE_STEP * 100} % d'un coup en direct (${g.name} est à ${Math.round(now * 100)} %)`, `no more than ${LIVE_STEP * 100} % at once live (${g.name} is at ${Math.round(now * 100)} %)`));
+        if (level !== now) {
+          await reg.invoke("group.level", { id: dca.id, level }, ctx);
+          done.push(`${g.name} ${Math.round(now * 100)} → ${Math.round(level * 100)} %`);
+        }
+        if (dca.mute !== undefined && dca.mute !== g.master.mute) {
+          await reg.invoke("group.mute", { id: dca.id, mute: dca.mute }, ctx);
+          done.push(`${g.name} ${dca.mute ? "mute" : say("rétabli", "unmuted")}`);
+        }
+      }
+      if (stop) {
+        await reg.invoke("look.stop", { id: stop }, ctx);
+        done.push(say(`arrêt de ${stop}`, `${stop} stopped`));
+      }
+      if (go) {
+        const look = show.looks.get(go);
+        if (look?.manualOnly || look?.danger) throw new Error(say(`« ${look.name} » est réservé à la main (${look.danger ? "danger" : "manuel seulement"})`, `“${look.name}” is for a human hand (${look.danger ? "danger" : "manual only"})`));
+        await reg.invoke("look.go", { id: go }, ctx);
+        done.push(say(`lancement de ${go}`, `${go} started`));
+      }
+      return { done, playing: show.activeLooks(), dca: dca ? { id: dca.id, ...show.groups.get(dca.id)!.master, effectiveLevel: show.effectiveLevel(dca.id) } : undefined };
+    },
+  });
   reg.register({ name: "group.mute", title: "Mute de groupe", description: "Mutes or unmutes a group master (the level is kept).", right: "commands:level", profiles: ["live"], schema: z.object({ id: z.string(), mute: z.boolean() }), run: ({ id: i, mute }) => withMaster(i, { mute }) });
   reg.register({ name: "group.flash", title: "Flash de groupe", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
 
@@ -889,7 +936,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode).",
+    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust).",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }),

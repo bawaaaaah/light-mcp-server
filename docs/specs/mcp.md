@@ -11,7 +11,7 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 ## Périmètre
 | v1 | Plus tard |
 |---|---|
-| Profils `setup`, `design`, `full` ; ressources ; prompts ; propositions et diff ; prévisualisation ; lint ; selftest ; exports | Profil `live` : retouches en direct (`light_live_adjust`) dans le cadre des règles, sans confirmation systématique (principe déjà validé) |
+| Profils `setup`, `design`, `live`, `full` ; ressources ; prompts ; propositions et diff ; prévisualisation ; lint ; selftest ; exports ; **retouches en direct** (`light_live_adjust`) dans le cadre des règles, sans confirmation systématique | Retouches de couleur ou d'effet d'un look en cours |
 
 ## Cycle de vie couvert
 | Étape | Ce que fait l'IA avec l'utilisateur | Outils |
@@ -52,7 +52,8 @@ Comme dans wing-mcp-server : transports **HTTP streamable `/mcp`** et **stdio**,
 - **Sélecteurs par le sens** : `{ role, zone, group, tag, canvas, near, except }`, partagés avec l'UI. `light_select` explique ce qu'il retient.
 - **Réutilisation** : les outils sont de minces adaptateurs sur les commandes existantes. **Aucune logique métier propre au MCP.**
 - **Undo et versions** (v1) : `light_history_undo` reprend une modification depuis sa ligne de `light_activity_list` (qui, d'où, quand) ; `light_history_list`, `light_history_restore` et `light_history_deleted` pour les versions précédentes ; `light_snapshot_*` pour l'état en direct. Plus tard : `light_redo`.
-- **Profils** : `setup`, `design`, `full` (et plus tard `live`). On change de profil avec `light_tool_profile`, notifié par `tools/list_changed`.
+- **Profils** : `setup`, `design`, `live`, `full`. On change de profil avec `light_tool_profile`, notifié par `tools/list_changed`.
+- **IA en live** (v1, `light_live_adjust`, profil `live`) : seulement quand la régie a activé « IA en live » (réglage du show `liveAi`, case de la page Show, coupée par défaut ; tant qu'elle est active, toutes les pages l'affichent dans l'en-tête). Un appel : un DCA par petit pas (±25 % au plus d'un coup, dans ses limites), son mute, un look lancé ou arrêté. Jamais un look « manuel seulement » ni « danger » ; les règles qui refusent ou demandent (y compris celles réservées à l'IA) s'appliquent ; chaque retouche figure au journal d'activité avec le nom du client.
 
 ## Outils de vérification et d'export
 - `light_lint(show | song)` : contraste ΔE des couples, symétrie des miroirs, sections identiques ou inertes, looks qui écrivent de l'intensité, du strobe ou de l'UV contre les règles, conflits de notes, sections hors famille d'ambiance, **références cassées** (look, groupe, fader de canaux, programme, projecteur supprimé, canal hors du mode d'un projecteur), **noms en double** (looks, groupes, faders). `light_look_list` est **résumé par défaut** (sans pas ni paramètres de technique, qui pèsent près d'1 Mo sur un show importé ; `brief: false` pour tout) et `light_look_get(id)` donne un look entier ; un look de la liste résumée porte `partial: true` et `light_look_put` le refuse (le renvoyer tel quel perdrait ses pas ou ses canaux bruts). Un argument invalide est refusé avec le premier problème et son chemin (`arguments invalides pour look.put (look.timing.every : …)`). `light_show_references(kind, id)` dit où un look, un groupe ou un fader sert ; `light_look_delete`, `light_group_delete` et `light_fader_delete` refusent tant qu'il sert, sauf `force`.

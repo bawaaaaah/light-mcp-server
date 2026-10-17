@@ -361,7 +361,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -376,6 +376,8 @@ export class LightPlugin implements McpPlugin {
       parked: this.engine.parkedCount(),
       // a Panic pressed by mistake can be undone for a minute: the Live shows « ↶ Revenir » meanwhile
       panicUndo: this.runtime?.panicUndoUntil() !== undefined,
+      // AI clients may touch up the service live: said on every page while it is so
+      liveAi: Boolean(this.runtime?.settings.liveAi),
     };
   }
 
@@ -512,6 +514,7 @@ export class LightPlugin implements McpPlugin {
       "Changing safely: propose before you write — light_show_diff says what a put would change, field by field, without writing; for several changes, light_show_propose holds them as one proposal that the user applies on the Show page (or you, on their yes, with light_show_apply; light_show_revert takes it back as a whole). Show what it does and write on the user's yes. light_show_references says where a look, group or channel fader is used; deletes are refused while something uses it unless force. light_history_undo takes back a change from its light_activity_list line (say first what was changed on that object since); light_history_list / light_history_restore put an earlier version back, light_history_deleted lists what can come back.",
       "Checking: light_show_lint (references, patch overlaps, missing definitions, ambiguous names), light_venue_patch_check, light_selftest_run. light_activity_list says who did what and from where.",
       "Building a show: patch fixtures, make a canvas, create looks (light_look_from_intent, light_show_autopresets), then light_dashboard_generate.",
+      "During a service (profile live), only if the desk switched « IA en live » on (show settings, liveAi): light_live_adjust makes small touch-ups — a DCA by up to 25 % at a time, a look started or stopped — within the rules, without asking each time. Never a manual-only or danger look; Panic and Blackout remain for emergencies.",
     ].join("\n");
   }
 
