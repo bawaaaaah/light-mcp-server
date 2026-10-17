@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { readFileSync } from "node:fs";
-import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
-import { applyHolds, applyRules, effectiveRule, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
+import { capabilityKind, parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
+import { applyHolds, applyRules, applySteady, effectiveRule, RuleSchema } from "../../../src/plugins/light/rules/rules.js";
 import type { ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
 const def = parseQxf(readFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), "utf8"));
@@ -20,6 +20,41 @@ const fx: ResolvedFixture = {
 const rule = (r: unknown) => RuleSchema.parse(r);
 
 describe("rules mask", () => {
+  it("lets through only the kinds of ranges an allowlist names, and the neutral ones", () => {
+    const xml = readFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), "utf8");
+    const spot = parseQxf(xml);
+    const wheel = spot.channels.get("Color Wheel")!;
+    const kinds = wheel.capabilities.map((c) => capabilityKind(c));
+    expect(kinds.slice(0, 5)).to.deep.equal(["colour", "colour", "colour", "colour", "colour"]);
+    // the bar's strobe channel, colour and dimmer only: a strobe value goes back to « Strobe Off »
+    const strobe = fx.def.channels.get("Strobe")!;
+    expect(strobe.capabilities.map((c) => capabilityKind(c))).to.deep.equal(["neutral", "strobe"]);
+    const sober = [rule({ id: "sobre", level: "venue", target: {}, allowCapabilities: ["colour", "intensity"] })];
+    expect(effectiveRule(sober, fx, strobe)!.allowCapabilities).to.deep.equal(["colour", "intensity"]);
+    const buf = new Uint8Array(512);
+    buf[1] = 200;
+    applyRules(sober, fx, buf);
+    expect(buf[1]).to.equal(10); // the top of « Strobe Off », the nearest allowed
+  });
+
+  it("keeps a machine's channel steady: a change asked sooner than its seconds waits", () => {
+    const name = fx.mode.channels[3]!;
+    const haze = [rule({ id: "brume", level: "venue", target: { channel: name }, steadySeconds: 10 })];
+    const last = new Map<string, { v: number; t: number }>();
+    const frame = (value: number, now: number) => {
+      const buf = new Uint8Array(512);
+      buf[3] = value;
+      applySteady(haze, fx, buf, now, last);
+      return buf[3];
+    };
+    expect(frame(0, 0)).to.equal(0);
+    expect(frame(200, 500)).to.equal(0); // on the beat: too soon, it waits
+    expect(frame(0, 1000)).to.equal(0);
+    expect(frame(200, 10_000)).to.equal(200); // ten seconds on: it may change
+    expect(frame(0, 12_000)).to.equal(200); // and holds again
+    expect(frame(0, 20_000)).to.equal(0);
+  });
+
   it("holds a channel under its level once it has stayed above it too long, until it comes down", () => {
     const name = fx.mode.channels[0]!;
     const blinder = [rule({ id: "blinder", level: "venue", target: { channel: name }, hold: { above: 204, seconds: 3 } })];

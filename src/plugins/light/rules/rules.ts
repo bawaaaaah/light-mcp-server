@@ -9,7 +9,7 @@
  * value). The most specific level wins unless a broader rule is `locked`.
  */
 import { z } from "zod";
-import { strobeHz, type CapabilityTag, type FixtureChannel } from "../venue/qxf-import.js";
+import { CAPABILITY_KINDS, capabilityKind, strobeHz, type CapabilityTag, type FixtureChannel } from "../venue/qxf-import.js";
 import type { ResolvedFixture } from "../venue/venue.js";
 
 export const RuleSchema = z.object({
@@ -29,6 +29,12 @@ export const RuleSchema = z.object({
   values: z.array(z.number().int().min(0).max(255)).optional(),
   forbidTags: z.array(z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"])).optional(),
   /**
+   * Allowlist: on a channel made of ranges, only ranges of these kinds (and the neutral ones: off,
+   * open, no function); a value elsewhere goes to the nearest allowed range — « fixed colours and
+   * dimmer only ».
+   */
+  allowCapabilities: z.array(z.enum(CAPABILITY_KINDS)).optional(),
+  /**
    * Strobe no faster than this (Hz), where the fixture definition gives its strobe ranges in Hz:
    * the value moves to the nearest setting at or under it. Chosen by the venue (photosensitive
    * guidance speaks of 3 flashes a second); without frequencies in a definition it has no effect.
@@ -39,7 +45,17 @@ export const RuleSchema = z.object({
    * hot lamp. After that the channel is held just under it until what drives it comes down.
    */
   hold: z.object({ above: z.number().int().min(1).max(255), seconds: z.number().positive().max(600) }).optional(),
+  /** Pan/tilt no faster than this, in degrees per second (the fixture's travel from its definition): heads glide, motors are spared. */
+  maxDegPerSecond: z.number().positive().max(10000).optional(),
+  /** The value changes at most once every this many seconds (a haze or bubble machine never pulsing on the beat). */
+  steadySeconds: z.number().positive().max(600).optional(),
   locked: z.boolean().default(false),
+  /**
+   * What a look launch does when this rule would bound it: clamp (the default: bound it and say so),
+   * confirm (only on an explicit yes — a dialog in the interface, `confirm` for AI; refused from
+   * MIDI, OSC or a song, where nobody can answer), or reject (never launched).
+   */
+  onViolation: z.enum(["clamp", "confirm", "reject"]).default("clamp"),
   /** Rule program it belongs to: the rule applies only while that program is active (absent = always). */
   program: z.string().optional(),
   notes: z.string().optional(),
@@ -87,11 +103,11 @@ export function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel,
   return true;
 }
 
-/** Nearest value outside forbidden capability ranges. */
-function avoidForbidden(value: number, ch: FixtureChannel, forbid: string[]): number {
-  const bad = ch.capabilities.filter((c) => c.tags.some((t) => forbid.includes(t)));
+/** Nearest value outside the capability ranges `isBad` refuses. */
+function avoidRanges(value: number, ch: FixtureChannel, isBad: (c: FixtureChannel["capabilities"][number]) => boolean): number {
+  const bad = ch.capabilities.filter(isBad);
   if (!bad.some((c) => value >= c.min && value <= c.max)) return value;
-  const allowed = ch.capabilities.filter((c) => !c.tags.some((t) => forbid.includes(t)));
+  const allowed = ch.capabilities.filter((c) => !isBad(c));
   if (allowed.length === 0) return 0;
   let best = allowed[0]!.min;
   for (const c of allowed) for (const v of [c.min, c.max]) if (Math.abs(v - value) < Math.abs(best - value)) best = v;
@@ -102,8 +118,8 @@ function avoidForbidden(value: number, ch: FixtureChannel, forbid: string[]): nu
 const scopeRank = (r: Rule) => (r.scope.fixture ? 3 : r.scope.zone ? 2 : r.scope.model ? 1 : 0);
 const specificity = (r: Rule) => LEVEL_RANK[r.level] * 10 + scopeRank(r);
 
-type Constraint = "forbidTags" | "values" | "min" | "max" | "maxHz";
-const CONSTRAINTS: Constraint[] = ["forbidTags", "values", "min", "max", "maxHz"];
+type Constraint = "forbidTags" | "allowCapabilities" | "values" | "min" | "max" | "maxHz";
+const CONSTRAINTS: Constraint[] = ["forbidTags", "allowCapabilities", "values", "min", "max", "maxHz"];
 
 export interface EffectiveRule {
   min?: number;
@@ -111,6 +127,7 @@ export interface EffectiveRule {
   maxHz?: number;
   values?: number[];
   forbidTags?: string[];
+  allowCapabilities?: string[];
   /** constraint → id of the rule it comes from */
   from: Partial<Record<Constraint, string>>;
   /** locked rules re-applied on top (they cannot be relaxed) */
@@ -162,8 +179,16 @@ function limitHz(v: number, ch: FixtureChannel, maxHz: number): number {
 }
 
 /** Applies constraints to a value; returns the new value. */
-function enforce(v: number, c: { min?: number; max?: number; maxHz?: number; values?: number[]; forbidTags?: string[] }, ch: FixtureChannel): number {
-  if (c.forbidTags?.length) v = avoidForbidden(v, ch, c.forbidTags);
+function enforce(v: number, c: { min?: number; max?: number; maxHz?: number; values?: number[]; forbidTags?: string[]; allowCapabilities?: string[] }, ch: FixtureChannel): number {
+  const forbid = c.forbidTags;
+  if (forbid?.length) v = avoidRanges(v, ch, (cap) => cap.tags.some((t) => forbid.includes(t)));
+  const allow = c.allowCapabilities;
+  if (allow?.length) {
+    v = avoidRanges(v, ch, (cap) => {
+      const kind = capabilityKind(cap);
+      return kind !== "neutral" && !allow.includes(kind);
+    });
+  }
   if (c.maxHz !== undefined) v = limitHz(v, ch, c.maxHz);
   if (c.values?.length) v = c.values.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), c.values[0]!);
   if (c.min !== undefined && v < c.min) v = c.min;
@@ -171,7 +196,6 @@ function enforce(v: number, c: { min?: number; max?: number; maxHz?: number; val
   return v;
 }
 
-/** Applies the effective rules to a fixture's channels in a DMX buffer; returns what was moved. */
 /**
  * Duration bounds (`hold`): a channel at or above a rule's level for longer than its seconds is held
  * just under it until it comes down. `since` remembers, per fixture, channel and rule, when the
@@ -203,6 +227,75 @@ export function applyHolds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Arra
   return clamps;
 }
 
+/**
+ * Pan/tilt speed bounds (`maxDegPerSecond`): each axis moves toward what is asked no faster than the
+ * slowest rule allows, in degrees of the fixture's travel. `last` remembers each axis' last value
+ * and time (16-bit, 0..1). Returns what it slowed.
+ */
+export function applySpeeds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, now: number, last: Map<string, { v: number; t: number }>, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
+  const clamps: Clamp[] = [];
+  const speeds = rules.filter((r) => r.maxDegPerSecond);
+  if (!speeds.length) return clamps;
+  const base = fx.patch.address - 1;
+  for (const [axis, ch, travel] of [["pan", fx.pan, fx.panMax], ["tilt", fx.tilt, fx.tiltMax]] as const) {
+    if (!ch) continue;
+    const name = fx.mode.channels[ch.coarse]!;
+    const def = fx.def.channels.get(name);
+    const limits = def ? speeds.filter((r) => ruleApplies(r, fx, def, zoneOfFixture)).map((r) => r.maxDegPerSecond!) : [];
+    if (!limits.length) continue;
+    const fine = ch.fine !== undefined;
+    const v = fine ? ((buffer[base + ch.coarse] ?? 0) * 256 + (buffer[base + ch.fine!] ?? 0)) / 65535 : (buffer[base + ch.coarse] ?? 0) / 255;
+    const key = `${fx.patch.id}/${axis}`;
+    const prev = last.get(key);
+    let out = v;
+    if (prev) {
+      const step = ((Math.min(...limits) / travel) * Math.max(0, now - prev.t)) / 1000;
+      if (Math.abs(v - prev.v) > step) out = prev.v + Math.sign(v - prev.v) * step;
+    }
+    last.set(key, { v: out, t: now });
+    if (out === v) continue;
+    const before = buffer[base + ch.coarse]!;
+    if (fine) {
+      const v16 = Math.round(out * 65535);
+      buffer[base + ch.coarse] = v16 >> 8;
+      buffer[base + ch.fine!] = v16 & 255;
+    } else buffer[base + ch.coarse] = Math.round(out * 255);
+    clamps.push({ fixture: fx.patch.id, channel: name, from: before, to: buffer[base + ch.coarse]!, rule: speeds.find((r) => r.maxDegPerSecond === Math.min(...limits))!.id });
+  }
+  return clamps;
+}
+
+/**
+ * Steady channels (`steadySeconds`): a value changes at most once every so many seconds; a change
+ * asked sooner waits. `last` remembers each channel's value and when it last changed.
+ */
+export function applySteady(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, now: number, last: Map<string, { v: number; t: number }>, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
+  const clamps: Clamp[] = [];
+  const steady = rules.filter((r) => r.steadySeconds);
+  if (!steady.length) return clamps;
+  fx.mode.channels.forEach((name, offset) => {
+    const ch = fx.def.channels.get(name);
+    const index = fx.patch.address - 1 + offset;
+    if (!ch || index < 0 || index >= 512) return;
+    const rule = steady.filter((r) => ruleApplies(r, fx, ch, zoneOfFixture)).sort((a, b) => b.steadySeconds! - a.steadySeconds!)[0];
+    if (!rule) return;
+    const key = `${fx.patch.id}/${name}`;
+    const v = buffer[index]!;
+    const prev = last.get(key);
+    if (!prev || prev.v === v) {
+      if (!prev) last.set(key, { v, t: now });
+      return;
+    }
+    if (now - prev.t >= rule.steadySeconds! * 1000) last.set(key, { v, t: now });
+    else {
+      buffer[index] = prev.v;
+      clamps.push({ fixture: fx.patch.id, channel: name, from: v, to: prev.v, rule: rule.id });
+    }
+  });
+  return clamps;
+}
+
+/** Applies the effective rules to a fixture's channels in a DMX buffer; returns what was moved. */
 export function applyRules(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
   const byId = new Map(rules.map((r) => [r.id, r]));

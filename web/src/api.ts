@@ -34,6 +34,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** What the server added to its refusal (a rule asking for a confirmation, the rules involved…). */
+    readonly detail?: { confirm?: boolean; [k: string]: unknown },
   ) {
     super(message);
   }
@@ -128,14 +130,14 @@ export function onSignedOut(fn: () => void): () => void {
 }
 
 async function json<T>(res: Response): Promise<T> {
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: ApiError["detail"] };
   // A 401 on a signed-in call means the session is gone: back to the sign-in page, rather than
   // buttons that silently fail (a wrong PIN is a 401 too, but on the sign-in routes).
   if (res.status === 401 && token && !/\/api\/auth\/(login|passkeys\/login)/.test(res.url)) {
     setToken(null);
     for (const l of signedOutListeners) l();
   }
-  if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText);
+  if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText, body.detail);
   return body as T;
 }
 

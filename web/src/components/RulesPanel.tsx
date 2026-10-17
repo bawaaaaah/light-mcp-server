@@ -19,6 +19,10 @@ interface Rule {
   max?: number;
   maxHz?: number;
   hold?: { above: number; seconds: number };
+  maxDegPerSecond?: number;
+  steadySeconds?: number;
+  allowCapabilities?: string[];
+  onViolation?: "clamp" | "confirm" | "reject";
   forbidTags?: string[];
   locked: boolean;
   program?: string;
@@ -59,13 +63,15 @@ const TARGETS: Record<string, Rule["target"]> = {
   all: {},
 };
 const TAGS = ["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"] as const;
+/** Kinds of capability ranges an allowlist names (qxf-import.ts, CAPABILITY_KINDS). */
+const KINDS = ["colour", "intensity", "strobe", "gobo", "prism", "beam", "rotation", "speed", "effect", "maintenance"] as const;
 const pct = (v?: number) => (v === undefined ? "" : `${Math.round((v / 255) * 100)} %`);
 const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100) * 255));
 
 export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }) {
   const t = useT();
   const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
-  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", forbid: [] as string[], locked: false, program: "" });
+  const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [] as string[], onViolation: "clamp", forbid: [] as string[], locked: false, program: "" });
   const [programs, setPrograms] = useState<{ active: string | null; programs: Program[] }>({ active: null, programs: [] });
   const [progDraft, setProgDraft] = useState({ name: "", pc: "", channel: "1" });
   const loadPrograms = useCallback(() => void cmd<typeof programs>("program.list").then(setPrograms).catch(() => undefined), []);
@@ -95,7 +101,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
 
   const add = () => {
     const target = draft.target === "channel" ? { channel: draft.channel } : TARGETS[draft.target]!;
-    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}`;
+    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}`;
     const rule = {
       id: uniqueId(slug(name, "regle"), all.map((r) => r.id)),
       name,
@@ -106,12 +112,16 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       ...(draft.max ? { max: toDmx(draft.max) } : {}),
       ...(draft.maxHz ? { maxHz: Number(draft.maxHz) } : {}),
       ...(draft.holdAbove && draft.holdSeconds ? { hold: { above: Math.max(1, toDmx(draft.holdAbove) ?? 1), seconds: Number(draft.holdSeconds) } } : {}),
+      ...(draft.maxDeg ? { maxDegPerSecond: Number(draft.maxDeg) } : {}),
+      ...(draft.steady ? { steadySeconds: Number(draft.steady) } : {}),
+      ...(draft.allow.length ? { allowCapabilities: draft.allow } : {}),
+      ...(draft.onViolation !== "clamp" ? { onViolation: draft.onViolation } : {}),
       ...(draft.forbid.length ? { forbidTags: draft.forbid } : {}),
       locked: draft.locked,
       ...(draft.program ? { program: draft.program } : {}),
     };
     void cmd("rule.put", { where: draft.level === "show" ? "show" : "venue", rule })
-      .then(() => setDraft({ ...draft, name: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", forbid: [] }))
+      .then(() => setDraft({ ...draft, name: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [], onViolation: "clamp", forbid: [] }))
       .catch((e: Error) => onError(e.message));
   };
 
@@ -204,6 +214,10 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                 {r.max !== undefined && `max ${pct(r.max)} `}
                 {r.maxHz !== undefined && `≤ ${r.maxHz} Hz `}
                 {r.hold && `≥ ${pct(r.hold.above)} ${r.hold.seconds} s max `}
+                {r.maxDegPerSecond !== undefined && `≤ ${r.maxDegPerSecond} °/s `}
+                {r.steadySeconds !== undefined && `${t.steadyShort} ${r.steadySeconds} s `}
+                {r.allowCapabilities?.length ? `${t.allowOnly} ${r.allowCapabilities.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds] ?? k).join(", ")} ` : ""}
+                {r.onViolation && r.onViolation !== "clamp" && <span className="badge conflict">{t.onViolations[r.onViolation]}</span>}
                 {r.forbidTags?.length ? `${t.forbidden} : ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
@@ -288,6 +302,14 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           <span>{t.holdSeconds}</span>
           <input type="number" min={0.5} max={600} step={0.5} aria-label={t.holdSeconds} value={draft.holdSeconds} onChange={(e) => setDraft({ ...draft, holdSeconds: e.target.value })} />
         </label>
+        <label className="field" title={t.maxDegHint}>
+          <span>{t.maxDeg}</span>
+          <input type="number" min={1} max={10000} aria-label={t.maxDeg} value={draft.maxDeg} onChange={(e) => setDraft({ ...draft, maxDeg: e.target.value })} />
+        </label>
+        <label className="field" title={t.steadyHint}>
+          <span>{t.steady}</span>
+          <input type="number" min={0.5} max={600} step={0.5} aria-label={t.steady} value={draft.steady} onChange={(e) => setDraft({ ...draft, steady: e.target.value })} />
+        </label>
         <label className="field" title={t.maxHzHint}>
           <span>{t.maxHz}</span>
           <input type="number" min={0.1} max={100} step={0.5} aria-label={t.maxHz} value={draft.maxHz} onChange={(e) => setDraft({ ...draft, maxHz: e.target.value })} />
@@ -301,6 +323,25 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
             </label>
           ))}
         </fieldset>
+        <fieldset className="checklist" title={t.allowOnlyHint}>
+          <legend>{t.allowOnly}</legend>
+          {KINDS.map((k) => (
+            <label key={k} className="row">
+              <input type="checkbox" checked={draft.allow.includes(k)} onChange={(e) => setDraft({ ...draft, allow: e.target.checked ? [...draft.allow, k] : draft.allow.filter((x) => x !== k) })} />
+              {t.capabilityKinds[k]}
+            </label>
+          ))}
+        </fieldset>
+        <label className="field" title={t.onViolationHint}>
+          <span>{t.onViolationLabel}</span>
+          <select aria-label={t.onViolationLabel} value={draft.onViolation} onChange={(e) => setDraft({ ...draft, onViolation: e.target.value })}>
+            {(["clamp", "confirm", "reject"] as const).map((v) => (
+              <option key={v} value={v}>
+                {t.onViolations[v]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="field">
           <span>{t.programLabel}</span>
           <select aria-label={t.programLabel} value={draft.program} onChange={(e) => setDraft({ ...draft, program: e.target.value })}>
@@ -320,7 +361,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           <span>{t.name}</span>
           <input placeholder={t.optional} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         </label>
-        <button className="primary" disabled={!draft.min && !draft.max && !draft.maxHz && !(draft.holdAbove && draft.holdSeconds) && !draft.forbid.length} onClick={add}>
+        <button className="primary" disabled={!draft.min && !draft.max && !draft.maxHz && !(draft.holdAbove && draft.holdSeconds) && !draft.maxDeg && !draft.steady && !draft.allow.length && !draft.forbid.length} onClick={add}>
           + {t.addRule}
         </button>
       </div>

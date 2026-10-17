@@ -6,7 +6,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { displayHex } from "../engine/display.js";
-import type { CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
@@ -355,11 +355,28 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.go",
     title: "Lancer un look",
-    description: "Starts a look (idempotent: starting a playing look does nothing); releases the other looks of its exclusive groups.",
+    description:
+      "Starts a look (idempotent: starting a playing look does nothing); releases the other looks of its exclusive groups. A rule set to reject refuses it when it would bound it; one set to confirm asks first: tell the user which rule and why, and send confirm: true only on their yes.",
     right: "commands:trigger",
     profiles: ["design", "live"],
-    schema: id,
-    run: ({ id: i }, ctx) => show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp"),
+    schema: z.object({ id: z.string(), confirm: z.boolean().default(false).describe("the user agreed to launch it although a confirm rule bounds it") }),
+    run: ({ id: i, confirm }, ctx) => {
+      // rules that refuse or ask rather than clamp (rules-limits.md, onViolation)
+      const bounds = show.strictBounds(i);
+      const named = (list: typeof bounds) => list.map((b) => `${b.rule.name || b.rule.id} (${[...new Set(b.clamps.map((c) => c.fixture))].join(", ")})`).join(" ; ");
+      const rejected = bounds.filter((b) => b.rule.onViolation === "reject");
+      if (rejected.length) throw new CommandError("failed", say(`look refusé : la règle ${named(rejected)} le bornerait`, `look refused: rule ${named(rejected)} would bound it`), { rules: rejected.map((b) => b.rule.id) });
+      const asking = bounds.filter((b) => b.rule.onViolation === "confirm");
+      if (asking.length && !confirm) {
+        const canAnswer = ctx.origin === "ui" || ctx.origin === "mcp" || ctx.origin === "cli";
+        throw new CommandError(
+          "failed",
+          canAnswer ? say(`la règle ${named(asking)} bornerait ce look : le lancer quand même ?`, `rule ${named(asking)} would bound this look: launch it anyway?`) : say(`look non lancé : la règle ${named(asking)} demande une confirmation`, `look not launched: rule ${named(asking)} asks for a confirmation`),
+          { confirm: canAnswer, rules: asking.map((b) => b.rule.id) },
+        );
+      }
+      return show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp");
+    },
   });
   reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: id, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
   reg.register({ name: "look.stopall", title: "Tout arrêter", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
@@ -440,7 +457,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const where = z.enum(["venue", "show"]).default("show");
   const coll = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
   reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
-  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing).", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
+  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
   reg.register({
     name: "rule.effective",
     title: "Règles en vigueur",

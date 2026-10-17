@@ -59,6 +59,40 @@ describe("flashes per second (photosensitive safety)", () => {
     expect(bound[0]!.message).to.contain(`${name} à 200`).and.contain("à 100");
   });
 
+  it("refuses a look a reject rule would bound, and asks first for a confirm rule", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-strict-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const as = (origin: "ui" | "midi") => (name: string, args: unknown) => plugin.commands.invoke(name, args, { origin, can: () => true });
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
+    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
+    const name = channels.find((f) => f.id === "bar-0")!.channels.find((c) => c.offset === 2)!.name;
+    const machine = (id: string, value: number) => ({ id, name: id, canvas, technique: { kind: "aucune" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, channels: { targets: [{ fixture: "bar-0", offset: 2 }], steps: [[value]] } });
+    await run("look.put", { look: machine("fort", 200) });
+    await run("look.put", { look: machine("sage", 80) });
+    await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100, onViolation: "reject" } });
+    let refused: { message: string; detail?: { confirm?: boolean } } = { message: "" };
+    await as("ui")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    expect(refused.message).to.contain("look refusé").and.contain("Plafond");
+    expect(plugin.runtime.activeLooks()).to.not.include("fort");
+    await as("ui")("look.go", { id: "sage" }); // under the bound: launched
+    expect(plugin.runtime.activeLooks()).to.include("sage");
+    await run("look.stopall");
+    // a confirm rule: the interface is asked, MIDI cannot answer
+    await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100, onViolation: "confirm" } });
+    await as("ui")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    expect(refused.detail?.confirm).to.equal(true);
+    expect(plugin.runtime.activeLooks()).to.not.include("fort");
+    await as("midi")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    expect(refused.detail?.confirm).to.equal(false);
+    await as("ui")("look.go", { id: "fort", confirm: true }); // on the user's yes: launched, and bounded
+    expect(plugin.runtime.activeLooks()).to.include("fort");
+  });
+
   it("says where a « Hz max » does nothing: definitions without strobe frequencies", async () => {
     const blindTo = async (qxf: string) => {
       const dataRoot = join(mkdtempSync(join(tmpdir(), "light-hz-")), "data");

@@ -217,6 +217,24 @@ describe("moving heads", () => {
       }
     });
 
+    it("moves a head no faster than its speed rule, toward what is asked", () => {
+      const { show, dmx, advance, pos } = setup();
+      show.rules.put({ id: "doux", name: "Doux", level: "venue", scope: { fixture: "spot-l" }, target: {}, maxDegPerSecond: 90, locked: false });
+      const guarded = () => {
+        const b = dmx();
+        show.guard([b]);
+        return pos(b, 1)[0]! / 65535;
+      };
+      expect(guarded()).to.be.closeTo(0.5, 1e-4); // at rest, the centre
+      show.setPosition(["spot-l"], { pan: 1, tilt: 0.5 }); // the far end: 270° of pan away
+      advance(1); // half a second
+      expect(guarded()).to.be.closeTo(0.5 + 45 / 540, 1e-3); // 45° in half a second
+      advance(4);
+      expect(guarded()).to.be.closeTo(0.5 + 225 / 540, 1e-3);
+      advance(2);
+      expect(guarded()).to.be.closeTo(1, 1e-4); // there, not beyond
+    });
+
     it("dims a head while its beam crosses a zone no head may point into, whoever aimed it", () => {
       const { show, dmx } = setup();
       show.zones.put({ id: "pupitre", name: "Pupitre", type: "riser", polygon: [[0, -0.5], [1, -0.5], [1, 0.5], [0, 0.5]], floorHeight: 0.2, noAim: true });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { can, cmd, type Role } from "../api";
+import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
@@ -281,7 +281,12 @@ export function DashboardsPage({ role }: { role: Role }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
+  // a rule may ask before a look is launched (onViolation: confirm): the question, then again with the yes
+  const run = (name: string, args: unknown = {}): Promise<unknown> =>
+    cmd(name, args).catch((e: ApiError | Error) => {
+      if (e instanceof ApiError && e.detail?.confirm && confirm(e.message)) return run(name, { ...(args as object), confirm: true });
+      setError(e.message);
+    });
   const dash = dashboards[current];
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
   const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);

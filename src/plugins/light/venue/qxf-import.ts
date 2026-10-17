@@ -110,6 +110,32 @@ export function strobeHz(v: number, ch: FixtureChannel): number | undefined {
   return cap.max === cap.min ? h1 : h1 + ((v - cap.min) / (cap.max - cap.min)) * (h2 - h1);
 }
 
+/** What a capability range does, for an allowlist rule (« fixed colours and dimmer only »). */
+export const CAPABILITY_KINDS = ["colour", "intensity", "strobe", "gobo", "prism", "beam", "rotation", "speed", "effect", "maintenance"] as const;
+export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
+
+/**
+ * A range's kind, from its QLC+ preset, then its name. « neutral » (no function, open, closed,
+ * stop, off) is what a channel rests on: an allowlist never forbids it. Unknown ranges are « other »,
+ * which an allowlist does not let through.
+ */
+export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "color">): CapabilityKind | "neutral" | "other" {
+  const p = c.preset ?? "";
+  const n = c.name.trim();
+  if (/^(NoFunction|ShutterOpen|ShutterClose|PrismEffectOff|RotationStop|LampOn|LampOff)$/.test(p) || /^(no function|nothing|off|open|closed?|blackout|stop)$/i.test(n)) return "neutral";
+  if (/^Color/.test(p) || c.color) return "colour";
+  if (/^Intensity/.test(p)) return "intensity";
+  if (/Strobe|Pulse|Ramp/.test(p) || /strobe/i.test(n)) return "strobe";
+  if (/^Gobo|^GenericPicture/.test(p) || /gobo/i.test(n)) return "gobo";
+  if (/^Prism/.test(p) || /prism/i.test(n)) return "prism";
+  if (/^Beam/.test(p) || /zoom|focus|iris|frost/i.test(n)) return "beam";
+  if (/^Rotation/.test(p)) return "rotation";
+  if (/^Reset|^Lamp/.test(p) || /reset|lamp/i.test(n)) return "maintenance";
+  if (/Macro|Effect/.test(p) || /macro|effect|program|sound|auto/i.test(n)) return "effect";
+  if (/Speed|SlowToFast|FastToSlow/.test(p) || /speed/i.test(n)) return "speed";
+  return "other";
+}
+
 export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const text = `${name} ${preset ?? ""}`;

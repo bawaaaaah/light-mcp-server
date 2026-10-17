@@ -335,6 +335,29 @@ test("colours: a button gets a colour from its menu, or its look's own (auto), a
   expect(errors).toEqual([]);
 });
 
+test("a rule that asks first: pressing a look it would bound asks, and plays on yes", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  // « hole » paints red: a rule on red asks before it is launched
+  await api(page, "rule.put", { rule: { id: "demande", name: "Rouge demandé", level: "show", target: { color: "red" }, max: 128, onViolation: "confirm" } });
+  try {
+    const active = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await page.locator(".dgrid button.look", { hasText: "hole" }).first().click();
+    await expect.poll(() => asked).toContain("Rouge demandé");
+    expect(await active()).toBe(false); // « Annuler »: not launched
+    page.once("dialog", (d) => void d.accept());
+    await page.locator(".dgrid button.look", { hasText: "hole" }).first().click();
+    await expect.poll(active).toBe(true);
+  } finally {
+    await api(page, "rule.delete", { where: "show", id: "demande" });
+    await api(page, "look.stopall");
+  }
+  expect(errors.filter((e) => !e.includes("422"))).toEqual([]); // the question comes as a 422: the browser logs it
+});
+
 test("a button to confirm: the first press arms it, the second plays; stopping never asks", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

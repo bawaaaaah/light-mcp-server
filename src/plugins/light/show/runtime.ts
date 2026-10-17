@@ -11,7 +11,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import { aimSetupOf, emptyFrame, type Venue } from "../venue/venue.js";
-import { applyHolds, applyRules, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
+import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
@@ -446,8 +446,60 @@ export class ShowRuntime {
 
   /** Renders the playing looks into DMX buffers. */
   render(buffers: Uint8Array[]): void {
-    const now = this.now();
-    const beats = this.tempo.state().beats;
+    const errors = this.compose(buffers, this.now(), this.tempo.state().beats);
+    // Rules mask: last stage of the show's output.
+    this.lastClamps = this.mask(buffers, this.rulesInForce());
+    this.lastErrors = errors;
+  }
+
+  /**
+   * What would bound a look on its launch, among the rules that refuse or ask rather than clamp
+   * (`onViolation`): its first four seconds are played in memory, with what plays now, and compared
+   * with the same seconds without it. Nothing reaches the output and no state changes.
+   */
+  strictBounds(lookId: string): { rule: Rule; clamps: Clamp[] }[] {
+    const strict = this.rulesInForce().filter((r) => r.onViolation === "reject" || r.onViolation === "confirm");
+    const look = this.looks.get(lookId);
+    if (!strict.length || !look || this.active.has(lookId)) return [];
+    const universes = Math.max(1, ...this.venue.fixtures.list().map((f) => f.universe));
+    const zoneById = this.zoneLookup();
+    const t0 = this.now();
+    const { beats: b0, bpm } = { bpm: 120, ...this.tempo.state() } as { beats: number; bpm?: number };
+    const sample = (): Set<string> => {
+      const seen = new Set<string>();
+      for (let k = 0; k < 20; k++) {
+        const buffers = Array.from({ length: universes }, () => new Uint8Array(512));
+        this.compose(buffers, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60);
+        for (const f of this.venue.fixtures.list()) {
+          const r = this.venue.resolve(f.id);
+          const buf = buffers[f.universe - 1];
+          if ("error" in r || !buf) continue;
+          for (const c of applyRules(strict, r, buf, zoneById)) seen.add(JSON.stringify([c.rule, c.fixture, c.channel]));
+        }
+      }
+      return seen;
+    };
+    const without = sample();
+    const player = this.build(look);
+    player.start(t0, b0);
+    this.active.set(lookId, { look, player });
+    let withIt: Set<string>;
+    try {
+      withIt = sample();
+    } finally {
+      this.active.delete(lookId);
+    }
+    const byRule = new Map<string, Clamp[]>();
+    for (const key of withIt) {
+      if (without.has(key)) continue;
+      const [rule, fixture, channel] = JSON.parse(key) as [string, string, string];
+      byRule.set(rule, [...(byRule.get(rule) ?? []), { rule, fixture, channel, from: 0, to: 0 }]);
+    }
+    return [...byRule].map(([id, clamps]) => ({ rule: strict.find((r) => r.id === id)!, clamps }));
+  }
+
+  /** The show's output before the rules: looks, positions, levels, raw channels, channel faders. */
+  private compose(buffers: Uint8Array[], now: number, beats: number): string[] {
     const frame = emptyFrame();
     const errors: string[] = [];
     /** Raw channels of the looks, by fixture then offset (highest of the looks playing them). */
@@ -510,9 +562,7 @@ export class ShowRuntime {
         if (buf && index >= 0 && index < 512 && buf[index]! < value) buf[index] = value;
       }
     }
-    // Rules mask: last stage of the show's output.
-    this.lastClamps = this.mask(buffers, this.rulesInForce());
-    this.lastErrors = errors;
+    return errors;
   }
 
   /**
@@ -522,8 +572,20 @@ export class ShowRuntime {
    * it may not point into (the lectern), whoever aimed it, while its beam crosses that zone.
    */
   guard(buffers: Uint8Array[]): void {
-    const locked = this.rulesInForce().filter((r) => r.locked);
+    const rules = this.rulesInForce();
+    const locked = rules.filter((r) => r.locked);
     if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
+    // motion and machines, once a frame and over everything (forced channels too): pan/tilt speed, steady channels
+    if (rules.some((r) => r.maxDegPerSecond || r.steadySeconds)) {
+      const now = this.now();
+      const zoneById = this.zoneLookup();
+      for (const f of this.venue.fixtures.list()) {
+        const r = this.venue.resolve(f.id);
+        const buf = buffers[f.universe - 1];
+        if ("error" in r || !buf) continue;
+        this.lastClamps.push(...applySpeeds(rules, r, buf, now, this.motion, zoneById), ...applySteady(rules, r, buf, now, this.steady, zoneById));
+      }
+    }
     // a zone is open while one of the looks allowed into it plays
     const playing = new Set(this.activeLooks());
     const noAim = this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
@@ -546,19 +608,27 @@ export class ShowRuntime {
     }
   }
 
+  /** The zone each fixture stands in (by its position), for rules scoped to a zone. */
+  private zoneLookup(): (id: string) => string | undefined {
+    const zones = this.zones.list();
+    return (id: string) => {
+      const f = this.venue.fixtures.get(id);
+      return f ? zoneOf(f, zones)?.id : undefined;
+    };
+  }
+
   /** Since when each channel bound by a duration rule has been above its level (rules.ts, applyHolds). */
   private readonly holdSince = new Map<string, number>();
+  /** Last pan/tilt sent per axis (applySpeeds), and last value per steady channel (applySteady). */
+  private readonly motion = new Map<string, { v: number; t: number }>();
+  private readonly steady = new Map<string, { v: number; t: number }>();
 
   /** Applies rules to every fixture's channels in the buffers, durations included; what they bounded. */
   private mask(buffers: Uint8Array[], rules: Rule[]): Clamp[] {
     const clamps: Clamp[] = [];
     if (!rules.length) return clamps;
     const now = this.now();
-    const zones = this.zones.list();
-    const zoneById = (id: string) => {
-      const f = this.venue.fixtures.get(id);
-      return f ? zoneOf(f, zones)?.id : undefined;
-    };
+    const zoneById = this.zoneLookup();
     for (const f of this.venue.fixtures.list()) {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
