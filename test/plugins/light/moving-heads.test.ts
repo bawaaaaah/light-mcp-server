@@ -1,12 +1,12 @@
 import { expect } from "chai";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseQxf, findMode } from "../../../src/plugins/light/venue/qxf-import.js";
 import { MoveSchema, movePosition } from "../../../src/plugins/light/engine/move.js";
 import { aimAt, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { Venue } from "../../../src/plugins/light/venue/venue.js";
+import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { DmxEngine } from "../../../src/plugins/light/engine/dmx-engine.js";
 
@@ -51,9 +51,29 @@ describe("moving heads", () => {
       expect(def.beamAngle).to.equal(undefined); // a lens of 0° says nothing
       const zoom = parseQxf(spotXml.replace('<Lens Name="Other" DegreesMin="0" DegreesMax="0"/>', '<Lens Name="Other" DegreesMin="12" DegreesMax="30"/>'));
       expect(zoom.beamAngle).to.equal(30); // the widest of the zoom
+      expect(zoom.beamAngleMin).to.equal(12);
       const wheel = def.channels.get("Color Wheel")!;
       expect(wheel.attribute).to.equal("colorWheel");
       expect(wheel.capabilities.map((c) => c.color)).to.deep.equal(["#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffbf00", undefined]);
+    });
+
+    it("opens the beam on the plan as its zoom channel says, within the lens' range", () => {
+      const dir = mkdtempSync(join(tmpdir(), "light-zoom-"));
+      mkdirSync(join(dir, "fixtures"));
+      const xml = spotXml
+        .replace('<Lens Name="Other" DegreesMin="0" DegreesMax="0"/>', '<Lens Name="Other" DegreesMin="10" DegreesMax="40"/>')
+        .replace('<Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>', '<Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>\n <Channel Name="Zoom" Preset="BeamZoomSmallBig"/>')
+        .replace('  <Channel Number="6">Shutter</Channel>\n </Mode>', '  <Channel Number="6">Shutter</Channel>\n  <Channel Number="7">Zoom</Channel>\n </Mode>');
+      writeFileSync(join(dir, "fixtures", "spot.qxf"), xml);
+      const venue = new Venue(new FolderStore(join(dir, "venue")), [join(dir, "fixtures")]);
+      venue.fixtures.put({ id: "s", name: "S", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 0, y: 2, z: 5 }, mount: "hung" });
+      const r = venue.resolve("s") as ResolvedFixture;
+      expect(r.zoom).to.deep.equal({ offset: 7, opens: true });
+      const buf = new Uint8Array(512);
+      expect(venue.openingOf(r, buf)).to.equal(10); // zoom at 0: the narrowest
+      buf[7] = 255;
+      expect(venue.openingOf(r, buf)).to.equal(40);
+      expect(venue.beams([buf])["s"]!.angle).to.equal(40);
     });
   });
 
@@ -211,6 +231,10 @@ describe("moving heads", () => {
       expect(guarded()[5]).to.equal(0); // spot-l's dimmer, cut
       expect(show.lastClamps.some((c) => c.fixture === "spot-l" && c.rule === "zone:pupitre")).to.equal(true);
       show.aim(["spot-l"], { x: -2, y: 3, z: 0 }); // the stage floor, away from it
+      expect(guarded()[5]).to.equal(255);
+      // a look allowed into it opens the zone while it plays
+      show.zones.put({ ...show.zones.get("pupitre")!, allowLooks: ["rouge"] });
+      show.aim(["spot-l"], { x: 0.5, y: 0, z: 1.7 });
       expect(guarded()[5]).to.equal(255);
     });
 

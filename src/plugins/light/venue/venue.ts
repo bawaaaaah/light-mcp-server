@@ -89,6 +89,12 @@ export function aimSetupOf(r: ResolvedFixture): AimSetup | undefined {
   return { position: f.position, hung: isHung(f), yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 };
 }
 
+/** A mode's lens zoom channel (coarse), and whether a higher value opens the beam. */
+function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; opens: boolean } | undefined {
+  const offset = mode.channels.findIndex((n) => def.channels.get(n)?.zoom && !def.channels.get(n)?.fine);
+  return offset < 0 ? undefined : { offset, opens: def.channels.get(mode.channels[offset]!)!.zoom === "opens" };
+}
+
 export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map() });
 
 /** A 8- or 16-bit channel pair. */
@@ -110,8 +116,10 @@ export interface ResolvedFixture {
   tilt?: CoarseFine;
   panMax: number;
   tiltMax: number;
-  /** Beam opening in degrees, when the definition gives it. */
+  /** Beam opening in degrees, when the definition gives it; with a zoom, its range and channel. */
   beamAngle?: number;
+  beamAngleMin?: number;
+  zoom?: { offset: number; opens: boolean };
   /** Colour wheel: channel offset and its coloured slots. */
   wheel?: { offset: number; slots: { value: number; color: Color }[] };
   /** Shutter channels and their « open » value, written when nothing else drives them. */
@@ -295,7 +303,7 @@ export class Venue {
           heads.set(-1, comps);
         }
         const lampOnly = [...heads.values()].every((c) => Object.keys(c).length === 0);
-        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, wheel, shutterOpen, lampOnly };
+        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -456,9 +464,16 @@ export class Venue {
       if (!d) continue;
       // where the light lands: the floor of the zone under it, 2 m out otherwise
       const { floor: _, ...to } = landing(patch.position, d, zones);
-      out[patch.id] = { ...round(d), to: round(to), ...(r.beamAngle ? { angle: r.beamAngle } : {}) };
+      out[patch.id] = { ...round(d), to: round(to), ...(r.beamAngle ? { angle: this.openingOf(r, buf) } : {}) };
     }
     return out;
+  }
+
+  /** The beam opening (degrees) now: within the lens' range by the zoom channel, else the widest. */
+  openingOf(r: ResolvedFixture, buf: Uint8Array): number {
+    if (!r.beamAngle || r.beamAngleMin === undefined || !r.zoom) return r.beamAngle ?? 0;
+    const v = (buf[r.patch.address - 1 + r.zoom.offset] ?? 0) / 255;
+    return Math.round(r.beamAngleMin + (r.zoom.opens ? v : 1 - v) * (r.beamAngle - r.beamAngleMin));
   }
 
   /** Where a moving head points from the pan/tilt in the output (inversions and swap undone). */

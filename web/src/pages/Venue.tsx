@@ -60,6 +60,9 @@ export function VenuePage() {
     return `${m(Math.max(...xs) - Math.min(...xs))} × ${m(Math.max(...ys) - Math.min(...ys))} m${z.floorHeight ? `, ${t.floorAt} ${z.floorHeight} m` : ""}`;
   };
   const [error, setError] = useState("");
+  /** The show's looks, for those allowed into a zone closed to moving heads. */
+  const [lookNames, setLookNames] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => void cmd<{ id: string; name: string }[]>("look.list").then(setLookNames, () => undefined), []);
   /** Fixtures sharing DMX channels (venue.patch.check), by fixture id: the others' messages. */
   const [overlaps, setOverlaps] = useState<Record<string, string[]>>({});
   /** Fixtures whose .qxf is not in the library (their channels are not decoded). */
@@ -221,6 +224,27 @@ export function VenuePage() {
                 <label className="inline" title={t.noAimHelp}>
                   <input type="checkbox" checked={Boolean(z.noAim)} onChange={(e) => void run("stage.zone.put", { zone: { ...z, noAim: e.target.checked } }).then(refresh)} /> {t.noAimZone}
                 </label>
+                {z.noAim && (
+                  <span className="allow-looks" title={t.allowLooksHelp}>
+                    {" "}
+                    {t.allowLooks}
+                    {(z.allowLooks ?? []).map((id) => (
+                      <button key={id} className="ghost chip" aria-label={`${t.delete} ${id}`} onClick={() => void run("stage.zone.put", { zone: { ...z, allowLooks: (z.allowLooks ?? []).filter((x) => x !== id) } }).then(refresh)}>
+                        {lookNames.find((l) => l.id === id)?.name ?? id} ✕
+                      </button>
+                    ))}
+                    <select aria-label={`${t.allowLooks} ${z.name}`} value="" onChange={(e) => e.target.value && void run("stage.zone.put", { zone: { ...z, allowLooks: [...(z.allowLooks ?? []), e.target.value] } }).then(refresh)}>
+                      <option value="">+</option>
+                      {lookNames
+                        .filter((l) => !(z.allowLooks ?? []).includes(l.id))
+                        .map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}
+                          </option>
+                        ))}
+                    </select>
+                  </span>
+                )}
                 <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} « ${z.name} » ?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
                   ✕
                 </button>

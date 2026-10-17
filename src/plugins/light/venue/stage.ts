@@ -26,6 +26,8 @@ export const ZoneSchema = z.object({
    * it, up to 2.5 m above its floor, is dimmed while it does (docs/specs/rules-limits.md).
    */
   noAim: z.boolean().default(false),
+  /** Looks allowed to point heads into a no-aim zone (a deliberate spot on the lectern): while one plays, the zone is open. */
+  allowLooks: z.array(z.string()).default([]),
   notes: z.string().optional(),
 });
 export type Zone = z.infer<typeof ZoneSchema>;

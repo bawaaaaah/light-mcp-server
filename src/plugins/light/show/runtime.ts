@@ -524,7 +524,9 @@ export class ShowRuntime {
   guard(buffers: Uint8Array[]): void {
     const locked = this.rulesInForce().filter((r) => r.locked);
     if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
-    const noAim = this.zones.list().filter((z) => z.noAim);
+    // a zone is open while one of the looks allowed into it plays
+    const playing = new Set(this.activeLooks());
+    const noAim = this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
     if (!noAim.length) return;
     for (const f of this.venue.fixtures.list()) {
       const r = this.venue.resolve(f.id);

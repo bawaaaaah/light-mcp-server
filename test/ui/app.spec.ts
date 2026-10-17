@@ -1680,6 +1680,10 @@ test("venue: a rectangular zone made from its size, shown on the plan, then dele
   await expect(line.getByLabel("interdite aux lyres")).toBeChecked();
   await expect(page.locator(".stage-plan g.zone", { hasText: "Parvis" }).locator("polygon.no-aim")).toHaveCount(1);
   expect(((await api(page, "stage.zone.list")) as { id: string; noAim?: boolean }[]).find((z) => z.id === "parvis")!.noAim).toBe(true);
+  // except a look allowed into it
+  await line.getByLabel("sauf : Parvis").selectOption({ label: "masks" });
+  await expect(line.getByRole("button", { name: "Supprimer masks" })).toBeVisible();
+  expect(((await api(page, "stage.zone.list")) as { id: string; allowLooks?: string[] }[]).find((z) => z.id === "parvis")!.allowLooks).toEqual(["masks"]);
   await form.scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/zone-editor.png" });
   page.once("dialog", (d) => void d.accept());

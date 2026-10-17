@@ -54,6 +54,8 @@ export interface PlanZone {
   protected: boolean;
   /** No moving head may point into it: hatched on the plan. */
   noAim?: boolean;
+  /** Looks allowed into it all the same. */
+  allowLooks?: string[];
 }
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };

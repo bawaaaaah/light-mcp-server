@@ -29,6 +29,8 @@ export interface FixtureChannel {
   fine?: boolean;
   capabilities: FixtureCapability[];
   tags: CapabilityTag[];
+  /** A lens zoom channel and which way it opens as the value grows (BeamZoomSmallBig / BigSmall). */
+  zoom?: "opens" | "closes";
 }
 
 export interface FixtureMode {
@@ -41,6 +43,8 @@ export interface FixtureMode {
   tiltMax?: number;
   /** Beam opening in degrees (<Lens DegreesMax>, the widest of a zoom). */
   beamAngle?: number;
+  /** The narrowest of a zoom (<Lens DegreesMin>), when it differs. */
+  beamAngleMin?: number;
 }
 
 export interface FixtureDefinition {
@@ -52,6 +56,7 @@ export interface FixtureDefinition {
   panMax?: number;
   tiltMax?: number;
   beamAngle?: number;
+  beamAngleMin?: number;
 }
 
 const ARRAYS = new Set(["Channel", "Capability", "Mode", "Head"]);
@@ -164,17 +169,20 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   const tags = new Set<CapabilityTag>(capabilities.flatMap((c) => c.tags));
   if (attribute === "strobe") tags.add("strobe");
   if (color === "uv") tags.add("uv");
-  return { name, attribute, color, fine: /Fine$/.test(preset ?? "") || /fine/i.test(name), capabilities, tags: [...tags] };
+  const zoom = preset === "BeamZoomSmallBig" ? "opens" : preset === "BeamZoomBigSmall" ? "closes" : undefined;
+  return { name, attribute, color, fine: /Fine$/.test(preset ?? "") || /fine/i.test(name), capabilities, tags: [...tags], ...(zoom ? { zoom } : {}) };
 }
 
-/** PanMax / TiltMax (<Focus>) and the beam opening (<Lens>, its widest) of a <Physical> section, when present. */
-function physicalOf(node: unknown): { panMax?: number; tiltMax?: number; beamAngle?: number } {
+/** PanMax / TiltMax (<Focus>) and the beam opening (<Lens>: its widest, and its narrowest for a zoom) of a <Physical> section, when present. */
+function physicalOf(node: unknown): { panMax?: number; tiltMax?: number; beamAngle?: number; beamAngleMin?: number } {
   const physical = node as Record<string, Record<string, unknown>> | undefined;
   const num = (v: unknown) => (v !== undefined && Number(v) > 0 ? Number(v) : undefined);
   const panMax = num(physical?.["Focus"]?.["@_PanMax"]);
   const tiltMax = num(physical?.["Focus"]?.["@_TiltMax"]);
   const beamAngle = num(physical?.["Lens"]?.["@_DegreesMax"]) ?? num(physical?.["Lens"]?.["@_DegreesMin"]);
-  return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}), ...(beamAngle ? { beamAngle } : {}) };
+  const narrowest = num(physical?.["Lens"]?.["@_DegreesMin"]);
+  const beamAngleMin = beamAngle && narrowest && narrowest < beamAngle ? narrowest : undefined;
+  return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}), ...(beamAngle ? { beamAngle } : {}), ...(beamAngleMin ? { beamAngleMin } : {}) };
 }
 
 export function parseQxf(xml: string): FixtureDefinition {
