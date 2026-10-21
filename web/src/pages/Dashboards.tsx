@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
@@ -8,6 +8,7 @@ import { WidgetMenu } from "../components/WidgetMenu";
 import { GettingStarted } from "../components/GettingStarted";
 import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, textOn } from "../color";
+import { microphone } from "../audio/microphone";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
 interface Widget {
@@ -252,6 +253,15 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean; panicUndo?: boolean } | null>("light:state", null);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
+  const mic = useSyncExternalStore(microphone.subscribe, () => microphone.state);
+  // the tempo heard in the room: followed while the microphone is on, a manual tempo again after
+  const toggleMic = () => {
+    if (!mic.on) void microphone.start(({ bpm, beatAgoMs }) => void run("tempo.set", { bpm, source: "audio", ...(beatAgoMs !== undefined ? { beatAgoMs } : {}) }));
+    else {
+      microphone.stop();
+      if (tempo?.source === "audio") void run("tempo.set", { source: "manual" });
+    }
+  };
   const song = useTopic<SongState>("light:song", {});
 
   const refresh = useCallback(() => {
@@ -457,10 +467,23 @@ export function DashboardsPage({ role }: { role: Role }) {
         );
       case "tap":
         return (
-          <button className="fill tap" {...locked("commands:tempo")} onClick={() => void run("tempo.tap")}>
-            {t.tap} · {tempo ? tempo.bpm.toFixed(1) : "—"} <span className={`beat ${tempo && Math.floor(tempo.beats) % 2 === 0 ? "even" : ""}`} />
-            {tempo?.clockMissing && <small className="warn"> ⚠</small>}
-          </button>
+          <div className="fill tap-cell">
+            <button className="fill tap" {...locked("commands:tempo")} onClick={() => void run("tempo.tap")}>
+              {t.tap} · {tempo ? tempo.bpm.toFixed(1) : "—"} <span className={`beat ${tempo && Math.floor(tempo.beats) % 2 === 0 ? "even" : ""}`} />
+              {tempo?.clockMissing && <small className="warn"> ⚠</small>}
+            </button>
+            <button
+              className={`mic ${mic.on ? (mic.following ? "on following" : "on") : ""}`}
+              {...locked("commands:tempo")}
+              aria-pressed={mic.on}
+              aria-label={t.micListen}
+              title={mic.on ? (mic.reading ? `${t.micHeard} ≈ ${mic.reading.bpm} BPM${mic.following ? "" : ` (${t.micUnsure})`}` : t.micListening) : mic.error ? t.micErrors[mic.error] : t.micHelp}
+              onClick={toggleMic}
+            >
+              🎤{mic.on && mic.reading && <small> {Math.round(mic.reading.bpm)}</small>}
+              {!mic.on && mic.error && <small className="warn"> ⚠</small>}
+            </button>
+          </div>
         );
       case "song-nav":
         return (

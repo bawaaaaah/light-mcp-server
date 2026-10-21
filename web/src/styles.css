@@ -1769,3 +1769,19 @@ ul.online {
   max-width: 100%;
   touch-action: none;
 }
+.tap-cell {
+  display: flex;
+  gap: 0.3em;
+  min-width: 0;
+}
+.tap-cell > .mic {
+  flex: 0 0 auto;
+  padding: 0 0.6em;
+}
+.tap-cell > .mic.on {
+  border-color: var(--accent);
+}
+.tap-cell > .mic.following {
+  background: var(--accent);
+  color: var(--bg);
+}

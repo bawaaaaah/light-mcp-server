@@ -15,6 +15,8 @@ export interface TempoEstimate {
 }
 
 const HOP_SECONDS = 0.01;
+/** Frames between the envelope's peak and the attack itself. */
+const ATTACK_LAG = 1.5;
 /** The frame step in samples, and its exact length: 221 samples at 22 050 Hz are 10.02 ms, not 10. */
 const hopOf = (sampleRate: number) => Math.max(1, Math.round(sampleRate * HOP_SECONDS));
 
@@ -27,8 +29,12 @@ export function onsetEnvelope(samples: Float32Array, sampleRate: number): Float3
   for (let f = 0; f < frames; f++) {
     let e = 0;
     for (let i = f * hop, end = i + 2 * hop; i < end && i < samples.length; i++) e += samples[i]! * samples[i]!;
-    energy[f] = Math.log(1e-9 + e);
+    energy[f] = e;
   }
+  // 40 dB under the average is silence: a sound out of digital silence would otherwise rise without
+  // bound and hide every other attack
+  const floor = 1e-4 * (energy.reduce((a, e) => a + e, 0) / frames) + 1e-12;
+  for (let f = 0; f < frames; f++) energy[f] = Math.log(floor + energy[f]!);
   const rise = new Float32Array(frames);
   for (let f = 1; f < frames; f++) rise[f] = Math.max(0, energy[f]! - energy[f - 1]!);
   // minus a half-second moving average: drifts and swells are not beats
@@ -123,5 +129,7 @@ export function detectTempo(samples: Float32Array, sampleRate: number, range: { 
   if (precise) best = { ...best, bpm: 60 / (precise.period * frame) };
   const mean = values.reduce((a, v) => a + v, 0) / values.length;
   const confidence = Math.max(0, Math.min(1, 1 - mean / best.value));
-  return { bpm: Math.round(best.bpm * 10) / 10, confidence: Math.round(confidence * 100) / 100, ...(precise ? { firstBeat: Math.round(precise.phase * frame * 1000) / 1000 } : {}) };
+  // an attack rises in the first two-frame window that holds it, where it sits in the second half
+  const firstBeat = precise ? Math.round((precise.phase + ATTACK_LAG) * frame * 1000) / 1000 : undefined;
+  return { bpm: Math.round(best.bpm * 10) / 10, confidence: Math.round(confidence * 100) / 100, ...(firstBeat !== undefined ? { firstBeat } : {}) };
 }

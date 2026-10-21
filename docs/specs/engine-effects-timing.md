@@ -98,11 +98,12 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - `Duration = { mode: "fixed", seconds } | { mode: "musical", beats }`, en fractions (`1/4`) ou en mesures. Le mode se choisit **par élément** et se bascule à tout moment.
 - En mode musical, un changement de BPM recalcule les durées à la volée **sans saut de phase**.
 - **Horloge** :
-  - sources : manuel, tap, **MIDI clock** (PLL, lissage, détection d'arrêt, SPP) ;
+  - sources : manuel, tap, **MIDI clock** (PLL, lissage, détection d'arrêt, SPP), **micro** (v1, ci-dessous) ;
   - multiplicateur ×½ ou ×2, signature (4/4 par défaut) ;
   - phase de temps et de mesure partagée par tous les effets ;
   - alerte si une horloge est attendue mais absente ;
   - **deux comptes séparés** : le **temps moteur** (cadence des looks) suit les ticks pendant que le DAW joue, **continue au dernier tempo connu** quand l'horloge s'arrête ou manque (les looks ne se figent jamais entre deux chants) et **ignore les sauts** de position ; la **position du chant** (SPP + ticks), elle, n'existe que pendant la lecture et sert au suivi des sections. Un recul dans l'arrangement ne bloque donc aucun look sur son premier pas.
+- **Tempo au micro** (v1, 🎤 du widget Tap) : le micro de l'appareil écoute la salle (sans annulation d'écho, réduction de bruit ni gain automatique, qui écraseraient les attaques) ; toutes les 2 s, les 12 dernières secondes sont analysées dans le navigateur (même analyse que le tempo depuis un fichier, `web/src/audio/listen.ts`). Une lecture n'est suivie que si la précédente est d'accord (à 1 BPM près, nettes toutes les deux) : un changement de chant met donc environ 8 s à être suivi, et un passage sans temps net ne fait rien bouger. Le navigateur envoie le BPM et **depuis combien de temps son dernier temps est tombé** (`tempo.set` avec `source: "audio"` et `beatAgoMs`) ; le serveur suit ce tempo et **rattrape la phase en deux temps**, un peu plus vite ou plus lentement, jamais par un saut ni en arrière (un pas ne flashe pas deux fois, n'est pas sauté). Couper le micro rend un tempo manuel, au dernier tempo entendu ; une page fermée laisse le tempo continuer seul, comme une horloge MIDI absente. Rien n'est enregistré ; seul le tempo part au serveur. Le navigateur n'ouvre le micro qu'en **https ou localhost** (sinon le bouton le dit).
 - **Auto-test de cadence** (`selftest.run` avec `cadence`) : chaque look joue seul, la sortie DMX réelle est échantillonnée et les changements de pas sont chronométrés (premier changement de chaque pas, fondus jusqu'à un demi-pas) ; tolérance 25 ms ou 5 % sur la **cadence médiane** ; un **à-coup isolé** (une trame retardée par une machine chargée) est signalé mais toléré, deux ou plus échouent.
 
 ## Tests

@@ -1,5 +1,6 @@
 /**
- * Tempo source for the whole engine: manual BPM, tap tempo, or MIDI clock (with SPP position).
+ * Tempo source for the whole engine: manual BPM, tap tempo, MIDI clock (with SPP position), or the
+ * tempo a microphone in the interface hears (its beats too, caught up smoothly).
  * Raises `clockMissing` when MIDI clock is the selected source but no clock arrives — the real
  * trap where nothing follows the tempo and nothing says so (docs/specs/midi.md).
  *
@@ -12,7 +13,7 @@
 import type { MidiMessage } from "../midi/parse.js";
 import { MidiClockFollower } from "./midi-clock.js";
 
-export type TempoSource = "manual" | "tap" | "midi";
+export type TempoSource = "manual" | "tap" | "midi" | "audio";
 
 export interface TempoState {
   bpm: number;
@@ -29,6 +30,8 @@ export interface TempoState {
 
 const TAP_WINDOW = 4;
 const TAP_RESET_MS = 2000;
+/** A heard beat's phase is caught up over this many beats, never by a jump. */
+const CATCH_UP_BEATS = 2;
 
 export class TempoClock {
   private source: TempoSource = "manual";
@@ -40,6 +43,8 @@ export class TempoClock {
   /** MIDI: beats played at the last followed point (undefined while not running). */
   private lastPlayed: number | undefined;
   private lastMidiBpm: number | undefined;
+  /** audio: a slightly faster or slower pace until `untilMs`, catching up the music's beats. */
+  private nudge: { untilMs: number; bpm: number } | undefined;
 
   constructor(private readonly now: () => number = () => performance.now()) {
     this.anchor.atMs = now();
@@ -73,6 +78,25 @@ export class TempoClock {
     return this.manualBpm;
   }
 
+  /**
+   * The tempo heard in the room (a microphone in the interface): its BPM, and how long ago one of its
+   * beats fell. The count then runs slightly faster or slower for two beats, until its beats fall on
+   * the music's: never a jump (a step would flash twice or be skipped), never backward.
+   */
+  follow(bpm: number, beatAgoMs?: number): void {
+    if (!(bpm >= 20 && bpm <= 400)) throw new RangeError(`BPM ${bpm} hors de 20..400`);
+    this.reanchor();
+    this.manualBpm = Math.round(bpm * 10) / 10;
+    this.source = "audio";
+    if (beatAgoMs === undefined || beatAgoMs < 0) return;
+    // where the count was when the music's beat fell, and how far that is from a whole beat
+    const then = this.anchor.beats - (beatAgoMs / 60000) * this.manualBpm;
+    const error = Math.round(then) - then;
+    if (Math.abs(error) < 0.01) return;
+    const span = (CATCH_UP_BEATS * 60000) / this.manualBpm;
+    this.nudge = { untilMs: this.anchor.atMs + span, bpm: this.manualBpm * (1 + error / CATCH_UP_BEATS) };
+  }
+
   handleMidi(msg: MidiMessage): void {
     this.follower.handle(msg, this.now());
   }
@@ -80,6 +104,7 @@ export class TempoClock {
   private reanchor(): void {
     const s = this.state();
     this.anchor = { atMs: this.now(), beats: s.beats };
+    this.nudge = undefined;
   }
 
   state(): TempoState {
@@ -101,7 +126,11 @@ export class TempoClock {
       }
       return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats, position: s.running ? s.beats : null, clockMissing: !s.receiving };
     }
-    const beats = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * this.manualBpm;
+    let beats = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * this.manualBpm;
+    if (this.nudge) {
+      const caught = Math.min(t, this.nudge.untilMs) - this.anchor.atMs;
+      beats += (caught / 60000) * (this.nudge.bpm - this.manualBpm);
+    }
     return { bpm: this.manualBpm, source: this.source, receiving: true, running: true, beats, position: null, clockMissing: false };
   }
 }

@@ -77,4 +77,32 @@ describe("tempo clock", () => {
     expect(s.position).to.be.closeTo(5, 1e-6);
     expect(s.beats - before).to.be.closeTo(1, 0.05); // looks keep their pace
   });
+
+  it("follows the tempo heard by a microphone, and catches its beats up without a jump", () => {
+    const { tempo, wait } = setup();
+    wait(1100); // 2.2 beats at 120
+    // the music plays 100 BPM; one of its beats fell 150 ms ago (a quarter of a beat at 100)
+    tempo.follow(100, 150);
+    const start = tempo.state();
+    expect(start).to.deep.include({ bpm: 100, source: "audio" });
+    // never backward, never a jump: sampled every 10 ms through the catch-up
+    let last = start.beats;
+    for (let i = 0; i < 200; i++) {
+      wait(10);
+      const b = tempo.state().beats;
+      expect(b).to.be.greaterThan(last);
+      expect(b - last).to.be.lessThan(0.03); // 10 ms at 100 BPM is 0.017 beat, a little faster at most
+      last = b;
+    }
+    // two beats later the count is whole on the music's beats: 150 ms + 2 s after a beat is 3.58 beats
+    wait(400); // 2.55 s after the heard beat: 4.25 beats
+    expect(tempo.state().beats % 1).to.be.closeTo(0.25, 0.01);
+  });
+
+  it("leaves the audio tempo for a manual one", () => {
+    const { tempo } = setup();
+    tempo.follow(90);
+    tempo.setSource("manual");
+    expect(tempo.state()).to.deep.include({ bpm: 90, source: "manual" });
+  });
 });

@@ -172,13 +172,17 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "tempo.set",
     title: "Régler le tempo",
-    description: "Sets a manual BPM, or selects the tempo source (manual, tap, midi = follow MIDI clock).",
+    description:
+      "Sets a manual BPM, or selects the tempo source (manual, tap, midi = follow MIDI clock, audio = the tempo heard by a microphone in the interface, with beatAgoMs: how long ago one of its beats fell, to put the looks on the music's beats).",
     right: "commands:tempo",
     profiles: ["setup", "live"],
-    schema: z.object({ bpm: z.number().min(20).max(400).optional(), source: z.enum(["manual", "tap", "midi"]).optional() }),
-    run: ({ bpm, source }) => {
-      if (bpm !== undefined) s.tempo.setBpm(bpm);
-      if (source) s.tempo.setSource(source);
+    schema: z.object({ bpm: z.number().min(20).max(400).optional(), source: z.enum(["manual", "tap", "midi", "audio"]).optional(), beatAgoMs: z.number().min(0).max(10_000).optional() }),
+    run: ({ bpm, source, beatAgoMs }) => {
+      if (source === "audio" && bpm !== undefined) s.tempo.follow(bpm, beatAgoMs);
+      else {
+        if (bpm !== undefined) s.tempo.setBpm(bpm);
+        if (source) s.tempo.setSource(source);
+      }
       return s.tempo.state();
     },
   });

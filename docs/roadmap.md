@@ -82,6 +82,6 @@ Ces chantiers avancent ensemble. Chacun a sa spec :
 - ~~Comptes nominatifs, liens et QR~~ : faits (utilisateurs, liens de partage, QR code).
 - Max for Live (avec Live Suite) et connecteur AbleSet.
 - ~~Vue 3D de la scène~~ : faite (Scène en direct, bouton « 3D »).
-- Synchronisation audio (plugin) et analyse audio des chants (le tempo et une ébauche des sections depuis un enregistrement sont faits ; reste la synchronisation en direct).
+- Synchronisation audio et analyse audio des chants : faits (tempo et ébauche des sections depuis un enregistrement ; tempo et temps suivis au micro en direct).
 - Vue 3D, Ableton Link, OS2L.
 - MIDI clock en sortie, RDM.
