@@ -4,6 +4,7 @@ import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
 import { DashboardsPage } from "./pages/Dashboards";
+import { newerBuild } from "./freshness";
 // The Live loads first (a tablet on stage needs nothing else); every other page comes on demand.
 const ConsolePage = lazy(() => import("./pages/Console").then((m) => ({ default: m.ConsolePage })));
 const MidiPage = lazy(() => import("./pages/Midi").then((m) => ({ default: m.MidiPage })));
@@ -149,6 +150,22 @@ export function App() {
   const [up, setUp] = useState(false);
   // The link down for more than a moment (server restarting, network): said plainly, buttons are dead.
   const [lost, setLost] = useState(false);
+  // A newer interface on the server (an update since this tab opened): offered, never forced on a
+  // page someone may be editing in. Checked when the link comes back, when the tab is shown again,
+  // and every ten minutes.
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    if (!up) return;
+    const check = () => void newerBuild().then((newer) => newer && setStale(true));
+    check();
+    const onShow = () => document.visibilityState === "visible" && check();
+    document.addEventListener("visibilitychange", onShow);
+    const timer = window.setInterval(check, 10 * 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onShow);
+      window.clearInterval(timer);
+    };
+  }, [up]);
   useEffect(() => {
     if (up || !role) return setLost(false);
     const timer = window.setTimeout(() => setLost(true), 3000);
@@ -271,6 +288,11 @@ export function App() {
       {lost && (
         <div className="link-lost" role="alert">
           ⚠ {t.linkLost}
+        </div>
+      )}
+      {stale && !lost && (
+        <div className="new-version" role="status">
+          {t.newVersion} <button onClick={() => location.reload()}>{t.reload}</button>
         </div>
       )}
       <header className="top">

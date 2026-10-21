@@ -248,6 +248,28 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   expect(errors).toEqual([]);
 });
 
+test("an update on the server is offered to a tab left open, which reloads on the new one", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await expect(page.locator(".new-version")).toHaveCount(0); // the same build: nothing to say
+  // the server now serves another build of the page
+  const isPage = (url: URL) => url.pathname === "/";
+  await page.route(isPage, async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replace(/src="\/assets\/[^"]+\.js"/, 'src="/assets/index-newer.js"') });
+  });
+  await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))"); // the tab shown again
+  const banner = page.locator(".new-version");
+  await expect(banner).toContainText("nouvelle version");
+  await page.unroute(isPage);
+  await banner.getByRole("button", { name: "Recharger" }).click();
+  await expect(page.locator("header.top")).toBeVisible();
+  await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))");
+  await page.waitForTimeout(300);
+  await expect(page.locator(".new-version")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("right-click menu: long names never widen it past the screen, on a computer or a phone", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -68,6 +68,8 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - **Conflit** : deux looks se disputent des fixtures.
 - **Règle appliquée** : bornage, avec sa provenance.
 - **Entrée MIDI** active ou silencieuse.
+- **Liaison coupée** (rouge, en haut) : plus de 3 s sans liaison avec le serveur ; les boutons ne répondent pas.
+- **Nouvelle version** (v1, en haut) : après une mise à jour, un onglet resté ouvert garde l'ancienne interface, bugs corrigés compris, tant qu'on ne le recharge pas (cas réel : un menu du clic droit corrigé qui débordait encore). La page compare le script qu'elle a chargé à celui que la page du serveur charge maintenant, au retour de la liaison (un redémarrage), quand l'onglet revient au premier plan et toutes les 10 minutes ; si elle diffère, un bandeau propose « Recharger ». Jamais de rechargement forcé : quelqu'un peut être en train de modifier un look.
 
 ## Sauvegarde
 - **Télécharger** le show (et/ou le lieu) en archive **`.lightshow`**.
