@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,18 @@ describe("CLI light (offline)", function () {
     const selftest = light("selftest");
     expect(selftest.code).to.equal(0);
     expect(selftest.out).to.match(/Mappings : 3\/3/);
+  });
+
+  it("renews the master token without ever printing it", () => {
+    const first = light("token").out.trim();
+    expect(first).to.have.length.above(20);
+    const r = light("token", "--new");
+    expect(r.code).to.equal(0);
+    expect(r.out).to.match(/Jeton maître renouvelé/);
+    const second = (JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) as { server: { authToken: string } }).server.authToken;
+    expect(second).to.have.length.above(20).and.not.equal(first);
+    expect(r.out + r.err).to.not.include(first).and.not.include(second);
+    expect(light("token").out.trim()).to.equal(second);
   });
 
   it("lists the recent activity, the CLI's own commands included", () => {

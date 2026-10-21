@@ -21,8 +21,13 @@ export interface Caller {
 
 export class CliError extends Error {}
 
+/** The address of this machine's server, from its config (LIGHT_URL overrides it). */
+export function localServerUrl(store: ConfigStore): string {
+  return (process.env.LIGHT_URL ?? localBaseUrl(resolveListen({ port: store.getServerPort(), host: store.getServerHost() }))).replace(/\/$/, "");
+}
+
 /** A running server answers its health check within a short delay. */
-async function reachable(base: string): Promise<boolean> {
+export async function reachable(base: string): Promise<boolean> {
   try {
     const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(800) });
     return res.ok;
@@ -34,7 +39,7 @@ async function reachable(base: string): Promise<boolean> {
 export async function connect(opts: { configPath: string; dataRoot: string; url?: string; token: () => Promise<string>; offline?: boolean }): Promise<Caller> {
   const store = new ConfigStore({ filePath: opts.configPath });
   await store.load();
-  const base = (opts.url ?? process.env.LIGHT_URL ?? localBaseUrl(resolveListen({ port: store.getServerPort(), host: store.getServerHost() }))).replace(/\/$/, "");
+  const base = opts.url ? opts.url.replace(/\/$/, "") : localServerUrl(store);
   if (!opts.offline && (await reachable(base))) {
     const token = await opts.token();
     // x-light-origin: the activity log says « CLI », not « interface »

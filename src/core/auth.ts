@@ -98,11 +98,14 @@ export function tokensMatch(candidate: string | undefined, token: string): boole
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/** A fresh master token: 24 random bytes. */
+export const newMasterToken = (): string => crypto.randomBytes(24).toString("base64url");
+
 /** Resolves (and persists) the master token: persisted, then MCP_AUTH_TOKEN, then generated. */
 export async function resolveAuthToken(configStore: ConfigStore): Promise<string> {
   const existing = configStore.getServerAuthToken();
   if (existing) return existing;
-  const token = process.env.MCP_AUTH_TOKEN || crypto.randomBytes(24).toString("base64url");
+  const token = process.env.MCP_AUTH_TOKEN || newMasterToken();
   await configStore.setServerAuthToken(token);
   return token;
 }

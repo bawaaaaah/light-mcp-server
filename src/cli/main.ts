@@ -5,18 +5,18 @@
  */
 import { parseArgs } from "node:util";
 import path from "node:path";
-import { AuthService, resolveAuthToken } from "../core/auth.js";
+import { AuthService, newMasterToken, resolveAuthToken } from "../core/auth.js";
 import { ConfigStore } from "../core/config-store.js";
 import { bootstrap } from "../index.js";
 import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
 import { readFileSync, writeFileSync } from "node:fs";
-import { connect, CliError, type Caller } from "./client.js";
+import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
 import { diffFolder, packArchive, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
 
 const USAGE = `light <commande>
   serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
                                   lance le serveur (--standby : n'envoie rien, QLC+ tient les nodes)
-  token                           jeton maître (clients MCP, scripts)
+  token [--new]                   jeton maître (clients MCP, scripts) ; --new : le renouveler, sans l'afficher
   pin <utilisateur> <pin>         PIN d'un utilisateur (un nom de rôle crée l'utilisateur de ce rôle)
   roles                           liste des rôles
   users                           liste des utilisateurs (rôle, PIN)
@@ -85,6 +85,16 @@ switch (command) {
     break;
   }
   case "token": {
+    if (rest.includes("--new")) {
+      // never printed: a token on a screen or in a log is a token to renew again
+      const store = new ConfigStore({ filePath: configPath });
+      await store.load();
+      await store.setServerAuthToken(newMasterToken());
+      console.log("Jeton maître renouvelé (non affiché ; « light token » pour le lire). L'ancien ne vaut plus rien au prochain démarrage du serveur.");
+      if (await reachable(localServerUrl(store))) console.log("Le serveur en marche accepte encore l'ancien : redémarrez-le (barre de menus, ou relancer « light serve »).");
+      console.log("À mettre à jour : les clients qui ont le jeton en dur (scripts, clients MCP par jeton) et les onglets ouverts avec lui ; le menu de la barre le relit tout seul. Les sessions par PIN, les clés et les connexions OAuth restent valides.");
+      break;
+    }
     console.log((await machine()).token);
     break;
   }
