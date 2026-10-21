@@ -12,7 +12,7 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from "@modelconte
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
-import { tokensMatch, type AuthService } from "./auth.js";
+import type { AuthService } from "./auth.js";
 import { bodyField, bodyString } from "./http-body.js";
 import type { ConfigStore } from "./config-store.js";
 import { PasskeyError, type PasskeyService } from "./passkeys.js";
@@ -225,7 +225,8 @@ export class LightOAuthProvider implements OAuthServerProvider {
   private readonly sweepTimer: NodeJS.Timeout;
 
   constructor(
-    private readonly authToken: string,
+    /** The master token, read when needed: it can be renewed while the server runs. */
+    private readonly isMasterToken: (token: string) => boolean,
     configStore?: ConfigStore,
   ) {
     this.tokens = new TokenStore(configStore);
@@ -281,7 +282,7 @@ export class LightOAuthProvider implements OAuthServerProvider {
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    if (tokensMatch(token, this.authToken)) return { token, clientId: "static-token", scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+    if (this.isMasterToken(token)) return { token, clientId: "static-token", scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 3600 };
     const stored = this.grantOf(token);
     if (!stored) throw new InvalidTokenError("Invalid token");
     return { token, clientId: stored.clientId, scopes: stored.scopes, expiresAt: Math.floor(stored.expiresAt / 1000), ...(stored.resource ? { resource: new URL(stored.resource) } : {}) };
@@ -440,8 +441,8 @@ export interface OAuthIntegration {
  * public address (server.publicUrl, HTTPS except on localhost). Its tokens resolve through the auth
  * service to the role of whoever approved; a hardware key approves only for a user with `mcp:use`.
  */
-export function createOAuthIntegration(authToken: string, publicUrl: URL, auth: AuthService, configStore?: ConfigStore, passkeys?: PasskeyService): OAuthIntegration {
-  const provider = new LightOAuthProvider(authToken, configStore);
+export function createOAuthIntegration(publicUrl: URL, auth: AuthService, configStore?: ConfigStore, passkeys?: PasskeyService): OAuthIntegration {
+  const provider = new LightOAuthProvider((token) => auth.isMasterToken(token), configStore);
   auth.setTokenResolver((token) => {
     const grant = provider.grantOf(token);
     return grant ? { userId: grant.userId } : undefined;
@@ -505,7 +506,7 @@ export function createOAuthIntegration(authToken: string, publicUrl: URL, auth: 
       res.status(400).send("Demande d'autorisation invalide ou expirée.");
       return;
     }
-    if (!tokensMatch(bodyString(req.body, "token"), authToken)) {
+    if (!auth.isMasterToken(bodyString(req.body, "token"))) {
       res.status(401).type("html").send(page(requestId, pending, "Jeton incorrect."));
       return;
     }

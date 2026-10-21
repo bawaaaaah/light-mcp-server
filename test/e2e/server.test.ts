@@ -135,6 +135,21 @@ describe("server end to end", function () {
     expect(info.publicUrl).to.equal(null);
   });
 
+  it("renews the master token while running: the old one stops at once, PIN sessions stay", async () => {
+    const me = (token: string) => fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+    const renew = (token: string) => fetch(`${base}/api/auth/master-token`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+    const session = await login("1234");
+    expect((await renew(session)).status).to.equal(403); // a régisseur may not
+    const old = running.masterToken;
+    const res = await renew(old);
+    expect(res.status).to.equal(204);
+    expect(await res.text()).to.equal(""); // never sent back
+    expect(running.masterToken).to.not.equal(old);
+    expect((await me(old)).status).to.equal(401);
+    expect((await me(running.masterToken)).status).to.equal(200);
+    expect((await me(session)).status).to.equal(200);
+  });
+
   it("parks a channel from HTTP and the Art-Net node receives it quickly", async () => {
     const token = await login("1234");
     const t0 = performance.now();

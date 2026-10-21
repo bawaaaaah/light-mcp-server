@@ -147,7 +147,7 @@ export class AuthService implements AuthMiddleware {
   private readonly pinFailures = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
-    private readonly masterToken: string,
+    private masterToken: string,
     private readonly configStore?: ConfigStore,
     private readonly now: () => number = Date.now,
   ) {
@@ -377,6 +377,20 @@ export class AuthService implements AuthMiddleware {
     }
     this.pinFailures.delete(client);
     return this.openSession(user.id);
+  }
+
+  isMasterToken(candidate: string | undefined): boolean {
+    return Boolean(candidate) && tokensMatch(candidate!, this.masterToken);
+  }
+
+  /**
+   * A new master token, at once and kept: the old one stops working on this request. Done by the
+   * server itself when it runs, since it rewrites the whole config from memory on every save.
+   */
+  async renewMasterToken(): Promise<void> {
+    const token = newMasterToken();
+    await this.configStore?.setServerAuthToken(token);
+    this.masterToken = token;
   }
 
   logout(token: string): void {

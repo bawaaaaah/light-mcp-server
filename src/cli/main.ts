@@ -87,11 +87,20 @@ switch (command) {
   case "token": {
     if (rest.includes("--new")) {
       // never printed: a token on a screen or in a log is a token to renew again
-      const store = new ConfigStore({ filePath: configPath });
-      await store.load();
-      await store.setServerAuthToken(newMasterToken());
-      console.log("Jeton maître renouvelé (non affiché ; « light token » pour le lire). L'ancien ne vaut plus rien au prochain démarrage du serveur.");
-      if (await reachable(localServerUrl(store))) console.log("Le serveur en marche accepte encore l'ancien : redémarrez-le (barre de menus, ou relancer « light serve »).");
+      const { store, token } = await machine();
+      const base = localServerUrl(store);
+      if (await reachable(base)) {
+        // the running server rewrites the whole config from memory: it must make the change itself
+        const res = await fetch(`${base}/api/auth/master-token`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          console.error(`Renouvellement refusé par le serveur (${res.status}).`);
+          process.exit(1);
+        }
+        console.log("Jeton maître renouvelé par le serveur, qui l'applique déjà (non affiché ; « light token » pour le lire).");
+      } else {
+        await store.setServerAuthToken(newMasterToken());
+        console.log("Jeton maître renouvelé (non affiché ; « light token » pour le lire) : le serveur le prendra à son démarrage.");
+      }
       console.log("À mettre à jour : les clients qui ont le jeton en dur (scripts, clients MCP par jeton) et les onglets ouverts avec lui ; le menu de la barre le relit tout seul. Les sessions par PIN, les clés et les connexions OAuth restent valides.");
       break;
     }

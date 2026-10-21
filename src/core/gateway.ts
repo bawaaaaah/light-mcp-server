@@ -176,6 +176,15 @@ export class Gateway {
     const admin = auth.requireRight("auth:admin");
     const wrap = (fn: (req: express.Request, res: express.Response) => Promise<void>) => (req: express.Request, res: express.Response, next: express.NextFunction) => fn(req, res).catch(next);
     app.get("/api/auth/roles", admin, (_req, res) => res.json(auth.roles()));
+    // a new master token (`light token --new`), never sent back: it is read from the machine config
+    app.post(
+      "/api/auth/master-token",
+      admin,
+      wrap(async (_req, res) => {
+        await auth.renewMasterToken();
+        res.status(204).end();
+      }),
+    );
     const rightsOf = (body: unknown) => {
       const r = (body as { rights?: unknown } | undefined)?.rights;
       return Array.isArray(r) ? r.filter((x): x is string => typeof x === "string") : undefined;

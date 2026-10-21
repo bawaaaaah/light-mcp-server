@@ -30,7 +30,8 @@ export interface Running {
   stdio?: StdioEndpoint;
   light: LightPlugin;
   auth: AuthService;
-  masterToken: string;
+  /** The master token now (it can be renewed while the server runs). */
+  readonly masterToken: string;
   stop(): Promise<void>;
 }
 
@@ -57,7 +58,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
     let oauth: OAuthIntegration | undefined;
     if (publicURL) {
       try {
-        oauth = createOAuthIntegration(masterToken, publicURL, auth, configStore, passkeys);
+        oauth = createOAuthIntegration(publicURL, auth, configStore, passkeys);
       } catch (err) {
         log(`OAuth désactivé (server.publicUrl doit être en HTTPS) : ${(err as Error).message}`);
       }
@@ -75,7 +76,9 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Running> {
     stdio,
     light,
     auth,
-    masterToken,
+    get masterToken() {
+      return configStore.getServerAuthToken() ?? masterToken;
+    },
     async stop() {
       await stdio?.stop();
       await gateway?.stop();
