@@ -1030,7 +1030,7 @@ table.rules td {
 .widget-menu {
   position: fixed;
   z-index: 50;
-  width: 320px;
+  width: min(340px, calc(100vw - 16px));
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1040,6 +1040,25 @@ table.rules td {
   gap: 0.5em;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
+  overflow-x: hidden;
+}
+/* a select is as wide as its longest option: a long look name would widen the whole menu */
+.widget-menu > *,
+.widget-menu .field > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.widget-menu select,
+.widget-menu .field input:not([type="checkbox"]):not([type="color"]) {
+  width: 100%;
+}
+.widget-menu h3,
+.widget-menu li,
+.widget-menu label {
+  overflow-wrap: anywhere;
+}
+.widget-menu .row {
+  flex-wrap: wrap;
 }
 .widget-menu h3 {
   margin: 0.2em 0;

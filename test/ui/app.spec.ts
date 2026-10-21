@@ -248,6 +248,36 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   expect(errors).toEqual([]);
 });
 
+test("right-click menu: long names never widen it past the screen, on a computer or a phone", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const long = "Couplet final très lumineux avec les barres en dégradé ambre et les lyres au public";
+  await api(page, "look.put", { look: { id: "long-name", name: long, canvas, technique: { kind: "plat", color: "#ffffff" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } } });
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 740 }]) {
+    await page.setViewportSize(viewport);
+    await page.reload();
+    const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+    await button.scrollIntoViewIfNeeded();
+    await button.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    await expect(menu).toBeVisible();
+    const fit = {
+      ...(await menu.evaluate((m) => ({ right: m.getBoundingClientRect().right, left: m.getBoundingClientRect().left, sideways: m.scrollWidth - m.clientWidth }))),
+      ...(await page.evaluate<{ page: number; screen: number }>("({ page: document.documentElement.scrollWidth, screen: window.innerWidth })")),
+    };
+    expect(fit.sideways).toBe(0); // nothing to scroll sideways inside the menu
+    expect(fit.left).toBeGreaterThanOrEqual(0);
+    expect(fit.right).toBeLessThanOrEqual(fit.screen);
+    expect(fit.page).toBeLessThanOrEqual(fit.screen);
+    await page.screenshot({ path: `test-results/widget-menu-${viewport.width}.png` });
+    await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await api(page, "look.delete", { id: "long-name", force: true });
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a dashboard button: assign another look, learn a MIDI note for it, no edit mode", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

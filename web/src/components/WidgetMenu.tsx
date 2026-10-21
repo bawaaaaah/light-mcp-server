@@ -116,14 +116,15 @@ export function WidgetMenu({
       .finally(() => setLearning(false));
   };
 
-  // opened where the click was, kept on screen by its real height (it grows with MIDI notes and
-  // options); taller than the window, it scrolls inside
-  const [height, setHeight] = useState(380);
+  // opened where the click was, kept on screen by its real size (it grows with MIDI notes and
+  // options, narrows on a phone); taller than the window, it scrolls inside
+  const [size, setSize] = useState({ width: 340, height: 380 });
   useLayoutEffect(() => {
-    if (box.current) setHeight(box.current.offsetHeight);
+    const el = box.current;
+    if (el && (el.offsetWidth !== size.width || el.offsetHeight !== size.height)) setSize({ width: el.offsetWidth, height: el.offsetHeight });
   });
-  const left = Math.max(8, Math.min(at.x, window.innerWidth - 340));
-  const top = Math.max(8, Math.min(at.y, window.innerHeight - height - 8));
+  const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
+  const top = Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
   return (
     <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
       <h3>
