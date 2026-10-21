@@ -23,6 +23,32 @@ describe("QLC+ fixture definition import", () => {
     expect(findMode(def, "15 Channels")?.name).to.equal("15 Channel");
   });
 
+  it("never takes a machine's output for a dimmer, even with the IntensityDimmer preset", () => {
+    const machine = parseQxf(`<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Test</Manufacturer>
+ <Model>Bubble Hazer</Model>
+ <Type>Hazer</Type>
+ <Channel Name="Bubble Output" Preset="IntensityDimmer"/>
+ <Channel Name="Fog Output" Preset="IntensityDimmer"/>
+ <Channel Name="Fan" Preset="IntensityDimmer"/>
+ <Channel Name="Flame Height"><Group Byte="0">Intensity</Group></Channel>
+ <Channel Name="Dimmer" Preset="IntensityDimmer"/>
+ <Channel Name="Red" Preset="IntensityRed"/>
+ <Mode Name="6 Channel">
+  <Channel Number="0">Bubble Output</Channel>
+  <Channel Number="1">Fog Output</Channel>
+  <Channel Number="2">Fan</Channel>
+  <Channel Number="3">Flame Height</Channel>
+  <Channel Number="4">Dimmer</Channel>
+  <Channel Number="5">Red</Channel>
+ </Mode>
+</FixtureDefinition>`);
+    for (const name of ["Bubble Output", "Fog Output", "Fan", "Flame Height"]) expect(machine.channels.get(name)!.attribute, name).to.equal("effect");
+    expect(machine.channels.get("Dimmer")!.attribute).to.equal("intensity"); // the LEDs' dimmer stays one
+    expect(machine.channels.get("Red")).to.include({ attribute: "color", color: "red" });
+  });
+
   it("tags capabilities from their names", () => {
     expect(capabilityTags("Sound Control")).to.include("soundActive");
     expect(capabilityTags("Strobe Off")).to.not.include("strobe");

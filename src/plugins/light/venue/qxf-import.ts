@@ -155,6 +155,13 @@ function text(node: unknown): string {
   return String(node).trim();
 }
 
+/**
+ * A machine's output named as such: QLC+ definitions often give a hazer's « Fog Output », a bubble
+ * machine's « Bubble Output » or its « Fan » the IntensityDimmer preset. Read as dimmers, they would
+ * go to full with every colour painted on the machine's LEDs: they only move by raw channels.
+ */
+const MACHINE_OUTPUT = /\b(fog|haze|hazer|smoke|bubbles?|fan|fluid|pump|snow|foam|confetti|flames?|fire|sparks?|sparkular|co2|mist|blower|heater)\b/i;
+
 function channelFrom(node: Record<string, unknown>): FixtureChannel {
   const name = String(node["@_Name"]);
   const preset = node["@_Preset"] as string | undefined;
@@ -191,6 +198,7 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   else if (group === "Effect") attribute = "effect";
   else if (group === "Speed") attribute = "speed";
   else if (group === "Maintenance") attribute = "maintenance";
+  if (attribute === "intensity" && MACHINE_OUTPUT.test(name)) attribute = "effect";
 
   const tags = new Set<CapabilityTag>(capabilities.flatMap((c) => c.tags));
   if (attribute === "strobe") tags.add("strobe");
