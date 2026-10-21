@@ -51,7 +51,7 @@ test("the Tap widget listens to the room and follows its tempo", async ({ page }
   await expect(mic).toHaveAttribute("aria-pressed", "true");
   // a first reading after 6 s, followed once the next one agrees
   await expect(mic).toHaveClass(/following/, { timeout: 25_000 });
-  await expect(page.locator("button.tap")).toContainText(/12[78]\.\d|128\.0/);
+  await expect(page.getByLabel("Tempo (BPM)")).toHaveValue(/^12[78]\.\d$/);
   const tempo = await page.evaluate(async () => {
     const token = sessionStorage.getItem("token");
     const res = await fetch("/api/plugins/light/commands/tempo.get", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" });

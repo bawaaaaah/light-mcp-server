@@ -262,6 +262,19 @@ export function DashboardsPage({ role }: { role: Role }) {
       if (tempo?.source === "audio") void run("tempo.set", { source: "manual" });
     }
   };
+  // the tempo typed by hand: the field keeps what is typed while it has the focus (the live tempo
+  // would overwrite it), then sets it — a manual tempo, the microphone off
+  const [bpmDraft, setBpmDraft] = useState<{ id: string; value: string; typed: boolean } | null>(null);
+  const bpmCancelled = useRef(false);
+  const setBpmByHand = (value: string) => {
+    const typed = bpmDraft?.typed && !bpmCancelled.current;
+    bpmCancelled.current = false;
+    setBpmDraft(null);
+    const bpm = Number(value.replace(",", "."));
+    if (!typed || !(bpm >= 20 && bpm <= 400)) return; // left untouched, or Escape: nothing sent
+    if (mic.on) microphone.stop();
+    void run("tempo.set", { bpm: Math.round(bpm * 10) / 10, source: "manual" });
+  };
   const song = useTopic<SongState>("light:song", {});
 
   const refresh = useCallback(() => {
@@ -469,9 +482,24 @@ export function DashboardsPage({ role }: { role: Role }) {
         return (
           <div className="fill tap-cell">
             <button className="fill tap" {...locked("commands:tempo")} onClick={() => void run("tempo.tap")}>
-              {t.tap} · {tempo ? tempo.bpm.toFixed(1) : "—"} <span className={`beat ${tempo && Math.floor(tempo.beats) % 2 === 0 ? "even" : ""}`} />
+              {t.tap} <span className={`beat ${tempo && Math.floor(tempo.beats) % 2 === 0 ? "even" : ""}`} />
               {tempo?.clockMissing && <small className="warn"> ⚠</small>}
             </button>
+            <input
+              className="bpm"
+              inputMode="decimal"
+              aria-label={t.bpmByHand}
+              title={t.bpmByHandHelp}
+              {...locked("commands:tempo")}
+              value={bpmDraft?.id === w.id ? bpmDraft.value : tempo ? tempo.bpm.toFixed(1) : ""}
+              onFocus={(e) => (setBpmDraft({ id: w.id, value: tempo ? tempo.bpm.toFixed(1) : "", typed: false }), e.target.select())}
+              onChange={(e) => setBpmDraft({ id: w.id, value: e.target.value, typed: true })}
+              onBlur={(e) => setBpmByHand(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") ((bpmCancelled.current = true), e.currentTarget.blur());
+              }}
+            />
             <button
               className={`mic ${mic.on ? (mic.following ? "on following" : "on") : ""}`}
               {...locked("commands:tempo")}

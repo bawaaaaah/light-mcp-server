@@ -1793,6 +1793,13 @@ ul.online {
   gap: 0.3em;
   min-width: 0;
 }
+.tap-cell > .bpm {
+  flex: 0 0 4.2em;
+  width: 4.2em;
+  min-width: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .tap-cell > .mic {
   flex: 0 0 auto;
   padding: 0 0.6em;

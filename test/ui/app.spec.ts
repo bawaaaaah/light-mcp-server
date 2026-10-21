@@ -248,6 +248,29 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   expect(errors).toEqual([]);
 });
 
+test("Tap widget: a tempo typed by hand, Escape cancels", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const tempo = async () => (await api(page, "tempo.get")) as { bpm: number; source: string };
+  const before = await tempo(); // given back at the end: the server starts on the MIDI clock
+  const field = page.getByLabel("Tempo (BPM)");
+  await field.click();
+  await field.fill("97,5"); // a comma, as typed in French
+  await field.press("Enter");
+  await expect.poll(tempo).toMatchObject({ bpm: 97.5, source: "manual" });
+  await expect(field).toHaveValue("97.5");
+  await field.click();
+  await field.fill("150");
+  await field.press("Escape");
+  await expect(field).toHaveValue("97.5");
+  await field.click();
+  await page.locator("header.top").click(); // left untouched: nothing sent
+  expect((await tempo()).bpm).toBe(97.5);
+  await api(page, "tempo.set", { bpm: before.bpm, source: before.source });
+  await expect(field).toHaveValue(before.bpm.toFixed(1));
+  expect(errors).toEqual([]);
+});
+
 test("an update on the server is offered to a tab left open, which reloads on the new one", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
