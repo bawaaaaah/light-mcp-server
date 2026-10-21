@@ -162,6 +162,14 @@ function text(node: unknown): string {
  */
 const MACHINE_OUTPUT = /\b(fog|haze|hazer|smoke|bubbles?|fan|fluid|pump|snow|foam|confetti|flames?|fire|sparks?|sparkular|co2|mist|blower|heater)\b/i;
 
+/**
+ * A level: one range, or ranges that are all intensity (« dimmer 0-100 % », « off »). An Intensity
+ * channel cut into functions (« 0-63 RGBW chase, 64-127 colour presets… », « stop / trigger / loop »)
+ * selects a mode: at full it would put a bar in its sound mode.
+ */
+const isLevel = (caps: { name: string; preset?: string }[]) =>
+  caps.length <= 1 || caps.every((c) => /^Intensity/.test(c.preset ?? "") || /intensit|dimm|level|bright|fade|0\s*[-–]\s*100|%|^(off|blackout|closed?|no function|transparent|0)$/i.test(c.name.trim()));
+
 function channelFrom(node: Record<string, unknown>): FixtureChannel {
   const name = String(node["@_Name"]);
   const preset = node["@_Preset"] as string | undefined;
@@ -198,7 +206,7 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
   else if (group === "Effect") attribute = "effect";
   else if (group === "Speed") attribute = "speed";
   else if (group === "Maintenance") attribute = "maintenance";
-  if (attribute === "intensity" && MACHINE_OUTPUT.test(name)) attribute = "effect";
+  if (attribute === "intensity" && (MACHINE_OUTPUT.test(name) || !isLevel(capabilities))) attribute = "effect";
 
   const tags = new Set<CapabilityTag>(capabilities.flatMap((c) => c.tags));
   if (attribute === "strobe") tags.add("strobe");

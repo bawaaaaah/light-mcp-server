@@ -49,6 +49,36 @@ describe("QLC+ fixture definition import", () => {
     expect(machine.channels.get("Red")).to.include({ attribute: "color", color: "red" });
   });
 
+  it("takes an Intensity channel cut into functions for a mode selector, not a dimmer", () => {
+    const bar = parseQxf(`<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Test</Manufacturer>
+ <Model>Sound Bar</Model>
+ <Type>LED Bar (Beams)</Type>
+ <Channel Name="Mode Selection"><Group Byte="0">Intensity</Group><Colour>Generic</Colour>
+  <Capability Min="0" Max="63">RGBW color chasing</Capability>
+  <Capability Min="64" Max="127">Color Presets</Capability>
+  <Capability Min="128" Max="191">Color Macros</Capability>
+  <Capability Min="192" Max="255">Music Controlled</Capability>
+ </Channel>
+ <Channel Name="Relay"><Group Byte="0">Intensity</Group><Capability Min="0" Max="127">Off</Capability><Capability Min="128" Max="255">On</Capability></Channel>
+ <Channel Name="Master"><Group Byte="0">Intensity</Group><Capability Min="0" Max="0">Off</Capability><Capability Min="1" Max="255">Dimmer 0-100%</Capability></Channel>
+ <Channel Name="Layer Master"><Group Byte="0">Intensity</Group><Capability Min="0" Max="0">Transparent</Capability><Capability Min="1" Max="255">Intensity off…bright</Capability></Channel>
+ <Channel Name="Dimmer"><Group Byte="0">Intensity</Group><Capability Min="0" Max="255">Intensity</Capability></Channel>
+ <Mode Name="5 Channel">
+  <Channel Number="0">Mode Selection</Channel>
+  <Channel Number="1">Relay</Channel>
+  <Channel Number="2">Master</Channel>
+  <Channel Number="3">Layer Master</Channel>
+  <Channel Number="4">Dimmer</Channel>
+ </Mode>
+</FixtureDefinition>`);
+    // at full, « Mode Selection » put the bar in its sound mode and its colour presets never answered
+    expect(bar.channels.get("Mode Selection")!.attribute).to.equal("effect");
+    expect(bar.channels.get("Relay")!.attribute).to.equal("effect");
+    for (const level of ["Master", "Layer Master", "Dimmer"]) expect(bar.channels.get(level)!.attribute, level).to.equal("intensity");
+  });
+
   it("tags capabilities from their names", () => {
     expect(capabilityTags("Sound Control")).to.include("soundActive");
     expect(capabilityTags("Strobe Off")).to.not.include("strobe");
