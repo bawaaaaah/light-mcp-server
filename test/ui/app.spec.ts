@@ -1132,6 +1132,27 @@ test("look editor: random choices, as for the order of the steps", async ({ page
   expect(errors).toEqual([]);
 });
 
+test("settings: route a universe to another Art-Net address and to sACN", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  const artnet = page.getByLabel("Univers 2 · Art-Net");
+  await expect(artnet).toHaveValue("1");
+  await artnet.fill("5");
+  await page.getByLabel("Univers 2 · sACN").fill("2");
+  const asked: string[] = [];
+  page.once("dialog", (d) => (asked.push(d.message()), void d.accept()));
+  await page.locator(".routes .route", { hasText: "Univers 2" }).getByRole("button", { name: "Enregistrer" }).click();
+  await expect.poll(async () => ((await api(page, "output.status")) as { config: { routes: unknown[] } }).config.routes[1]).toEqual({ universe: 2, artnet: { portAddress: 5, targets: ["127.0.0.2"] }, sacn: { universe: 2 } });
+  expect(asked[0]).toContain("tout de suite");
+  await expect(page.locator(".routes .route", { hasText: "Univers 2" }).getByRole("button", { name: "Enregistrer" })).toHaveCount(0);
+  await page.screenshot({ path: "test-results/settings-routes.png", fullPage: true });
+  // back as it was, by the command
+  await api(page, "output.route", { universe: 2, artnet: { portAddress: 1 }, sacn: null });
+  await expect(artnet).toHaveValue("1");
+  expect(errors).toEqual([]);
+});
+
 test("automatic presets light a venue in one click", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());

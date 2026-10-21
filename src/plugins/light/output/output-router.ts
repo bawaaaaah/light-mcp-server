@@ -105,6 +105,12 @@ export class OutputRouter {
     this.config = config;
   }
 
+  /** New routes, sent at the next frame (not after the keep-alive): the light moves at once. */
+  setRoutes(routes: UniverseRoute[]): void {
+    this.config = { ...this.config, routes };
+    this.lastSent.clear();
+  }
+
   getConfig(): OutputConfig {
     return this.config;
   }

@@ -115,6 +115,19 @@ export interface PollReply {
   outputAddresses: number[];
   /** Output port-addresses the node reports as merging two sources (GoodOutput bit 3). */
   merging: number[];
+  /** What each output port says of itself (GoodOutputA). */
+  ports: OutputPortStatus[];
+}
+
+export interface OutputPortStatus {
+  portAddress: number;
+  /** DMX is going out of the port: it receives ArtDmx or sACN for its address (bit 7). */
+  outputting: boolean;
+  /** The port listens to sACN instead of Art-Net (bit 0, Art-Net 4). */
+  sacn: boolean;
+  /** Two sources merge the latest takes precedence rather than the highest (bit 1). */
+  ltp: boolean;
+  merging: boolean;
 }
 
 function cString(buf: Buffer, start: number, length: number): string {
@@ -128,7 +141,10 @@ function ipAt(buf: Buffer, offset: number): string {
 }
 
 const PORT_TYPE_OUTPUT = 0x80;
+const GOOD_OUTPUT_DATA = 0x80;
 const GOOD_OUTPUT_MERGING = 0x08;
+const GOOD_OUTPUT_LTP = 0x02;
+const GOOD_OUTPUT_SACN = 0x01;
 
 export function decodePollReply(buf: Buffer): PollReply | null {
   if (readOpCode(buf) !== OpCode.PollReply || buf.length < POLL_REPLY_MIN_LENGTH) return null;
@@ -142,11 +158,14 @@ export function decodePollReply(buf: Buffer): PollReply | null {
   const goodOutput = [182, 183, 184, 185].map(byteAt);
   const outputAddresses: number[] = [];
   const merging: number[] = [];
+  const ports: OutputPortStatus[] = [];
   for (let i = 0; i < numPorts; i++) {
     if (!(portTypes[i]! & PORT_TYPE_OUTPUT)) continue;
     const addr = portAddress(netSwitch, subSwitch, swOut[i]!);
+    const good = goodOutput[i]!;
     outputAddresses.push(addr);
-    if (goodOutput[i]! & GOOD_OUTPUT_MERGING) merging.push(addr);
+    if (good & GOOD_OUTPUT_MERGING) merging.push(addr);
+    ports.push({ portAddress: addr, outputting: Boolean(good & GOOD_OUTPUT_DATA), sacn: Boolean(good & GOOD_OUTPUT_SACN), ltp: Boolean(good & GOOD_OUTPUT_LTP), merging: Boolean(good & GOOD_OUTPUT_MERGING) });
   }
   return {
     ip: ipAt(buf, 10),
@@ -170,6 +189,7 @@ export function decodePollReply(buf: Buffer): PollReply | null {
     status2: byteAt(212),
     outputAddresses,
     merging,
+    ports,
   };
 }
 
@@ -185,6 +205,8 @@ export interface PollReplyInit {
   bindIndex?: number;
   /** Ports reporting a merge of two sources. */
   merging?: boolean[];
+  /** GoodOutputA of each port, as is (data, sACN, LTP… bits); merging is or-ed in. */
+  goodOutput?: number[];
 }
 
 /** Encodes an ArtPollReply. Used by tests and by the fake node; a controller never sends one. */
@@ -201,7 +223,7 @@ export function encodePollReply(init: PollReplyInit): Buffer {
   ports.forEach((uni, i) => {
     buf.writeUInt8(PORT_TYPE_OUTPUT, 174 + i);
     buf.writeUInt8(uni & 0x0f, 190 + i);
-    if (init.merging?.[i]) buf.writeUInt8(GOOD_OUTPUT_MERGING, 182 + i);
+    buf.writeUInt8((init.goodOutput?.[i] ?? 0) | (init.merging?.[i] ? GOOD_OUTPUT_MERGING : 0), 182 + i);
   });
   (init.mac ?? "00:00:00:00:00:00").split(":").forEach((h, i) => buf.writeUInt8(parseInt(h, 16) & 0xff, 201 + i));
   init.ip.split(".").forEach((part, i) => buf.writeUInt8(Number(part) & 0xff, 207 + i));

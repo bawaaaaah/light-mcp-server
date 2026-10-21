@@ -139,11 +139,20 @@ export class LightPlugin implements McpPlugin {
       this.publish("command", commandNotice(e));
       if (e.ok) this.syncMidiFeedback();
     });
-    registerCoreCommands(this.commands, this.engine, this.router, async (standby) => {
-      this.config = { ...this.config, output: { ...this.config.output, standby } };
-      await this.opts.config?.set(this.config);
-      if (!standby) this.syncMidiFeedback(true); // take the controllers' LEDs back too
-    });
+    registerCoreCommands(
+      this.commands,
+      this.engine,
+      this.router,
+      async (standby) => {
+        this.config = { ...this.config, output: { ...this.config.output, standby } };
+        await this.opts.config?.set(this.config);
+        if (!standby) this.syncMidiFeedback(true); // take the controllers' LEDs back too
+      },
+      async (routes) => {
+        this.config = { ...this.config, output: { ...this.config.output, routes } };
+        await this.opts.config?.set(this.config);
+      },
+    );
 
     const dataRoot = opts.dataRoot ?? defaultDataRoot();
     this.dataRoot = dataRoot;

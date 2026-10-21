@@ -69,6 +69,15 @@ describe("Art-Net codec", () => {
     expect(reply.mac).to.equal("de:ad:be:ef:00:01");
   });
 
+  it("reads what each output port says of itself: data going out, Art-Net or sACN, merge", () => {
+    // port 1: receiving Art-Net, HTP; port 2: set to sACN, idle, LTP
+    const reply = decodePollReply(encodePollReply({ ip: "10.0.0.41", shortName: "Node B", longName: "", swOut: [1, 2], goodOutput: [0x80, 0x03] }))!;
+    expect(reply.ports).to.deep.equal([
+      { portAddress: 1, outputting: true, sacn: false, ltp: false, merging: false },
+      { portAddress: 2, outputting: false, sacn: true, ltp: true, merging: false },
+    ]);
+  });
+
   it("rejects non Art-Net and truncated packets", () => {
     expect(readOpCode(Buffer.from("hello world"))).to.equal(null);
     expect(decodePollReply(encodePoll())).to.equal(null);

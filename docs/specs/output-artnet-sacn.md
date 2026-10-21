@@ -17,6 +17,9 @@
   - keep-alive au moins toutes les 1 s ;
   - **ArtSync** optionnel en fin de frame.
 - **Routage** : chaque univers interne est routé vers une ou plusieurs port-addresses ou IP. En mode auto, d'après le SwOut des nodes.
+- **État des ports** (v1, `nodes.list`, page Réglages) : pour chaque port de sortie, ce que le node dit de lui-même dans *GoodOutputA* : de la DMX sort (bit 7, il reçoit des données pour son adresse), il écoute l'Art-Net ou le **sACN** (bit 0), fusion **LTP** (bit 1) ou HTP, fusion en cours (bit 3). Un node multi-port répond une fois par port (BindIndex) : chaque port est une ligne.
+- **Routes réglables** (v1, `output.route`, page Réglages, droit `commands:output`) : par univers, une adresse Art-Net et/ou un univers sACN, l'un ou l'autre vide ; les cibles IP fixées à la main restent. La lumière part aussitôt vers la nouvelle adresse (renvoyée sans attendre le keep-alive) : l'interface le demande d'abord, sauf en veille ; la route est gardée dans la config machine.
+- **Couverture** (v1, `output.status`) : une route Art-Net sans cible fixe dont **aucun node vu ne sort l'adresse** (la lumière part en broadcast, pour personne) et les ports Art-Net qu'**aucune route n'alimente** sont signalés, avec un bouton pour envoyer l'univers sur un port libre. C'est le piège de la numérotation : Art-Net compte à partir de 0, et l'« univers 1 » d'un node ou de QLC+ est l'adresse 0 ou 1 selon le fabricant. Un port réglé en sACN n'est pas vérifié (l'ArtPollReply ne dit pas quel univers sACN il écoute).
 
 ## sACN (E1.31)
 - Multicast `239.255.<hi>.<lo>`, port 5568, unicast possible.

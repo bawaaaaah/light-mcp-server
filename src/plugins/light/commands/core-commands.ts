@@ -2,16 +2,24 @@
  * Base commands: DMX console (park/release), blackout, output and Art-Net nodes.
  */
 import { z } from "zod";
-import type { CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import type { OutputRouter } from "../output/output-router.js";
+import type { OutputRouter, UniverseRoute } from "../output/output-router.js";
+import { coverage } from "../output/artnet-discovery.js";
 import { say } from "../../../core/lang.js";
 
 const universe = z.number().int().min(1).describe("Univers (1..N)");
 const channel = z.number().int().min(1).max(512).describe("Canal DMX (1..512)");
 const value = z.number().int().min(0).max(255).describe("Valeur (0..255)");
 
-export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, router: OutputRouter, persistStandby: (on: boolean) => Promise<void> = async () => undefined): void {
+export function registerCoreCommands(
+  reg: CommandRegistry,
+  engine: DmxEngine,
+  router: OutputRouter,
+  persistStandby: (on: boolean) => Promise<void> = async () => undefined,
+  persistRoutes: (routes: UniverseRoute[]) => Promise<void> = async () => undefined,
+): void {
+  const routeCoverage = () => coverage(router.getConfig().routes, router.registry.list());
   reg.register({
     name: "dmx.get",
     title: "Lire un univers",
@@ -68,12 +76,52 @@ export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, ro
   reg.register({
     name: "output.status",
     title: "État de la sortie",
-    description: "Art-Net/sACN output: routes, packets sent, errors, discovery state.",
+    description:
+      "Art-Net/sACN output: routes, packets sent, errors, discovery state, and coverage: routes whose Art-Net port-address no node seen outputs (unheard), and node ports no route feeds (unfed).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => ({ config: router.getConfig(), stats: router.stats, frames: engine.frames, standby: router.isStandby(), foreignSources: router.foreignSources(), merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })) }),
+    run: () => ({
+      config: router.getConfig(),
+      stats: router.stats,
+      frames: engine.frames,
+      standby: router.isStandby(),
+      foreignSources: router.foreignSources(),
+      merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })),
+      coverage: routeCoverage(),
+      universes: engine.output.count,
+    }),
+  });
+
+  reg.register({
+    name: "output.route",
+    title: "Router un univers",
+    description:
+      "Where a universe goes: an Art-Net port-address (sent to the nodes that output it, else broadcast) and/or an sACN universe (multicast). null removes that half; both removed, the universe is not sent. Takes effect at once on the nodes (the fixtures there light up with the show) and is kept in the machine config.",
+    right: "commands:output",
+    profiles: ["setup"],
+    schema: z.object({
+      universe,
+      artnet: z.object({ portAddress: z.number().int().min(0).max(32767) }).nullable().optional(),
+      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional() }).nullable().optional(),
+    }),
+    run: async ({ universe: u, artnet, sacn }) => {
+      if (u > engine.output.count) throw new CommandError("invalid", say(`univers ${u} hors de 1..${engine.output.count}`, `universe ${u} out of 1..${engine.output.count}`));
+      const routes = router.getConfig().routes;
+      const before = routes.find((r) => r.universe === u);
+      const next: UniverseRoute = { universe: u };
+      // explicit targets and unicast addresses set by hand stay with their protocol
+      const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : { ...before?.artnet, portAddress: artnet.portAddress };
+      const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : { ...before?.sacn, ...sacn };
+      if (a) next.artnet = a;
+      if (s) next.sacn = s;
+      const others = routes.filter((r) => r.universe !== u);
+      const updated = (next.artnet || next.sacn ? [...others, next] : others).sort((x, y) => x.universe - y.universe);
+      router.setRoutes(updated);
+      await persistRoutes(updated);
+      return { routes: updated, coverage: routeCoverage() };
+    },
   });
 
   reg.register({
@@ -94,12 +142,12 @@ export function registerCoreCommands(reg: CommandRegistry, engine: DmxEngine, ro
   reg.register({
     name: "nodes.list",
     title: "Nodes Art-Net",
-    description: "Art-Net nodes discovered on the network (ArtPollReply), with their output port-addresses.",
+    description: "Art-Net nodes discovered on the network (ArtPollReply), with their output ports: port-address, DMX going out (data), Art-Net or sACN, merge mode.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => router.registry.list().map(({ key, ip, shortName, longName, outputAddresses, mac, nodeReport, lastSeen }) => ({ key, ip, shortName, longName, outputAddresses, mac, nodeReport, lastSeen })),
+    run: () => router.registry.list().map(({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, lastSeen }) => ({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, lastSeen })),
   });
 
   reg.register({
