@@ -23,7 +23,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 |---|---|
 | Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
 | Socle serveur (cœur wing, rôles PIN, MCP, WebSocket) | ✅ |
-| Sortie Art-Net/sACN, découverte | ✅ (à valider sur le réseau lumière) |
+| Sortie Art-Net/sACN, découverte | ✅ (découverte validée sur le réseau lumière le 21/10 ; routes réglables ; reste à regarder la sortie sur scène) |
 | Lieu, canevas, scène, règles | ✅ v1 |
 | Techniques, lecteur, groupes, panic | ✅ |
 | MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) |

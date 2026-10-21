@@ -2,7 +2,7 @@
 
 Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention contraire, les mesures datent du 2026-10-13, sur la machine de dev (Linux x86_64, Node 26). **Premiers résultats sur le Mac de régie : 2026-10-14** (colonne « En une ligne »).
 
-**Restent à faire sur le Mac** : P8 (Live Set ouvert dans Live) ; P6 et la bascule QLC+ sur le réseau lumière ; le hotplug USB ; le regard de la scène réelle ; les programmes de règles depuis Live (§ 6 ter) ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P3 (rack chargé dans Live), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show. **Fait (2026-10-15, soir)** : plantage simulé, réimport (§ 6 bis) et auto-test, voir la section dédiée.
+**Restent à faire sur le Mac** : P8 (Live Set ouvert dans Live) ; la sortie vers le node regardée sur scène et la bascule QLC+ sur le réseau lumière (P6 validé le 21/10) ; le hotplug USB ; le regard de la scène réelle ; les programmes de règles depuis Live (§ 6 ter) ([tests-mac](../tests-mac.md)). **Fait (2026-10-14)** : P1 (bus IAC), P3 (rack chargé dans Live), P4/P5 (Ableton sur le bus IAC), P12 + auto-test du vrai show. **Fait (2026-10-15, soir)** : plantage simulé, réimport (§ 6 bis) et auto-test, voir la section dédiée.
 
 ## Synthèse
 | # | Sujet | État | En une ligne |
@@ -12,7 +12,7 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 | P3 | Rack `.adg` cloné depuis la coquille | ✅ **validé sur le Mac, charge dans Live** | Rack de 6 chaînes généré depuis **une vraie coquille de Live** (un branch réel, notes 36/37/38/39/60/61) ; chargé sans erreur dans Live 12.4.5. Coquille synthétique `shell-rack.xml` écartée (Live la rejetait, scaffold incomplet) |
 | P4 | Clock et SPP depuis Ableton | ✅ **validé sur le Mac (bus IAC)** | Lecture en boucle : tempo suivi (103→162 BPM, gigue ±0,05), position qui avance (mesure 1.1→1139), transport arrêt↔lecture, sauts gérés |
 | P5 | Aftertouch dans un clip | ✅ **validé sur le Mac** | Enveloppe `chanAT` bien reçue entre `noteOn` et `noteOff` : crête 103 puis décroissance 92/77/58/42/30/19 (fondu/punch d'un clip) |
-| P6 | Découverte Art-Net | 🟡 **à refaire sur le réseau lumière** | Validé contre un faux node ; sur le Mac hors réseau lumière : 0 node en 5 s (attendu, 14/10 et 15/10) |
+| P6 | Découverte Art-Net | ✅ **validé sur le réseau lumière** (21/10) ; 🟡 sortie vers le node à regarder sur scène | Un node à deux ports (un port en Art-Net, un en sACN) répond une fois par port (BindIndex) : noms, adresses et état des ports décodés ; voir la section dédiée |
 | P7 | **RTP-MIDI en pur Node** (sans démon) | ✅ **validé** (Linux et Mac, boucle locale), 🟡 connexion depuis « Configuration audio et MIDI » à tester | Aller-retour p50 0,06 ms (Linux) ; **Mac, 1000 notes : p50 0,037 · p95 0,077 · p99 0,096 · max 0,32 ms** |
 | P8 | **Génération de Live Set** | 🟡 **à ouvrir dans Live** | Repères, clips autonomes, tempo ; XML bien formé ; autres pistes intactes |
 | P9 | **Flux WebSocket** 16 univers vers N écrans | ✅ **validé** (Linux et Mac) | 8 clients à 25 Hz : ~3 % d'un cœur, latence p99 < 1,2 ms ; client lent isolé (Mac : 113 trames sautées pour lui seul, les autres intacts) |
@@ -59,6 +59,17 @@ Mode d'emploi : [prototypes/README.md](../../prototypes/README.md). Sauf mention
 
 ## P10 — sACN
 16 univers en multicast à 44 Hz, reçus en process. Sur loopback, 226 paquets par univers, aucune perte. Sur l'interface réseau réelle, 135 paquets par univers, aucune perte.
+
+## P6 — découverte sur le réseau lumière (Mac de régie, 2026-10-21)
+Serveur en service (sortie active), découverte active.
+
+| Point | Résultat |
+|---|---|
+| Réponses | Un node à **deux ports** répond **une fois par port** (BindIndex 1 et 2), rafraîchi toutes les 3 s ; les deux lignes s'affichent séparément (la liste des Réglages les confondait : clé React par IP, **corrigé**) |
+| Décodage | Noms court (« Port 1 », « Port 2 ») et long, adresses de sortie **1** et **2**, *GoodOutputA* : port 1 en **Art-Net**, port 2 en **sACN**, fusion HTP, pas de fusion en cours ; NodeReport vide |
+| Bit « DMX en sortie » | Allumé sur les deux ports alors que rien ne leur était envoyé : ce node sort de la DMX en permanence (il tient sa dernière trame ou des zéros). Ce bit ne prouve donc pas que **nos** paquets arrivent |
+| **Piège de numérotation** | La route par défaut envoyait l'univers 1 en Art-Net **0**, qu'aucun port n'écoute (le node est réglé sur 1 et 2) : la lumière partait en broadcast, pour personne, sans alerte. D'où le diagnostic de couverture et le réglage des routes dans les Réglages |
+| Reste | Envoyer un univers sur le port 1 (Art-Net 1) et un en sACN sur le port 2, **en regardant les projecteurs** branchés dessus : décision de l'utilisateur, la lumière part aussitôt |
 
 ## P11 — OSC
 Codec maison (i, f, s, T, F, N, bundles) et routes à paramètres (`/light/group/{id}/level`). 2000 messages en aller-retour : p50 0,059 · p99 0,129 ms. `/light/help` renvoie une réponse par adresse.
