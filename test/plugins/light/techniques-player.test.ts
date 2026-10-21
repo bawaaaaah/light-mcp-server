@@ -22,6 +22,31 @@ describe("techniques", () => {
     expect(steps.map(row)).to.deep.equal(["#ff0000 #00ff00 #0000ff", "#00ff00 #0000ff #ff0000", "#0000ff #ff0000 #00ff00"]);
   });
 
+  it("palette at random: each block draws a colour, never the one it has, never dark, the same way every time", () => {
+    const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffffff"];
+    const t = tech({ kind: "palette", colors, block: 2, random: true });
+    const steps = generateSteps(t, 8, false);
+    expect(steps).to.have.length(16);
+    const rows = steps.map(row);
+    for (const r of rows) for (const c of r.split(" ")) expect(colors).to.include(c);
+    for (let s = 1; s < rows.length; s++) {
+      const [a, b] = [rows[s - 1]!.split(" "), rows[s]!.split(" ")];
+      for (let k = 0; k < 8; k += 2) expect(b[k]).to.not.equal(a[k]); // a block changes at every step
+      for (let k = 0; k < 8; k += 2) expect(b[k + 1]).to.equal(b[k]); // a block keeps one colour
+    }
+    expect(new Set(rows).size).to.be.above(8); // not a rotation: many different steps
+    expect(generateSteps(t, 8, false).map(row)).to.deep.equal(rows);
+    const mirrored = generateSteps(t, 8, true).map(row)[0]!.split(" ");
+    expect(mirrored).to.deep.equal([...mirrored].reverse());
+  });
+
+  it("onde shuffled: the same phases, given out in another order along the canvas", () => {
+    const levels = (shuffle: boolean) =>
+      generateSteps(tech({ kind: "onde", colors: ["#ff0000"], spread: 1, resolution: 8, shuffle }), 8, false)[0]!.map((c) => Math.round((c?.red ?? 0) * 1000) / 1000);
+    expect([...levels(true)].sort()).to.deep.equal([...levels(false)].sort());
+    expect(levels(true)).to.not.deep.equal(levels(false));
+  });
+
   it("creux moves one dark block around the wall", () => {
     const steps = generateSteps(tech({ kind: "creux", colors: ["#ff0000", "#ff0000"], block: 1 }), 4, false);
     expect(steps.map(row)).to.deep.equal(["#000000 #ff0000 #ff0000 #ff0000", "#ff0000 #000000 #ff0000 #ff0000", "#ff0000 #ff0000 #000000 #ff0000", "#ff0000 #ff0000 #ff0000 #000000"]);

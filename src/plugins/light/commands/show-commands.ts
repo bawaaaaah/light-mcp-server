@@ -289,7 +289,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette, creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis, center, size, every, spread, fan, group).",
+    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group).",
     right: "show:write",
     profiles: ["design"],
     // a look from the brief list (partial) is refused before anything else: saved, it would lose its steps or raw channels

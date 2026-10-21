@@ -45,6 +45,7 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
   - **profils de cadence** nommés : multiple de temps (×½, ×1, ×2, 1 mesure) + attaque ;
   - les machines (brume) et les flashs sont marqués **hors tempo**.
 - **Ordres** : Loop, PingPong, Random, **aléatoire pondéré** (un réservoir de pas avec poids, base de l'orage probabiliste).
+- **Aléatoire sur les choix** (v1), comme l'ordre Random des pas : la **palette** peut tirer la couleur de chaque bloc au hasard (`random`) ; l'**onde** et le **Move FX** peuvent distribuer leur décalage dans un **ordre mélangé** (`shuffle`, le « shuffle » de grandMA3) plutôt que le long du canevas ; le Move FX a une forme **`aleatoire`**. Tout tirage est **déterministe** (graine tirée du look) : un look rejoue toujours de la même façon, comme l'ordre Random, et la répétition ou l'auto-test restent reproductibles.
 - **Pas 0 d'entrée** : fondu d'arrivée optionnel, quelle que soit la cadence ensuite.
 - **Boucle de N mesures** (SoundSwitch) : repart toujours sur le premier temps de la mesure.
 
@@ -52,7 +53,7 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 | Technique | Principe |
 |---|---|
 | Damier | dominante et accent qui **échangent** entre deux groupes à chaque pas |
-| Palette qui tourne | chaque bloc prend une teinte décalée d'un cran ; rien ne s'éteint ; au moins 3 teintes ; miroir depuis le centre |
+| Palette qui tourne | chaque bloc prend une teinte décalée d'un cran ; rien ne s'éteint ; au moins 3 teintes ; miroir depuis le centre. **Tirage au hasard** (`random`) : à chaque pas, chaque bloc tire une teinte de la palette, jamais celle qu'il a (16 pas, à combiner avec l'ordre Random) |
 | Creux qui tourne | un trou qui se déplace |
 | Masques ON/OFF | jeu de masques variés en aléatoire, pour casser la régularité |
 | Masques colorés | idem, avec des couleurs |
@@ -67,8 +68,8 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 
 ### Move FX (lyres, v1)
 - Un look peut porter un **`move`** en plus de sa technique de couleur ; la technique `aucune` donne un look de position pure (preset de position, mouvement seul).
-- Formes : `fixe` (position), `cercle`, `huit`, `pan`, `tilt`, `tapis` (« magic carpet » : vague de tilt, spread 1 par défaut).
-- Paramètres : centre et taille (fractions de la course), un cycle par `every` (temps ou secondes, comme la cadence), **spread** (déphasage du premier au dernier projecteur, en cycles), `wings`, `reverse`, **éventail** (`fan`, écart de pan fixe le long de la rangée).
+- Formes : `fixe` (position), `cercle`, `huit`, `pan`, `tilt`, `tapis` (« magic carpet » : vague de tilt, spread 1 par défaut), **`aleatoire`** (chaque lyre glisse vers un nouveau point tiré dans la boîte centre ± taille à chaque cycle, en accélérant puis en freinant ; avec `wings`, les deux lyres d'une paire symétrique partagent leurs points).
+- Paramètres : centre et taille (fractions de la course), un cycle par `every` (temps ou secondes, comme la cadence), **spread** (déphasage du premier au dernier projecteur, en cycles), `wings`, `reverse`, **ordre mélangé** (`shuffle` : le déphasage suit un ordre tiré au hasard, toujours le même pour un nombre de lyres donné), **éventail** (`fan`, écart de pan fixe le long de la rangée).
 - Projecteurs déplacés : les lyres du canevas du look, dans l'ordre des cellules, ou celles d'un **groupe** (`move.group`), triées par X.
 - Une **position manuelle** (pad XY, viser) passe devant les looks jusqu'au relâchement ; le Panic neutre relâche tout.
 

@@ -111,6 +111,35 @@ describe("moving heads", () => {
       const p = movePosition(move({ shape: "pan", center: { pan: 0.95 }, size: { pan: 0.5 } }), 0.25, 0, 1);
       expect(p.pan).to.equal(1);
     });
+
+    it("« aléatoire »: each head glides to a new point drawn in the box every cycle, the same way every time", () => {
+      const m = move({ shape: "aleatoire", center: { pan: 0.5, tilt: 0.5 }, size: { pan: 0.2, tilt: 0.1 } });
+      const path = Array.from({ length: 400 }, (_, i) => movePosition(m, i / 40, 0, 4)); // 10 cycles
+      for (const p of path) {
+        expect(p.pan).to.be.within(0.3 - 1e-9, 0.7 + 1e-9);
+        expect(p.tilt).to.be.within(0.4 - 1e-9, 0.6 + 1e-9);
+      }
+      // gliding, never jumping
+      for (let i = 1; i < path.length; i++) expect(Math.abs(path[i]!.pan - path[i - 1]!.pan)).to.be.below(0.04);
+      // a different point every cycle, and for every head
+      const at = (c: number, i: number) => Object.values(movePosition(m, c, i, 4)).map((v) => v.toFixed(3)).join();
+      expect(new Set([1, 2, 3, 4].map((c) => at(c, 0))).size).to.equal(4);
+      expect(new Set([0, 1, 2, 3].map((i) => at(2, i))).size).to.equal(4);
+      expect(movePosition(m, 2.3, 1, 4)).to.deep.equal(movePosition(m, 2.3, 1, 4));
+      // wings: a mirrored pair shares its points
+      const wings = move({ shape: "aleatoire", size: { pan: 0.2, tilt: 0.1 }, wings: true });
+      expect(movePosition(wings, 1.6, 0, 4)).to.deep.equal(movePosition(wings, 1.6, 3, 4));
+    });
+
+    it("shuffles the order the heads take their phase in", () => {
+      const along = move({ shape: "tapis", size: { tilt: 0.2 }, spread: 1 });
+      const mixed = move({ shape: "tapis", size: { tilt: 0.2 }, spread: 1, shuffle: true });
+      const tilts = (m: typeof along) => [0, 1, 2, 3, 4, 5].map((i) => movePosition(m, 0.1, i, 6).tilt.toFixed(4));
+      // the same phases, given out in another order, the same every time
+      expect([...tilts(mixed)].sort()).to.deep.equal([...tilts(along)].sort());
+      expect(tilts(mixed)).to.not.deep.equal(tilts(along));
+      expect(tilts(mixed)).to.deep.equal(tilts(mixed));
+    });
   });
 
   describe("aiming", () => {

@@ -1108,6 +1108,30 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("look editor: random choices, as for the order of the steps", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau look" }).click();
+  const editor = page.locator(".look-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Hasard");
+  await editor.getByLabel("Technique").selectOption("palette");
+  await editor.getByLabel("Tirage au hasard").check();
+  await expect(editor.getByLabel("Tirage au hasard")).toBeChecked();
+  await editor.getByLabel("Mouvement (lyres)").check();
+  await editor.getByLabel("Forme").selectOption("aleatoire");
+  await editor.getByLabel("Ordre mélangé").check();
+  await expect(editor.locator(".preview .cell")).toHaveCount(8);
+  await page.screenshot({ path: "test-results/look-random.png", fullPage: true });
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const mine = ((await api(page, "look.list", { brief: false })) as { id: string; technique: { kind: string; random?: boolean }; move?: { shape: string; shuffle?: boolean } }[]).find((l) => l.id === "hasard")!;
+  expect(mine.technique).toMatchObject({ kind: "palette", random: true });
+  expect(mine.move).toMatchObject({ shape: "aleatoire", shuffle: true });
+  await api(page, "look.delete", { id: "hasard", force: true });
+  expect(errors).toEqual([]);
+});
+
 test("automatic presets light a venue in one click", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());

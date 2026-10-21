@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import { EverySchema } from "./player.js";
+import { rng, shuffled } from "./techniques.js";
 
 export interface Position {
   pan: number;
@@ -15,8 +16,11 @@ export interface Position {
 }
 
 export const MoveSchema = z.object({
-  /** fixe = static position (position preset); tapis = Wolfmix « magic carpet » (tilt wave, spread 1 by default). */
-  shape: z.enum(["fixe", "cercle", "huit", "pan", "tilt", "tapis"]).default("fixe"),
+  /**
+   * fixe = static position (position preset); tapis = Wolfmix « magic carpet » (tilt wave, spread 1 by
+   * default); aleatoire = each head glides to a new point drawn in the box every cycle.
+   */
+  shape: z.enum(["fixe", "cercle", "huit", "pan", "tilt", "tapis", "aleatoire"]).default("fixe"),
   center: z.object({ pan: z.number().min(0).max(1).default(0.5), tilt: z.number().min(0).max(1).default(0.5) }).default({}),
   /** Amplitude around the centre, in fractions of the travel. */
   size: z.object({ pan: z.number().min(0).max(0.5).default(0.1), tilt: z.number().min(0).max(0.5).default(0.1) }).default({}),
@@ -26,6 +30,8 @@ export const MoveSchema = z.object({
   /** Mirror the phase from the centre of the row (symmetric moves). */
   wings: z.boolean().default(false),
   reverse: z.boolean().default(false),
+  /** The heads take their phase in a shuffled order rather than along the row (grandMA « shuffle »). */
+  shuffle: z.boolean().optional(),
   /** Static pan fan across the row: first fixture −fan, last +fan (fractions of the travel). */
   fan: z.number().min(-0.5).max(0.5).default(0),
   /** Fixtures moved: this group's fixtures (default: the look's canvas fixtures that have pan/tilt). */
@@ -40,7 +46,8 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
  */
 export function movePosition(m: Move, cycles: number, index: number, count: number): Position {
   const spread = m.spread ?? (m.shape === "tapis" ? 1 : 0);
-  let k = count > 1 ? index / (count - 1) : 0; // 0..1 along the row
+  const rank = m.shuffle ? shuffled(count, count * 7919)[index]! : index;
+  let k = count > 1 ? rank / (count - 1) : 0; // 0..1 along the row
   if (m.wings) k = 1 - Math.abs(2 * k - 1);
   const phase = cycles + (m.reverse ? 1 : -1) * spread * k;
   const u = 2 * Math.PI * phase;
@@ -67,6 +74,26 @@ export function movePosition(m: Move, cycles: number, index: number, count: numb
     case "tapis":
       tilt += sy * Math.sin(u);
       break;
+    case "aleatoire": {
+      // from the point of this cycle to the next one, easing in and out; a mirrored pair (wings) shares its points
+      const head = m.wings ? Math.min(index, count - 1 - index) : index;
+      const n = Math.floor(phase);
+      const ease = 0.5 - 0.5 * Math.cos(Math.PI * (phase - n));
+      const [a, b] = [pointOf(n, head), pointOf(n + 1, head)];
+      pan += sx * (a.x + (b.x - a.x) * ease);
+      tilt += sy * (a.y + (b.y - a.y) * ease);
+      break;
+    }
   }
   return { pan: clamp01(pan + fan), tilt: clamp01(tilt) };
+}
+
+/** The point drawn for `head` at cycle `n`, in −1..1 on both axes: the same every time. */
+function pointOf(n: number, head: number): { x: number; y: number } {
+  // neighbouring cycles and heads give neighbouring seeds: mixed first (murmur3 finaliser)
+  let h = Math.imul(n | 0, 0x9e3779b1) ^ Math.imul(head + 1, 0x85ebca77);
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  const r = rng(h ^ (h >>> 16));
+  return { x: 2 * r() - 1, y: 2 * r() - 1 };
 }

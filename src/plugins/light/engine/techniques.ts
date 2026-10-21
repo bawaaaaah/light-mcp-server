@@ -16,7 +16,13 @@ export type Step = CellState[];
 export const TechniqueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("plat"), color: z.string() }),
   z.object({ kind: z.literal("damier"), colors: z.tuple([z.string(), z.string()]), block: z.number().int().min(1).default(4) }),
-  z.object({ kind: z.literal("palette"), colors: z.array(z.string()).min(3), block: z.number().int().min(1).default(4) }),
+  z.object({
+    kind: z.literal("palette"),
+    colors: z.array(z.string()).min(3),
+    block: z.number().int().min(1).default(4),
+    /** Each block draws its colour at random at every step, instead of the hues turning in order. */
+    random: z.boolean().optional(),
+  }),
   z.object({ kind: z.literal("creux"), colors: z.tuple([z.string(), z.string()]), block: z.number().int().min(1).default(4), width: z.number().int().min(1).default(1), floor: z.number().min(0).max(1).default(0) }),
   z.object({
     kind: z.literal("masques"),
@@ -52,6 +58,8 @@ export const TechniqueSchema = z.discriminatedUnion("kind", [
     blocks: z.number().int().min(1).default(1),
     wings: z.boolean().default(false),
     reverse: z.boolean().default(false),
+    /** The blocks take their phase in a shuffled order rather than along the canvas (grandMA « shuffle »). */
+    shuffle: z.boolean().optional(),
     resolution: z.number().int().min(2).max(64).default(16),
   }),
   /** No colour: the look only moves heads (position presets, Move FX). */
@@ -88,6 +96,27 @@ export function rng(seed: number): () => number {
   };
 }
 
+/** 0..n-1 in a shuffled order, the same for the same `n` and `seed` (Fisher-Yates). */
+export function shuffled(n: number, seed: number): number[] {
+  const r = rng(seed);
+  const out = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+/** A seed from text, so the same choices draw the same way every time. */
+export function seedOf(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/** Steps drawn at random: enough for no repeat to be heard, looped by the player like any other. */
+const RANDOM_STEPS = 16;
+
 function fold(half: CellState[], cells: number): Step {
   return Array.from({ length: cells }, (_, k) => half[k < cells / 2 ? k : cells - 1 - k] ?? null);
 }
@@ -109,8 +138,18 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
       return [0, 1].map((swap) => out(byBlock(span, t.block, (blk) => ((blk + swap) % 2 === 0 ? a : b))));
     }
     case "palette": {
-      // Each block takes a hue shifted by one per step; nothing ever goes dark.
       const cols = t.colors.map(hexToColor);
+      if (t.random) {
+        // each block draws a colour of the palette, never the one it has: still never dark
+        const r = rng(seedOf(t.colors.join()) + span);
+        const blocks = Math.ceil(span / t.block);
+        let last = Array.from({ length: blocks }, (_, b) => b % cols.length);
+        return Array.from({ length: RANDOM_STEPS }, () => {
+          last = last.map((c) => (c + 1 + Math.floor(r() * (cols.length - 1))) % cols.length);
+          return out(byBlock(span, t.block, (blk) => cols[last[blk]!]!));
+        });
+      }
+      // Each block takes a hue shifted by one per step; nothing ever goes dark.
       return cols.map((_, step) => out(byBlock(span, t.block, (blk) => cols[(blk + step) % cols.length]!)));
     }
     case "creux": {
@@ -202,11 +241,13 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
         }
       };
       const groups = Math.ceil(cells / t.blocks);
+      const ranks = Math.max(1, t.wings ? Math.ceil(groups / 2) : groups);
+      const order = t.shuffle ? shuffled(ranks, seedOf(t.colors.join()) + ranks) : undefined;
       return Array.from({ length: t.resolution }, (_, frame) =>
         Array.from({ length: cells }, (_, k) => {
           let g = Math.floor(k / t.blocks);
           if (t.wings) g = Math.min(g, groups - 1 - g);
-          const offset = (g / Math.max(1, t.wings ? Math.ceil(groups / 2) : groups)) * t.spread;
+          const offset = ((order ? order[g]! : g) / ranks) * t.spread;
           const phase = frame / t.resolution + (t.reverse ? offset : -offset);
           const level = 1 - t.depth + t.depth * wave(phase);
           return scaleColor(cols[g % cols.length]!, level);

@@ -25,6 +25,7 @@ interface Move {
   spread?: number;
   wings: boolean;
   reverse: boolean;
+  shuffle?: boolean;
   fan: number;
   group?: string;
 }
@@ -235,7 +236,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
               <label className="field">
                 <span>{t.shape}</span>
                 <select value={look.move.shape} onChange={(e) => setMove({ shape: e.target.value })}>
-                  {["fixe", "cercle", "huit", "pan", "tilt", "tapis"].map((s) => (
+                  {["fixe", "cercle", "huit", "pan", "tilt", "tapis", "aleatoire"].map((s) => (
                     <option key={s} value={s}>
                       {labelOf(t.moveShapes, s)}
                     </option>
@@ -276,6 +277,10 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
                   <label className="field">
                     <span>{t.fields.reverse}</span>
                     <input type="checkbox" checked={look.move.reverse} onChange={(e) => setMove({ reverse: e.target.checked })} />
+                  </label>
+                  <label className="field" title={t.shuffleHelp}>
+                    <span>{t.fields.shuffle}</span>
+                    <input type="checkbox" checked={Boolean(look.move.shuffle)} onChange={(e) => setMove({ shuffle: e.target.checked || undefined })} />
                   </label>
                 </>
               )}
