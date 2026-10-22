@@ -536,9 +536,11 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.dgrid-scroll')).overflowY")).toBe("hidden");
   const cdp = await ctx.newCDPSession(page);
   const strip = (await gutter.boundingBox())!;
-  const y = Math.round(Math.max(strip.y + 10, 10));
-  expect(y + 200).toBeLessThan(480); // the whole gesture on screen, on the strip
-  await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(strip.x + strip.width / 2), y, yDistance: 200, gestureSourceType: "touch", speed: 800 });
+  // from low in the strip: its top can sit under the page tabs, which stick to the top of the screen
+  const x = Math.round(strip.x + strip.width / 2);
+  const y = Math.round(Math.min(strip.y + strip.height, 480) - 200 - 20);
+  expect(await page.evaluate<boolean>(`document.elementFromPoint(${x}, ${y})?.classList.contains("scroll-gutter") ?? false`)).toBe(true);
+  await cdp.send("Input.synthesizeScrollGesture", { x, y, yDistance: 200, gestureSourceType: "touch", speed: 800 });
   await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeLessThan(y0);
   await page.screenshot({ path: "test-results/tablet-edit-gutter.png" });
   // a finger on a widget still moves it, and does not scroll
