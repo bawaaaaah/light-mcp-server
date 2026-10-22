@@ -540,7 +540,9 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   const x = Math.round(strip.x + strip.width / 2);
   const y = Math.round(Math.min(strip.y + strip.height, 480) - 200 - 20);
   expect(await page.evaluate<boolean>(`document.elementFromPoint(${x}, ${y})?.classList.contains("scroll-gutter") ?? false`)).toBe(true);
-  await cdp.send("Input.synthesizeScrollGesture", { x, y, yDistance: 200, gestureSourceType: "touch", speed: 800 });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+  for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + i * 20 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeLessThan(y0);
   await page.screenshot({ path: "test-results/tablet-edit-gutter.png" });
   // a finger on a widget still moves it, and does not scroll
