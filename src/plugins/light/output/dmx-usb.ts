@@ -51,11 +51,11 @@ export function openDmxFrame(data: Uint8Array): Buffer {
   return Buffer.concat([Buffer.from([0]), Buffer.from(data)]);
 }
 
-/** The ports a DMX interface may be on: FTDI chips first (both kinds use one). */
+/** The ports a DMX interface may be on: USB devices only (not Bluetooth nor an app's virtual port), FTDI chips first (both kinds use one). */
 export function dmxCandidates(ports: SerialPortInfo[], platform = process.platform): (SerialPortInfo & { ftdi: boolean })[] {
   return ports
     .map((p) => ({ ...p, path: platform === "darwin" ? p.path.replace(/^\/dev\/tty\./, "/dev/cu.") : p.path, ftdi: p.vendorId?.toLowerCase() === FTDI_VENDOR }))
-    .filter((p) => !/Bluetooth|debug-console/i.test(p.path))
+    .filter((p) => (p.vendorId !== undefined || /usb/i.test(p.path)) && !/Bluetooth|debug-console/i.test(p.path))
     .sort((a, b) => Number(b.ftdi) - Number(a.ftdi) || a.path.localeCompare(b.path));
 }
 

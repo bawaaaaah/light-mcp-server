@@ -32,6 +32,7 @@ describe("DMX USB", () => {
     const ports = dmxCandidates(
       [
         { path: "/dev/tty.Bluetooth-Incoming-Port" },
+        { path: "/dev/tty.VirtualAudioPort" }, // an app's, not a device
         { path: "/dev/tty.usbmodem1" },
         { path: "/dev/tty.usbserial-TEST1", vendorId: "0403", productId: "6001" },
       ],
