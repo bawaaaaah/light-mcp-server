@@ -87,7 +87,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
     description:
-      "Channels of each patched fixture from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…) and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
+      "Channels of each patched fixture (with its universe and start address) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…) and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -103,7 +103,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
                 const caps = ch?.capabilities ?? [];
                 return { offset, name, attribute: ch?.attribute ?? "other", ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
               });
-        return { id: f.id, name: f.name, channels };
+        return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels };
       }),
   });
   reg.register({
@@ -480,7 +480,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({ name: "group.flash", title: "Flash de groupe", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
 
   // ---- channel faders (white, UV, strobe, machines — like QLC+ « Level » sliders)
-  reg.register({ name: "fader.list", title: "Faders de canaux", description: "Channel faders: raw channels (white, UV, strobe, machines…) driven at a level, highest-takes-precedence with the show.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.faders.list() });
+  reg.register({ name: "fader.list", title: "Faders de canaux", description: "Channel faders: raw channels (white, UV, strobe, machines…) driven at a level, highest-takes-precedence with the show; on a fixture's dimmer the fader doses it instead (the show holds dimmers at full; at 0 the fixture is dark). A fader dosed by a DCA (dca) follows it.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.faders.list() });
   reg.register({
     name: "fader.put",
     title: "Fader de canaux",

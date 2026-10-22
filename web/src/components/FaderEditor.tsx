@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
-import { Checklist } from "./GroupEditor";
+import { byAddress, Checklist } from "./GroupEditor";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 
@@ -22,6 +22,8 @@ export interface FaderDraft {
 export interface FixtureChannels {
   id: string;
   name: string;
+  universe: number;
+  address: number;
   /** ranges: the named functions of a channel cut into several (a mode, a colour preset, a macro). */
   channels: { offset: number; name: string; attribute: string; ranges?: { min: number; max: number; name: string }[] }[];
 }
@@ -103,7 +105,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
       </div>
       <p className="hint">{t.faderHelp}</p>
       <div className="checklists">
-        <Checklist title={t.fixturesMembers} items={all} selected={fixtures} onChange={setFixtures} />
+        <Checklist title={t.fixturesMembers} items={byAddress(all)} selected={fixtures} onChange={setFixtures} />
         <Checklist title={t.faderChannels} items={channelNames} selected={names} onChange={setNames} />
       </div>
       <p className="hint">

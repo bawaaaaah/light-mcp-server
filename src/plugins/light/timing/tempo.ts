@@ -13,7 +13,7 @@
 import type { MidiMessage } from "../midi/parse.js";
 import { MidiClockFollower } from "./midi-clock.js";
 
-export type TempoSource = "manual" | "tap" | "midi" | "audio";
+export type TempoSource = "manual" | "tap" | "midi" | "audio" | "os2l";
 
 export interface TempoState {
   bpm: number;
@@ -79,15 +79,16 @@ export class TempoClock {
   }
 
   /**
-   * The tempo heard in the room (a microphone in the interface): its BPM, and how long ago one of its
-   * beats fell. The count then runs slightly faster or slower for two beats, until its beats fall on
-   * the music's: never a jump (a step would flash twice or be skipped), never backward.
+   * The tempo of the music from outside: heard in the room (a microphone in the interface, « audio »)
+   * or told by DJ software (OS2L, on each beat): its BPM, and how long ago one of its beats fell. The
+   * count then runs slightly faster or slower for two beats, until its beats fall on the music's:
+   * never a jump (a step would flash twice or be skipped), never backward.
    */
-  follow(bpm: number, beatAgoMs?: number): void {
+  follow(bpm: number, beatAgoMs?: number, source: "audio" | "os2l" = "audio"): void {
     if (!(bpm >= 20 && bpm <= 400)) throw new RangeError(`BPM ${bpm} hors de 20..400`);
     this.reanchor();
     this.manualBpm = Math.round(bpm * 10) / 10;
-    this.source = "audio";
+    this.source = source;
     if (beatAgoMs === undefined || beatAgoMs < 0) return;
     // where the count was when the music's beat fell, and how far that is from a whole beat
     const then = this.anchor.beats - (beatAgoMs / 60000) * this.manualBpm;

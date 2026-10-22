@@ -1867,3 +1867,12 @@ ul.online {
   margin-top: 0.2em;
   font-size: 0.85em;
 }
+fieldset.checklist .detail {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.3em;
+}
+fieldset.checklist .checklist-search {
+  width: 100%;
+  margin-bottom: 0.3em;
+}

@@ -560,19 +560,33 @@ export class ShowRuntime {
         if (index >= 0 && index < 512) buf[index] = value;
       }
     }
-    // Channel faders: highest takes precedence with the show, like QLC+ level sliders.
+    // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
+    // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/
+    // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on
+    // one dimmer by the highest. A lamp's dimmer (a dimmer pack) is its light: the fader raises it.
+    const doses = new Map<Uint8Array, Map<number, number>>();
     for (const fader of this.faders.list()) {
       const level = fader.level * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
-      if (level <= 0) continue;
       const value = Math.round(level * 255);
       for (const c of fader.channels) {
         const f = this.venue.fixtures.get(c.fixture);
         const buf = f && buffers[f.universe - 1];
         const index = f ? f.address - 1 + c.offset : -1;
-        if (buf && index >= 0 && index < 512 && buf[index]! < value) buf[index] = value;
+        if (!buf || index < 0 || index >= 512) continue;
+        if (this.isDimmer(c.fixture, c.offset)) {
+          const dosed = doses.get(buf) ?? new Map<number, number>();
+          doses.set(buf, dosed.set(index, Math.max(dosed.get(index) ?? 0, level)));
+        } else if (buf[index]! < value) buf[index] = value;
       }
     }
+    for (const [buf, dosed] of doses) for (const [index, level] of dosed) buf[index] = Math.round(buf[index]! * level);
     return errors;
+  }
+
+  /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's). */
+  private isDimmer(fixtureId: string, offset: number): boolean {
+    const r = this.venue.resolve(fixtureId);
+    return !("error" in r) && !r.lampOnly && r.dimmers.includes(offset);
   }
 
   /**

@@ -60,6 +60,26 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     expect(spec.right).to.equal("commands:level");
   });
 
+  it("channel faders: on a dimmer the fader doses it (dark at 0), on a colour it raises it, and a DCA doses both faders", async () => {
+    const out = () => plugin.engine.render()[0]!;
+    expect([out()[0], out()[15]]).to.deep.equal([255, 255]); // the show holds both bars' dimmers at full
+    // the first bar's dimmer alone
+    await run("fader.put", { fader: { id: "bords", name: "Barres des bords", channels: [{ fixture: "bar-0", offset: 0 }], level: 0 } });
+    expect([out()[0], out()[15]]).to.deep.equal([0, 255]); // at 0 that bar is dark, the other one untouched
+    await run("fader.level", { id: "bords", level: 0.5 });
+    expect(out()[0]).to.be.closeTo(128, 1);
+    // the second bar's dimmer and its first red
+    await run("fader.put", { fader: { id: "centre", name: "Centre rouge", channels: [{ fixture: "bar-1", offset: 0 }, { fixture: "bar-1", offset: 3 }], level: 1 } });
+    expect([out()[15], out()[18]]).to.deep.equal([255, 255]);
+    // one DCA over both faders
+    await run("group.put", { group: { id: "barres", name: "Barres", master: { level: 0.5, mute: false } } });
+    for (const id of ["bords", "centre"]) await run("fader.put", { fader: { ...plugin.runtime.faders.get(id)!, dca: "barres" } });
+    expect(out()[0]).to.be.closeTo(64, 1); // 0.5 × 0.5
+    expect([out()[15], out()[18]].map((v) => Math.round(v / 2))).to.deep.equal([64, 64]);
+    await run("group.mute", { id: "barres", mute: true });
+    expect([out()[0], out()[15], out()[18]]).to.deep.equal([0, 0, 0]);
+  });
+
   it("Panic recalls the safe snapshot (over the safe look), and skips what was deleted since", async () => {
     await run("look.go", { id: "hole" });
     await run("fader.level", { id: "uv", level: 0.5 });

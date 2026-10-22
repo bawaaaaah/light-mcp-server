@@ -1803,6 +1803,56 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   expect(errors).toEqual([]);
 });
 
+test("faders on chosen fixtures and channels (found by address), dosing the dimmer, under one DCA", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  // « Bords »: the first bar's dimmer
+  await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
+  let editor = page.locator(".fader-editor");
+  await expect(editor.locator(".checklist label", { hasText: "Bar 0" })).toContainText("U1 · 001"); // where it is patched
+  await editor.getByLabel("Nom").fill("Bords");
+  await editor.getByLabel("Bar 0").check();
+  await editor.getByLabel("Dimmer (gradateur)").check();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => (await dmx(page))[0]).toBe(0); // at 0 the bar is dark: the fader doses its dimmer
+  // « Centre rouge »: the second bar's dimmer and its first red
+  await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
+  editor = page.locator(".fader-editor");
+  await editor.getByLabel("Nom").fill("Centre rouge");
+  await editor.getByLabel("Bar 1").check();
+  await editor.getByLabel("Dimmer (gradateur)").check();
+  await editor.getByLabel("R1 (couleur)").check();
+  await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  // one DCA over both faders, chosen from the DCA
+  await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
+  const group = page.locator(".group-editor");
+  await group.getByLabel("Nom").fill("Barres");
+  await group.getByLabel("Bords").check();
+  await group.getByLabel("Centre rouge").check();
+  await group.screenshot({ path: "test-results/dca-faders.png" });
+  await group.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(group).toHaveCount(0);
+  const faders = (await api(page, "fader.list")) as { id: string; dca?: string }[];
+  expect(faders.filter((f) => f.dca === "barres").map((f) => f.id).sort()).toEqual(["bords", "centre-rouge"]);
+  await api(page, "fader.level", { id: "bords", level: 1 });
+  await api(page, "fader.level", { id: "centre-rouge", level: 1 });
+  await api(page, "group.level", { id: "barres", level: 0.5 });
+  await expect.poll(async () => { const d = await dmx(page); return [d[0], d[15], d[18]].map((v) => Math.round(v! / 10)); }).toEqual([13, 13, 13]); // ½ of 255 each
+  // unticked from the DCA: the fader no longer follows it
+  await page.getByRole("button", { name: "Modifier Barres" }).click();
+  await page.locator(".group-editor").getByLabel("Centre rouge").uncheck();
+  await page.locator(".group-editor").getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect.poll(async () => ((await api(page, "fader.list")) as { id: string; dca?: string }[]).find((f) => f.id === "centre-rouge")!.dca).toBeUndefined();
+  for (const id of ["bords", "centre-rouge"]) await api(page, "fader.delete", { id, force: true });
+  await api(page, "group.delete", { id: "barres", force: true });
+  expect(errors).toEqual([]);
+});
+
 test("rule program: created, holds a rule, activated by hand and by a Program Change", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
