@@ -510,7 +510,8 @@ test("a button to confirm: the first press arms it, the second plays; stopping n
 });
 
 test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets still move", async ({ browser }) => {
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 700 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  // a landscape tablet with the keyboard up: the page is always taller than the screen
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 480 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -527,11 +528,16 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   const box = (await gutter.boundingBox())!;
   expect(box.x + box.width).toBeLessThanOrEqual(820);
   expect(box.x + box.width).toBeGreaterThan(760);
-  // a finger dragged up the strip scrolls the page
-  const cdp = await ctx.newCDPSession(page);
+  // a finger dragged down the strip scrolls the page back up (taller than the screen, whatever the fonts)
+  await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)");
   const y0 = await page.evaluate<number>("window.scrollY");
-  await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(box.x + box.width / 2), y: 600, yDistance: -300, gestureSourceType: "touch", speed: 1200 });
-  await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeGreaterThan(y0);
+  expect(y0).toBeGreaterThan(100);
+  const cdp = await ctx.newCDPSession(page);
+  const strip = (await gutter.boundingBox())!;
+  const y = Math.round(Math.max(strip.y + 10, 10));
+  expect(y + 200).toBeLessThan(480); // the whole gesture on screen, on the strip
+  await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(strip.x + strip.width / 2), y, yDistance: 200, gestureSourceType: "touch", speed: 800 });
+  await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeLessThan(y0);
   await page.screenshot({ path: "test-results/tablet-edit-gutter.png" });
   // a finger on a widget still moves it, and does not scroll
   await page.locator(".dgrid-scroll").evaluate((e) => (e.scrollLeft = 0));
