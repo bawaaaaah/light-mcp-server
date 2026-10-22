@@ -10,7 +10,7 @@ import { LookPlayer } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import { aimSetupOf, emptyFrame, type Venue } from "../venue/venue.js";
+import { aimSetupOf, emptyFrame, mergeColors, type Venue } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -531,12 +531,15 @@ export class ShowRuntime {
         if (g.presets.excluded.includes(look.id)) for (const f of this.fixturesOf(g.id)) excluded.add(f);
       }
       if (lookLevel < 1) step = step.map((c) => (c ? scaleColor(c, lookLevel) : c));
+      // each look on its own sheet, its exclusions taken out, then onto the others (show setting looksMerge)
+      const own = emptyFrame();
       try {
-        this.venue.paintCanvas(frame, look.canvas, step);
+        this.venue.paintCanvas(own, look.canvas, step);
       } catch (err) {
         errors.push((err as Error).message);
       }
-      for (const f of excluded) frame.colors.delete(f);
+      for (const f of excluded) own.colors.delete(f);
+      mergeColors(frame.colors, own.colors, this.settings.looksMerge);
       if (look.move) {
         try {
           const moved = this.movedBy(look);

@@ -817,6 +817,19 @@ test("DCA limits: a max set on the Show page stops the fader on the dashboard", 
   expect(errors).toEqual([]);
 });
 
+test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  const merge = page.getByLabel("Entre les boutons");
+  await expect(merge).toHaveValue("last"); // as before, by default
+  await merge.selectOption("highest");
+  await expect.poll(async () => ((await api(page, "show.settings")) as { looksMerge: string }).looksMerge).toBe("highest");
+  await merge.selectOption("last"); // back for the other tests
+  await expect.poll(async () => ((await api(page, "show.settings")) as { looksMerge: string }).looksMerge).toBe("last");
+  expect(errors).toEqual([]);
+});
+
 test("show page: a long list of looks is searched and filtered by its QLC+ folder", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

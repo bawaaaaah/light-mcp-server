@@ -99,6 +99,43 @@ function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; op
 
 export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map() });
 
+/** How the colours of several looks playing on the same fixture combine (show setting `looksMerge`). */
+export type LooksMerge = "last" | "highest";
+
+const brighter = (a: Color, b: Color): Color => {
+  const out: Color = { ...a };
+  for (const [k, v] of Object.entries(b) as [ColorComponent, number][]) out[k] = Math.max(out[k] ?? 0, v);
+  return out;
+};
+
+/**
+ * One look's colours onto what the looks before it painted: « last », the last one started covers
+ * the others where it paints; « highest », each colour component keeps the highest value (two looks
+ * add up, black never darkens). A whole fixture (head -1) and its heads combine as toDmx reads them:
+ * a head shows its own colour, else the whole fixture's.
+ */
+export function mergeColors(into: AttributeFrame["colors"], from: AttributeFrame["colors"], how: LooksMerge): void {
+  for (const [fixture, heads] of from) {
+    const dst = into.get(fixture);
+    if (!dst || how === "last") {
+      if (!dst) into.set(fixture, new Map(heads));
+      else for (const [h, c] of heads) dst.set(h, c);
+      continue;
+    }
+    const whole = heads.get(-1);
+    for (const [h, c] of heads) {
+      if (h === -1) continue;
+      const base = dst.get(h) ?? dst.get(-1);
+      dst.set(h, base ? brighter(base, whole ? brighter(c, whole) : c) : c);
+    }
+    if (whole) {
+      for (const [h, c] of dst) if (h !== -1 && !heads.has(h)) dst.set(h, brighter(c, whole));
+      const before = dst.get(-1);
+      dst.set(-1, before ? brighter(before, whole) : whole);
+    }
+  }
+}
+
 /** A 8- or 16-bit channel pair. */
 export interface CoarseFine {
   coarse: number;

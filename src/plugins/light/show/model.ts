@@ -139,6 +139,8 @@ export const ShowSettingsSchema = z.object({
   safeSnapshot: z.string().optional(),
   grandMaster: z.number().min(0).max(1).default(1),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).default("trigger"),
+  /** Several looks on the same fixture: the last one started covers the others (« last »), or each colour keeps its highest value (« highest »: they add up). */
+  looksMerge: z.enum(["last", "highest"]).default("last"),
   /** AI clients may touch up the service live (live.adjust): off until someone at the desk switches it on. */
   liveAi: z.boolean().default(false),
 });

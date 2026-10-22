@@ -969,7 +969,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust).",
+    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }),

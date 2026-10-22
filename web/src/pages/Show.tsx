@@ -52,6 +52,7 @@ interface Settings {
   safeSnapshot?: string;
   grandMaster: number;
   liveAi?: boolean;
+  looksMerge?: "last" | "highest";
 }
 interface Snapshot {
   id: string;
@@ -178,6 +179,13 @@ export function ShowPage() {
                 </option>
               ))}
             </optgroup>
+          </select>
+        </label>
+        <label title={t.looksMergeHelp}>
+          {t.looksMerge}{" "}
+          <select value={settings?.looksMerge ?? "last"} onChange={(e) => void run("show.settings.set", { looksMerge: e.target.value })}>
+            <option value="last">{t.looksMergeLast}</option>
+            <option value="highest">{t.looksMergeHighest}</option>
           </select>
         </label>
         <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
