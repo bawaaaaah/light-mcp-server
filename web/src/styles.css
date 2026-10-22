@@ -1861,3 +1861,9 @@ ul.online {
 .new-version button {
   padding: 0.2em 0.9em;
 }
+.raw-steps td > select.range {
+  display: block;
+  max-width: 14em;
+  margin-top: 0.2em;
+  font-size: 0.85em;
+}

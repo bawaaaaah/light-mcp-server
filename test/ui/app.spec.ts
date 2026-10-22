@@ -1251,7 +1251,11 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   await editor.getByLabel("projecteur").selectOption("bar-0");
   await editor.getByLabel("canal", { exact: true }).selectOption("2"); // « 3. Program »
   await editor.getByRole("button", { name: "+ Ajouter le canal" }).click();
-  await editor.getByLabel("pas 1 · Bar 0 · Program").fill("200");
+  // a channel cut into functions offers them by name: the value goes to the start of the range
+  await editor.getByLabel("pas 1 · Bar 0 · Program · fonction").selectOption({ label: "Sound Control (192–255)" });
+  await expect(editor.getByLabel("pas 1 · Bar 0 · Program", { exact: true })).toHaveValue("192");
+  await editor.getByLabel("pas 1 · Bar 0 · Program", { exact: true }).fill("200");
+  await expect(editor.getByLabel("pas 1 · Bar 0 · Program · fonction")).toHaveValue("2"); // still « Sound Control »
   await page.screenshot({ path: "test-results/look-raw-channels.png", fullPage: true });
   await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
   await expect(editor).toHaveCount(0);

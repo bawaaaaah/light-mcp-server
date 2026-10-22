@@ -22,7 +22,8 @@ export interface FaderDraft {
 export interface FixtureChannels {
   id: string;
   name: string;
-  channels: { offset: number; name: string; attribute: string }[];
+  /** ranges: the named functions of a channel cut into several (a mode, a colour preset, a macro). */
+  channels: { offset: number; name: string; attribute: string; ranges?: { min: number; max: number; name: string }[] }[];
 }
 
 export const newFader = (): FaderDraft => ({ id: "", name: "", channels: [], level: 0 });

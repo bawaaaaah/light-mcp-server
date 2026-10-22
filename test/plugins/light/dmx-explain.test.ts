@@ -40,8 +40,16 @@ describe("dmx.explain: why a channel has its value", () => {
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
-    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
-    const name = channels.find((f) => f.id === "bar-0")!.channels.find((c) => c.offset === 2)!.name;
+    const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string; ranges?: { min: number; max: number; name: string }[] }[] }[];
+    const bar = channels.find((f) => f.id === "bar-0")!.channels;
+    const name = bar.find((c) => c.offset === 2)!.name;
+    // a channel cut into functions says them, to pick one by name in a look; a plain level does not
+    expect(bar.find((c) => c.name === "Program")!.ranges).to.deep.equal([
+      { min: 0, max: 127, name: "Manual" },
+      { min: 128, max: 191, name: "Pre-Programmed Automatic Show" },
+      { min: 192, max: 255, name: "Sound Control" },
+    ]);
+    expect(bar.find((c) => c.name === "Dimmer")).to.not.have.property("ranges");
     const out = () => plugin.engine.render()[0]![2];
     await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100 } });
     await run("dmx.set", { universe: 1, channel: 3, value: 250 });

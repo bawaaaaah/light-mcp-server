@@ -1,7 +1,9 @@
 /**
  * Raw channels of a look (docs/specs/engine-effects-timing.md, « Canaux bruts »): channels outside
  * the canvas — smoke, hazer, a lamp — with a DMX value per step, stepped with the look's clock.
- * A channel is picked by name from the fixture's definition, or by number without one.
+ * A channel is picked by name from the fixture's definition, or by number without one; a channel
+ * cut into functions (a bar's mode, its colour presets) also offers them by name, setting the value
+ * to the start of the range.
  */
 import { useEffect, useState } from "react";
 import { cmd } from "../api";
@@ -21,6 +23,7 @@ export function RawChannelsEditor({ value, onChange }: { value?: LookChannelsDra
   useEffect(() => void cmd<FixtureChannels[]>("venue.fixture.channels").then(setAll).catch(() => undefined), []);
 
   const picked = all.find((f) => f.id === fixture);
+  const rangesOf = (c: { fixture: string; offset: number }) => all.find((x) => x.id === c.fixture)?.channels.find((x) => x.offset === c.offset)?.ranges;
   const label = (c: { fixture: string; offset: number }) => {
     const f = all.find((x) => x.id === c.fixture);
     return `${f?.name ?? c.fixture} · ${f?.channels.find((x) => x.offset === c.offset)?.name ?? `${t.channel} ${c.offset + 1}`}`;
@@ -100,11 +103,25 @@ export function RawChannelsEditor({ value, onChange }: { value?: LookChannelsDra
             {value.steps.map((row, s) => (
               <tr key={s}>
                 <td>{s + 1}</td>
-                {row.map((v, k) => (
-                  <td key={k}>
-                    <input aria-label={`${t.step} ${s + 1} · ${label(value.targets[k]!)}`} type="number" min={0} max={255} value={v} onChange={(e) => setCell(s, k, Number(e.target.value))} />
-                  </td>
-                ))}
+                {row.map((v, k) => {
+                  const ranges = rangesOf(value.targets[k]!);
+                  const at = ranges?.findIndex((r) => v >= r.min && v <= r.max) ?? -1;
+                  return (
+                    <td key={k}>
+                      <input aria-label={`${t.step} ${s + 1} · ${label(value.targets[k]!)}`} type="number" min={0} max={255} value={v} onChange={(e) => setCell(s, k, Number(e.target.value))} />
+                      {ranges && (
+                        <select className="range" aria-label={`${t.step} ${s + 1} · ${label(value.targets[k]!)} · ${t.rangeName}`} value={at} onChange={(e) => setCell(s, k, ranges[Number(e.target.value)]!.min)}>
+                          {at < 0 && <option value={-1}>—</option>}
+                          {ranges.map((r, i) => (
+                            <option key={i} value={i}>
+                              {r.name} ({r.min}–{r.max})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                  );
+                })}
                 <td>
                   {value.steps.length > 1 && (
                     <button className="ghost" aria-label={`${t.delete} ${t.step} ${s + 1}`} onClick={() => removeStep(s)}>
