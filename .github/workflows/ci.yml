@@ -66,7 +66,11 @@ jobs:
       - run: npm ci
       - run: npm --prefix web ci
       - name: The image's browsers are those of @playwright/test
-        run: test "$(node -p 'require("@playwright/test/package.json").version')" = "1.64.0" || { echo "::error::@playwright/test changed: update the image tag of this job"; exit 1; }
+        run: |
+          if [ "$(node -p 'require("@playwright/test/package.json").version')" != "1.64.0" ]; then
+            echo "::error::@playwright/test changed, update the image tag of this job"
+            exit 1
+          fi
       - run: npm run test:ui
       - uses: actions/upload-artifact@v4
         if: failure()
