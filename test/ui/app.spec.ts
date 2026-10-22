@@ -532,6 +532,8 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)");
   const y0 = await page.evaluate<number>("window.scrollY");
   expect(y0).toBeGreaterThan(100);
+  // the grid's own box scrolls sideways only: a vertical swipe always goes to the page
+  expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.dgrid-scroll')).overflowY")).toBe("hidden");
   const cdp = await ctx.newCDPSession(page);
   const strip = (await gutter.boundingBox())!;
   const y = Math.round(Math.max(strip.y + 10, 10));
