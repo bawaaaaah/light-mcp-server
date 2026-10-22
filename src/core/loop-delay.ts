@@ -19,7 +19,7 @@ export interface LoopDelayStats {
 
 const RESOLUTION_MS = 10;
 /** A delay past the timer's interval, in ms. */
-const ms = (ns: number) => Math.max(0, Math.round(ns / 1e4) / 100 - RESOLUTION_MS);
+const ms = (ns: number) => Math.max(0, Math.round((ns / 1e6 - RESOLUTION_MS) * 100) / 100);
 
 export class LoopDelay {
   private histogram: IntervalHistogram | undefined;
