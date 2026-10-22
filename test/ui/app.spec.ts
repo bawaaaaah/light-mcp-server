@@ -1143,6 +1143,30 @@ test("without « stay signed in », a new tab asks to sign in", async ({ page, c
   await expect(tab.locator("form.pin-login")).toBeVisible();
 });
 
+test("a page whose file an update replaced: the tab reloads once and shows it, never in a loop", async ({ page }) => {
+  await login(page);
+  // the tab knows the old name of the Songs page's file, which the server no longer has (404)
+  let missing = 1;
+  await page.route("**/assets/Songs-*.js", (route) => (missing-- > 0 ? route.fulfill({ status: 404, body: "" }) : route.continue()));
+  let loads = 0;
+  page.on("load", () => loads++);
+  await page.locator("nav.pages button", { hasText: "Chants" }).first().click();
+  await expect.poll(() => loads).toBe(1); // reloaded once
+  await page.locator("nav.pages button", { hasText: "Chants" }).first().click();
+  await expect(page.locator(".songs")).toBeVisible(); // and the page shows after it
+  // really missing: one reload, then the error stays (no loop)
+  await page.unroute("**/assets/Songs-*.js");
+  await page.evaluate("sessionStorage.removeItem('reloadedForMissingChunk')");
+  await page.route("**/assets/Songs-*.js", (route) => route.fulfill({ status: 404, body: "" }));
+  loads = 0;
+  await page.reload(); // the tab reopens on Chants: missing, one more reload, then it says so in the page's place
+  await expect(page.getByRole("alert")).toContainText("Cette page n'a pas pu se charger");
+  await page.waitForTimeout(1500);
+  expect(loads).toBe(2); // ours, and the one reload: no loop
+  await page.locator("nav.pages button", { hasText: "Live" }).first().click(); // the rest still works
+  await expect(page.locator(".dgrid")).toBeVisible();
+});
+
 test("reloading while the server restarts keeps the session: it waits, then comes back signed in", async ({ page }) => {
   await login(page);
   await page.route("**/api/auth/me", (route) => route.fulfill({ status: 502, body: "Bad Gateway" })); // the proxy, server down

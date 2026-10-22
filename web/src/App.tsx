@@ -1,4 +1,4 @@
-import { createContext, lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
+import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, setApiLang, switchInProgress, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
@@ -139,6 +139,31 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
       {error && <p className="error">{error}</p>}
     </div>
   );
+}
+
+/**
+ * A page that cannot load (its file missing even after a reload, an error while drawing it) says so
+ * in its place, with « Reload »: the navigation and the other pages stay usable, and the next page
+ * opened starts afresh (the guard is keyed by page).
+ */
+class PageGuard extends Component<{ children: ReactNode; failed: string; reload: string }, { error?: string }> {
+  state: { error?: string } = {};
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+  render() {
+    if (this.state.error === undefined) return this.props.children;
+    return (
+      <div className="page-failed" role="alert">
+        <p className="error">
+          {this.props.failed} <small className="hint">({this.state.error})</small>
+        </p>
+        <button className="primary" onClick={() => location.reload()}>
+          {this.props.reload}
+        </button>
+      </div>
+    );
+  }
 }
 
 export function App() {
@@ -348,6 +373,7 @@ export function App() {
         </div>
       </header>
       <main>
+        <PageGuard key={shown} failed={t.pageFailed} reload={t.reload}>
         <Suspense fallback={<p className="hint">…</p>}>
         {shown === "live" && <DashboardsPage role={role} />}
         {shown === "songs" && <SongsPage />}
@@ -363,6 +389,7 @@ export function App() {
         {shown === "settings" && <SettingsPage role={role} />}
         {shown === "account" && <AccountPage role={role} />}
         </Suspense>
+        </PageGuard>
       </main>
       </div>
       </div>
