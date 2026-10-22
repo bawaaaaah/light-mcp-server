@@ -12,7 +12,7 @@ import { decodeDmx } from "../../src/plugins/light/output/artnet.js";
 import { decodeOsc, encodeOsc } from "../../src/plugins/light/osc/codec.js";
 import { RtpMidiSession } from "../../src/plugins/light/midi/rtp/session.js";
 
-/** Fake Art-Net node on its own loopback address (127.0.0.2:6454). */
+/** Fake Art-Net node on its own loopback address, on the tests' Art-Net port (127.0.0.2:16454): the stage server never hears it. */
 async function fakeNode(): Promise<{ sock: Socket; next: (pred: (d: Uint8Array) => boolean, ms?: number) => Promise<Uint8Array> }> {
   const sock = createSocket({ type: "udp4", reuseAddr: true });
   const waiters: { pred: (d: Uint8Array) => boolean; resolve: (d: Uint8Array) => void }[] = [];
@@ -24,7 +24,7 @@ async function fakeNode(): Promise<{ sock: Socket; next: (pred: (d: Uint8Array) 
       w.resolve(dmx.data);
     }
   });
-  await new Promise<void>((r) => sock.bind(6454, "127.0.0.2", r));
+  await new Promise<void>((r) => sock.bind(16454, "127.0.0.2", r));
   return {
     sock,
     next: (pred, ms = 1000) =>
@@ -46,7 +46,7 @@ describe("server end to end", function () {
     const configPath = join(dir, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e" } } } } } } }),
+      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e" } } } } } } }),
     );
     mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));

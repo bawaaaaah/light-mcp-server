@@ -33,6 +33,8 @@ export interface OutputConfig {
   standby?: boolean;
   artSync?: boolean;
   sourceName?: string;
+  /** Art-Net UDP port, 6454. Another one only for tests, which must never reach a real console or node. */
+  artnetPort?: number;
 }
 
 export interface OutputStats {
@@ -105,6 +107,10 @@ export class OutputRouter {
     readonly usb: DmxUsbOutputs = new DmxUsbOutputs(null),
   ) {}
 
+  private get artnetPort(): number {
+    return this.config.artnetPort ?? ARTNET_PORT;
+  }
+
   private usbRoutes(): { path: string; kind: DmxUsbKind }[] {
     return this.config.routes.flatMap((r) => (r.usb ? [r.usb] : []));
   }
@@ -145,7 +151,7 @@ export class OutputRouter {
       try {
         await new Promise<void>((resolve, reject) => {
           this.artnet!.once("error", reject);
-          this.artnet!.bind(ARTNET_PORT, bindAddress, () => {
+          this.artnet!.bind(this.artnetPort, bindAddress, () => {
             this.artnet!.off("error", reject);
             resolve();
           });
@@ -186,7 +192,7 @@ export class OutputRouter {
 
   poll(): void {
     if (!this.artnet || this.stats.discovery !== "active") return;
-    this.artnet.send(encodePoll(), ARTNET_PORT, broadcastFor(this.config.bindAddress));
+    this.artnet.send(encodePoll(), this.artnetPort, broadcastFor(this.config.bindAddress));
     const lost = this.registry.expire(Date.now());
     if (lost.length) this.nodeListener?.({ lost });
   }
@@ -267,8 +273,8 @@ export class OutputRouter {
         const packet = encodeDmx({ sequence: this.nextSequence(`a${route.universe}`), physical: 0, portAddress: route.artnet.portAddress, data });
         this.rememberSent(packet, nowMs);
         const targets = route.artnet.targets?.length ? route.artnet.targets : this.registry.outputsFor(route.artnet.portAddress).map((n) => n.ip);
-        if (targets.length > 0) for (const ip of [...new Set(targets)]) this.send(this.artnet, packet, ARTNET_PORT, ip);
-        else if (route.artnet.broadcast !== false) this.send(this.artnet, packet, ARTNET_PORT, broadcastFor(this.config.bindAddress));
+        if (targets.length > 0) for (const ip of [...new Set(targets)]) this.send(this.artnet, packet, this.artnetPort, ip);
+        else if (route.artnet.broadcast !== false) this.send(this.artnet, packet, this.artnetPort, broadcastFor(this.config.bindAddress));
       }
       if (route.sacn) {
         const packet = encodeSacnData({
@@ -287,7 +293,7 @@ export class OutputRouter {
     }
     if (sentAny) {
       this.stats.framesSent += 1;
-      if (this.config.artSync) this.send(this.artnet, encodeSync(), ARTNET_PORT, broadcastFor(this.config.bindAddress));
+      if (this.config.artSync) this.send(this.artnet, encodeSync(), this.artnetPort, broadcastFor(this.config.bindAddress));
     }
   }
 }

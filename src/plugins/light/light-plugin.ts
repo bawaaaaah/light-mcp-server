@@ -73,6 +73,8 @@ export const LightConfigSchema = z.object({
       bindAddress: z.string().optional(),
       artSync: z.boolean().optional(),
       sourceName: z.string().optional(),
+      /** Tests only: another Art-Net port, out of reach of the real consoles and nodes. */
+      artnetPort: z.number().int().min(1).max(65535).optional(),
       routes: z.array(RouteSchema),
       /** Standby: the show runs but nothing is sent (QLC+ or another console holds the nodes). Kept across restarts. */
       standby: z.boolean().default(false),
