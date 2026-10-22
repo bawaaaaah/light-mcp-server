@@ -81,11 +81,11 @@ export function MidiPage() {
   const t = useT();
   const tempo = useTopic<{ bpm: number; source: string; clock?: boolean } | null>("light:tempo", null);
   // the Link session heard, while Link leads
-  const [link, setLink] = useState<{ listening: boolean; peers: number; bpm?: number } | null>(null);
+  const [link, setLink] = useState<{ listening: boolean; peers: number; bpm?: number; phase?: boolean } | null>(null);
   const linkLeads = tempo?.source === "link";
   useEffect(() => {
     if (!linkLeads) return setLink(null);
-    const load = () => void cmd<{ listening: boolean; peers: number; bpm?: number }>("link.status").then(setLink).catch(() => undefined);
+    const load = () => void cmd<{ listening: boolean; peers: number; bpm?: number; phase?: boolean }>("link.status").then(setLink).catch(() => undefined);
     load();
     const timer = setInterval(load, 2000);
     return () => clearInterval(timer);
@@ -194,7 +194,7 @@ export function MidiPage() {
             </select>{" "}
             <small className="hint">
               {tempo.bpm.toFixed(1)} BPM{tempo.clock ? ` · ${t.clockArriving}` : ""}
-              {tempo.source === "link" && link && ` · Link : ${link.peers} ${t.linkPeers}${link.listening ? "" : ` (${t.linkDeaf})`}`}
+              {tempo.source === "link" && link && ` · Link : ${link.peers} ${t.linkPeers}${link.phase ? `, ${t.linkPhase}` : ""}${link.listening ? "" : ` (${t.linkDeaf})`}`}
             </small>
           </label>
         )}

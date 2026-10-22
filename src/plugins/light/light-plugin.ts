@@ -141,8 +141,8 @@ export class LightPlugin implements McpPlugin {
   private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
   readonly ableset: AbleSetClient;
-  /** Ableton Link, listened to only while it is the tempo source. */
-  readonly link = new LinkListener((bpm) => this.tempo.state().source === "link" && this.tempo.follow(bpm, undefined, "link"));
+  /** Ableton Link, listened to only while it is the tempo source: its tempo, and its beats once measured. */
+  readonly link = new LinkListener((bpm, beatAgoMs) => this.tempo.state().source === "link" && this.tempo.follow(bpm, beatAgoMs, "link"));
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
@@ -291,7 +291,7 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "link.status",
       title: "Ableton Link",
-      description: "The Ableton Link session heard on the network (listening only, while the tempo source is « link »): peers, sessions, the tempo of the session with the most peers.",
+      description: "The Ableton Link session heard on the network (listening only, while the tempo source is « link »): peers, sessions, the tempo of the session with the most peers, and whether its beats are placed (`phase`: its time measured from a peer, the light's beats fall on the session's).",
       right: "dashboards:view",
       readOnly: true,
       profiles: ["setup", "live"],
