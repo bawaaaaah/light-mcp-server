@@ -58,6 +58,9 @@ export function OnlinePanel() {
   );
 }
 
+/** Lines shown at first, then by « more »: a week of MIDI notes made a settings page of 10 000 px. */
+const PAGE = 30;
+
 const time = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /**
@@ -72,6 +75,8 @@ export function ActivityPanel() {
   const [who, setWho] = useState("");
   const [origin, setOrigin] = useState("");
   const [failedOnly, setFailedOnly] = useState(false);
+  const [count, setCount] = useState(PAGE);
+  useEffect(() => setCount(PAGE), [who, origin, failedOnly]);
   const [error, setError] = useState("");
   const timer = useRef<number | null>(null);
   const load = useCallback(() => void cmd<Entry[]>("activity.list", { limit: 300 }).then(setEntries, () => undefined), []);
@@ -126,7 +131,7 @@ export function ActivityPanel() {
         <div>
           <table className="activity">
             <tbody>
-              {shown.map((e) => (
+              {shown.slice(0, count).map((e) => (
                 <tr key={`${e.at}-${e.name}-${e.target ?? ""}-${e.who ?? ""}`} className={e.ok ? undefined : "failed"}>
                   <td className="nowrap">
                     {time(e.at)}
@@ -150,6 +155,11 @@ export function ActivityPanel() {
               ))}
             </tbody>
           </table>
+          {shown.length > count && (
+            <button className="ghost" onClick={() => setCount(count + 50)}>
+              {t.activityMore} ({shown.length - count})
+            </button>
+          )}
         </div>
       )}
     </>
