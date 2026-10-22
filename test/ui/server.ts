@@ -18,7 +18,7 @@ copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "f
 copyFileSync(new URL("../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
 writeFileSync(
   join(dir, "config.json"),
-  JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
+  JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, ableset: { port: 39999 }, output: { routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
 );
 const running = await bootstrap({ configPath: join(dir, "config.json"), port, host: "127.0.0.1", log: () => undefined, light: { dataRoot, midiNative: null } });
 await running.auth.setPin("regisseur", "1234");

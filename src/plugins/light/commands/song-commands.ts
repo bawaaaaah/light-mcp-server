@@ -61,7 +61,8 @@ function applySectionProgram(s: SongServices, section: Section): void {
 }
 
 /** Commands asked by the timeline or the AI are « automatic »: « manuel seulement » looks refuse them. */
-const isAuto = (origin: string) => origin === "timeline" || origin === "mcp";
+/** Started by no hand (a song's timeline, AbleSet following the set, an AI): never a manual-only look. */
+const isAuto = (origin: string) => origin === "timeline" || origin === "mcp" || origin === "ableset";
 
 export function registerSongCommands(reg: CommandRegistry, s: SongServices): void {
   const id = z.object({ id: z.string() });

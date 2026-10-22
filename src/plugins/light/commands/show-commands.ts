@@ -383,7 +383,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           { confirm: canAnswer, rules: asking.map((b) => b.rule.id) },
         );
       }
-      return show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp");
+      return show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp" || ctx.origin === "ableset");
     },
   });
   reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: id, run: ({ id: i }) => ({ stopped: show.stop(i) }) });

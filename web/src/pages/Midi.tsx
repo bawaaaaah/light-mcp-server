@@ -66,6 +66,17 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
   return { inputs, error };
 }
 
+interface AbleSetStatus {
+  enabled: boolean;
+  host: string;
+  port: number;
+  connected: boolean;
+  song: string;
+  section: string;
+  playing: boolean;
+  lastMatch?: { song: string; section: string; found: boolean };
+}
+
 export function MidiPage() {
   const t = useT();
   const tempo = useTopic<{ bpm: number; source: string; clock?: boolean } | null>("light:tempo", null);
@@ -77,6 +88,16 @@ export function MidiPage() {
   const [webMidi, setWebMidi] = useState(false);
   const [editing, setEditing] = useState<MappingDraft | null>(null);
   const [error, setError] = useState("");
+  // AbleSet followed over OSC: its state every two seconds while this page is open
+  const [ableset, setAbleset] = useState<AbleSetStatus | null>(null);
+  useEffect(() => {
+    const load = () => void cmd<AbleSetStatus>("ableset.status").then(setAbleset).catch(() => undefined);
+    load();
+    const timer = setInterval(load, 2000);
+    return () => clearInterval(timer);
+  }, []);
+  const configureAbleSet = (patch: Partial<Pick<AbleSetStatus, "enabled" | "host">>) =>
+    void cmd<AbleSetStatus>("ableset.configure", patch).then(setAbleset, (e: Error) => setError(e.message));
   // by channel, then notes, CCs and program changes, each in number order (not « note 29, note 3, note 30 »)
   const TYPE_ORDER: Record<string, number> = { note: 0, cc: 1, programchange: 2 };
   const needle = mappingSearch.trim().toLowerCase();
@@ -185,6 +206,30 @@ export function MidiPage() {
           </span>
         )}
       </section>
+      {ableset && (
+        <section className="ableset">
+          <h2>AbleSet</h2>
+          <p className="hint">{t.ablesetHelp}</p>
+          <div className="row">
+            <label>
+              <input type="checkbox" checked={ableset.enabled} onChange={(e) => configureAbleSet({ enabled: e.target.checked })} /> {t.ablesetFollow}
+            </label>
+            <label>
+              {t.ablesetHost} <input aria-label={t.ablesetHost} defaultValue={ableset.host} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== ableset.host && configureAbleSet({ host: e.target.value.trim() })} />
+            </label>
+            {ableset.enabled && (
+              <span className="hint">
+                <span className={`dot ${ableset.connected ? "ok" : "idle"}`} /> {ableset.connected ? `${ableset.song || "—"} · ${ableset.section || "—"}${ableset.playing ? " ▶" : ""}` : t.ablesetAbsent}
+              </span>
+            )}
+          </div>
+          {ableset.enabled && ableset.lastMatch && !ableset.lastMatch.found && (
+            <p className="warn">
+              ⚠ {t.ablesetUnmatched} : « {ableset.lastMatch.song} » · « {ableset.lastMatch.section} »
+            </p>
+          )}
+        </section>
+      )}
       <div className="cols">
         <section>
           <h2>{t.inputs}</h2>

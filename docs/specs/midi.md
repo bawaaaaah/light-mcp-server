@@ -3,9 +3,9 @@
 ## Périmètre
 | v1 | Plus tard |
 |---|---|
-| Entrées locales (IAC, USB), RTP-MIDI, Web MIDI ; choix des entrées, auto-détection, profils d'entrées | MIDI clock en sortie |
-| Modes Déclencher / Latch / Momentané, learn, retour MIDI, profils de contrôleurs | Device Max for Live |
-| Clock, SPP et suivi de position ; registre de notes | Connecteur AbleSet |
+| Entrées locales (IAC, USB), RTP-MIDI, Web MIDI ; choix des entrées, auto-détection, profils d'entrées ; MIDI clock en sortie | Device Max for Live |
+| Modes Déclencher / Latch / Momentané, learn, retour MIDI, profils de contrôleurs | Sauts et injection de notes vers AbleSet |
+| Clock, SPP et suivi de position ; registre de notes ; suivi d'AbleSet | |
 | Export MIDI Effect Rack, table des notes, `.mid`, générateur de Live Set | |
 | Pilotage OSC avec explorateur d'adresses | |
 
@@ -99,6 +99,11 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - **Commandes numérotées** (v1) : la commande n° N (0 à 127) arrive comme un **CC N** sur le port virtuel « OS2L » (sa valeur 0..1 devient 0..127) et passe par les **mappings** : niveau d'un DCA, fader de canaux, grand master, look… Un mapping se fait pour le DJ (page MIDI, « Source : DJ (OS2L) », ou « Apprendre » pendant que le DJ bouge son curseur) ; seuls ces mappings lui répondent, jamais ceux d'un contrôleur (« toutes les entrées »), et ils n'envoient pas de retour LED.
 - **Découverte** : le service `_os2l._tcp` est annoncé en **mDNS** (instance « Lumière ») : le logiciel DJ trouve la régie tout seul ; sinon son réglage d'adresse directe (`os2lDirectIp` dans VirtualDJ) prend l'adresse affichée dans **Réglages → DJ (OS2L)**, avec les logiciels connectés, leur BPM et les derniers boutons. Vérifiable sur un Mac : `dns-sd -B _os2l._tcp local.`.
 
+## AbleSet (v1)
+- **AbleSet** (la setlist d'Ableton Live) dit en OSC quel chant et quelle section jouent (API publique : port UDP 39051, `/subscribe auto <port> <nom>`, puis `/setlist/activeSongName`, `/setlist/activeSectionName`, `/global/isPlaying` à chaque changement et `/heartbeat` toutes les 2 s ; `/getValues` pour l'état d'un coup). Le serveur s'abonne, et s'abonne à nouveau quand le battement de cœur manque (AbleSet relancé ou lancé après lui).
+- **Suivi** : **pendant la lecture**, la section de **même nom** dans le chant de **même titre** (ou de même id, sans tenir compte de la casse) démarre, une fois par changement ; à l'arrêt, se déplacer dans AbleSet ne lance rien, et la reprise lance la section où elle repart. Comme la timeline d'un chant : jamais un look « manuel seulement », origine « AbleSet » dans le journal et pour les règles. Une section absente du show est signalée (page MIDI), rien ne démarre.
+- **Réglage** (page MIDI, section AbleSet ; `ableset.configure`, gardé dans la config machine) : éteint par défaut ; la machine d'AbleSet (celle-ci par défaut) et son port. À ne pas cumuler avec des notes MIDI qui lancent les mêmes sections.
+
 ## Ableton
 ### Export MIDI Effect Rack (v1)
 - **Une chaîne par action**, nommée comme elle, avec une **key zone d'une seule touche** (`KeyRange` Min = Max = note, crossfades idem). La chaîne s'allume quand sa note passe : c'est une légende vivante dans Live.
@@ -120,7 +125,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 
 ### Plus tard
 - **Device Max for Live** : liste les actions du serveur et permet de les glisser sur la timeline (façon « Live Triggers » de Lightkey). Il nécessite Live Suite ou l'option Max for Live.
-- **Connecteur AbleSet** (OSC/HTTP) : chant et section courants, sauts, injection de notes pour l'auto-test.
+- **Vers AbleSet** : sauts commandés depuis la lumière (`/setlist/jumpToSong`, `/setlist/jumpToSection`), injection de notes pour l'auto-test.
 
 ### Programmes de règles dans Ableton (v1)
 - **Clip par programme** (`export.ableton.programs`, CLI `light export programs`) : un clip `.alc` « Prière #100 » qui envoie le Program Change du programme au lancement, comme le clip « A #100 » de la piste « Show TAG » de l'utilisateur. Cloné depuis une coquille `.alc` exportée par Live (`data/private/shell.alc`) : seuls le nom et le Program Change du **premier** clip changent (les clips du groove pool restent intacts ; vérifié sur un vrai clip : 2 lignes modifiées). Le canal est celui de la sortie MIDI de la piste.

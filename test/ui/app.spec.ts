@@ -1341,6 +1341,21 @@ test("settings: DJ software connected over OS2L, its tempo and its buttons", asy
   expect(errors).toEqual([]);
 });
 
+test("AbleSet: followed from the MIDI page, says when it does not answer", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const follow = page.getByLabel("Suivre AbleSet");
+  await follow.click();
+  await expect(follow).toBeChecked();
+  await expect(page.locator(".ableset")).toContainText("AbleSet ne répond pas"); // none on the test machine
+  expect(((await api(page, "ableset.status")) as { enabled: boolean }).enabled).toBe(true);
+  await follow.click();
+  await expect(follow).not.toBeChecked();
+  expect(((await api(page, "ableset.status")) as { enabled: boolean }).enabled).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test("a DJ's numbered command (OS2L) mapped to the grand master, from the MIDI page", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

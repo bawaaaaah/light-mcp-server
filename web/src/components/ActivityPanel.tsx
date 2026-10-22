@@ -9,7 +9,7 @@ interface Entry {
   count: number;
   name: string;
   title: string;
-  origin: "ui" | "midi" | "osc" | "os2l" | "mcp" | "timeline" | "cli" | "system";
+  origin: "ui" | "midi" | "osc" | "os2l" | "ableset" | "mcp" | "timeline" | "cli" | "system";
   who?: string;
   target?: string;
   ok: boolean;

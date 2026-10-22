@@ -11,7 +11,7 @@
 import { z, type ZodTypeAny } from "zod";
 import { say } from "../../../core/lang.js";
 
-export type Origin = "ui" | "midi" | "osc" | "os2l" | "mcp" | "timeline" | "cli" | "system";
+export type Origin = "ui" | "midi" | "osc" | "os2l" | "ableset" | "mcp" | "timeline" | "cli" | "system";
 
 export interface CommandContext {
   origin: Origin;

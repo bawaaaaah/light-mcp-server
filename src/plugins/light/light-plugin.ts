@@ -41,6 +41,7 @@ import { Os2lServer } from "./os2l/server.js";
 import type { Os2lEvent } from "./os2l/codec.js";
 import { advertise, localHost } from "../../core/mdns.js";
 import { ClockOut } from "./timing/clock-out.js";
+import { AbleSetClient } from "./ableset/ableset.js";
 import { TempoClock } from "./timing/tempo.js";
 import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
@@ -95,6 +96,8 @@ export const LightConfigSchema = z.object({
       advertise: z.boolean().default(true),
     })
     .default({}),
+  /** AbleSet (setlist for Ableton Live) followed over OSC: off until the desk turns it on. */
+  ableset: z.object({ enabled: z.boolean().default(false), host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(39051) }).default({}),
 });
 export type LightConfig = z.infer<typeof LightConfigSchema>;
 
@@ -136,6 +139,7 @@ export class LightPlugin implements McpPlugin {
   /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
   private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
+  readonly ableset: AbleSetClient;
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
@@ -280,6 +284,31 @@ export class LightPlugin implements McpPlugin {
     this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
     this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));
+    this.ableset = new AbleSetClient(this.config.ableset, (song, section) => this.followAbleSet(song, section));
+    this.commands.register({
+      name: "ableset.status",
+      title: "AbleSet",
+      description: "AbleSet (setlist for Ableton Live) followed over OSC: on or off, where it is, connected (its heartbeat), the song and section it plays, and whether the show had the last one asked.",
+      right: "dashboards:view",
+      readOnly: true,
+      profiles: ["setup", "live"],
+      schema: z.object({}),
+      run: () => this.ableset.status(),
+    });
+    this.commands.register({
+      name: "ableset.configure",
+      title: "Suivre AbleSet",
+      description: "Turns the AbleSet follower on or off and says where AbleSet runs (host, default this machine; port 39051). While AbleSet plays, the section of the same name in the song of the same title starts (as a song's timeline would: never a manual-only look). Kept in the machine config.",
+      right: "midi:configure",
+      profiles: ["setup"],
+      schema: z.object({ enabled: z.boolean().optional(), host: z.string().min(1).optional(), port: z.number().int().min(1).max(65535).optional() }),
+      run: async (patch) => {
+        this.config = { ...this.config, ableset: { ...this.config.ableset, ...patch } };
+        await this.ableset.setConfig(this.config.ableset);
+        await this.opts.config?.set(this.config);
+        return this.ableset.status();
+      },
+    });
     this.commands.onCommand((e) => {
       if (!e.ok) return;
       if (e.name === "tempo.set" || e.name === "tempo.tap") this.djOverMidi = false; // the desk chose
@@ -405,6 +434,16 @@ export class LightPlugin implements McpPlugin {
     if (snapshot) void this.commands.invoke("snapshot.recall", { id: snapshot.id }, ctx).catch(() => undefined);
   }
 
+  /** AbleSet reached a section: the song of that title (or id), its section of that name (or id), any case. */
+  private followAbleSet(songName: string, sectionName: string): boolean {
+    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+    const song = this.songs?.songs.list().find((s) => same(s.title, songName) || same(s.id, songName));
+    const section = song?.sections.find((x) => same(x.name, sectionName) || same(x.id, sectionName));
+    if (!song || !section) return false;
+    void this.commands.invoke("song.section.go", { song: song.id, section: section.id }, { origin: "ableset", can: () => true }).catch(() => undefined);
+    return true;
+  }
+
   /** The DJ's pad shows what plays: a look started or stopped elsewhere lights or darkens its button. */
   private syncOs2lFeedback(): void {
     for (const b of this.os2lButtons.values()) {
@@ -526,6 +565,7 @@ export class LightPlugin implements McpPlugin {
     // every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time
     this.clockTimer = setInterval(() => this.activeMidiProfile().clockOutput && this.clockOut.tick(), 1);
     this.clockTimer.unref();
+    await this.ableset.start();
     let lastState = "";
     let ticks = 0;
     this.tempoTimer = setInterval(() => {
@@ -592,6 +632,7 @@ export class LightPlugin implements McpPlugin {
     this.show.flushLive();
     this.osc.stop();
     if (this.clockTimer) clearInterval(this.clockTimer);
+    await this.ableset.stop();
     await this.os2lAnnounce?.stop();
     this.os2lAnnounce = undefined;
     await this.os2l.stop();

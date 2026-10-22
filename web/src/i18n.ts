@@ -208,6 +208,11 @@ const fr = {
   feedbackLabel: "Retour",
   feedbackOut: "Sortie de retour",
   clockOut: "Horloge MIDI en sortie",
+  ablesetHelp: "AbleSet (setlist pour Ableton Live) dit en OSC quel chant et quelle section jouent : pendant la lecture, la lumière lance la section de même nom dans le chant de même titre, comme le ferait sa timeline (jamais un look réservé à la main). À ne pas cumuler avec des notes MIDI qui lancent les mêmes sections.",
+  ablesetFollow: "Suivre AbleSet",
+  ablesetHost: "Machine d'AbleSet",
+  ablesetAbsent: "AbleSet ne répond pas (lancé, et sur cette adresse ?)",
+  ablesetUnmatched: "Le show n'a pas cette section",
   tempoSource: "Le tempo suit",
   tempoSourceHelp: "Qui mène le tempo : l'horloge MIDI d'Ableton, un tempo réglé à la main (tapé ou Tap), ou le logiciel DJ (OS2L). Le micro s'allume depuis le widget Tap.",
   tempoSourceNames: { midi: "l'horloge MIDI (Ableton)", manual: "un tempo à la main", tap: "le Tap", os2l: "le DJ (OS2L)", audio: "le micro" },
@@ -767,7 +772,7 @@ const fr = {
   noDefinitionHelp: "Le fichier .qxf de ce modèle manque : ses canaux ne sont pas décodés (pas de couleur ni de gradateur). L'ajouter à la page Import, étape 1.",
   thisPage: "cette page",
   since: "depuis",
-  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", ableset: "AbleSet", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -978,6 +983,11 @@ const en: typeof fr = {
   feedbackLabel: "Feedback",
   feedbackOut: "Feedback output",
   clockOut: "MIDI clock out",
+  ablesetHelp: "AbleSet (setlist for Ableton Live) tells over OSC which song and section play: while it plays, the light starts the section of the same name in the song of the same title, as its timeline would (never a manual-only look). Not to be combined with MIDI notes starting the same sections.",
+  ablesetFollow: "Follow AbleSet",
+  ablesetHost: "AbleSet's machine",
+  ablesetAbsent: "AbleSet does not answer (running, and at this address?)",
+  ablesetUnmatched: "The show has no such section",
   tempoSource: "Tempo follows",
   tempoSourceHelp: "Who leads the tempo: Ableton's MIDI clock, a tempo set by hand (typed or tapped), or the DJ software (OS2L). The microphone is switched on from the Tap widget.",
   tempoSourceNames: { midi: "the MIDI clock (Ableton)", manual: "a tempo set by hand", tap: "the Tap", os2l: "the DJ (OS2L)", audio: "the microphone" },
@@ -1537,7 +1547,7 @@ const en: typeof fr = {
   noDefinitionHelp: "This model's .qxf file is missing: its channels are not decoded (no colour, no dimmer). Add it on the Import page, step 1.",
   thisPage: "this page",
   since: "since",
-  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", ableset: "AbleSet", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
 };
 
 export type Lang = "fr" | "en";
