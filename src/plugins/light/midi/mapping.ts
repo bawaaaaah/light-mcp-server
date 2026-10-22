@@ -15,6 +15,9 @@
 import { z } from "zod";
 import type { MidiMessage } from "./parse.js";
 
+/** The virtual port of the DJ's numbered commands (OS2L `cmd` n → CC n, its 0..1 value → 0..127). */
+export const OS2L_PORT = "OS2L";
+
 export const CommandCallSchema = z.object({ command: z.string(), args: z.record(z.unknown()).default({}) });
 export type CommandCall = z.infer<typeof CommandCallSchema>;
 
@@ -101,6 +104,8 @@ export class MidiMapper {
 
   private matches(m: Mapping, msg: MidiMessage, port?: string): boolean {
     if (m.input.port && port && !port.toLowerCase().includes(m.input.port.toLowerCase())) return false;
+    // the DJ's commands (OS2L, as CCs on that port) answer only mappings made for them
+    if (port === OS2L_PORT && m.input.port?.toLowerCase() !== OS2L_PORT.toLowerCase()) return false;
     switch (m.input.type) {
       case "note":
         return (

@@ -49,7 +49,7 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
   }
 }
 
-const inputText = (i: MappingDraft["input"]) => `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`;
+const inputText = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`);
 
 /**
  * Right-click on a dashboard widget (live, no edit mode): what it drives (look, DCA, fader), its
@@ -110,7 +110,8 @@ export function WidgetMenu({
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
       .then((r) => {
         const name = widget.label || targets.find((x) => x.id === widget.target)?.name || t.widgetKinds[widget.kind];
-        const draft = { ...newMapping(), label: name, mode: widget.mode ?? (widget.kind === "look" ? "latch" : "trigger"), input: { ...r.input, port: undefined }, feedback: r.input.type === "cc" ? "cc" : "note" } as MappingDraft;
+        const dj = r.input.port === "OS2L"; // a DJ's command keeps its port: only it plays the mapping
+        const draft = { ...newMapping(), label: name, mode: widget.mode ?? (widget.kind === "look" ? "latch" : "trigger"), input: { ...r.input, port: dj ? "OS2L" : undefined }, feedback: dj ? "none" : r.input.type === "cc" ? "cc" : "note" } as MappingDraft;
         const id = uniqueId(slug(`${r.input.type}-${r.input.number}-${name}`, "mapping"), mappings.map((m) => m.id));
         return cmd("midi.mapping.put", { mapping: { ...build(draft, action.action, action.target), id } });
       })

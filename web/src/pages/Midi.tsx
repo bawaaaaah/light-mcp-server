@@ -18,7 +18,7 @@ interface Status {
 interface Mapping {
   id: string;
   label: string;
-  input: { type: string; channel: number; number: number };
+  input: { type: string; channel: number; number: number; port?: string };
   mode: string;
   on: { command: string; args: Record<string, unknown> };
 }
@@ -207,7 +207,15 @@ export function MidiPage() {
               {shownMappings.map((m) => (
                 <tr key={m.id}>
                   <td>
-                    {m.input.type} {m.input.number} <small>ch{m.input.channel}</small>
+                    {m.input.port === "OS2L" ? (
+                      <>
+                        DJ (OS2L) n° {m.input.number}
+                      </>
+                    ) : (
+                      <>
+                        {m.input.type} {m.input.number} <small>ch{m.input.channel}</small>
+                      </>
+                    )}
                   </td>
                   <td>{t.modes[m.mode as keyof typeof t.modes] ?? m.mode}</td>
                   <td>{m.label || `${m.on.command} ${String(m.on.args.id ?? "")}`}</td>

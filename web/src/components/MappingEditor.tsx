@@ -101,7 +101,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
-      .then((r) => setM({ ...m, input: { ...r.input, port: undefined }, feedback: r.input.type === "cc" ? "cc" : m.feedback }))
+      // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light
+      .then((r) => setM({ ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" ? "none" : r.input.type === "cc" ? "cc" : m.feedback }))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLearning(false));
   };
@@ -115,24 +116,41 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
       .catch((e: Error) => setError(e.message));
   };
 
+  const dj = m.input.port === "OS2L";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
       <div className="fields">
+        {/* a controller (any watched input), or the DJ's numbered commands (OS2L), which only it plays */}
         <label className="field">
-          <span>{t.midiType}</span>
-          <select value={m.input.type} onChange={(e) => setM({ ...m, input: { ...m.input, type: e.target.value as MappingDraft["input"]["type"] } })}>
-            <option value="note">note</option>
-            <option value="cc">CC</option>
-            <option value="programchange">program change</option>
+          <span>{t.mappingSource}</span>
+          <select
+            aria-label={t.mappingSource}
+            value={dj ? "os2l" : ""}
+            onChange={(e) => setM(e.target.value === "os2l" ? { ...m, input: { ...m.input, port: "OS2L", type: "cc", channel: 1 }, feedback: "none" } : { ...m, input: { ...m.input, port: undefined } })}
+          >
+            <option value="">{t.sourceController}</option>
+            <option value="os2l">DJ (OS2L)</option>
           </select>
         </label>
+        {!dj && (
+          <>
+            <label className="field">
+              <span>{t.midiType}</span>
+              <select value={m.input.type} onChange={(e) => setM({ ...m, input: { ...m.input, type: e.target.value as MappingDraft["input"]["type"] } })}>
+                <option value="note">note</option>
+                <option value="cc">CC</option>
+                <option value="programchange">program change</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>{t.midiChannel}</span>
+              <input type="number" min={1} max={16} value={m.input.channel} onChange={(e) => setM({ ...m, input: { ...m.input, channel: Number(e.target.value) } })} />
+            </label>
+          </>
+        )}
         <label className="field">
-          <span>{t.midiChannel}</span>
-          <input type="number" min={1} max={16} value={m.input.channel} onChange={(e) => setM({ ...m, input: { ...m.input, channel: Number(e.target.value) } })} />
-        </label>
-        <label className="field">
-          <span>{t.midiNumber}</span>
+          <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
           <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
         </label>
         <button onClick={learn} disabled={learning}>

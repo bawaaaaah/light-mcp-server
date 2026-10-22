@@ -35,7 +35,7 @@ import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
-import { MappingSchema, MidiMapper } from "./midi/mapping.js";
+import { MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import { Os2lServer } from "./os2l/server.js";
 import type { Os2lEvent } from "./os2l/codec.js";
@@ -386,6 +386,11 @@ export class LightPlugin implements McpPlugin {
       if (event.bpm >= 20 && event.bpm <= 400) this.tempo.follow(event.bpm, 0, "os2l");
       return;
     }
+    if (event.evt === "cmd") {
+      // a numbered command (a VirtualDJ slider): a CC on the « OS2L » port, for the MIDI mappings
+      if (Number.isInteger(event.id) && event.id >= 0 && event.id <= 127) this.hub.dispatch("os2l", OS2L_PORT, [0xb0, event.id, Math.round(event.param * 127)]);
+      return;
+    }
     if (event.evt !== "btn") return;
     const wanted = event.name.toLowerCase();
     const named = <T extends { id: string; name: string }>(list: T[]) => list.find((x) => x.id.toLowerCase() === wanted || x.name.trim().toLowerCase() === wanted);
@@ -440,9 +445,9 @@ export class LightPlugin implements McpPlugin {
       }
     }
     const out = this.mapper.handle(m.msg, m.port);
-    if (!this.router.isStandby()) this.hub.sendFeedback(out.feedback);
+    if (!this.router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
     for (const call of out.calls) {
-      this.commands.invoke(call.command, call.args, { origin: "midi", can: () => true }).catch((err: Error) => this.publish("midi", { error: `${call.command} : ${err.message}` }));
+      this.commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).catch((err: Error) => this.publish("midi", { error: `${call.command} : ${err.message}` }));
     }
   }
 

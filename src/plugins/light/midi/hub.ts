@@ -16,7 +16,7 @@ import { createRequire } from "node:module";
 import { parseMidi, type MidiMessage } from "./parse.js";
 import { RtpMidiSession } from "./rtp/session.js";
 
-export type MidiSource = "local" | "rtp" | "web";
+export type MidiSource = "local" | "rtp" | "web" | "os2l";
 
 export interface HubMessage {
   source: MidiSource;

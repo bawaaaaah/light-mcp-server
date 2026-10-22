@@ -1316,6 +1316,35 @@ test("settings: DJ software connected over OS2L, its tempo and its buttons", asy
   expect(errors).toEqual([]);
 });
 
+test("a DJ's numbered command (OS2L) mapped to the grand master, from the MIDI page", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  await editor.getByLabel("Source").selectOption("os2l");
+  await expect(editor.getByLabel("Canal")).toHaveCount(0); // a DJ command has no MIDI channel
+  await editor.getByLabel("Commande DJ n° (0-127)").fill("7");
+  await editor.getByLabel("Action").selectOption("grandmaster");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator(".midi table tr", { hasText: "DJ (OS2L) n° 7" })).toBeVisible();
+  const { port } = (await api(page, "os2l.status")) as { port: number };
+  const { connect } = await import("node:net");
+  const dj = connect(port, "127.0.0.1");
+  await new Promise((r) => dj.once("connect", r));
+  try {
+    dj.write(JSON.stringify({ evt: "cmd", id: 7, param: 0.25 }));
+    await expect.poll(async () => Math.round(((await api(page, "show.settings")) as { grandMaster: number }).grandMaster * 100)).toBe(25);
+  } finally {
+    dj.destroy();
+    await api(page, "grandmaster.set", { level: 1 });
+    const mapping = ((await api(page, "midi.mapping.list")) as { id: string; input: { port?: string } }[]).find((m) => m.input.port === "OS2L");
+    if (mapping) await api(page, "midi.mapping.delete", { id: mapping.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("settings: route a universe to another Art-Net address and to sACN", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

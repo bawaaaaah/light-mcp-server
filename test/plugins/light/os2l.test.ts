@@ -75,6 +75,19 @@ describe("OS2L (DJ software)", () => {
       await until(() => plugin.tempo.state().source === "midi");
     });
 
+    it("plays a numbered command through the mappings made for the DJ, never through a controller's", async () => {
+      await run("midi.mapping.put", { mapping: { id: "dj-master", input: { port: "OS2L", type: "cc", channel: 1, number: 5 }, on: { command: "group.level", args: { id: "master" } }, levelArg: "level", feedback: "none" } });
+      await run("midi.mapping.put", { mapping: { id: "pad-cc5", input: { type: "cc", channel: 1, number: 5 }, on: { command: "grandmaster.set", args: {} }, levelArg: "level", feedback: "cc" } });
+      send({ evt: "cmd", id: 5, param: 0.5 });
+      await until(() => Math.abs((plugin.runtime.groups.get("master")!.master?.level ?? 1) - 0.5) < 0.01);
+      expect(plugin.runtime.settings.grandMaster).to.equal(1); // the controller's « any input » CC 5 did not answer
+      const line = ((await run("activity.list", { limit: 5 })) as { name: string; origin: string }[]).find((e) => e.name === "group.level")!;
+      expect(line.origin).to.equal("os2l");
+      send({ evt: "cmd", id: 300, param: 1 }); // past what a CC can say: ignored
+      await until(() => plugin.os2l.status().log.length === 2);
+      expect(plugin.runtime.groups.get("master")!.master?.level).to.be.closeTo(0.5, 0.01);
+    });
+
     it("plays the look named by a pad button, says who did it, and shows on the pad what plays", async () => {
       send({ evt: "btn", name: "HOLE", page: "Lumière", state: "on" });
       await until(() => plugin.runtime.isActive("hole"));
