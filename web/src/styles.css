@@ -611,6 +611,7 @@ input.swatch {
   margin: 0.5em 0 1em;
 }
 .preview .cell,
+.preview-row .cell,
 .steps-editor .cell {
   min-width: 0.4em;
   border-radius: 3px;
@@ -623,22 +624,23 @@ input.swatch {
   aspect-ratio: 1;
 }
 .preview .cell.free,
+.preview-row .cell.free,
 .steps-editor .cell.free {
   background: repeating-linear-gradient(45deg, var(--panel), var(--panel) 3px, var(--line) 3px, var(--line) 6px);
 }
-.steps-editor .step-row {
+.look-editor .step-row {
   display: grid;
   grid-template-columns: var(--step-columns);
   align-items: center;
   column-gap: 3px;
   margin: 2px 0;
 }
-.steps-editor .step-row .cell {
+.look-editor .step-row .cell {
   width: 100%;
   cursor: pointer;
   touch-action: none;
 }
-.steps-editor .step-row button {
+.look-editor .step-row button {
   padding: 0.1em 0.3em;
   justify-self: start;
 }
@@ -648,17 +650,46 @@ input.swatch {
   padding-bottom: 0.3em;
 }
 /* the fixture behind each run of cells, above the steps */
-.steps-editor .step-blocks .block {
+.look-editor .step-blocks .block {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 0.72rem;
   color: var(--muted);
-  border-left: 2px solid var(--line);
   padding-left: 3px;
 }
-.steps-editor .step-blocks .swatch-dot {
+/* a new fixture begins: a line through the names, the strip and every step */
+.look-editor .step-row .block-start {
+  position: relative;
+}
+.look-editor .step-row .block-start::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--muted);
+  opacity: 0.55;
+  border-radius: 1px;
+}
+/* the preview strip on the steps' grid: taller squares */
+.look-editor .preview-row .cell {
+  height: 2.2em;
+  aspect-ratio: auto;
+  border-radius: 4px;
+}
+.look-editor .cells-view {
+  overflow-x: auto;
+  margin-bottom: 0.6em;
+}
+.look-editor .cells-tools {
+  justify-content: flex-end;
+  gap: 0.8em;
+  margin-bottom: 0.3em;
+}
+.look-editor .step-blocks .swatch-dot {
   margin-right: 0.25em;
 }
 .steps-editor .step-row small {
@@ -705,6 +736,17 @@ table.sections input:not([type]) {
 }
 table.sections input[type="number"] {
   width: 4.5em;
+}
+/* a list's column names (Show page): what each column says */
+table.listing th {
+  text-align: left;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--line);
 }
 table.sections th {
   text-align: left;
@@ -1064,6 +1106,39 @@ table.rules td {
 }
 
 /* Right-click menu of a dashboard widget (components/WidgetMenu.tsx). */
+/* an editor over the page, in view wherever the list was scrolled; full screen on a phone */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3vh 2vw;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  width: min(1100px, 100%);
+  padding: 0.4em 1em 1em;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .modal-backdrop {
+    padding: 0;
+  }
+  .modal {
+    border: 0;
+    border-radius: 0;
+    min-height: 100%;
+    padding: 0.4em 0.7em 1em;
+  }
+}
 .widget-menu {
   position: fixed;
   z-index: 50;

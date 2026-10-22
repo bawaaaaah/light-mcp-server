@@ -1,7 +1,7 @@
 /**
  * Animated preview of a look on its canvas. The steps come from the server (`look.preview`, the
  * same generator as the show); the timing is replayed here: cadence at the current tempo, attack
- * as a cross-fade, loop / ping-pong / random order.
+ * as a cross-fade, loop / ping-pong / random order. The same frame can light the stage plan.
  */
 import { useEffect, useRef, useState } from "react";
 
@@ -24,7 +24,8 @@ const mix = (a: string | null, b: string | null, k: number): string | null => {
   return `rgb(${x.map((v, i) => Math.round(v + (y[i]! - v) * k)).join(",")})`;
 };
 
-export function LookPreview({ preview, timing, bpm, label }: { preview: Preview; timing: Timing; bpm: number; label: string }) {
+/** The preview's frame now (cells in the canvas's order), replayed at the look's timing: the strip and the stage show the same one. */
+export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: number): (string | null)[] {
   const [frame, setFrame] = useState<(string | null)[]>([]);
   const start = useRef(performance.now());
   const order = useRef<number[]>([]);
@@ -35,6 +36,7 @@ export function LookPreview({ preview, timing, bpm, label }: { preview: Preview;
   }, [preview, timing.order]);
 
   useEffect(() => {
+    if (!preview) return;
     const n = preview.steps.length;
     const stepAt = (i: number) => {
       if (n === 1) return 0;
@@ -66,12 +68,29 @@ export function LookPreview({ preview, timing, bpm, label }: { preview: Preview;
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [preview, timing.every.beats, timing.every.seconds, timing.attack, timing.order, bpm]);
+  return frame;
+}
 
-  const columns = preview.topology === "grid" && preview.columns ? preview.columns : preview.cells;
+/**
+ * The preview strip. A line canvas sits on the steps' grid (`order`: the cell shown at each place;
+ * `starts`: places where a new fixture begins, a separator before); a grid canvas keeps its rows.
+ */
+export function LookPreview({ preview, frame, label, order, starts }: { preview: Preview; frame: (string | null)[]; label: string; order?: number[]; starts?: ReadonlySet<number> }) {
+  if (preview.topology === "grid" && preview.columns) {
+    return (
+      <div className="preview" style={{ gridTemplateColumns: `repeat(${preview.columns}, 1fr)` }} aria-label={label}>
+        {Array.from({ length: preview.cells }, (_, k) => (
+          <span key={k} className={frame[k] ? "cell" : "cell free"} style={{ background: frame[k] ?? undefined }} />
+        ))}
+      </div>
+    );
+  }
+  const shown = order ?? Array.from({ length: preview.cells }, (_, k) => k);
   return (
-    <div className="preview" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} aria-label={label}>
-      {Array.from({ length: preview.cells }, (_, k) => (
-        <span key={k} className={frame[k] ? "cell" : "cell free"} style={{ background: frame[k] ?? undefined }} />
+    <div className="step-row preview-row" aria-label={label}>
+      <small />
+      {shown.map((k, i) => (
+        <span key={k} className={`${frame[k] ? "cell" : "cell free"}${starts?.has(i) ? " block-start" : ""}`} style={{ background: frame[k] ?? undefined }} />
       ))}
     </div>
   );

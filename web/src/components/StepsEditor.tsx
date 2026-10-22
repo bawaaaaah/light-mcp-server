@@ -1,30 +1,46 @@
 /**
  * Step editor for the « pas » technique: one row per step, one square per canvas cell. Click (or
- * drag) paints with the brush: a colour, « éteint » ("-") or « non piloté » (""). Above the steps,
- * the fixture behind each run of cells (`blocks`), on the same grid as the squares.
+ * drag) paints with the brush: a colour, « éteint » ("-") or « non piloté » (""). The squares are
+ * shown in `order` (the stage's, from jardin to cour) on the look editor's grid, a separator where
+ * a new fixture begins; painting one paints its own cell of the canvas.
  */
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { useT } from "../App";
 import { ColorInput } from "./SchemaFields";
 import type { Block } from "../canvas-blocks";
 
-export function StepsEditor({ steps, cells, blocks = [], onChange }: { steps: string[][]; cells: number; blocks?: Block[]; onChange: (s: string[][]) => void }) {
+/** The fixture behind each run of cells, on the same grid as the squares (the look editor's). */
+export function BlockNames({ blocks }: { blocks: Block[] }) {
+  const t = useT();
+  if (!blocks.some((b) => b.label)) return null;
+  return (
+    <div className="step-row step-blocks" aria-label={t.stepBlocks}>
+      <small />
+      {blocks.map((b) => (
+        <span key={b.from} className={`block${b.from > 0 ? " block-start" : ""}`} style={{ gridColumn: `span ${b.to - b.from + 1}` }} title={`${b.label || "—"} · ${b.to - b.from + 1} ${t.cellsShort}`}>
+          {b.color && <span className="swatch-dot" style={{ background: b.color }} aria-hidden />}
+          {b.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function StepsEditor({ steps, cells, blocks = [], order, onChange }: { steps: string[][]; cells: number; blocks?: Block[]; order?: number[]; onChange: (s: string[][]) => void }) {
   const t = useT();
   const [brush, setBrush] = useState("#ff0000");
   const [mode, setMode] = useState<"color" | "off" | "free">("color");
   const value = mode === "color" ? brush : mode === "off" ? "-" : "";
   const rows = steps.map((r) => Array.from({ length: cells }, (_, k) => r[k] ?? ""));
+  const shown = order ?? Array.from({ length: cells }, (_, k) => k);
+  const starts = new Set(blocks.filter((b) => b.from > 0).map((b) => b.from));
   const paint = (s: number, k: number) => {
     if (rows[s]![k] === value) return;
     onChange(rows.map((r, i) => (i === s ? r.map((c, j) => (j === k ? value : c)) : r)));
   };
 
-  // the number, a column per cell, then duplicate and delete: the names above line up with the squares
-  const grid = { "--step-columns": `2em repeat(${cells}, minmax(0.4em, 1.6em)) 2.2em 2.2em` } as CSSProperties;
-  const named = blocks.some((b) => b.label);
-
   return (
-    <div className="steps-editor" style={grid}>
+    <div className="steps-editor">
       <div className="row">
         <label className="row">
           <input type="radio" checked={mode === "color"} onChange={() => setMode("color")} />
@@ -37,29 +53,22 @@ export function StepsEditor({ steps, cells, blocks = [], onChange }: { steps: st
           <input type="radio" checked={mode === "free"} onChange={() => setMode("free")} /> {t.untouched}
         </label>
       </div>
-      {named && (
-        <div className="step-row step-blocks" aria-label={t.stepBlocks}>
-          <small />
-          {blocks.map((b) => (
-            <span key={b.from} className="block" style={{ gridColumn: `span ${b.to - b.from + 1}` }} title={`${b.label || "—"} · ${b.from + 1}–${b.to + 1}`}>
-              {b.color && <span className="swatch-dot" style={{ background: b.color }} aria-hidden />}
-              {b.label}
-            </span>
-          ))}
-        </div>
-      )}
+      <BlockNames blocks={blocks} />
       {rows.map((r, s) => (
         <div key={s} className="step-row">
           <small>{s + 1}</small>
-          {r.map((c, k) => (
-            <span
-              key={k}
-              className={c === "" ? "cell free" : "cell"}
-              style={{ background: c === "-" ? "#000" : c === "" ? undefined : c.slice(0, 7) }}
-              onPointerDown={() => paint(s, k)}
-              onPointerEnter={(e) => e.buttons && paint(s, k)}
-            />
-          ))}
+          {shown.map((k, i) => {
+            const c = r[k]!;
+            return (
+              <span
+                key={k}
+                className={`${c === "" ? "cell free" : "cell"}${starts.has(i) ? " block-start" : ""}`}
+                style={{ background: c === "-" ? "#000" : c === "" ? undefined : c.slice(0, 7) }}
+                onPointerDown={() => paint(s, k)}
+                onPointerEnter={(e) => e.buttons && paint(s, k)}
+              />
+            );
+          })}
           <button className="ghost" title={t.duplicate} onClick={() => onChange([...rows.slice(0, s + 1), [...r], ...rows.slice(s + 1)])}>
             ⧉
           </button>

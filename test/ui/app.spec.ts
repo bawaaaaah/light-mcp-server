@@ -1332,8 +1332,8 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   await editor.getByLabel("Nom", { exact: true }).fill("Mon damier");
   await editor.getByLabel("Technique").selectOption("damier");
   await expect(editor.locator(".fields .colors input.swatch")).toHaveCount(2);
-  await expect(editor.locator(".preview .cell")).toHaveCount(8); // server preview on the 8-cell canvas
-  await expect(editor.locator(".preview .cell.free")).toHaveCount(0);
+  await expect(editor.locator(".preview-row .cell")).toHaveCount(8); // server preview on the 8-cell canvas
+  await expect(editor.locator(".preview-row .cell.free")).toHaveCount(0);
   await page.screenshot({ path: "test-results/look-editor.png", fullPage: true });
   await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
   await expect(editor).toHaveCount(0);
@@ -1405,6 +1405,46 @@ test("machine button: a look with raw channels and no colour", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("look editor: in a window, cells in the stage's order, the preview played on the stage", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  // Bar 1 on the jardin side of Bar 0
+  const list = (await api(page, "venue.fixture.list")) as { id: string; position?: object }[];
+  const before = Object.fromEntries(list.map((f) => [f.id, f]));
+  const place = (id: string, x: number) => api(page, "venue.fixture.put", { fixture: { ...before[id], position: { x, y: 1, z: 0.3 } } });
+  await place("bar-0", 2);
+  await place("bar-1", -2);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string; cells: number }[]).find((c) => c.cells === 8)!;
+  await api(page, "look.put", { look: { id: "ordre-scene", name: "Ordre scène", canvas: canvas.id, technique: { kind: "pas", steps: [Array.from({ length: 8 }, () => "-")] } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier Ordre scène" }).click();
+    const editor = page.getByRole("dialog", { name: "Ordre scène" }); // over the page, wherever the list was
+    await expect(editor.locator(".cells-view .step-blocks .block")).toHaveText(["Bar 1", "Bar 0"]); // from jardin to cour
+    await expect(editor.locator(".steps-editor .step-blocks .block")).toHaveText(["Bar 1", "Bar 0"]);
+    await expect(editor.locator(".preview-row .cell.block-start")).toHaveCount(1); // a separator where Bar 0 begins
+    // the first square shown is Bar 1's first head: canvas cell 4
+    await editor.locator(".steps-editor .step-row:not(.step-blocks)").first().locator(".cell").first().dispatchEvent("pointerdown");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    const saved = ((await api(page, "look.get", { id: "ordre-scene" })) as { technique: { steps: string[][] } }).technique.steps[0]!;
+    expect(saved.findIndex((c) => c !== "-")).toBe(4);
+    // the canvas's order again, and the preview on the stage plan
+    await page.getByRole("button", { name: "Modifier Ordre scène" }).click();
+    await editor.getByLabel("dans l'ordre de la scène").uncheck();
+    await expect(editor.locator(".cells-view .step-blocks .block")).toHaveText(["Bar 0", "Bar 1"]);
+    await editor.getByRole("button", { name: "Voir sur la scène" }).click();
+    await expect(editor.locator(".stage-plan")).toBeVisible();
+    await page.screenshot({ path: "test-results/look-editor-stage.png", fullPage: true });
+    await editor.getByRole("button", { name: "Fermer" }).click();
+    await expect(editor).toHaveCount(0);
+  } finally {
+    await api(page, "look.delete", { id: "ordre-scene" });
+    for (const id of ["bar-0", "bar-1"]) await api(page, "venue.fixture.put", { fixture: before[id] });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("look editor: random choices, as for the order of the steps", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -1418,7 +1458,7 @@ test("look editor: random choices, as for the order of the steps", async ({ page
   await editor.getByLabel("Mouvement (lyres)").check();
   await editor.getByLabel("Forme").selectOption("aleatoire");
   await editor.getByLabel("Ordre mélangé").check();
-  await expect(editor.locator(".preview .cell")).toHaveCount(8);
+  await expect(editor.locator(".preview-row .cell")).toHaveCount(8);
   await page.screenshot({ path: "test-results/look-random.png", fullPage: true });
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
@@ -2364,6 +2404,21 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   await expect.poll(async () => (await facing()).facing).toBe("houseRight");
   await panel.getByRole("button", { name: "Public" }).click();
   await expect.poll(async () => (await facing()).facing).toBe("audience");
+  // a bar stood up, facing the audience: it stands in the face view, its four heads one above the other
+  await panel.getByRole("button", { name: "┃ verticale" }).click();
+  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(90);
+  await expect(panel.getByRole("button", { name: "┃ verticale" })).toHaveAttribute("aria-pressed", "true");
+  const cells = bar.locator("g rect:not(.selection):not(.strobe-outline)");
+  await expect(cells).toHaveCount(1); // from above, only its top
+  await page.getByRole("button", { name: "Face", exact: true }).click();
+  await expect(cells).toHaveCount(4);
+  await expect(bar.locator("g[transform^='rotate(-90']")).toHaveCount(1);
+  const [first, last] = [(await cells.first().boundingBox())!, (await cells.last().boundingBox())!];
+  expect(first.y).toBeGreaterThan(last.y); // its first head at the bottom
+  await page.screenshot({ path: "test-results/orient-standing-bar.png", fullPage: true });
+  await panel.getByRole("button", { name: "━ horizontale" }).click();
+  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(0);
+  await page.getByRole("button", { name: "Dessus", exact: true }).click();
   await page.getByLabel("Orienter").uncheck();
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
@@ -2404,21 +2459,6 @@ test("live stage in 3D: zones, fixtures and beams drawn, loaded on demand", asyn
   await expect(page.locator(".stage-plan svg[aria-label='Scène en direct']")).toBeHidden(); // the plan steps aside
   // something drawn: the canvas is not one flat colour
   await expect
-  // a bar stood up, facing the audience: it stands in the face view, its four heads one above the other
-  await panel.getByRole("button", { name: "┃ verticale" }).click();
-  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(90);
-  await expect(panel.getByRole("button", { name: "┃ verticale" })).toHaveAttribute("aria-pressed", "true");
-  const cells = bar.locator("g rect:not(.selection):not(.strobe-outline)");
-  await expect(cells).toHaveCount(1); // from above, only its top
-  await page.getByRole("button", { name: "Face", exact: true }).click();
-  await expect(cells).toHaveCount(4);
-  await expect(bar.locator("g[transform^='rotate(-90']")).toHaveCount(1);
-  const [first, last] = [(await cells.first().boundingBox())!, (await cells.last().boundingBox())!];
-  expect(first.y).toBeGreaterThan(last.y); // its first head at the bottom
-  await page.screenshot({ path: "test-results/orient-standing-bar.png", fullPage: true });
-  await panel.getByRole("button", { name: "━ horizontale" }).click();
-  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(0);
-  await page.getByRole("button", { name: "Dessus", exact: true }).click();
     .poll(async () => (await page.evaluate(`(() => {
       const c = document.querySelector(".stage-3d canvas");
       const g = document.createElement("canvas");

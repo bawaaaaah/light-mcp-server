@@ -75,6 +75,7 @@ export function StagePlan({
   onMove,
   onOrient,
   compact = false,
+  shownColors,
 }: {
   fixtures: PlanFixture[];
   zones: PlanZone[];
@@ -82,11 +83,17 @@ export function StagePlan({
   onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void;
   onOrient?: (fixture: PlanFixture, change: OrientChange) => void;
   compact?: boolean;
+  /** Colours to show instead of the live output (a look's preview): fixture → its heads. */
+  shownColors?: Record<string, string[]>;
 }) {
   const t = useT();
-  const [colors, setColors] = useState<Record<string, string[]>>({});
-  const [strobe, setStrobe] = useState<Record<string, number | null>>({});
-  const [beams, setBeams] = useState<Record<string, Vec & { angle?: number; to: Vec }>>({});
+  const [liveColors, setColors] = useState<Record<string, string[]>>({});
+  const [liveStrobe, setStrobe] = useState<Record<string, number | null>>({});
+  const [liveBeams, setBeams] = useState<Record<string, Vec & { angle?: number; to: Vec }>>({});
+  // a preview shows its own colours, without the live output's strobe and beams
+  const colors = shownColors ?? liveColors;
+  const strobe = shownColors ? {} : liveStrobe;
+  const beams = shownColors ? {} : liveBeams;
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -356,21 +363,19 @@ export function StagePlan({
         })}
         {fixtures.map((f) => {
           const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
-          const cols = colors[f.id] ?? ["#000000"];
-          // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
-          const w = Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
+          const all = colors[f.id] ?? ["#000000"];
           const h = Math.max(8, Math.min(28, 0.2 * scale));
-          const cw = w / cols.length;
-          const x0 = sx(p.x) - w / 2;
-          const y0 = sy(p.y) - h / 2;
-          const isSelected = orienting && selected === f.id;
-          const o = isSelected && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
           // a standing bar (roll near 90°), seen from above, is only its top: one square, its middle head's colour
           const roll = f.orientation?.roll ?? 0;
           const standing = Math.abs(Math.sin((roll * Math.PI) / 180)) > 0.7;
           const cols = !front && standing ? [all[Math.floor(all.length / 2)]!] : all;
           // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
           const w = !front && standing ? h : Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
+          const cw = w / cols.length;
+          const x0 = sx(p.x) - w / 2;
+          const y0 = sy(p.y) - h / 2;
+          const isSelected = orienting && selected === f.id;
+          const o = isSelected && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
           // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0);
           // from the audience, with its roll (a standing bar, its first head at the bottom)
           const angle = front ? roll : !standing ? (o?.yaw ?? 0) : 0;
@@ -458,11 +463,6 @@ export function StagePlan({
               </button>
               <AngleField key={`yaw-${selectedFixture.orientation?.yaw ?? 0}`} label={t.heading} value={selectedFixture.orientation?.yaw ?? 0} min={-180} max={180} onCommit={(yaw) => onOrient(selectedFixture, { yaw })} />
               <AngleField key={`pitch-${selectedFixture.orientation?.pitch ?? 0}`} label={t.pitchLabel} value={selectedFixture.orientation?.pitch ?? 0} min={-90} max={90} onCommit={(pitch) => onOrient(selectedFixture, { pitch })} />
-            </>
-          ) : (
-            <span className="hint">{front ? t.orientHintFront : t.orientHint}</span>
-          )}
-        </div>
               {(colors[selectedFixture.id]?.length ?? 1) > 1 && (
                 <>
                   <span className="hint">{t.barLabel}</span>
@@ -476,6 +476,11 @@ export function StagePlan({
                   })}
                 </>
               )}
+            </>
+          ) : (
+            <span className="hint">{front ? t.orientHintFront : t.orientHint}</span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -507,12 +512,12 @@ function inside(x: number, y: number, poly: [number, number][]): boolean {
 }
 
 /** Self-loading live preview, for a dashboard widget. */
-export function LiveStage({ onError }: { onError: (msg: string) => void }) {
+export function LiveStage({ onError, shownColors }: { onError: (msg: string) => void; shownColors?: Record<string, string[]> }) {
   const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
   const [zones, setZones] = useState<PlanZone[]>([]);
   useEffect(() => {
     void cmd<PlanFixture[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<PlanZone[]>("stage.zone.list").then(setZones).catch(() => undefined);
   }, []);
-  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact />;
+  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact shownColors={shownColors} />;
 }

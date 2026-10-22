@@ -5,14 +5,15 @@
  * with an animated preview computed by the server. Everything is saved with `look.put`.
  */
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
 import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
-import { StepsEditor } from "./StepsEditor";
-import { canvasBlocks, type CanvasRender } from "../canvas-blocks";
-import { LookPreview, type Preview } from "./LookPreview";
+import { BlockNames, StepsEditor } from "./StepsEditor";
+import { canvasBlocks, fixtureColors, stageOrder, type CanvasRender } from "../canvas-blocks";
+import { LiveStage } from "./StagePlan";
+import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
@@ -54,6 +55,8 @@ interface Named {
   render?: CanvasRender[];
   /** A fixture's marker colour. */
   color?: string;
+  /** A fixture's place on the stage. */
+  position?: { x: number; y: number; z: number };
 }
 
 export function newLook(canvas: string): LookDraft {
@@ -106,6 +109,18 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   const canvas = canvases.find((c) => c.id === look.canvas);
   const cells = canvas?.cells ?? 8;
   const blocks = useMemo(() => canvasBlocks(cells, canvas?.render ?? [], fixtures), [cells, canvas, fixtures]);
+  // the cells as the stage shows them (from jardin to cour), or as the canvas numbers them
+  const [byStage, setByStage] = useState(true);
+  const shown = useMemo(() => {
+    if (!byStage) return { order: Array.from({ length: cells }, (_, k) => k), blocks };
+    return stageOrder(blocks, new Map(fixtures.filter((f) => f.position).map((f) => [f.id, f.position!.x])));
+  }, [byStage, blocks, cells, fixtures]);
+  const starts = useMemo(() => new Set(shown.blocks.filter((b) => b.from > 0).map((b) => b.from)), [shown]);
+  const [onStage, setOnStage] = useState(false);
+  const frame = usePreviewFrame(preview, look.timing, tempo?.bpm ?? 120);
+  const stageColors = useMemo(() => (onStage ? fixtureColors(frame, canvas?.render ?? []) : undefined), [onStage, frame, canvas]);
+  // one grid for the strip, the names and the steps: the number, a column per cell, duplicate and delete
+  const grid = { "--step-columns": `2em repeat(${cells}, minmax(0.4em, 1.6em)) 2.2em 2.2em` } as CSSProperties;
 
   // Server-side preview, debounced: the same generator as the show.
   useEffect(() => {
@@ -139,9 +154,23 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   };
 
   return (
-    <section className="look-editor">
+    <section className="look-editor" style={grid}>
       <h2>{isNew ? t.newLook : `${t.editLook} · ${initial.name}`}</h2>
-      {preview && <LookPreview preview={preview} timing={look.timing} bpm={tempo?.bpm ?? 120} label={t.preview} />}
+      {preview && (
+        <div className="cells-view">
+          <div className="row cells-tools">
+            <label className="inline" title={t.stageOrderHelp}>
+              <input type="checkbox" checked={byStage} onChange={(e) => setByStage(e.target.checked)} /> {t.stageOrder}
+            </label>
+            <button className={onStage ? "toggle on" : "toggle"} aria-pressed={onStage} title={t.previewOnStageHelp} onClick={() => setOnStage(!onStage)}>
+              {t.previewOnStage}
+            </button>
+          </div>
+          {preview.topology !== "grid" && <BlockNames blocks={shown.blocks} />}
+          <LookPreview preview={preview} frame={frame} label={t.preview} order={shown.order} starts={starts} />
+          {onStage && <LiveStage onError={setError} shownColors={stageColors} />}
+        </div>
+      )}
       <div className="fields">
         <label className="field">
           <span>{t.name}</span>
@@ -190,7 +219,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
       </div>
 
       {schema && <SchemaFields schema={schema} values={look.technique} onChange={(v) => set({ technique: v as LookDraft["technique"] })} skip={look.palette ? ["colors", "color", "base"] : []} />}
-      {look.technique.kind === "pas" && <StepsEditor steps={(look.technique.steps as string[][]) ?? [[]]} cells={cells} blocks={blocks} onChange={(steps) => set({ technique: { ...look.technique, steps } })} />}
+      {look.technique.kind === "pas" && <StepsEditor steps={(look.technique.steps as string[][]) ?? [[]]} cells={cells} blocks={shown.blocks} order={shown.order} onChange={(steps) => set({ technique: { ...look.technique, steps } })} />}
 
       <h3>{t.timing}</h3>
       <div className="fields">

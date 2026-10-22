@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
+import { Modal } from "../components/Modal";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 import { RecentlyDeleted } from "../components/Versions";
@@ -243,7 +244,8 @@ export function ShowPage() {
             {t.saveSnapshot}
           </button>
         </div>
-        <table>
+        <table className="listing">
+          <thead><tr><th>{t.cols.snapshot}</th><th>{t.cols.content}</th><th /></tr></thead>
           <tbody>
             {snapshots.map((s) => (
               <tr key={s.id}>
@@ -310,15 +312,17 @@ export function ShowPage() {
       </section>
 
       {editing && (
-        <LookEditor
-          key={editing.id || "new"}
-          initial={editing}
-          existing={looks.map((l) => l.id)}
-          onClose={() => {
-            setEditing(null);
-            refresh();
-          }}
-        />
+        <Modal label={editing.name || t.newLook}>
+          <LookEditor
+            key={editing.id || "new"}
+            initial={editing}
+            existing={looks.map((l) => l.id)}
+            onClose={() => {
+              setEditing(null);
+              refresh();
+            }}
+          />
+        </Modal>
       )}
 
       <section>
@@ -343,7 +347,8 @@ export function ShowPage() {
             )}
           </div>
         )}
-        <table>
+        <table className="listing">
+          <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
             {shownLooks.map((l) => (
               <tr key={l.id}>
@@ -375,15 +380,17 @@ export function ShowPage() {
       </section>
 
       {editingGroup && (
-        <GroupEditor
-          key={editingGroup.id || "new-group"}
-          initial={editingGroup}
-          existing={groups.map((g) => g.id)}
-          onClose={() => {
-            setEditingGroup(null);
-            refresh();
-          }}
-        />
+        <Modal label={editingGroup.name || t.newGroup}>
+          <GroupEditor
+            key={editingGroup.id || "new-group"}
+            initial={editingGroup}
+            existing={groups.map((g) => g.id)}
+            onClose={() => {
+              setEditingGroup(null);
+              refresh();
+            }}
+          />
+        </Modal>
       )}
       <section>
         <h2>
@@ -392,7 +399,8 @@ export function ShowPage() {
             + {t.newGroup}
           </button>
         </h2>
-        <table>
+        <table className="listing">
+          <thead><tr><th>{t.cols.group}</th><th>{t.exclusive}</th><th>DCA</th><th>{t.cols.limits}</th><th>{t.cols.content}</th></tr></thead>
           <tbody>
             {groups.map((g) => (
               <tr key={g.id}>
@@ -449,15 +457,17 @@ export function ShowPage() {
         </table>
       </section>
       {editingFader && (
-        <FaderEditor
-          key={editingFader.id || "new-fader"}
-          initial={editingFader}
-          existing={faders.map((f) => f.id)}
-          onClose={() => {
-            setEditingFader(null);
-            refresh();
-          }}
-        />
+        <Modal label={editingFader.name || t.newFader}>
+          <FaderEditor
+            key={editingFader.id || "new-fader"}
+            initial={editingFader}
+            existing={faders.map((f) => f.id)}
+            onClose={() => {
+              setEditingFader(null);
+              refresh();
+            }}
+          />
+        </Modal>
       )}
       <section>
         <h2>
@@ -467,7 +477,8 @@ export function ShowPage() {
           </button>
         </h2>
         <p className="hint">{t.channelFadersHelp}</p>
-        <table>
+        <table className="listing">
+          <thead><tr><th>{t.cols.fader}</th><th>{t.cols.channels}</th><th>{t.cols.level}</th></tr></thead>
           <tbody>
             {faders.map((f) => (
               <tr key={f.id}>
