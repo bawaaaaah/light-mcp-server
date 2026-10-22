@@ -2,6 +2,7 @@
  * How long the server keeps a message waiting (docs/specs/midi.md, « Diagnostic ») : a MIDI note,
  * a click or a frame is handled when Node is free, so a stall of the event loop delays it. Measured
  * by Node's own histogram over windows of `windowMs`; the worst window of the last hour is kept.
+ * The histogram times its own timer's whole interval: its resolution is taken off (at rest, 0).
  */
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
@@ -16,7 +17,9 @@ export interface LoopDelayStats {
   worst: { ms: number; at: number } | null;
 }
 
-const ms = (ns: number) => Math.round(ns / 1e4) / 100;
+const RESOLUTION_MS = 10;
+/** A delay past the timer's interval, in ms. */
+const ms = (ns: number) => Math.max(0, Math.round(ns / 1e4) / 100 - RESOLUTION_MS);
 
 export class LoopDelay {
   private histogram: IntervalHistogram | undefined;
@@ -31,7 +34,7 @@ export class LoopDelay {
 
   start(): void {
     if (this.histogram) return;
-    this.histogram = monitorEventLoopDelay({ resolution: 10 });
+    this.histogram = monitorEventLoopDelay({ resolution: RESOLUTION_MS });
     this.histogram.enable();
     this.timer = setInterval(() => this.close(), this.windowMs);
     this.timer.unref();
