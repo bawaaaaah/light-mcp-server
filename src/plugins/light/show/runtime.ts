@@ -575,7 +575,7 @@ export class ShowRuntime {
         const buf = f && buffers[f.universe - 1];
         const index = f ? f.address - 1 + c.offset : -1;
         if (!buf || index < 0 || index >= 512) continue;
-        if (this.isDimmer(c.fixture, c.offset)) {
+        if (this.dosesDimmer(c.fixture, c.offset)) {
           const dosed = doses.get(buf) ?? new Map<number, number>();
           doses.set(buf, dosed.set(index, Math.max(dosed.get(index) ?? 0, level)));
         } else if (buf[index]! < value) buf[index] = value;
@@ -585,8 +585,8 @@ export class ShowRuntime {
     return errors;
   }
 
-  /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's). */
-  private isDimmer(fixtureId: string, offset: number): boolean {
+  /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's): a channel fader on it doses it. */
+  dosesDimmer(fixtureId: string, offset: number): boolean {
     const r = this.venue.resolve(fixtureId);
     return !("error" in r) && !r.lampOnly && r.dimmers.includes(offset);
   }

@@ -66,7 +66,11 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     // the first bar's dimmer alone
     await run("fader.put", { fader: { id: "bords", name: "Barres des bords", channels: [{ fixture: "bar-0", offset: 0 }], level: 0 } });
     expect([out()[0], out()[15]]).to.deep.equal([0, 255]); // at 0 that bar is dark, the other one untouched
+    const lint = async () => ((await run("show.lint")) as { issues: { level: string; where: string; message: string }[] }).issues.filter((i) => i.where === "fader bords");
+    expect((await lint())[0]).to.deep.include({ level: "attention" }); // said before the service: left at 0, the bar stays dark
+    expect((await lint())[0]!.message).to.match(/éteint 1 projecteur/);
     await run("fader.level", { id: "bords", level: 0.5 });
+    expect(await lint()).to.deep.equal([]);
     expect(out()[0]).to.be.closeTo(128, 1);
     // the second bar's dimmer and its first red
     await run("fader.put", { fader: { id: "centre", name: "Centre rouge", channels: [{ fixture: "bar-1", offset: 0 }, { fixture: "bar-1", offset: 3 }], level: 1 } });
