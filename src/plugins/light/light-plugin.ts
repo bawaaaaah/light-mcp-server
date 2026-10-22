@@ -40,6 +40,7 @@ import { OscServer } from "./osc/server.js";
 import { Os2lServer } from "./os2l/server.js";
 import type { Os2lEvent } from "./os2l/codec.js";
 import { advertise, localHost } from "../../core/mdns.js";
+import { ClockOut } from "./timing/clock-out.js";
 import { TempoClock } from "./timing/tempo.js";
 import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
@@ -132,6 +133,9 @@ export class LightPlugin implements McpPlugin {
   /** The DJ leads while the MIDI clock, the chosen source, is silent: it leads again when it comes back. */
   private djOverMidi = false;
   private os2lAnnounce: { stop: () => Promise<void> } | undefined;
+  /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
+  private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
+  private clockTimer: NodeJS.Timeout | undefined;
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
@@ -356,9 +360,9 @@ export class LightPlugin implements McpPlugin {
     return { manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) };
   }
 
-  private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; rtp: MidiProfile["rtp"] } {
+  private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
     const p = this.config.midi.profiles[this.config.midi.active] ?? MidiProfileSchema.parse({});
-    return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, rtp: p.rtp };
+    return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, clockOutput: p.clockOutput, rtp: p.rtp };
   }
 
   /**
@@ -514,6 +518,9 @@ export class LightPlugin implements McpPlugin {
     await this.os2l.start().catch((err: Error) => console.warn(`OS2L indisponible sur le port ${this.config.os2l.port} : ${err.message}`));
     const os2lPort = this.os2l.port;
     if (os2lPort && this.config.os2l.advertise) this.os2lAnnounce = await advertise({ instance: "Lumière", type: "_os2l._tcp", port: os2lPort, ...localHost() });
+    // every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time
+    this.clockTimer = setInterval(() => this.activeMidiProfile().clockOutput && this.clockOut.tick(), 1);
+    this.clockTimer.unref();
     let lastState = "";
     let ticks = 0;
     this.tempoTimer = setInterval(() => {
@@ -579,6 +586,7 @@ export class LightPlugin implements McpPlugin {
     if (this.started) this.saveLive();
     this.show.flushLive();
     this.osc.stop();
+    if (this.clockTimer) clearInterval(this.clockTimer);
     await this.os2lAnnounce?.stop();
     this.os2lAnnounce = undefined;
     await this.os2l.stop();

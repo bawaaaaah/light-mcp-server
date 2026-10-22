@@ -13,6 +13,8 @@ import { say } from "../../../core/lang.js";
 export const MidiProfileSchema = z.object({
   inputs: z.array(z.string()).default([]),
   feedbackOutput: z.string().optional(),
+  /** Where the MIDI clock out goes (the light's tempo, 24 per beat): an output name, or "rtp". */
+  clockOutput: z.string().optional(),
   rtp: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(1024).max(65534).default(5004), name: z.string().default("light-mcp-server") }).default({}),
 });
 export type MidiProfile = z.infer<typeof MidiProfileSchema>;

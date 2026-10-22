@@ -84,4 +84,4 @@ Ces chantiers avancent ensemble. Chacun a sa spec :
 - ~~Vue 3D de la scène~~ : faite (Scène en direct, bouton « 3D »).
 - Synchronisation audio et analyse audio des chants : faits (tempo et ébauche des sections depuis un enregistrement ; tempo et temps suivis au micro en direct).
 - Ableton Link (OS2L fait le 2026-10-22 : tempo et boutons d'un logiciel DJ, annoncé en mDNS).
-- MIDI clock en sortie, RDM.
+- RDM (horloge MIDI en sortie faite le 2026-10-22).

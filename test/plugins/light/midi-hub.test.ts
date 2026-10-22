@@ -87,6 +87,25 @@ describe("MIDI hub", () => {
     expect(f.state.sent).to.deep.equal([{ port: "LED Out", bytes: [0x90, 36, 127] }]);
   });
 
+  it("sends the MIDI clock to its own output, never to a watched input", () => {
+    const f = fakeNative();
+    const hub = new MidiHub({ inputs: ["iac"], feedbackOutput: "LED", clockOutput: "USB Pad", rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });
+    hub.scan();
+    hub.sendClock([0xf8]);
+    hub.sendFeedback([[0x90, 36, 127]]);
+    expect(f.state.sent).to.deep.equal([
+      { port: "USB Pad", bytes: [0xf8] },
+      { port: "LED Out", bytes: [0x90, 36, 127] },
+    ]);
+    expect(hub.status().clock).to.equal("USB Pad");
+    const warnings: string[] = [];
+    const looped = new MidiHub({ inputs: ["iac"], clockOutput: "IAC", rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });
+    looped.on("warning", (w: string) => warnings.push(w));
+    looped.scan();
+    expect(looped.status().clock).to.equal(undefined); // the tempo would follow its own clock
+    expect(warnings[0]).to.match(/horloge MIDI refusé/);
+  });
+
   it("works without local MIDI and receives RTP-MIDI", async () => {
     const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15204, name: "hub" } }, { native: null });
     expect(hub.localAvailable).to.equal(false);

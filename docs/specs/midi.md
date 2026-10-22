@@ -74,6 +74,11 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - **Song Position Pointer** : recalage de la position. Le serveur **rétablit la section courante** d'après la timeline du chant, ce qui permet une reprise en *scrub* au milieu d'une section.
 - **Alerte « horloge attendue mais absente »** : sans le réglage Sync d'Ableton, rien ne suit le tempo et rien ne le signale. On rend donc ce cas visible.
 
+### Horloge en sortie (v1)
+- Le tempo de la lumière (manuel, tap, micro, DJ) peut partir en **horloge MIDI** : 24 tops par temps vers une sortie du profil MIDI (`clockOutput` : un nom de port, ou `rtp` pour la session RTP-MIDI ; page MIDI, « Horloge MIDI en sortie »), pour qu'Ableton ou une boîte à rythmes réglés pour la suivre gardent ce tempo.
+- Calée sur le compteur de temps du moteur : un changement de tempo ou un rattrapage de phase part tel quel. Mesuré à ±1 ms de son instant (minuterie d'une milliseconde, 120 BPM). Après un blocage de la machine, un seul top, jamais une rafale.
+- **Jamais de Start ni de Stop** : ils lanceraient ou arrêteraient le transport de ce qui suit. **Rien** pendant que le tempo suit lui-même une horloge MIDI (il la renverrait). Une sortie qui est aussi une entrée surveillée est **refusée**, comme pour le retour : le tempo suivrait sa propre horloge.
+
 ## Contrôle externe : OSC
 - **Serveur OSC** (UDP, port configurable). Toutes les adresses passent par la couche de commandes et les droits du rôle. Exemples d'adresses :
   - `/light/song/{id}/select` ;

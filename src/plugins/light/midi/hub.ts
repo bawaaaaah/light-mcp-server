@@ -8,6 +8,8 @@
  * - Local MIDI missing (no ALSA sequencer, no native module) is reported, never fatal.
  * - Feedback goes to a distinct output: a feedback port that is also a watched input is refused
  *   (QLC+ looped its feedback into its own input and its toggles flipped by themselves).
+ * - The MIDI clock out (the light's tempo, timing/clock-out.ts) goes to its own output, refused on a
+ *   watched input too: the tempo would follow its own clock.
  */
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
@@ -29,6 +31,8 @@ export interface HubConfig {
   inputs: string[];
   /** Local output port name substring for feedback, or "rtp". */
   feedbackOutput?: string;
+  /** Local output port name substring for the MIDI clock out, or "rtp". */
+  clockOutput?: string;
   rtp: { enabled: boolean; port: number; name: string };
 }
 
@@ -74,6 +78,7 @@ export class MidiHub extends EventEmitter {
   readonly localError: string | undefined;
   private readonly openInputs = new Map<string, NativeInput>();
   private feedbackPort: { name: string; out: NativeOutput } | undefined;
+  private clockPort: { name: string; out: NativeOutput } | undefined;
   private knownInputs: string[] = [];
   private knownOutputs: string[] = [];
   private readonly activity = new Map<string, number>();
@@ -115,6 +120,8 @@ export class MidiHub extends EventEmitter {
     this.openInputs.clear();
     this.feedbackPort?.out.closePort();
     this.feedbackPort = undefined;
+    this.clockPort?.out.closePort();
+    this.clockPort = undefined;
     this.rtp?.stop();
     this.rtp = undefined;
   }
@@ -130,6 +137,8 @@ export class MidiHub extends EventEmitter {
     }
     this.feedbackPort?.out.closePort();
     this.feedbackPort = undefined;
+    this.clockPort?.out.closePort();
+    this.clockPort = undefined;
     this.scan();
     if (rtpChanged) await this.applyRtp();
   }
@@ -195,23 +204,24 @@ export class MidiHub extends EventEmitter {
       input.openPort(index);
       this.openInputs.set(name, input);
     });
-    this.ensureFeedbackPort(outputs);
+    if (!this.feedbackPort) this.feedbackPort = this.openOutput(outputs, this.config.feedbackOutput, "retour MIDI");
+    if (!this.clockPort) this.clockPort = this.openOutput(outputs, this.config.clockOutput, "horloge MIDI");
     if (changed) this.emit("ports", { appeared });
   }
 
-  private ensureFeedbackPort(outputs: string[]): void {
-    const wanted = this.config.feedbackOutput;
-    if (!wanted || wanted === "rtp" || !this.native || this.feedbackPort) return;
+  /** An output by name substring, never one that is also a watched input (it would loop back). */
+  private openOutput(outputs: string[], wanted: string | undefined, what: string): { name: string; out: NativeOutput } | undefined {
+    if (!wanted || wanted === "rtp" || !this.native) return undefined;
     const index = outputs.findIndex((n) => n.toLowerCase().includes(wanted.toLowerCase()));
-    if (index === -1) return;
+    if (index === -1) return undefined;
     const name = outputs[index]!;
     if (this.isWatched(name)) {
-      this.emit("warning", `retour MIDI refusé sur « ${name} » : c'est aussi une entrée surveillée (risque de boucle)`);
-      return;
+      this.emit("warning", `${what} refusé sur « ${name} » : c'est aussi une entrée surveillée (risque de boucle)`);
+      return undefined;
     }
     const out = new this.native.Output();
     out.openPort(index);
-    this.feedbackPort = { name, out };
+    return { name, out };
   }
 
   /** Entry point for every source, including Web MIDI relayed by browsers. */
@@ -231,7 +241,13 @@ export class MidiHub extends EventEmitter {
     for (const m of messages) this.feedbackPort.out.sendMessage(m);
   }
 
-  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; rtp: { enabled: boolean; port: number; peers: string[]; error?: string } } {
+  /** MIDI clock bytes (0xF8 clock, 0xFA start, 0xFC stop) to the clock output. */
+  sendClock(bytes: number[]): void {
+    if (this.config.clockOutput === "rtp") this.rtp?.send([bytes]);
+    else this.clockPort?.out.sendMessage(bytes);
+  }
+
+  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; clock?: string; rtp: { enabled: boolean; port: number; peers: string[]; error?: string } } {
     const inputs: PortStatus[] = this.knownInputs.map((name) => ({ name, watched: this.isWatched(name), open: this.openInputs.has(name), lastMessageAt: this.activity.get(name) }));
     for (const [name, at] of this.activity) {
       if (name.startsWith("Web MIDI")) inputs.push({ name, watched: true, open: true, lastMessageAt: at });
@@ -246,6 +262,7 @@ export class MidiHub extends EventEmitter {
       inputs,
       outputs: this.knownOutputs,
       feedback: this.feedbackPort?.name ?? (this.config.feedbackOutput === "rtp" ? "rtp" : undefined),
+      clock: this.clockPort?.name ?? (this.config.clockOutput === "rtp" ? "rtp" : undefined),
       rtp: { enabled: this.config.rtp.enabled, port: this.config.rtp.port, peers: this.rtp?.listPeers().map((p) => `${p.name} (${p.address})`) ?? [], error: this.rtpError },
     };
   }

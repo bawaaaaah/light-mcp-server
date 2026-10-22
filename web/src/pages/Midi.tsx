@@ -13,7 +13,7 @@ interface Status {
   rtp: { enabled: boolean; port: number; peers: string[]; error?: string };
   profile: string;
   profiles: string[];
-  profileConfig?: { inputs: string[]; feedbackOutput?: string; rtp: { enabled: boolean; port: number; name: string } };
+  profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string } };
 }
 interface Mapping {
   id: string;
@@ -140,6 +140,19 @@ export function MidiPage() {
               {status.outputs.map((o) => (
                 <option key={o}>{o}</option>
               ))}
+            </select>
+          </label>
+        )}
+        {/* the light's tempo as MIDI clock, for Ableton or a drum machine set to follow it */}
+        {status?.profileConfig && (
+          <label title={t.clockOutHelp}>
+            {t.clockOut}{" "}
+            <select aria-label={t.clockOut} value={status.profileConfig.clockOutput ?? ""} onChange={(e) => saveProfile({ clockOutput: e.target.value || undefined })}>
+              <option value="">—</option>
+              {status.outputs.map((o) => (
+                <option key={o}>{o}</option>
+              ))}
+              {status.rtp.enabled && <option value="rtp">RTP-MIDI</option>}
             </select>
           </label>
         )}
