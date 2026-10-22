@@ -21,10 +21,18 @@ interface Os2l {
   clients: { address: string; since: number; beats: number; bpm?: number }[];
   log: { at: number; address: string; event: { evt: string; name?: string; state?: string; id?: number } }[];
 }
+type UsbKind = "open" | "pro";
 interface Route {
   universe: number;
   artnet?: { portAddress: number };
   sacn?: { universe: number };
+  usb?: { path: string; kind: UsbKind };
+}
+interface UsbPort {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  ftdi: boolean;
 }
 interface Output {
   standby: boolean;
@@ -34,37 +42,77 @@ interface Output {
   config: { routes: Route[] };
   coverage?: { unheard: { universe: number; portAddress: number }[]; unfed: { key: string; ip: string; shortName: string; portAddress: number }[] };
   universes?: number;
+  usb?: { available: boolean; error?: string; devices: { path: string; kind: UsbKind; open: boolean; framesSent: number; error?: string }[] };
+}
+/** A route's change: an output set, removed (null), or left as it is (absent). */
+type RouteChange = { artnet?: number | null; sacn?: number | null; usb?: { path: string; kind: UsbKind } | null };
+
+/** What a route sends, in words. */
+function describeRoute(route: Route, kinds: Record<UsbKind, string>): string {
+  return [route.artnet && `Art-Net ${route.artnet.portAddress}`, route.sacn && `sACN ${route.sacn.universe}`, route.usb && `DMX USB ${route.usb.path} (${kinds[route.usb.kind]})`].filter(Boolean).join(" · ");
 }
 
-/** One universe's route: an Art-Net address and an sACN universe, either left empty. */
-function RouteRow({ route, editable, onSave }: { route: Route; editable: boolean; onSave: (artnet: number | null, sacn: number | null) => void }) {
+/** One universe's outputs, each chosen by its box: an Art-Net address, an sACN universe, a DMX USB interface. */
+function RouteRow({ route, editable, ports, onSave }: { route: Route; editable: boolean; ports: UsbPort[]; onSave: (change: RouteChange) => void }) {
   const t = useT();
-  const [artnet, setArtnet] = useState(route.artnet ? String(route.artnet.portAddress) : "");
-  const [sacn, setSacn] = useState(route.sacn ? String(route.sacn.universe) : "");
-  useEffect(() => {
-    setArtnet(route.artnet ? String(route.artnet.portAddress) : "");
-    setSacn(route.sacn ? String(route.sacn.universe) : "");
-  }, [route.artnet?.portAddress, route.sacn?.universe]);
-  const changed = artnet !== (route.artnet ? String(route.artnet.portAddress) : "") || sacn !== (route.sacn ? String(route.sacn.universe) : "");
+  const initial = () => ({
+    artnet: route.artnet ? String(route.artnet.portAddress) : "",
+    sacn: route.sacn ? String(route.sacn.universe) : "",
+    usb: route.usb ?? null,
+  });
+  const [state, setState] = useState(initial);
+  useEffect(() => setState(initial()), [route.artnet?.portAddress, route.sacn?.universe, route.usb?.path, route.usb?.kind]);
+  const before = initial();
+  const changed = state.artnet !== before.artnet || state.sacn !== before.sacn || state.usb?.path !== before.usb?.path || state.usb?.kind !== before.usb?.kind;
   const label = `${t.universe} ${route.universe}`;
   if (!editable)
     return (
       <li>
-        {label} → {route.artnet ? `Art-Net ${route.artnet.portAddress}` : ""} {route.sacn ? `sACN ${route.sacn.universe}` : ""}
-        {!route.artnet && !route.sacn && <small className="hint">{t.routeNone}</small>}
+        {label} → {describeRoute(route, t.usbKinds)}
+        {!route.artnet && !route.sacn && !route.usb && <small className="hint">{t.routeNone}</small>}
       </li>
     );
+  // the interface of the route stays listed while unplugged
+  const choices = route.usb && !ports.some((p) => p.path === route.usb!.path) ? [...ports, { path: route.usb.path, ftdi: false, unplugged: true }] : ports;
+  const firstPort = (ports.find((p) => p.ftdi) ?? ports[0])?.path;
   return (
     <li className="row route">
       <strong>{label}</strong> →
-      <label>
-        Art-Net <input type="number" min={0} max={32767} placeholder="—" aria-label={`${label} · Art-Net`} value={artnet} onChange={(e) => setArtnet(e.target.value)} />
-      </label>
-      <label>
-        sACN <input type="number" min={1} max={63999} placeholder="—" aria-label={`${label} · sACN`} value={sacn} onChange={(e) => setSacn(e.target.value)} />
-      </label>
+      <span className="out">
+        <label>
+          <input type="checkbox" checked={state.artnet !== ""} onChange={(e) => setState({ ...state, artnet: e.target.checked ? String(route.artnet?.portAddress ?? route.universe - 1) : "" })} /> Art-Net
+        </label>
+        {state.artnet !== "" && <input type="number" min={0} max={32767} aria-label={`${label} · Art-Net`} value={state.artnet} onChange={(e) => setState({ ...state, artnet: e.target.value })} />}
+      </span>
+      <span className="out">
+        <label>
+          <input type="checkbox" checked={state.sacn !== ""} onChange={(e) => setState({ ...state, sacn: e.target.checked ? String(route.sacn?.universe ?? route.universe) : "" })} /> sACN
+        </label>
+        {state.sacn !== "" && <input type="number" min={1} max={63999} aria-label={`${label} · sACN`} value={state.sacn} onChange={(e) => setState({ ...state, sacn: e.target.value })} />}
+      </span>
+      <span className="out">
+        <label title={firstPort || state.usb ? undefined : t.usbNone}>
+          <input type="checkbox" checked={state.usb !== null} disabled={!firstPort && !state.usb} onChange={(e) => setState({ ...state, usb: e.target.checked ? (route.usb ?? { path: firstPort!, kind: "open" }) : null })} /> DMX USB
+        </label>
+        {state.usb && (
+          <>
+            <select aria-label={`${label} · DMX USB`} value={state.usb.path} onChange={(e) => setState({ ...state, usb: { ...state.usb!, path: e.target.value } })}>
+              {choices.map((p) => (
+                <option key={p.path} value={p.path}>
+                  {p.path}
+                  {"unplugged" in p ? ` (${t.usbUnplugged})` : p.manufacturer ? ` · ${p.manufacturer}` : ""}
+                </option>
+              ))}
+            </select>
+            <select aria-label={`${label} · ${t.usbKind}`} value={state.usb.kind} onChange={(e) => setState({ ...state, usb: { ...state.usb!, kind: e.target.value as UsbKind } })}>
+              <option value="open">{t.usbKinds.open}</option>
+              <option value="pro">{t.usbKinds.pro}</option>
+            </select>
+          </>
+        )}
+      </span>
       {changed && (
-        <button className="primary" onClick={() => onSave(artnet === "" ? null : Number(artnet), sacn === "" ? null : Number(sacn))}>
+        <button className="primary" onClick={() => onSave({ artnet: state.artnet === "" ? null : Number(state.artnet), sacn: state.sacn === "" ? null : Number(state.sacn), usb: state.usb })}>
           {t.save}
         </button>
       )}
@@ -79,6 +127,7 @@ export function SettingsPage({ role }: { role: Role }) {
   const [os2l, setOs2l] = useState<Os2l | null>(null);
   const [error, setError] = useState("");
   const [added, setAdded] = useState<number[]>([]);
+  const [ports, setPorts] = useState<UsbPort[]>([]);
   const routing = can(role, "commands:output");
 
   const load = useCallback(() => {
@@ -86,16 +135,24 @@ export function SettingsPage({ role }: { role: Role }) {
     void cmd<Output>("output.status").then(setOutput).catch(() => undefined);
     void cmd<Os2l>("os2l.status").then(setOs2l).catch(() => undefined);
   }, []);
+  const loadPorts = useCallback(() => void cmd<{ ports: UsbPort[] }>("output.usb.list").then((r) => setPorts(r.ports)).catch(() => undefined), []);
   useEffect(() => {
     load();
+    loadPorts();
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, loadPorts]);
   // the light moves at once: asked first, unless nothing is sent (standby)
-  const route = (universe: number, artnet: number | null, sacn: number | null) => {
+  const route = (universe: number, change: RouteChange) => {
     if (!output?.standby && !confirm(t.routeConfirm)) return;
     setError("");
-    void cmd("output.route", { universe, artnet: artnet === null ? null : { portAddress: artnet }, sacn: sacn === null ? null : { universe: sacn } }).then(
+    const { artnet, sacn, usb } = change;
+    void cmd("output.route", {
+      universe,
+      ...(artnet === undefined ? {} : { artnet: artnet === null ? null : { portAddress: artnet } }),
+      ...(sacn === undefined ? {} : { sacn: sacn === null ? null : { universe: sacn } }),
+      ...(usb === undefined ? {} : { usb }),
+    }).then(
       () => (setAdded((a) => a.filter((u) => u !== universe)), load()),
       (e: Error) => setError(e.message),
     );
@@ -148,7 +205,7 @@ export function SettingsPage({ role }: { role: Role }) {
           {error && <p className="error">{error}</p>}
           <ul className="routes">
             {routes.map((r) => (
-              <RouteRow key={r.universe} route={r} editable={routing} onSave={(a, s) => route(r.universe, a, s)} />
+              <RouteRow key={r.universe} route={r} editable={routing} ports={ports} onSave={(change) => route(r.universe, change)} />
             ))}
           </ul>
           {routing && nextUniverse !== undefined && (
@@ -156,12 +213,31 @@ export function SettingsPage({ role }: { role: Role }) {
               {t.routeAdd} {nextUniverse}
             </button>
           )}
+          {routing && (
+            <button className="ghost" onClick={loadPorts}>
+              {t.usbRefresh}
+            </button>
+          )}
+          {output?.usb && !output.usb.available && output.config.routes.some((r) => r.usb) && <p className="warn">⚠ {t.usbOff} ({output.usb.error})</p>}
+          {(output?.usb?.devices.length ?? 0) > 0 && (
+            <>
+              <h2>{t.usbTitle}</h2>
+              <ul className="usb">
+                {output!.usb!.devices.map((d) => (
+                  <li key={d.path}>
+                    <span className={`dot ${d.open ? "ok" : "idle"}`} /> {d.path} ({t.usbKinds[d.kind]}) · {d.open ? `${t.usbSending}${d.kind === "open" ? ` (${d.framesSent})` : ""}` : t.usbClosed}
+                    {d.error && <small className="warn"> · {d.error}</small>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {output?.coverage?.unheard.map((u) => (
             <p key={u.universe} className="warn">
               ⚠ {t.universe} {u.universe} → Art-Net {u.portAddress} : {t.unheard}
               {routing &&
                 output.coverage!.unfed.map((p) => (
-                  <button key={p.key + p.portAddress} onClick={() => route(u.universe, p.portAddress, output.config.routes.find((r) => r.universe === u.universe)?.sacn?.universe ?? null)}>
+                  <button key={p.key + p.portAddress} onClick={() => route(u.universe, { artnet: p.portAddress })}>
                     → {p.shortName || p.ip} (Art-Net {p.portAddress})
                   </button>
                 ))}

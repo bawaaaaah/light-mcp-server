@@ -36,4 +36,5 @@ Pendant la transition (v0), **QLC+ reste prêt à reprendre la main** ([roadmap]
 
 ## Points à vérifier en répétition
 - Le node utilisé (fusion HTP ou LTP, durée de maintien d'une source muette) : noter le comportement dans [research/proto-resultats.md](research/proto-resultats.md) (P6).
+- **Interface DMX USB** : un port série n'est tenu que par un programme à la fois. En veille, le serveur lâche ses interfaces DMX USB : QLC+ peut les ouvrir (relancer sa sortie « DMX USB » si elle était en erreur). Avant de reprendre la main côté serveur, couper la sortie USB de QLC+, sinon le serveur ne peut pas ouvrir l'interface (Réglages, « Interfaces DMX USB » : l'erreur s'affiche, il réessaie toutes les 2 s).
 - Les retours MIDI (LED des contrôleurs) : le serveur n'en envoie aucun pendant la veille et les renvoie tous en reprenant la main. Côté QLC+, couper son retour (*feedback*) quand le serveur tient la lumière, sinon les deux écrivent sur les LED.

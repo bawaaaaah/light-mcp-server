@@ -5,7 +5,7 @@
 ```bash
 git clone <dépôt> light-mcp-server && cd light-mcp-server
 npm install
-npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julusian/midi   # npm ≥ 12
+npm install-scripts approve esbuild @julusian/midi @serialport/bindings-cpp && npm rebuild esbuild @julusian/midi @serialport/bindings-cpp   # npm ≥ 12
 npm --prefix web install
 npm run build
 ```

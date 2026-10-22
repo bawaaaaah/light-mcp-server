@@ -34,7 +34,7 @@ npx light pin regisseur 1234        # un PIN par rôle : admin, regisseur, benev
 npx light serve                     # ou : npx light serve --standby (QLC+ garde la main)
 ```
 
-Avec npm 12, l'installation peut afficher « install scripts blocked » pour `@julusian/midi` : c'est sans conséquence (le module MIDI est livré précompilé, le script ne fait que vérifier) ; `npm install-scripts approve @julusian/midi` fait taire l'avertissement.
+Avec npm 12, l'installation peut afficher « install scripts blocked » pour `@julusian/midi` et `@serialport/bindings-cpp` : c'est sans conséquence (les modules MIDI et port série sont livrés précompilés, le script ne fait que vérifier) ; `npm install-scripts approve @julusian/midi @serialport/bindings-cpp` fait taire l'avertissement.
 
 Ou globalement : `npm install -g @bawaaaaah/light-mcp-server`, puis `light serve` depuis le dossier où vivront les données.
 

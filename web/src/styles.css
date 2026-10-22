@@ -1831,13 +1831,23 @@ ul.online {
   background: var(--accent);
   color: var(--bg);
 }
-.routes .route input {
+.routes .route input[type="number"] {
   width: 6em;
 }
 .routes .route label {
   display: inline-flex;
   align-items: center;
   gap: 0.3em;
+}
+/* one output of a universe: its box, then its setting */
+.routes .route .out {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  flex-wrap: wrap;
+}
+.routes .route select {
+  max-width: 16em;
 }
 .nodes ul {
   margin: 0.2em 0 0.5em;

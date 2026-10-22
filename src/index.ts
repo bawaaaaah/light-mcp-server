@@ -22,7 +22,7 @@ export interface BootstrapOptions {
   stdio?: boolean;
   log?: (msg: string) => void;
   /** Overrides for the light plugin (data root, test seams). */
-  light?: Pick<LightPluginOptions, "dataRoot" | "midiNative" | "tickerRateHz" | "standby">;
+  light?: Pick<LightPluginOptions, "dataRoot" | "midiNative" | "serial" | "tickerRateHz" | "standby">;
 }
 
 export interface Running {

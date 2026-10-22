@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-22)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), la bascule QLC+ et la sortie vers le node regardée sur scène (P6, découverte sur le réseau lumière, validé le 2026-10-21 : un node à deux ports, l'un en Art-Net, l'autre en sACN), hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
-- **Serveur** (`npm test` : 400 tests verts ; `npm run test:ui` : 104), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 406 tests verts ; `npm run test:ui` : 104), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -57,7 +57,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - **2026-10-21 et 22** :
     - **tempo** : suivi au **micro** (🎤 du widget Tap, phase rattrapée sans saut), tapé à la main dans le widget Tap, **source choisie** dans la page MIDI et « ↺ MIDI » quand Ableton joue sans être suivi, **horloge MIDI en sortie** (24 par temps, jamais de Start/Stop) ;
     - **DJ en OS2L** (VirtualDJ) : ses temps mènent le tempo (l'horloge MIDI et le micro restent prioritaires), un bouton lance le look de son nom, une commande numérotée passe par les mappings ; annoncé en **mDNS** (`src/core/mdns.ts`), état dans Réglages ;
-    - **sortie** : état des ports des nodes (Art-Net ou sACN, DMX en sortie), **routes réglables** dans Réglages, **couverture** (route qu'aucun node n'écoute, port que rien n'alimente) ; découverte validée sur le réseau lumière ;
+    - **sortie** : état des ports des nodes (Art-Net ou sACN, DMX en sortie), **routes réglables** dans Réglages (sorties **cochées** par univers : Art-Net, sACN, **DMX USB** Open DMX ou USB Pro, à essayer avec l'interface FTDI de l'utilisateur), **couverture** (route qu'aucun node n'écoute, port que rien n'alimente) ; découverte validée sur le réseau lumière ;
     - **sécurité des définitions** : sorties de machine (fumée, bulles…) et **sélecteurs** (mode, relais, vanne) jamais poussés à fond comme des gradateurs ; étiquette **« machine »** pour les règles ;
     - **faders de canaux** : sélection en **arbre** façon QLC+ (projecteurs par adresse, canaux un par un, accès rapide, même canal partout), **dosage** du gradateur maître d'un projecteur à couleurs, **intervalle de valeurs** (repris des faders QLC+ à l'import), un DCA choisit les faders qu'il dose ; widget **grand master** ;
     - **looks** : tirages aléatoires (palette, forme `aleatoire` des lyres, ordre mélangé), fonctions des canaux bruts **par leur nom** (mode, scène de couleur) ;
@@ -80,7 +80,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 
 ## Démarrer
 ```bash
-npm install && npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julusian/midi
+npm install && npm install-scripts approve esbuild @julusian/midi @serialport/bindings-cpp && npm rebuild esbuild @julusian/midi @serialport/bindings-cpp
 npm run build:web
 npm run light -- pin regisseur 1234     # définir un PIN
 npm run serve                            # http://localhost:8790 ; MCP sur /mcp (jeton : npm run light -- token)

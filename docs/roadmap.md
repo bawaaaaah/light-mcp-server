@@ -23,7 +23,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 |---|---|
 | Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
 | Socle serveur (cœur wing, rôles PIN, MCP, WebSocket) | ✅ |
-| Sortie Art-Net/sACN, découverte | ✅ (découverte validée sur le réseau lumière le 21/10 ; routes réglables ; reste à regarder la sortie sur scène) |
+| Sortie Art-Net/sACN/DMX USB, découverte | ✅ (découverte validée sur le réseau lumière le 21/10 ; sorties cochées par univers, DMX USB Open DMX et USB Pro le 22/10 ; reste à regarder la sortie sur scène et à essayer l'interface USB) |
 | Lieu, canevas, scène, règles | ✅ v1 |
 | Techniques, lecteur, groupes, panic | ✅ |
 | MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) ; depuis le 2026-10-22 : tempo à la main et au micro, horloge en sortie, OS2L (DJ), suivi d'AbleSet, Ableton Link en écoute (tempo et temps), à essayer sur la régie ([tests-mac](tests-mac.md), § 6 bis et 6 quater) |

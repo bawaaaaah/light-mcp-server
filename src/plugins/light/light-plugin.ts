@@ -51,6 +51,7 @@ import { getPackageVersion } from "../../core/version.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
+import { DmxUsbOutputs, type SerialBinding } from "./output/dmx-usb.js";
 import { say } from "../../core/lang.js";
 
 export const PLUGIN_ID = "light";
@@ -62,6 +63,7 @@ const RouteSchema = z.object({
   universe: z.number().int().min(1),
   artnet: z.object({ portAddress: z.number().int().min(0).max(32767), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).optional(),
   sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string()).optional() }).optional(),
+  usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]) }).optional(),
 });
 
 export const LightConfigSchema = z.object({
@@ -116,6 +118,8 @@ export interface LightPluginOptions {
   /** Test seams. */
   tickerRateHz?: number;
   midiNative?: null;
+  /** The serial ports for DMX USB: null, none; a fake one in tests. */
+  serial?: SerialBinding | null;
 }
 
 export class LightPlugin implements McpPlugin {
@@ -160,7 +164,7 @@ export class LightPlugin implements McpPlugin {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
     if (opts.standby !== undefined) this.config = { ...this.config, output: { ...this.config.output, standby: opts.standby } };
     this.engine = new DmxEngine(this.config.universes, { rateHz: opts.tickerRateHz });
-    this.router = new OutputRouter(this.config.output as OutputConfig);
+    this.router = new OutputRouter(this.config.output as OutputConfig, new DmxUsbOutputs(opts.serial));
     this.commands.onStateChange = () => {
       this.engine.requestFrame();
       this.publish("state", this.state());

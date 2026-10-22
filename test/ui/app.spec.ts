@@ -1421,24 +1421,37 @@ test("a DJ's numbered command (OS2L) mapped to the grand master, from the MIDI p
   expect(errors).toEqual([]);
 });
 
-test("settings: route a universe to another Art-Net address and to sACN", async ({ page }) => {
+test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  const row = page.locator(".routes .route", { hasText: "Univers 2" });
   const artnet = page.getByLabel("Univers 2 · Art-Net");
   await expect(artnet).toHaveValue("1");
+  await expect(page.getByLabel("Univers 2 · sACN")).toHaveCount(0); // not ticked: no field
   await artnet.fill("5");
-  await page.getByLabel("Univers 2 · sACN").fill("2");
+  await row.getByRole("checkbox", { name: "sACN" }).check();
+  await expect(page.getByLabel("Univers 2 · sACN")).toHaveValue("2"); // offered: the same number
   const asked: string[] = [];
-  page.once("dialog", (d) => (asked.push(d.message()), void d.accept()));
-  await page.locator(".routes .route", { hasText: "Univers 2" }).getByRole("button", { name: "Enregistrer" }).click();
+  page.on("dialog", (d) => (asked.push(d.message()), void d.accept()));
+  await row.getByRole("button", { name: "Enregistrer" }).click();
   await expect.poll(async () => ((await api(page, "output.status")) as { config: { routes: unknown[] } }).config.routes[1]).toEqual({ universe: 2, artnet: { portAddress: 5, targets: ["127.0.0.2"] }, sacn: { universe: 2 } });
   expect(asked[0]).toContain("tout de suite");
-  await expect(page.locator(".routes .route", { hasText: "Univers 2" }).getByRole("button", { name: "Enregistrer" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Enregistrer" })).toHaveCount(0);
+  // DMX USB only: Art-Net and sACN unticked, the (fake) FTDI interface ticked, as a USB Pro
+  await row.getByRole("checkbox", { name: "Art-Net" }).uncheck();
+  await row.getByRole("checkbox", { name: "sACN" }).uncheck();
+  await row.getByRole("checkbox", { name: "DMX USB" }).check();
+  await expect(page.getByLabel("Univers 2 · DMX USB")).toHaveValue(/usbserial-TEST1/);
+  await page.getByLabel("Univers 2 · type d'interface").selectOption("pro");
+  await row.getByRole("button", { name: "Enregistrer" }).click();
+  await expect.poll(async () => ((await api(page, "output.status")) as { config: { routes: { usb?: { kind: string } }[] } }).config.routes[1]).toEqual({ universe: 2, usb: { path: expect.stringMatching(/usbserial-TEST1$/), kind: "pro" } });
+  await expect(page.locator("ul.usb li")).toContainText(/usbserial-TEST1 \(USB Pro\) · envoie$/);
   await page.screenshot({ path: "test-results/settings-routes.png", fullPage: true });
   // back as it was, by the command
-  await api(page, "output.route", { universe: 2, artnet: { portAddress: 1 }, sacn: null });
+  await api(page, "output.route", { universe: 2, artnet: { portAddress: 1 }, sacn: null, usb: null });
   await expect(artnet).toHaveValue("1");
+  await expect(page.locator("ul.usb")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

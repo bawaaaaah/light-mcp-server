@@ -7,6 +7,7 @@
  *   Needs UDP 6454: if it is taken (QLC+ running on the same machine), output still works from an
  *   ephemeral port and discovery is reported unavailable.
  * - sACN: multicast (or unicast) per universe, with priority.
+ * - DMX USB: an interface plugged into this computer (dmx-usb.ts), at its own pace.
  */
 import { createSocket, type Socket } from "node:dgram";
 import { randomBytes } from "node:crypto";
@@ -14,11 +15,14 @@ import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { NodeRegistry, type KnownNode } from "./artnet-discovery.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
+import { DmxUsbOutputs, type DmxUsbKind } from "./dmx-usb.js";
 
 export interface UniverseRoute {
   universe: number; // 1-based internal universe
   artnet?: { portAddress: number; targets?: string[]; broadcast?: boolean };
   sacn?: { universe: number; priority?: number; unicast?: string[] };
+  /** A DMX USB interface: its serial port, and its kind (Open DMX or USB Pro). */
+  usb?: { path: string; kind: DmxUsbKind };
 }
 
 export interface OutputConfig {
@@ -95,7 +99,15 @@ export class OutputRouter {
   private readonly recentlySent = new Map<string, number>();
   private readonly locals = localAddresses();
 
-  constructor(private config: OutputConfig) {}
+  constructor(
+    private config: OutputConfig,
+    /** The DMX USB interfaces; none by default (the plugin gives the machine's serial ports). */
+    readonly usb: DmxUsbOutputs = new DmxUsbOutputs(null),
+  ) {}
+
+  private usbRoutes(): { path: string; kind: DmxUsbKind }[] {
+    return this.config.routes.flatMap((r) => (r.usb ? [r.usb] : []));
+  }
 
   onNodesChanged(fn: (change: { added?: KnownNode; lost?: KnownNode[] }) => void): void {
     this.nodeListener = fn;
@@ -103,12 +115,14 @@ export class OutputRouter {
 
   setConfig(config: OutputConfig): void {
     this.config = config;
+    if (this.artnet) this.usb.use(this.usbRoutes());
   }
 
   /** New routes, sent at the next frame (not after the keep-alive): the light moves at once. */
   setRoutes(routes: UniverseRoute[]): void {
     this.config = { ...this.config, routes };
     this.lastSent.clear();
+    if (this.artnet) this.usb.use(this.usbRoutes());
   }
 
   getConfig(): OutputConfig {
@@ -158,9 +172,12 @@ export class OutputRouter {
     await new Promise<void>((resolve) => this.sacn!.bind(0, bindAddress === "0.0.0.0" ? undefined : bindAddress, resolve));
     if (bindAddress !== "0.0.0.0") this.sacn.setMulticastInterface(bindAddress);
     this.sacn.setMulticastTTL(8);
+    this.usb.setActive(!this.config.standby);
+    this.usb.use(this.usbRoutes());
   }
 
   stop(): void {
+    void this.usb.stop();
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.artnet?.close();
     this.sacn?.close();
@@ -226,6 +243,7 @@ export class OutputRouter {
     }
     this.config = { ...this.config, standby: on };
     if (!on) this.lastSent.clear();
+    if (this.artnet) this.usb.setActive(!on);
   }
 
   isStandby(): boolean {
@@ -239,6 +257,7 @@ export class OutputRouter {
     for (const route of this.config.routes) {
       const data = buffers[route.universe - 1];
       if (!data) continue;
+      if (route.usb) this.usb.send(route.usb.path, data); // the interface keeps its own pace
       const last = this.lastSent.get(route.universe);
       const changed = !last || !equalBytes(last.data, data);
       if (!force && !changed && last && nowMs - last.at < KEEPALIVE_MS) continue;

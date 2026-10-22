@@ -77,7 +77,7 @@ export function registerCoreCommands(
     name: "output.status",
     title: "État de la sortie",
     description:
-      "Art-Net/sACN output: routes, packets sent, errors, discovery state, and coverage: routes whose Art-Net port-address no node seen outputs (unheard), and node ports no route feeds (unfed).",
+      "Art-Net/sACN/DMX USB output: routes, packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed), and the DMX USB interfaces in use (open, frames sent, error).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -91,22 +91,35 @@ export function registerCoreCommands(
       merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })),
       coverage: routeCoverage(),
       universes: engine.output.count,
+      usb: { available: router.usb.binding !== undefined, ...(router.usb.error ? { error: router.usb.error } : {}), devices: router.usb.status() },
     }),
+  });
+
+  reg.register({
+    name: "output.usb.list",
+    title: "Interfaces DMX USB",
+    description: "The serial ports of this machine a DMX USB interface may be on (FTDI chips first: Enttec Open DMX, USB Pro and their clones), to route a universe to with output.route.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({}),
+    run: async () => ({ available: router.usb.binding !== undefined, ...(router.usb.error ? { error: router.usb.error } : {}), ports: await router.usb.list() }),
   });
 
   reg.register({
     name: "output.route",
     title: "Router un univers",
     description:
-      "Where a universe goes: an Art-Net port-address (sent to the nodes that output it, else broadcast) and/or an sACN universe (multicast). null removes that half; both removed, the universe is not sent. Takes effect at once on the nodes (the fixtures there light up with the show) and is kept in the machine config.",
+      "Where a universe goes, any of: an Art-Net port-address (sent to the nodes that output it, else broadcast), an sACN universe (multicast), a DMX USB interface plugged into this machine (its serial port from output.usb.list, and its kind: « open » for Open DMX and FTDI cables, « pro » for USB Pro). null removes that output; all removed, the universe is not sent. An interface feeds one universe. Takes effect at once (the fixtures there light up with the show) and is kept in the machine config.",
     right: "commands:output",
     profiles: ["setup"],
     schema: z.object({
       universe,
       artnet: z.object({ portAddress: z.number().int().min(0).max(32767) }).nullable().optional(),
       sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional() }).nullable().optional(),
+      usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
     }),
-    run: async ({ universe: u, artnet, sacn }) => {
+    run: async ({ universe: u, artnet, sacn, usb }) => {
       if (u > engine.output.count) throw new CommandError("invalid", say(`univers ${u} hors de 1..${engine.output.count}`, `universe ${u} out of 1..${engine.output.count}`));
       const routes = router.getConfig().routes;
       const before = routes.find((r) => r.universe === u);
@@ -114,10 +127,14 @@ export function registerCoreCommands(
       // explicit targets and unicast addresses set by hand stay with their protocol
       const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : { ...before?.artnet, portAddress: artnet.portAddress };
       const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : { ...before?.sacn, ...sacn };
+      const d = usb === undefined ? before?.usb : usb === null ? undefined : usb;
       if (a) next.artnet = a;
       if (s) next.sacn = s;
+      if (d) next.usb = d;
       const others = routes.filter((r) => r.universe !== u);
-      const updated = (next.artnet || next.sacn ? [...others, next] : others).sort((x, y) => x.universe - y.universe);
+      const taken = d && others.find((r) => r.usb?.path === d.path);
+      if (taken) throw new CommandError("invalid", say(`${d.path} sort déjà l'univers ${taken.universe} : une interface DMX USB sort un seul univers`, `${d.path} already outputs universe ${taken.universe}: a DMX USB interface outputs one universe`));
+      const updated = (next.artnet || next.sacn || next.usb ? [...others, next] : others).sort((x, y) => x.universe - y.universe);
       router.setRoutes(updated);
       await persistRoutes(updated);
       return { routes: updated, coverage: routeCoverage() };
