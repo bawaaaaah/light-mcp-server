@@ -174,6 +174,16 @@ export function WidgetMenu({
             {mine.map((m) => (
               <li key={m.id}>
                 {inputText(m.input)}{" "}
+                {/* a note from an Ableton clip lights while it lasts only in momentary: the mode is chosen per note */}
+                {m.input.type === "note" && action && (action.action === "look" || action.action === "blackout") && (
+                  <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => void cmd("midi.mapping.put", { mapping: build({ ...m, mode: e.target.value as ButtonMode }, action.action, action.target) }).then(loadMappings, (err: Error) => setError(err.message))}>
+                    {(["latch", "momentary", "trigger"] as const).map((mode) => (
+                      <option key={mode} value={mode}>
+                        {t.modes[mode]}
+                      </option>
+                    ))}
+                  </select>
+                )}{" "}
                 <button className="ghost" title={t.delete} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
                   ✕
                 </button>

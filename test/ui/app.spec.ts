@@ -389,7 +389,14 @@ test("right-click on a dashboard button: assign another look, learn a MIDI note 
   await expect(menu).toContainText("note 61 · 1");
   await page.screenshot({ path: "test-results/widget-menu.png" });
   await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
-  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active).toBe(true);
+  const breath = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active;
+  await expect.poll(breath).toBe(true);
+  // played from an Ableton clip: « while held », the light lasts as long as the note
+  await menu.getByLabel("Mode · note 61 · 1").selectOption("momentary");
+  await expect.poll(async () => ((await api(page, "midi.mapping.list")) as { input: { number: number }; mode: string; off?: { command: string } }[]).find((m) => m.input.number === 61)).toMatchObject({ mode: "momentary", off: { command: "look.stop" } });
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x80, 61, 0] });
+  await expect.poll(breath).toBe(false);
   // clean up: the mapping, then the button back to « hole »
   await menu.locator("li", { hasText: "note 61" }).getByRole("button").click();
   await expect(menu).toContainText("aucune note ni CC");

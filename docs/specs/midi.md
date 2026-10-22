@@ -45,7 +45,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 | Mode | Comportement | Usage type |
 |---|---|---|
 | **Déclencher** | Une note on **active toujours** et ne coupe jamais. Rejouer la même note est sans effet. Le relâchement vient du **groupe exclusif**. | Sections de chant. Il évite le piège Toggle de QLC+ et rend inoffensive une note dupliquée par Ableton. |
-| **Latch** | Une note on active, la note on suivante sur la même note désactive. Les note off sont ignorées. | Boutons marche/arrêt |
+| **Latch** | Une note on active, la note on suivante sur la même note désactive. Les note off sont ignorées. | Boutons marche/arrêt. **Pas pour un clip Ableton** : chaque note du clip bascule, la lumière reste allumée pendant le silence qui suit une note et éteinte pendant la suivante (cas réel du 2026-10-22) ; un clip veut Momentané. |
 | **Momentané** | Actif **tant que la note est tenue**. Le niveau d'un fader suit la vélocité. **Une nouvelle note on sur la même note pendant l'appui met le niveau à jour** (rejeu avec une autre pression), sans basculer. Option **« suivre l'aftertouch »** (poly ou canal). Note off ou vélocité 0 : coupe, fader à 0. | Flashs (la longueur de la note dans le clip fait la durée), faders joués en notes |
 
 - **Mode par défaut** des nouveaux boutons : réglable dans l'UI, au niveau du show ou du dashboard. Déclencher est proposé par défaut pour les sections.
