@@ -373,6 +373,21 @@ test("right-click menu: long names never widen it past the screen, on a computer
   expect(errors).toEqual([]);
 });
 
+test("right-click on a look button in the Live: edit its look in a window, over the dashboard", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click({ button: "right" });
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("button", { name: "✎ Modifier le look" }).click();
+  const editor = page.getByRole("dialog", { name: "hole" });
+  await expect(editor.locator(".look-editor")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Réglages du widget" })).toHaveCount(0); // the menu made way
+  await expect(editor.getByLabel("Nom", { exact: true })).toHaveValue("hole");
+  await editor.getByRole("button", { name: "Fermer" }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator(".dgrid")).toBeVisible(); // back on the Live
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a dashboard button: assign another look, learn a MIDI note for it, no edit mode", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from "react";
 import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
+import { Modal } from "../components/Modal";
+import type { LookDraft } from "../components/LookEditor";
+// the editor only when a look is opened from the Live: the Live page stays light to load
+const LookEditor = lazy(() => import("../components/LookEditor").then((m) => ({ default: m.LookEditor })));
 import { GettingStarted } from "../components/GettingStarted";
 import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, SWATCHES, textOn } from "../color";
@@ -185,6 +189,8 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [touchPick, setTouchPick] = useState<"add" | "frame" | null>(null);
   /** The widget whose right-click menu is open, and where. */
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** A look opened for editing from its button's menu, over the dashboard. */
+  const [editingLook, setEditingLook] = useState<LookDraft | null>(null);
   /**
    * A finger has no right button: a long press opens the same menu on a tablet. Not on what one
    * holds or drags anyway (momentary buttons, faders, the XY pad); the click that ends it is eaten.
@@ -1055,7 +1061,26 @@ export function DashboardsPage({ role }: { role: Role }) {
             setMenu(null);
           }}
           onClose={() => setMenu(null)}
+          onEditLook={(id) => {
+            setMenu(null);
+            void cmd<LookDraft>("look.get", { id }).then(setEditingLook, (e: Error) => setError(e.message)); // the list is brief: the editor needs the whole look
+          }}
         />
+      )}
+      {editingLook && (
+        <Modal label={editingLook.name}>
+          <Suspense fallback={<p className="hint">…</p>}>
+            <LookEditor
+              key={editingLook.id}
+              initial={editingLook}
+              existing={looks.map((l) => l.id)}
+              onClose={() => {
+                setEditingLook(null);
+                refresh();
+              }}
+            />
+          </Suspense>
+        </Modal>
       )}
     </div>
   );

@@ -67,6 +67,7 @@ export function WidgetMenu({
   onChange,
   onRemove,
   onClose,
+  onEditLook,
 }: {
   widget: MenuWidget;
   at: { x: number; y: number };
@@ -77,6 +78,8 @@ export function WidgetMenu({
   onChange: (patch: Partial<MenuWidget>) => void;
   onRemove: () => void;
   onClose: () => void;
+  /** Opens the editor of the look this button starts (the Live page, over the dashboard). */
+  onEditLook?: (id: string) => void;
 }) {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
@@ -115,6 +118,11 @@ export function WidgetMenu({
         {t.widgetKinds[widget.kind]}
         {widget.label ? ` · ${widget.label}` : ""}
       </h3>
+      {widget.kind === "look" && widget.target && onEditLook && (
+        <button className="primary" onClick={() => onEditLook(widget.target!)}>
+          ✎ {t.editThisLook}
+        </button>
+      )}
       {targets.length > 0 && (
         <label className="field">
           <span>{widget.kind === "look" ? t.assignLook : t.assignTarget}</span>
