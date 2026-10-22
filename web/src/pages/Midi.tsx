@@ -11,10 +11,10 @@ interface Status {
   inputs: { name: string; watched: boolean; open: boolean; lastMessageAt?: number }[];
   outputs: string[];
   feedback?: string;
-  rtp: { enabled: boolean; port: number; peers: string[]; error?: string };
+  rtp: { enabled: boolean; port: number; wanted?: number; peers: string[]; error?: string };
   profile: string;
   profiles: string[];
-  profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string } };
+  profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string; advertise?: boolean; connect?: string[] } };
 }
 interface Mapping {
   id: string;
@@ -22,6 +22,84 @@ interface Mapping {
   input: { type: string; channel: number; number: number; port?: string };
   mode: string;
   on: { command: string; args: Record<string, unknown> };
+}
+
+interface RtpSession {
+  name: string;
+  host: string;
+  address: string;
+  port: number;
+  connected: boolean;
+  kept: boolean;
+  self: boolean;
+}
+
+/** The RTP-MIDI sessions of the network (Bonjour): joined, left, kept; one without Bonjour by its address. */
+function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }) {
+  const t = useT();
+  const [sessions, setSessions] = useState<RtpSession[] | null>(null);
+  const [manual, setManual] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const look = () => void cmd<{ sessions: RtpSession[] }>("midi.rtp.sessions").then((r) => setSessions(r.sessions), () => undefined);
+  useEffect(() => {
+    look();
+    const timer = setInterval(look, 10_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const act = (key: string, name: string, args: unknown) => {
+    setBusy(key);
+    setError("");
+    void cmd(name, args)
+      .then(() => (look(), onChange()), (e: Error) => setError(e.message))
+      .finally(() => setBusy(""));
+  };
+  const others = (sessions ?? []).filter((x) => !x.self);
+  const [address, port] = manual.trim().split(":");
+  return (
+    <section className="rtp">
+      <h2>{t.rtpTitle}</h2>
+      <p className="hint">{t.rtpHelp}</p>
+      <p>
+        {status.rtp.enabled ? (
+          <>
+            {t.rtpOurs} « {status.profileConfig?.rtp.name} » · port {status.rtp.port}
+            {status.rtp.wanted !== undefined && <small className="hint"> · {t.rtpMoved.replace("{wanted}", String(status.rtp.wanted))}</small>}
+          </>
+        ) : (
+          <span className="hint">{t.rtpOff}</span>
+        )}
+      </p>
+      {sessions !== null && others.length === 0 && <p className="hint">{t.rtpNone}</p>}
+      <ul className="rtp-sessions">
+        {others.map((x) => (
+          <li key={`${x.name}@${x.address}:${x.port}`} className="row">
+            <span className={`dot ${x.connected ? "ok" : "idle"}`} /> <strong>{x.name}</strong>{" "}
+            <small className="hint">
+              {x.host} · {x.address}:{x.port}
+            </small>
+            <button disabled={busy !== "" || !status.rtp.enabled} onClick={() => act(x.name, x.connected ? "midi.rtp.disconnect" : "midi.rtp.connect", { name: x.name })}>
+              {x.connected ? t.rtpDisconnect : t.rtpConnect}
+            </button>
+            <label>
+              <input type="checkbox" checked={x.kept} disabled={busy !== "" || !status.rtp.enabled} onChange={(e) => act(`${x.name}:keep`, e.target.checked ? "midi.rtp.connect" : "midi.rtp.keep", e.target.checked ? { name: x.name, keep: true } : { name: x.name, keep: false })} /> {t.rtpKeep}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="row">
+        <input aria-label={t.rtpManual} placeholder={t.rtpManual} value={manual} onChange={(e) => setManual(e.target.value)} />
+        <button disabled={!address || !Number(port) || busy !== "" || !status.rtp.enabled} onClick={() => act("manual", "midi.rtp.connect", { address, port: Number(port) })}>
+          {t.rtpConnect}
+        </button>
+        <button className="ghost" onClick={look}>
+          {t.rtpLook}
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
 }
 
 /** Web MIDI: a controller plugged into this browser's device relays its messages to the server. */
@@ -241,6 +319,7 @@ export function MidiPage() {
           )}
         </section>
       )}
+      {status && <RtpPanel status={status} onChange={() => void cmd<Status>("midi.status").then(setStatus)} />}
       <div className="cols">
         <section>
           <h2>{t.inputs}</h2>

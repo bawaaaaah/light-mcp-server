@@ -46,7 +46,7 @@ describe("server end to end", function () {
     const configPath = join(dir, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e" } } } } } } }),
+      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e", advertise: false } } } } } } }),
     );
     mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));

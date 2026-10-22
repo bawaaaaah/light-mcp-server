@@ -6,8 +6,8 @@
  * - Can invite a remote session (initiator role) and runs the CK clock-sync exchange.
  * - Emits "midi" with each complete MIDI message received; send() transmits messages.
  *
- * Out of scope for the prototype: Bonjour advertisement (add the host by IP in the macOS "Network"
- * MIDI window), recovery journal, receiver feedback (RS) handling.
+ * Bonjour (announcing the session, finding the others) is the hub's (core/mdns.ts). Out of scope:
+ * recovery journal, receiver feedback (RS) handling.
  */
 import { createSocket, type Socket } from "node:dgram";
 import { EventEmitter } from "node:events";
@@ -81,6 +81,15 @@ export class RtpMidiSession extends EventEmitter {
 
   listPeers(): Peer[] {
     return [...this.peers.values()];
+  }
+
+  /** Ends the session with one peer (BY), as stop() does with all of them. */
+  bye(ssrc: number): void {
+    const peer = this.peers.get(ssrc);
+    if (!peer) return;
+    this.control.send(encodeControl({ command: "BY", version: PROTOCOL_VERSION, token: 0, ssrc: this.ssrc, name: "" }), peer.controlPort, peer.address);
+    this.peers.delete(ssrc);
+    this.emit("peerLeft", peer);
   }
 
   /** Invites a remote session (control port). Resolves once both ports accepted and CK ran. */

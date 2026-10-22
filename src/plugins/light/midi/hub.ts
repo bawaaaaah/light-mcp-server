@@ -10,11 +10,15 @@
  *   (QLC+ looped its feedback into its own input and its toggles flipped by themselves).
  * - The MIDI clock out (the light's tempo, timing/clock-out.ts) goes to its own output, refused on a
  *   watched input too: the tempo would follow its own clock.
+ * - RTP-MIDI: the session takes the next free port when its own is held (on a Mac, the system's
+ *   network session holds 5004), announces itself by Bonjour, finds the sessions of the network,
+ *   and joins those it was told to keep joining whenever they are there.
  */
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { parseMidi, type MidiMessage } from "./parse.js";
 import { RtpMidiSession } from "./rtp/session.js";
+import { advertise, browse, localHost, type FoundService } from "../../../core/mdns.js";
 
 export type MidiSource = "local" | "rtp" | "web" | "os2l";
 
@@ -33,7 +37,8 @@ export interface HubConfig {
   feedbackOutput?: string;
   /** Local output port name substring for the MIDI clock out, or "rtp". */
   clockOutput?: string;
-  rtp: { enabled: boolean; port: number; name: string };
+  /** advertise: Bonjour, to be found and to find the others (default on); connect: sessions joined by name whenever seen. */
+  rtp: { enabled: boolean; port: number; name: string; advertise?: boolean; connect?: string[] };
 }
 
 interface NativeInput {
@@ -84,6 +89,12 @@ export class MidiHub extends EventEmitter {
   private readonly activity = new Map<string, number>();
   private scanTimer: NodeJS.Timeout | undefined;
   private rtp: RtpMidiSession | undefined;
+  /** The port the session holds, when not its own. */
+  private rtpPort: number | undefined;
+  private bonjour: { stop: () => Promise<void> } | undefined;
+  private browser: { ask: () => void; list: () => FoundService[]; stop: () => Promise<void> } | undefined;
+  private joinTimer: NodeJS.Timeout | undefined;
+  private readonly joining = new Set<string>();
   /** Why the RTP-MIDI session could not open (port taken); the rest of MIDI keeps working. */
   private rtpError: string | undefined;
 
@@ -122,12 +133,24 @@ export class MidiHub extends EventEmitter {
     this.feedbackPort = undefined;
     this.clockPort?.out.closePort();
     this.clockPort = undefined;
+    void this.stopRtp();
+  }
+
+  private async stopRtp(): Promise<void> {
+    if (this.joinTimer) clearInterval(this.joinTimer);
+    this.joinTimer = undefined;
     this.rtp?.stop();
     this.rtp = undefined;
+    this.rtpPort = undefined;
+    const [bonjour, browser] = [this.bonjour, this.browser];
+    this.bonjour = this.browser = undefined;
+    await Promise.all([bonjour?.stop(), browser?.stop()]);
   }
 
   async setConfig(config: HubConfig): Promise<void> {
-    const rtpChanged = JSON.stringify(config.rtp) !== JSON.stringify(this.config.rtp);
+    // the sessions to keep joining change without a restart: the ones joined stay
+    const session = (r: HubConfig["rtp"]) => JSON.stringify({ ...r, connect: undefined });
+    const rtpChanged = session(config.rtp) !== session(this.config.rtp);
     this.config = config;
     for (const [name, input] of this.openInputs) {
       if (!this.isWatched(name)) {
@@ -148,25 +171,90 @@ export class MidiHub extends EventEmitter {
   }
 
   private async applyRtp(): Promise<void> {
-    this.rtp?.stop();
-    this.rtp = undefined;
+    await this.stopRtp();
     this.rtpError = undefined;
-    if (!this.config.rtp.enabled) return;
-    const session = new RtpMidiSession({ name: this.config.rtp.name, port: this.config.rtp.port });
-    session.on("midi", (bytes: number[], ssrc: number) => {
-      const peer = session.listPeers().find((p) => p.ssrc === ssrc);
-      this.dispatch("rtp", `RTP · ${peer?.name ?? "session"}`, bytes);
-    });
-    session.on("peer", () => this.emit("ports"));
-    session.on("peerLeft", () => this.emit("ports"));
-    try {
-      await session.start();
-    } catch (err) {
-      this.rtpError = `port ${this.config.rtp.port} : ${(err as Error).message}`;
+    const { enabled, port: wanted, name } = this.config.rtp;
+    if (!enabled) return;
+    // its own port, else the next free pair: the control port and the next one, so by twos
+    for (let port = wanted; port < wanted + 10; port += 2) {
+      const session = new RtpMidiSession({ name, port });
+      session.on("midi", (bytes: number[], ssrc: number) => {
+        const peer = session.listPeers().find((p) => p.ssrc === ssrc);
+        this.dispatch("rtp", `RTP · ${peer?.name ?? "session"}`, bytes);
+      });
+      session.on("peer", () => this.emit("ports"));
+      session.on("peerLeft", () => this.emit("ports"));
+      try {
+        await session.start();
+      } catch (err) {
+        this.rtpError = `port ${port} : ${(err as Error).message}`;
+        if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") continue;
+        break;
+      }
+      this.rtp = session;
+      this.rtpPort = port;
+      this.rtpError = undefined;
+      break;
+    }
+    if (!this.rtp) {
       console.warn(`RTP-MIDI indisponible (${this.rtpError}). Sur un Mac, la session réseau de « Configuration audio et MIDI » occupe souvent le port 5004.`);
       return;
     }
-    this.rtp = session;
+    if (this.config.rtp.advertise === false) return;
+    this.bonjour = await advertise({ instance: name, type: "_apple-midi._udp", port: this.rtpPort!, ...localHost() });
+    this.browser = await browse("_apple-midi._udp");
+    this.joinTimer = setInterval(() => this.joinKept(), 5000);
+    this.joinTimer.unref();
+  }
+
+  /** The RTP-MIDI sessions found on the network (Bonjour), and which are joined, kept, or this one. */
+  rtpSessions(): { name: string; host: string; address: string; port: number; connected: boolean; kept: boolean; self: boolean }[] {
+    const peers = this.rtp?.listPeers() ?? [];
+    const mine = new Set(localHost().addresses);
+    return (this.browser?.list() ?? []).map((s) => ({
+      name: s.name,
+      host: s.host,
+      address: s.addresses[0]!,
+      port: s.port,
+      connected: peers.some((p) => s.addresses.includes(p.address) && p.controlPort === s.port),
+      kept: this.config.rtp.connect?.includes(s.name) ?? false,
+      self: s.port === this.rtpPort && s.addresses.some((a) => mine.has(a)),
+    }));
+  }
+
+  /** Asks the network again for its RTP-MIDI sessions (answers come within a second). */
+  rtpLookAgain(): void {
+    this.browser?.ask();
+  }
+
+  /** Joins a session: found by its name, or given by address and port. */
+  async rtpConnect(target: { name: string } | { address: string; port: number }): Promise<{ name: string; address: string; port: number }> {
+    if (!this.rtp) throw new Error(this.rtpError ?? "RTP-MIDI désactivé");
+    const found = "name" in target ? this.rtpSessions().find((s) => s.name === target.name && !s.self) : undefined;
+    if ("name" in target && !found) throw new Error(`session RTP-MIDI introuvable : ${target.name}`);
+    const { address, port } = found ?? (target as { address: string; port: number });
+    const peer = await this.rtp.invite(address, port);
+    this.emit("ports");
+    return { name: peer.name, address, port };
+  }
+
+  /** Leaves a session, by its name or its address. */
+  rtpDisconnect(nameOrAddress: string): boolean {
+    const peer = this.rtp?.listPeers().find((p) => p.name === nameOrAddress || p.address === nameOrAddress);
+    if (!peer) return false;
+    this.rtp!.bye(peer.ssrc);
+    return true;
+  }
+
+  /** The sessions to keep joining, when seen and not joined yet. */
+  private joinKept(): void {
+    for (const s of this.rtpSessions()) {
+      if (!s.kept || s.connected || s.self || this.joining.has(s.name)) continue;
+      this.joining.add(s.name);
+      void this.rtpConnect({ name: s.name })
+        .catch(() => undefined)
+        .finally(() => this.joining.delete(s.name));
+    }
   }
 
   private isWatched(name: string): boolean {
@@ -259,7 +347,7 @@ export class MidiHub extends EventEmitter {
     }
   }
 
-  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; clock?: string; rtp: { enabled: boolean; port: number; peers: string[]; error?: string } } {
+  status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; clock?: string; rtp: { enabled: boolean; port: number; wanted?: number; peers: string[]; error?: string } } {
     const inputs: PortStatus[] = this.knownInputs.map((name) => ({ name, watched: this.isWatched(name), open: this.openInputs.has(name), lastMessageAt: this.activity.get(name) }));
     for (const [name, at] of this.activity) {
       if (name.startsWith("Web MIDI")) inputs.push({ name, watched: true, open: true, lastMessageAt: at });
@@ -275,7 +363,7 @@ export class MidiHub extends EventEmitter {
       outputs: this.knownOutputs,
       feedback: this.feedbackPort?.name ?? (this.config.feedbackOutput === "rtp" ? "rtp" : undefined),
       clock: this.clockPort?.name ?? (this.config.clockOutput === "rtp" ? "rtp" : undefined),
-      rtp: { enabled: this.config.rtp.enabled, port: this.config.rtp.port, peers: this.rtp?.listPeers().map((p) => `${p.name} (${p.address})`) ?? [], error: this.rtpError },
+      rtp: { enabled: this.config.rtp.enabled, port: this.rtpPort ?? this.config.rtp.port, ...(this.rtpPort !== undefined && this.rtpPort !== this.config.rtp.port ? { wanted: this.config.rtp.port } : {}), peers: this.rtp?.listPeers().map((p) => `${p.name} (${p.address})`) ?? [], error: this.rtpError },
     };
   }
 }

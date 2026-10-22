@@ -15,7 +15,17 @@ export const MidiProfileSchema = z.object({
   feedbackOutput: z.string().optional(),
   /** Where the MIDI clock out goes (the light's tempo, 24 per beat): an output name, or "rtp". */
   clockOutput: z.string().optional(),
-  rtp: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(1024).max(65534).default(5004), name: z.string().default("light-mcp-server") }).default({}),
+  rtp: z
+    .object({
+      enabled: z.boolean().default(true),
+      port: z.number().int().min(1024).max(65534).default(5004),
+      name: z.string().default("light-mcp-server"),
+      /** Bonjour: the session announced, and the others found (off in tests). */
+      advertise: z.boolean().default(true),
+      /** Sessions joined by name whenever they are on the network. */
+      connect: z.array(z.string()).default([]),
+    })
+    .default({}),
 });
 export type MidiProfile = z.infer<typeof MidiProfileSchema>;
 
@@ -54,6 +64,75 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     run: async ({ name, profile }) => {
       await s.saveProfile(name, profile);
       return { saved: name };
+    },
+  });
+
+  /** Adds or removes a session from those the active profile keeps joining. */
+  const keep = async (name: string, on: boolean) => {
+    const active = s.activeProfile();
+    const profile = MidiProfileSchema.parse(s.profiles()[active] ?? {});
+    const connect = on ? [...new Set([...profile.rtp.connect, name])] : profile.rtp.connect.filter((n) => n !== name);
+    await s.saveProfile(active, { ...profile, rtp: { ...profile.rtp, connect } });
+  };
+
+  reg.register({
+    name: "midi.rtp.sessions",
+    title: "Sessions RTP-MIDI du réseau",
+    description:
+      "The RTP-MIDI sessions announced on the network by Bonjour (another Mac's network session, an iPad, a console): name, host, address and port, whether the light is connected to it, whether it is kept (joined whenever seen), and this server's own session (self). Asks the network again first.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({}),
+    run: async () => {
+      s.hub.rtpLookAgain();
+      await new Promise((r) => setTimeout(r, 800));
+      return { sessions: s.hub.rtpSessions(), session: s.hub.status().rtp };
+    },
+  });
+
+  reg.register({
+    name: "midi.rtp.connect",
+    title: "Rejoindre une session RTP-MIDI",
+    description:
+      "Joins an RTP-MIDI session: by its name as midi.rtp.sessions lists it, or by address and control port (a device Bonjour does not announce). Its messages then reach the mappings like any input (« RTP · <name> »). keep: joined again by itself whenever it is on the network, after a restart too.",
+    right: "midi:configure",
+    profiles: ["setup"],
+    schema: z.object({ name: z.string().min(1).optional(), address: z.string().optional(), port: z.number().int().min(1).max(65535).optional(), keep: z.boolean().default(false) }),
+    run: async ({ name, address, port, keep: kept }) => {
+      if (!name && !(address && port)) throw new Error(say("donner le nom d'une session, ou son adresse et son port", "give a session's name, or its address and port"));
+      const joined = await s.hub.rtpConnect(name ? { name } : { address: address!, port: port! }).catch((e: Error) => {
+        throw new Error(say(`connexion RTP-MIDI impossible : ${e.message}`, `cannot join the RTP-MIDI session: ${e.message}`));
+      });
+      if (kept) await keep(name ?? joined.name, true);
+      return { joined, kept };
+    },
+  });
+
+  reg.register({
+    name: "midi.rtp.keep",
+    title: "Rejoindre toujours une session RTP-MIDI",
+    description: "Whether the light joins an RTP-MIDI session (by its name) by itself whenever it is on the network, after a restart too; a session joined stays joined either way.",
+    right: "midi:configure",
+    profiles: ["setup"],
+    schema: z.object({ name: z.string().min(1), keep: z.boolean() }),
+    run: async ({ name, keep: on }) => {
+      await keep(name, on);
+      return { name, kept: on };
+    },
+  });
+
+  reg.register({
+    name: "midi.rtp.disconnect",
+    title: "Quitter une session RTP-MIDI",
+    description: "Leaves an RTP-MIDI session (by its name or address), and stops joining it by itself.",
+    right: "midi:configure",
+    profiles: ["setup"],
+    schema: z.object({ name: z.string().min(1) }),
+    run: async ({ name }) => {
+      const left = s.hub.rtpDisconnect(name);
+      await keep(name, false);
+      return { left };
     },
   });
 

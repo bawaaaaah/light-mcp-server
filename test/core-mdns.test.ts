@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { announcement, answer, decodeName, questionsOf, type ServiceInfo } from "../src/core/mdns.js";
+import { announcement, answer, decodeName, encodeQuery, questionsOf, recordsIn, ServiceTable, type ServiceInfo } from "../src/core/mdns.js";
 
 const service: ServiceInfo = { instance: "Lumière", type: "_os2l._tcp", port: 7272, host: "regie", addresses: ["10.0.0.9"] };
 
@@ -67,3 +67,32 @@ describe("mDNS: the OS2L service found on the network", () => {
     expect(records(announcement(service, true)).every((r) => r.ttl === 0 && r.type === 12)).to.equal(true);
   });
 });
+
+describe("mDNS: the RTP-MIDI sessions of the network", () => {
+  const ipad: ServiceInfo = { instance: "iPad de scène", type: "_apple-midi._udp", port: 5004, host: "ipad-scene", addresses: ["192.0.2.21"] };
+
+  it("asks for a type, and reads the instance, its port and its host's address from the answer", () => {
+    expect(questionsOf(encodeQuery([{ name: "_apple-midi._udp.local", type: "PTR" }]))).to.deep.equal([{ name: "_apple-midi._udp.local", type: 12 }]);
+    const reply = answer(encodeQuery([{ name: "_apple-midi._udp.local", type: "PTR" }]), ipad)!;
+    const table = new ServiceTable("_apple-midi._udp");
+    table.receive(recordsIn(reply), 0);
+    expect(table.list(1000)).to.deep.equal({ found: [{ name: "iPad de scène", host: "ipad-scene", port: 5004, addresses: ["192.0.2.21"] }], missing: [] });
+    expect(recordsIn(encodeQuery([{ name: "_apple-midi._udp.local", type: "PTR" }]))).to.deep.equal([]); // a question is not an answer
+  });
+
+  it("asks for what a responder left out, forgets the gone and the silent", () => {
+    const table = new ServiceTable("_apple-midi._udp");
+    const all = recordsIn(announcement(ipad));
+    table.receive(all.filter((r) => r.kind === "ptr"), 0); // the instance only
+    expect(table.list(0)).to.deep.equal({ found: [], missing: [{ name: "ipad de scène._apple-midi._udp.local", type: "SRV" }] });
+    table.receive(all.filter((r) => r.kind === "srv"), 0);
+    expect(table.list(0).missing).to.deep.equal([{ name: "ipad-scene.local", type: "A" }]);
+    table.receive(all, 0);
+    expect(table.list(0).found).to.have.length(1);
+    table.receive(recordsIn(announcement(ipad, true)), 10); // goodbye: TTL 0
+    expect(table.list(10).found).to.deep.equal([]);
+    table.receive(all, 20);
+    expect(table.list(4500 * 1000 + 21).found).to.deep.equal([]); // its time to live is over
+  });
+});
+

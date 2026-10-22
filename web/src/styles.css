@@ -1839,6 +1839,16 @@ ul.online {
   align-items: center;
   gap: 0.3em;
 }
+/* the RTP-MIDI sessions of the network, one per line */
+.rtp-sessions {
+  list-style: none;
+  padding: 0;
+  margin: 0.3em 0 0.6em;
+}
+.rtp-sessions li {
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
 /* one output of a universe: its box, then its setting */
 .routes .route .out {
   display: inline-flex;

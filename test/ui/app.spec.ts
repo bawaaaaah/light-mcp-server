@@ -1445,6 +1445,55 @@ test("a DJ's numbered command (OS2L) mapped to the grand master, from the MIDI p
   expect(errors).toEqual([]);
 });
 
+test("MIDI page: the RTP-MIDI sessions of the network, joined, kept, or by address", async ({ page }) => {
+  const errors = watchErrors(page);
+  // the network is played by the test: no Bonjour, no session leaves this machine
+  const sent: [string, unknown][] = [];
+  await page.route("**/api/plugins/light/commands/midi.status", async (route) => {
+    const real = (await (await route.fetch()).json()) as { result: { rtp: object; profileConfig: { rtp: object } } };
+    real.result.rtp = { enabled: true, port: 5006, wanted: 5004, peers: [] };
+    real.result.profileConfig.rtp = { enabled: true, port: 5004, name: "light-mcp-server" };
+    await route.fulfill({ json: real });
+  });
+  await page.route("**/api/plugins/light/commands/midi.rtp.sessions", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        result: {
+          sessions: [
+            { name: "light-mcp-server", host: "regie", address: "192.0.2.9", port: 5006, connected: false, kept: false, self: true },
+            { name: "iPad de scène", host: "ipad", address: "192.0.2.21", port: 5004, connected: false, kept: false, self: false },
+          ],
+        },
+      },
+    }),
+  );
+  for (const name of ["midi.rtp.connect", "midi.rtp.keep", "midi.rtp.disconnect"])
+    await page.route(`**/api/plugins/light/commands/${name}`, (route) => (sent.push([name, route.request().postDataJSON()]), route.fulfill({ json: { ok: true, result: {} } })));
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).first().click();
+  const panel = page.locator("section.rtp");
+  await expect(panel).toContainText("Session de la régie « light-mcp-server » · port 5006");
+  await expect(panel).toContainText("le port 5004 est pris");
+  await expect(panel.locator("li")).toHaveCount(1); // this stage's own session is not offered
+  const ipad = panel.locator("li", { hasText: "iPad de scène" });
+  await expect(ipad).toContainText("192.0.2.21:5004");
+  await ipad.getByRole("button", { name: "Connecter" }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  await ipad.getByRole("checkbox", { name: "toujours" }).click(); // shown as the server says: the (played) network keeps it unticked
+  await expect.poll(() => sent.length).toBe(2);
+  await panel.getByLabel("adresse:port").fill("192.0.2.30:5008");
+  await panel.getByRole("button", { name: "Connecter" }).last().click();
+  await expect.poll(() => sent.length).toBe(3);
+  expect(sent).toEqual([
+    ["midi.rtp.connect", { name: "iPad de scène" }],
+    ["midi.rtp.connect", { name: "iPad de scène", keep: true }],
+    ["midi.rtp.connect", { address: "192.0.2.30", port: 5008 }],
+  ]);
+  await page.screenshot({ path: "test-results/midi-rtp.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
