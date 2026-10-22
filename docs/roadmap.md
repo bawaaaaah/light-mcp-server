@@ -83,5 +83,5 @@ Ces chantiers avancent ensemble. Chacun a sa spec :
 - Max for Live (avec Live Suite) (le suivi d'AbleSet et les sauts vers AbleSet sont faits le 2026-10-22).
 - ~~Vue 3D de la scène~~ : faite (Scène en direct, bouton « 3D »).
 - Synchronisation audio et analyse audio des chants : faits (tempo et ébauche des sections depuis un enregistrement ; tempo et temps suivis au micro en direct).
-- Ableton Link (OS2L fait le 2026-10-22 : tempo et boutons d'un logiciel DJ, annoncé en mDNS).
+- Ableton Link : la phase (le tempo d'une session Link est suivi en écoute seule depuis le 2026-10-22, à vérifier avec Live) ; OS2L fait le 2026-10-22.
 - RDM (horloge MIDI en sortie faite le 2026-10-22).

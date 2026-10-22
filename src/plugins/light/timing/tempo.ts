@@ -13,7 +13,7 @@
 import type { MidiMessage } from "../midi/parse.js";
 import { MidiClockFollower } from "./midi-clock.js";
 
-export type TempoSource = "manual" | "tap" | "midi" | "audio" | "os2l";
+export type TempoSource = "manual" | "tap" | "midi" | "audio" | "os2l" | "link";
 
 export interface TempoState {
   bpm: number;
@@ -86,7 +86,7 @@ export class TempoClock {
    * count then runs slightly faster or slower for two beats, until its beats fall on the music's:
    * never a jump (a step would flash twice or be skipped), never backward.
    */
-  follow(bpm: number, beatAgoMs?: number, source: "audio" | "os2l" = "audio"): void {
+  follow(bpm: number, beatAgoMs?: number, source: "audio" | "os2l" | "link" = "audio"): void {
     if (!(bpm >= 20 && bpm <= 400)) throw new RangeError(`BPM ${bpm} hors de 20..400`);
     this.reanchor();
     this.manualBpm = Math.round(bpm * 10) / 10;

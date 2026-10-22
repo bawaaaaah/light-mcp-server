@@ -42,6 +42,7 @@ import type { Os2lEvent } from "./os2l/codec.js";
 import { advertise, localHost } from "../../core/mdns.js";
 import { ClockOut } from "./timing/clock-out.js";
 import { AbleSetClient } from "./ableset/ableset.js";
+import { LinkListener } from "./link/link.js";
 import { TempoClock } from "./timing/tempo.js";
 import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
@@ -140,6 +141,8 @@ export class LightPlugin implements McpPlugin {
   private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
   readonly ableset: AbleSetClient;
+  /** Ableton Link, listened to only while it is the tempo source. */
+  readonly link = new LinkListener((bpm) => this.tempo.state().source === "link" && this.tempo.follow(bpm, undefined, "link"));
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
@@ -286,6 +289,16 @@ export class LightPlugin implements McpPlugin {
     this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));
     this.ableset = new AbleSetClient(this.config.ableset, (song, section) => this.followAbleSet(song, section));
     this.commands.register({
+      name: "link.status",
+      title: "Ableton Link",
+      description: "The Ableton Link session heard on the network (listening only, while the tempo source is « link »): peers, sessions, the tempo of the session with the most peers.",
+      right: "dashboards:view",
+      readOnly: true,
+      profiles: ["setup", "live"],
+      schema: z.object({}),
+      run: () => this.link.status(),
+    });
+    this.commands.register({
       name: "ableset.status",
       title: "AbleSet",
       description: "AbleSet (setlist for Ableton Live) followed over OSC: on or off, where it is, connected (its heartbeat), the song and section it plays, and whether the show had the last one asked.",
@@ -329,7 +342,16 @@ export class LightPlugin implements McpPlugin {
     });
     this.commands.onCommand((e) => {
       if (!e.ok) return;
-      if (e.name === "tempo.set" || e.name === "tempo.tap") this.djOverMidi = false; // the desk chose
+      if (e.name === "tempo.set" || e.name === "tempo.tap") {
+        this.djOverMidi = false; // the desk chose
+        // Link listened to only while it leads; its tempo taken at once when chosen
+        if (this.tempo.state().source === "link") {
+          void this.link.start().then(() => {
+            const bpm = this.link.status().bpm;
+            if (bpm !== undefined && this.tempo.state().source === "link") this.tempo.follow(bpm, undefined, "link");
+          });
+        } else void this.link.stop();
+      }
       this.syncOs2lFeedback();
     });
     this.commands.register({
@@ -651,6 +673,7 @@ export class LightPlugin implements McpPlugin {
     this.osc.stop();
     if (this.clockTimer) clearInterval(this.clockTimer);
     await this.ableset.stop();
+    await this.link.stop();
     await this.os2lAnnounce?.stop();
     this.os2lAnnounce = undefined;
     await this.os2l.stop();

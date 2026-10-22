@@ -175,10 +175,10 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     name: "tempo.set",
     title: "Régler le tempo",
     description:
-      "Sets a manual BPM, or selects the tempo source (manual, tap, midi = follow MIDI clock, os2l = follow DJ software, audio = the tempo heard by a microphone in the interface, with beatAgoMs: how long ago one of its beats fell, to put the looks on the music's beats).",
+      "Sets a manual BPM, or selects the tempo source (manual, tap, midi = follow MIDI clock, os2l = follow DJ software, link = follow the Ableton Link session's tempo (listening only), audio = the tempo heard by a microphone in the interface, with beatAgoMs: how long ago one of its beats fell, to put the looks on the music's beats).",
     right: "commands:tempo",
     profiles: ["setup", "live"],
-    schema: z.object({ bpm: z.number().min(20).max(400).optional(), source: z.enum(["manual", "tap", "midi", "audio", "os2l"]).optional(), beatAgoMs: z.number().min(0).max(10_000).optional() }),
+    schema: z.object({ bpm: z.number().min(20).max(400).optional(), source: z.enum(["manual", "tap", "midi", "audio", "os2l", "link"]).optional(), beatAgoMs: z.number().min(0).max(10_000).optional() }),
     run: ({ bpm, source, beatAgoMs }) => {
       if (source === "audio" && bpm !== undefined) s.tempo.follow(bpm, beatAgoMs);
       else {
