@@ -94,6 +94,18 @@ Les faders QLC+ hors gradateur (blanc, UV, strobe, machines) deviennent maintena
 5. Si non : page MIDI, nouveau mapping sur une note, action « Activer un programme de règles » ; une note dans un clip Live active alors le programme.
 6. Une section sans programme **garde** le programme actif (choix de l'utilisateur) : le vérifier en lançant la section qui suit « Prière ».
 
+## 6 quater. Essais des ajouts du 2026-10-21 et 22 (agent prépare, utilisateur regarde)
+Avant chaque essai qui allume : `npm run light -- call output.status` (veille ?) et prévenir l'utilisateur. Rien ici ne demande de fermer QLC+ ou Live, sauf mention.
+
+1. **Sortie vers le node** : Réglages → Sortie DMX. Aucune ligne « aucun node vu ne sort cette adresse » ; le port Art-Net du node montre « DMX en sortie ». Lancer un look **sans machine** et demander à l'utilisateur si les projecteurs branchés sur ce port s'allument comme prévu. Pour le port sACN : régler un univers en sACN (même page) et vérifier de même. Résultats anonymisés (« node 1, port 2 »).
+2. **Machines et sélecteurs** : avec la machine à bulles/brume branchée, lancer un look qui colore ses LED : **ni bulles, ni fumée, ni ventilation** ne doivent partir (Console DMX, « pourquoi ce canal » : attribut « effet »). Le canal « Mode Selection » des barres LED reste à 0.
+3. **Faders et DCA** : créer un fader « Bords » (Dimmer des barres extrêmes, arbre de la page Show), un fader « Centre » (Dimmer + rouge des barres centrales) et un DCA qui les dose ; les poser sur le Live et faire regarder : à 0 les barres s'éteignent, le DCA dose les deux.
+4. **Tempo** : (a) widget Tap, taper un BPM : les looks suivent ; « ↺ MIDI » apparaît quand Live joue, un appui rend la main à Live. (b) 🎤 : sur une musique jouée dans la salle, le bouton passe en « suivi » en une dizaine de secondes, BPM juste à 1 près. (c) **Horloge en sortie** : seulement avec l'accord de l'utilisateur, une piste de Live réglée pour suivre une horloge externe sur un port qui n'est **pas** une entrée surveillée ; Live prend le tempo de la lumière.
+5. **DJ (OS2L)** : VirtualDJ sur un ordinateur du réseau (ou celui-ci) ; dans ses réglages OS2L, la régie « Lumière » apparaît d'elle-même (sinon `os2lDirectIp` = adresse de Réglages → DJ (OS2L)). Le tempo de la régie suit le morceau (Live arrêté) ; un bouton du pad nommé comme un look le lance ; un curseur mappé (page MIDI, Source : DJ) règle un DCA.
+6. **AbleSet** : lancer AbleSet ; page MIDI → « Suivre AbleSet » : chant et section s'affichent. Un chant du show au **même titre** qu'un chant de la setlist, ses sections aux **mêmes noms** : en lecture, chaque section lance la sienne (pas en doublon avec des notes MIDI qui lancent les mêmes sections : les désactiver pour l'essai). Page Chants, « ⇥ AbleSet » envoie AbleSet sur le chant.
+7. **Interface** : sur la tablette, mode édition d'un dashboard chargé : la bande hachurée à droite fait défiler ; un menu du clic droit (appui long) tient dans l'écran ; après un déploiement, le bandeau « nouvelle version » propose de recharger.
+8. Noter ce qui marche et ce qui ne marche pas, anonymisé, dans `docs/research/proto-resultats.md`.
+
 ## 7. Rapport
 - Compléter `docs/research/proto-resultats.md` (tableau de synthèse + une section par prototype, résultats anonymisés).
 - Mettre à jour `docs/HANDOFF.md` (« Où on en est ») et `docs/roadmap.md` (avancement).
