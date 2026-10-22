@@ -832,7 +832,7 @@ export function DashboardsPage({ role }: { role: Role }) {
       )}
 
       {dash && (
-        <div className="dgrid-scroll">
+        <div className={`dgrid-scroll${edit ? " editing" : ""}`}>
         <div
           ref={gridRef}
           className={narrow && !edit ? "dgrid" : `dgrid fine${edit ? " editing" : ""}${edit && !snap ? " free" : ""}`}
@@ -915,6 +915,8 @@ export function DashboardsPage({ role }: { role: Role }) {
             </div>
           ))}
         </div>
+        {/* while editing, a finger on a widget moves it: this strip, kept on the right, scrolls */}
+        {edit && <div className="scroll-gutter" title={t.scrollGutter} aria-hidden />}
         </div>
       )}
       {/* under the grid: the safety bar stays at the top, where the hand looks for it */}

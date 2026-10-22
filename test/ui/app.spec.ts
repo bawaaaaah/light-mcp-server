@@ -484,6 +484,50 @@ test("a button to confirm: the first press arms it, the second plays; stopping n
   expect(errors).toEqual([]);
 });
 
+test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets still move", async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 700 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.getByLabel("Colonnes").fill("24"); // wider than the tablet: the grid scrolls sideways too
+  await expect.poll(() => page.locator(".dgrid-scroll").evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  const gutter = page.locator(".scroll-gutter");
+  await expect(gutter).toBeVisible();
+  const touch = (sel: string) => page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(sel)})).touchAction`);
+  expect(await touch(".dgrid.fine.editing")).toBe("pan-x pan-y"); // the empty cells scroll
+  expect(await touch(".dgrid.fine.editing > .cell")).toBe("none"); // a widget takes the finger
+  // kept at the right edge of the screen, wherever the grid is scrolled
+  await page.locator(".dgrid-scroll").evaluate((e) => (e.scrollLeft = e.scrollWidth));
+  const box = (await gutter.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(820);
+  expect(box.x + box.width).toBeGreaterThan(760);
+  // a finger dragged up the strip scrolls the page
+  const cdp = await ctx.newCDPSession(page);
+  const y0 = await page.evaluate<number>("window.scrollY");
+  await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(box.x + box.width / 2), y: 600, yDistance: -300, gestureSourceType: "touch", speed: 1200 });
+  await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeGreaterThan(y0);
+  await page.screenshot({ path: "test-results/tablet-edit-gutter.png" });
+  // a finger on a widget still moves it, and does not scroll
+  await page.locator(".dgrid-scroll").evaluate((e) => (e.scrollLeft = 0));
+  const cell = page.locator(".dgrid.fine.editing > .cell").first();
+  await cell.scrollIntoViewIfNeeded();
+  const column = () => cell.getAttribute("style");
+  const before = await column();
+  const c = (await cell.boundingBox())!;
+  const from = { x: Math.round(c.x + c.width / 2), y: Math.round(c.y + c.height / 2) };
+  const scrollBefore = await page.evaluate<number>("window.scrollY");
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+  for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x + i * 25, y: from.y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect.poll(column).not.toBe(before);
+  expect(await page.evaluate<number>("window.scrollY")).toBe(scrollBefore);
+  await page.getByRole("button", { name: "✕", exact: true }).first().click(); // cancel: nothing saved
+  await expect(page.locator(".scroll-gutter")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
 test("tablet: a long press opens the widget menu, without starting the look", async ({ browser }) => {
   const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
   const page = await ctx.newPage();

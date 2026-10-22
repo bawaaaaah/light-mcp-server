@@ -1391,7 +1391,7 @@ nav.jump a:hover {
 }
 .dgrid.fine.editing {
   user-select: none;
-  touch-action: none;
+  touch-action: pan-x pan-y; /* the empty cells scroll; the widgets take the finger */
   min-height: calc(var(--row) * 8); /* room to drop, even on an empty dashboard */
   background-image:
     linear-gradient(to right, color-mix(in srgb, var(--line) 85%, transparent) 1px, transparent 1px),
@@ -1413,6 +1413,24 @@ nav.jump a:hover {
 }
 .dgrid.fine.editing > .cell {
   cursor: grab;
+  touch-action: none;
+}
+/* Edit mode on a tablet: a strip kept on the right of the grid, blank, scrolls both ways */
+.dgrid-scroll.editing {
+  display: flex;
+  align-items: stretch;
+}
+.dgrid-scroll.editing > .dgrid {
+  flex: 1 0 auto;
+}
+.scroll-gutter {
+  position: sticky;
+  right: 0;
+  flex: 0 0 44px;
+  margin-left: 6px;
+  border-radius: 6px;
+  touch-action: pan-x pan-y;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--line) 70%, transparent) 0 6px, var(--bg) 6px 12px);
 }
 .dgrid.fine.editing > .cell:active {
   cursor: grabbing;
