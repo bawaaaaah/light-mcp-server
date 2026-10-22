@@ -873,6 +873,31 @@ test("DCA limits: a max set on the Show page stops the fader on the dashboard", 
   expect(errors).toEqual([]);
 });
 
+test("show page: right-click a look to edit, start, duplicate it, with its preview", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  const row = page.locator("tr", { has: page.locator("button.look", { hasText: "checker" }) });
+  await row.locator("td").nth(1).click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Look" });
+  await expect(menu.locator(".preview.plain .cell")).toHaveCount(8); // its preview at once
+  await menu.getByRole("button", { name: "▶ Lancer" }).click();
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "checker")?.active).toBe(true);
+  await expect(menu.getByRole("button", { name: "■ Arrêt" })).toBeVisible();
+  await menu.getByRole("button", { name: "✎ Modifier" }).click();
+  const editor = page.getByRole("dialog", { name: "checker" });
+  await expect(editor.locator(".look-editor")).toBeVisible();
+  await expect(menu).toHaveCount(0);
+  await editor.getByRole("button", { name: "Fermer" }).click();
+  await row.locator("td").nth(1).click({ button: "right" });
+  await page.getByRole("dialog", { name: "Look" }).getByRole("button", { name: "⧉ Dupliquer" }).click();
+  await expect(page.getByRole("dialog", { name: /checker \(copie\)/ }).getByRole("textbox", { name: /^Nom/ })).toHaveValue("checker (copie)"); // a copy to save under another name
+  await page.getByRole("dialog", { name: /checker \(copie\)/ }).getByRole("button", { name: "Fermer" }).click();
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

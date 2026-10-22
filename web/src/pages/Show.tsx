@@ -5,6 +5,8 @@ import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
+import { LookMenu } from "../components/LookMenu";
+import { useContextMenu } from "../components/menu";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 import { RecentlyDeleted } from "../components/Versions";
@@ -79,6 +81,9 @@ export function ShowPage() {
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<LookDraft | null>(null);
+  /** The look whose right-click menu is open, and where. */
+  const [lookMenu, setLookMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const rowMenu = useContextMenu<string>((at, id) => setLookMenu({ id, ...at }));
   const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
   const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
   const [lookSearch, setLookSearch] = useState("");
@@ -351,7 +356,7 @@ export function ShowPage() {
           <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
             {shownLooks.map((l) => (
-              <tr key={l.id}>
+              <tr key={l.id} title={t.lookRowHint} {...rowMenu(l.id)}>
                 <td>
                   <button className={`look ${l.active ? "on" : ""}`} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
                     {l.swatch && <span className="swatch-dot" style={{ background: l.swatch }} aria-hidden />}
@@ -377,6 +382,11 @@ export function ShowPage() {
             ))}
           </tbody>
         </table>
+        {lookMenu &&
+          (() => {
+            const l = looks.find((x) => x.id === lookMenu.id);
+            return l ? <LookMenu key={l.id} look={l} at={lookMenu} onEdit={setEditing} onChanged={refresh} onClose={() => setLookMenu(null)} /> : null;
+          })()}
       </section>
 
       {editingGroup && (

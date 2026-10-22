@@ -63,6 +63,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - **looks** : tirages aléatoires (palette, forme `aleatoire` des lyres, ordre mélangé), fonctions des canaux bruts **par leur nom** (mode, scène de couleur) ;
     - **RTP-MIDI** : la session s'annonce par Bonjour et trouve celles du réseau (page MIDI : par appareil, Connecter, « toujours », ou adresse:port) ; port 5004 pris par le Mac : port libre suivant ;
     - **barre debout** (Lieu, Orienter : « Barre ━ / ┃ ») : une barre verticale face au public, sans changer où elle éclaire ;
+    - **clic droit sur un look** (page Show) : modifier, lancer, dupliquer, aperçu ;
     - **Live, « Scène »** : le show sur le plan tel qu'il sort (dessus, face, 3D), pour répéter sans le matériel ;
     - **page Show** : éditeurs en fenêtre (plein écran sur téléphone ; un look aussi depuis le clic droit de son bouton sur le Live, où son aperçu s'affiche, et sur la scène à la demande), en-têtes des tableaux ; éditeur de pas dans l'ordre de la scène, séparé par appareil, noms au-dessus, aperçu jouable sur le plan (« Voir sur la scène ») ;
     - **entre les boutons** (page Show) : deux looks sur les mêmes projecteurs, « le dernier lancé recouvre » (par défaut) ou « valeur haute » (ils s'additionnent) ;
