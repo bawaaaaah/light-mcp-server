@@ -333,6 +333,9 @@ main {
   max-height: 22em;
   overflow: auto;
   font-size: 0.8rem;
+  /* a line ends with what the message did: wrapped, never cut on a tablet */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 table {
   border-collapse: collapse;
@@ -967,6 +970,16 @@ table.rules td {
   max-width: 14em;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* a new show: its fields wrap on a tablet, and a select is never as wide as the longest show name */
+.new-show .row {
+  flex-wrap: wrap;
+}
+.new-show label.inline {
+  white-space: nowrap;
+}
+.new-show select {
+  max-width: 16em;
 }
 .files {
   max-width: 64em;
