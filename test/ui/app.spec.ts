@@ -2404,6 +2404,21 @@ test("live stage in 3D: zones, fixtures and beams drawn, loaded on demand", asyn
   await expect(page.locator(".stage-plan svg[aria-label='Scène en direct']")).toBeHidden(); // the plan steps aside
   // something drawn: the canvas is not one flat colour
   await expect
+  // a bar stood up, facing the audience: it stands in the face view, its four heads one above the other
+  await panel.getByRole("button", { name: "┃ verticale" }).click();
+  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(90);
+  await expect(panel.getByRole("button", { name: "┃ verticale" })).toHaveAttribute("aria-pressed", "true");
+  const cells = bar.locator("g rect:not(.selection):not(.strobe-outline)");
+  await expect(cells).toHaveCount(1); // from above, only its top
+  await page.getByRole("button", { name: "Face", exact: true }).click();
+  await expect(cells).toHaveCount(4);
+  await expect(bar.locator("g[transform^='rotate(-90']")).toHaveCount(1);
+  const [first, last] = [(await cells.first().boundingBox())!, (await cells.last().boundingBox())!];
+  expect(first.y).toBeGreaterThan(last.y); // its first head at the bottom
+  await page.screenshot({ path: "test-results/orient-standing-bar.png", fullPage: true });
+  await panel.getByRole("button", { name: "━ horizontale" }).click();
+  await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(0);
+  await page.getByRole("button", { name: "Dessus", exact: true }).click();
     .poll(async () => (await page.evaluate(`(() => {
       const c = document.querySelector(".stage-3d canvas");
       const g = document.createElement("canvas");

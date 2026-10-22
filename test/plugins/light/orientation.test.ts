@@ -52,6 +52,9 @@ describe("fixture orientation", () => {
     expect(turned.facing).to.equal(undefined);
     expect((await orient({ facing: "floor" })).fixture.orientation).to.include({ yaw: 135, pitch: -90 }); // keeps its line
     expect(await run("stage.describe")).to.contain("Bar 0 vers le sol");
+    // a bar stood up (as in front of the audience): its roll only, where it points stays
+    expect((await orient({ roll: 90 })).fixture.orientation).to.include({ yaw: 135, pitch: -90, roll: 90 });
+    expect((await orient({ turn: 15 })).fixture.orientation).to.include({ yaw: 150, roll: 90 }); // kept when turned
     const listed = (await run("venue.fixture.list")) as { id: string; facing?: string }[];
     expect(listed.find((f) => f.id === "bar-0")!.facing).to.equal("floor");
     expect(listed.find((f) => f.id === "bar-1")!.facing).to.equal(undefined); // never oriented

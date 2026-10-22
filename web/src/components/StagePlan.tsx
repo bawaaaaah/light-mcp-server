@@ -29,14 +29,14 @@ export interface PlanFixture {
   mount?: string;
   position?: { x: number; y: number; z: number };
   /** yaw: 0 audience, 90 cour, 180 upstage, −90 jardin; pitch: −90 floor … 90 ceiling (venue/orientation.ts). */
-  orientation?: { yaw: number; pitch?: number };
+  orientation?: { yaw: number; pitch?: number; roll?: number };
   /** The named facing the orientation matches (venue.fixture.list). */
   facing?: Facing;
   /** Marker colour (venue.fixture.mark): the name is written in it. */
   color?: string;
 }
 export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
-export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
+export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number; roll?: number };
 const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
 type Vec = { x: number; y: number; z: number };
 /** Zoom steps of the plan; above 1 it scrolls inside its frame. */
@@ -365,14 +365,22 @@ export function StagePlan({
           const y0 = sy(p.y) - h / 2;
           const isSelected = orienting && selected === f.id;
           const o = isSelected && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
-          // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0)
-          const body = !front && o?.yaw ? `rotate(${-o.yaw} ${sx(p.x)} ${sy(p.y)})` : undefined;
+          // a standing bar (roll near 90°), seen from above, is only its top: one square, its middle head's colour
+          const roll = f.orientation?.roll ?? 0;
+          const standing = Math.abs(Math.sin((roll * Math.PI) / 180)) > 0.7;
+          const cols = !front && standing ? [all[Math.floor(all.length / 2)]!] : all;
+          // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
+          const w = !front && standing ? h : Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
+          // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0);
+          // from the audience, with its roll (a standing bar, its first head at the bottom)
+          const angle = front ? roll : !standing ? (o?.yaw ?? 0) : 0;
+          const body = angle ? `rotate(${-angle} ${sx(p.x)} ${sy(p.y)})` : undefined;
           // the beam, projected on the view; what is left points at or away from the viewer
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
           // half the height the turned body takes on the plan: the name goes under it
-          const turn = body ? ((o?.yaw ?? 0) * Math.PI) / 180 : 0;
+          const turn = (angle * Math.PI) / 180;
           const halfHeight = Math.abs((w / 2) * Math.sin(turn)) + Math.abs((h / 2) * Math.cos(turn));
           const showBeam = Boolean(f.orientation) || isSelected;
           return (
@@ -455,6 +463,19 @@ export function StagePlan({
             <span className="hint">{front ? t.orientHintFront : t.orientHint}</span>
           )}
         </div>
+              {(colors[selectedFixture.id]?.length ?? 1) > 1 && (
+                <>
+                  <span className="hint">{t.barLabel}</span>
+                  {([0, 90] as const).map((r) => {
+                    const on = Math.round(selectedFixture.orientation?.roll ?? 0) === r;
+                    return (
+                      <button key={r} className={on ? "on" : ""} aria-pressed={on} title={t.barHelp} onClick={() => onOrient(selectedFixture, { roll: r })}>
+                        {r === 0 ? `━ ${t.barAcross}` : `┃ ${t.barStanding}`}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
       )}
     </div>
   );

@@ -134,7 +134,9 @@ export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label
       const heads = colors[f.id] ?? ["#000000"];
       const body = new THREE.Group();
       body.position.copy(toThree(p));
+      body.rotation.order = "YXZ"; // turned around its beam first (a standing bar), then to its heading
       body.rotation.y = ((f.orientation?.yaw ?? 0) * Math.PI) / 180; // front (local +z) towards its heading
+      body.rotation.z = ((f.orientation?.roll ?? 0) * Math.PI) / 180;
       const cell = Math.min(0.25, 1.2 / heads.length);
       heads.forEach((c, k) => {
         const on = c !== "#000000";

@@ -125,11 +125,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.orient",
     title: "Orienter une fixture",
     description:
-      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands.",
+      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom).",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional() }),
-    run: ({ id: fixtureId, facing, yaw, pitch, turn }) => {
+    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional(), roll: z.number().min(-180).max(180).optional() }),
+    run: ({ id: fixtureId, facing, yaw, pitch, turn, roll }) => {
       const f = venue.fixtures.get(fixtureId);
       if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
       let o = { yaw: f.orientation?.yaw ?? 0, pitch: f.orientation?.pitch ?? 0 };
@@ -137,7 +137,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (yaw !== undefined) o.yaw = yaw;
       if (pitch !== undefined) o.pitch = pitch;
       if (turn !== undefined) o.yaw += turn;
-      const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch };
+      const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch, ...(roll !== undefined ? { roll } : {}) };
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };
     },

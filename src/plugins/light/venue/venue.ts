@@ -43,6 +43,8 @@ export const PatchedFixtureSchema = z.object({
       invertPan: z.boolean().default(false),
       invertTilt: z.boolean().default(false),
       swapPanTilt: z.boolean().default(false),
+      /** The body turned around its beam, in degrees: 0 a bar lies across (its first head on the left, seen from where it points), 90 it stands, its first head at the bottom. */
+      roll: z.number().min(-180).max(180).optional(),
       /** Calibration offsets in degrees. */
       panOffset: z.number().default(0),
       tiltOffset: z.number().default(0),
