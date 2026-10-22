@@ -1344,6 +1344,14 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   await page.getByRole("button", { name: "Modifier Mon damier" }).click();
   await editor.getByLabel("Technique").selectOption("pas");
   await expect(editor.locator(".steps-editor .step-row .cell")).toHaveCount(8);
+  // above the steps, the fixture behind each run of cells, each name right over its first square
+  const blocks = editor.locator(".step-blocks .block");
+  await expect(blocks).toHaveText(["Bar 0", "Bar 1"]);
+  const firstRow = editor.locator(".steps-editor .step-row:not(.step-blocks)").first().locator(".cell");
+  for (const [block, cell] of [[0, 0], [1, 4]] as const) {
+    const [b, c] = [(await blocks.nth(block).boundingBox())!, (await firstRow.nth(cell).boundingBox())!];
+    expect(Math.abs(b.x - c.x)).toBeLessThan(1.5);
+  }
   await editor.getByLabel("éteint").check();
   await editor.locator(".steps-editor .step-row .cell").first().dispatchEvent("pointerdown");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();

@@ -11,6 +11,7 @@ import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
 import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
 import { StepsEditor } from "./StepsEditor";
+import { canvasBlocks, type CanvasRender } from "../canvas-blocks";
 import { LookPreview, type Preview } from "./LookPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
@@ -49,6 +50,10 @@ interface Named {
   id: string;
   name: string;
   cells?: number;
+  /** A canvas: which fixture each cell drives. */
+  render?: CanvasRender[];
+  /** A fixture's marker colour. */
+  color?: string;
 }
 
 export function newLook(canvas: string): LookDraft {
@@ -80,6 +85,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   const [canvases, setCanvases] = useState<Named[]>([]);
   const [palettes, setPalettes] = useState<Named[]>([]);
   const [groups, setGroups] = useState<Named[]>([]);
+  const [fixtures, setFixtures] = useState<Named[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [hasHeads, setHasHeads] = useState(false);
@@ -91,12 +97,15 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
     void cmd<Named[]>("venue.canvas.list").then(setCanvases);
     void cmd<Named[]>("palette.list").then(setPalettes);
     void cmd<Named[]>("group.list").then(setGroups);
+    void cmd<Named[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<unknown[]>("position.list").then((h) => setHasHeads(h.length > 0));
   }, []);
 
   const id = isNew ? uniqueId(slug(look.name, "look"), existing) : look.id;
   const draft = useMemo(() => ({ ...look, id: id || "look" }), [look, id]);
-  const cells = canvases.find((c) => c.id === look.canvas)?.cells ?? 8;
+  const canvas = canvases.find((c) => c.id === look.canvas);
+  const cells = canvas?.cells ?? 8;
+  const blocks = useMemo(() => canvasBlocks(cells, canvas?.render ?? [], fixtures), [cells, canvas, fixtures]);
 
   // Server-side preview, debounced: the same generator as the show.
   useEffect(() => {
@@ -181,7 +190,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
       </div>
 
       {schema && <SchemaFields schema={schema} values={look.technique} onChange={(v) => set({ technique: v as LookDraft["technique"] })} skip={look.palette ? ["colors", "color", "base"] : []} />}
-      {look.technique.kind === "pas" && <StepsEditor steps={(look.technique.steps as string[][]) ?? [[]]} cells={cells} onChange={(steps) => set({ technique: { ...look.technique, steps } })} />}
+      {look.technique.kind === "pas" && <StepsEditor steps={(look.technique.steps as string[][]) ?? [[]]} cells={cells} blocks={blocks} onChange={(steps) => set({ technique: { ...look.technique, steps } })} />}
 
       <h3>{t.timing}</h3>
       <div className="fields">

@@ -1,12 +1,14 @@
 /**
  * Step editor for the « pas » technique: one row per step, one square per canvas cell. Click (or
- * drag) paints with the brush: a colour, « éteint » ("-") or « non piloté » ("").
+ * drag) paints with the brush: a colour, « éteint » ("-") or « non piloté » (""). Above the steps,
+ * the fixture behind each run of cells (`blocks`), on the same grid as the squares.
  */
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useT } from "../App";
 import { ColorInput } from "./SchemaFields";
+import type { Block } from "../canvas-blocks";
 
-export function StepsEditor({ steps, cells, onChange }: { steps: string[][]; cells: number; onChange: (s: string[][]) => void }) {
+export function StepsEditor({ steps, cells, blocks = [], onChange }: { steps: string[][]; cells: number; blocks?: Block[]; onChange: (s: string[][]) => void }) {
   const t = useT();
   const [brush, setBrush] = useState("#ff0000");
   const [mode, setMode] = useState<"color" | "off" | "free">("color");
@@ -17,8 +19,12 @@ export function StepsEditor({ steps, cells, onChange }: { steps: string[][]; cel
     onChange(rows.map((r, i) => (i === s ? r.map((c, j) => (j === k ? value : c)) : r)));
   };
 
+  // the number, a column per cell, then duplicate and delete: the names above line up with the squares
+  const grid = { "--step-columns": `2em repeat(${cells}, minmax(0.4em, 1.6em)) 2.2em 2.2em` } as CSSProperties;
+  const named = blocks.some((b) => b.label);
+
   return (
-    <div className="steps-editor">
+    <div className="steps-editor" style={grid}>
       <div className="row">
         <label className="row">
           <input type="radio" checked={mode === "color"} onChange={() => setMode("color")} />
@@ -31,6 +37,17 @@ export function StepsEditor({ steps, cells, onChange }: { steps: string[][]; cel
           <input type="radio" checked={mode === "free"} onChange={() => setMode("free")} /> {t.untouched}
         </label>
       </div>
+      {named && (
+        <div className="step-row step-blocks" aria-label={t.stepBlocks}>
+          <small />
+          {blocks.map((b) => (
+            <span key={b.from} className="block" style={{ gridColumn: `span ${b.to - b.from + 1}` }} title={`${b.label || "—"} · ${b.from + 1}–${b.to + 1}`}>
+              {b.color && <span className="swatch-dot" style={{ background: b.color }} aria-hidden />}
+              {b.label}
+            </span>
+          ))}
+        </div>
+      )}
       {rows.map((r, s) => (
         <div key={s} className="step-row">
           <small>{s + 1}</small>

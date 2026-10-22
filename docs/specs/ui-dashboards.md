@@ -83,7 +83,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
   - Le formulaire des paramètres est **généré depuis le schéma du serveur** (`look.techniques`) : une nouvelle technique ou un nouveau paramètre apparaît sans code d'interface.
   - L'**aperçu animé** rejoue les pas calculés par le serveur (`look.preview`, le même générateur que le show) au tempo courant.
 - **Aperçu animé** sur la scène : plus tard.
-- **Éditeur de pas** (v1, technique `pas`) : une ligne par pas, un carré par cellule, pinceau couleur / éteint / non piloté, dupliquer ou supprimer un pas.
+- **Éditeur de pas** (v1, technique `pas`) : une ligne par pas, un carré par cellule, pinceau couleur / éteint / non piloté, dupliquer ou supprimer un pas. Au-dessus des pas (2026-10-22, demandé par l'utilisateur), **le nom de l'appareil derrière chaque suite de cases** (d'après le rendu du canevas ; sa pastille s'il a une couleur de repère ; le nom complet et les cases au survol), sur la même grille que les carrés pour tomber pile au-dessus ; avec beaucoup de cases sur une tablette, les pas défilent de côté (`web/src/canvas-blocks.ts`, pur et testé).
 - **Courbe d'easing** : poignées bezier, presets de Penner, `steps`.
 - **Timeline** fade, hold et delay, avec une bascule **secondes ↔ temps musicaux**.
 - Visualisation du spread et de la phase.

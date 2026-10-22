@@ -627,15 +627,39 @@ input.swatch {
   background: repeating-linear-gradient(45deg, var(--panel), var(--panel) 3px, var(--line) 3px, var(--line) 6px);
 }
 .steps-editor .step-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--step-columns);
   align-items: center;
-  gap: 3px;
+  column-gap: 3px;
   margin: 2px 0;
 }
 .steps-editor .step-row .cell {
-  width: 1.6em;
+  width: 100%;
   cursor: pointer;
   touch-action: none;
+}
+.steps-editor .step-row button {
+  padding: 0.1em 0.3em;
+  justify-self: start;
+}
+/* many cells on a tablet: the steps scroll sideways rather than being cut */
+.steps-editor {
+  overflow-x: auto;
+  padding-bottom: 0.3em;
+}
+/* the fixture behind each run of cells, above the steps */
+.steps-editor .step-blocks .block {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 3px;
+}
+.steps-editor .step-blocks .swatch-dot {
+  margin-right: 0.25em;
 }
 .steps-editor .step-row small {
   width: 2em;
