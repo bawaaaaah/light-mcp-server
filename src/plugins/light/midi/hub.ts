@@ -238,13 +238,25 @@ export class MidiHub extends EventEmitter {
       return;
     }
     if (!this.feedbackPort) return;
-    for (const m of messages) this.feedbackPort.out.sendMessage(m);
+    try {
+      for (const m of messages) this.feedbackPort.out.sendMessage(m);
+    } catch (err) {
+      this.feedbackPort = undefined; // a controller unplugged: reopened by the next scan when it is back
+      this.emit("warning", `retour MIDI : ${(err as Error).message}`);
+    }
   }
 
   /** MIDI clock bytes (0xF8 clock, 0xFA start, 0xFC stop) to the clock output. */
   sendClock(bytes: number[]): void {
-    if (this.config.clockOutput === "rtp") this.rtp?.send([bytes]);
-    else this.clockPort?.out.sendMessage(bytes);
+    try {
+      if (this.config.clockOutput === "rtp") this.rtp?.send([bytes]);
+      else this.clockPort?.out.sendMessage(bytes);
+    } catch (err) {
+      // a port gone (a USB interface unplugged): drop it, the next scan opens it again when it is back;
+      // a timer that throws would stop the whole server
+      this.clockPort = undefined;
+      this.emit("warning", `horloge MIDI : ${(err as Error).message}`);
+    }
   }
 
   status(): { localAvailable: boolean; localError?: string; inputs: PortStatus[]; outputs: string[]; feedback?: string; clock?: string; rtp: { enabled: boolean; port: number; peers: string[]; error?: string } } {

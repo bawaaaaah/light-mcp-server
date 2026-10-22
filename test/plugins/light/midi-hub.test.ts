@@ -98,6 +98,15 @@ describe("MIDI hub", () => {
       { port: "LED Out", bytes: [0x90, 36, 127] },
     ]);
     expect(hub.status().clock).to.equal("USB Pad");
+    // the interface unplugged: the driver throws, the hub drops the port and the server keeps going
+    const unplugged: string[] = [];
+    hub.on("warning", (w: string) => unplugged.push(w));
+    (hub as unknown as { clockPort: { out: { sendMessage: () => void } } }).clockPort.out.sendMessage = () => {
+      throw new Error("port closed");
+    };
+    expect(() => hub.sendClock([0xf8])).to.not.throw();
+    expect(hub.status().clock).to.equal(undefined);
+    expect(unplugged[0]).to.match(/horloge MIDI : port closed/);
     const warnings: string[] = [];
     const looped = new MidiHub({ inputs: ["iac"], clockOutput: "IAC", rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });
     looped.on("warning", (w: string) => warnings.push(w));

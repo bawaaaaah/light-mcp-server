@@ -2,7 +2,7 @@
 
 Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en premier.**
 
-## Où on en est (2026-10-17)
+## Où on en est (2026-10-22)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), la bascule QLC+ et la sortie vers le node regardée sur scène (P6, découverte sur le réseau lumière, validé le 2026-10-21 : un node à deux ports, l'un en Art-Net, l'autre en sACN), hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
 - **Serveur** (`npm test` : 392 tests verts ; `npm run test:ui` : 102), avancement détaillé dans [roadmap.md](roadmap.md) :
@@ -54,6 +54,15 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - **sécurité** : les règles verrouillées tiennent malgré les forçages de la console DMX ; zones **interdites aux lyres** (une lyre qui y pointe est éteinte, sauf pendant un look autorisé) ; **durée bornée** (un blinder au-dessus d'un niveau pendant N s au plus) ; **vitesse de pan/tilt**, **valeur stable** (machines jamais au tempo), **liste blanche** de plages ; règles qui **refusent** ou **demandent** avant de lancer un look, et règles **pour certains appelants** (l'IA, un rôle) ;
     - **IA en live** : retouches en direct (`light_live_adjust`) quand la régie l'active (page Show), signalée sur toutes les pages ;
     - **QR code** des liens de partage ; **vue 3D** de la scène en direct ; **tempo et ébauche des sections d'un chant depuis son enregistrement** (éditeur de chant).
+  - **2026-10-21 et 22** :
+    - **tempo** : suivi au **micro** (🎤 du widget Tap, phase rattrapée sans saut), tapé à la main dans le widget Tap, **source choisie** dans la page MIDI et « ↺ MIDI » quand Ableton joue sans être suivi, **horloge MIDI en sortie** (24 par temps, jamais de Start/Stop) ;
+    - **DJ en OS2L** (VirtualDJ) : ses temps mènent le tempo (l'horloge MIDI et le micro restent prioritaires), un bouton lance le look de son nom, une commande numérotée passe par les mappings ; annoncé en **mDNS** (`src/core/mdns.ts`), état dans Réglages ;
+    - **sortie** : état des ports des nodes (Art-Net ou sACN, DMX en sortie), **routes réglables** dans Réglages, **couverture** (route qu'aucun node n'écoute, port que rien n'alimente) ; découverte validée sur le réseau lumière ;
+    - **sécurité des définitions** : sorties de machine (fumée, bulles…) et **sélecteurs** (mode, relais, vanne) jamais poussés à fond comme des gradateurs ; étiquette **« machine »** pour les règles ;
+    - **faders de canaux** : sélection en **arbre** façon QLC+ (projecteurs par adresse, canaux un par un, accès rapide, même canal partout), **dosage** du gradateur maître d'un projecteur à couleurs, **intervalle de valeurs** (repris des faders QLC+ à l'import), un DCA choisit les faders qu'il dose ; widget **grand master** ;
+    - **looks** : tirages aléatoires (palette, forme `aleatoire` des lyres, ordre mélangé), fonctions des canaux bruts **par leur nom** (mode, scène de couleur) ;
+    - **interface** : menu du clic droit qui tient dans l'écran, bandeau « nouvelle version », bande de défilement en édition sur tablette ;
+    - **jeton maître** renouvelable sans l'afficher (`light token --new`, appliqué par le serveur en marche).
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, orientation des projecteurs sur la scène en direct, boutons à confirmer, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
@@ -67,7 +76,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
    - choisi par l'utilisateur le 2026-10-16 : la liste des utilisateurs à PIN reste visible sur l'écran de connexion, même depuis l'adresse publique.
 3. Non encore fait :
    - cascade complète des règles.
-4. Plus tard (roadmap) : Max for Live, AbleSet (l'IA en live, les comptes, le QR, la vue 3D, le tempo depuis l'audio et le tempo au micro sont faits).
+4. Plus tard (roadmap) : Max for Live, AbleSet, Ableton Link, RDM (l'IA en live, les comptes, le QR, la vue 3D, le tempo depuis l'audio, le tempo au micro, OS2L et l'horloge MIDI en sortie sont faits).
 
 ## Démarrer
 ```bash
