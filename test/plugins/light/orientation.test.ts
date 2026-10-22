@@ -56,6 +56,15 @@ describe("fixture orientation", () => {
     expect(listed.find((f) => f.id === "bar-0")!.facing).to.equal("floor");
     expect(listed.find((f) => f.id === "bar-1")!.facing).to.equal(undefined); // never oriented
     await run("venue.fixture.put", { fixture: listed.find((f) => f.id === "bar-0") }); // a listed fixture goes back as it is
+    // renamed and given a marker colour, both kept apart; the colour goes back to none
+    expect(((await run("venue.fixture.mark", { id: "bar-1", name: "Barre jardin", color: "#22C55E" })) as { fixture: object }).fixture).to.deep.include({ id: "bar-1", name: "Barre jardin", color: "#22c55e", address: 1 + 15 });
+    expect(((await run("venue.fixture.mark", { id: "bar-1", color: "#ef4444" })) as { fixture: object }).fixture).to.deep.include({ name: "Barre jardin", color: "#ef4444" });
+    expect(((await run("venue.fixture.channels")) as { id: string; color?: string }[]).find((f) => f.id === "bar-1")!.color).to.equal("#ef4444");
+    expect(((await run("venue.fixture.mark", { id: "bar-1", color: null })) as { fixture: object }).fixture).to.not.have.property("color");
+    await run("venue.fixture.mark", { id: "bar-1", color: "red" }).then(
+      () => expect.fail("a colour is #rrggbb"),
+      (e: Error) => expect(e.message).to.match(/invalides/),
+    );
     let failed = "";
     await run("venue.fixture.orient", { id: "nope", facing: "audience" }).catch((e: Error) => (failed = e.message));
     expect(failed).to.contain("nope");

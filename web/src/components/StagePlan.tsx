@@ -32,6 +32,8 @@ export interface PlanFixture {
   orientation?: { yaw: number; pitch?: number };
   /** The named facing the orientation matches (venue.fixture.list). */
   facing?: Facing;
+  /** Marker colour (venue.fixture.mark): the name is written in it. */
+  color?: string;
 }
 export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
 export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number };
@@ -421,7 +423,7 @@ export function StagePlan({
                   </text>
                 </g>
               )}
-              <text x={sx(p.x)} y={sy(p.y) + halfHeight + 14} textAnchor="middle" className="fixture-name">
+              <text x={sx(p.x)} y={sy(p.y) + halfHeight + 14} textAnchor="middle" className="fixture-name" style={f.color ? { fill: f.color } : undefined}>
                 {f.name}
               </text>
             </g>

@@ -142,7 +142,10 @@ export function ChannelTree({ fixtures, groups, selected, onChange }: { fixtures
                 <small className="detail">
                   U{f.universe} · {pad(f.address)}
                 </small>
-                <span className="grow">{f.name}</span>
+                <span className="grow">
+                  {f.color && <span className="swatch-dot" style={{ background: f.color }} aria-hidden />}
+                  {f.name}
+                </span>
                 <small className="hint">{f.type ?? t.noDefinitionShort}</small>
                 {own.length > 0 && <span className="badge">{own.length}</span>}
               </div>

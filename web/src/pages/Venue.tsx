@@ -6,6 +6,8 @@ import { jumpTo, labelOf, slug, uniqueId } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
+import { FixtureMenu } from "../components/FixtureMenu";
+import { useContextMenu } from "../components/menu";
 
 interface Def {
   manufacturer: string;
@@ -25,6 +27,7 @@ interface Fixture {
   target?: string;
   mount?: string;
   position?: { x: number; y: number; z: number };
+  color?: string;
 }
 interface Canvas {
   id: string;
@@ -43,6 +46,8 @@ export function VenuePage() {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const rowMenu = useContextMenu<string>((at, id) => setMenu({ id, ...at }));
   /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
   const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
   /** A rectangular zone: width × depth, centred on x, its front edge at y (metres; x towards cour, y upstage). */
@@ -116,11 +121,14 @@ export function VenuePage() {
               {[...fixtures]
                 .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
                 .map((f) => (
-                <tr key={f.id} className={overlaps[f.id] ? "conflict" : undefined}>
+                <tr key={f.id} className={overlaps[f.id] ? "conflict" : undefined} title={t.fixtureMenuHint} {...rowMenu(f.id)}>
                   <td>
                     <input type="checkbox" checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>
-                  <td>{f.name}</td>
+                  <td>
+                    {f.color && <span className="swatch-dot" style={{ background: f.color }} aria-hidden />}
+                    {f.name}
+                  </td>
                   <td>
                     <small>
                       {f.manufacturer} {f.model} · {f.mode}
@@ -149,6 +157,11 @@ export function VenuePage() {
               ))}
             </tbody>
           </table>
+          {menu &&
+            (() => {
+              const f = fixtures.find((x) => x.id === menu.id);
+              return f ? <FixtureMenu key={f.id} fixture={f} at={menu} onSaved={refresh} onClose={() => setMenu(null)} /> : null;
+            })()}
           <div className="editor">
             <input placeholder={t.name} value={canvasDraft.name} onChange={(e) => setCanvasDraft({ ...canvasDraft, name: e.target.value })} />
             <select value={canvasDraft.topology} onChange={(e) => setCanvasDraft({ ...canvasDraft, topology: e.target.value })}>

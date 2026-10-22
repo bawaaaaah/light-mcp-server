@@ -87,7 +87,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
     description:
-      "Channels of each patched fixture (with its universe, start address and type) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
+      "Channels of each patched fixture (with its universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -103,7 +103,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
                 const caps = ch?.capabilities ?? [];
                 return { offset, name, attribute: ch?.attribute ?? "other", ...(ch?.color ? { color: ch.color } : {}), ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
               });
-        return { id: f.id, name: f.name, universe: f.universe, address: f.address, ...("error" in r ? {} : { type: r.def.type }), channels };
+        return { id: f.id, name: f.name, universe: f.universe, address: f.address, ...(f.color ? { color: f.color } : {}), ...("error" in r ? {} : { type: r.def.type }), channels };
       }),
   });
   reg.register({
@@ -140,6 +140,22 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch };
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };
+    },
+  });
+  reg.register({
+    name: "venue.fixture.mark",
+    title: "Nommer ou colorer une fixture",
+    description:
+      "Renames a patched fixture and/or gives it a colour to tell it at a glance in the patch, on the stage and in the channel trees (#rrggbb; null removes it). The colour is never sent to the fixture. Its id, address and everything else stay.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ id: z.string(), name: z.string().trim().min(1).optional(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional() }),
+    run: ({ id: fixtureId, name, color }) => {
+      const f = venue.fixtures.get(fixtureId);
+      if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
+      const { color: _old, ...rest } = f;
+      const next = { ...rest, ...(name !== undefined ? { name } : {}), ...(color === null ? {} : (color ?? _old) ? { color: (color ?? _old)!.toLowerCase() } : {}) };
+      return { fixture: venue.fixtures.put(next) };
     },
   });
   reg.register({

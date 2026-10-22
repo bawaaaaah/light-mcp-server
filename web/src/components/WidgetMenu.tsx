@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
 import { isHex, SWATCHES } from "../color";
+import { useFloatingMenu } from "./menu";
 
 export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 export type ButtonMode = "trigger" | "latch" | "momentary";
@@ -78,25 +79,14 @@ export function WidgetMenu({
   onClose: () => void;
 }) {
   const t = useT();
-  const box = useRef<HTMLDivElement>(null);
+  const { box, style } = useFloatingMenu(at, onClose);
   const [label, setLabel] = useState(widget.label ?? "");
   const [mappings, setMappings] = useState<MappingDraft[]>([]);
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
   const action = midiAction(widget);
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
-  useEffect(() => {
-    loadMappings();
-    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("pointerdown", away);
-    window.addEventListener("keydown", esc);
-    return () => {
-      window.removeEventListener("pointerdown", away);
-      window.removeEventListener("keydown", esc);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(loadMappings, []);
 
   const mine = action ? mappings.filter((m) => {
     const a = actionOf(m);
@@ -119,17 +109,8 @@ export function WidgetMenu({
       .finally(() => setLearning(false));
   };
 
-  // opened where the click was, kept on screen by its real size (it grows with MIDI notes and
-  // options, narrows on a phone); taller than the window, it scrolls inside
-  const [size, setSize] = useState({ width: 340, height: 380 });
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (el && (el.offsetWidth !== size.width || el.offsetHeight !== size.height)) setSize({ width: el.offsetWidth, height: el.offsetHeight });
-  });
-  const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
-  const top = Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
   return (
-    <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
+    <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={style} onContextMenu={(e) => e.preventDefault()}>
       <h3>
         {t.widgetKinds[widget.kind]}
         {widget.label ? ` · ${widget.label}` : ""}

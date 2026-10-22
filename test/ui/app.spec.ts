@@ -974,6 +974,30 @@ test("venue: the patch reads by address, and fixtures sharing channels are flagg
   expect(errors).toEqual([]);
 });
 
+test("venue: right-click a fixture to rename it and give it a marker colour", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  try {
+    await page.locator("tr", { hasText: "Bar 1" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    await expect(menu).toContainText("Bar 1 · U1.16");
+    await menu.getByRole("radio", { name: "vert" }).click();
+    await menu.getByLabel("Nom").fill("Barre jardin");
+    await menu.getByLabel("Nom").press("Enter");
+    await expect(menu).toHaveCount(0);
+    const row = page.locator("tr", { hasText: "Barre jardin" });
+    await expect(row.locator(".swatch-dot")).toHaveCSS("background-color", "rgb(34, 197, 94)");
+    await page.screenshot({ path: "test-results/venue-fixture-menu.png" });
+    // the same colour where its channels are picked (a channel fader's tree, page Show)
+    const channels = (await api(page, "venue.fixture.channels")) as { id: string; name: string; color?: string }[];
+    expect(channels.find((f) => f.id === "bar-1")).toMatchObject({ name: "Barre jardin", color: "#22c55e" });
+  } finally {
+    await api(page, "venue.fixture.mark", { id: "bar-1", name: "Bar 1", color: null });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("notes: grouped by kind, one line each, edited in place", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

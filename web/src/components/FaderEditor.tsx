@@ -27,6 +27,8 @@ export interface FixtureChannels {
   universe: number;
   address: number;
   type?: string;
+  /** The fixture's marker colour (venue.fixture.mark). */
+  color?: string;
   /** ranges: the named functions of a channel cut into several (a mode, a colour preset, a macro). */
   channels: { offset: number; name: string; attribute: string; color?: string; ranges?: { min: number; max: number; name: string }[] }[];
 }

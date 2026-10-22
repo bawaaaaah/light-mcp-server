@@ -61,6 +61,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - **sécurité des définitions** : sorties de machine (fumée, bulles…) et **sélecteurs** (mode, relais, vanne) jamais poussés à fond comme des gradateurs ; étiquette **« machine »** pour les règles ;
     - **faders de canaux** : sélection en **arbre** façon QLC+ (projecteurs par adresse, canaux un par un, accès rapide, même canal partout), **dosage** du gradateur maître d'un projecteur à couleurs, **intervalle de valeurs** (repris des faders QLC+ à l'import), un DCA choisit les faders qu'il dose ; widget **grand master** ;
     - **looks** : tirages aléatoires (palette, forme `aleatoire` des lyres, ordre mélangé), fonctions des canaux bruts **par leur nom** (mode, scène de couleur) ;
+    - **patch** : clic droit sur un appareil (appui long sur tablette) pour le **renommer** et lui donner une **couleur de repère**, visible dans le patch, l'arbre des canaux et la scène ;
     - **interface** : menu du clic droit qui tient dans l'écran, bandeau « nouvelle version », bande de défilement en édition sur tablette ;
     - **jeton maître** renouvelable sans l'afficher (`light token --new`, appliqué par le serveur en marche) ;
     - **Ableton Link** en écoute seule : source de tempo « link », le tempo de la session et ses temps (heure de la session mesurée par les pings de Link, sans y entrer ; pas la mesure), à vérifier avec Live ;

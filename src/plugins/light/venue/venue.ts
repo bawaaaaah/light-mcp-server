@@ -49,6 +49,8 @@ export const PatchedFixtureSchema = z.object({
     })
     .optional(),
   notes: z.string().optional(),
+  /** A colour to tell the fixture at a glance (patch, stage, channel trees); never sent to it. */
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 export type PatchedFixture = z.infer<typeof PatchedFixtureSchema>;
 
