@@ -1106,6 +1106,24 @@ table.rules td {
 }
 
 /* Right-click menu of a dashboard widget (components/WidgetMenu.tsx). */
+/* a look's preview in its button's menu: as wide as the menu, many cells close together */
+.preview.plain {
+  gap: 1px;
+  margin: 0.4em 0 0.2em;
+}
+.preview.plain .cell {
+  height: 1.6em;
+  min-width: 0;
+  border-radius: 2px;
+}
+.preview.plain .cell.block-start {
+  margin-left: 3px;
+}
+.widget-menu .look-peek summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 /* the Live's stage: the show as it goes out, above the buttons */
 .live-stage-panel {
   margin: 0 0 0.8em;

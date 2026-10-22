@@ -5,6 +5,7 @@ import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
+import { LookPeek } from "./LookPeek";
 
 export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 export type ButtonMode = "trigger" | "latch" | "momentary";
@@ -86,6 +87,8 @@ export function WidgetMenu({
   const [label, setLabel] = useState(widget.label ?? "");
   const [mappings, setMappings] = useState<MappingDraft[]>([]);
   const [learning, setLearning] = useState(false);
+  /** The look's preview: folded, loaded only once opened. */
+  const [peek, setPeek] = useState(false);
   const [error, setError] = useState("");
   const action = midiAction(widget);
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
@@ -122,6 +125,12 @@ export function WidgetMenu({
         <button className="primary" onClick={() => onEditLook(widget.target!)}>
           ✎ {t.editThisLook}
         </button>
+      )}
+      {widget.kind === "look" && widget.target && (
+        <details className="look-peek" onToggle={(e) => setPeek((e.currentTarget as HTMLDetailsElement).open)}>
+          <summary>{t.lookPeek}</summary>
+          {peek && <LookPeek id={widget.target} />}
+        </details>
       )}
       {targets.length > 0 && (
         <label className="field">

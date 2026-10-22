@@ -395,6 +395,23 @@ test("Live: the show on the stage plan, top, face or 3D, to rehearse without the
   expect(errors).toEqual([]);
 });
 
+test("right-click on a look button in the Live: its preview, folded until opened", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator(".dgrid .cell button", { hasText: "checker" }).first().click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  const peek = menu.locator("details.look-peek");
+  await expect(peek).not.toHaveAttribute("open", ""); // hidden by default
+  await expect(menu.locator(".preview.plain")).toHaveCount(0); // nothing loaded yet
+  await peek.locator("summary").click();
+  await expect(menu.locator(".preview.plain .cell")).toHaveCount(8); // the look's canvas, played
+  await expect.poll(() => menu.locator(".preview.plain .cell:not(.free)").count()).toBeGreaterThan(0);
+  await page.screenshot({ path: "test-results/widget-menu-preview.png" });
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: edit its look in a window, over the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

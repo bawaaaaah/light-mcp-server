@@ -74,8 +74,9 @@ export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: nu
 /**
  * The preview strip. A line canvas sits on the steps' grid (`order`: the cell shown at each place;
  * `starts`: places where a new fixture begins, a separator before); a grid canvas keeps its rows.
+ * `plain`: on its own, as wide as its box (a button's menu on the Live).
  */
-export function LookPreview({ preview, frame, label, order, starts }: { preview: Preview; frame: (string | null)[]; label: string; order?: number[]; starts?: ReadonlySet<number> }) {
+export function LookPreview({ preview, frame, label, order, starts, plain = false }: { preview: Preview; frame: (string | null)[]; label: string; order?: number[]; starts?: ReadonlySet<number>; plain?: boolean }) {
   if (preview.topology === "grid" && preview.columns) {
     return (
       <div className="preview" style={{ gridTemplateColumns: `repeat(${preview.columns}, 1fr)` }} aria-label={label}>
@@ -86,6 +87,14 @@ export function LookPreview({ preview, frame, label, order, starts }: { preview:
     );
   }
   const shown = order ?? Array.from({ length: preview.cells }, (_, k) => k);
+  if (plain)
+    return (
+      <div className="preview plain" style={{ gridTemplateColumns: `repeat(${preview.cells}, minmax(0, 1fr))` }} aria-label={label}>
+        {shown.map((k, i) => (
+          <span key={k} className={`${frame[k] ? "cell" : "cell free"}${starts?.has(i) ? " block-start" : ""}`} style={{ background: frame[k] ?? undefined }} />
+        ))}
+      </div>
+    );
   return (
     <div className="step-row preview-row" aria-label={label}>
       <small />
