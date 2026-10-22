@@ -645,8 +645,10 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   await drag({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, cw * 2, 0); // two columns right
   await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0}×1`);
   await centre();
-  box = (await cell.boundingBox())!;
-  await drag({ x: box.x + box.width - 3, y: box.y + box.height - 3 }, cw, 0); // the bottom-right corner: one column wider
+  // from the handle itself (a small square half clipped by the cell's edge), not a point guessed near the corner
+  const handle = (await cell.locator(".handle.se").boundingBox())!;
+  const visible = (await cell.boundingBox())!;
+  await drag({ x: Math.min(handle.x + handle.width / 2, visible.x + visible.width - 2), y: Math.min(handle.y + handle.height / 2, visible.y + visible.height - 2) }, cw, 0); // one column wider
   await expect(pos).toHaveText(`${x0! + 2},${y0} · ${w0! + 1}×1`);
   await page.getByRole("button", { name: "Grille magnétique" }).click(); // off: quarters
   await centre();
