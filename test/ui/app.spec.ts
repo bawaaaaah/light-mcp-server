@@ -395,17 +395,19 @@ test("Live: the show on the stage plan, top, face or 3D, to rehearse without the
   expect(errors).toEqual([]);
 });
 
-test("right-click on a look button in the Live: its preview, folded until opened", async ({ page }) => {
+test("right-click on a look button in the Live: its preview at once, concise, and on the stage on demand", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   await page.locator(".dgrid .cell button", { hasText: "checker" }).first().click({ button: "right" });
   const menu = page.getByRole("dialog", { name: "Réglages du widget" });
-  const peek = menu.locator("details.look-peek");
-  await expect(peek).not.toHaveAttribute("open", ""); // hidden by default
-  await expect(menu.locator(".preview.plain")).toHaveCount(0); // nothing loaded yet
-  await peek.locator("summary").click();
-  await expect(menu.locator(".preview.plain .cell")).toHaveCount(8); // the look's canvas, played
+  await expect(menu.locator(".preview.plain .cell")).toHaveCount(8); // the look's canvas, played at once
   await expect.poll(() => menu.locator(".preview.plain .cell:not(.free)").count()).toBeGreaterThan(0);
+  await expect(menu.locator(".preview-names span")).toHaveText(["Bar 0", "Bar 1"]); // each fixture above its cells
+  await expect(menu.locator(".stage-plan")).toHaveCount(0);
+  const narrow = (await menu.boundingBox())!.width;
+  await menu.getByRole("button", { name: "Sur la scène" }).click();
+  await expect(menu.locator(".stage-plan svg")).toBeVisible(); // the fuller preview, on demand
+  await expect.poll(async () => (await menu.boundingBox())!.width).toBeGreaterThan(narrow); // the menu makes room
   await page.screenshot({ path: "test-results/widget-menu-preview.png" });
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);

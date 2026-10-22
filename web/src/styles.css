@@ -1119,10 +1119,34 @@ table.rules td {
 .preview.plain .cell.block-start {
   margin-left: 3px;
 }
-.widget-menu .look-peek summary {
-  cursor: pointer;
+/* above the strip, each fixture's code: concise, the full name on hover */
+.preview-names {
+  display: grid;
+  gap: 1px;
+  font-size: 0.66rem;
   color: var(--muted);
-  font-size: 0.85rem;
+  line-height: 1.2;
+}
+.preview-names span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  min-width: 0;
+}
+.preview-names .block-start {
+  margin-left: 3px;
+}
+.widget-menu .look-peek {
+  display: grid;
+  gap: 0.15em;
+}
+.widget-menu .look-peek > button {
+  justify-self: end;
+  font-size: 0.8rem;
+}
+/* the look on the stage plan: room for it */
+.widget-menu.wide {
+  width: min(600px, calc(100vw - 16px));
 }
 /* the Live's stage: the show as it goes out, above the buttons */
 .live-stage-panel {

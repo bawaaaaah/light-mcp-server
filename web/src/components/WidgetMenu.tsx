@@ -87,8 +87,8 @@ export function WidgetMenu({
   const [label, setLabel] = useState(widget.label ?? "");
   const [mappings, setMappings] = useState<MappingDraft[]>([]);
   const [learning, setLearning] = useState(false);
-  /** The look's preview: folded, loaded only once opened. */
-  const [peek, setPeek] = useState(false);
+  /** The look's preview played on the stage: the menu widens for it. */
+  const [wide, setWide] = useState(false);
   const [error, setError] = useState("");
   const action = midiAction(widget);
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
@@ -116,7 +116,7 @@ export function WidgetMenu({
   };
 
   return (
-    <div ref={box} className="widget-menu" role="dialog" aria-label={t.widgetSettings} style={style} onContextMenu={(e) => e.preventDefault()}>
+    <div ref={box} className={wide ? "widget-menu wide" : "widget-menu"} role="dialog" aria-label={t.widgetSettings} style={style} onContextMenu={(e) => e.preventDefault()}>
       <h3>
         {t.widgetKinds[widget.kind]}
         {widget.label ? ` · ${widget.label}` : ""}
@@ -127,10 +127,7 @@ export function WidgetMenu({
         </button>
       )}
       {widget.kind === "look" && widget.target && (
-        <details className="look-peek" onToggle={(e) => setPeek((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>{t.lookPeek}</summary>
-          {peek && <LookPeek id={widget.target} />}
-        </details>
+        <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
       {targets.length > 0 && (
         <label className="field">

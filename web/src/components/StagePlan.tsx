@@ -77,6 +77,7 @@ export function StagePlan({
   compact = false,
   views = false,
   shownColors,
+  initialView = "top",
 }: {
   fixtures: PlanFixture[];
   zones: PlanZone[];
@@ -88,6 +89,8 @@ export function StagePlan({
   views?: boolean;
   /** Colours to show instead of the live output (a look's preview): fixture → its heads. */
   shownColors?: Record<string, string[]>;
+  /** The view it opens on. */
+  initialView?: "top" | "front" | "3d";
 }) {
   const t = useT();
   const [liveColors, setColors] = useState<Record<string, string[]>>({});
@@ -104,7 +107,7 @@ export function StagePlan({
   const [selected, setSelected] = useState<string | null>(null);
   /** Heading while dragging around the selected fixture, saved on release. */
   const [turning, setTurning] = useState<number | null>(null);
-  const [view, setView] = useState<"top" | "front" | "3d">("top");
+  const [view, setView] = useState<"top" | "front" | "3d">(initialView);
   const front = view === "front";
   const in3d = view === "3d";
   // The drawing works on (x, y) pairs: top view = stage plan, front view = (x, height).
@@ -522,12 +525,12 @@ function inside(x: number, y: number, poly: [number, number][]): boolean {
 }
 
 /** Self-loading live preview, for a dashboard widget. */
-export function LiveStage({ onError, shownColors, views = false }: { onError: (msg: string) => void; shownColors?: Record<string, string[]>; views?: boolean }) {
+export function LiveStage({ onError, shownColors, views = false, initialView }: { onError: (msg: string) => void; shownColors?: Record<string, string[]>; views?: boolean; initialView?: "top" | "front" | "3d" }) {
   const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
   const [zones, setZones] = useState<PlanZone[]>([]);
   useEffect(() => {
     void cmd<PlanFixture[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<PlanZone[]>("stage.zone.list").then(setZones).catch(() => undefined);
   }, []);
-  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact views={views} shownColors={shownColors} />;
+  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact views={views} shownColors={shownColors} initialView={initialView} />;
 }
