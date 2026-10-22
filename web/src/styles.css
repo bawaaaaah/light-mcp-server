@@ -1840,14 +1840,30 @@ ul.online {
   gap: 0.3em;
 }
 /* the RTP-MIDI sessions of the network, one per line */
-.rtp-sessions {
-  list-style: none;
-  padding: 0;
-  margin: 0.3em 0 0.6em;
+/* a device, then its sessions in aligned columns: name, port, button, « toujours » */
+.rtp-device {
+  margin: 0.4em 0 0.7em;
 }
-.rtp-sessions li {
-  flex-wrap: wrap;
-  gap: 0.5em;
+.rtp-device > summary {
+  cursor: pointer;
+}
+.rtp-sessions {
+  display: grid;
+  grid-template-columns: auto minmax(8em, max-content) auto auto auto;
+  justify-content: start;
+  justify-items: start;
+  align-items: center;
+  gap: 0.25em 0.7em;
+  margin: 0.35em 0 0 1.1em;
+}
+.rtp-session {
+  display: contents;
+}
+.rtp-session .name {
+  overflow-wrap: anywhere;
+}
+.rtp-session button {
+  padding: 0.25em 0.7em;
 }
 /* one output of a universe: its box, then its setting */
 .routes .route .out {

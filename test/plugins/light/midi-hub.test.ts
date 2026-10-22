@@ -166,7 +166,7 @@ describe("MIDI hub", () => {
       await until(() => remote.listPeers().length === 0);
       // found on the network (Bonjour stands in here), kept: joined again within seconds
       (hub as unknown as { browser: object }).browser = { ask: () => undefined, list: () => [{ name: "Régie", host: "regie", port: 15406, addresses: ["127.0.0.1"] }], stop: async () => undefined };
-      expect(hub.rtpSessions()).to.deep.equal([{ name: "Régie", host: "regie", address: "127.0.0.1", port: 15406, connected: false, kept: true, self: false }]);
+      expect(hub.rtpSessions()).to.deep.equal([{ name: "Régie", host: "regie", address: "127.0.0.1", port: 15406, connected: false, kept: true, self: false, local: false }]);
       (hub as unknown as { joinKept: () => void }).joinKept();
       await until(() => hub.rtpSessions()[0]!.connected);
       await hub.rtpConnect({ name: "Nulle part" }).then(

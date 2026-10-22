@@ -676,13 +676,6 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   expect(errors).toEqual([]);
 });
 
-test("dashboards: a new one, a look dragged from the palette, undo and redo, a snapshot button, full screen, then deleted", async ({ page }) => {
-  const errors = watchErrors(page);
-  page.on("dialog", (d) => void d.accept());
-  await login(page);
-  await api(page, "look.stopall");
-  await api(page, "look.go", { id: "breath" });
-  await api(page, "snapshot.save", { name: "Respire" });
 test("layout editing: several widgets selected (Ctrl/⌘, Shift for a frame) get the same colour and mode at once", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -717,6 +710,13 @@ test("layout editing: several widgets selected (Ctrl/⌘, Shift for a frame) get
   expect(errors).toEqual([]);
 });
 
+test("dashboards: a new one, a look dragged from the palette, undo and redo, a snapshot button, full screen, then deleted", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "breath" });
+  await api(page, "snapshot.save", { name: "Respire" });
   await api(page, "look.stopall");
   await page.getByRole("button", { name: "✎" }).click();
   await page.getByRole("button", { name: "+ Nouveau" }).click();
@@ -1504,6 +1504,8 @@ test("MIDI page: the RTP-MIDI sessions of the network, joined, kept, or by addre
           sessions: [
             { name: "light-mcp-server", host: "regie", address: "192.0.2.9", port: 5006, connected: false, kept: false, self: true },
             { name: "iPad de scène", host: "ipad", address: "192.0.2.21", port: 5004, connected: false, kept: false, self: false },
+            // an interface announcing a session per port: folded
+            ...[1, 2, 3, 4, 5].map((n) => ({ name: `Interface-0${n}`, host: "interface", address: "192.0.2.40", port: 5002 + 2 * n, connected: false, kept: false, self: false })),
           ],
         },
       },
@@ -1516,9 +1518,15 @@ test("MIDI page: the RTP-MIDI sessions of the network, joined, kept, or by addre
   const panel = page.locator("section.rtp");
   await expect(panel).toContainText("Session de la régie « light-mcp-server » · port 5006");
   await expect(panel).toContainText("le port 5004 est pris");
-  await expect(panel.locator("li")).toHaveCount(1); // this stage's own session is not offered
-  const ipad = panel.locator("li", { hasText: "iPad de scène" });
-  await expect(ipad).toContainText("192.0.2.21:5004");
+  const iface = panel.locator("details.rtp-device");
+  await expect(iface.locator("summary")).toContainText("interface 192.0.2.40 · 5 session(s)");
+  await expect(iface.getByRole("listitem").first()).toBeHidden(); // folded until opened
+  await iface.locator("summary").click();
+  await expect(iface.getByRole("listitem")).toHaveCount(5);
+  await expect(panel.getByRole("listitem")).toHaveCount(6); // this stage's own session is not offered
+  await expect(panel.locator(".rtp-device", { hasText: "iPad de scène" })).toContainText("ipad 192.0.2.21 · 1 session(s)");
+  const ipad = panel.getByRole("listitem").filter({ hasText: "iPad de scène" });
+  await expect(ipad).toContainText(":5004");
   await ipad.getByRole("button", { name: "Connecter" }).click();
   await expect.poll(() => sent.length).toBe(1);
   await ipad.getByRole("checkbox", { name: "toujours" }).click(); // shown as the server says: the (played) network keeps it unticked

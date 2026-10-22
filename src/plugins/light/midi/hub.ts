@@ -208,7 +208,7 @@ export class MidiHub extends EventEmitter {
   }
 
   /** The RTP-MIDI sessions found on the network (Bonjour), and which are joined, kept, or this one. */
-  rtpSessions(): { name: string; host: string; address: string; port: number; connected: boolean; kept: boolean; self: boolean }[] {
+  rtpSessions(): { name: string; host: string; address: string; port: number; connected: boolean; kept: boolean; self: boolean; local: boolean }[] {
     const peers = this.rtp?.listPeers() ?? [];
     const mine = new Set(localHost().addresses);
     return (this.browser?.list() ?? []).map((s) => ({
@@ -219,6 +219,7 @@ export class MidiHub extends EventEmitter {
       connected: peers.some((p) => s.addresses.includes(p.address) && p.controlPort === s.port),
       kept: this.config.rtp.connect?.includes(s.name) ?? false,
       self: s.port === this.rtpPort && s.addresses.some((a) => mine.has(a)),
+      local: s.addresses.some((a) => mine.has(a)),
     }));
   }
 

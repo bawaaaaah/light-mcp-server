@@ -32,6 +32,20 @@ interface RtpSession {
   connected: boolean;
   kept: boolean;
   self: boolean;
+  /** On this machine (its own network sessions). */
+  local?: boolean;
+}
+
+/** The sessions by device (one address): a device may announce many (an interface, one per port). */
+function byDevice(sessions: RtpSession[]): { key: string; host: string; address: string; local: boolean; sessions: RtpSession[] }[] {
+  const groups = new Map<string, { key: string; host: string; address: string; local: boolean; sessions: RtpSession[] }>();
+  for (const x of sessions) {
+    const g = groups.get(x.address) ?? { key: x.address, host: x.host, address: x.address, local: Boolean(x.local), sessions: [] };
+    g.sessions.push(x);
+    groups.set(x.address, g);
+  }
+  // this machine first, then by name; inside, in port order (an interface's ports one after the other)
+  return [...groups.values()].map((g) => ({ ...g, sessions: g.sessions.sort((a, b) => a.port - b.port) })).sort((a, b) => Number(b.local) - Number(a.local) || a.host.localeCompare(b.host));
 }
 
 /** The RTP-MIDI sessions of the network (Bonjour): joined, left, kept; one without Bonjour by its address. */
@@ -72,22 +86,43 @@ function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }
         )}
       </p>
       {sessions !== null && others.length === 0 && <p className="hint">{t.rtpNone}</p>}
-      <ul className="rtp-sessions">
-        {others.map((x) => (
-          <li key={`${x.name}@${x.address}:${x.port}`} className="row">
-            <span className={`dot ${x.connected ? "ok" : "idle"}`} /> <strong>{x.name}</strong>{" "}
-            <small className="hint">
-              {x.host} · {x.address}:{x.port}
-            </small>
-            <button disabled={busy !== "" || !status.rtp.enabled} onClick={() => act(x.name, x.connected ? "midi.rtp.disconnect" : "midi.rtp.connect", { name: x.name })}>
-              {x.connected ? t.rtpDisconnect : t.rtpConnect}
-            </button>
-            <label>
-              <input type="checkbox" checked={x.kept} disabled={busy !== "" || !status.rtp.enabled} onChange={(e) => act(`${x.name}:keep`, e.target.checked ? "midi.rtp.connect" : "midi.rtp.keep", e.target.checked ? { name: x.name, keep: true } : { name: x.name, keep: false })} /> {t.rtpKeep}
-            </label>
-          </li>
-        ))}
-      </ul>
+      {byDevice(others).map((g) => {
+        const rows = (
+          <div className="rtp-sessions" role="list">
+            {g.sessions.map((x) => (
+              <div key={`${x.name}:${x.port}`} className="rtp-session" role="listitem">
+                <span className={`dot ${x.connected ? "ok" : "idle"}`} />
+                <span className="name">{x.name}</span>
+                <small className="hint">:{x.port}</small>
+                <button disabled={busy !== "" || !status.rtp.enabled} onClick={() => act(x.name, x.connected ? "midi.rtp.disconnect" : "midi.rtp.connect", { name: x.name })}>
+                  {x.connected ? t.rtpDisconnect : t.rtpConnect}
+                </button>
+                <label>
+                  <input type="checkbox" checked={x.kept} disabled={busy !== "" || !status.rtp.enabled} onChange={(e) => act(`${x.name}:keep`, e.target.checked ? "midi.rtp.connect" : "midi.rtp.keep", e.target.checked ? { name: x.name, keep: true } : { name: x.name, keep: false })} /> {t.rtpKeep}
+                </label>
+              </div>
+            ))}
+          </div>
+        );
+        const joined = g.sessions.filter((x) => x.connected).length;
+        const head = (
+          <>
+            <strong>{g.local ? t.rtpThisMac : g.host}</strong> <small className="hint">{g.address}</small> <small className="hint">· {g.sessions.length} {t.rtpSessionCount}{joined ? ` · ${joined} ${t.rtpJoined}` : ""}</small>
+          </>
+        );
+        // an interface announcing a session per port is folded, unless one of them is in use
+        return g.sessions.length > 3 ? (
+          <details key={g.key} className="rtp-device" open={g.sessions.some((x) => x.connected || x.kept)}>
+            <summary>{head}</summary>
+            {rows}
+          </details>
+        ) : (
+          <div key={g.key} className="rtp-device">
+            <div>{head}</div>
+            {rows}
+          </div>
+        );
+      })}
       <div className="row">
         <input aria-label={t.rtpManual} placeholder={t.rtpManual} value={manual} onChange={(e) => setManual(e.target.value)} />
         <button disabled={!address || !Number(port) || busy !== "" || !status.rtp.enabled} onClick={() => act("manual", "midi.rtp.connect", { address, port: Number(port) })}>
