@@ -525,12 +525,13 @@ export function DashboardsPage({ role }: { role: Role }) {
                 className="to-midi"
                 {...locked("commands:tempo")}
                 title={t.backToMidiHelp}
+                aria-label={t.backToMidiHelp}
                 onClick={() => {
                   if (mic.on) microphone.stop();
                   void run("tempo.set", { source: "midi" });
                 }}
               >
-                ↺ MIDI
+                ↺<span className="word"> MIDI</span>
               </button>
             )}
             <button

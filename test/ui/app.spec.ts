@@ -309,7 +309,7 @@ test("tempo source: chosen in the MIDI page, and « ↺ MIDI » gives Ableton th
   try {
     await expect(page.locator("small.hint", { hasText: "horloge reçue" })).toBeVisible();
     await page.locator("nav.pages button", { hasText: "Live" }).click();
-    const back = page.getByRole("button", { name: "↺ MIDI" });
+    const back = page.getByRole("button", { name: "Ableton joue : suivre à nouveau son horloge MIDI" }); // « ↺ MIDI », or « ↺ » in a narrow Tap
     await expect(back).toBeVisible();
     await back.click();
     await expect.poll(async () => (await tempo()).source).toBe("midi");

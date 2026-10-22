@@ -1825,6 +1825,26 @@ ul.online {
   display: flex;
   gap: 0.3em;
   min-width: 0;
+  /* narrow on a dashboard, it tightens instead of running over its neighbour */
+  container-type: inline-size;
+  overflow: hidden;
+}
+.tap-cell > .tap {
+  min-width: 0;
+  overflow: hidden;
+}
+@container (max-width: 16em) {
+  .tap-cell > .bpm {
+    flex-basis: 3.4em;
+    width: 3.4em;
+  }
+  .tap-cell > .to-midi .word {
+    display: none;
+  }
+  .tap-cell > .to-midi,
+  .tap-cell > .mic {
+    padding: 0 0.35em;
+  }
 }
 .tap-cell > .bpm {
   flex: 0 0 4.2em;
