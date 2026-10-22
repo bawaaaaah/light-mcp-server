@@ -676,6 +676,40 @@ test("dashboards: a new one, a look dragged from the palette, undo and redo, a s
   await api(page, "look.stopall");
   await api(page, "look.go", { id: "breath" });
   await api(page, "snapshot.save", { name: "Respire" });
+test("layout editing: several widgets selected (Ctrl/⌘, Shift for a frame) get the same colour and mode at once", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const [dash] = (await api(page, "dashboard.list")) as { widgets: { id: string; kind: string; x: number; y: number; w: number; h: number; color?: string; mode?: string }[] }[];
+  const looks = dash!.widgets.filter((w) => w.kind === "look").sort((a, b) => a.y - b.y || a.x - b.x);
+  const [a, b] = [looks[0]!, looks[looks.length - 1]!];
+  // what a frame from a to b takes: every widget whose centre lies in the rectangle they span
+  const [x1, y1, x2, y2] = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x + a.w, b.x + b.w), Math.max(a.y + a.h, b.y + b.h)];
+  const framed = dash!.widgets.filter((w) => w.x + w.w / 2 > x1 && w.x + w.w / 2 < x2 && w.y + w.h / 2 > y1 && w.y + w.h / 2 < y2);
+  expect(framed.length).toBeGreaterThan(2);
+  await page.getByRole("button", { name: "✎" }).click();
+  const cell = (id: string) => page.locator(`.dgrid .cell[data-widget="${id}"]`);
+  await cell(a.id).click();
+  await cell(looks[1]!.id).click({ modifiers: ["ControlOrMeta"] });
+  const panel = page.locator(".dashboards .editor.many");
+  await expect(panel).toContainText("2 widgets sélectionnés");
+  await cell(looks[1]!.id).click({ modifiers: ["ControlOrMeta"] }); // again: taken out
+  await expect(panel).toHaveCount(0);
+  await cell(a.id).click(); // alone again, and the corner a frame starts from
+  await cell(b.id).click({ modifiers: ["Shift"] }); // everything framed from a to b
+  await expect(panel).toContainText(`${framed.length} widgets sélectionnés`);
+  await expect(page.locator(".dgrid .cell.selected")).toHaveCount(framed.length);
+  await panel.getByRole("radio", { name: "rouge" }).click();
+  await panel.getByLabel("Mode").selectOption("momentary");
+  await page.screenshot({ path: "test-results/dashboard-multi-select.png" });
+  await page.getByRole("button", { name: "✔" }).click();
+  const saved = ((await api(page, "dashboard.list")) as typeof dash[])[0]!.widgets.filter((w) => framed.some((f) => f.id === w.id));
+  expect(saved.every((w) => w.kind === "preview" || w.color === "#ef4444")).toBe(true);
+  expect(saved.filter((w) => w.kind === "look").every((w) => w.mode === "momentary")).toBe(true);
+  // back as it was
+  await api(page, "dashboard.put", { dashboard: dash });
+  expect(errors).toEqual([]);
+});
+
   await api(page, "look.stopall");
   await page.getByRole("button", { name: "✎" }).click();
   await page.getByRole("button", { name: "+ Nouveau" }).click();

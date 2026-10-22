@@ -7,7 +7,8 @@ import { LiveStage } from "../components/StagePlan";
 import { WidgetMenu } from "../components/WidgetMenu";
 import { GettingStarted } from "../components/GettingStarted";
 import { RecentlyDeleted, Versions } from "../components/Versions";
-import { isHex, textOn } from "../color";
+import { isHex, SWATCHES, textOn } from "../color";
+import { pick } from "../selection";
 import { microphone } from "../audio/microphone";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
@@ -174,7 +175,14 @@ export function DashboardsPage({ role }: { role: Role }) {
   const past = useRef<Dashboard[]>([]);
   const future = useRef<Dashboard[]>([]);
   const dragging = useRef(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  /** The widgets selected while editing: one gets the full panel, several the panel for all of them. */
+  const [selection, setSelection] = useState<string[]>([]);
+  const selected = selection.length === 1 ? selection[0]! : null;
+  const setSelected = (id: string | null) => setSelection(id ? [id] : []);
+  /** The last widget clicked: the corner a Shift+click frames from. */
+  const anchor = useRef<string | undefined>(undefined);
+  /** A tablet has no Ctrl nor Shift: each tap adds (add) or frames from the last one (frame). */
+  const [touchPick, setTouchPick] = useState<"add" | "frame" | null>(null);
   /** The widget whose right-click menu is open, and where. */
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   /**
@@ -207,6 +215,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   const startDrag = (e: React.PointerEvent, w: Widget, mode: Handle) => {
     const grid = gridRef.current;
     if (!edit || !grid || !dash || e.button !== 0) return;
+    if (mode === "move" && (e.shiftKey || e.metaKey || e.ctrlKey || touchPick)) return; // a selecting click, not a move
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const cw = grid.getBoundingClientRect().width / dash.columns;
@@ -300,6 +309,11 @@ export function DashboardsPage({ role }: { role: Role }) {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
+        return;
+      }
+      if (edit && e.key === "Escape") {
+        setSelection([]);
+        setTouchPick(null);
         return;
       }
       const n = Number(e.key);
@@ -698,6 +712,13 @@ export function DashboardsPage({ role }: { role: Role }) {
     return c ? { className: " tinted", style: { "--wc": c, "--wc-text": textOn(c) } as React.CSSProperties } : { className: "", style: {} };
   };
   const sel = dash?.widgets.find((w) => w.id === selected);
+  // several selected: what they share is set for all of them at once (one step to undo)
+  const many = selection.length > 1 ? (dash?.widgets.filter((w) => selection.includes(w.id)) ?? []) : [];
+  const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
+  const pressable = (w: Widget) => w.kind === "look" || w.kind === "blackout";
+  /** A held button is already deliberate: no second press for momentary ones. */
+  const confirmable = (w: Widget) => (pressable(w) && w.mode !== "momentary") || w.kind === "snapshot";
+  const shared = <K extends keyof Widget>(k: K, ws: Widget[], fallback?: Widget[K]) => (new Set(ws.map((w) => w[k] ?? fallback)).size === 1 ? (ws[0]![k] ?? fallback) : undefined);
   return (
     <div className="dashboards">
       <section className="bar">
@@ -715,6 +736,12 @@ export function DashboardsPage({ role }: { role: Role }) {
             </button>
             <button title={`${t.redo} (⇧⌘Z)`} aria-label={t.redo} disabled={!future.current.length} onClick={redo}>
               ↷
+            </button>
+            <button className={touchPick === "add" ? "toggle on" : "toggle"} aria-pressed={touchPick === "add"} title={t.pickAddHelp} onClick={() => setTouchPick(touchPick === "add" ? null : "add")}>
+              {t.pickAdd}
+            </button>
+            <button className={touchPick === "frame" ? "toggle on" : "toggle"} aria-pressed={touchPick === "frame"} title={t.pickFrameHelp} onClick={() => setTouchPick(touchPick === "frame" ? null : "frame")}>
+              {t.pickFrame}
             </button>
             <button className={snap ? "toggle on" : "toggle"} aria-pressed={snap} title={t.snapHelp} onClick={toggleSnap}>
               {t.snapGrid}
@@ -833,6 +860,52 @@ export function DashboardsPage({ role }: { role: Role }) {
         </section>
       )}
 
+      {edit && many.length > 1 && (
+        <section className="editor many" aria-label={`${many.length} ${t.widgetsSelected}`}>
+          <strong>
+            {many.length} {t.widgetsSelected}
+          </strong>
+          <div className="swatches" role="radiogroup" aria-label={t.widgetColor}>
+            <button className={`swatch none ${many.every((w) => !w.color) ? "chosen" : ""}`} role="radio" aria-checked={many.every((w) => !w.color)} title={t.noColor} aria-label={t.noColor} onClick={() => patchMany(() => ({ color: undefined }))} />
+            {many.some((w) => w.kind === "look") && (
+              <button className={`swatch auto ${shared("color", many) === "auto" ? "chosen" : ""}`} role="radio" aria-checked={shared("color", many) === "auto"} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => patchMany((w) => (w.kind === "look" ? { color: "auto" } : undefined))}>
+                A
+              </button>
+            )}
+            {SWATCHES.map(([name, hex]) => (
+              <button key={hex} className={`swatch ${shared("color", many) === hex ? "chosen" : ""}`} role="radio" aria-checked={shared("color", many) === hex} title={t.swatchNames[name as keyof typeof t.swatchNames]} aria-label={t.swatchNames[name as keyof typeof t.swatchNames]} style={{ background: hex }} onClick={() => patchMany((w) => (w.kind === "preview" ? undefined : { color: hex }))} />
+            ))}
+            <input type="color" aria-label={t.customColor} title={t.customColor} value={isHex(shared("color", many)) ? shared("color", many) : "#ffffff"} onChange={(e) => patchMany((w) => (w.kind === "preview" ? undefined : { color: e.target.value }))} />
+          </div>
+          {many.some(pressable) && (
+            <select aria-label={t.mode} value={shared("mode", many.filter(pressable), "latch") ?? ""} onChange={(e) => e.target.value && patchMany((w) => (pressable(w) ? { mode: e.target.value as ButtonMode } : undefined))}>
+              {shared("mode", many.filter(pressable), "latch") === undefined && <option value="">{t.mixedModes}</option>}
+              {(["latch", "momentary", "trigger"] as const).map((m) => (
+                <option key={m} value={m}>
+                  {t.modes[m]}
+                </option>
+              ))}
+            </select>
+          )}
+          {many.some(confirmable) && (
+            <label className="row" title={t.confirmPressHelp}>
+              <input type="checkbox" checked={many.filter(confirmable).every((w) => w.confirm)} onChange={(e) => patchMany((w) => (confirmable(w) ? { confirm: e.target.checked || undefined } : undefined))} /> {t.confirmPress}
+            </label>
+          )}
+          <button onClick={() => setSelection([])}>{t.deselect}</button>
+          <button
+            className="danger"
+            title={t.removeSelected}
+            aria-label={t.removeSelected}
+            onClick={() => {
+              update((d) => ({ ...d, widgets: d.widgets.filter((w) => !selection.includes(w.id)) }));
+              setSelection([]);
+            }}
+          >
+            ✕
+          </button>
+        </section>
+      )}
       {edit && sel && (
         <section className="editor">
           <select value={sel.target ?? ""} onChange={(e) => updateWidget(sel.id, { target: e.target.value })}>
@@ -900,7 +973,7 @@ export function DashboardsPage({ role }: { role: Role }) {
             <div
               key={w.id}
               data-widget={w.id}
-              className={`cell ${edit ? "editing" : ""} ${selected === w.id ? "selected" : ""}${tint(w).className}`}
+              className={`cell ${edit ? "editing" : ""} ${selection.includes(w.id) ? "selected" : ""}${tint(w).className}`}
               style={{
                 ...tint(w).style,
                 ...(narrow && !edit
@@ -918,7 +991,9 @@ export function DashboardsPage({ role }: { role: Role }) {
                 if (!edit) return;
                 e.stopPropagation();
                 e.preventDefault();
-                setSelected(w.id);
+                const next = pick(dash.widgets, selection, anchor.current, w, { add: e.metaKey || e.ctrlKey || touchPick === "add", frame: e.shiftKey || touchPick === "frame" });
+                anchor.current = next.anchor;
+                setSelection(next.selection);
               }}
               onContextMenu={(e) => {
                 if (!editor) return;
