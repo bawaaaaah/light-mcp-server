@@ -87,7 +87,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
     description:
-      "Channels of each patched fixture (with its universe and start address) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…) and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
+      "Channels of each patched fixture (with its universe, start address and type) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -101,9 +101,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
             : r.mode.channels.map((name, offset) => {
                 const ch = r.def.channels.get(name);
                 const caps = ch?.capabilities ?? [];
-                return { offset, name, attribute: ch?.attribute ?? "other", ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
+                return { offset, name, attribute: ch?.attribute ?? "other", ...(ch?.color ? { color: ch.color } : {}), ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
               });
-        return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels };
+        return { id: f.id, name: f.name, universe: f.universe, address: f.address, ...("error" in r ? {} : { type: r.def.type }), channels };
       }),
   });
   reg.register({

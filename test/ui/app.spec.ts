@@ -1781,10 +1781,11 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
   const editor = page.locator(".fader-editor");
-  await editor.getByLabel("Nom").fill("Strobes");
-  await editor.getByLabel("Bar 0").check();
-  await editor.getByLabel("Bar 1").check();
-  await editor.getByLabel("Strobe (strobe)").check();
+  await editor.getByLabel("Nom", { exact: true }).fill("Strobes");
+  // the same channel on every bar: the bars shown by a search, then « Strobe » ticked everywhere
+  await editor.getByLabel("Chercher (nom ou adresse)").fill("bar");
+  await editor.getByLabel("Même canal partout").selectOption("Strobe");
+  await editor.getByRole("button", { name: "Cocher partout" }).click();
   await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
   await editor.getByLabel("Dosé par le DCA").selectOption("master");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
@@ -1796,7 +1797,7 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
     { fixture: "bar-1", offset: 1 },
   ]);
   await page.getByRole("button", { name: "Modifier Strobes" }).click();
-  await expect(page.locator(".fader-editor").getByLabel("Strobe (strobe)")).toBeChecked();
+  await expect(page.locator(".fader-editor").getByLabel("Bar 0 · 002:Strobe")).toBeChecked(); // opened on what it drives
   page.once("dialog", (d) => void d.accept());
   await page.locator(".fader-editor").getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator("tr", { hasText: "Strobes" })).toHaveCount(0);
@@ -1811,21 +1812,25 @@ test("faders on chosen fixtures and channels (found by address), dosing the dimm
   // « Bords »: the first bar's dimmer
   await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
   let editor = page.locator(".fader-editor");
-  await expect(editor.locator(".checklist label", { hasText: "Bar 0" })).toContainText("U1 · 001"); // where it is patched
-  await editor.getByLabel("Nom").fill("Bords");
-  await editor.getByLabel("Bar 0").check();
-  await editor.getByLabel("Dimmer (gradateur)").check();
+  await expect(editor.locator(".fixture-row", { hasText: "Bar 0" })).toContainText("U1 · 001"); // where it is patched
+  await editor.getByLabel("Nom", { exact: true }).fill("Bords");
+  await editor.getByRole("button", { name: "Déplier Bar 0" }).click();
+  await expect(editor.locator(".channel-row", { hasText: "001:Dimmer" })).toContainText("DMX 1");
+  await editor.getByLabel("Bar 0 · 001:Dimmer").check();
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect.poll(async () => (await dmx(page))[0]).toBe(0); // at 0 the bar is dark: the fader doses its dimmer
   // « Centre rouge »: the second bar's dimmer and its first red
   await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
   editor = page.locator(".fader-editor");
-  await editor.getByLabel("Nom").fill("Centre rouge");
-  await editor.getByLabel("Bar 1").check();
-  await editor.getByLabel("Dimmer (gradateur)").check();
-  await editor.getByLabel("R1 (couleur)").check();
+  await editor.getByLabel("Nom", { exact: true }).fill("Centre rouge");
+  await editor.getByLabel("Chercher (nom ou adresse)").fill("016"); // found by its start address
+  await expect(editor.locator(".fixture-row")).toHaveCount(1);
+  await editor.getByRole("button", { name: "Déplier Bar 1" }).click();
+  await editor.getByLabel("Bar 1 · 001:Dimmer").check();
+  await editor.getByLabel("Bar 1 · 004:R1").check();
   await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
+  await editor.screenshot({ path: "test-results/fader-tree.png" });
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
   // one DCA over both faders, chosen from the DCA

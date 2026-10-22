@@ -1876,3 +1876,55 @@ fieldset.checklist .checklist-search {
   width: 100%;
   margin-bottom: 0.3em;
 }
+
+/* Channel tree (ChannelTree.tsx): fixtures by address, each opening on its channels, as in QLC+ */
+.channel-tree {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5em 0.7em;
+  margin: 0.5em 0;
+}
+.channel-tree .tree-tools {
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-bottom: 0.4em;
+}
+.channel-tree .tree-tools input[type="search"] {
+  flex: 1 1 14em;
+}
+.channel-tree ul.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 26em;
+  overflow-y: auto;
+}
+.channel-tree ul.tree ul {
+  list-style: none;
+  margin: 0 0 0.3em 2.6em;
+  padding: 0;
+}
+.channel-tree .fixture-row,
+.channel-tree .channel-row {
+  gap: 0.5em;
+  padding: 0.12em 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+}
+.channel-tree .twisty {
+  width: 1.6em;
+  padding: 0;
+}
+.channel-tree .detail {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.channel-tree .swatch-dot {
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: 2px;
+  background: transparent;
+  border: 1px solid var(--line);
+}
+.channel-tree .channel-row input[type="number"] {
+  width: 5em;
+}
