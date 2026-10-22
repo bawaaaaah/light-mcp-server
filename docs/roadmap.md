@@ -18,7 +18,7 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | P11 | **OSC** | Routes, `/light/help`, latence |
 | P12 | **Import `.qxw` et reconnaissance des techniques** | Techniques reconnues sur un vrai workspace (cible : ≥ 90 %) |
 
-## Avancement (2026-10-15)
+## Avancement (2026-10-22)
 | Chantier | État |
 |---|---|
 | Prototypes P1–P12 | 6 validés ici ; 6 à confirmer avec le matériel de l'utilisateur |
@@ -26,12 +26,12 @@ On valide d'abord les paris techniques risqués, en jetables. Chaque prototype l
 | Sortie Art-Net/sACN, découverte | ✅ (découverte validée sur le réseau lumière le 21/10 ; routes réglables ; reste à regarder la sortie sur scène) |
 | Lieu, canevas, scène, règles | ✅ v1 |
 | Techniques, lecteur, groupes, panic | ✅ |
-| MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) |
+| MIDI (modes, retour, registre), OSC, tempo | ✅ (validé sur le Mac : bus IAC, horloge, SPP et aftertouch depuis Live ; hotplug USB à tester) ; depuis le 2026-10-22 : tempo à la main et au micro, horloge en sortie, OS2L (DJ), suivi d'AbleSet, Ableton Link en écoute (tempo et temps), à essayer sur la régie ([tests-mac](tests-mac.md), § 6 bis et 6 quater) |
 | Chants, setlist, suivi SPP | ✅ |
 | Import QLC+ + auto-test (critère v0) | ✅ **vrai show sur le Mac : 92/92 mappings, cadence 100 %** ; depuis le 2026-10-15 : Scenes, matrices RGB, faders Playback et Submasters, machines, gradateur générique ; vérifié sur les 16 workspaces de l'utilisateur (aucune définition manquante) ; **à réimporter sur le Mac** |
 | Exports Ableton (rack, Live Set), conduite | ✅ rack chargé dans Live ; Live Set à ouvrir dans Live |
 | Conception assistée + ressources MCP | ✅ v1 |
-| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 33 scénarios, dont toutes les pages au format tablette, portrait et paysage, sans débordement) ; reste à la voir sur une vraie tablette et sur le Mac |
+| Interface web | ✅ v0 complète (10 pages), vérifiée dans Chromium par Playwright (`npm run test:ui`, 104 scénarios, dont toutes les pages au format tablette (portrait et paysage) et téléphone, sans débordement) ; reste à la voir sur une vraie tablette et sur le Mac |
 | Docker / Pi / serveur distant | ✅ image vérifiée (Pi à tester) |
 | Archives `.lightshow`, notes partout, Web MIDI, explorateur OSC | ✅ |
 | Éditeur de looks (paramètres, pas, cadence, Move FX, aperçu animé) | ✅ |

@@ -76,9 +76,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 2. Corriger d'après ses retours. **Demandes de l'utilisateur du 2026-10-15, pas encore faites** :
    - **interface** : retours de l'utilisateur sur la nouvelle mise en page, les couleurs et l'édition des dashboards.
    - choisi par l'utilisateur le 2026-10-16 : la liste des utilisateurs à PIN reste visible sur l'écran de connexion, même depuis l'adresse publique.
-3. Non encore fait :
-   - cascade complète des règles.
-4. Plus tard (roadmap) : Max for Live, RDM (l'IA en live, les comptes, le QR, la vue 3D, le tempo depuis l'audio, le tempo au micro, OS2L, l'horloge MIDI en sortie, le suivi d'AbleSet et la phase d'Ableton Link sont faits ; le suivi d'AbleSet reste à essayer sur la régie, où AbleSet est installé).
+3. Plus tard (roadmap) : Max for Live, RDM (l'IA en live, les comptes, le QR, la vue 3D, le tempo depuis l'audio, le tempo au micro, OS2L, l'horloge MIDI en sortie, le suivi d'AbleSet et la phase d'Ableton Link sont faits ; le suivi d'AbleSet reste à essayer sur la régie, où AbleSet est installé).
 
 ## Démarrer
 ```bash
