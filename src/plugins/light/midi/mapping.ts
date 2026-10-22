@@ -61,6 +61,8 @@ export function mappingInputKey(m: { input: { type: string; channel: number; num
 
 export interface MappingOutput {
   calls: CommandCall[];
+  /** The mappings the message matched, with or without a call (a note off in latch matches and does nothing). */
+  matched: { id: string; label: string; mode: Mapping["mode"] }[];
   /** Feedback MIDI messages (raw bytes) to send on the feedback port. */
   feedback: number[][];
 }
@@ -129,9 +131,10 @@ export class MidiMapper {
   }
 
   handle(msg: MidiMessage, port?: string): MappingOutput {
-    const out: MappingOutput = { calls: [], feedback: [] };
+    const out: MappingOutput = { calls: [], feedback: [], matched: [] };
     for (const m of this.mappings) {
       if (!this.matches(m, msg, port)) continue;
+      out.matched.push({ id: m.id, label: m.label, mode: m.mode });
       const s = this.st(m.id);
       const before = { active: s.active, level: s.level };
 

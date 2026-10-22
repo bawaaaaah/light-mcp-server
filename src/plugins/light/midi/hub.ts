@@ -46,6 +46,8 @@ interface NativeInput {
   getPortName(i: number): string;
   openPort(i: number): void;
   closePort(): void;
+  /** Frees the native object at once (else it waits for the garbage collector). */
+  destroy?(): void;
   ignoreTypes(sysex: boolean, timing: boolean, activeSensing: boolean): void;
   on(event: "message", fn: (delta: number, message: number[]) => void): void;
 }
@@ -54,17 +56,25 @@ interface NativeOutput {
   getPortName(i: number): string;
   openPort(i: number): void;
   closePort(): void;
+  destroy?(): void;
   sendMessage(bytes: number[]): void;
 }
 interface NativeMidi {
-  Input: new () => NativeInput;
-  Output: new () => NativeOutput;
+  /** getPortNames: the names, from a native object freed at once. */
+  Input: (new () => NativeInput) & { getPortNames?: () => string[] };
+  Output: (new () => NativeOutput) & { getPortNames?: () => string[] };
+}
+
+/** Closes a port and frees its native object at once. */
+function release(port: NativeInput | NativeOutput | undefined): void {
+  port?.closePort();
+  port?.destroy?.();
 }
 
 function loadNative(): { midi?: NativeMidi; error?: string } {
   try {
     const midi = createRequire(import.meta.url)("@julusian/midi") as NativeMidi;
-    new midi.Input().getPortCount(); // throws when the system MIDI layer is unavailable
+    release(new midi.Input()); // throws when the system MIDI layer is unavailable
     return { midi };
   } catch (err) {
     return { error: (err as Error).message };
@@ -127,11 +137,11 @@ export class MidiHub extends EventEmitter {
 
   stop(): void {
     if (this.scanTimer) clearInterval(this.scanTimer);
-    for (const input of this.openInputs.values()) input.closePort();
+    for (const input of this.openInputs.values()) release(input);
     this.openInputs.clear();
-    this.feedbackPort?.out.closePort();
+    release(this.feedbackPort?.out);
     this.feedbackPort = undefined;
-    this.clockPort?.out.closePort();
+    release(this.clockPort?.out);
     this.clockPort = undefined;
     void this.stopRtp();
   }
@@ -154,13 +164,13 @@ export class MidiHub extends EventEmitter {
     this.config = config;
     for (const [name, input] of this.openInputs) {
       if (!this.isWatched(name)) {
-        input.closePort();
+        release(input);
         this.openInputs.delete(name);
       }
     }
-    this.feedbackPort?.out.closePort();
+    release(this.feedbackPort?.out);
     this.feedbackPort = undefined;
-    this.clockPort?.out.closePort();
+    release(this.clockPort?.out);
     this.clockPort = undefined;
     this.scan();
     if (rtpChanged) await this.applyRtp();
@@ -268,10 +278,8 @@ export class MidiHub extends EventEmitter {
     let inputs: string[] = [];
     let outputs: string[] = [];
     try {
-      const probeIn = new this.native.Input();
-      inputs = Array.from({ length: probeIn.getPortCount() }, (_, i) => probeIn.getPortName(i));
-      const probeOut = new this.native.Output();
-      outputs = Array.from({ length: probeOut.getPortCount() }, (_, i) => probeOut.getPortName(i));
+      inputs = this.portNames(this.native.Input);
+      outputs = this.portNames(this.native.Output);
     } catch {
       return;
     }
@@ -281,7 +289,7 @@ export class MidiHub extends EventEmitter {
     this.knownOutputs = outputs;
     for (const [name, input] of this.openInputs) {
       if (!inputs.includes(name)) {
-        input.closePort();
+        release(input);
         this.openInputs.delete(name);
       }
     }
@@ -296,6 +304,20 @@ export class MidiHub extends EventEmitter {
     if (!this.feedbackPort) this.feedbackPort = this.openOutput(outputs, this.config.feedbackOutput, "retour MIDI");
     if (!this.clockPort) this.clockPort = this.openOutput(outputs, this.config.clockOutput, "horloge MIDI");
     if (changed) this.emit("ports", { appeared });
+  }
+
+  /**
+   * The names of the ports, read every second for hot-plug: never by a native object left to the
+   * garbage collector, which on a Mac kept a CoreMIDI client alive per second until collected.
+   */
+  private portNames(kind: { new (): NativeInput | NativeOutput; getPortNames?: () => string[] }): string[] {
+    if (kind.getPortNames) return kind.getPortNames();
+    const probe = new kind();
+    try {
+      return Array.from({ length: probe.getPortCount() }, (_, i) => probe.getPortName(i));
+    } finally {
+      probe.destroy?.();
+    }
   }
 
   /** An output by name substring, never one that is also a watched input (it would loop back). */

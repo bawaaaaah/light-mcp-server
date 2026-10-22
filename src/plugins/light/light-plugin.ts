@@ -52,6 +52,22 @@ import { CommandError, CommandRegistry, type CommandContext, type CommandDef, ty
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
 import { DmxUsbOutputs, type SerialBinding } from "./output/dmx-usb.js";
+import { LoopDelay } from "../../core/loop-delay.js";
+import type { MidiMessage } from "./midi/parse.js";
+
+const MIDI_JOURNAL_SIZE = 300;
+
+export interface MidiJournalEntry {
+  at: number;
+  port: string;
+  source: string;
+  msg: MidiMessage;
+  /** The mappings it matched (a note off in latch matches and does nothing). */
+  matched: { id: string; label: string; mode: string }[];
+  calls: { command: string; target: string; ok: boolean; error?: string }[];
+  /** From its arrival in the handler to its commands done, in ms. */
+  ms: number;
+}
 import { say } from "../../core/lang.js";
 
 export const PLUGIN_ID = "light";
@@ -147,6 +163,10 @@ export class LightPlugin implements McpPlugin {
   private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
   readonly ableset: AbleSetClient;
+  /** The last MIDI messages and what each did (midi.journal, the MIDI page's monitor). */
+  private readonly midiJournal: MidiJournalEntry[] = [];
+  /** How long Node keeps a message waiting (midi.status → node). */
+  readonly loopDelay = new LoopDelay();
   /** Ableton Link, listened to only while it is the tempo source: its tempo, and its beats once measured. */
   readonly link = new LinkListener((bpm, beatAgoMs) => this.tempo.state().source === "link" && this.tempo.follow(bpm, beatAgoMs, "link"));
   private config: LightConfig;
@@ -211,6 +231,8 @@ export class LightPlugin implements McpPlugin {
     this.hub.on("ports", () => this.publish("midi", { status: this.hub.status() }));
     this.hub.on("warning", (w: string) => this.publish("midi", { warning: w }));
     registerMidiCommands(this.commands, {
+      journal: () => this.midiJournal,
+      loopDelay: () => this.loopDelay.stats(),
       hub: this.hub,
       mapper: this.mapper,
       mappings,
@@ -515,12 +537,16 @@ export class LightPlugin implements McpPlugin {
     this.hub.sendFeedback(full ? this.mapper.allFeedback() : out);
   }
 
-  /** Every MIDI message: tempo follows the clock; mappings turn the rest into commands. */
+  /**
+   * Every MIDI message: tempo follows the clock; mappings turn the rest into commands. What each
+   * message did (the mappings it matched, each command and whether it worked, how long it took)
+   * goes to the monitor and the journal: a note that « did not work » shows why.
+   */
   private onMidi(m: HubMessage): void {
+    const started = performance.now();
     this.tempo.handleMidi(m.msg);
     const t = m.msg.type;
     if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
-    this.publish("midi", { monitor: { port: m.port, source: m.source, msg: m.msg, at: Date.now() } });
     // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
     if (m.msg.type === "programchange") {
       const program = this.runtime.programFor(m.msg.channel, m.msg.program);
@@ -531,9 +557,25 @@ export class LightPlugin implements McpPlugin {
     }
     const out = this.mapper.handle(m.msg, m.port);
     if (!this.router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
-    for (const call of out.calls) {
-      this.commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).catch((err: Error) => this.publish("midi", { error: `${call.command} : ${err.message}` }));
-    }
+    const calls = out.calls.map((call) => {
+      const target = String(call.args.id ?? call.args.section ?? "");
+      return this.commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).then(
+        () => ({ command: call.command, target, ok: true }),
+        (err: Error) => {
+          this.publish("midi", { error: `${call.command} : ${err.message}` });
+          return { command: call.command, target, ok: false, error: err.message };
+        },
+      );
+    });
+    // in the journal at once, in the order of arrival; its commands' outcome filled in when done
+    const entry: MidiJournalEntry = { at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 };
+    this.midiJournal.push(entry);
+    if (this.midiJournal.length > MIDI_JOURNAL_SIZE) this.midiJournal.shift();
+    void Promise.all(calls).then((done) => {
+      entry.calls = done;
+      entry.ms = Math.round((performance.now() - started) * 100) / 100;
+      this.publish("midi", { monitor: entry });
+    });
   }
 
   private publish(type: string, payload: unknown): void {
@@ -600,6 +642,7 @@ export class LightPlugin implements McpPlugin {
   async start(): Promise<void> {
     if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
     this.resumeLive();
+    this.loopDelay.start();
     await this.router.start({ discovery: this.config.discovery });
     if (this.router.isStandby()) console.warn("Sortie en veille : rien n'est envoyé aux nodes (Réglages → Reprendre la main, ou light serve --live).");
     this.engine.start();
@@ -672,6 +715,7 @@ export class LightPlugin implements McpPlugin {
 
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
+    this.loopDelay.stop();
     this.saveActivity();
     for (const t of this.autoBackupTimers) clearTimeout(t);
     if (this.started) this.saveLive();

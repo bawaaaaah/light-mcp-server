@@ -22,8 +22,11 @@ describe("MIDI mapping modes", () => {
     const mapper = new MidiMapper();
     mapper.setMappings([map({ id: "a", mode: "latch" })]);
     expect(mapper.handle(on(36)).calls[0]!.command).to.equal("section.go");
-    expect(mapper.handle(off(36)).calls).to.deep.equal([]);
+    const released = mapper.handle(off(36));
+    expect(released.calls).to.deep.equal([]);
+    expect(released.matched).to.deep.equal([{ id: "a", label: "", mode: "latch" }]); // matched, did nothing: the monitor says so
     expect(mapper.handle(on(36)).calls[0]!.command).to.equal("section.stop");
+    expect(mapper.handle(on(37)).matched).to.deep.equal([]); // no mapping
   });
 
   it("momentary: on while held, level = velocity, re-press updates the level, off at release", () => {

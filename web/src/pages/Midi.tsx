@@ -12,6 +12,8 @@ interface Status {
   outputs: string[];
   feedback?: string;
   rtp: { enabled: boolean; port: number; wanted?: number; peers: string[]; error?: string };
+  /** How long Node keeps a message waiting, in ms (core/loop-delay.ts). */
+  node?: { p50: number; p99: number; max: number; worst: { ms: number; at: number } | null };
   profile: string;
   profiles: string[];
   profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string; advertise?: boolean; connect?: string[] } };
@@ -24,6 +26,13 @@ interface Mapping {
   on: { command: string; args: Record<string, unknown> };
 }
 
+interface MonitorEntry {
+  port: string;
+  msg: Record<string, unknown>;
+  matched?: { id: string; label: string; mode: string }[];
+  calls: { command: string; target: string; ok: boolean; error?: string }[];
+  ms: number;
+}
 interface RtpSession {
   name: string;
   host: string;
@@ -240,6 +249,14 @@ export function MidiPage() {
     saveProfile({ inputs: on ? [...inputs, name] : inputs.filter((p) => !name.toLowerCase().includes(p.toLowerCase())) });
   };
   const web = useWebMidi(webMidi);
+  /** A message and what it did: the mappings it matched, each command, and the time it took when long. */
+  const describe = (e: MonitorEntry) => {
+    const raw = `${e.port} · ${Object.values(e.msg).join(" ")}`;
+    if (!e.matched?.length) return `${raw} · ${t.monitorUnmapped}`;
+    const who = e.matched.map((x) => `${x.label || x.id} (${t.modesShort[x.mode as keyof typeof t.modesShort] ?? x.mode})`).join(", ");
+    const did = e.calls.length ? e.calls.map((c) => `${c.command}${c.target ? ` ${c.target}` : ""} ${c.ok ? "✓" : `✗ ${c.error ?? ""}`}`).join(", ") : t.monitorNothing;
+    return `${raw} → ${who} : ${did}${e.ms >= 20 ? ` · ${Math.round(e.ms)} ms` : ""}`;
+  };
 
   useEffect(() => {
     const load = () => void cmd<Status>("midi.status").then(setStatus).catch(() => undefined);
@@ -250,8 +267,8 @@ export function MidiPage() {
       setNow(Date.now());
     }, 2000);
     const off = control.subscribe("light:midi", (d) => {
-      const e = d as { monitor?: { port: string; msg: Record<string, unknown> }; error?: string; warning?: string };
-      const line = e.monitor ? `${e.monitor.port} · ${Object.values(e.monitor.msg).join(" ")}` : (e.error ?? e.warning);
+      const e = d as { monitor?: MonitorEntry; error?: string; warning?: string };
+      const line = e.monitor ? describe(e.monitor) : (e.error ?? e.warning);
       if (line) setMonitor((m) => [line, ...m].slice(0, 40));
     });
     return () => {
@@ -274,6 +291,12 @@ export function MidiPage() {
         {status && !status.localAvailable && <span className="warn">{t.localMidiMissing} : {status.localError}</span>}
         {status?.rtp.enabled && !status.rtp.error && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
         {status?.rtp.error && <span className="warn">{t.rtpUnavailable} : {status.rtp.error}</span>}
+        {status?.node && (
+          <span className={status.node.max > 50 ? "warn" : "hint"} title={t.nodeDelay}>
+            {t.nodeDelay} : {status.node.p99} ms
+            {status.node.worst && ` · ${t.nodeWorst} : ${Math.round(status.node.worst.ms)} ms (${new Date(status.node.worst.at).toLocaleTimeString().slice(0, 5)})`}
+          </span>
+        )}
         <label className="row">
           <input type="checkbox" checked={webMidi} onChange={(e) => setWebMidi(e.target.checked)} /> {t.webMidi}
         </label>
@@ -372,6 +395,7 @@ export function MidiPage() {
             })}
           </ul>
           <h2>{t.monitor}</h2>
+          <p className="hint">{t.monitorHelp}</p>
           <pre className="monitor">{monitor.join("\n")}</pre>
         </section>
         <section>

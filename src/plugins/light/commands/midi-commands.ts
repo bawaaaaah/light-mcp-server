@@ -9,6 +9,7 @@ import type { Collection } from "../data/store.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { oscRoutes } from "../osc/server.js";
 import { say } from "../../../core/lang.js";
+import type { LoopDelayStats } from "../../../core/loop-delay.js";
 
 export const MidiProfileSchema = z.object({
   inputs: z.array(z.string()).default([]),
@@ -30,6 +31,10 @@ export const MidiProfileSchema = z.object({
 export type MidiProfile = z.infer<typeof MidiProfileSchema>;
 
 export interface MidiServices {
+  /** The last MIDI messages and what each did. */
+  journal: () => { at: number; port: string; msg: object; matched: { id: string; mode: string }[]; calls: { command: string; ok: boolean }[]; ms: number }[];
+  /** How long Node keeps a message waiting (core/loop-delay.ts). */
+  loopDelay: () => LoopDelayStats;
   hub: MidiHub;
   mapper: MidiMapper;
   mappings: Collection<Mapping>;
@@ -46,12 +51,12 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.status",
     title: "État MIDI",
-    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output).",
+    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],
     schema: z.object({}),
-    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()] }),
+    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()], node: s.loopDelay() }),
   });
 
   reg.register({
@@ -65,6 +70,23 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
       await s.saveProfile(name, profile);
       return { saved: name };
     },
+  });
+
+  reg.register({
+    name: "midi.journal",
+    title: "Journal MIDI",
+    description:
+      "The last MIDI messages received (clock excepted, 300 at most), newest first, and what each did: the mappings it matched (with their mode: a note off in latch matches and does nothing), each command and whether it worked, and how long it took (ms). To tell why a note « did not work ». port filters by input name, note by note number.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "live"],
+    schema: z.object({ limit: z.number().int().min(1).max(300).default(50), port: z.string().optional(), note: z.number().int().min(0).max(127).optional() }),
+    run: ({ limit, port, note }) =>
+      s
+        .journal()
+        .filter((e) => (!port || e.port.toLowerCase().includes(port.toLowerCase())) && (note === undefined || (e.msg as { note?: number }).note === note))
+        .slice(-limit)
+        .reverse(),
   });
 
   /** Adds or removes a session from those the active profile keeps joining. */

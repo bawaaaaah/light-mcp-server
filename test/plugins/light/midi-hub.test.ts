@@ -56,6 +56,39 @@ describe("MIDI hub", () => {
     expect(hub.status().inputs.find((i) => i.name === "IAC Bus 1")!.lastMessageAt).to.be.a("number");
   });
 
+  it("reads the port names every second without a native object left behind", () => {
+    let made = 0;
+    let freed = 0;
+    class Probe {
+      constructor() {
+        made++;
+      }
+      getPortCount() {
+        return 1;
+      }
+      getPortName() {
+        return "IAC Bus 1";
+      }
+      openPort() {}
+      closePort() {}
+      destroy() {
+        freed++;
+      }
+      ignoreTypes() {}
+      on() {}
+      sendMessage() {}
+    }
+    // the binding's own listing (a native object freed at once): no probe made here
+    const listed = new MidiHub({ inputs: [], rtp: { enabled: false, port: 0, name: "t" } }, { native: { Input: Object.assign(class extends Probe {}, { getPortNames: () => ["IAC Bus 1"] }), Output: Object.assign(class extends Probe {}, { getPortNames: () => [] }) } });
+    for (let i = 0; i < 5; i++) listed.scan();
+    expect(made).to.equal(0);
+    expect(listed.status().inputs.map((p) => p.name)).to.deep.equal(["IAC Bus 1"]);
+    // without it: a probe per listing, freed at once
+    const probed = new MidiHub({ inputs: [], rtp: { enabled: false, port: 0, name: "t" } }, { native: { Input: Probe, Output: Probe } });
+    for (let i = 0; i < 5; i++) probed.scan();
+    expect([made, freed]).to.deep.equal([10, 10]);
+  });
+
   it("detects hot-plugged ports and opens a watched one automatically", () => {
     const f = fakeNative();
     const hub = new MidiHub({ inputs: ["launchpad"], rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });

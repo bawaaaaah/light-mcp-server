@@ -64,6 +64,12 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - **Entrées surveillées** : une case par port détecté (enregistrée dans le profil actif ; les motifs reconnaissent les noms par sous-chaîne, par exemple « IAC ») et la **sortie de retour**.
 - **Mappings** : créer, modifier, supprimer ; entrée note, CC ou program change avec **« Apprendre »** (le prochain message reçu, 15 s) ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, **activer un programme de règles** (ou aucun), section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
 
+### Diagnostic (v1, 2026-10-22)
+Une note qui « ne marche pas » se lit, au lieu de se deviner (l'utilisateur soupçonnait Node et pensait à un back en Rust ; décision : mesurer d'abord) :
+- **Moniteur** de la page MIDI et `midi.journal` (300 derniers messages, horloge exceptée, filtrables par entrée et par note) : pour chaque message, les mappings qu'il touche **avec leur mode**, chaque commande (✓ faite, ✗ refusée et pourquoi), « aucun mapping », ou « rien » (un note off en marche/arrêt, une note déjà tenue), et le temps de traitement quand il dépasse 20 ms. Rangé dans l'ordre d'arrivée.
+- **Attente dans Node** (`midi.status` → `node`, barre de la page MIDI) : combien de temps un message attend que Node soit libre (p50, p99, max des 10 dernières secondes ; le pire calage de l'heure et son heure). Le module MIDI natif ne perd aucun message (file illimitée vers Node) : un calage retarde, il ne perd pas.
+- Les ports MIDI sont relus chaque seconde (branchement à chaud) par la fonction du module qui libère aussitôt son objet natif ; auparavant, un client CoreMIDI par seconde attendait le ramasse-miettes.
+
 ## Retour MIDI (feedback)
 - Chaque mapping peut renvoyer son état : une note on dont la vélocité égale le niveau (ou vaut 127/0), une note off, ou un CC miroir. Le profil traduit l'état en couleur ou clignotement de LED.
 - Le retour est émis à **chaque changement d'état, quelle que soit l'origine** : UI, MIDI, OSC, MCP, timeline.
