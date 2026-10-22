@@ -26,6 +26,8 @@ export interface TempoState {
   /** Song position in beats from the MIDI clock (SPP), only while the DAW plays. */
   position: number | null;
   clockMissing: boolean;
+  /** MIDI clock ticks arrive, whatever the source: Ableton plays, followed or not. */
+  clock: boolean;
 }
 
 const TAP_WINDOW = 4;
@@ -130,13 +132,13 @@ export class TempoClock {
         this.lastPlayed = undefined; // stopped or missing: free-run from the last followed point
         beats = freeRun;
       }
-      return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats, position: s.running ? s.beats : null, clockMissing: !s.receiving };
+      return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats, position: s.running ? s.beats : null, clockMissing: !s.receiving, clock: s.receiving };
     }
     let beats = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * this.manualBpm;
     if (this.nudge) {
       const caught = Math.min(t, this.nudge.untilMs) - this.anchor.atMs;
       beats += (caught / 60000) * (this.nudge.bpm - this.manualBpm);
     }
-    return { bpm: this.manualBpm, source: this.source, receiving: true, running: true, beats, position: null, clockMissing: false };
+    return { bpm: this.manualBpm, source: this.source, receiving: true, running: true, beats, position: null, clockMissing: false, clock: this.follower.state(t).receiving };
   }
 }

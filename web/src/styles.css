@@ -1928,3 +1928,9 @@ fieldset.checklist .checklist-search {
 .channel-tree .channel-row input[type="number"] {
   width: 5em;
 }
+.tap-cell > .to-midi {
+  flex: 0 0 auto;
+  padding: 0 0.5em;
+  border-color: var(--accent);
+  color: var(--accent);
+}

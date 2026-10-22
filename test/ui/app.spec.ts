@@ -296,6 +296,31 @@ test("Tap widget: a tempo typed by hand, Escape cancels", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("tempo source: chosen in the MIDI page, and « ↺ MIDI » gives Ableton the lead back when it plays", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const tempo = async () => (await api(page, "tempo.get")) as { bpm: number; source: string };
+  const before = await tempo();
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByLabel("Le tempo suit").selectOption("manual");
+  await expect.poll(async () => (await tempo()).source).toBe("manual");
+  // Ableton plays: its clock arrives, not followed
+  await page.evaluate(`window.__clock = setInterval(() => fetch("/api/plugins/light/commands/midi.in", { method: "POST", headers: { authorization: "Bearer " + sessionStorage.getItem("token"), "content-type": "application/json" }, body: JSON.stringify({ port: "Web MIDI · test", bytes: [248] }) }), 20)`);
+  try {
+    await expect(page.locator("small.hint", { hasText: "horloge reçue" })).toBeVisible();
+    await page.locator("nav.pages button", { hasText: "Live" }).click();
+    const back = page.getByRole("button", { name: "↺ MIDI" });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect.poll(async () => (await tempo()).source).toBe("midi");
+    await expect(back).toHaveCount(0);
+  } finally {
+    await page.evaluate("clearInterval(window.__clock)");
+    await api(page, "tempo.set", { bpm: before.bpm, source: before.source });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("an update on the server is offered to a tab left open, which reloads on the new one", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -2046,6 +2071,9 @@ test("self-test with the real-time cadence of every look", async ({ page }) => {
   test.setTimeout(60_000);
   const errors = watchErrors(page);
   await login(page);
+  // its own tempo, whatever the tests before left (a MIDI clock keeps its last tempo)
+  const before = (await api(page, "tempo.get")) as { source: string };
+  await api(page, "tempo.set", { bpm: 120, source: "manual" });
   await page.locator("nav.pages button", { hasText: "Import" }).click();
   await page.getByLabel("Mesurer aussi la cadence").check();
   await page.getByRole("button", { name: "Lancer l'auto-test" }).click();
@@ -2055,6 +2083,7 @@ test("self-test with the real-time cadence of every look", async ({ page }) => {
   expect(await table.locator("tr").count()).toBeGreaterThanOrEqual(4);
   await expect(table.locator("tr.error")).toHaveCount(0);
   await page.screenshot({ path: "test-results/selftest-cadence.png", fullPage: true });
+  await api(page, "tempo.set", { source: before.source });
   expect(errors).toEqual([]);
 });
 

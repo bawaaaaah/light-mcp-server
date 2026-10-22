@@ -100,7 +100,7 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - `Duration = { mode: "fixed", seconds } | { mode: "musical", beats }`, en fractions (`1/4`) ou en mesures. Le mode se choisit **par élément** et se bascule à tout moment.
 - En mode musical, un changement de BPM recalcule les durées à la volée **sans saut de phase**.
 - **Horloge** :
-  - sources : manuel, tap, **MIDI clock** (PLL, lissage, détection d'arrêt, SPP), **micro** (v1, ci-dessous) ;
+  - sources : manuel, tap, **MIDI clock** (PLL, lissage, détection d'arrêt, SPP), **micro** (v1, ci-dessous), **DJ** (OS2L, [MIDI](midi.md)) ; la source se choisit dans la page MIDI (« Le tempo suit »), et l'état du tempo dit si une horloge MIDI arrive même quand elle n'est pas suivie (`clock`) : le widget Tap montre alors « ↺ MIDI », qui rend la main à Ableton d'un appui (après un tempo tapé ou un Tap, rien ne permettait de revenir à l'horloge depuis l'interface) ;
   - multiplicateur ×½ ou ×2, signature (4/4 par défaut) ;
   - phase de temps et de mesure partagée par tous les effets ;
   - alerte si une horloge est attendue mais absente ;

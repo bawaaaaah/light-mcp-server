@@ -105,4 +105,12 @@ describe("tempo clock", () => {
     tempo.setSource("manual");
     expect(tempo.state()).to.deep.include({ bpm: 90, source: "manual" });
   });
+
+  it("says when a MIDI clock arrives even while it is not followed (Ableton plays, a tempo was set by hand)", () => {
+    const { tempo, ticks } = setup();
+    tempo.setBpm(90);
+    expect(tempo.state()).to.deep.include({ source: "manual", clock: false });
+    ticks(2);
+    expect(tempo.state()).to.deep.include({ source: "manual", clock: true, bpm: 90 }); // seen, not followed
+  });
 });

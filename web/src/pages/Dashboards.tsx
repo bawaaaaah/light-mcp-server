@@ -62,6 +62,8 @@ interface Tempo {
   source: string;
   clockMissing: boolean;
   beats: number;
+  /** MIDI clock ticks arrive (Ableton plays), followed or not. */
+  clock?: boolean;
 }
 interface SongState {
   song?: string;
@@ -492,7 +494,7 @@ export function DashboardsPage({ role }: { role: Role }) {
               className="bpm"
               inputMode="decimal"
               aria-label={t.bpmByHand}
-              title={t.bpmByHandHelp}
+              title={`${t.bpmByHandHelp} (${t.tempoSourceNames[(tempo?.source ?? "manual") as keyof typeof t.tempoSourceNames] ?? tempo?.source})`}
               {...locked("commands:tempo")}
               value={bpmDraft?.id === w.id ? bpmDraft.value : tempo ? tempo.bpm.toFixed(1) : ""}
               onFocus={(e) => (setBpmDraft({ id: w.id, value: tempo ? tempo.bpm.toFixed(1) : "", typed: false }), e.target.select())}
@@ -503,6 +505,20 @@ export function DashboardsPage({ role }: { role: Role }) {
                 if (e.key === "Escape") ((bpmCancelled.current = true), e.currentTarget.blur());
               }}
             />
+            {/* Ableton plays but its clock is not followed (a tempo typed or tapped, the DJ): one press gives it the lead back */}
+            {tempo && tempo.source !== "midi" && tempo.clock && (
+              <button
+                className="to-midi"
+                {...locked("commands:tempo")}
+                title={t.backToMidiHelp}
+                onClick={() => {
+                  if (mic.on) microphone.stop();
+                  void run("tempo.set", { source: "midi" });
+                }}
+              >
+                ↺ MIDI
+              </button>
+            )}
             <button
               className={`mic ${mic.on ? (mic.following ? "on following" : "on") : ""}`}
               {...locked("commands:tempo")}

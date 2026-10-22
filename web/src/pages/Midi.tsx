@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { control } from "../ws";
+import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
 
 interface Status {
@@ -67,6 +68,7 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
 
 export function MidiPage() {
   const t = useT();
+  const tempo = useTopic<{ bpm: number; source: string; clock?: boolean } | null>("light:tempo", null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [mappingSearch, setMappingSearch] = useState("");
@@ -141,6 +143,27 @@ export function MidiPage() {
                 <option key={o}>{o}</option>
               ))}
             </select>
+          </label>
+        )}
+        {/* who leads the tempo: Ableton's clock, a tempo set by hand, the DJ; the microphone is switched from the Tap widget */}
+        {tempo && (
+          <label title={t.tempoSourceHelp}>
+            {t.tempoSource}{" "}
+            <select aria-label={t.tempoSource} value={tempo.source === "tap" ? "manual" : tempo.source} onChange={(e) => void cmd("tempo.set", { source: e.target.value }).catch((err: Error) => setError(err.message))}>
+              {(["midi", "manual", "os2l"] as const).map((s) => (
+                <option key={s} value={s}>
+                  {t.tempoSourceNames[s]}
+                </option>
+              ))}
+              {tempo.source === "audio" && (
+                <option value="audio" disabled>
+                  {t.tempoSourceNames.audio}
+                </option>
+              )}
+            </select>{" "}
+            <small className="hint">
+              {tempo.bpm.toFixed(1)} BPM{tempo.clock ? ` · ${t.clockArriving}` : ""}
+            </small>
           </label>
         )}
         {/* the light's tempo as MIDI clock, for Ableton or a drum machine set to follow it */}
