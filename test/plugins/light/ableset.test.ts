@@ -27,9 +27,11 @@ describe("AbleSet", () => {
     // a fake AbleSet: answers the subscription with its heartbeat and what plays
     const ableset = createSocket("udp4");
     const subscriptions: OscArg[][] = [];
+    const jumps: [string, OscArg[]][] = [];
     let client: { port: number; address: string } | undefined;
     ableset.on("message", (buf, rinfo) => {
       for (const m of decodeOsc(buf)) {
+        if (m.address.startsWith("/setlist/jump")) jumps.push([m.address, m.args]);
         if (m.address !== "/subscribe") continue;
         subscriptions.push(m.args);
         const port = m.args[1];
@@ -70,6 +72,17 @@ describe("AbleSet", () => {
       say("/setlist/activeSectionName", ["Pont"]);
       await until(() => (plugin.ableset.status().lastMatch?.section ?? "") === "Pont");
       expect(plugin.ableset.status().lastMatch!.found).to.equal(false);
+      // the other way: the light sends AbleSet to a song and section, by their titles and names
+      await run("ableset.jump", { song: "chant", section: "intro" });
+      await until(() => jumps.length === 2);
+      expect(jumps).to.deep.equal([
+        ["/setlist/jumpToSong", ["Chant d'entrée"]],
+        ["/setlist/jumpToSection", ["Intro"]],
+      ]);
+      await run("ableset.jump", { song: "absent" }).then(
+        () => expect.fail("no such song"),
+        (e: Error) => expect(e.message).to.match(/chant inconnu/),
+      );
     } finally {
       await plugin.stop();
       ableset.close();

@@ -296,6 +296,24 @@ export class LightPlugin implements McpPlugin {
       run: () => this.ableset.status(),
     });
     this.commands.register({
+      name: "ableset.jump",
+      title: "Aller dans AbleSet",
+      description: "Moves AbleSet to a song of the show (id or title) and, optionally, one of its sections (id or name): AbleSet receives the song's title and the section's name. While the follower is on, the light then follows AbleSet there as it plays.",
+      right: "commands:trigger",
+      profiles: ["live"],
+      schema: z.object({ song: z.string(), section: z.string().optional() }),
+      run: ({ song: wanted, section: part }) => {
+        if (!this.config.ableset.enabled) throw new CommandError("failed", say("le suivi d'AbleSet est éteint (page MIDI)", "the AbleSet follower is off (MIDI page)"));
+        const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+        const song = this.songs?.songs.list().find((s) => s.id === wanted || same(s.title, wanted));
+        if (!song) throw new CommandError("invalid", say(`chant inconnu : ${wanted}`, `unknown song: ${wanted}`));
+        const section = part === undefined ? undefined : song.sections.find((x) => x.id === part || same(x.name, part));
+        if (part !== undefined && !section) throw new CommandError("invalid", say(`section inconnue : ${part}`, `unknown section: ${part}`));
+        this.ableset.jump(song.title, section?.name);
+        return { song: song.title, ...(section ? { section: section.name } : {}), connected: this.ableset.connected };
+      },
+    });
+    this.commands.register({
       name: "ableset.configure",
       title: "Suivre AbleSet",
       description: "Turns the AbleSet follower on or off and says where AbleSet runs (host, default this machine; port 39051). While AbleSet plays, the section of the same name in the song of the same title starts (as a song's timeline would: never a manual-only look). Kept in the machine config.",

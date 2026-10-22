@@ -60,6 +60,14 @@ export function SongsPage() {
   useEffect(refresh, [refresh]);
   useCommandEvents(["song.put", "song.delete", "setlist.put", "song.grid_fill"], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
+  // AbleSet followed and answering: a song can be sent there from here
+  const [ablesetUp, setAblesetUp] = useState(false);
+  useEffect(() => {
+    const load = () => void cmd<{ enabled: boolean; connected: boolean }>("ableset.status").then((s) => setAblesetUp(s.enabled && s.connected), () => setAblesetUp(false));
+    load();
+    const timer = setInterval(load, 3000);
+    return () => clearInterval(timer);
+  }, []);
 
   const current = setlists.find((s) => s.id === state.setlist);
   const ordered = current ? current.songs.map((id) => songs.find((s) => s.id === id)).filter((s): s is Song => Boolean(s)) : songs;
@@ -132,6 +140,11 @@ export function SongsPage() {
             ) : (
               <button className="ghost" title={t.playHelp} aria-label={`${t.play} ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("song.play", { song: song.id }))}>
                 ▶
+              </button>
+            )}
+            {ablesetUp && (
+              <button className="ghost" title={t.ablesetJumpHelp} aria-label={`AbleSet ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("ableset.jump", { song: song.id }))}>
+                ⇥ AbleSet
               </button>
             )}
             {song.id === state.song && state.position !== undefined && (

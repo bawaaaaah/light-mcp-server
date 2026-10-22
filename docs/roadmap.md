@@ -80,7 +80,7 @@ Ces chantiers avancent ensemble. Chacun a sa spec :
 ## Plus tard
 - ~~IA en live (retouches) et cascade complète des règles~~ : faits le 2026-10-17 (`light_live_adjust`, règles complètes).
 - ~~Comptes nominatifs, liens et QR~~ : faits (utilisateurs, liens de partage, QR code).
-- Max for Live (avec Live Suite) ; vers AbleSet, les sauts commandés depuis la lumière (le suivi d'AbleSet est fait le 2026-10-22).
+- Max for Live (avec Live Suite) (le suivi d'AbleSet et les sauts vers AbleSet sont faits le 2026-10-22).
 - ~~Vue 3D de la scène~~ : faite (Scène en direct, bouton « 3D »).
 - Synchronisation audio et analyse audio des chants : faits (tempo et ébauche des sections depuis un enregistrement ; tempo et temps suivis au micro en direct).
 - Ableton Link (OS2L fait le 2026-10-22 : tempo et boutons d'un logiciel DJ, annoncé en mDNS).

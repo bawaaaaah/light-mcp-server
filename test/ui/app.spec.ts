@@ -1356,6 +1356,40 @@ test("AbleSet: followed from the MIDI page, says when it does not answer", async
   expect(errors).toEqual([]);
 });
 
+test("AbleSet answering: a song is sent there from the Chants page", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  // a fake AbleSet on the test server's AbleSet port: its heartbeat to whoever subscribes, and the jumps it gets
+  const { createSocket } = await import("node:dgram");
+  const { decodeOsc, encodeOsc } = await import("../../src/plugins/light/osc/codec.js");
+  const ableset = createSocket("udp4");
+  const jumps: string[] = [];
+  let beat: NodeJS.Timeout | undefined;
+  ableset.on("message", (buf, rinfo) => {
+    for (const m of decodeOsc(buf)) {
+      if (m.address === "/setlist/jumpToSong") jumps.push(String(m.args[0]));
+      if (m.address !== "/subscribe" || beat) continue;
+      const arg = m.args[1];
+      const port = typeof arg === "number" ? arg : (arg as { value: number }).value;
+      beat = setInterval(() => ableset.send(encodeOsc({ address: "/heartbeat", args: [] }), port, rinfo.address), 500);
+    }
+  });
+  await new Promise<void>((r) => ableset.bind(39999, "127.0.0.1", r));
+  try {
+    await api(page, "ableset.configure", { enabled: true, host: "127.0.0.1" });
+    await page.locator("nav.pages button", { hasText: "Chants" }).click();
+    const send = page.getByRole("button", { name: "AbleSet Chant test" });
+    await expect(send).toBeVisible({ timeout: 8000 });
+    await send.click();
+    await expect.poll(() => jumps).toEqual(["Chant test"]);
+  } finally {
+    if (beat) clearInterval(beat);
+    ableset.close();
+    await api(page, "ableset.configure", { enabled: false });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("a DJ's numbered command (OS2L) mapped to the grand master, from the MIDI page", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

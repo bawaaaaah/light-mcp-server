@@ -7,7 +7,8 @@
  * makes it send every value to that port as it changes (`/setlist/activeSongName`, `/setlist/
  * activeSectionName`, `/global/isPlaying`…) and a `/heartbeat` every 2 seconds; `/getValues` asks for
  * them all at once. Without a heartbeat for a while (AbleSet restarted, or started after us), the
- * subscription is sent again.
+ * subscription is sent again. The other way, `/setlist/jumpToSong <title>` and `/setlist/jumpToSection
+ * <name>` move AbleSet from the light.
  */
 import { createSocket, type Socket } from "node:dgram";
 import { decodeOsc, encodeOsc, type OscArg } from "../osc/codec.js";
@@ -94,6 +95,12 @@ export class AbleSetClient {
     if (!port) return;
     this.send("/subscribe", ["auto", { type: "i", value: port }, "light-mcp-server"]);
     this.send("/getValues");
+  }
+
+  /** Moves AbleSet to a song (by title), then to one of its sections (by name). */
+  jump(song: string, section?: string): void {
+    this.send("/setlist/jumpToSong", [song]);
+    if (section) this.send("/setlist/jumpToSection", [section]);
   }
 
   get connected(): boolean {
