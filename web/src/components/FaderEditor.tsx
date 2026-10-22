@@ -16,6 +16,8 @@ export interface FaderDraft {
   name: string;
   channels: { fixture: string; offset: number }[];
   level: number;
+  /** The DMX values its travel covers (QLC+'s low and high limits). */
+  range?: { min: number; max: number };
   dca?: string;
   notes?: string;
 }
@@ -38,6 +40,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   const [all, setAll] = useState<FixtureChannels[]>([]);
   const [channels, setChannels] = useState<PickedChannel[]>(initial.channels);
   const [dca, setDca] = useState(initial.dca ?? "");
+  const [range, setRange] = useState(initial.range ?? { min: 0, max: 255 });
   const [groups, setGroups] = useState<{ id: string; name: string; master?: unknown; members: { fixtures: string[]; groups: string[] } }[]>([]);
   const [error, setError] = useState("");
   const isNew = !initial.id;
@@ -50,7 +53,9 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   const save = () => {
     if (!name.trim()) return setError(t.nameRequired);
     if (!channels.length) return setError(t.faderNoChannel);
-    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, dca: dca || undefined, notes } })
+    if (range.min > range.max) return setError(t.rangeOrder);
+    const ranged = range.min > 0 || range.max < 255;
+    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, ...(ranged ? { range } : {}), dca: dca || undefined, notes } })
       .then(onClose)
       .catch((e: Error) => setError(e.message));
   };
@@ -63,6 +68,15 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
           <span>{t.name}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} />
           {isNew && name && <small>id : {id}</small>}
+        </label>
+        {/* as QLC+'s value range: the fader's whole travel covers low..high only */}
+        <label className="field" title={t.rangeHelp}>
+          <span>{t.rangeLow}</span>
+          <input type="number" min={0} max={255} value={range.min} onChange={(e) => setRange({ ...range, min: Math.max(0, Math.min(255, Number(e.target.value) || 0)) })} />
+        </label>
+        <label className="field" title={t.rangeHelp}>
+          <span>{t.rangeHigh}</span>
+          <input type="number" min={0} max={255} value={range.max} onChange={(e) => setRange({ ...range, max: Math.max(0, Math.min(255, Number(e.target.value) || 0)) })} />
         </label>
         <label className="field">
           <span>{t.faderDca}</span>

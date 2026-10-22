@@ -98,6 +98,8 @@ export const ChannelFaderSchema = z.object({
   name: z.string(),
   channels: z.array(z.object({ fixture: z.string(), offset: z.number().int().min(0).max(511) })).min(1),
   level: z.number().min(0).max(1).default(0),
+  /** The DMX values its travel covers, as a QLC+ level slider's low and high limits (default 0..255). */
+  range: z.object({ min: z.number().int().min(0).max(255).default(0), max: z.number().int().min(0).max(255).default(255) }).optional(),
   /** DCA dosing this fader (a QLC+ Submaster in the same frame): its effective level multiplies the fader's. */
   dca: z.string().optional(),
   notes: z.string().optional(),

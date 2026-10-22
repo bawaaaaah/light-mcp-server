@@ -1812,10 +1812,12 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   await editor.getByRole("button", { name: "Cocher partout" }).click();
   await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
   await editor.getByLabel("Dosé par le DCA").selectOption("master");
+  await editor.getByLabel("Borne supérieure").fill("200"); // as QLC+'s value range
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
-  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[]; dca?: string }[]).find((f) => f.id === "strobes")!;
+  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[]; dca?: string; range?: unknown }[]).find((f) => f.id === "strobes")!;
   expect(saved.dca).toBe("master");
+  expect(saved.range).toEqual({ min: 0, max: 200 });
   expect(saved.channels).toEqual([
     { fixture: "bar-0", offset: 1 },
     { fixture: "bar-1", offset: 1 },

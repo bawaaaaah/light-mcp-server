@@ -78,6 +78,13 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     expect([out()[15], out()[18]].map((v) => Math.round(v / 2))).to.deep.equal([64, 64]);
     await run("group.mute", { id: "barres", mute: true });
     expect([out()[0], out()[15], out()[18]]).to.deep.equal([0, 0, 0]);
+    // a range, as a QLC+ slider's limits: its travel covers 40..200 only
+    await run("fader.put", { fader: { id: "uv", name: "UV", channels: [{ fixture: "bar-0", offset: 1 }], level: 0, range: { min: 40, max: 200 } } });
+    expect(out()[1]).to.equal(40);
+    await run("fader.level", { id: "uv", level: 1 });
+    expect(out()[1]).to.equal(200);
+    await run("fader.level", { id: "uv", level: 0.5 });
+    expect(out()[1]).to.equal(120);
   });
 
   it("Panic recalls the safe snapshot (over the safe look), and skips what was deleted since", async () => {

@@ -124,6 +124,12 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     ]);
   });
 
+  it("keeps a slider's limits (« 0 to 200 »): on the channel fader's range, on the DCA's limits", () => {
+    expect(p.faders.find((f) => f.id === "ventilation")!.range).to.deep.equal({ min: 0, max: 200 });
+    expect(p.faders.find((f) => f.id === "strobe-et-fumee")).to.not.have.property("range"); // 0..255: nothing to say
+    expect(p.groups.find((g) => g.id === "dim-banque")!.limits).to.deep.equal({ min: 0, max: 127 / 255, mode: "scale" });
+  });
+
   it("keeps dimmer sliders as DCAs and turns a submaster into a DCA dosing its frame's looks", () => {
     expect(p.groups.find((g) => g.id === "dim")!.members.fixtures).to.deep.equal(["bar-0"]);
     const sub = p.groups.find((g) => g.id === "sub-ambiance")!;
@@ -194,7 +200,7 @@ describe("QLC+ faders → channel faders and DCAs", () => {
     expect(out()[3]).to.be.closeTo(full / 2, 1);
     await run("fader.level", { id: "ventilation", level: 1 });
     await run("group.level", { id: "sub-banque", level: 0.5 });
-    expect(out()[101]).to.equal(128); // the submaster doses the fader of its frame
+    expect(out()[101]).to.equal(100); // the submaster doses the fader of its frame, at full 200 (its QLC+ limit)
     await run("fader.level", { id: "ventilation", level: 0 });
     await run("look.stopall");
     await run("group.level", { id: "contre", level: 0.5 });

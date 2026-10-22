@@ -352,16 +352,21 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       if (ch?.attribute === "intensity" && colored) dimmerFixtures.add(fixtureId);
       else others.push({ fixture: fixtureId, offset: lc.channel }); // white, UV, strobe, machines, lamps — or undecoded: kept by offset
     }
+    // a slider limited to part of the DMX travel (« 0 to 200 ») keeps that limit: on the fader's range,
+    // or on the DCA's (its whole travel scaled within it)
+    const { low, high } = w.levelLimits ?? { low: 0, high: 255 };
+    const limited = low > 0 || high < 255;
     if (dimmerFixtures.size) {
       const id = uniqueId(w.caption || `slider-${w.id}`, groupTaken);
       sliderGroups.set(w.id, id);
-      groups.push(group(id, w.caption || `Fader ${w.id}`, { fixtures: [...dimmerFixtures], master: true }));
+      const g = group(id, w.caption || `Fader ${w.id}`, { fixtures: [...dimmerFixtures], master: true });
+      groups.push(limited ? { ...g, limits: { min: low / 255, max: high / 255, mode: "scale" } } : g);
     }
     if (others.length) {
       // a QLC+ level slider writes its channels directly (HTP): a channel fader does the same; it starts at 0
       const id = uniqueId(dimmerFixtures.size ? `${w.caption || `slider-${w.id}`}-canaux` : w.caption || `slider-${w.id}`, faderTaken);
       sliderFaders.set(w.id, id);
-      faders.push({ id, name: w.caption || `Fader ${w.id}`, channels: others, level: 0, notes: `Importé de QLC+ (fader #${w.id}, ${others.length} canal(aux) hors gradateur).` });
+      faders.push({ id, name: w.caption || `Fader ${w.id}`, channels: others, level: 0, ...(limited ? { range: { min: low, max: high } } : {}), notes: `Importé de QLC+ (fader #${w.id}, ${others.length} canal(aux) hors gradateur).` });
     }
   }
   if (faders.length) converted.push(say(`${faders.length} faders de canaux (blanc, UV, strobe, machines… pilotés comme dans QLC+)`, `${faders.length} channel faders (white, UV, strobe, machines… driven as in QLC+)`));

@@ -106,6 +106,8 @@ export interface QxwWidget {
   input?: { universe: number; channel: number; midi: MidiBinding };
   sliderMode?: string;
   levelChannels?: { fixture: number; channel: number }[];
+  /** A level slider's low and high limits (DMX values its travel covers). */
+  levelLimits?: { low: number; high: number };
   speedDialFunctions?: { id: number; fadeIn: number; fadeOut: number; duration: number }[];
 }
 
@@ -249,7 +251,9 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
     const playedRaw = (s["Playback"] as Node | undefined)?.["Function"];
     const played = Array.isArray(playedRaw) ? playedRaw[0] : playedRaw;
     const playedId = played !== undefined && txt(played) !== "" ? Number(txt(played)) : undefined;
-    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
+    const limit = (k: string, fallback: number) => (level?.[k] === undefined ? fallback : Math.max(0, Math.min(255, num(level[k]))));
+    const levelLimits = { low: limit("@_LowLimit", 0), high: limit("@_HighLimit", 255) };
+    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans, levelLimits, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
   }
   for (const d of (node["SpeedDial"] as Node[] | undefined) ?? []) {
     const fns = d["Function"];

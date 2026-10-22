@@ -566,7 +566,9 @@ export class ShowRuntime {
     // one dimmer by the highest. A lamp's dimmer (a dimmer pack) is its light: the fader raises it.
     const doses = new Map<Uint8Array, Map<number, number>>();
     for (const fader of this.faders.list()) {
-      const level = fader.level * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
+      // its travel covers its range (a QLC+ slider limited to 0..200 never goes past 200), the DCA doses that
+      const { min, max } = fader.range ?? { min: 0, max: 255 };
+      const level = ((min + fader.level * (max - min)) / 255) * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
       const value = Math.round(level * 255);
       for (const c of fader.channels) {
         const f = this.venue.fixtures.get(c.fixture);

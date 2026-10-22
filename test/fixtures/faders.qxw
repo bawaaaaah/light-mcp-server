@@ -23,8 +23,8 @@
 <Slider Caption="Dim" ID="32"><Input Universe="0" Channel="22"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="255"><Channel Fixture="0">0</Channel></Level></Slider>
 <Slider Caption="Contre" ID="36"><Input Universe="0" Channel="27"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None">Playback</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="1">0</Channel></Level><Playback><Function>62</Function></Playback></Slider>
 <Frame Caption="Banque" ID="2">
-<Slider Caption="Ventilation" ID="33"><Input Universe="0" Channel="24"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="1">1</Channel></Level></Slider>
-<Slider Caption="Dim banque" ID="34"><Input Universe="0" Channel="26"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="255" Value="0"><Channel Fixture="0">0</Channel></Level></Slider>
+<Slider Caption="Ventilation" ID="33"><Input Universe="0" Channel="24"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="200" Value="0"><Channel Fixture="1">1</Channel></Level></Slider>
+<Slider Caption="Dim banque" ID="34"><Input Universe="0" Channel="26"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None" Monitor="false">Level</SliderMode><Level LowLimit="0" HighLimit="127" Value="0"><Channel Fixture="0">0</Channel></Level></Slider>
 <Slider Caption="Sub banque" ID="35"><Input Universe="0" Channel="25"/><SliderMode ValueDisplayStyle="Exact" ClickAndGoType="None">Submaster</SliderMode><Playback><Function>4294967295</Function></Playback></Slider>
 </Frame>
 </Frame></VirtualConsole></Workspace>
