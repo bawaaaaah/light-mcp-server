@@ -46,7 +46,13 @@ jobs:
 
   ui:
     name: Browser tests (Playwright)
-    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to Ubuntu 26 from 2026-10-19, Playwright --with-deps may not follow at once
+    runs-on: ubuntu-24.04
+    # Chromium and its system libraries come ready in Playwright's image: installing them with
+    # `playwright install --with-deps` hung on apt for 8, then 20 minutes on 2026-10-22. The tag
+    # follows @playwright/test in package-lock.json (checked below).
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --user 1001
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -59,7 +65,8 @@ jobs:
             web/package-lock.json
       - run: npm ci
       - run: npm --prefix web ci
-      - run: npx playwright install --with-deps chromium
+      - name: The image's browsers are those of @playwright/test
+        run: test "$(node -p 'require("@playwright/test/package.json").version')" = "1.64.0" || { echo "::error::@playwright/test changed: update the image tag of this job"; exit 1; }
       - run: npm run test:ui
       - uses: actions/upload-artifact@v4
         if: failure()
