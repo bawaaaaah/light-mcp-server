@@ -14,6 +14,13 @@ interface Node {
   outputAddresses: number[];
   ports?: { portAddress: number; outputting: boolean; sacn: boolean; ltp: boolean; merging: boolean }[];
 }
+interface Os2l {
+  enabled: boolean;
+  port?: number;
+  addresses: string[];
+  clients: { address: string; since: number; beats: number; bpm?: number }[];
+  log: { at: number; address: string; event: { evt: string; name?: string; state?: string; id?: number } }[];
+}
 interface Route {
   universe: number;
   artnet?: { portAddress: number };
@@ -69,6 +76,7 @@ export function SettingsPage({ role }: { role: Role }) {
   const t = useT();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [output, setOutput] = useState<Output | null>(null);
+  const [os2l, setOs2l] = useState<Os2l | null>(null);
   const [error, setError] = useState("");
   const [added, setAdded] = useState<number[]>([]);
   const routing = can(role, "commands:output");
@@ -76,6 +84,7 @@ export function SettingsPage({ role }: { role: Role }) {
   const load = useCallback(() => {
     void cmd<Node[]>("nodes.list").then(setNodes).catch(() => undefined);
     void cmd<Output>("output.status").then(setOutput).catch(() => undefined);
+    void cmd<Os2l>("os2l.status").then(setOs2l).catch(() => undefined);
   }, []);
   useEffect(() => {
     load();
@@ -180,6 +189,29 @@ export function SettingsPage({ role }: { role: Role }) {
             ))}
           </ul>
           <button onClick={() => void cmd("nodes.discover")}>{t.discover}</button>
+          <h2>{t.os2lTitle}</h2>
+          <p className="hint">{t.os2lHelp}</p>
+          {os2l && !os2l.enabled && <p className="hint">{t.os2lOff}</p>}
+          {os2l?.enabled && (
+            <div className="os2l">
+              <p>
+                {t.os2lAddress} : <code>{(os2l.addresses.length ? os2l.addresses : ["—"]).map((a) => `${a}:${os2l.port ?? "—"}`).join(" · ")}</code>
+              </p>
+              {os2l.clients.length === 0 && <p className="hint">{t.os2lNone}</p>}
+              <ul>
+                {os2l.clients.map((c) => (
+                  <li key={`${c.address}-${c.since}`}>
+                    <span className="dot ok" /> {c.address} · {c.bpm ? `${c.bpm.toFixed(1)} BPM` : "—"} · {c.beats} {t.os2lBeats}
+                  </li>
+                ))}
+              </ul>
+              {os2l.log.length > 0 && (
+                <p className="hint">
+                  {t.os2lLast} : {os2l.log.map((e) => (e.event.evt === "btn" ? `${e.event.name} (${e.event.state})` : `cmd ${e.event.id}`)).join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
         </section>
       </div>
       <section id="settings-users">

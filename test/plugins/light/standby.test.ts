@@ -10,7 +10,7 @@ import { decodePollReply, encodePollReply } from "../../../src/plugins/light/out
 describe("starting on standby (switchover with QLC+)", () => {
   const make = (stored: Record<string, unknown>, standby?: boolean) => {
     let saved: Record<string, unknown> | undefined;
-    const cfg = { discovery: false, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } }, ...stored };
+    const cfg = { discovery: false, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } }, ...stored };
     const plugin = new LightPlugin({
       eventBus: new EventBus(),
       config: { get: () => cfg, set: async (c: unknown) => void (saved = c as Record<string, unknown>) },
@@ -60,7 +60,7 @@ describe("starting on standby (switchover with QLC+)", () => {
 describe("routing a universe to the nodes", () => {
   const make = () => {
     let saved: { output: { routes: unknown[] } } | undefined;
-    const cfg = { universes: 2, discovery: false, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } }, output: { routes: [{ universe: 1, artnet: { portAddress: 0 } }] } };
+    const cfg = { universes: 2, discovery: false, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } }, output: { routes: [{ universe: 1, artnet: { portAddress: 0 } }] } };
     const plugin = new LightPlugin({
       eventBus: new EventBus(),
       config: { get: () => cfg, set: async (c: unknown) => void (saved = c as typeof saved) },

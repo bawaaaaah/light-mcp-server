@@ -68,7 +68,7 @@ const TAGS = ["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "
 /** Kinds of capability ranges an allowlist names (qxf-import.ts, CAPABILITY_KINDS). */
 const KINDS = ["colour", "intensity", "strobe", "gobo", "prism", "beam", "rotation", "speed", "effect", "maintenance"] as const;
 /** Callers a rule can be for, beside everyone: where the command comes from. */
-const ORIGINS = ["mcp", "midi", "osc", "timeline"] as const;
+const ORIGINS = ["mcp", "midi", "osc", "os2l", "timeline"] as const;
 /** The built-in roles, when the full list (an administrator's) is not readable. */
 const BUILT_IN_ROLES = [
   { id: "regisseur", name: "Régisseur" },

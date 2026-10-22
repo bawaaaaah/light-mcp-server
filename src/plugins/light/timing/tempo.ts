@@ -98,6 +98,11 @@ export class TempoClock {
     this.nudge = { untilMs: this.anchor.atMs + span, bpm: this.manualBpm * (1 + error / CATCH_UP_BEATS) };
   }
 
+  /** MIDI clock ticks arrive (whatever the selected source). */
+  midiReceiving(): boolean {
+    return this.follower.state(this.now()).receiving;
+  }
+
   handleMidi(msg: MidiMessage): void {
     this.follower.handle(msg, this.now());
   }

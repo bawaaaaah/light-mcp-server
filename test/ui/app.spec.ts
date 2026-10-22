@@ -1292,6 +1292,30 @@ test("look editor: random choices, as for the order of the steps", async ({ page
   expect(errors).toEqual([]);
 });
 
+test("settings: DJ software connected over OS2L, its tempo and its buttons", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const status = (await api(page, "os2l.status")) as { port: number };
+  const before = (await api(page, "tempo.get")) as { bpm: number; source: string };
+  await api(page, "tempo.set", { source: "manual" }); // the server starts on the MIDI clock, silent here: the DJ would take over anyway
+  const { connect } = await import("node:net");
+  const dj = connect(status.port, "127.0.0.1");
+  await new Promise((r) => dj.once("connect", r));
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  const section = page.locator(".os2l");
+  await expect(section).toContainText(`:${status.port}`); // the address to give VirtualDJ
+  dj.write(JSON.stringify({ evt: "beat", change: true, pos: 1, bpm: 127, strength: 0.4 }));
+  dj.write(JSON.stringify({ evt: "btn", name: "breath", state: "on" }));
+  await expect(section).toContainText("127.0 BPM", { timeout: 6000 });
+  await expect(section).toContainText("breath (on)");
+  await expect.poll(async () => ((await api(page, "tempo.get")) as { source: string }).source).toBe("os2l");
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active).toBe(true);
+  dj.destroy();
+  await api(page, "look.stopall");
+  await api(page, "tempo.set", { bpm: before.bpm, source: before.source });
+  expect(errors).toEqual([]);
+});
+
 test("settings: route a universe to another Art-Net address and to sACN", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

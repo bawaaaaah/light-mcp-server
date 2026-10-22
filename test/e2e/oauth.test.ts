@@ -29,7 +29,7 @@ describe("behind a reverse proxy: OAuth in front of /mcp (claude.ai connectors),
     mkdirSync(join(dir, "data"), { recursive: true });
     writeFileSync(
       join(dir, "config.json"),
-      JSON.stringify({ version: 1, server: { authToken: "master-token", publicUrl: base, trustProxy: 1 }, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }),
+      JSON.stringify({ version: 1, server: { authToken: "master-token", publicUrl: base, trustProxy: 1 }, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }),
     );
     running = await bootstrap({ configPath: join(dir, "config.json"), port, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     await running.auth.setPin("regisseur", "1234");

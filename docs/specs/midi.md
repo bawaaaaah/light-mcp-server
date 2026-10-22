@@ -87,6 +87,12 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 - **Export de la table** OSC en Markdown, CSV ou JSON. La requête `/light/help` renvoie la liste.
 - L'**API HTTP** équivalente (`POST /api/trigger/...`) sert à Companion et aux scripts.
 
+## Logiciel DJ : OS2L (v1)
+- **OS2L** (Open Sound to Light) : un logiciel DJ (VirtualDJ…) se connecte en **TCP** au serveur (port **7272**, réglable : `os2l.port`) et envoie des objets JSON à la suite : `beat` à chaque temps (BPM, position dans le morceau, `change` quand les temps sautent), `btn` pour un bouton de son pad (`on` / `off`), `cmd` pour une commande numérotée (enregistrée, sans effet pour l'instant). Accès comme l'OSC : tout ordinateur du réseau, sauf si `os2l.allow` nomme les siens.
+- **Tempo** : les temps du DJ mènent le tempo (source « os2l »), BPM et **phase** (rattrapée en deux temps, sans saut, comme le micro), sauf si l'**horloge MIDI** d'Ableton joue (elle mène, et reprend la main dès qu'elle revient quand le DJ menait faute d'horloge) ou si le **micro** du pupitre écoute. Choisir un tempo à la main (taper, tap, source) rend la main au pupitre.
+- **Boutons** : un bouton lance, tant qu'il est « on », le **look de son nom** (nom ou id, sans tenir compte de la casse), sinon rappelle l'**instantané** de ce nom ; l'état du look revient sur le pad (`feedback`), y compris quand il est arrêté ailleurs. Origine « DJ (OS2L) » dans le journal et pour les règles (`appliesTo.origins`).
+- **Découverte** : le service `_os2l._tcp` est annoncé en **mDNS** (instance « Lumière ») : le logiciel DJ trouve la régie tout seul ; sinon son réglage d'adresse directe (`os2lDirectIp` dans VirtualDJ) prend l'adresse affichée dans **Réglages → DJ (OS2L)**, avec les logiciels connectés, leur BPM et les derniers boutons. Vérifiable sur un Mac : `dns-sd -B _os2l._tcp local.`.
+
 ## Ableton
 ### Export MIDI Effect Rack (v1)
 - **Une chaîne par action**, nommée comme elle, avec une **key zone d'une seule touche** (`KeyRange` Min = Max = note, crossfades idem). La chaîne s'allume quand sa note passe : c'est une légende vivante dans Live.

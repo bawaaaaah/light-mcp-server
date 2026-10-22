@@ -14,7 +14,7 @@ describe("SDK (TypeScript and Python) and OpenAPI", function () {
 
   before(async () => {
     const dir = mkdtempSync(join(tmpdir(), "light-sdk-"));
-    writeFileSync(join(dir, "config.json"), JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 1, discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }));
     mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));
     running = await bootstrap({ configPath: join(dir, "config.json"), port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });

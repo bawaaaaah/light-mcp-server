@@ -63,7 +63,7 @@ export const RuleSchema = z.object({
    */
   appliesTo: z
     .object({
-      origins: z.array(z.enum(["ui", "midi", "osc", "mcp", "timeline", "cli"])).optional(),
+      origins: z.array(z.enum(["ui", "midi", "osc", "os2l", "mcp", "timeline", "cli"])).optional(),
       roles: z.array(z.string()).optional(),
     })
     .optional(),

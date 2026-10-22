@@ -604,6 +604,13 @@ const fr = {
   doubleClick: "double-clic",
   outputStats: { frames: "trames", packets: "paquets", errors: "erreurs", discovery: "découverte" },
   nodeOutputs: "sorties",
+  os2lTitle: "DJ (OS2L)",
+  os2lHelp: "Un logiciel DJ (VirtualDJ…) envoie ses temps et les boutons de son pad : le tempo suit le DJ, sauf si l'horloge MIDI d'Ableton joue ou si le micro écoute, et un bouton lance le look du même nom (ou rappelle l'instantané de ce nom). Dans VirtualDJ, le réglage os2lDirectIp prend l'adresse ci-dessous ; sinon il trouve la régie tout seul sur le réseau.",
+  os2lAddress: "Adresse à donner au logiciel DJ",
+  os2lNone: "Aucun logiciel DJ connecté.",
+  os2lBeats: "temps reçus",
+  os2lLast: "Derniers boutons",
+  os2lOff: "OS2L est désactivé dans la configuration de cette machine.",
   routes: "Routes",
   routeAdd: "+ Univers",
   routeNone: "rien n'est envoyé",
@@ -746,7 +753,7 @@ const fr = {
   noDefinitionHelp: "Le fichier .qxf de ce modèle manque : ses canaux ne sont pas décodés (pas de couleur ni de gradateur). L'ajouter à la page Import, étape 1.",
   thisPage: "cette page",
   since: "depuis",
-  origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", mcp: "IA (MCP)", timeline: "chant", cli: "CLI", system: "serveur" },
 };
 const en: typeof fr = {
   notes: "Notes",
@@ -1353,6 +1360,13 @@ const en: typeof fr = {
   doubleClick: "double-click",
   outputStats: { frames: "frames", packets: "packets", errors: "errors", discovery: "discovery" },
   nodeOutputs: "outputs",
+  os2lTitle: "DJ (OS2L)",
+  os2lHelp: "DJ software (VirtualDJ…) sends its beats and its pad's buttons: the tempo follows the DJ, unless Ableton's MIDI clock plays or the microphone listens, and a button plays the look of the same name (or recalls the snapshot of that name). In VirtualDJ, the os2lDirectIp setting takes the address below; otherwise it finds the desk on the network by itself.",
+  os2lAddress: "Address to give the DJ software",
+  os2lNone: "No DJ software connected.",
+  os2lBeats: "beats received",
+  os2lLast: "Last buttons",
+  os2lOff: "OS2L is off in this machine's config.",
   routes: "Routes",
   routeAdd: "+ Universe",
   routeNone: "nothing is sent",
@@ -1495,7 +1509,7 @@ const en: typeof fr = {
   noDefinitionHelp: "This model's .qxf file is missing: its channels are not decoded (no colour, no dimmer). Add it on the Import page, step 1.",
   thisPage: "this page",
   since: "since",
-  origins: { ui: "interface", midi: "MIDI", osc: "OSC", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
+  origins: { ui: "interface", midi: "MIDI", osc: "OSC", os2l: "DJ (OS2L)", mcp: "AI (MCP)", timeline: "song", cli: "CLI", system: "server" },
 };
 
 export type Lang = "fr" | "en";

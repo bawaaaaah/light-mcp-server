@@ -37,7 +37,7 @@ const EntrySchema = z.object({
   count: z.number().int().min(1),
   name: z.string(),
   title: z.string(),
-  origin: z.enum(["ui", "midi", "osc", "mcp", "timeline", "cli", "system"]),
+  origin: z.enum(["ui", "midi", "osc", "os2l", "mcp", "timeline", "cli", "system"]),
   who: z.string().optional(),
   target: z.string().optional(),
   ok: z.boolean(),

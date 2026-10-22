@@ -4,6 +4,7 @@
  * connections, the reading, and the buttons' states sent back to the DJ's pad.
  */
 import { createServer, type Server, type Socket } from "node:net";
+import { networkInterfaces } from "node:os";
 import { encodeFeedback, Os2lReader, type Os2lEvent } from "./codec.js";
 
 export interface Os2lConfig {
@@ -86,8 +87,13 @@ export class Os2lServer {
     for (const socket of this.clients.keys()) socket.write(message);
   }
 
-  status(): { enabled: boolean; port?: number; clients: Os2lClient[]; log: Os2lServer["log"] } {
-    return { enabled: this.config.enabled, port: this.port, clients: [...this.clients.values()], log: this.log.slice(-10) };
+  /** What the DJ software is told to connect to (os2lDirectIp in VirtualDJ): this machine's addresses. */
+  status(): { enabled: boolean; port?: number; addresses: string[]; clients: Os2lClient[]; log: Os2lServer["log"] } {
+    const addresses = Object.values(networkInterfaces())
+      .flatMap((list) => list ?? [])
+      .filter((a) => a.family === "IPv4" && !a.internal)
+      .map((a) => a.address);
+    return { enabled: this.config.enabled, port: this.port, addresses, clients: [...this.clients.values()], log: this.log.slice(-10) };
   }
 
   async stop(): Promise<void> {

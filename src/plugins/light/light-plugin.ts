@@ -37,6 +37,9 @@ import { FolderStore } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { MappingSchema, MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
+import { Os2lServer } from "./os2l/server.js";
+import type { Os2lEvent } from "./os2l/codec.js";
+import { advertise, localHost } from "../../core/mdns.js";
 import { TempoClock } from "./timing/tempo.js";
 import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
@@ -81,6 +84,16 @@ export const LightConfigSchema = z.object({
     })
     .default({}),
   osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).default({}),
+  /** DJ software (VirtualDJ…) over OS2L: TCP, any DJ computer of the network unless `allow` names some, as for OSC. */
+  os2l: z
+    .object({
+      enabled: z.boolean().default(true),
+      port: z.number().int().min(0).max(65535).default(7272),
+      allow: z.array(z.string()).default([]),
+      /** Announced on the network (mDNS, `_os2l._tcp`), so the DJ software finds the desk by itself. */
+      advertise: z.boolean().default(true),
+    })
+    .default({}),
 });
 export type LightConfig = z.infer<typeof LightConfigSchema>;
 
@@ -113,6 +126,12 @@ export class LightPlugin implements McpPlugin {
   readonly mapper = new MidiMapper();
   readonly tempo = new TempoClock();
   readonly osc: OscServer;
+  readonly os2l: Os2lServer;
+  /** The DJ pad's buttons met so far, with the look each plays and the state its pad shows. */
+  private readonly os2lButtons = new Map<string, { name: string; page?: string; look: string; on: boolean }>();
+  /** The DJ leads while the MIDI clock, the chosen source, is silent: it leads again when it comes back. */
+  private djOverMidi = false;
+  private os2lAnnounce: { stop: () => Promise<void> } | undefined;
   private config: LightConfig;
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
@@ -256,6 +275,22 @@ export class LightPlugin implements McpPlugin {
     this.show.onChange(() => (this.changedSinceAutoBackup = true));
     this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
+    this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));
+    this.commands.onCommand((e) => {
+      if (!e.ok) return;
+      if (e.name === "tempo.set" || e.name === "tempo.tap") this.djOverMidi = false; // the desk chose
+      this.syncOs2lFeedback();
+    });
+    this.commands.register({
+      name: "os2l.status",
+      title: "DJ (OS2L)",
+      description: "DJ software connected over OS2L (VirtualDJ…): port, DJ computers with their tempo and beats received, the last buttons pressed. Their beats lead the tempo unless the MIDI clock plays; a button plays the look (or recalls the snapshot) of its name.",
+      right: "dashboards:view",
+      readOnly: true,
+      profiles: ["setup", "live"],
+      schema: z.object({}),
+      run: () => this.os2l.status(),
+    });
 
     const publishFrame = throttleMerge<number>(
       40, // ≤ 25 Hz to dashboards (docs/architecture.md, topic light:dmx)
@@ -330,6 +365,47 @@ export class LightPlugin implements McpPlugin {
    * MIDI feedback follows the real state, whatever changed it (UI, OSC, MCP, timeline, MIDI):
    * look mappings light up when their look plays, level mappings mirror their group's master.
    */
+  /**
+   * OS2L (docs/specs/midi.md, « OS2L ») : the DJ's beats lead the tempo, catching up their phase,
+   * unless the MIDI clock plays (Ableton leads, and takes it back when it returns) or the desk's
+   * microphone listens; a pad button plays the look of its name (by name or id, any case) while
+   * « on », or recalls the snapshot of its name.
+   */
+  private onOs2l(event: Os2lEvent): void {
+    if (event.evt === "beat") {
+      const s = this.tempo.state();
+      if (s.source === "audio") return; // the microphone the desk switched on leads
+      if (s.source === "midi") {
+        if (this.tempo.midiReceiving()) return; // Ableton plays: it leads
+        this.djOverMidi = true;
+      }
+      if (event.bpm >= 20 && event.bpm <= 400) this.tempo.follow(event.bpm, 0, "os2l");
+      return;
+    }
+    if (event.evt !== "btn") return;
+    const wanted = event.name.toLowerCase();
+    const named = <T extends { id: string; name: string }>(list: T[]) => list.find((x) => x.id.toLowerCase() === wanted || x.name.trim().toLowerCase() === wanted);
+    const ctx = { origin: "os2l" as const, can: () => true };
+    const look = named(this.runtime.looks.list());
+    if (look) {
+      this.os2lButtons.set(wanted, { name: event.name, page: event.page, look: look.id, on: event.state === "on" });
+      void this.commands.invoke(event.state === "on" ? "look.go" : "look.stop", { id: look.id }, ctx).catch(() => undefined);
+      return;
+    }
+    const snapshot = event.state === "on" ? named(this.runtime.snapshots.list()) : undefined;
+    if (snapshot) void this.commands.invoke("snapshot.recall", { id: snapshot.id }, ctx).catch(() => undefined);
+  }
+
+  /** The DJ's pad shows what plays: a look started or stopped elsewhere lights or darkens its button. */
+  private syncOs2lFeedback(): void {
+    for (const b of this.os2lButtons.values()) {
+      const on = this.runtime.isActive(b.look);
+      if (on === b.on) continue;
+      b.on = on;
+      this.os2l.feedback(b.name, on, b.page);
+    }
+  }
+
   /** Sends MIDI feedback for state changes (all of it with `full`); silent on standby, where QLC+ holds the controllers. */
   syncMidiFeedback(full = false): void {
     if (this.router.isStandby()) return;
@@ -435,9 +511,16 @@ export class LightPlugin implements McpPlugin {
     this.engine.start();
     await this.hub.start();
     await this.osc.start().catch((err: Error) => console.warn(`OSC indisponible sur le port ${this.config.osc.port} : ${err.message}`));
+    await this.os2l.start().catch((err: Error) => console.warn(`OS2L indisponible sur le port ${this.config.os2l.port} : ${err.message}`));
+    const os2lPort = this.os2l.port;
+    if (os2lPort && this.config.os2l.advertise) this.os2lAnnounce = await advertise({ instance: "Lumière", type: "_os2l._tcp", port: os2lPort, ...localHost() });
     let lastState = "";
     let ticks = 0;
     this.tempoTimer = setInterval(() => {
+      if (this.djOverMidi && this.tempo.midiReceiving()) {
+        this.djOverMidi = false;
+        this.tempo.setSource("midi"); // Ableton plays again: it leads
+      }
       this.publish("tempo", this.tempo.state());
       // Output state (standby, other Art-Net sources) changes without commands: check it every second.
       if (++ticks % 4) return;
@@ -496,6 +579,9 @@ export class LightPlugin implements McpPlugin {
     if (this.started) this.saveLive();
     this.show.flushLive();
     this.osc.stop();
+    await this.os2lAnnounce?.stop();
+    this.os2lAnnounce = undefined;
+    await this.os2l.stop();
     this.hub.stop();
     this.engine.stop();
     this.router.stop();
