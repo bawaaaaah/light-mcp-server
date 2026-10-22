@@ -143,7 +143,7 @@ export function SettingsPage({ role }: { role: Role }) {
               {output.stats.discoveryError && <small className="warn"> ({output.stats.discoveryError})</small>}
             </p>
           )}
-          <h3>{t.routes}</h3>
+          <h2>{t.routes}</h2>
           {routing && <p className="hint">{t.routeHelp}</p>}
           {error && <p className="error">{error}</p>}
           <ul className="routes">

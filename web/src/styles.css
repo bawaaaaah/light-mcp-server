@@ -1934,3 +1934,8 @@ fieldset.checklist .checklist-search {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* AbleSet (MIDI page): the switch and the address read as two controls */
+.ableset .row {
+  flex-wrap: wrap;
+  gap: 0.6em 1.4em;
+}
