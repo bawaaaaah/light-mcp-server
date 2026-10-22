@@ -1833,19 +1833,7 @@ ul.online {
   min-width: 0;
   overflow: hidden;
 }
-@container (max-width: 16em) {
-  .tap-cell > .bpm {
-    flex-basis: 3.4em;
-    width: 3.4em;
-  }
-  .tap-cell > .to-midi .word {
-    display: none;
-  }
-  .tap-cell > .to-midi,
-  .tap-cell > .mic {
-    padding: 0 0.35em;
-  }
-}
+
 .tap-cell > .bpm {
   flex: 0 0 4.2em;
   width: 4.2em;
@@ -2002,6 +1990,26 @@ fieldset.checklist .checklist-search {
   padding: 0 0.5em;
   border-color: var(--accent);
   color: var(--accent);
+}
+/* a narrow Tap (after its rules, so these win) */
+@container (max-width: 16em) {
+  .tap-cell > .bpm {
+    flex-basis: 3.4em;
+    width: 3.4em;
+  }
+  .tap-cell > .to-midi .word {
+    display: none;
+  }
+  .tap-cell > .to-midi,
+  .tap-cell > .mic {
+    padding: 0 0.35em;
+  }
+}
+/* too narrow for all four: Tap, the BPM and « ↺ » first; widened, the microphone comes back */
+@container (max-width: 11em) {
+  .tap-cell > .mic {
+    display: none;
+  }
 }
 /* AbleSet (MIDI page): the switch and the address read as two controls */
 .ableset .row {
