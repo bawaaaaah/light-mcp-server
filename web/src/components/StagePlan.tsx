@@ -75,6 +75,7 @@ export function StagePlan({
   onMove,
   onOrient,
   compact = false,
+  views = false,
   shownColors,
 }: {
   fixtures: PlanFixture[];
@@ -83,6 +84,8 @@ export function StagePlan({
   onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void;
   onOrient?: (fixture: PlanFixture, change: OrientChange) => void;
   compact?: boolean;
+  /** Compact, but with the top / face / 3D switch (the Live's stage, a look's preview). */
+  views?: boolean;
   /** Colours to show instead of the live output (a look's preview): fixture → its heads. */
   shownColors?: Record<string, string[]>;
 }) {
@@ -266,8 +269,24 @@ export function StagePlan({
       .catch((err: Error) => onError(err.message));
   };
 
+  const viewSwitch = (
+    <span className="row view-switch">
+      <button className={view === "top" ? "ghost on" : "ghost"} aria-pressed={view === "top"} onClick={() => setView("top")}>
+        {t.viewTop}
+      </button>
+      <button className={front ? "ghost on" : "ghost"} aria-pressed={front} onClick={() => (setView("front"), setAiming(false))}>
+        {t.viewFront}
+      </button>
+      <button className={in3d ? "ghost on" : "ghost"} aria-pressed={in3d} title={t.view3dHelp} onClick={() => (setView("3d"), setAiming(false), setPlacing(false), setOrienting(false))}>
+        {t.view3d}
+      </button>
+    </span>
+  );
+  /** The 3D view is drawn by the full plan, or a compact one with its views. */
+  const show3d = in3d && (!compact || views);
   return (
     <div className={compact ? "stage-plan compact" : "stage-plan"}>
+      {compact && views && <div className="row view-row">{viewSwitch}</div>}
       {!compact && (
         <div className="row">
         <small className="hint">
@@ -283,17 +302,7 @@ export function StagePlan({
             <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), setSelected(null))} /> {t.orientMode}
           </label>
         )}
-        <span className="row view-switch">
-          <button className={view === "top" ? "ghost on" : "ghost"} onClick={() => setView("top")}>
-            {t.viewTop}
-          </button>
-          <button className={front ? "ghost on" : "ghost"} onClick={() => (setView("front"), setAiming(false))}>
-            {t.viewFront}
-          </button>
-          <button className={in3d ? "ghost on" : "ghost"} title={t.view3dHelp} onClick={() => (setView("3d"), setAiming(false), setPlacing(false), setOrienting(false))}>
-            {t.view3d}
-          </button>
-        </span>
+        {viewSwitch}
         {!in3d && (
         <span className="row zoom">
           <button className="ghost" aria-label={t.zoomOut} title={t.zoomOut} disabled={zoom <= ZOOMS[0]!} onClick={() => zoomTo(ZOOMS[ZOOMS.indexOf(zoom) - 1] ?? 1)}>
@@ -312,12 +321,12 @@ export function StagePlan({
         )}
         </div>
       )}
-      {in3d && !compact && (
+      {show3d && (
         <Suspense fallback={<p className="hint">…</p>}>
           <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} />
         </Suspense>
       )}
-      <div className="plan-scroll" ref={scroller} hidden={in3d && !compact}>
+      <div className="plan-scroll" ref={scroller} hidden={show3d}>
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
@@ -387,6 +396,7 @@ export function StagePlan({
           // half the height the turned body takes on the plan: the name goes under it
           const turn = (angle * Math.PI) / 180;
           const halfHeight = Math.abs((w / 2) * Math.sin(turn)) + Math.abs((h / 2) * Math.cos(turn));
+          const halfWidth = Math.abs((w / 2) * Math.cos(turn)) + Math.abs((h / 2) * Math.sin(turn));
           const showBeam = Boolean(f.orientation) || isSelected;
           return (
             <g
@@ -421,7 +431,7 @@ export function StagePlan({
                   <title>{f.facing ? `${t.facingLabel} : ${t.facings[f.facing]}` : `${t.heading} ${Math.round(o?.yaw ?? 0)}° · ${t.pitchLabel} ${Math.round(o?.pitch ?? 0)}°`}</title>
                   {Math.hypot(px, py) >= 0.35 && <line x1={sx(p.x)} y1={sy(p.y)} x2={sx(p.x) + px * reach} y2={sy(p.y) + py * reach} markerEnd="url(#beam-head)" />}
                   {Math.abs(toward) > 0.7 && (
-                    <g transform={`translate(${x0 + w + 10} ${y0 - 2})`}>
+                    <g transform={`translate(${sx(p.x) + halfWidth + 10} ${sy(p.y) - halfHeight - 2})`} /* by the body's corner as drawn, a standing bar's too */>
                       <circle r={6} fill="#12141a" />
                       {toward > 0 ? <circle r={1.8} className="dot" /> : <path d="M -3.5 -3.5 L 3.5 3.5 M -3.5 3.5 L 3.5 -3.5" />}
                     </g>
@@ -512,12 +522,12 @@ function inside(x: number, y: number, poly: [number, number][]): boolean {
 }
 
 /** Self-loading live preview, for a dashboard widget. */
-export function LiveStage({ onError, shownColors }: { onError: (msg: string) => void; shownColors?: Record<string, string[]> }) {
+export function LiveStage({ onError, shownColors, views = false }: { onError: (msg: string) => void; shownColors?: Record<string, string[]>; views?: boolean }) {
   const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
   const [zones, setZones] = useState<PlanZone[]>([]);
   useEffect(() => {
     void cmd<PlanFixture[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<PlanZone[]>("stage.zone.list").then(setZones).catch(() => undefined);
   }, []);
-  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact shownColors={shownColors} />;
+  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact views={views} shownColors={shownColors} />;
 }

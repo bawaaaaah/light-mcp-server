@@ -1106,6 +1106,14 @@ table.rules td {
 }
 
 /* Right-click menu of a dashboard widget (components/WidgetMenu.tsx). */
+/* the Live's stage: the show as it goes out, above the buttons */
+.live-stage-panel {
+  margin: 0 0 0.8em;
+}
+.stage-plan .view-row {
+  justify-content: flex-end;
+  margin-bottom: 0.3em;
+}
 /* an editor over the page, in view wherever the list was scrolled; full screen on a phone */
 .modal-backdrop {
   position: fixed;

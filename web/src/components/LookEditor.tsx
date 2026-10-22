@@ -168,7 +168,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           </div>
           {preview.topology !== "grid" && <BlockNames blocks={shown.blocks} />}
           <LookPreview preview={preview} frame={frame} label={t.preview} order={shown.order} starts={starts} />
-          {onStage && <LiveStage onError={setError} shownColors={stageColors} />}
+          {onStage && <LiveStage onError={setError} shownColors={stageColors} views />}
         </div>
       )}
       <div className="fields">

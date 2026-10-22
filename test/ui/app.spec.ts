@@ -373,6 +373,28 @@ test("right-click menu: long names never widen it past the screen, on a computer
   expect(errors).toEqual([]);
 });
 
+test("Live: the show on the stage plan, top, face or 3D, to rehearse without the kit", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const toggle = page.getByRole("button", { name: "Scène", exact: true });
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  const panel = page.locator(".live-stage-panel");
+  await expect(panel.locator(".stage-plan svg")).toBeVisible();
+  await api(page, "look.go", { id: "masks" }); // as it goes out: the plan lights up with it
+  await expect.poll(() => panel.locator(".stage-plan g.fixture rect").evaluateAll((rs) => rs.some((r) => !["#000000", "rgb(0, 0, 0)"].includes(r.getAttribute("fill") ?? "")))).toBe(true);
+  await panel.getByRole("button", { name: "Face" }).click();
+  await expect(panel.getByRole("button", { name: "Face" })).toHaveAttribute("aria-pressed", "true");
+  await panel.getByRole("button", { name: "3D" }).click();
+  await expect(panel.locator(".plan-scroll")).toBeHidden(); // the 3D view in its place
+  await page.reload(); // remembered by this browser
+  await expect(page.locator(".live-stage-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Scène", exact: true }).click();
+  await expect(page.locator(".live-stage-panel")).toHaveCount(0);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: edit its look in a window, over the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

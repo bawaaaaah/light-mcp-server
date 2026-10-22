@@ -134,6 +134,22 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [paletteSearch, setPaletteSearch] = useState("");
   // Full screen to play: no side bar, no top bar, only the dashboards.
   const [kiosk, setKiosk] = useState(false);
+  /** The show on the stage plan above the buttons, as it goes out (rehearsing without the kit): remembered by this browser. */
+  const [stageShown, setStageShown] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("liveStage") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleStage = () => {
+    setStageShown(!stageShown);
+    try {
+      localStorage.setItem("liveStage", stageShown ? "0" : "1");
+    } catch {
+      /* per-browser comfort only */
+    }
+  };
   useEffect(() => {
     document.body.classList.toggle("kiosk", kiosk);
     const out = () => !document.fullscreenElement && setKiosk(false);
@@ -789,6 +805,9 @@ export function DashboardsPage({ role }: { role: Role }) {
           </>
         ) : (
           <>
+            <button className={stageShown ? "ghost on" : "ghost"} title={t.liveStageHelp} aria-pressed={stageShown} onClick={toggleStage}>
+              {t.liveStageToggle}
+            </button>
             <button className="ghost" title={t.fullScreenHelp} aria-label={t.fullScreen} aria-pressed={kiosk} onClick={toggleKiosk}>
               {kiosk ? "⤡" : "⛶"}
             </button>
@@ -954,6 +973,11 @@ export function DashboardsPage({ role }: { role: Role }) {
         </section>
       )}
 
+      {stageShown && !edit && (
+        <section className="live-stage-panel" aria-label={t.liveStageToggle}>
+          <LiveStage onError={setError} views />
+        </section>
+      )}
       {dash && (
         <div className={`dgrid-scroll${edit ? " editing" : ""}`}>
         <div
