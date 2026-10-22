@@ -37,6 +37,26 @@ describe("rules mask", () => {
     expect(buf[1]).to.equal(10); // the top of « Strobe Off », the nearest allowed
   });
 
+  it("forbids machines by their tag: fog and a CO2 valve stay shut, the machine's LEDs do not", () => {
+    const machine = parseQxf(`<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Test</Manufacturer><Model>Jet</Model><Type>Effect</Type>
+ <Channel Name="Fog Output" Preset="IntensityDimmer"/>
+ <Channel Name="CO2 Valve"><Group Byte="0">Intensity</Group><Capability Min="0" Max="199">Valve off</Capability><Capability Min="200" Max="255">Valve on</Capability></Channel>
+ <Channel Name="Dimmer" Preset="IntensityDimmer"/>
+ <Mode Name="3 Channel"><Channel Number="0">Fog Output</Channel><Channel Number="1">CO2 Valve</Channel><Channel Number="2">Dimmer</Channel></Mode>
+</FixtureDefinition>`);
+    const jet: ResolvedFixture = { ...fx, patch: { ...fx.patch, id: "jet", model: "Jet" }, def: machine, mode: machine.modes[0]!, dimmers: [2], strobes: [] };
+    const buf = new Uint8Array(512);
+    buf.set([255, 230, 255]);
+    applyRules([rule({ id: "pas-de-machine", level: "venue", target: {}, forbidTags: ["machine"] })], jet, buf);
+    expect([...buf.subarray(0, 3)]).to.deep.equal([0, 199, 255]); // fog off, valve back to « off », LEDs untouched
+    const capped = new Uint8Array(512);
+    capped.set([255, 230, 255]);
+    applyRules([rule({ id: "machines-zero", level: "venue", target: { tag: "machine" }, max: 0 })], jet, capped);
+    expect([...capped.subarray(0, 3)]).to.deep.equal([0, 0, 255]);
+  });
+
   it("keeps a machine's channel steady: a change asked sooner than its seconds waits", () => {
     const name = fx.mode.channels[3]!;
     const haze = [rule({ id: "brume", level: "venue", target: { channel: name }, steadySeconds: 10 })];

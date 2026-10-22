@@ -22,12 +22,12 @@ export const RuleSchema = z.object({
     channel: z.string().optional(),
     attribute: z.enum(["intensity", "color", "colorWheel", "pan", "tilt", "strobe", "effect", "speed", "maintenance", "other"]).optional(),
     color: z.string().optional(),
-    tag: z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"]).optional(),
+    tag: z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv", "machine"]).optional(),
   }),
   min: z.number().int().min(0).max(255).optional(),
   max: z.number().int().min(0).max(255).optional(),
   values: z.array(z.number().int().min(0).max(255)).optional(),
-  forbidTags: z.array(z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"])).optional(),
+  forbidTags: z.array(z.enum(["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv", "machine"])).optional(),
   /**
    * Allowlist: on a channel made of ranges, only ranges of these kinds (and the neutral ones: off,
    * open, no function); a value elsewhere goes to the nearest allowed range — « fixed colours and

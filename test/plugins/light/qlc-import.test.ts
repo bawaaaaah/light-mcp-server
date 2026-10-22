@@ -44,7 +44,12 @@ describe("QLC+ fixture definition import", () => {
   <Channel Number="5">Red</Channel>
  </Mode>
 </FixtureDefinition>`);
-    for (const name of ["Bubble Output", "Fog Output", "Fan", "Flame Height"]) expect(machine.channels.get(name)!.attribute, name).to.equal("effect");
+    for (const name of ["Bubble Output", "Fog Output", "Fan", "Flame Height"]) {
+      expect(machine.channels.get(name)!.attribute, name).to.equal("effect");
+      expect(machine.channels.get(name)!.tags, name).to.include("machine"); // so a rule can forbid it
+    }
+    expect(machine.channels.get("Fog Output")!.capabilities).to.deep.equal([{ min: 0, max: 255, name: "Fog Output", tags: ["machine"] }]);
+    expect(machine.channels.get("Dimmer")!.tags).to.not.include("machine");
     expect(machine.channels.get("Dimmer")!.attribute).to.equal("intensity"); // the LEDs' dimmer stays one
     expect(machine.channels.get("Red")).to.include({ attribute: "color", color: "red" });
   });

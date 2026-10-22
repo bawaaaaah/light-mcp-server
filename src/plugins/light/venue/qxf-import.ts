@@ -7,7 +7,7 @@ import { XMLParser } from "fast-xml-parser";
 
 export type ColorComponent = "red" | "green" | "blue" | "white" | "amber" | "uv" | "cyan" | "magenta" | "yellow" | "lime" | "warmWhite" | "coldWhite";
 
-export type CapabilityTag = "soundActive" | "autoProgram" | "builtinMacro" | "strobe" | "reset" | "uv";
+export type CapabilityTag = "soundActive" | "autoProgram" | "builtinMacro" | "strobe" | "reset" | "uv" | "machine";
 
 export interface FixtureCapability {
   min: number;
@@ -160,7 +160,13 @@ function text(node: unknown): string {
  * machine's « Bubble Output » or its « Fan » the IntensityDimmer preset. Read as dimmers, they would
  * go to full with every colour painted on the machine's LEDs: they only move by raw channels.
  */
-const MACHINE_OUTPUT = /\b(fog|haze|hazer|smoke|bubbles?|fan|fluid|pump|snow|foam|confetti|flames?|fire|sparks?|sparkular|co2|mist|blower|heater)\b/i;
+const MACHINE_OUTPUT = /\b(fog|haze|hazer|smoke|bubbles?|fan|fluid|pump|snow|foam|confetti|flames?|fire|sparks?|sparkular|co2|mist|blower|heater|valve)\b/i;
+/** Words that only a machine's output bears; « fan » or « pump » may also be a light's cooling. */
+const MACHINE_ONLY = /\b(fog|haze|hazer|smoke|bubbles?|snow|foam|confetti|flames?|sparkular|co2)\b/i;
+/** A machine by its QLC+ type or its model. */
+const MACHINE_TYPE = /hazer|smoke|fog|bubble|snow|flame|confetti|co2|\bfan\b/i;
+/** On a machine only: its output under a plain name (a CO2 jet's « Output » valve, a fan, a pump). */
+const MACHINE_PART = /\b(fan|pump|blower|heater|valve|fluid|mist|output|jet|shot|blast|fire)\b/i;
 
 /**
  * A level: one range, or ranges that are all intensity (« dimmer 0-100 % », « off »). An Intensity
@@ -227,6 +233,23 @@ function physicalOf(node: unknown): { panMax?: number; tiltMax?: number; beamAng
   return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}), ...(beamAngle ? { beamAngle } : {}), ...(beamAngleMin ? { beamAngleMin } : {}) };
 }
 
+/**
+ * A machine's outputs are tagged « machine », so a rule can forbid them (« the AI never fires the
+ * CO2 »): fog, haze, bubbles, flames… anywhere; a fan, a pump, a valve or a plain « Output » only on
+ * a machine (a hazer or a CO2 jet by its type or model, or a fixture with one of those outputs) —
+ * on a light, a fan is its cooling, never to stop. Its working ranges are tagged, or the whole channel when the definition gives none.
+ */
+function tagMachineOutputs(channels: Map<string, FixtureChannel>, kind: string): void {
+  const machine = MACHINE_TYPE.test(kind) || [...channels.keys()].some((n) => MACHINE_ONLY.test(n));
+  const resting = (c: FixtureCapability) => capabilityKind(c) === "neutral" || /\b(off|stop|closed?)\b|no function/i.test(c.name);
+  for (const ch of channels.values()) {
+    if (ch.attribute === "maintenance" || ch.attribute === "color" || !(MACHINE_ONLY.test(ch.name) || (machine && (MACHINE_OUTPUT.test(ch.name) || MACHINE_PART.test(ch.name))))) continue;
+    if (!ch.capabilities.length) ch.capabilities.push({ min: 0, max: 255, name: ch.name, tags: [] });
+    for (const c of ch.capabilities) if (!resting(c)) c.tags = [...c.tags, "machine"];
+    ch.tags = [...new Set([...ch.tags, "machine" as const])];
+  }
+}
+
 export function parseQxf(xml: string): FixtureDefinition {
   const root = parser.parse(xml).FixtureDefinition as Record<string, unknown>;
   if (!root) throw new Error("not a QLC+ fixture definition");
@@ -235,6 +258,7 @@ export function parseQxf(xml: string): FixtureDefinition {
     const c = channelFrom(ch);
     channels.set(c.name, c);
   }
+  tagMachineOutputs(channels, `${text(root["Type"])} ${text(root["Model"])}`);
   const modes: FixtureMode[] = ((root["Mode"] as Record<string, unknown>[]) ?? []).map((m) => {
     const chans = ((m["Channel"] as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
     chans.sort((a, b) => a.n - b.n);

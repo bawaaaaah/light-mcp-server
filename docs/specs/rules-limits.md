@@ -54,11 +54,13 @@ Le niveau le plus précis gagne, sauf si un niveau supérieur a posé **`locked`
 | `max` / `min` | UV ≤ 40 %, plancher 15 % | borne la valeur |
 | `range` | zoom de 20 à 80 % | borne la valeur |
 | `values` | 0, 50 ou 100 % seulement | arrondit à la valeur autorisée la plus proche |
-| `forbidCapability` | son-actif, programmes auto, macros, reset | remplace par la valeur par défaut ou la plage permise la plus proche |
+| `forbidCapability` | son-actif, programmes auto, macros, reset, **machines** (v1) | remplace par la valeur par défaut ou la plage permise la plus proche |
 | `allowCapabilities` | seulement couleur fixe et dimmer (fait) | liste blanche |
 | `rate` | strobe ≤ 10 Hz (`maxHz`, fait), pan/tilt ≤ X°/s (`maxDegPerSecond`, fait) | borne la fréquence ou la vitesse |
 | `duration` | blinder ≥ 80 % pendant 3 s au maximum (`hold`, fait) | borne la durée |
 | `aim` | ne jamais viser *audience* sous 2 m | interdit un angle ou une cible (via la scène) |
+
+**Étiquette « machine »** (v1) : les sorties de machine (fumée, brume, bulles, flammes, CO2, neige… partout ; ventilateur, pompe, vanne ou simple « Output » seulement sur une machine, reconnue par son type, son modèle ou une de ces sorties) portent l'étiquette `machine`. Une règle peut donc les interdire (`forbidTags: ["machine"]`, qui les ramène sur leur plage de repos « off » la plus proche) ou les plafonner (`target.tag: "machine"`), par exemple pour l'IA seule ; le panneau des règles propose la cible « Machines ». Le ventilateur de refroidissement d'un projecteur n'est jamais une machine : l'arrêter ferait chauffer la lampe.
 
 `onViolation` : `clamp` (défaut, on borne et on informe), `confirm` (confirmation dans l'UI) ou `reject`.
 

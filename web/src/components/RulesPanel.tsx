@@ -61,9 +61,10 @@ const TARGETS: Record<string, Rule["target"]> = {
   pan: { attribute: "pan" },
   tilt: { attribute: "tilt" },
   effect: { attribute: "effect" },
+  machine: { tag: "machine" },
   all: {},
 };
-const TAGS = ["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv"] as const;
+const TAGS = ["soundActive", "autoProgram", "builtinMacro", "strobe", "reset", "uv", "machine"] as const;
 /** Kinds of capability ranges an allowlist names (qxf-import.ts, CAPABILITY_KINDS). */
 const KINDS = ["colour", "intensity", "strobe", "gobo", "prism", "beam", "rotation", "speed", "effect", "maintenance"] as const;
 /** Callers a rule can be for, beside everyone: where the command comes from. */
