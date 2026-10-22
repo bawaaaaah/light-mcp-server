@@ -5,7 +5,7 @@ import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
 import { isHex, SWATCHES } from "../color";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
+export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 export type ButtonMode = "trigger" | "latch" | "momentary";
 export interface MenuWidget {
   id: string;
@@ -30,6 +30,8 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
       return w.target ? { action: "dca", target: w.target } : undefined;
     case "channel-fader":
       return w.target ? { action: "fader", target: w.target } : undefined;
+    case "grand-master":
+      return { action: "grandmaster", target: "" };
     case "section":
       return w.target ? { action: "section", target: w.target.replace(":", "/") } : undefined;
     case "snapshot":

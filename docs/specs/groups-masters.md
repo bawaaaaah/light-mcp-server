@@ -19,7 +19,7 @@ Groupe {
 ```
 
 - **Hiérarchie** : un groupe peut contenir des **sous-groupes**, sans cycle (l'UI les refuse). Un groupe peut avoir plusieurs parents.
-- **Grand master** : le master du **groupe racine**.
+- **Grand master** : le master du **groupe racine**. Réglé depuis le Live par le **widget « Grand master »** (v1, un fader : `grandmaster.set`, droit `commands:level` comme un DCA, gardé avec le show) ou par une action MIDI « Grand master (fader, CC) » ; il dose le gradateur de chaque projecteur, au-dessus de tous les DCA, et fait partie des instantanés.
 
 ## DCA (master proportionnel)
 - **Calcul** : `sortie = valeur_fusion × Π(niveaux des masters de chaque chaîne de groupes jusqu'au grand master)`.

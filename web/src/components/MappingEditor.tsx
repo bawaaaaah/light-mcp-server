@@ -26,7 +26,7 @@ interface Named {
 }
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
-const ACTIONS = ["look", "dca", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
+const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
 export type Action = (typeof ACTIONS)[number];
 /** Target meaning « no program » (program.select with id null). */
 const NO_PROGRAM = "-";
@@ -36,6 +36,7 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
   if (m.on.command === "look.go") return { action: "look", target: id };
   if (m.on.command === "group.level") return { action: "dca", target: id };
   if (m.on.command === "fader.level") return { action: "fader", target: id };
+  if (m.on.command === "grandmaster.set") return { action: "grandmaster", target: "" };
   if (m.on.command === "group.flash") return { action: "flash", target: id };
   if (m.on.command === "snapshot.recall") return { action: "snapshot", target: String(m.on.args.id ?? "") };
   if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : String(m.on.args.id ?? "") };
@@ -52,6 +53,8 @@ export function build(m: MappingDraft, action: Action, target: string): MappingD
       return { ...base, on: { command: "group.level", args: { id: target } }, levelArg: "level" };
     case "fader":
       return { ...base, on: { command: "fader.level", args: { id: target } }, levelArg: "level" };
+    case "grandmaster":
+      return { ...base, on: { command: "grandmaster.set", args: {} }, levelArg: "level" };
     case "flash":
       return { ...base, mode: "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
     case "section": {
@@ -137,7 +140,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         </button>
         <label className="field">
           <span>{t.mode}</span>
-          <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca" || action === "fader"}>
+          <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca" || action === "fader" || action === "grandmaster"}>
             {(["trigger", "latch", "momentary"] as const).map((x) => (
               <option key={x} value={x}>
                 {t.modes[x]}

@@ -49,6 +49,17 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     expect(plugin.engine.isBlackout()).to.equal(false);
   });
 
+  it("sets the grand master from the live (a level right, not a show write), says it in the state, doses the output", async () => {
+    await run("look.go", { id: "breath" });
+    expect(plugin.engine.render()[0]![0]).to.equal(255); // the first bar's master dimmer
+    const r = (await run("grandmaster.set", { level: 0.5 })) as { grandMaster: number };
+    expect(r.grandMaster).to.equal(0.5);
+    expect(plugin.state().grandMaster).to.equal(0.5);
+    expect(plugin.engine.render()[0]![0]).to.be.closeTo(128, 1); // dosed by its dimmer, colours kept
+    const spec = plugin.commands.get("grandmaster.set")!;
+    expect(spec.right).to.equal("commands:level");
+  });
+
   it("Panic recalls the safe snapshot (over the safe look), and skips what was deleted since", async () => {
     await run("look.go", { id: "hole" });
     await run("fader.level", { id: "uv", level: 0.5 });

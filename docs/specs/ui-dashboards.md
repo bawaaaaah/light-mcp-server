@@ -52,6 +52,7 @@ Stack : Vite + React + TypeScript, `react-grid-layout`, client WebSocket (`web/s
 - **Bouton** : look, technique, section ou action, avec son mode.
 - **Fader de groupe** : niveau effectif en grisé, mute, flash, marqueur max.
 - Fader de canal DMX.
+- **Grand master** (v1) : un fader qui dose tout le show, au-dessus des DCA (`grandmaster.set`), avec son action MIDI ; un autre écran qui le bouge le fait bouger ici.
 - **Pad XY pan/tilt** (v1) : X = pan, Y = tilt, sur les lyres d'un groupe (ou toutes) ; envoi limité à 25 par seconde pendant le glissé ; « ⟲ » rend les lyres aux looks. Ajouté au dashboard par défaut quand le lieu a des lyres. **Pad XY de scène** : plus tard.
 - Color picker et palette.
 - Cue list.

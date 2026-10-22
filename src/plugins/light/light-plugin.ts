@@ -370,7 +370,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -387,6 +387,7 @@ export class LightPlugin implements McpPlugin {
       panicUndo: this.runtime?.panicUndoUntil() !== undefined,
       // AI clients may touch up the service live: said on every page while it is so
       liveAi: Boolean(this.runtime?.settings.liveAi),
+      grandMaster: this.runtime?.settings.grandMaster ?? 1,
     };
   }
 

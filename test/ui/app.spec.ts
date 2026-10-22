@@ -248,6 +248,31 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   expect(errors).toEqual([]);
 });
 
+test("grand master widget: dragged on the live, kept in the show, also playable from MIDI", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type Dash = { id: string; widgets: { id: string; kind: string; x: number; y: number; w: number; h: number }[] };
+  const [dash] = (await api(page, "dashboard.list")) as Dash[];
+  const bottom = Math.max(...dash!.widgets.map((w) => w.y + w.h));
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash!.widgets, { id: "gm", kind: "grand-master", x: 0, y: bottom, w: 1, h: 4 }] } });
+  await page.reload();
+  const fader = page.getByRole("slider", { name: "Grand master" });
+  await fader.scrollIntoViewIfNeeded();
+  await fader.fill("600");
+  await expect.poll(async () => ((await api(page, "show.settings")) as { grandMaster: number }).grandMaster).toBeCloseTo(0.6, 2);
+  await expect(page.locator(".grand-master .value")).toHaveText("60%");
+  // another screen moves it: this one follows
+  await api(page, "grandmaster.set", { level: 0.25 });
+  await expect(page.locator(".grand-master .value")).toHaveText("25%");
+  // the MIDI action is offered on the right-click menu
+  await page.locator('[data-widget="gm"]').click({ button: "right" });
+  await expect(page.getByRole("dialog", { name: "Réglages du widget" })).toContainText("Apprendre une note ou un CC");
+  await page.keyboard.press("Escape");
+  await api(page, "grandmaster.set", { level: 1 });
+  await api(page, "dashboard.put", { dashboard: dash });
+  expect(errors).toEqual([]);
+});
+
 test("Tap widget: a tempo typed by hand, Escape cancels", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

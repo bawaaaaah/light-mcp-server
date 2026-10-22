@@ -412,6 +412,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     return { id: groupId, ...master, effectiveLevel: show.effectiveLevel(groupId) };
   };
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
+  reg.register({
+    name: "grandmaster.set",
+    title: "Grand master",
+    description: "Sets the grand master (0..1): it doses every fixture's intensity above all the DCAs. Kept with the show.",
+    right: "commands:level",
+    profiles: ["live", "design"],
+    schema: z.object({ level: z.number().min(0).max(1) }),
+    run: ({ level }) => ({ grandMaster: show.saveSettings({ grandMaster: level }).grandMaster }),
+  });
   // Live touch-ups by AI (docs/specs/mcp.md, « Profil live »): small steps, within the rules, while the desk allows it.
   const LIVE_STEP = 0.25;
   reg.register({

@@ -10,7 +10,7 @@ import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, textOn } from "../color";
 import { microphone } from "../audio/microphone";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 interface Widget {
   id: string;
   kind: Kind;
@@ -94,11 +94,11 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
 export function DashboardsPage({ role }: { role: Role }) {
   const t = useT();
@@ -251,7 +251,10 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot"].includes(w.kind));
   const [error, setError] = useState("");
-  const state = useTopic<{ blackout: boolean; panicUndo?: boolean } | null>("light:state", null);
+  const state = useTopic<{ blackout: boolean; panicUndo?: boolean; grandMaster?: number } | null>("light:state", null);
+  // the grand master as dragged, until the server says it (a fader must not jump back mid-gesture)
+  const [gm, setGm] = useState<number | null>(null);
+  useEffect(() => setGm(null), [state?.grandMaster]);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
   const mic = useSyncExternalStore(microphone.subscribe, () => microphone.state);
   // the tempo heard in the room: followed while the microphone is on, a manual tempo again after
@@ -596,6 +599,30 @@ export function DashboardsPage({ role }: { role: Role }) {
               {f.channels.length} {t.channelsShort}
             </small>
             <label>{w.label ?? f.name}</label>
+          </div>
+        );
+      }
+      case "grand-master": {
+        const level = gm ?? state?.grandMaster ?? 1;
+        return (
+          <div className="fader fill grand-master">
+            <div className="track">
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                aria-label={t.widgetKinds["grand-master"]}
+                disabled={!may("commands:level")}
+                value={Math.round(level * 1000)}
+                onChange={(e) => {
+                  const v = Number(e.target.value) / 1000;
+                  setGm(v);
+                  void run("grandmaster.set", { level: v });
+                }}
+              />
+            </div>
+            <span className="value">{Math.round(level * 100)}%</span>
+            <label>{w.label ?? t.widgetKinds["grand-master"]}</label>
           </div>
         );
       }
