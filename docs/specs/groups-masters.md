@@ -43,6 +43,7 @@ Groupe {
 
 ## Exclusif
 - Lancer un membre **relâche les autres**, quelle que soit la disposition dans l'UI. QLC+ ne gérait l'exclusivité qu'à l'intérieur d'un cadre, et laissait deux scènes allumées.
+- **Comme des boutons radio** (2026-10-23, précisé par l'utilisateur) : chaque groupe exclusif est un ensemble à part ; plusieurs vivent côte à côte, et lancer un look ne relâche que les autres looks **de son groupe**, jamais ceux d'un autre groupe exclusif (groupe 1 entre eux, groupe 2 entre eux…). Depuis le Live (`look.exclusive`, `src/plugins/light/show/exclusive.ts`, pur et testé), un bouton de look appartient à **un** groupe exclusif au plus : le choisir l'ôte des autres groupes exclusifs (les groupes non exclusifs, DCA, gardent leurs looks) ; « + Nouveau groupe exclusif » en crée un, nommé « Exclusif n » (le renommer page Show) ; « aucun » le rend indépendant.
 - C'est ce qui donne son sens au mode MIDI **Déclencher**.
 - Les conflits hors d'un groupe exclusif sont **signalés** (`light:conflicts`).
 

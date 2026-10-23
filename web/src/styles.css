@@ -1203,6 +1203,16 @@ table.rules td {
   grid-template-columns: 1fr 1fr;
   gap: 0.3em 0.6em;
 }
+/* while arranging the Live: the exclusive set a look button belongs to, under its name */
+.dgrid .look .set-mark {
+  display: block;
+  overflow: hidden;
+  font-size: 0.68rem;
+  font-weight: normal;
+  opacity: 0.75;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 /* the Live's stage: the show as it goes out, above the buttons */
 .live-stage-panel {
   margin: 0 0 0.8em;

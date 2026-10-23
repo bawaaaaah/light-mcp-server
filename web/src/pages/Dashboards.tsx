@@ -4,7 +4,7 @@ import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
-import { WidgetMenu } from "../components/WidgetMenu";
+import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
 import { Modal } from "../components/Modal";
 import type { LookDraft } from "../components/LookEditor";
 // the editor only when a look is opened from the Live: the Live page stays light to load
@@ -52,6 +52,8 @@ interface Look {
 interface Group {
   id: string;
   name: string;
+  exclusive?: boolean;
+  members?: { looks: string[] };
   master?: { level: number; mute: boolean };
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   effectiveLevel: number;
@@ -353,6 +355,9 @@ export function DashboardsPage({ role }: { role: Role }) {
     });
   const dash = dashboards[current];
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
+  /** The exclusive sets (radio buttons): a look started releases the others of its set only. */
+  const sets = useMemo<ExclusiveSet[]>(() => groups.filter((g) => g.exclusive).map((g) => ({ id: g.id, name: g.name, looks: g.members?.looks ?? [] })), [groups]);
+  const setOf = (look: string | undefined) => sets.find((g) => look !== undefined && g.looks.includes(look));
   const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
 
   /** Keeps the layout as it is, before a change (undo); a drag remembers once, at its start. */
@@ -592,7 +597,7 @@ export function DashboardsPage({ role }: { role: Role }) {
         return (
           <button
             className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""} ${armed === w.id ? "armed" : ""}`}
-            title={[w.label ?? l.name, t.modes[w.mode ?? "latch"], ...l.tags].join(" · ") /* the whole name: a long one is cut on the button */}
+            title={[w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet} : ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ") /* the whole name: a long one is cut on the button */}
             {...locked("commands:trigger")}
             {...press(
               w.mode ?? "latch",
@@ -605,6 +610,8 @@ export function DashboardsPage({ role }: { role: Role }) {
             {l.manualOnly ? "✋ " : ""}
             {w.label ?? l.name}
             {w.mode && w.mode !== "latch" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
+            {/* while arranging: which set it is exclusive with */}
+            {edit && setOf(l.id) && <small className="set-mark">◉ {setOf(l.id)!.name}</small>}
             {armedMark(w)}
           </button>
         );
@@ -913,6 +920,12 @@ export function DashboardsPage({ role }: { role: Role }) {
               ))}
             </select>
           )}
+          {editor && many.some((w) => w.kind === "look" && w.target) && (() => {
+            const ids = [...new Set(many.filter((w) => w.kind === "look" && w.target).map((w) => w.target!))];
+            const of = ids.map((id) => setOf(id)?.id ?? "");
+            const same = of.every((v) => v === of[0]);
+            return <SetSelect value={same ? of[0]! : ""} mixed={!same} sets={sets} onPick={(v) => void putInSet(ids, v).then(refresh, (e: Error) => setError(e.message))} />;
+          })()}
           {many.some(confirmable) && (
             <label className="row" title={t.confirmPressHelp}>
               <input type="checkbox" checked={many.filter(confirmable).every((w) => w.confirm)} onChange={(e) => patchMany((w) => (confirmable(w) ? { confirm: e.target.checked || undefined } : undefined))} /> {t.confirmPress}
@@ -1079,6 +1092,8 @@ export function DashboardsPage({ role }: { role: Role }) {
           groups={groups}
           faders={faders}
           snapshots={snapshots}
+          exclusives={editor ? sets : undefined}
+          onGroupsChange={refresh}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}
           onRemove={() => {
             persist((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== menu.id) }));

@@ -13,6 +13,7 @@ import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
+import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -416,6 +417,32 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup"],
     schema: deletable,
     run: ({ id: i, force }) => (removable("group", i, show.groups.get(i)?.name, force), { deleted: show.groups.delete(i) }),
+  });
+  reg.register({
+    name: "look.exclusive",
+    title: "Groupe exclusif d'un look",
+    description:
+      "Puts looks in one exclusive group, as radio buttons: starting one releases only the others of that group, never those of another exclusive group. Takes them out of their other exclusive groups. `group`: an exclusive group's id; `create`: a new exclusive group (its name, or « Exclusif n »); neither: in no exclusive group.",
+    right: "show:write",
+    profiles: ["design", "live"],
+    schema: z.object({ looks: z.array(z.string()).min(1), group: z.string().optional(), create: z.object({ name: z.string().optional() }).optional() }),
+    run: ({ looks, group, create }) => {
+      for (const l of looks) if (!show.looks.get(l)) throw new CommandError("invalid", say(`look inconnu : ${l}`, `unknown look: ${l}`));
+      let target = group;
+      if (create) {
+        const name = create.name?.trim() || nextExclusiveName(show.groups.list(), say("Exclusif", "Exclusive"));
+        const base = slugify(name);
+        let id = base;
+        for (let k = 2; show.groups.get(id); k++) id = `${base}-${k}`;
+        show.groups.put(GroupSchema.parse({ id, name, exclusive: true }));
+        target = id;
+      } else if (target !== undefined && !show.groups.get(target)?.exclusive) {
+        throw new CommandError("invalid", say(`pas un groupe exclusif : ${target}`, `not an exclusive group: ${target}`));
+      }
+      const changed = exclusiveMoves(show.groups.list(), looks, target);
+      for (const g of changed) show.groups.put(g);
+      return { group: target ?? null, changed: changed.map((g) => g.id) };
+    },
   });
   reg.register({
     name: "show.references",

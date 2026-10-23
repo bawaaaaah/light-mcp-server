@@ -51,11 +51,44 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
   }
 }
 
+/** An exclusive group, a set of buttons that behave as radio buttons. */
+export interface ExclusiveSet {
+  id: string;
+  name: string;
+  looks: string[];
+}
+const NEW_SET = "+new";
+const MIXED = "+mixed";
+/** Puts looks in the set chosen in a SetSelect: none, one of the sets, or a new one (« Exclusif n »). */
+export const putInSet = (looks: string[], value: string) => cmd("look.exclusive", { looks, ...(value === NEW_SET ? { create: {} } : value ? { group: value } : {}) });
+
+/**
+ * Which exclusive set a look button belongs to (docs/specs/groups-masters.md, « Exclusif »): as
+ * radio buttons, starting a look releases the others of its set only. `mixed`: several buttons
+ * chosen, in different sets.
+ */
+export function SetSelect({ value, sets, mixed = false, onPick }: { value: string; sets: ExclusiveSet[]; mixed?: boolean; onPick: (value: string) => void }) {
+  const t = useT();
+  return (
+    <select aria-label={t.exclusiveSet} title={t.exclusiveSetHelp} value={mixed ? MIXED : value} onChange={(e) => e.target.value !== MIXED && onPick(e.target.value)}>
+      {mixed && <option value={MIXED}>{t.exclusiveMixed}</option>}
+      <option value="">{t.exclusiveNone}</option>
+      {sets.map((g) => (
+        <option key={g.id} value={g.id}>
+          {g.name} ({g.looks.length})
+        </option>
+      ))}
+      <option value={NEW_SET}>{t.exclusiveNew}</option>
+    </select>
+  );
+}
+
 const inputText = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`);
 
 /**
  * Right-click on a dashboard widget (live, no edit mode): what it drives (look, DCA, fader), its
- * label and button mode, the MIDI notes or CCs that play it (« Apprendre » adds one), and removal.
+ * label and button mode, a look's exclusive set, the MIDI notes or CCs that play it (« Apprendre »
+ * adds one), and removal.
  * Every change is saved at once.
  */
 export function WidgetMenu({
@@ -65,6 +98,8 @@ export function WidgetMenu({
   groups,
   faders,
   snapshots = [],
+  exclusives,
+  onGroupsChange,
   onChange,
   onRemove,
   onClose,
@@ -76,6 +111,10 @@ export function WidgetMenu({
   groups: Named[];
   faders: Named[];
   snapshots?: Named[];
+  /** The show's exclusive sets, when this user may change them: a look button's set is chosen here. */
+  exclusives?: ExclusiveSet[];
+  /** A set changed: the groups to read again. */
+  onGroupsChange?: () => void;
   onChange: (patch: Partial<MenuWidget>) => void;
   onRemove: () => void;
   onClose: () => void;
@@ -173,6 +212,16 @@ export function WidgetMenu({
               </option>
             ))}
           </select>
+        </label>
+      )}
+      {widget.kind === "look" && widget.target && exclusives && (
+        <label className="field">
+          <span>{t.exclusiveSet}</span>
+          <SetSelect
+            value={exclusives.find((g) => g.looks.includes(widget.target!))?.id ?? ""}
+            sets={exclusives}
+            onPick={(v) => void putInSet([widget.target!], v).then(onGroupsChange, (e: Error) => setError(e.message))}
+          />
         </label>
       )}
       {/* a held button is already deliberate: no second press for momentary ones */}

@@ -739,6 +739,67 @@ test("layout editing: drag to move, a corner to resize, magnetic grid on or off,
   expect(errors).toEqual([]);
 });
 
+test("exclusive groups as radio buttons: chosen from a button's menu, each releasing only its own set", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type G = { id: string; name: string; exclusive: boolean; members: { fixtures: string[]; looks: string[]; groups: string[] } };
+  const groups = async () => (await api(page, "group.list")) as G[];
+  const before = await groups();
+  const setOf = async (look: string) => (await groups()).filter((g) => g.exclusive && g.members.looks.includes(look)).map((g) => g.name);
+  const [dash] = (await api(page, "dashboard.list")) as { widgets: { id: string; kind: string; target?: string }[] }[];
+  const buttons = dash!.widgets.filter((w) => w.kind === "look" && w.target);
+  const [a, b, c] = [buttons[0]!, buttons[1]!, buttons[2]!];
+  const choose = async (w: { id: string }, option: string) => {
+    await page.locator(`.dgrid .cell[data-widget="${w.id}"] button`).first().click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    const set = menu.getByLabel("Exclusif avec");
+    const label = (await set.locator("option").allTextContents()).find((o) => o.startsWith(option))!;
+    await set.selectOption({ label });
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  };
+  try {
+    await api(page, "look.stopall");
+    // a and b in a new set, c in another new one
+    await choose(a, "+ Nouveau groupe exclusif");
+    await expect.poll(() => setOf(a.target!)).toHaveLength(1);
+    const [first] = await setOf(a.target!);
+    await choose(b, first!);
+    await expect.poll(() => setOf(b.target!)).toEqual([first]);
+    await choose(c, "+ Nouveau groupe exclusif");
+    await expect.poll(async () => (await setOf(c.target!))[0]).not.toBe(first);
+    // b releases a, its own set, never c, in another
+    await api(page, "look.go", { id: a.target });
+    await api(page, "look.go", { id: c.target });
+    await api(page, "look.go", { id: b.target });
+    const playing = ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).filter((l) => l.active).map((l) => l.id);
+    expect(playing).toContain(b.target);
+    expect(playing).toContain(c.target);
+    expect(playing).not.toContain(a.target);
+    // while arranging, each button says its set; two chosen at once are taken out of every set
+    await page.getByRole("button", { name: "✎" }).click();
+    await expect(page.locator(`.dgrid .cell[data-widget="${a.id}"] .set-mark`)).toContainText(first!);
+    await page.locator(`.dgrid .cell[data-widget="${a.id}"]`).click();
+    await page.locator(`.dgrid .cell[data-widget="${c.id}"]`).click({ modifiers: ["ControlOrMeta"] });
+    const panel = page.locator(".dashboards .editor.many");
+    await expect(panel.getByLabel("Exclusif avec")).toHaveValue("+mixed");
+    await panel.getByLabel("Exclusif avec").selectOption("");
+    await expect.poll(async () => [...(await setOf(a.target!)), ...(await setOf(c.target!))]).toEqual([]);
+    await expect(page.locator(`.dgrid .cell[data-widget="${a.id}"] .set-mark`)).toHaveCount(0);
+    await page.screenshot({ path: "test-results/exclusive-sets.png" });
+    await page.getByRole("button", { name: "✔" }).click();
+  } finally {
+    await api(page, "look.stopall");
+    const now = await groups();
+    for (const g of now.filter((x) => !before.some((y) => y.id === x.id))) await api(page, "group.delete", { id: g.id, force: true });
+    for (const g of before) {
+      const { effectiveLevel: _, ...plain } = g as G & { effectiveLevel?: number };
+      await api(page, "group.put", { group: plain });
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
 test("layout editing: several widgets selected (Ctrl/⌘, Shift for a frame) get the same colour and mode at once", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
