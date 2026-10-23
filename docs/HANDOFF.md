@@ -5,7 +5,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 ## Où on en est (2026-10-22)
 - **v0 fonctionnellement complète côté logiciel**, en attente des tests matériel de l'utilisateur (fin de semaine).
 - **Prototypes** : [research/proto-resultats.md](research/proto-resultats.md). **Tests sur le Mac (2026-10-14)** : P1 (bus IAC), P2, P3 (rack chargé dans Live), P4/P5 (horloge, SPP, aftertouch depuis Live), P7, P9 à P11 validés ; **vrai show importé et auto-testé : 92/92 mappings, cadence 100 %**. Restent : P8 (Live Set dans Live), la bascule QLC+ et la sortie vers le node regardée sur scène (P6, découverte sur le réseau lumière, validé le 2026-10-21 : un node à deux ports, l'un en Art-Net, l'autre en sACN), hotplug USB, regard sur la vraie scène ; **réimporter le workspace** sur le Mac (la réimportation garde les retouches faites à la main, voir [tests-mac](tests-mac.md) § 6 bis) : depuis le 2026-10-15 l'import convertit aussi les Scenes et matrices RGB lancées par un widget, les faders Playback, les Submasters au milieu de faders, les séquences de machines (canaux bruts), le gradateur « Generic » ; copier d'abord dans `data/fixtures/` les `.qxf` du dossier QLC+ de l'utilisateur et ceux fournis avec QLC+. **Vérifié hors Mac sur les 16 workspaces de l'utilisateur** : aucune définition manquante, plus aucune fonction lancée par un widget laissée de côté (hors fonctions vides ou supprimées) ; sur deux d'entre eux, tous les looks allument, lint sans erreur, auto-test 100 %.
-- **Serveur** (`npm test` : 422 tests verts ; `npm run test:ui` : 113), avancement détaillé dans [roadmap.md](roadmap.md) :
+- **Serveur** (`npm test` : 424 tests verts ; `npm run test:ui` : 115), avancement détaillé dans [roadmap.md](roadmap.md) :
   - registre de commandes unique → outils MCP, routes HTTP, adresses OSC ;
   - sortie Art-Net/sACN + découverte ;
   - lieu (patch, canevas, scène, zones protégées), show (palettes, looks, techniques dont ondes, groupes façon DCA), règles ;
@@ -63,7 +63,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
     - **looks** : tirages aléatoires (palette, forme `aleatoire` des lyres, ordre mélangé), fonctions des canaux bruts **par leur nom** (mode, scène de couleur) ;
     - **RTP-MIDI** : la session s'annonce par Bonjour et trouve celles du réseau (page MIDI : par appareil, Connecter, « toujours », ou adresse:port) ; port 5004 pris par le Mac : port libre suivant ;
     - **barre debout** (Lieu, Orienter : « Barre ━ / ┃ ») : une barre verticale face au public, sans changer où elle éclaire ;
-    - **clic droit sur un look** (page Show) : modifier, lancer, dupliquer, aperçu ;
+    - **clic droit partout** : un look de la page Show (modifier, lancer, dupliquer, aperçu), une zone sur le plan (la modifier) ; « Déplacer les zones » pour les glisser ;
     - **Live, « Scène »** : le show sur le plan tel qu'il sort (dessus, face, 3D), pour répéter sans le matériel ;
     - **page Show** : éditeurs en fenêtre (plein écran sur téléphone ; un look aussi depuis le clic droit de son bouton sur le Live, où son aperçu s'affiche, et sur la scène à la demande), en-têtes des tableaux ; éditeur de pas dans l'ordre de la scène, séparé par appareil, noms au-dessus, aperçu jouable sur le plan (« Voir sur la scène ») ;
     - **entre les boutons** (page Show) : deux looks sur les mêmes projecteurs, « le dernier lancé recouvre » (par défaut) ou « valeur haute » (ils s'additionnent) ;

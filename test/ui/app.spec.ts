@@ -898,6 +898,48 @@ test("show page: right-click a look to edit, start, duplicate it, with its previ
   expect(errors).toEqual([]);
 });
 
+test("venue: right-click a zone to edit it, and move zones only once allowed", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "stage.zone.put", { zone: { id: "test-zone", name: "Zone test", type: "riser", polygon: [[-1, 2], [1, 2], [1, 3], [-1, 3]], floorHeight: 0.4 } });
+  const zone = async () => ((await api(page, "stage.zone.list")) as { id: string; name: string; polygon: [number, number][]; floorHeight: number }[]).find((z) => z.id === "test-zone")!;
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    const shape = page.locator('.stage-plan g.zone[data-zone="test-zone"] polygon').first();
+    await shape.scrollIntoViewIfNeeded();
+    // not allowed yet: dragging it does nothing
+    let box = (await shape.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 4 });
+    await page.mouse.up();
+    expect((await zone()).polygon).toEqual([[-1, 2], [1, 2], [1, 3], [-1, 3]]);
+    // its menu: a new name and width
+    await shape.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Zone" });
+    await menu.getByLabel("Nom de la zone").fill("Estrade test");
+    await menu.getByLabel("largeur (m)").fill("4");
+    await menu.getByRole("button", { name: "Enregistrer" }).click();
+    await expect.poll(async () => (await zone()).name).toBe("Estrade test");
+    expect((await zone()).polygon).toEqual([[-2, 2], [2, 2], [2, 3], [-2, 3]]); // 4 m wide, still centred, its front kept
+    // allowed: dragged to the right, it moves
+    await page.getByLabel("Déplacer les zones").check();
+    box = (await shape.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => (await zone()).polygon[0]![0]).toBeGreaterThan(-2);
+    const [[x0, y0]] = (await zone()).polygon;
+    expect(y0).toBe(2); // moved sideways only
+    expect(Math.round(x0! * 10)).toBe(x0! * 10); // by 10 cm
+    await page.getByLabel("Déplacer les zones").uncheck();
+  } finally {
+    await api(page, "stage.zone.delete", { id: "test-zone" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

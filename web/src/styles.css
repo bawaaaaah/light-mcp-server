@@ -1148,6 +1148,19 @@ table.rules td {
 .widget-menu.wide {
   width: min(600px, calc(100vw - 16px));
 }
+/* zones on the stage plan: a hand while they may be moved, the one dragged shown so */
+.stage-plan svg.moving-zones .zone {
+  cursor: move;
+}
+.stage-plan .zone.dragged polygon {
+  opacity: 0.75;
+  stroke: var(--accent);
+}
+.zone-menu .zone-sizes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3em 0.6em;
+}
 /* the Live's stage: the show as it goes out, above the buttons */
 .live-stage-panel {
   margin: 0 0 0.8em;

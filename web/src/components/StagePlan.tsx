@@ -18,6 +18,8 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
+import { useContextMenu } from "./menu";
+import { moveZone } from "../zone-shape";
 
 /** The 3D view, loaded when first opened: three.js stays out of the rest of the interface. */
 const Stage3D = lazy(() => import("./Stage3D"));
@@ -78,6 +80,8 @@ export function StagePlan({
   views = false,
   shownColors,
   initialView = "top",
+  onZoneMenu,
+  onZoneMove,
 }: {
   fixtures: PlanFixture[];
   zones: PlanZone[];
@@ -91,6 +95,10 @@ export function StagePlan({
   shownColors?: Record<string, string[]>;
   /** The view it opens on. */
   initialView?: "top" | "front" | "3d";
+  /** Right-click (or a long press) on a zone: its menu, at that point. */
+  onZoneMenu?: (zone: PlanZone, at: { x: number; y: number }) => void;
+  /** « Déplacer les zones »: a zone dragged on the plan, its new corners. */
+  onZoneMove?: (zone: PlanZone, polygon: [number, number][]) => void;
 }) {
   const t = useT();
   const [liveColors, setColors] = useState<Record<string, string[]>>({});
@@ -103,6 +111,13 @@ export function StagePlan({
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** « Déplacer les zones »: on, a zone dragged moves (never by a stray click otherwise). */
+  const [movingZones, setMovingZones] = useState(false);
+  const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
+  const zoneMenu = useContextMenu<string>((at, id) => {
+    const z = zones.find((x) => x.id === id);
+    if (z) onZoneMenu?.(z, at);
+  });
   const [orienting, setOrienting] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   /** Heading while dragging around the selected fixture, saved on release. */
@@ -198,6 +213,15 @@ export function StagePlan({
     return toStage(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H);
   };
   const snap = (v: number) => Math.round(v * 10) / 10;
+  /** The zone dragged, where it is now: by 10 cm. */
+  const zoneOffset = zoneDrag ? [snap(zoneDrag.at.x - zoneDrag.from.x), snap(zoneDrag.at.y - zoneDrag.from.y)] : [0, 0];
+  const dropZone = () => {
+    if (!zoneDrag) return;
+    const z = zones.find((x) => x.id === zoneDrag.id);
+    const [dx, dy] = zoneOffset as [number, number];
+    setZoneDrag(null);
+    if (z && onZoneMove && (dx || dy)) onZoneMove(z, moveZone(z.polygon, dx, dy));
+  };
   const dropDrag = () => {
     if (!drag) return;
     const f = fixtures.find((x) => x.id === drag.id);
@@ -300,6 +324,11 @@ export function StagePlan({
             <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false))} /> {t.placeMode}
           </label>
         )}
+        {onZoneMove && !front && !in3d && (
+          <label className="row" title={t.moveZonesHelp}>
+            <input type="checkbox" checked={movingZones} onChange={(e) => (setMovingZones(e.target.checked), setPlacing(false), setOrienting(false), setAiming(false))} /> {t.moveZones}
+          </label>
+        )}
         {onOrient && !in3d && (
           <label className="row">
             <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), setSelected(null))} /> {t.orientMode}
@@ -333,11 +362,11 @@ export function StagePlan({
       <svg
         ref={svg}
         viewBox={`0 0 ${W} ${H}`}
-        className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : ""}
+        className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
         style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : undefined}
         onClick={aimAt}
-        onPointerMove={(e) => (drag ? setDrag({ ...drag, ...eventToStage(e) }) : turnTo(e))}
-        onPointerUp={() => (dropDrag(), dropTurn())}
+        onPointerMove={(e) => (zoneDrag ? setZoneDrag({ ...zoneDrag, at: eventToStage(e) }) : drag ? setDrag({ ...drag, ...eventToStage(e) }) : turnTo(e))}
+        onPointerUp={() => (dropZone(), dropDrag(), dropTurn())}
         role="img"
         aria-label={t.stagePreview}
       >
@@ -351,8 +380,26 @@ export function StagePlan({
         </defs>
         <rect width={W} height={H} fill="#12141a" />
         {front && <line x1={0} x2={W} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
-        {shown.zones.map((z) => (
-          <g key={z.id} className="zone">
+        {shown.zones.map((zone) => {
+          const z = zoneDrag?.id === zone.id ? { ...zone, polygon: moveZone(zone.polygon, zoneOffset[0]!, zoneOffset[1]!) } : zone;
+          const menu = onZoneMenu ? zoneMenu(z.id) : undefined;
+          return (
+          <g
+            key={z.id}
+            className={zoneDrag?.id === z.id ? "zone dragged" : "zone"}
+            data-zone={z.id}
+            {...menu}
+            onPointerDown={(e) => {
+              if (movingZones && !front && onZoneMove && !placing && !orienting && !aiming) {
+                e.stopPropagation();
+                svg.current?.setPointerCapture(e.pointerId);
+                const p = eventToStage(e);
+                setZoneDrag({ id: z.id, from: p, at: p });
+                return;
+              }
+              menu?.onPointerDown(e);
+            }}
+          >
             <polygon points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill={ZONE_FILL[z.type] ?? "#262a33"} stroke={z.protected || z.noAim ? "#e5484d" : "#3b4150"} strokeDasharray={z.protected || z.noAim ? "6 4" : undefined} />
             {z.noAim && <polygon className="no-aim" points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill="url(#no-aim)" />}
             <text x={sx(z.polygon.reduce((a, p) => a + p[0], 0) / z.polygon.length)} y={sy(Math.max(...z.polygon.map((p) => p[1]))) + 14} textAnchor="middle" className="zone-name">
@@ -361,7 +408,8 @@ export function StagePlan({
               {z.noAim ? ` (${t.noAimZone})` : ""}
             </text>
           </g>
-        ))}
+          );
+        })}
         {/* light first, under every fixture: a cone where the beam is known, a halo otherwise */}
         {fixtures.map((f) => {
           const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;

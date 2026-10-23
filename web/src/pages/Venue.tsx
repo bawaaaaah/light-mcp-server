@@ -7,6 +7,8 @@ import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
+import { ZoneMenu } from "../components/ZoneMenu";
+import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
 
 interface Def {
@@ -47,6 +49,8 @@ export function VenuePage() {
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** The zone whose right-click menu is open, and where. */
+  const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const rowMenu = useContextMenu<string>((at, id) => setMenu({ id, ...at }));
   /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
   const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
@@ -54,7 +58,7 @@ export function VenuePage() {
   const [zoneDraft, setZoneDraft] = useState({ name: "", type: "stage", width: "", depth: "", x: "0", y: "0", floor: "0", protected: false, noAim: false });
   const addZone = () => {
     const [w, d, x, y] = [Number(zoneDraft.width), Number(zoneDraft.depth), Number(zoneDraft.x) || 0, Number(zoneDraft.y) || 0];
-    const polygon = [[x - w / 2, y], [x + w / 2, y], [x + w / 2, y + d], [x - w / 2, y + d]];
+    const polygon = rectPolygon(w, d, x, y);
     const zone = { id: uniqueId(slug(zoneDraft.name, "zone"), zones.map((z) => z.id)), name: zoneDraft.name, type: zoneDraft.type, polygon, floorHeight: Number(zoneDraft.floor) || 0, protected: zoneDraft.protected, noAim: zoneDraft.noAim };
     void run("stage.zone.put", { zone }).then(() => (setZoneDraft({ ...zoneDraft, name: "" }), refresh()));
   };
@@ -357,7 +361,24 @@ export function VenuePage() {
           onError={setError}
           onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
           onOrient={(f, change) => void run("venue.fixture.orient", { id: f.id, ...change }).then(refresh)}
+          onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
+          onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}
         />
+        <p className="hint">{t.zoneHint}</p>
+        {zoneMenu &&
+          (() => {
+            const z = zones.find((x) => x.id === zoneMenu.id);
+            return z ? (
+              <ZoneMenu
+                key={z.id}
+                zone={z}
+                at={zoneMenu}
+                onSave={(zone) => void run("stage.zone.put", { zone }).then(refresh)}
+                onDelete={() => void run("stage.zone.delete", { id: z.id }).then(refresh)}
+                onClose={() => setZoneMenu(null)}
+              />
+            ) : null;
+          })()}
         <details className="calibration-box">
           <summary>{t.calibrationTitle}</summary>
           <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
