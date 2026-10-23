@@ -408,6 +408,13 @@ test("right-click on a look button in the Live: its preview at once, concise, an
   await menu.getByRole("button", { name: "Sur la scène" }).click();
   await expect(menu.locator(".stage-plan svg")).toBeVisible(); // the fuller preview, on demand
   await expect.poll(async () => (await menu.boundingBox())!.width).toBeGreaterThan(narrow); // the menu makes room
+  // from the audience: the whole stage, nothing cut at the bottom under the view switch
+  await menu.getByRole("button", { name: "Face", exact: true }).click();
+  const drawn = (await menu.locator(".stage-plan svg").boundingBox())!;
+  const frame = (await menu.locator(".stage-plan .plan-scroll").boundingBox())!;
+  const plan = (await menu.locator(".stage-plan").boundingBox())!;
+  expect(drawn.y + drawn.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+  expect(frame.y + frame.height).toBeLessThanOrEqual(plan.y + plan.height + 1);
   await page.screenshot({ path: "test-results/widget-menu-preview.png" });
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);

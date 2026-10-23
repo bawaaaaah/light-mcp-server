@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
-import { canvasBlocks, fixtureColors, stageOrder, type Block, type CanvasRender } from "../canvas-blocks";
+import { canvasBlocks, fixtureColors, stageOrder, stripColumns, type Block, type CanvasRender } from "../canvas-blocks";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { LiveStage } from "./StagePlan";
 
@@ -18,7 +18,8 @@ const shortName = (label: string) => label.split(" · ")[0]!.trim();
 /**
  * A look's animated preview, for a glance from its button on the Live (docs/specs/ui-dashboards.md):
  * the server's preview of the look as saved, its cells in the stage's order, each fixture's code
- * above its cells; « Sur la scène » plays it on the stage plan. `onStage` tells the menu to widen.
+ * above its cells, a spot widened beside long bars; « Sur la scène » plays it on the stage plan.
+ * `onStage` tells the menu to widen.
  */
 export function LookPeek({ id, onStage }: { id: string; onStage?: (on: boolean) => void }) {
   const t = useT();
@@ -50,20 +51,20 @@ export function LookPeek({ id, onStage }: { id: string; onStage?: (on: boolean) 
   const stageColors = useMemo(() => (stage && shown ? fixtureColors(frame, shown.render) : undefined), [stage, shown, frame]);
   if (error) return <p className="error">{error}</p>;
   if (!shown) return <p className="hint">…</p>;
-  const cells = shown.preview.cells;
-  const grid = { gridTemplateColumns: `repeat(${cells}, minmax(0, 1fr))` };
+  const line = shown.preview.topology !== "grid";
+  const columns = line && shown.blocks.length ? stripColumns(shown.blocks) : undefined;
   return (
     <div className="look-peek">
-      {shown.preview.topology !== "grid" && shown.blocks.some((b) => b.label) && (
-        <div className="preview-names" style={grid} aria-label={t.stepBlocks}>
-          {shown.blocks.map((b) => (
+      {columns && shown.blocks.some((b) => b.label) && (
+        <div className="preview-names" style={{ gridTemplateColumns: columns.template }} aria-label={t.stepBlocks}>
+          {shown.blocks.map((b, i) => (
             <span key={b.from} className={b.from > 0 ? "block-start" : undefined} style={{ gridColumn: `span ${b.to - b.from + 1}` }} title={b.label}>
-              {b.to - b.from + 1 >= 3 ? shortName(b.label) : ""}
+              {columns.width[i]! >= 3 ? shortName(b.label) : ""}
             </span>
           ))}
         </div>
       )}
-      <LookPreview preview={shown.preview} frame={frame} label={t.preview} order={shown.order} starts={starts} plain />
+      <LookPreview preview={shown.preview} frame={frame} label={t.preview} order={shown.order} starts={starts} plain columns={columns?.template} />
       <button
         className={stage ? "ghost on" : "ghost"}
         aria-pressed={stage}

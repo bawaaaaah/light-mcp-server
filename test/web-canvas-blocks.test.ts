@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { canvasBlocks, fixtureColors, stageOrder } from "../web/src/canvas-blocks.js";
+import { canvasBlocks, fixtureColors, stageOrder, stripColumns } from "../web/src/canvas-blocks.js";
 
 const fixtures = [
   { id: "b1", name: "B1 · barre (gauche)", color: "#22c55e" },
@@ -48,5 +48,15 @@ describe("look editor: the fixtures behind a canvas's cells", () => {
     ];
     expect(fixtureColors(["#ff0000", "#0000ff", "#ffffff"], render)).to.deep.equal({ b1: ["#ff0000", "#000000", "#0000ff"], par: ["#ffffff"] });
     expect(fixtureColors([null, null, null], render)).to.deep.equal({}); // not driven: the stage shows the live output there
+  });
+
+  it("widens a spot beside long LED bars in a look's strip, so its colour still shows", () => {
+    const bars = [0, 1].map((i) => ({ from: i * 30, to: i * 30 + 29, label: `bar ${i}`, fixtures: [`bar-${i}`] }));
+    const spot = { from: 60, to: 60, label: "spot", fixtures: ["spot"] };
+    const { template, width } = stripColumns([bars[0]!, spot, bars[1]!]);
+    expect(template).to.equal("repeat(30, minmax(0, 1fr)) repeat(1, minmax(0, 10fr)) repeat(30, minmax(0, 1fr))");
+    expect(width).to.deep.equal([30, 10, 30]); // a third of a bar
+    // a canvas of spots only: one column each, as before
+    expect(stripColumns([spot, { ...spot, from: 61, to: 61 }]).width).to.deep.equal([3, 3]);
   });
 });

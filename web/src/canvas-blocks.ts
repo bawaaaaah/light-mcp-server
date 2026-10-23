@@ -79,3 +79,24 @@ export function fixtureColors(frame: readonly (string | null)[], render: readonl
   for (const heads of Object.values(out)) for (let h = 0; h < heads.length; h++) heads[h] ??= "#000000";
   return out;
 }
+
+/**
+ * The strip's columns (a CSS grid template), block by block in the order shown: a fixture of a few
+ * cells, a spot, is widened to a third of the longest block (3 to 12 cells' worth), so its colour
+ * still shows beside long LED bars; a long block keeps one column per cell. `width` says, per block,
+ * how many cells' worth it takes.
+ */
+export function stripColumns(blocks: readonly Block[]): { template: string; width: number[] } {
+  const longest = Math.max(1, ...blocks.map((b) => b.to - b.from + 1));
+  const least = Math.min(12, Math.max(3, Math.round(longest / 3)));
+  const width: number[] = [];
+  const template = blocks
+    .map((b) => {
+      const n = b.to - b.from + 1;
+      const w = Math.max(1, least / n);
+      width.push(n * w);
+      return `repeat(${n}, minmax(0, ${Math.round(w * 100) / 100}fr))`;
+    })
+    .join(" ");
+  return { template, width };
+}

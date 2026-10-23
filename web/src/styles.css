@@ -971,6 +971,15 @@ fieldset.checklist {
   padding: 0.4em 0.8em;
   min-width: 12em;
   max-height: 16em;
+/* the view switch above, the drawing in what is left: never cut at the bottom */
+.stage-plan.compact {
+  display: flex;
+  flex-direction: column;
+}
+.stage-plan.compact .plan-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
   overflow-y: auto;
 }
 fieldset.checklist legend {
