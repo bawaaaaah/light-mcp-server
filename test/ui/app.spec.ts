@@ -1216,7 +1216,9 @@ test("a session closed on the server sends the page back to sign-in, with the re
   await login(page);
   const token = await page.evaluate(() => sessionStorage.getItem("token"));
   await request.post("/api/auth/logout", { headers: { authorization: `Bearer ${token}` } });
-  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click(); // its first command gets a 401
+  // its first command gets a 401, unless the page got there by itself: the heartbeat closes the
+  // socket of a closed session, whose reconnection is refused
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click({ timeout: 5000 }).catch(() => undefined);
   await expect(page.locator("form.pin-login")).toBeVisible();
   await expect(page.getByText(/Session terminée/)).toBeVisible();
   // the browser itself logs the refused requests and a socket whose ticket predates the sign-out
