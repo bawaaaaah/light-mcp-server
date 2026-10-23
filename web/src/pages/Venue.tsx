@@ -359,7 +359,12 @@ export function VenuePage() {
           fixtures={fixtures}
           zones={zones}
           onError={setError}
-          onMove={(f, position) => void run("venue.fixture.put", { fixture: { ...f, position } }).then(refresh)}
+          onMove={(moves) =>
+            void (async () => {
+              for (const { fixture, position } of moves) await run("venue.fixture.put", { fixture: { ...fixture, position } });
+              refresh();
+            })()
+          }
           onOrient={(f, change) => void run("venue.fixture.orient", { id: f.id, ...change }).then(refresh)}
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
           onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}

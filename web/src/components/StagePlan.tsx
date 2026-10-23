@@ -4,8 +4,12 @@
  * head coloured from the real output (topic light:preview, after rules, parks and Blackout).
  * Fixtures with no stage position are lined up along the front edge. With moving heads, « Viser »
  * points them at the clicked spot (position.aim, at a standing person's height). « Placer » lets
- * fixtures be dragged to their place (snapped to 10 cm). The front view shows heights (X, Z): risers
- * at their floor height, and dragging there sets a fixture's height. A strobing fixture gets a still
+ * fixtures be dragged to their place, on a magnetic grid (10 cm by default, or free), held on another
+ * fixture's line or column (guides); several are chosen with Ctrl/⌘ or Shift, or a frame drawn on the
+ * stage, then moved together, lined up or spread (plan-tools.ts), or nudged with the arrows. The front
+ * view shows heights (X, Z): risers at their floor height, and dragging there sets a fixture's
+ * height. Names are written at a readable size, under or above their fixture, never over another
+ * (the rest on hover), and the drawing makes room for them. A strobing fixture gets a still
  * dashed outline and its rate: the screen never flashes (a flashing screen is a photosensitive risk too).
  * « Orienter »: click a fixture, then pick where it points (audience, upstage wall, jardin, cour,
  * ceiling, floor), turn it by 15° (buttons, ← / →), type an angle, or drag around it to turn it; an arrow shows the
@@ -20,6 +24,8 @@ import { useT } from "../App";
 import { stream } from "../ws";
 import { useContextMenu } from "./menu";
 import { moveZone } from "../zone-shape";
+import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
+import { useStored } from "../hooks/useStored";
 
 /** The 3D view, loaded when first opened: three.js stays out of the rest of the interface. */
 const Stage3D = lazy(() => import("./Stage3D"));
@@ -45,6 +51,10 @@ type Vec = { x: number; y: number; z: number };
 const ZOOMS = [1, 1.5, 2, 3, 4];
 /** The opening drawn when the definition gives none: a typical wash. */
 const DEFAULT_BEAM_ANGLE = 24;
+/** The magnetic grid's steps (metres); 0: free, to the centimetre. */
+const GRID_STEPS = [0, 0.1, 0.25, 0.5, 1];
+/** Fixture names on screen (px), whatever the plan's size or zoom. */
+const NAME_PX = 11;
 
 /** The beam as a unit vector, stage frame (X cour, Y upstage, Z up): the convention of venue/orientation.ts. */
 function beam(o?: { yaw: number; pitch?: number }): { x: number; y: number; z: number } {
@@ -86,7 +96,8 @@ export function StagePlan({
   fixtures: PlanFixture[];
   zones: PlanZone[];
   onError: (msg: string) => void;
-  onMove?: (fixture: PlanFixture, position: { x: number; y: number; z: number }) => void;
+  /** « Placer »: fixtures moved (one dragged, or several at once), their new positions. */
+  onMove?: (moves: { fixture: PlanFixture; position: Vec }[]) => void;
   onOrient?: (fixture: PlanFixture, change: OrientChange) => void;
   compact?: boolean;
   /** Compact, but with the top / face / 3D switch (the Live's stage, a look's preview). */
@@ -110,7 +121,14 @@ export function StagePlan({
   const beams = shownColors ? {} : liveBeams;
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** « Placer »: the fixture held (`held`) and those moving with it, from where the pointer took it. */
+  const [drag, setDrag] = useState<{ held: string; ids: string[]; from: P; at: P; moved: boolean } | null>(null);
+  /** « Placer »: the fixtures chosen, to move, line up or spread together. */
+  const [chosen, setChosen] = useState<string[]>([]);
+  /** A frame drawn on the stage to choose the fixtures inside (`add`: Ctrl/⌘ or Shift, to the others). */
+  const [band, setBand] = useState<{ from: P; at: P; add: boolean } | null>(null);
+  const [gridStep, setGridStep] = useStored("stagePlan.grid", 0.1);
+  const [guides, setGuides] = useStored("stagePlan.guides", true);
   /** « Déplacer les zones »: on, a zone dragged moves (never by a stray click otherwise). */
   const [movingZones, setMovingZones] = useState(false);
   const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
@@ -208,11 +226,96 @@ export function StagePlan({
   const sy = (y: number) => H - (y - layout.minY) * scale; // upstage at the top, audience at the bottom
   const toStage = (px: number, py: number) => ({ x: px / scale + layout.minX, y: (H - py) / scale + layout.minY });
 
+  // the drawing's width on screen (zoom included): names keep a readable size, the grid its density
+  const [drawnWidth, setDrawnWidth] = useState(W);
+  useEffect(() => {
+    const el = svg.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setDrawnWidth(w);
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  const nameSize = Math.min(14, (NAME_PX * W) / drawnWidth);
+
+  /** Each fixture's body as drawn: its heads, size, turn, and the room it takes around its centre. */
+  const bodyOf = (f: PlanFixture) => {
+    const all = colors[f.id] ?? ["#000000"];
+    const h = Math.max(8, Math.min(28, 0.2 * scale));
+    // a standing bar (roll near 90°), seen from above, is only its top: one square, its middle head's colour
+    const roll = f.orientation?.roll ?? 0;
+    const standing = Math.abs(Math.sin((roll * Math.PI) / 180)) > 0.7;
+    const cols = !front && standing ? [all[Math.floor(all.length / 2)]!] : all;
+    // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
+    const w = !front && standing ? h : Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
+    const o = orienting && selected === f.id && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
+    // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0);
+    // from the audience, with its roll (a standing bar, its first head at the bottom)
+    const angle = front ? roll : !standing ? (o?.yaw ?? 0) : 0;
+    const turn = (angle * Math.PI) / 180;
+    // half the height and width the turned body takes on the plan: the name goes under it
+    const halfHeight = Math.abs((w / 2) * Math.sin(turn)) + Math.abs((h / 2) * Math.cos(turn));
+    const halfWidth = Math.abs((w / 2) * Math.cos(turn)) + Math.abs((h / 2) * Math.sin(turn));
+    return { cols, w, h, o, angle, halfHeight, halfWidth };
+  };
+  // names under their fixture, else above, never over another; where they stand still (not dragged)
+  const names = placeLabels(
+    fixtures.map((f) => {
+      const p = layout.pos.get(f.id)!;
+      const { halfHeight } = bodyOf(f);
+      return { id: f.id, x: sx(p.x), below: sy(p.y) + halfHeight + nameSize * 1.3, above: sy(p.y) - halfHeight - nameSize * 0.5, width: textWidth(f.name, nameSize) };
+    }),
+    nameSize,
+  );
+  // room for the names past the edges of the stage
+  const pad = { left: 0, right: 0, top: 0, bottom: 0 };
+  for (const [id, y] of names) {
+    const f = fixtures.find((x) => x.id === id)!;
+    const [x, half] = [sx(layout.pos.get(id)!.x), textWidth(f.name, nameSize) / 2 + 2];
+    pad.left = Math.max(pad.left, half - x);
+    pad.right = Math.max(pad.right, x + half - W);
+    pad.top = Math.max(pad.top, nameSize - y);
+    pad.bottom = Math.max(pad.bottom, y + nameSize * 0.4 - H);
+  }
+  const [VW, VH] = [W + pad.left + pad.right, H + pad.top + pad.bottom];
+  /** Screen pixels per metre. */
+  const pxPerMetre = (scale * drawnWidth) / VW;
+
   const eventToStage = (e: { clientX: number; clientY: number }) => {
     const r = svg.current!.getBoundingClientRect();
-    return toStage(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H);
+    return toStage(((e.clientX - r.left) / r.width) * VW - pad.left, ((e.clientY - r.top) / r.height) * VH - pad.top);
   };
   const snap = (v: number) => Math.round(v * 10) / 10;
+  /** Where a point of the view puts a fixture: the front view's vertical is its height, its depth kept. */
+  const positionOf = (f: PlanFixture, p: P): Vec =>
+    front ? { x: p.x, y: f.position?.y ?? 1, z: Math.max(0, p.y) } : { x: p.x, y: p.y, z: f.position?.z ?? defaultHeight(f.mount) };
+  const cm = (v: number) => Math.round(v * 100) / 100;
+  /** The chosen fixtures moved by dx, dy (metres on the view), or put at the points given. */
+  const moveTo = (points: (P & { id: string })[]) => {
+    const moves = points.flatMap((p) => {
+      const f = fixtures.find((x) => x.id === p.id);
+      const was = layout.pos.get(p.id);
+      return f && was && (cm(p.x) !== was.x || cm(p.y) !== was.y || !f.position) ? [{ fixture: f, position: positionOf(f, { x: cm(p.x), y: cm(p.y) }) }] : [];
+    });
+    if (moves.length) onMove?.(moves);
+  };
+  const shift = (ids: readonly string[], dx: number, dy: number) =>
+    moveTo(ids.flatMap((id) => (layout.pos.has(id) ? [{ id, x: layout.pos.get(id)!.x + dx, y: layout.pos.get(id)!.y + dy }] : [])));
+  const arrangeChosen = (how: Arrange) => moveTo(arrange(chosen.flatMap((id) => (layout.pos.has(id) ? [{ id, ...layout.pos.get(id)! }] : [])), how));
+  /** The drag now: the held fixture on the grid or another's line, the others keeping their place around it. */
+  const dragged = (() => {
+    if (!drag?.moved) return undefined;
+    const held = layout.pos.get(drag.held)!;
+    const others = shown.fixtures.filter((f) => f.position && !drag.ids.includes(f.id)).map((f) => layout.pos.get(f.id)!);
+    return dragOffset(held, { x: held.x + drag.at.x - drag.from.x, y: held.y + drag.at.y - drag.from.y }, others, { step: gridStep, guides, reach: 8 / pxPerMetre });
+  })();
+  /** Where a fixture is drawn: moved with the drag when it is part of it. */
+  const placeOf = (id: string): P => {
+    const p = layout.pos.get(id)!;
+    return dragged && drag!.ids.includes(id) ? { x: p.x + dragged.dx, y: p.y + dragged.dy } : p;
+  };
   /** The zone dragged, where it is now: by 10 cm. */
   const zoneOffset = zoneDrag ? [snap(zoneDrag.at.x - zoneDrag.from.x), snap(zoneDrag.at.y - zoneDrag.from.y)] : [0, 0];
   const dropZone = () => {
@@ -224,11 +327,33 @@ export function StagePlan({
   };
   const dropDrag = () => {
     if (!drag) return;
-    const f = fixtures.find((x) => x.id === drag.id);
     setDrag(null);
-    // front view: the vertical axis is the height; the depth is kept
-    if (f && onMove) onMove(f, front ? { x: snap(drag.x), y: f.position?.y ?? 1, z: Math.max(0, snap(drag.y)) } : { x: snap(drag.x), y: snap(drag.y), z: f.position?.z ?? defaultHeight(f.mount) });
+    if (dragged && (dragged.dx || dragged.dy)) shift(drag.ids, dragged.dx, dragged.dy);
   };
+  const dropBand = () => {
+    if (!band) return;
+    setBand(null);
+    // a click on the stage, not a frame: lets the chosen fixtures go
+    if (Math.hypot(band.at.x - band.from.x, band.at.y - band.from.y) * pxPerMetre < 4) return band.add ? undefined : setChosen([]);
+    const inside = fixtures.filter((f) => inFrame(layout.pos.get(f.id)!, band.from, band.at)).map((f) => f.id);
+    setChosen(band.add ? [...new Set([...chosen, ...inside])] : inside);
+  };
+  // keyboard, while placing: the arrows nudge the chosen fixtures by a grid step (×10 with Shift), Escape lets them go
+  useEffect(() => {
+    if (!placing || !chosen.length || !onMove) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.key === "Escape") return setChosen([]);
+      const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const step = (gridStep || 0.01) * (e.shiftKey ? 10 : 1);
+      shift(chosen, d[0] * step, d[1] * step);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // « Orienter »: dragging around the selected fixture turns it (by 15°, or freely with Shift)
   const selectedFixture = fixtures.find((f) => f.id === selected);
@@ -265,7 +390,7 @@ export function StagePlan({
   /** The beam's cone on the view: from the fixture to where it lands (worked out by the server), opening with the distance. */
   const cone = (f: PlanFixture, color: string) => {
     const d = beams[f.id];
-    if (!d || !f.position || drag?.id === f.id) return null;
+    if (!d || !f.position || (dragged && drag!.ids.includes(f.id))) return null;
     const end = d.to;
     const view = (v: Vec) => [sx(v.x), sy(front ? v.z : v.y)] as const;
     const [ox, oy] = view(f.position);
@@ -321,8 +446,25 @@ export function StagePlan({
         </small>
         {onMove && !in3d && (
           <label className="row">
-            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false))} /> {t.placeMode}
+            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false), setMovingZones(false), setChosen([]))} /> {t.placeMode}
           </label>
+        )}
+        {placing && !in3d && (
+          <>
+            <label className="row" title={t.gridHelp}>
+              {t.gridLabel}
+              <select value={gridStep} onChange={(e) => setGridStep(Number(e.target.value))}>
+                {GRID_STEPS.map((s) => (
+                  <option key={s} value={s}>
+                    {s === 0 ? t.gridFree : s < 1 ? `${Math.round(s * 100)} cm` : `${s} m`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="row" title={t.guidesHelp}>
+              <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} /> {t.guidesMode}
+            </label>
+          </>
         )}
         {onZoneMove && !front && !in3d && (
           <label className="row" title={t.moveZonesHelp}>
@@ -353,6 +495,34 @@ export function StagePlan({
         )}
         </div>
       )}
+      {placing && !compact && !in3d && (
+        <div className="place-panel row">
+          {chosen.length > 1 ? (
+            <>
+              <strong>
+                {chosen.length} {t.fixturesChosen}
+              </strong>
+              <button onClick={() => arrangeChosen("row")} title={front ? t.sameHeightHelp : t.sameRowHelp}>
+                {front ? t.sameHeight : t.sameRow}
+              </button>
+              <button onClick={() => arrangeChosen("column")} title={t.sameColumnHelp}>
+                {t.sameColumn}
+              </button>
+              <button onClick={() => arrangeChosen("spreadX")} title={t.spreadHelp}>
+                {t.spreadAcross}
+              </button>
+              <button onClick={() => arrangeChosen("spreadY")} title={t.spreadHelp}>
+                {front ? t.spreadHeight : t.spreadDepth}
+              </button>
+              <button className="ghost" onClick={() => setChosen([])}>
+                {t.unchoose}
+              </button>
+            </>
+          ) : (
+            <small className="place-help">{t.placeHelp}</small>
+          )}
+        </div>
+      )}
       {show3d && (
         <Suspense fallback={<p className="hint">…</p>}>
           <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} />
@@ -361,12 +531,27 @@ export function StagePlan({
       <div className="plan-scroll" ref={scroller} hidden={show3d}>
       <svg
         ref={svg}
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`${-pad.left} ${-pad.top} ${VW} ${VH}`}
         className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
         style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : undefined}
         onClick={aimAt}
-        onPointerMove={(e) => (zoneDrag ? setZoneDrag({ ...zoneDrag, at: eventToStage(e) }) : drag ? setDrag({ ...drag, ...eventToStage(e) }) : turnTo(e))}
-        onPointerUp={() => (dropZone(), dropDrag(), dropTurn())}
+        onPointerDown={(e) => {
+          // « Placer », pressed on the stage rather than a fixture: a frame to choose those inside
+          if (!placing || in3d) return;
+          // a finger stays with what it touched (a zone's long press still hears it lift); a mouse is held here
+          if (e.pointerType !== "touch") svg.current?.setPointerCapture(e.pointerId);
+          const p = eventToStage(e);
+          setBand({ from: p, at: p, add: e.ctrlKey || e.metaKey || e.shiftKey });
+        }}
+        onPointerMove={(e) => {
+          if (zoneDrag) return setZoneDrag({ ...zoneDrag, at: eventToStage(e) });
+          if (band) return setBand({ ...band, at: eventToStage(e) });
+          if (!drag) return turnTo(e);
+          const at = eventToStage(e);
+          // a few pixels before it moves: a click only chooses
+          setDrag({ ...drag, at, moved: drag.moved || Math.hypot(at.x - drag.from.x, at.y - drag.from.y) * pxPerMetre > 3 });
+        }}
+        onPointerUp={() => (dropZone(), dropDrag(), dropBand(), dropTurn())}
         role="img"
         aria-label={t.stagePreview}
       >
@@ -378,8 +563,8 @@ export function StagePlan({
             <line x1="0" y1="0" x2="0" y2="8" stroke="#e5484d" strokeWidth="2" opacity="0.5" />
           </pattern>
         </defs>
-        <rect width={W} height={H} fill="#12141a" />
-        {front && <line x1={0} x2={W} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
+        <rect x={-pad.left} y={-pad.top} width={VW} height={VH} fill="#12141a" />
+        {front && <line x1={-pad.left} x2={W + pad.right} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((zone) => {
           const z = zoneDrag?.id === zone.id ? { ...zone, polygon: moveZone(zone.polygon, zoneOffset[0]!, zoneOffset[1]!) } : zone;
           const menu = onZoneMenu ? zoneMenu(z.id) : undefined;
@@ -410,9 +595,28 @@ export function StagePlan({
           </g>
           );
         })}
+        {placing && gridStep > 0 && (() => {
+          // the magnetic grid, while placing: its step where it reads (8 px apart at least), its metres otherwise
+          const step = gridStep * pxPerMetre >= 8 ? gridStep : pxPerMetre >= 8 ? 1 : 0;
+          if (!step) return null;
+          const along = (lo: number, hi: number) => Array.from({ length: Math.floor(hi / step) - Math.ceil(lo / step) + 1 }, (_, i) => cm((Math.ceil(lo / step) + i) * step));
+          const metre = (v: number) => Math.abs(v - Math.round(v)) < 0.001;
+          return (
+            <g className="plan-grid" aria-hidden>
+              {along(layout.minX, layout.maxX).map((x) => (
+                <line key={`x${x}`} className={metre(x) ? "metre" : undefined} x1={sx(x)} x2={sx(x)} y1={-pad.top} y2={H + pad.bottom} />
+              ))}
+              {along(layout.minY, layout.maxY).map((y) => (
+                <line key={`y${y}`} className={metre(y) ? "metre" : undefined} x1={-pad.left} x2={W + pad.right} y1={sy(y)} y2={sy(y)} />
+              ))}
+            </g>
+          );
+        })()}
+        {dragged?.guide.x !== undefined && <line className="plan-guide" x1={sx(dragged.guide.x)} x2={sx(dragged.guide.x)} y1={-pad.top} y2={H + pad.bottom} />}
+        {dragged?.guide.y !== undefined && <line className="plan-guide" x1={-pad.left} x2={W + pad.right} y1={sy(dragged.guide.y)} y2={sy(dragged.guide.y)} />}
         {/* light first, under every fixture: a cone where the beam is known, a halo otherwise */}
         {fixtures.map((f) => {
-          const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
+          const p = placeOf(f.id);
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
           const beam = cone(f, lit[Math.floor(lit.length / 2)]!);
@@ -422,33 +626,21 @@ export function StagePlan({
           return <ellipse key={`halo-${f.id}`} cx={sx(p.x)} cy={sy(p.y)} rx={w * 0.75} ry={h * 1.5} fill={lit[Math.floor(lit.length / 2)]} opacity={0.22} />;
         })}
         {fixtures.map((f) => {
-          const p = drag?.id === f.id ? drag : layout.pos.get(f.id)!;
-          const all = colors[f.id] ?? ["#000000"];
-          const h = Math.max(8, Math.min(28, 0.2 * scale));
-          // a standing bar (roll near 90°), seen from above, is only its top: one square, its middle head's colour
-          const roll = f.orientation?.roll ?? 0;
-          const standing = Math.abs(Math.sin((roll * Math.PI) / 180)) > 0.7;
-          const cols = !front && standing ? [all[Math.floor(all.length / 2)]!] : all;
-          // sized in metres, so the plan reads at any scale: ~20 cm per head, 30 cm to 1.2 m wide
-          const w = !front && standing ? h : Math.min(1.2, Math.max(0.3, cols.length * 0.2)) * scale;
+          const p = placeOf(f.id);
+          const { cols, w, h, o, angle, halfHeight, halfWidth } = bodyOf(f);
           const cw = w / cols.length;
           const x0 = sx(p.x) - w / 2;
           const y0 = sy(p.y) - h / 2;
-          const isSelected = orienting && selected === f.id;
-          const o = isSelected && turning !== null ? { ...f.orientation, yaw: turning } : f.orientation;
-          // seen from above, the body turns with its heading (its front, the long side, faces the audience at 0);
-          // from the audience, with its roll (a standing bar, its first head at the bottom)
-          const angle = front ? roll : !standing ? (o?.yaw ?? 0) : 0;
+          const isSelected = (orienting && selected === f.id) || (placing && chosen.includes(f.id));
           const body = angle ? `rotate(${-angle} ${sx(p.x)} ${sy(p.y)})` : undefined;
           // the beam, projected on the view; what is left points at or away from the viewer
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
-          // half the height the turned body takes on the plan: the name goes under it
-          const turn = (angle * Math.PI) / 180;
-          const halfHeight = Math.abs((w / 2) * Math.sin(turn)) + Math.abs((h / 2) * Math.cos(turn));
-          const halfWidth = Math.abs((w / 2) * Math.cos(turn)) + Math.abs((h / 2) * Math.sin(turn));
-          const showBeam = Boolean(f.orientation) || isSelected;
+          const showBeam = Boolean(f.orientation) || (orienting && isSelected);
+          // its name where it was laid out, following it while dragged; on hover only when there was no room
+          const nameAt = names.get(f.id);
+          const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
           return (
             <g
               key={f.id}
@@ -466,10 +658,16 @@ export function StagePlan({
                 }
                 if (!placing) return;
                 e.stopPropagation();
+                // Ctrl/⌘ or Shift: one more chosen, or one less
+                if (e.ctrlKey || e.metaKey || e.shiftKey) return setChosen(chosen.includes(f.id) ? chosen.filter((id) => id !== f.id) : [...chosen, f.id]);
+                const ids = chosen.includes(f.id) ? chosen : [f.id];
+                setChosen(ids);
                 svg.current?.setPointerCapture(e.pointerId);
-                setDrag({ id: f.id, ...eventToStage(e) });
+                const at = eventToStage(e);
+                setDrag({ held: f.id, ids, from: at, at, moved: false });
               }}
             >
+              <title>{f.name}</title>
               <g transform={body}>
                 {cols.map((c, i) => (
                   <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
@@ -497,12 +695,15 @@ export function StagePlan({
                   </text>
                 </g>
               )}
-              <text x={sx(p.x)} y={sy(p.y) + halfHeight + 14} textAnchor="middle" className="fixture-name" style={f.color ? { fill: f.color } : undefined}>
-                {f.name}
-              </text>
+              {nameY !== undefined && (
+                <text x={sx(p.x)} y={nameY} textAnchor="middle" className="fixture-name" style={{ fontSize: `${nameSize}px`, ...(f.color ? { fill: f.color } : {}) }}>
+                  {f.name}
+                </text>
+              )}
             </g>
           );
         })}
+        {band && <rect className="plan-band" x={Math.min(sx(band.from.x), sx(band.at.x))} y={Math.min(sy(band.from.y), sy(band.at.y))} width={Math.abs(sx(band.at.x) - sx(band.from.x))} height={Math.abs(sy(band.at.y) - sy(band.from.y))} />}
       </svg>
       </div>
       {orienting && !compact && (

@@ -2060,6 +2060,77 @@ test("live 2D stage preview follows the output", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("venue plan: several fixtures chosen, moved together, lined up and spread, on a magnetic grid", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type Fx = { id: string; position?: { x: number; y: number; z: number } };
+  const before = (await api(page, "venue.fixture.list")) as Fx[];
+  const at = async (id: string) => ((await api(page, "venue.fixture.list")) as Fx[]).find((f) => f.id === id)!.position!;
+  const put = (id: string, position: { x: number; y: number; z: number }) => api(page, "venue.fixture.put", { fixture: { ...before.find((f) => f.id === id)!, position } });
+  await put("bar-0", { x: -2, y: 3, z: 0.2 });
+  await put("bar-1", { x: 1, y: 2.5, z: 0.2 });
+  await put("spot", { x: 3, y: 1, z: 4 });
+  const fx = (id: string) => page.locator(`.stage-plan g.fixture[data-fixture="${id}"] rect`).first();
+  const centre = async (id: string) => {
+    const body = page.locator(`.stage-plan g.fixture[data-fixture="${id}"] > g`).first(); // all its heads
+    await body.scrollIntoViewIfNeeded();
+    const b = (await body.boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const dragBy = async (from: { x: number; y: number }, dx: number, dy: number) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + dx, from.y + dy, { steps: 6 });
+    await page.mouse.up();
+  };
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.getByLabel("Placer les projecteurs").check();
+    await page.getByLabel("Grille").selectOption("0.5");
+    await page.getByLabel("Aligner sur les autres").uncheck();
+    await fx("bar-0").scrollIntoViewIfNeeded();
+    // a click chooses one, Shift adds another
+    await fx("bar-0").click();
+    await fx("bar-1").click({ modifiers: ["Shift"] });
+    await expect(page.locator(".place-panel")).toContainText("2 projecteurs choisis");
+    expect(await at("bar-0")).toEqual({ x: -2, y: 3, z: 0.2 }); // a click moves nothing
+    await page.getByRole("button", { name: "Même profondeur" }).click();
+    await expect.poll(async () => [(await at("bar-0")).y, (await at("bar-1")).y]).toEqual([2.75, 2.75]);
+    // dragged together: the one held lands on the 50 cm grid, the other keeps its place beside it
+    await dragBy(await centre("bar-1"), 70, 0);
+    await expect.poll(async () => (await at("bar-1")).x).toBeGreaterThan(1);
+    const [b0, b1] = [await at("bar-0"), await at("bar-1")];
+    expect((b1.x * 2) % 1).toBe(0);
+    expect(b1.y).toBe(3); // 2.75 on the grid
+    expect([b0.x, b0.y, b0.z]).toEqual([b1.x - 3, 3, 0.2]);
+    // with the guides: the spot, dragged near bar-1's column, is held on it
+    await page.getByLabel("Aligner sur les autres").check();
+    await fx("spot").click();
+    const [spot, bar1] = [await centre("spot"), await centre("bar-1")];
+    await dragBy(spot, bar1.x - spot.x + 3, -30);
+    await expect.poll(async () => (await at("spot")).x).toBe(b1.x);
+    // a frame drawn on the stage chooses all three; spread across, then nudged upstage by a grid step
+    const all = [await centre("bar-0"), await centre("bar-1"), await centre("spot")];
+    const [left, top] = [Math.min(...all.map((c) => c.x)) - 60, Math.min(...all.map((c) => c.y)) - 40];
+    await dragBy({ x: left, y: top }, Math.max(...all.map((c) => c.x)) + 60 - left, Math.max(...all.map((c) => c.y)) + 40 - top);
+    await expect(page.locator(".place-panel")).toContainText("3 projecteurs choisis");
+    await page.getByRole("button", { name: "Répartir en largeur" }).click();
+    await expect.poll(async () => (await at("bar-1")).x).not.toBe(b1.x);
+    const xs = [(await at("bar-0")).x, (await at("spot")).x, (await at("bar-1")).x].sort((a, b) => a - b);
+    expect(Math.abs(xs[1]! - (xs[0]! + xs[2]!) / 2)).toBeLessThan(0.011); // evenly spaced
+    const depth = (await at("bar-0")).y;
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(async () => (await at("bar-0")).y).toBe(depth + 0.5);
+    await page.screenshot({ path: "test-results/venue-plan-chosen.png", fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".place-panel")).toContainText("Clic : choisir");
+    await page.getByLabel("Placer les projecteurs").uncheck();
+  } finally {
+    for (const f of before) await api(page, "venue.fixture.put", { fixture: f });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("restoring a backup shows the differences first", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

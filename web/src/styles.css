@@ -901,6 +901,39 @@ table.cues select {
 .stage-plan svg.placing .fixture:active {
   cursor: grabbing;
 }
+/* « Placer »: the magnetic grid, the guide a dragged fixture is held on, the frame drawn to choose */
+.stage-plan .plan-grid line {
+  stroke: #232833;
+  stroke-width: 0.6;
+  pointer-events: none;
+}
+.stage-plan .plan-grid line.metre {
+  stroke: #2f3644;
+  stroke-width: 1;
+}
+.stage-plan .plan-guide {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+.stage-plan .plan-band {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+/* above the plan, its height kept: choosing a fixture never shifts the drawing under the pointer */
+.place-panel {
+  flex-wrap: wrap;
+  gap: 0.4em;
+  min-height: 2.6em;
+  margin: 0.3em 0;
+}
+.place-panel .place-help {
+  color: var(--muted);
+}
 
 /* DCA limits on faders */
 .fader .track {
@@ -938,6 +971,15 @@ table.cues select {
   max-height: none;
   overflow: hidden;
 }
+/* the view switch above, the drawing in what is left: never cut at the bottom */
+.stage-plan.compact {
+  display: flex;
+  flex-direction: column;
+}
+.stage-plan.compact .plan-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .view-switch button.on {
   color: var(--accent);
   border: 1px solid var(--accent);
@@ -971,15 +1013,6 @@ fieldset.checklist {
   padding: 0.4em 0.8em;
   min-width: 12em;
   max-height: 16em;
-/* the view switch above, the drawing in what is left: never cut at the bottom */
-.stage-plan.compact {
-  display: flex;
-  flex-direction: column;
-}
-.stage-plan.compact .plan-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-}
   overflow-y: auto;
 }
 fieldset.checklist legend {
