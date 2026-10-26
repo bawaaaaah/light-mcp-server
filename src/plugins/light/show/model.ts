@@ -80,7 +80,7 @@ export const GroupSchema = z.object({
     .refine((l) => l.min === undefined || l.max === undefined || l.min <= l.max, { message: "min au-dessus du max" })
     .optional(),
   presets: z.object({ included: z.array(z.string()).default([]), excluded: z.array(z.string()).default([]) }).default({}),
-  defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).optional(),
+  defaultButtonMode: z.enum(["trigger", "latch", "momentary", "toggle"]).optional(),
   /** Playback fader (a QLC+ « Playback » slider): above 0 its DCA starts the looks it doses, at 0 stops them. */
   playback: z.boolean().optional(),
   notes: z.string().optional(),
@@ -138,7 +138,7 @@ export const ShowSettingsSchema = z.object({
   /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */
   safeSnapshot: z.string().optional(),
   grandMaster: z.number().min(0).max(1).default(1),
-  defaultButtonMode: z.enum(["trigger", "latch", "momentary"]).default("trigger"),
+  defaultButtonMode: z.enum(["trigger", "latch", "momentary", "toggle"]).default("trigger"),
   /** Several looks on the same fixture: the last one started covers the others (« last »), or each colour keeps its highest value (« highest »: they add up). */
   looksMerge: z.enum(["last", "highest"]).default("last"),
   /** AI clients may touch up the service live (live.adjust): off until someone at the desk switches it on. */

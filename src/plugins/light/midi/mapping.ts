@@ -10,7 +10,14 @@
  *   momentary (« Momentané ») active while held: note on → on (level = velocity); a new note on on
  *             the same note while held updates the level; optional aftertouch follows the level;
  *             note off → off (level 0).
- * CC / pitch bend drive a level directly (absolute), with optional pickup (soft takeover).
+ * CC / pitch bend drive a level directly (absolute), with optional pickup (soft takeover), and now
+ * follow the same modes as buttons — with a threshold: a CC (or pitch bend) is « engaged » while its
+ * raw value is above the mapping's threshold (0..127 for a CC, 0 by default = immediate), and only then
+ * answers. A trigger answers while engaged and releases below the threshold (the exclusive group for
+ * button-like actions, the level for level actions); a latch toggles on the idle→engaged edge and
+ * releases on the engaged→released edge; a momentary acts while engaged (a fader's travel is its
+ * level); toggle is a switch: each engagement above the threshold (« press ») toggles — on, then off,
+ * then on — and each release below the threshold releases it.
  */
 import { z } from "zod";
 import type { MidiMessage } from "./parse.js";
@@ -31,7 +38,9 @@ export const MappingSchema = z.object({
     channel: z.number().int().min(1).max(16),
     number: z.number().int().min(0).max(127).default(0),
   }),
-  mode: z.enum(["trigger", "latch", "momentary"]).default("trigger"),
+  mode: z.enum(["trigger", "latch", "momentary", "toggle"]).default("trigger"),
+  /** Raw CC value under which the action does not answer yet (CC: 0..127, pitch bend: 0..127, note velocity: 0..127); 0 = immediate. */
+  threshold: z.number().min(0).max(127).default(0),
   /** Button: `on` (and `off`) commands. Fader: `on` with the level injected as `levelArg`. */
   on: CommandCallSchema,
   off: CommandCallSchema.optional(),
@@ -137,6 +146,8 @@ export class MidiMapper {
       out.matched.push({ id: m.id, label: m.label, mode: m.mode });
       const s = this.st(m.id);
       const before = { active: s.active, level: s.level };
+      // « toggle » is the switch behaviour: an above-threshold press toggles (on, then off, then on), a below one releases
+      const mode = m.mode === "toggle" ? "latch" : m.mode;
 
       if (m.input.type === "cc" || m.input.type === "pitchbend") {
         const raw = msg.type === "cc" ? msg.value : msg.type === "pitchbend" ? msg.value >> 7 : 0;
@@ -145,19 +156,81 @@ export class MidiMapper {
           if (Math.abs(level - s.level) > 0.03) continue;
           s.caught = true;
         }
-        s.level = level;
-        s.active = level > 0;
-        out.calls.push(withLevel(m.on, m.levelArg, level));
+        const engaged = raw > m.threshold; // the raw value is the control's own domain (CC: 0..127, velocity: 0..127)
+        switch (m.mode) {
+          case "latch": {
+            // the CC is a switch: above the threshold it is latched on, below it latched off
+            if (engaged && !s.active) {
+              s.active = true;
+              s.level = level;
+              out.calls.push(withLevel(m.on, m.levelArg, level));
+            } else if (!engaged && s.active) {
+              s.active = false;
+              s.level = 0;
+              const release = m.off ? withLevel(m.off, m.levelArg, 0) : m.levelArg ? withLevel(m.on, m.levelArg, 0) : undefined;
+              if (release) out.calls.push(release);
+            } else if (engaged && s.active) {
+              s.level = level; // latched: the level follows the control
+            }
+            break;
+          }
+          case "momentary": {
+            // engaged while held (above the threshold): a fader's travel is its level
+            const held = engaged;
+            if (held) {
+              const first = !s.held;
+              s.held = true;
+              s.active = true;
+              s.level = level;
+              if (first || m.levelArg) out.calls.push(withLevel(m.on, m.levelArg, level));
+            } else if (s.held) {
+              s.held = false;
+              s.active = false;
+              s.level = 0;
+              out.calls.push(m.off ? withLevel(m.off, m.levelArg, 0) : withLevel(m.on, m.levelArg, 0));
+            }
+            break;
+          }
+          case "trigger": {
+            // trigger « Déclencher »: above the threshold the CC answers with its level, straight away,
+            // and never latches; below it the action is released (exclusive group for button-like
+            // actions, the level itself for level actions: a released fader writes its level, 0)
+            s.active = engaged;
+            s.level = engaged ? level : 0;
+            if (engaged) out.calls.push(withLevel(m.on, m.levelArg, level));
+            else {
+              const release = m.off ? withLevel(m.off, m.levelArg, 0) : m.levelArg ? withLevel(m.on, m.levelArg, 0) : undefined;
+              if (release) out.calls.push(release);
+            }
+            break;
+          }
+          case "toggle": {
+            // « Toggle »: a press above the threshold (an engagement) toggles the switch — on, then
+            // off, then on — and a release below the threshold releases it
+            if (engaged) {
+              s.active = !s.active;
+              s.level = s.active ? level : 0;
+              if (s.active) out.calls.push(withLevel(m.on, m.levelArg, level));
+              else if (m.off) out.calls.push(withLevel(m.off, m.levelArg, 0));
+            } else if (s.active) {
+              s.active = false;
+              s.level = 0;
+              const release = m.off ? withLevel(m.off, m.levelArg, 0) : m.levelArg ? withLevel(m.on, m.levelArg, 0) : undefined;
+              if (release) out.calls.push(release);
+            }
+            break;
+          }
+        }
       } else if (m.input.type === "programchange") {
         s.active = true;
         out.calls.push(m.on);
       } else if (msg.type === "noteon") {
         const level = scaleValue(msg.velocity, m.scale);
-        if (m.mode === "trigger") {
+        if (mode === "trigger") {
           s.active = true;
           s.level = level;
           out.calls.push(withLevel(m.on, m.levelArg, level));
-        } else if (m.mode === "latch") {
+        } else if (mode === "latch") {
           s.active = !s.active;
           s.level = s.active ? level : 0;
           if (s.active) out.calls.push(withLevel(m.on, m.levelArg, level));

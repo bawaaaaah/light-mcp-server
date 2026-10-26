@@ -8,7 +8,7 @@ import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
 
 export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
-export type ButtonMode = "trigger" | "latch" | "momentary";
+export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 export interface MenuWidget {
   id: string;
   kind: WidgetKind;
@@ -146,7 +146,7 @@ export function WidgetMenu({
       .then((r) => {
         const name = widget.label || targets.find((x) => x.id === widget.target)?.name || t.widgetKinds[widget.kind];
         const dj = r.input.port === "OS2L"; // a DJ's command keeps its port: only it plays the mapping
-        const draft = { ...newMapping(), label: name, mode: widget.mode ?? (widget.kind === "look" ? "latch" : "trigger"), input: { ...r.input, port: dj ? "OS2L" : undefined }, feedback: dj ? "none" : r.input.type === "cc" ? "cc" : "note" } as MappingDraft;
+        const draft = { ...newMapping(), label: name, mode: widget.mode ?? (widget.kind === "look" ? "latch" : "trigger"), input: { ...r.input, port: dj ? "OS2L" : undefined }, feedback: dj ? "none" : r.input.type === "cc" ? "cc" : "note", threshold: 0 } as MappingDraft;
         const id = uniqueId(slug(`${r.input.type}-${r.input.number}-${name}`, "mapping"), mappings.map((m) => m.id));
         return cmd("midi.mapping.put", { mapping: { ...build(draft, action.action, action.target), id } });
       })
@@ -206,7 +206,7 @@ export function WidgetMenu({
         <label className="field">
           <span>{t.mode}</span>
           <select value={widget.mode ?? "latch"} onChange={(e) => onChange({ mode: e.target.value as ButtonMode })}>
-            {(["latch", "momentary", "trigger"] as const).map((m) => (
+            {(["latch", "momentary", "trigger", "toggle"] as const).map((m) => (
               <option key={m} value={m}>
                 {t.modes[m]}
               </option>
@@ -237,10 +237,10 @@ export function WidgetMenu({
             {mine.map((m) => (
               <li key={m.id}>
                 {inputText(m.input)}{" "}
-                {/* a note from an Ableton clip lights while it lasts only in momentary: the mode is chosen per note */}
-                {m.input.type === "note" && action && (action.action === "look" || action.action === "blackout") && (
+                {/* the mode is chosen per input — an Ableton clip's note, or a CC: momentary holds it only while it lasts */}
+                {(m.input.type === "note" || m.input.type === "cc") && action && (action.action === "look" || action.action === "blackout") && (
                   <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => void cmd("midi.mapping.put", { mapping: build({ ...m, mode: e.target.value as ButtonMode }, action.action, action.target) }).then(loadMappings, (err: Error) => setError(err.message))}>
-                    {(["latch", "momentary", "trigger"] as const).map((mode) => (
+                    {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                       <option key={mode} value={mode}>
                         {t.modes[mode]}
                       </option>

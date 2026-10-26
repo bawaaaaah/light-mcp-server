@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { control } from "../ws";
 import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
+import { Modal } from "../components/Modal";
 
 interface Status {
   localAvailable: boolean;
@@ -405,16 +406,19 @@ export function MidiPage() {
               + {t.newMapping}
             </button>
           </h2>
+          {/* the mapping management in a modal, like the looks' editors: the page behind stays put */}
           {editing && (
-            <MappingEditor
-              key={editing.id || "new-mapping"}
-              initial={editing}
-              existing={mappings.map((m) => m.id)}
-              onClose={() => {
-                setEditing(null);
-                loadMappings();
-              }}
-            />
+            <Modal label={editing.id ? `${t.editLook} · ${editing.label}` : t.newMapping}>
+              <MappingEditor
+                key={editing.id || "new-mapping"}
+                initial={editing}
+                existing={mappings.map((m) => m.id)}
+                onClose={() => {
+                  setEditing(null);
+                  loadMappings();
+                }}
+              />
+            </Modal>
           )}
           {mappings.length > 8 && (
             <input className="search" type="search" aria-label={t.searchMappings} placeholder={t.searchMappings} value={mappingSearch} onChange={(e) => setMappingSearch(e.target.value)} />

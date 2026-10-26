@@ -32,7 +32,7 @@ interface Widget {
   /** Two presses to switch on (look, Blackout, snapshot). */
   confirm?: boolean;
 }
-type ButtonMode = "trigger" | "latch" | "momentary";
+type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 interface Dashboard {
   id: string;
   name: string;
@@ -486,7 +486,7 @@ export function DashboardsPage({ role }: { role: Role }) {
           onKeyDown: (e: React.KeyboardEvent) => !edit && !e.repeat && (e.key === " " || e.key === "Enter") && on(),
           onKeyUp: (e: React.KeyboardEvent) => !edit && (e.key === " " || e.key === "Enter") && off(),
         }
-      : { onClick: () => (mode === "latch" && active ? off() : confirmed(confirm, on)) };
+      : { onClick: () => ((mode === "latch" || mode === "toggle") && active ? off() : confirmed(confirm, on)) };
 
   const render = (w: Widget) => {
     switch (w.kind) {
@@ -913,7 +913,7 @@ export function DashboardsPage({ role }: { role: Role }) {
           {many.some(pressable) && (
             <select aria-label={t.mode} value={shared("mode", many.filter(pressable), "latch") ?? ""} onChange={(e) => e.target.value && patchMany((w) => (pressable(w) ? { mode: e.target.value as ButtonMode } : undefined))}>
               {shared("mode", many.filter(pressable), "latch") === undefined && <option value="">{t.mixedModes}</option>}
-              {(["latch", "momentary", "trigger"] as const).map((m) => (
+              {(["latch", "momentary", "trigger", "toggle"] as const).map((m) => (
                 <option key={m} value={m}>
                   {t.modes[m]}
                 </option>
@@ -956,7 +956,7 @@ export function DashboardsPage({ role }: { role: Role }) {
           <input placeholder={t.labelText} aria-label={t.labelText} value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           {(sel.kind === "look" || sel.kind === "blackout") && (
             <select aria-label={t.mode} value={sel.mode ?? "latch"} onChange={(e) => updateWidget(sel.id, { mode: e.target.value as ButtonMode })}>
-              {(["latch", "momentary", "trigger"] as const).map((m) => (
+              {(["latch", "momentary", "trigger", "toggle"] as const).map((m) => (
                 <option key={m} value={m}>
                   {t.modes[m]}
                 </option>

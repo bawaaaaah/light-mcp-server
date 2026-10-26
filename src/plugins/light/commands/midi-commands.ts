@@ -185,7 +185,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.mapping.put",
     title: "Créer ou modifier un mapping",
-    description: "Creates or replaces a MIDI mapping: input (note/CC/PC, channel, number), mode (trigger « Déclencher », latch, momentary « Momentané »), on/off commands, level argument for faders.",
+    description: "Creates or replaces a MIDI mapping: input (note/CC/PC, channel, number), mode (trigger « Déclencher », latch, momentary « Momentané », toggle), threshold (raw CC value under which the action does not answer, 0..127 for a CC, 0 by default = immediate), on/off commands, level argument for faders.",
     right: "midi:configure",
     profiles: ["setup", "design"],
     schema: z.object({ mapping: MappingSchema }),

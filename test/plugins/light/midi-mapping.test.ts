@@ -59,6 +59,51 @@ describe("MIDI mapping modes", () => {
     expect(mapper.handle(parseMidi([0xb0, 7, 127])).calls[0]!.args.level).to.equal(0.5);
   });
 
+  it("CC answers only above the threshold, and releases below it (trigger)", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "trigger", threshold: 64, on: { command: "look.go", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 63])).calls).to.deep.equal([]); // raw 63: just below the threshold
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls).to.deep.equal([{ command: "look.go", args: { id: "pale" } }]); // raw 65: just above
+    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls).to.deep.equal([]); // released: a trigger never answers twice
+  });
+
+  it("CC latch toggles on above the threshold and releases below it", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "latch", threshold: 64, on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls.map((c) => c.command)).to.deep.equal(["look.stop"]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+  });
+
+  it("CC momentary acts above the threshold and releases below it", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "momentary", threshold: 64, on: { command: "group.level", args: { id: "master" } }, levelArg: "level" })]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls[0]!.args.level).to.be.closeTo(65 / 127, 0.001); // raw 65: engaged
+    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls).to.deep.equal([{ command: "group.level", args: { id: "master", level: 0 } }]); // released
+  });
+
+  it("pitch bend follows the same mode and threshold as the CC", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "bend", input: { type: "pitchbend", channel: 1, number: 0 }, mode: "trigger", threshold: 64, on: { command: "look.go", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xe0, 0, 63])).calls.map((c) => c.command)).to.deep.equal([]); // raw 63: just below the threshold
+    expect(mapper.handle(parseMidi([0xe0, 0, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]); // raw 65: just above
+  });
+
+  it("toggle switches the CC on above the threshold and off below it", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "toggle", threshold: 64, on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls.map((c) => c.command)).to.deep.equal(["look.stop"]);
+  });
+
+  it("toggle: an above-threshold CC send while engaged switches it off, then on again", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "toggle", threshold: 64, on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]); // raw 65: the toggle switches on
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.stop"]); // raw 65 again: the toggle switches off
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]); // raw 65 once more: the toggle switches on again
+  });
+
   it("pickup ignores the fader until it meets the value set elsewhere", () => {
     const mapper = new MidiMapper();
     mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, on: { command: "group.level", args: {} }, levelArg: "level", pickup: true })]);

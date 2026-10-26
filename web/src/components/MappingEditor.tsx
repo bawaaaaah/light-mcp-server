@@ -12,7 +12,9 @@ export interface MappingDraft {
   id: string;
   label: string;
   input: { type: "note" | "cc" | "programchange"; channel: number; number: number; port?: string };
-  mode: "trigger" | "latch" | "momentary";
+  mode: "trigger" | "latch" | "momentary" | "toggle";
+  /** Raw trigger value under which the CC does not answer yet (0..127); 0 = immediate. */
+  threshold?: number;
   on: { command: string; args: Record<string, unknown> };
   off?: { command: string; args: Record<string, unknown> };
   levelArg?: string;
@@ -45,7 +47,7 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
 }
 
 export function build(m: MappingDraft, action: Action, target: string): MappingDraft {
-  const base = { ...m, off: undefined, levelArg: undefined };
+  const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0 };
   switch (action) {
     case "look":
       return { ...base, on: { command: "look.go", args: { id: target } }, off: m.mode === "trigger" ? undefined : { command: "look.stop", args: { id: target } } };
@@ -159,12 +161,16 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         <label className="field">
           <span>{t.mode}</span>
           <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca" || action === "fader" || action === "grandmaster"}>
-            {(["trigger", "latch", "momentary"] as const).map((x) => (
+            {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
               <option key={x} value={x}>
                 {t.modes[x]}
               </option>
             ))}
           </select>
+        </label>
+        <label className="field">
+          <span>{t.threshold}</span>
+          <input type="number" min={0} max={127} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(127, Math.max(0, Number(e.target.value) || 0)) })} />
         </label>
         <label className="field">
           <span>{t.action}</span>
