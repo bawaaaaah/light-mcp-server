@@ -449,7 +449,7 @@ test("right-click on a dashboard button: assign another look, learn a MIDI note 
   await menu.getByRole("button", { name: "Apprendre une note ou un CC" }).click();
   await expect(menu.getByRole("button", { name: /J'écoute/ })).toBeVisible();
   await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
-  await expect(menu).toContainText("note 61 · 1");
+  await expect(menu).toContainText("Note 61");
   await page.screenshot({ path: "test-results/widget-menu.png" });
   await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 61, 100] });
   const breath = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "breath")?.active;
@@ -2355,6 +2355,8 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
   await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 50, 100] }); // the note played on a controller
   await expect(editor.getByLabel("Note / CC")).toHaveValue("50");
   await editor.getByLabel("Cible").selectOption("hole");
+  await expect(editor).toContainText("n'éteint jamais"); // the chosen mode explains itself
+  await page.screenshot({ path: "test-results/midi-mapping-editor.png" });
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(page.locator(".midi table tr", { hasText: "hole" })).toBeVisible();

@@ -408,7 +408,7 @@ export function MidiPage() {
           </h2>
           {/* the mapping management in a modal, like the looks' editors: the page behind stays put */}
           {editing && (
-            <Modal label={editing.id ? `${t.editLook} · ${editing.label}` : t.newMapping}>
+            <Modal className="narrow" label={editing.id ? `${t.editLook} · ${editing.label}` : t.newMapping}>
               <MappingEditor
                 key={editing.id || "new-mapping"}
                 initial={editing}

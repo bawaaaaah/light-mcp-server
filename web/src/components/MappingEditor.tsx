@@ -119,98 +119,121 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   };
 
   const dj = m.input.port === "OS2L";
+  /** A level or flash action plays its own way: the mode does not apply. */
+  const modeLocked = action === "flash" || action === "dca" || action === "fader" || action === "grandmaster";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
-      <div className="fields">
-        {/* a controller (any watched input), or the DJ's numbered commands (OS2L), which only it plays */}
-        <label className="field">
-          <span>{t.mappingSource}</span>
-          <select
-            aria-label={t.mappingSource}
-            value={dj ? "os2l" : ""}
-            onChange={(e) => setM(e.target.value === "os2l" ? { ...m, input: { ...m.input, port: "OS2L", type: "cc", channel: 1 }, feedback: "none" } : { ...m, input: { ...m.input, port: undefined } })}
-          >
-            <option value="">{t.sourceController}</option>
-            <option value="os2l">DJ (OS2L)</option>
-          </select>
-        </label>
-        {!dj && (
-          <>
-            <label className="field">
-              <span>{t.midiType}</span>
-              <select value={m.input.type} onChange={(e) => setM({ ...m, input: { ...m.input, type: e.target.value as MappingDraft["input"]["type"] } })}>
-                <option value="note">note</option>
-                <option value="cc">CC</option>
-                <option value="programchange">program change</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{t.midiChannel}</span>
-              <input type="number" min={1} max={16} value={m.input.channel} onChange={(e) => setM({ ...m, input: { ...m.input, channel: Number(e.target.value) } })} />
-            </label>
-          </>
-        )}
-        <label className="field">
-          <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
-          <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
-        </label>
-        <button onClick={learn} disabled={learning}>
-          {learning ? t.learning : t.learn}
-        </button>
-        <label className="field">
-          <span>{t.mode}</span>
-          <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={action === "flash" || action === "dca" || action === "fader" || action === "grandmaster"}>
-            {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
-              <option key={x} value={x}>
-                {t.modes[x]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* a CC's value or a note's velocity; a program change has none */}
-        {m.input.type !== "programchange" && (
+      <fieldset className="mapping-group">
+        <legend>{t.midiInputSection}</legend>
+        <div className="mapping-grid">
+          {/* a controller (any watched input), or the DJ's numbered commands (OS2L), which only it plays */}
           <label className="field">
-            <span>{t.threshold}</span>
-            <input type="number" min={0} max={126} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0)) })} />
+            <span>{t.mappingSource}</span>
+            <select
+              aria-label={t.mappingSource}
+              value={dj ? "os2l" : ""}
+              onChange={(e) => setM(e.target.value === "os2l" ? { ...m, input: { ...m.input, port: "OS2L", type: "cc", channel: 1 }, feedback: "none" } : { ...m, input: { ...m.input, port: undefined } })}
+            >
+              <option value="">{t.sourceController}</option>
+              <option value="os2l">DJ (OS2L)</option>
+            </select>
           </label>
-        )}
-        <label className="field">
-          <span>{t.action}</span>
-          <select value={action} onChange={(e) => setAction({ action: e.target.value as Action, target: "" })}>
-            {ACTIONS.map((a) => (
-              <option key={a} value={a}>
-                {t.mappingActions[a]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {targets.length > 0 && (
+          {!dj && (
+            <>
+              <label className="field">
+                <span>{t.midiType}</span>
+                <select value={m.input.type} onChange={(e) => setM({ ...m, input: { ...m.input, type: e.target.value as MappingDraft["input"]["type"] } })}>
+                  <option value="note">note</option>
+                  <option value="cc">CC</option>
+                  <option value="programchange">program change</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>{t.midiChannel}</span>
+                <input type="number" min={1} max={16} value={m.input.channel} onChange={(e) => setM({ ...m, input: { ...m.input, channel: Number(e.target.value) } })} />
+              </label>
+            </>
+          )}
           <label className="field">
-            <span>{t.target}</span>
-            <select aria-label={t.target} value={target} onChange={(e) => setAction({ action, target: e.target.value })}>
-              <option value="">—</option>
-              {targets.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
+            <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
+            <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
+          </label>
+          <button className="learn" onClick={learn} disabled={learning}>
+            {learning ? t.learning : t.learn}
+          </button>
+        </div>
+      </fieldset>
+      <fieldset className="mapping-group">
+        <legend>{t.midiPlaySection}</legend>
+        <div className="mapping-grid">
+          <label className="field wide">
+            <span>{t.mode}</span>
+            <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
+              {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
+                <option key={x} value={x}>
+                  {t.modes[x]}
                 </option>
               ))}
             </select>
           </label>
-        )}
-        <label className="field">
-          <span>{t.feedbackLabel}</span>
-          <select value={m.feedback} onChange={(e) => setM({ ...m, feedback: e.target.value as MappingDraft["feedback"] })}>
-            <option value="note">note</option>
-            <option value="cc">CC</option>
-            <option value="none">—</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>{t.labelText}</span>
-          <input placeholder={t.optional} value={m.label} onChange={(e) => setM({ ...m, label: e.target.value })} />
-        </label>
-      </div>
+          {/* a CC's value or a note's velocity; a program change has none */}
+          {m.input.type !== "programchange" && (
+            <label className="field" title={t.thresholdHelp}>
+              <span>{t.threshold}</span>
+              <input type="number" min={0} max={126} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0)) })} />
+            </label>
+          )}
+        </div>
+        {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
+        <p className="hint">{modeLocked ? t.modeLockedHint : t.modeHints[m.mode]}</p>
+        {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
+      </fieldset>
+      <fieldset className="mapping-group">
+        <legend>{t.midiDoSection}</legend>
+        <div className="mapping-grid">
+          <label className="field">
+            <span>{t.action}</span>
+            <select value={action} onChange={(e) => setAction({ action: e.target.value as Action, target: "" })}>
+              {ACTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {t.mappingActions[a]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {targets.length > 0 && (
+            <label className="field wide">
+              <span>{t.target}</span>
+              <select aria-label={t.target} value={target} onChange={(e) => setAction({ action, target: e.target.value })}>
+                <option value="">—</option>
+                {targets.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      </fieldset>
+      <fieldset className="mapping-group">
+        <legend>{t.midiMoreSection}</legend>
+        <div className="mapping-grid">
+          <label className="field wide">
+            <span>{t.labelText}</span>
+            <input placeholder={t.optional} value={m.label} onChange={(e) => setM({ ...m, label: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>{t.feedbackLabel}</span>
+            <select value={m.feedback} onChange={(e) => setM({ ...m, feedback: e.target.value as MappingDraft["feedback"] })}>
+              <option value="note">note</option>
+              <option value="cc">CC</option>
+              <option value="none">—</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
       <div className="row actions">
         <button className="primary" onClick={save}>
           {t.save}

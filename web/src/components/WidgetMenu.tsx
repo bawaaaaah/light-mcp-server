@@ -84,6 +84,8 @@ export function SetSelect({ value, sets, mixed = false, onPick }: { value: strin
 }
 
 const inputText = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`);
+/** The input as the menu shows it, its channel beside it. */
+const inputName = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "Note"} ${i.number}`);
 
 /**
  * Right-click on a dashboard widget (live, no edit mode): what it drives (look, DCA, fader), its
@@ -231,28 +233,63 @@ export function WidgetMenu({
         </label>
       )}
       {action && (
-        <div className="midi">
-          <span className="hint">MIDI</span>
+        <div className="field midi">
+          <span>MIDI</span>
+          {mine.length === 0 && <p className="hint">{t.noMidi}</p>}
           <ul>
-            {mine.map((m) => (
-              <li key={m.id}>
-                {inputText(m.input)}{" "}
-                {/* the mode is chosen per input — an Ableton clip's note, or a CC: momentary holds it only while it lasts */}
-                {(m.input.type === "note" || m.input.type === "cc") && action && (action.action === "look" || action.action === "blackout") && (
-                  <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => void cmd("midi.mapping.put", { mapping: build({ ...m, mode: e.target.value as ButtonMode }, action.action, action.target) }).then(loadMappings, (err: Error) => setError(err.message))}>
-                    {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
-                      <option key={mode} value={mode}>
-                        {t.modes[mode]}
-                      </option>
-                    ))}
-                  </select>
-                )}{" "}
-                <button className="ghost" title={t.delete} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
-                  ✕
-                </button>
-              </li>
-            ))}
-            {mine.length === 0 && <li className="hint">{t.noMidi}</li>}
+            {mine.map((m) => {
+              const put = (patch: Partial<MappingDraft>) => void cmd("midi.mapping.put", { mapping: build({ ...m, ...patch }, action.action, action.target) }).then(loadMappings, (err: Error) => setError(err.message));
+              const playable = m.input.type === "note" || m.input.type === "cc";
+              return (
+                <li key={m.id} className="midi-input">
+                  <div className="midi-head">
+                    <strong>{inputName(m.input)}</strong>
+                    {m.input.port !== "OS2L" && (
+                      <small>
+                        {t.midiChannel} {m.input.channel}
+                      </small>
+                    )}
+                    <span className="grow" />
+                    <button className="ghost" title={t.delete} aria-label={`${t.delete} · ${inputText(m.input)}`} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
+                      ✕
+                    </button>
+                  </div>
+                  {playable && (
+                    <div className="midi-settings">
+                      {/* the mode is chosen per input — an Ableton clip's note, or a CC: momentary holds it only while it lasts */}
+                      {(action.action === "look" || action.action === "blackout") && (
+                        <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
+                          {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
+                            <option key={mode} value={mode}>
+                              {t.modes[mode]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {/* saved when left (or Enter), not on every keystroke */}
+                      <label title={t.thresholdHelp}>
+                        <span>{t.threshold}</span>
+                        <input
+                          key={m.threshold ?? 0}
+                          type="number"
+                          min={0}
+                          max={126}
+                          step={1}
+                          aria-label={`${t.threshold} · ${inputText(m.input)}`}
+                          defaultValue={m.threshold ?? 0}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          onBlur={(e) => {
+                            const v = Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0));
+                            if (v !== (m.threshold ?? 0)) put({ threshold: v });
+                            else e.target.value = String(v);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <button onClick={learn} disabled={learning}>
             {learning ? t.learning : t.learnMidi}

@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
  * editor scrolls in it, the page behind stays put. Closed by the editor's own buttons only: a tap
  * beside it on a tablet must not lose an edit.
  */
-export function Modal({ label, children }: { label: string; children: ReactNode }) {
+export function Modal({ label, className, children }: { label: string; /** e.g. « narrow » for a short form */ className?: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const before = document.body.style.overflow;
@@ -20,7 +20,7 @@ export function Modal({ label, children }: { label: string; children: ReactNode 
   }, []);
   return createPortal(
     <div className="modal-backdrop">
-      <div ref={box} className="modal" role="dialog" aria-modal="true" aria-label={label}>
+      <div ref={box} className={className ? `modal ${className}` : "modal"} role="dialog" aria-modal="true" aria-label={label}>
         {children}
       </div>
     </div>,
