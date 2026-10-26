@@ -609,7 +609,8 @@ export function DashboardsPage({ role }: { role: Role }) {
           >
             {l.manualOnly ? "✋ " : ""}
             {w.label ?? l.name}
-            {w.mode && w.mode !== "latch" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
+            {/* toggle plays as a latch on the Live: no mark either */}
+            {w.mode && w.mode !== "latch" && w.mode !== "toggle" && <small className="mode-mark">{w.mode === "momentary" ? " ⇣" : " ▸"}</small>}
             {/* while arranging: which set it is exclusive with */}
             {edit && setOf(l.id) && <small className="set-mark">◉ {setOf(l.id)!.name}</small>}
             {armedMark(w)}

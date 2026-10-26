@@ -13,7 +13,7 @@ export interface MappingDraft {
   label: string;
   input: { type: "note" | "cc" | "programchange"; channel: number; number: number; port?: string };
   mode: "trigger" | "latch" | "momentary" | "toggle";
-  /** Raw trigger value under which the CC does not answer yet (0..127); 0 = immediate. */
+  /** Raw value a CC (or a note's velocity) must exceed to answer (0..126); 0 = immediate. */
   threshold?: number;
   on: { command: string; args: Record<string, unknown> };
   off?: { command: string; args: Record<string, unknown> };
@@ -168,10 +168,13 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t.threshold}</span>
-          <input type="number" min={0} max={127} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(127, Math.max(0, Number(e.target.value) || 0)) })} />
-        </label>
+        {/* a CC's value or a note's velocity; a program change has none */}
+        {m.input.type !== "programchange" && (
+          <label className="field">
+            <span>{t.threshold}</span>
+            <input type="number" min={0} max={126} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0)) })} />
+          </label>
+        )}
         <label className="field">
           <span>{t.action}</span>
           <select value={action} onChange={(e) => setAction({ action: e.target.value as Action, target: "" })}>

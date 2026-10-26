@@ -104,6 +104,63 @@ describe("MIDI mapping modes", () => {
     expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]); // raw 65 once more: the toggle switches on again
   });
 
+  const cc = (v: number) => parseMidi([0xb0, 7, v]);
+  const ccMapping = (m: Record<string, unknown>) => MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, ...m });
+  const fader = { on: { command: "group.level", args: { id: "master" } }, levelArg: "level" };
+  const levels = (mapper: MidiMapper, v: number) => mapper.handle(cc(v)).calls.map((c) => c.args.level);
+
+  it("CC latch: a level action follows the control while latched", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([ccMapping({ ...fader, mode: "latch" })]);
+    expect(levels(mapper, 64)).to.deep.equal([0.504]);
+    expect(levels(mapper, 127)).to.deep.equal([1]);
+    expect(levels(mapper, 0)).to.deep.equal([0]);
+  });
+
+  it("CC momentary without off nor level does not fire again on release", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([ccMapping({ mode: "momentary", on: { command: "tempo.tap", args: {} } })]);
+    expect(mapper.handle(cc(127)).calls.map((c) => c.command)).to.deep.equal(["tempo.tap"]);
+    expect(mapper.handle(cc(0)).calls).to.deep.equal([]);
+  });
+
+  it("a released fader rests at the bottom of its scale (an inverted fader at its top)", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([ccMapping({ ...fader, mode: "trigger", scale: { outMin: 1, outMax: 0 } })]);
+    expect(levels(mapper, 127)).to.deep.equal([0]);
+    expect(levels(mapper, 0)).to.deep.equal([1]);
+  });
+
+  it("toggle switched off by a CC 127 brings a level action back to rest", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([ccMapping({ ...fader, mode: "toggle" })]);
+    expect(levels(mapper, 127)).to.deep.equal([1]);
+    expect(levels(mapper, 127)).to.deep.equal([0]); // a controller that only ever sends 127
+  });
+
+  it("CC trigger releases once when it crosses below the threshold", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([ccMapping({ ...fader, mode: "trigger", threshold: 64 })]);
+    expect(levels(mapper, 10)).to.deep.equal([]); // never engaged: nothing to release
+    expect(levels(mapper, 100)).to.have.length(1);
+    expect(levels(mapper, 30)).to.deep.equal([0]);
+    expect(levels(mapper, 20)).to.deep.equal([]);
+  });
+
+  it("a note on at or under the threshold (a light hit) does not answer", () => {
+    for (const mode of ["trigger", "latch", "momentary", "toggle"] as const) {
+      const mapper = new MidiMapper();
+      mapper.setMappings([map({ id: "a", mode, threshold: 64 })]);
+      expect(mapper.handle(on(36, 64)).calls, mode).to.deep.equal([]);
+      expect(mapper.handle(off(36)).calls, mode).to.deep.equal([]);
+      expect(mapper.handle(on(36, 65)).calls.map((c) => c.command), mode).to.deep.equal(["section.go"]);
+    }
+  });
+
+  it("a threshold of 127 is refused: no 7-bit value could exceed it", () => {
+    expect(() => ccMapping({ ...fader, threshold: 127 })).to.throw();
+  });
+
   it("pickup ignores the fader until it meets the value set elsewhere", () => {
     const mapper = new MidiMapper();
     mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, on: { command: "group.level", args: {} }, levelArg: "level", pickup: true })]);
