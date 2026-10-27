@@ -46,7 +46,6 @@ jobs:
           # scoped, so `npm ci` still installs express, zod… from npmjs.com
           scope: "@bawaaaaah"
       - run: npm ci
-      - run: npm --prefix web ci
       # The tag's version goes into package.json for the publish only (never committed).
       - name: Set package.json version to match the tag
         if: github.ref_type == 'tag'

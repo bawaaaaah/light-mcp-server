@@ -6,7 +6,6 @@
 git clone <dépôt> light-mcp-server && cd light-mcp-server
 npm install
 npm install-scripts approve esbuild @julusian/midi @serialport/bindings-cpp && npm rebuild esbuild @julusian/midi @serialport/bindings-cpp   # npm ≥ 12
-npm --prefix web install
 npm run build
 ```
 Le MIDI local passe par CoreMIDI : bus IAC, contrôleurs USB, et sessions réseau du Mac.

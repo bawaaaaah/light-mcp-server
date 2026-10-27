@@ -15,7 +15,6 @@ Ce document s'adresse à **un agent Claude Code lancé sur le Mac de régie** de
 node -v                       # ≥ 22.6
 npm install
 npm install-scripts approve esbuild @julusian/midi && npm rebuild esbuild @julusian/midi   # si npm ≥ 12
-npm --prefix web install
 npm run build
 npm test                      # doit être tout vert
 npx playwright install chromium && npm run test:ui   # tests de l'interface dans un navigateur

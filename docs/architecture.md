@@ -11,7 +11,7 @@
 4. **Le moteur ne dépend pas de l'UI.** La sortie DMX continue si l'UI, le WebSocket ou un plugin tombe. Un watchdog surveille le tick.
 
 ## Stack
-Node ≥ 22.6, TypeScript ESM, Express 5, `ws`, `@msgpack/msgpack`, zod (+ `zod-to-json-schema`), `@modelcontextprotocol/sdk`, `@julusian/midi` (MIDI natif), une lib RTP-MIDI et une lib OSC. Tests avec Mocha + Chai, lint ESLint. Front en Vite + React + TypeScript, `react-grid-layout`, i18n FR/EN.
+Node ≥ 22.6, TypeScript ESM, Express 5, `ws`, `@msgpack/msgpack`, zod (+ `zod-to-json-schema`), `@modelcontextprotocol/sdk`, `@julusian/midi` (MIDI natif), une lib RTP-MIDI et une lib OSC. Tests avec Mocha + Chai, lint ESLint. Front en Vite + React + TypeScript (workspace npm `web/`, installé par le `npm install` de la racine), `react-grid-layout`, i18n FR/EN.
 
 ## Arborescence cible
 ```

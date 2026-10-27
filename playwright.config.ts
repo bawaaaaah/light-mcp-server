@@ -12,7 +12,8 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${port}`, locale: "fr-FR", screenshot: "only-on-failure", trace: "retain-on-failure" },
   outputDir: "test-results",
   webServer: {
-    command: `npm --prefix web run build && PORT=${port} npx tsx test/ui/server.ts`,
+    command: "npm run build -w web && npx tsx test/ui/server.ts",
+    env: { PORT: String(port) },
     url: `http://127.0.0.1:${port}/health`,
     timeout: 120_000,
     reuseExistingServer: false,

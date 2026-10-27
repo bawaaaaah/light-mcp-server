@@ -34,9 +34,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            web/package-lock.json
       - run: npm ci
-      - run: npm --prefix web ci
       - name: Typecheck (server and web)
         run: npm run typecheck && npx tsc --noEmit -p web
       - name: Tests
@@ -62,9 +60,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            web/package-lock.json
       - run: npm ci
-      - run: npm --prefix web ci
       - name: The image's browsers are those of @playwright/test
         run: |
           if [ "$(node -p 'require("@playwright/test/package.json").version')" != "1.64.0" ]; then
