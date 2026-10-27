@@ -1223,6 +1223,31 @@ table.rules td {
   justify-self: end;
   font-size: 0.8rem;
 }
+/* a look's colours under the mouse, on the Live (ui-dashboards.md): looked at, never clicked */
+.hover-peek {
+  position: fixed;
+  z-index: 60;
+  width: min(420px, calc(100vw - 16px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  padding: 0.4em 0.6em 0.5em;
+  display: grid;
+  gap: 0.3em;
+  pointer-events: none;
+}
+.hover-peek > strong {
+  font-size: 0.8rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hover-peek .look-peek {
+  display: grid;
+  gap: 0.15em;
+}
 /* the look on the stage plan: room for it */
 .widget-menu.wide {
   width: min(600px, calc(100vw - 16px));

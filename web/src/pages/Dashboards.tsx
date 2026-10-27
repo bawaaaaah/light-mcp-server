@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from "react";
 import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
+import { useHoverPeek } from "../components/HoverPeek";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
@@ -476,6 +477,10 @@ export function DashboardsPage({ role }: { role: Role }) {
     armTimer.current = window.setTimeout(() => setArmed(null), CONFIRM_MS);
   };
   const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
+  // a look's colours in a tooltip, under the mouse; not while arranging the widgets
+  const hoverPeek = useHoverPeek(!edit);
+  const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet} : ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ");
+
   const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void, confirm?: string) =>
     mode === "momentary"
       ? {
@@ -600,7 +605,8 @@ export function DashboardsPage({ role }: { role: Role }) {
         return (
           <button
             className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""} ${armed === w.id ? "armed" : ""}`}
-            title={[w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet} : ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ") /* the whole name: a long one is cut on the button */}
+            title={hoverPeek.shows(l.id) ? undefined : lookTitle(w, l) /* the whole name: a long one is cut on the button */}
+            {...hoverPeek.bind(l.id, lookTitle(w, l))}
             {...locked("commands:trigger")}
             {...press(
               w.mode ?? "latch",
@@ -1104,6 +1110,7 @@ export function DashboardsPage({ role }: { role: Role }) {
       )}
       {/* under the grid: the safety bar stays at the top, where the hand looks for it */}
       {!edit && !kiosk && <GettingStarted role={role} looks={looks.length} dashboards={dashboards} current={dash} onDashboard={() => void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l)))} />}
+      {hoverPeek.node}
       {menu && dash?.widgets.some((w) => w.id === menu.id) && (
         <WidgetMenu
           key={menu.id}

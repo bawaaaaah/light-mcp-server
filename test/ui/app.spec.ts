@@ -421,6 +421,23 @@ test("right-click on a look button in the Live: its preview at once, concise, an
   expect(errors).toEqual([]);
 });
 
+test("a mouse resting on a look button of the Live shows its colours in a tooltip", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const button = page.locator(".dgrid .cell button", { hasText: "checker" }).first();
+  await button.hover();
+  const tip = page.locator(".hover-peek");
+  await expect(tip.locator(".preview-names span")).toHaveText(["Bar 0", "Bar 1"]); // the fixtures above their cells
+  await expect(tip.locator(".preview.plain .cell")).toHaveCount(8);
+  await expect(tip.getByRole("button")).toHaveCount(0); // no stage in a tooltip
+  await expect(button).not.toHaveAttribute("title"); // one bubble only
+  await page.screenshot({ path: "test-results/look-hover-peek.png" });
+  await page.mouse.move(0, 0);
+  await expect(tip).toHaveCount(0);
+  await expect(button).toHaveAttribute("title", /checker/);
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: edit its look in a window, over the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
