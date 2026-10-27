@@ -27,6 +27,16 @@ interface Mapping {
   on: { command: string; args: Record<string, unknown> };
 }
 
+type HeardInput = Mapping["input"];
+
+/** The mappings a heard input plays — the same rule as the server's mapper (port by substring, the DJ's port only its own). */
+function playedBy(m: Mapping, heard: HeardInput): boolean {
+  if (m.input.type !== heard.type || m.input.channel !== heard.channel) return false;
+  if (m.input.type !== "pitchbend" && m.input.number !== heard.number) return false;
+  if (m.input.port && heard.port && !heard.port.toLowerCase().includes(m.input.port.toLowerCase())) return false;
+  return heard.port !== "OS2L" || m.input.port?.toLowerCase() === "os2l";
+}
+
 interface MonitorEntry {
   port: string;
   msg: Record<string, unknown>;
@@ -216,6 +226,9 @@ export function MidiPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [mappingSearch, setMappingSearch] = useState("");
+  /** Reverse search: the next note or CC played, and only the mappings it plays. */
+  const [heard, setHeard] = useState<HeardInput | null>(null);
+  const [listening, setListening] = useState(false);
   const [monitor, setMonitor] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
   const [webMidi, setWebMidi] = useState(false);
@@ -236,8 +249,17 @@ export function MidiPage() {
   const needle = mappingSearch.trim().toLowerCase();
   const shownMappings = [...mappings]
     .sort((a, b) => a.input.channel - b.input.channel || (TYPE_ORDER[a.input.type] ?? 9) - (TYPE_ORDER[b.input.type] ?? 9) || a.input.number - b.input.number || a.id.localeCompare(b.id))
+    .filter((m) => !heard || playedBy(m, heard))
     .filter((m) => !needle || [`${m.input.type} ${m.input.number}`, m.label, m.on.command, String(m.on.args.id ?? "")].some((x) => x.toLowerCase().includes(needle)));
   const loadMappings = () => void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
+  const listen = () => {
+    setListening(true);
+    setError("");
+    void cmd<{ input: HeardInput }>("midi.learn", { timeoutMs: 15000 })
+      .then((r) => setHeard(r.input), (e: Error) => setError(e.message))
+      .finally(() => setListening(false));
+  };
+  const heardText = (i: HeardInput) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "programchange" ? "PC" : i.type} ${i.number} · ch${i.channel}${i.port ? ` · ${i.port}` : ""}`);
   /** Watch or stop watching a port in the active profile (patterns match by substring). */
   const saveProfile = (patch: Partial<NonNullable<Status["profileConfig"]>>) => {
     if (!status?.profileConfig) return;
@@ -420,8 +442,33 @@ export function MidiPage() {
               />
             </Modal>
           )}
-          {mappings.length > 8 && (
-            <input className="search" type="search" aria-label={t.searchMappings} placeholder={t.searchMappings} value={mappingSearch} onChange={(e) => setMappingSearch(e.target.value)} />
+          <div className="row mapping-search">
+            {mappings.length > 8 && (
+              <input className="search" type="search" aria-label={t.searchMappings} placeholder={t.searchMappings} value={mappingSearch} onChange={(e) => setMappingSearch(e.target.value)} />
+            )}
+            {/* reverse search: play a pad or move a knob, see what it is mapped to */}
+            <button className="ghost" title={t.whatPlaysHelp} onClick={listen} disabled={listening}>
+              {listening ? t.learning : `🎹 ${t.whatPlays}`}
+            </button>
+          </div>
+          {heard && (
+            <p className="heard">
+              <span className="chip">
+                {t.heardInput} : <strong>{heardText(heard)}</strong>{" "}
+                <button className="ghost" aria-label={t.clearHeard} title={t.clearHeard} onClick={() => setHeard(null)}>
+                  ✕
+                </button>
+              </span>
+              {shownMappings.length === 0 && (
+                <>
+                  {" "}
+                  <span className="hint">{t.heardUnmapped}</span>{" "}
+                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type as MappingDraft["input"]["type"], channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
+                    + {t.mapHeard}
+                  </button>
+                </>
+              )}
+            </p>
           )}
           <table>
             <tbody>

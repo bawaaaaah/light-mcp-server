@@ -460,6 +460,25 @@ tr.muted td {
   color: var(--muted);
 }
 
+/* MIDI page: the text search and the reverse search (play an input, see its mappings) */
+.mapping-search {
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+.heard {
+  margin: 0.5em 0;
+}
+.heard .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.15em 0.2em 0.15em 0.6em;
+  border: 1px solid var(--accent, var(--line));
+  border-radius: 999px;
+}
+.heard .chip button {
+  padding: 0 0.4em;
+}
 .search {
   background: var(--panel);
   border: 1px solid var(--line);

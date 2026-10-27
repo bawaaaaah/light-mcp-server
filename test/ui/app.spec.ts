@@ -2360,6 +2360,26 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(page.locator(".midi table tr", { hasText: "hole" })).toBeVisible();
+  // reverse search: play the note, the list keeps only what it plays
+  const rows = page.locator(".midi table tr");
+  await page.getByRole("button", { name: /Écouter une entrée/ }).click();
+  await expect(page.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 50, 100] });
+  await expect(page.locator(".heard")).toContainText("note 50 · ch1");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("hole");
+  await page.screenshot({ path: "test-results/midi-reverse-search.png" });
+  // an unmapped note says so, and offers to map it
+  await page.getByRole("button", { name: /Écouter une entrée/ }).click();
+  await expect(page.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 51, 100] });
+  await expect(page.locator(".heard")).toContainText("rien n'est mappé");
+  await page.getByRole("button", { name: "+ La mapper" }).click();
+  await expect(page.locator(".mapping-editor").getByLabel("Note / CC")).toHaveValue("51");
+  await page.locator(".mapping-editor").getByRole("button", { name: "Fermer" }).click();
+  await page.getByRole("button", { name: "Revoir tous les mappings" }).click();
+  await expect(rows.filter({ hasText: "hole" })).toBeVisible();
+  await expect.poll(() => rows.count()).toBeGreaterThan(1);
   await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 50, 100] });
   await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(true);
   await page.screenshot({ path: "test-results/midi-mapping.png", fullPage: true });
