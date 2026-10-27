@@ -6,6 +6,7 @@
  * = product of the masters of every group chain containing it × grand master → venue.toDmx.
  */
 import type { Collection, FolderStore } from "../data/store.js";
+import { Glide } from "../engine/glide.js";
 import { LookPlayer } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
@@ -51,6 +52,8 @@ export class ShowRuntime {
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
+  /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
+  readonly glide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
   /** group id → flash held */
   private readonly flashes = new Set<string>();
@@ -312,7 +315,33 @@ export class ShowRuntime {
 
   /** A group's own factor (its DCA): master level within its limits; mute = 0; flash = its max. */
   private ownLevel(g: Group): number {
-    return dcaLevel(g, this.flashes.has(g.id));
+    return dcaLevel(g.master ? { ...g, master: { ...g.master, level: this.masterLevel(g) } } : g, this.flashes.has(g.id));
+  }
+
+  /** The level a DCA's master sends now: its level, or on its way there when smoothed. */
+  masterLevel(g: Group): number {
+    return this.glide.value(`group:${g.id}`, g.master?.level ?? 1, g.master?.smoothing, this.now());
+  }
+
+  /** The level a channel fader sends now. */
+  faderLevel(f: ChannelFader): number {
+    return this.glide.value(`fader:${f.id}`, f.level, f.smoothing, this.now());
+  }
+
+  /** The faders still gliding to their level, with the level sent (topic light:glide, the ghost bars of the Live). */
+  gliding(): { groups: Record<string, number>; faders: Record<string, number>; gm?: number } {
+    const out: { groups: Record<string, number>; faders: Record<string, number>; gm?: number } = { groups: {}, faders: {} };
+    for (const [key, level] of Object.entries(this.glide.moving(this.now()))) {
+      if (key === "gm") out.gm = level;
+      else if (key.startsWith("group:")) out.groups[key.slice(6)] = level;
+      else if (key.startsWith("fader:")) out.faders[key.slice(6)] = level;
+    }
+    return out;
+  }
+
+  /** The grand master sent now. */
+  grandMasterLevel(): number {
+    return this.glide.value("gm", this.settings.grandMaster, this.settings.grandMasterSmoothing, this.now());
   }
 
   /** Effective factor of a group: its own level × its parents' (DCA-like cascade). */
@@ -349,12 +378,12 @@ export class ShowRuntime {
     const faders = this.faders
       .list()
       .filter((f) => f.channels.some((c) => c.fixture === fixture.id && c.offset === offset))
-      .map((f) => ({ id: f.id, name: f.name, level: f.level, dca: f.dca, effective: f.level * (f.dca && this.groups.get(f.dca) ? this.effectiveLevel(f.dca) : 1) }));
+      .map((f) => ({ id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), dca: f.dca, effective: this.faderLevel(f) * (f.dca && this.groups.get(f.dca) ? this.effectiveLevel(f.dca) : 1) }));
     const rawLooks = [...this.active.values()].filter(({ look }) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset)).map(({ look }) => ({ id: look.id, name: look.name }));
     const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to }));
     return {
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r) },
-      intensity: { grandMaster: this.settings.grandMaster, dcas, factor: this.intensityOf(fixture.id) },
+      intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id) },
       faders,
       rawLooks,
       clamps,
@@ -363,7 +392,7 @@ export class ShowRuntime {
 
   /** Intensity per fixture: product over the groups directly holding it × grand master. */
   intensityOf(fixtureId: string): number {
-    let level = this.settings.grandMaster;
+    let level = this.grandMasterLevel();
     for (const g of this.groups.list()) {
       if (!g.master && !this.flashes.has(g.id)) continue;
       const direct = g.members.fixtures.includes(fixtureId) || (g.selector && this.fixturesOf(g.id).has(fixtureId) && !g.members.groups.length);
@@ -571,7 +600,7 @@ export class ShowRuntime {
     for (const fader of this.faders.list()) {
       // its travel covers its range (a QLC+ slider limited to 0..200 never goes past 200), the DCA doses that
       const { min, max } = fader.range ?? { min: 0, max: 255 };
-      const level = ((min + fader.level * (max - min)) / 255) * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
+      const level = ((min + this.faderLevel(fader) * (max - min)) / 255) * (fader.dca && this.groups.get(fader.dca) ? this.effectiveLevel(fader.dca) : 1);
       const value = Math.round(level * 255);
       for (const c of fader.channels) {
         const f = this.venue.fixtures.get(c.fixture);

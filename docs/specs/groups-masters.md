@@ -70,6 +70,14 @@ Groupe {
 ## Niveaux en direct
 - Un DCA ou un fader bougé à la main ou au MIDI change des dizaines de fois par seconde : la valeur s'applique **tout de suite**, mais n'est écrite sur disque qu'**une fois, une seconde après** le dernier mouvement, **sans copie de sauvegarde** (c'est un état, pas une modification du show). Avant une archive et à l'arrêt, tout est écrit ; une restauration d'archive l'emporte sur une valeur en attente.
 
+## Lissage
+- Chaque fader peut être **lissé** : DCA (`master.smoothing`), fader de canaux (`smoothing`), grand master (`grandMasterSmoothing` des réglages du show). Désactivé par défaut : la valeur s'applique tout de suite, comme avant.
+- Lissé, le niveau **envoyé** rejoint le niveau **demandé** progressivement, sans saut (un geste brusque, un fader MIDI qui ne part pas du même endroit que l'interface) : `msPerStep` millisecondes par pas, un pas étant **1/255 de la course** (10 ms par pas : 0 → 100 % en 2,55 s ; la moitié de la course en la moitié du temps). Choix dans l'éditeur : aucun, 1, 2, 5, 10 ms par pas, ou personnalisé.
+- **Courbe** : vitesse fixe (`linear`) ou ease in / ease out (`ease`, smoothstep, sur la même durée).
+- Le fader bougé pendant un glissement : un nouveau glissement repart de la valeur **envoyée**, jamais de saut. Le glissement part à la frame qui voit le changement (≤ 23 ms à 44 Hz).
+- Seul le **niveau** glisse : mute, flash, Blackout et Panic restent **instantanés**. Les commandes (`group.level`, `fader.level`, `grandmaster.set`), le retour MIDI, les instantanés et le disque gardent la valeur **demandée**.
+- **Ghost bar** : pendant un glissement, le serveur publie les valeurs envoyées (topic `light:glide`, ≤ 25 Hz, un dernier message vide à l'arrivée) ; le widget fader du Live les dessine en barre translucide sur sa course, avec « → 42 % » à côté de la valeur demandée. Un fader lissé porte la marque « ≈ ». `dmx.explain` donne aussi les valeurs envoyées (`sent`, `grandMasterSent`).
+
 ## Presets d'effets inclus ou exclus
 - **Inclus** : le master du groupe **dose** ces presets (niveau ou taille) ou les **coupe** (mute).
 - **Exclus** : ces presets **n'agissent pas** sur les membres du groupe. Exemple : « la face n'est jamais touchée par la palette qui tourne ».

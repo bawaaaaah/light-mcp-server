@@ -10,7 +10,7 @@ import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
-import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
+import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
@@ -457,10 +457,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {
     const g = show.groups.get(groupId);
     if (!g) throw new Error(say(`groupe inconnu : ${groupId}`, `unknown group: ${groupId}`));
-    const master = { level: g.master?.level ?? 1, mute: g.master?.mute ?? false, ...patch };
+    const master = { ...g.master, level: g.master?.level ?? 1, mute: g.master?.mute ?? false, ...patch };
     show.groups.putLive({ ...g, master }); // a fader moves many times a second: no backup per move
     if (g.playback) show.syncPlayback(groupId);
-    return { id: groupId, ...master, effectiveLevel: show.effectiveLevel(groupId) };
+    return { id: groupId, level: master.level, mute: master.mute, effectiveLevel: show.effectiveLevel(groupId) };
   };
   reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
   reg.register({
@@ -996,14 +996,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
+    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }),
-    run: (patch) => {
+    schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }).extend({ grandMasterSmoothing: FaderSmoothingSchema.nullable().optional() }),
+    run: ({ grandMasterSmoothing, ...patch }) => {
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
       if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(say(`instantané inconnu : ${patch.safeSnapshot}`, `unknown snapshot: ${patch.safeSnapshot}`));
-      return show.saveSettings(patch);
+      // null clears the grand master's smoothing (a partial patch cannot carry « absent »)
+      return show.saveSettings(grandMasterSmoothing === undefined ? patch : { ...patch, grandMasterSmoothing: grandMasterSmoothing ?? undefined });
     },
   });
   // ---- snapshots: the whole live state, saved ahead (the safe state of « Panic neutre »)

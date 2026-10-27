@@ -50,6 +50,17 @@ export const LookSchema = z.object({
 });
 export type Look = z.infer<typeof LookSchema>;
 
+/**
+ * Fader smoothing (docs/specs/groups-masters.md, « Lissage »): the level sent glides to the level
+ * asked, `msPerStep` per 1/255 of the travel, at a fixed speed (`linear`) or eased in and out
+ * (`ease`). Absent = the level applies at once.
+ */
+export const FaderSmoothingSchema = z.object({
+  curve: z.enum(["linear", "ease"]).default("linear"),
+  msPerStep: z.number().min(0.1).max(1000),
+});
+export type FaderSmoothing = z.infer<typeof FaderSmoothingSchema>;
+
 /** Unified group (docs/specs/groups-masters.md). */
 export const GroupSchema = z.object({
   id: z.string(),
@@ -64,7 +75,7 @@ export const GroupSchema = z.object({
     .default({}),
   /** Dynamic members: fixtures whose role / tags match. */
   selector: z.object({ role: z.string().optional(), tags: z.array(z.string()).optional() }).optional(),
-  master: z.object({ level: z.number().min(0).max(1).default(1), mute: z.boolean().default(false) }).optional(),
+  master: z.object({ level: z.number().min(0).max(1).default(1), mute: z.boolean().default(false), smoothing: FaderSmoothingSchema.optional() }).optional(),
   exclusive: z.boolean().default(false),
   /**
    * DCA limits (docs/specs/groups-masters.md): bounds of the effective level. `clamp`: the fader
@@ -102,6 +113,7 @@ export const ChannelFaderSchema = z.object({
   range: z.object({ min: z.number().int().min(0).max(255).default(0), max: z.number().int().min(0).max(255).default(255) }).optional(),
   /** DCA dosing this fader (a QLC+ Submaster in the same frame): its effective level multiplies the fader's. */
   dca: z.string().optional(),
+  smoothing: FaderSmoothingSchema.optional(),
   notes: z.string().optional(),
 });
 export type ChannelFader = z.infer<typeof ChannelFaderSchema>;
@@ -138,6 +150,7 @@ export const ShowSettingsSchema = z.object({
   /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */
   safeSnapshot: z.string().optional(),
   grandMaster: z.number().min(0).max(1).default(1),
+  grandMasterSmoothing: FaderSmoothingSchema.optional(),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary", "toggle"]).default("trigger"),
   /** Several looks on the same fixture: the last one started covers the others (« last »), or each colour keeps its highest value (« highest »: they add up). */
   looksMerge: z.enum(["last", "highest"]).default("last"),

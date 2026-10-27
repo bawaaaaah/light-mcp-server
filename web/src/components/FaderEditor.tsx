@@ -9,6 +9,7 @@ import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { ChannelTree, type PickedChannel } from "./ChannelTree";
 import { confirmDelete } from "./confirmDelete";
+import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
 
 export interface FaderDraft {
@@ -19,6 +20,7 @@ export interface FaderDraft {
   /** The DMX values its travel covers (QLC+'s low and high limits). */
   range?: { min: number; max: number };
   dca?: string;
+  smoothing?: Smoothing;
   notes?: string;
 }
 export interface FixtureChannels {
@@ -43,6 +45,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   const [channels, setChannels] = useState<PickedChannel[]>(initial.channels);
   const [dca, setDca] = useState(initial.dca ?? "");
   const [range, setRange] = useState(initial.range ?? { min: 0, max: 255 });
+  const [smoothing, setSmoothing] = useState(initial.smoothing);
   const [groups, setGroups] = useState<{ id: string; name: string; master?: unknown; members: { fixtures: string[]; groups: string[] } }[]>([]);
   const [error, setError] = useState("");
   const isNew = !initial.id;
@@ -57,7 +60,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
     if (!channels.length) return setError(t.faderNoChannel);
     if (range.min > range.max) return setError(t.rangeOrder);
     const ranged = range.min > 0 || range.max < 255;
-    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, ...(ranged ? { range } : {}), dca: dca || undefined, notes } })
+    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, ...(ranged ? { range } : {}), dca: dca || undefined, smoothing, notes } })
       .then(onClose)
       .catch((e: Error) => setError(e.message));
   };
@@ -91,6 +94,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
             ))}
           </select>
         </label>
+        <SmoothingField value={smoothing} onChange={setSmoothing} />
       </div>
       <p className="hint">{t.faderHelp}</p>
       <ChannelTree fixtures={all} groups={groups} selected={channels} onChange={setChannels} />

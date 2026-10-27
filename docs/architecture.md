@@ -87,6 +87,7 @@ docs/
 | `light:conflicts` | control | conflits entre looks actifs |
 | `light:auth` | control | session et rôle |
 | `light:command` | control | chaque commande qui a changé quelque chose : nom, origine, objet visé, réussite ; ses arguments seulement s'ils sont courts (≤ 2 Kio : un import porte tout un workspace) ; jamais l'auteur (le journal d'activité, avec son droit, le donne) |
+| `light:glide` | control | faders lissés en chemin : `{ groups, faders, gm? }`, la valeur envoyée de chacun, ≤ 25 Hz pendant un glissement, puis un message vide ([groups-masters](specs/groups-masters.md) § Lissage) |
 | `light:dmx` | stream | `params.universes`, 512 octets par univers, ≤ 25 Hz par client, envoyé seulement s'il y a un changement |
 | `light:fx-preview` | stream | aperçu d'un effet en cours d'édition |
 

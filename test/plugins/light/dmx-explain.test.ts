@@ -23,7 +23,7 @@ describe("dmx.explain: why a channel has its value", () => {
     expect(e.fixture).to.deep.include({ name: "Bar 0", offset: 3 });
     expect(e.fixture!.channel).to.be.a("string");
     expect(e.intensity!.dcas.map((d) => [d.name, d.own])).to.deep.include(["Face", 0.5]);
-    expect(e.faders).to.deep.equal([{ id: "w", name: "Blanc", level: 0.4, dca: "face", effective: 0.2 }]); // 40 % × the DCA's 50 %
+    expect(e.faders).to.deep.equal([{ id: "w", name: "Blanc", level: 0.4, sent: 0.4, dca: "face", effective: 0.2 }]); // 40 % × the DCA's 50 %
     expect(e.parked).to.equal(99);
     const outside = (await run("dmx.explain", { universe: 1, channel: 500 })) as E;
     expect(outside.fixture).to.equal(undefined);

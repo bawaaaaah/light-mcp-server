@@ -398,11 +398,19 @@ export class LightPlugin implements McpPlugin {
       (xs) => xs[xs.length - 1]!,
       (now) => this.publish("frame", { now, buffers: this.engine.output.buffers }),
     );
+    // smoothed faders on their way (docs/specs/groups-masters.md, « Lissage »): ghost bars on the Live;
+    // one empty message once all have arrived, so they go away
+    const publishGlide = throttleMerge<ReturnType<ShowRuntime["gliding"]>>(40, (xs) => xs[xs.length - 1]!, (g) => this.publish("glide", g));
+    let wasGliding = false;
     let lastClampKey = "";
     this.engine.onFrame((buffers, now) => {
       if (this.songs) followPosition(this.songs);
       this.router.sendFrame(buffers);
       publishFrame(now);
+      const glide = this.runtime?.gliding();
+      const gliding = !!glide && (glide.gm !== undefined || Object.keys(glide.groups).length > 0 || Object.keys(glide.faders).length > 0);
+      if (glide && (gliding || wasGliding)) publishGlide(glide);
+      wasGliding = gliding;
       const clamps = this.runtime?.lastClamps ?? [];
       const key = clamps.map((c) => `${c.fixture}/${c.channel}/${c.to}`).join("|");
       if (key !== lastClampKey) {
@@ -582,7 +590,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -600,6 +608,7 @@ export class LightPlugin implements McpPlugin {
       // AI clients may touch up the service live: said on every page while it is so
       liveAi: Boolean(this.runtime?.settings.liveAi),
       grandMaster: this.runtime?.settings.grandMaster ?? 1,
+      grandMasterSmoothed: Boolean(this.runtime?.settings.grandMasterSmoothing),
     };
   }
 
@@ -1006,6 +1015,8 @@ export class LightPlugin implements McpPlugin {
       midi: { channel: "control" },
       tempo: { channel: "control" },
       rules: { channel: "control" },
+      /** Smoothed faders on their way: the level each one sends (groups-masters.md, « Lissage »). */
+      glide: { channel: "control" },
       song: { channel: "control" },
     };
   }

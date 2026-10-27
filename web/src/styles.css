@@ -977,6 +977,24 @@ table.cues select {
 .fader .limits {
   font-size: 0.7rem;
 }
+/* smoothed fader on its way: the level really sent (groups-masters.md, « Lissage ») */
+.fader .track .ghost-bar {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 14px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--wc, var(--accent)) 40%, transparent);
+  border-top: 2px solid var(--wc, var(--accent));
+  border-radius: 3px 3px 0 0;
+  pointer-events: none;
+}
+.fader .sent {
+  color: var(--wc, var(--accent));
+}
+.fader .smoothed-mark {
+  cursor: help;
+}
 .preview-widget {
   overflow: hidden;
 }

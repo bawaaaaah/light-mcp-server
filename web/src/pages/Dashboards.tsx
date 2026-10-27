@@ -54,7 +54,7 @@ interface Group {
   name: string;
   exclusive?: boolean;
   members?: { looks: string[] };
-  master?: { level: number; mute: boolean };
+  master?: { level: number; mute: boolean; smoothing?: unknown };
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   effectiveLevel: number;
 }
@@ -63,6 +63,7 @@ interface ChannelFader {
   name: string;
   level: number;
   channels: unknown[];
+  smoothing?: unknown;
 }
 interface Tempo {
   bpm: number;
@@ -286,11 +287,13 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot"].includes(w.kind));
   const [error, setError] = useState("");
-  const state = useTopic<{ blackout: boolean; panicUndo?: boolean; grandMaster?: number } | null>("light:state", null);
+  const state = useTopic<{ blackout: boolean; panicUndo?: boolean; grandMaster?: number; grandMasterSmoothed?: boolean } | null>("light:state", null);
   // the grand master as dragged, until the server says it (a fader must not jump back mid-gesture)
   const [gm, setGm] = useState<number | null>(null);
   useEffect(() => setGm(null), [state?.grandMaster]);
   const tempo = useTopic<Tempo | null>("light:tempo", null);
+  // smoothed faders on their way: the level really sent, drawn as a ghost bar (groups-masters.md, « Lissage »)
+  const glide = useTopic<Glide>("light:glide", { groups: {}, faders: {} });
   const mic = useSyncExternalStore(microphone.subscribe, () => microphone.state);
   // the tempo heard in the room: followed while the microphone is on, a manual tempo again after
   const toggleMic = () => {
@@ -654,12 +657,18 @@ export function DashboardsPage({ role }: { role: Role }) {
                   void run("fader.level", { id: f.id, level });
                 }}
               />
+              <GhostBar level={glide.faders[f.id]} />
             </div>
-            <span className="value">{Math.round(f.level * 100)}%</span>
+            <span className="value">
+              {Math.round(f.level * 100)}%<Sent level={glide.faders[f.id]} />
+            </span>
             <small className="limits">
               {f.channels.length} {t.channelsShort}
             </small>
-            <label>{w.label ?? f.name}</label>
+            <label>
+              {w.label ?? f.name}
+              <SmoothedMark on={Boolean(f.smoothing)} />
+            </label>
           </div>
         );
       }
@@ -681,9 +690,15 @@ export function DashboardsPage({ role }: { role: Role }) {
                   void run("grandmaster.set", { level: v });
                 }}
               />
+              <GhostBar level={glide.gm} />
             </div>
-            <span className="value">{Math.round(level * 100)}%</span>
-            <label>{w.label ?? t.widgetKinds["grand-master"]}</label>
+            <span className="value">
+              {Math.round(level * 100)}%<Sent level={glide.gm} />
+            </span>
+            <label>
+              {w.label ?? t.widgetKinds["grand-master"]}
+              <SmoothedMark on={Boolean(state?.grandMasterSmoothed)} />
+            </label>
           </div>
         );
       }
@@ -706,15 +721,17 @@ export function DashboardsPage({ role }: { role: Role }) {
                 let level = Number(e.target.value) / 1000;
                 // clamp mode: the fader stops at the DCA limits (position = level)
                 if (g.limits?.mode !== "scale") level = Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, level));
-                setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, master: { level, mute: x.master?.mute ?? false } } : x)));
+                setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, master: { ...x.master, level, mute: x.master?.mute ?? false } } : x)));
                 void run("group.level", { id: g.id, level });
               }}
             />
             {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
             {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
+            <GhostBar level={glide.groups[g.id]} />
             </div>
             <span className="value">
-              {Math.round(shown * 100)}%<small> ({Math.round(g.effectiveLevel * 100)}%)</small>
+              {Math.round(shown * 100)}%<Sent level={glide.groups[g.id]} />
+              <small> ({Math.round(g.effectiveLevel * 100)}%)</small>
             </span>
             {g.limits && (g.limits.min !== undefined || g.limits.max !== undefined) && (
               <small className="limits">
@@ -729,7 +746,10 @@ export function DashboardsPage({ role }: { role: Role }) {
                 F
               </button>
             </div>
-            <label>{w.label ?? g.name}</label>
+            <label>
+              {w.label ?? g.name}
+              <SmoothedMark on={Boolean(g.master?.smoothing)} />
+            </label>
           </div>
         );
       }
@@ -1124,4 +1144,32 @@ export function DashboardsPage({ role }: { role: Role }) {
       )}
     </div>
   );
+}
+
+/** Levels of the smoothed faders still on their way (topic light:glide). */
+interface Glide {
+  groups: Record<string, number>;
+  faders: Record<string, number>;
+  gm?: number;
+}
+
+/** The level really sent by a smoothed fader on its way, over its track; nothing once arrived. */
+function GhostBar({ level }: { level: number | undefined }) {
+  if (level === undefined) return null;
+  return <span className="ghost-bar" aria-hidden style={{ height: `${level * 100}%` }} />;
+}
+
+/** « → 42 % »: the level sent, beside the level asked, while it glides. */
+function Sent({ level }: { level: number | undefined }) {
+  if (level === undefined) return null;
+  return <small className="sent"> → {Math.round(level * 100)}%</small>;
+}
+
+function SmoothedMark({ on }: { on: boolean }) {
+  const t = useT();
+  return on ? (
+    <small className="smoothed-mark" title={t.smoothedMark}>
+      {" "}≈
+    </small>
+  ) : null;
 }

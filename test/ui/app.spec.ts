@@ -918,6 +918,29 @@ test("group fader drives the master and the dimmer", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("smoothed DCA: the output glides to the fader, a ghost bar shows the level sent", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type G = { id: string; master?: { level: number; mute: boolean; smoothing?: unknown } };
+  const master = ((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!;
+  try {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false, smoothing: { curve: "linear", msPerStep: 10 } } } });
+    await page.reload();
+    const cell = page.locator(".cell .fader").first();
+    await expect(cell.locator("label")).toContainText("≈"); // the mark of a smoothed fader
+    await cell.locator("input[type=range]").fill("0"); // 2.55 s to get there
+    await expect(cell.locator(".ghost-bar")).toBeVisible();
+    await expect(cell.locator(".sent")).toBeVisible();
+    expect((await dmx(page))[0]).toBeGreaterThan(0); // still on its way down
+    await page.screenshot({ path: "test-results/fader-ghost-bar.png" });
+    await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 5000 }); // arrived: gone
+    expect((await dmx(page))[0]).toBe(0);
+  } finally {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("DCA limits: a max set on the Show page stops the fader on the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -2424,11 +2447,16 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   await expect(editor.getByText("2 canal(aux) pilotés")).toBeVisible();
   await editor.getByLabel("Dosé par le DCA").selectOption("master");
   await editor.getByLabel("Borne supérieure").fill("200"); // as QLC+'s value range
+  // smoothed: the output glides to the fader, 10 ms per step (a full travel in 2.55 s), eased
+  await editor.getByLabel("Lissage").selectOption("10");
+  await expect(editor.getByText("0 → 100 % en 2,6 s")).toBeVisible();
+  await editor.getByLabel("Courbe").selectOption("ease");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
-  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[]; dca?: string; range?: unknown }[]).find((f) => f.id === "strobes")!;
+  const saved = ((await api(page, "fader.list")) as { id: string; channels: unknown[]; dca?: string; range?: unknown; smoothing?: unknown }[]).find((f) => f.id === "strobes")!;
   expect(saved.dca).toBe("master");
   expect(saved.range).toEqual({ min: 0, max: 200 });
+  expect(saved.smoothing).toEqual({ curve: "ease", msPerStep: 10 });
   expect(saved.channels).toEqual([
     { fixture: "bar-0", offset: 1 },
     { fixture: "bar-1", offset: 1 },

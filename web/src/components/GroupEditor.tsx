@@ -7,13 +7,14 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
+import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
 
 export interface GroupDraft {
   id: string;
   name: string;
   members: { fixtures: string[]; looks: string[]; groups: string[] };
-  master?: { level: number; mute: boolean };
+  master?: { level: number; mute: boolean; smoothing?: Smoothing };
   exclusive: boolean;
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   presets: { included: string[]; excluded: string[] };
@@ -119,6 +120,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
             <input type="checkbox" checked={Boolean(g.playback)} onChange={(e) => setG({ ...g, playback: e.target.checked || undefined })} />
           </label>
         )}
+        {g.master && <SmoothingField value={g.master.smoothing} onChange={(smoothing) => setG({ ...g, master: { ...g.master!, smoothing } })} />}
         <label className="field">
           <span>{t.exclusive}</span>
           <input type="checkbox" checked={g.exclusive} onChange={(e) => setG({ ...g, exclusive: e.target.checked })} />

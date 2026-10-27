@@ -53,6 +53,44 @@ describe("show runtime", () => {
     expect(venue.strobing([strobe])).to.deep.equal({ "bar-l": null });
   });
 
+  it("glides smoothed DCA, channel and grand master faders to their level (groups-masters.md, « Lissage »)", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" } });
+    show.go("f");
+    const smoothing = { curve: "linear" as const, msPerStep: 10 }; // full travel in 2550 ms; the DCAs dose the dimmer (channel 1)
+    show.groups.put({ id: "m", name: "M", members: { fixtures: ["bar-l"] }, master: { level: 0, mute: false, smoothing } });
+    expect(dmx()[0]).to.equal(0);
+    show.groups.putLive({ ...show.groups.get("m")!, master: { level: 1, mute: false, smoothing } });
+    expect(dmx()[0]).to.equal(0); // asked 100 %, still at 0 %
+    advance(1275 / 500);
+    expect(dmx()[0]).to.equal(128); // halfway
+    expect(show.gliding().groups.m).to.be.closeTo(0.5, 1e-9);
+    show.setFlash("m", true);
+    expect(dmx()[0]).to.equal(255); // a flash is never smoothed
+    show.setFlash("m", false);
+    advance(1275 / 500);
+    expect(dmx()[0]).to.equal(255);
+    expect(show.gliding()).to.deep.equal({ groups: {}, faders: {} });
+    // the grand master
+    show.saveSettings({ grandMasterSmoothing: smoothing });
+    dmx();
+    show.saveSettings({ grandMaster: 0 });
+    expect(dmx()[0]).to.equal(255); // the glide starts at the frame that sees the change
+    advance(1275 / 500);
+    expect(dmx()[0]).to.equal(128);
+    expect(show.gliding().gm).to.be.closeTo(0.5, 1e-9);
+    show.saveSettings({ grandMaster: 1, grandMasterSmoothing: undefined });
+    expect(dmx()[0]).to.equal(255); // smoothing off: at once
+    // a channel fader (bar-r's first green, which the red look leaves at 0)
+    show.faders.put({ id: "w", name: "W", channels: [{ fixture: "bar-r", offset: 4 }], level: 0, smoothing });
+    expect(dmx()[19]).to.equal(0);
+    show.faders.putLive({ ...show.faders.get("w")!, level: 1 });
+    expect(dmx()[19]).to.equal(0);
+    advance(1275 / 500);
+    expect(dmx()[19]).to.equal(128);
+    expect(show.gliding().faders.w).to.be.closeTo(0.5, 1e-9);
+  });
+
   it("plays a look on the canvas and follows the beat", () => {
     const { show, dmx, advance } = setup();
     show.looks.put({ id: "dam", name: "Damier", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 } });

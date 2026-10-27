@@ -6,6 +6,7 @@ import { actionOf, build, newMapping, type Action, type MappingDraft } from "./M
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
+import { SmoothingField, type Smoothing } from "./SmoothingField";
 
 export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
@@ -187,6 +188,7 @@ export function WidgetMenu({
         <span>{t.widgetLabel}</span>
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
       </label>
+      {widget.kind === "grand-master" && <GrandMasterSmoothing onError={setError} />}
       {widget.kind !== "preview" && (
         <div className="field">
           <span>{t.widgetColor}</span>
@@ -305,5 +307,22 @@ export function WidgetMenu({
         <button onClick={onClose}>{t.close}</button>
       </div>
     </div>
+  );
+}
+
+/** The grand master's smoothing, kept in the show settings (docs/specs/groups-masters.md, « Lissage »). */
+function GrandMasterSmoothing({ onError }: { onError: (e: string) => void }) {
+  const [value, setValue] = useState<Smoothing | undefined | null>(null);
+  useEffect(() => void cmd<{ grandMasterSmoothing?: Smoothing }>("show.settings").then((s) => setValue(s.grandMasterSmoothing), (e: Error) => onError(e.message)), [onError]);
+  if (value === null) return null;
+  return (
+    <SmoothingField
+      value={value}
+      onChange={(next) => {
+        setValue(next);
+        // null clears it: a partial settings patch cannot carry « absent »
+        void cmd("show.settings.set", { grandMasterSmoothing: next ?? null }).catch((e: Error) => onError(e.message));
+      }}
+    />
   );
 }
