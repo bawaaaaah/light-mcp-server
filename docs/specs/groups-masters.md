@@ -75,6 +75,10 @@ Groupe {
 - Lissé, le niveau **envoyé** rejoint le niveau **demandé** progressivement, sans saut (un geste brusque, un fader MIDI qui ne part pas du même endroit que l'interface) : `msPerStep` millisecondes par pas, un pas étant **1/255 de la course** (10 ms par pas : 0 → 100 % en 2,55 s ; la moitié de la course en la moitié du temps). Choix dans l'éditeur : aucun, 1, 2, 5, 10 ms par pas, ou personnalisé.
 - **Courbe** : vitesse fixe (`linear`) ou ease in / ease out (`ease`, smoothstep, sur la même durée).
 - Le fader bougé pendant un glissement : un nouveau glissement repart de la valeur **envoyée**, jamais de saut. Le glissement part à la frame qui voit le changement (≤ 23 ms à 44 Hz).
+- En ease in / ease out, il garde aussi sa **vitesse** (2026-10-28) : un fader MIDI envoie une valeur toutes les quelques millisecondes, et relancer chaque fois un ease in depuis l'arrêt laissait la sortie quasi immobile tant que le fader bougeait (mesuré : un fader poussé de 0 à 100 % en 1 s, la sortie encore à 0 % au bout d'une seconde, contre 57 % maintenant).
+  - **Même sens** : la courbe part de la vitesse actuelle et ralentit seulement en arrivant sur la nouvelle cible, sans la dépasser ; pas de nouvel ease in, et un ease out en cours continue.
+  - **Demi-tour** : la sortie freine d'abord (aussi doucement que l'ease d'une course complète, sans aller au-delà de la cible qu'elle visait), puis repart en ease vers la nouvelle cible.
+  - La vitesse fixe ne change pas.
 - Seul le **niveau** glisse : mute, flash, Blackout et Panic restent **instantanés**. Les commandes (`group.level`, `fader.level`, `grandmaster.set`), le retour MIDI, les instantanés et le disque gardent la valeur **demandée**.
 - **Ghost bar** : pendant un glissement, le serveur publie les valeurs envoyées (topic `light:glide`, ≤ 25 Hz, un dernier message vide à l'arrivée) ; le widget fader du Live les dessine en barre translucide sur sa course, avec « → 42 % » à côté de la valeur demandée. Un fader lissé porte la marque « ≈ ». `dmx.explain` donne aussi les valeurs envoyées (`sent`, `grandMasterSent`).
 
