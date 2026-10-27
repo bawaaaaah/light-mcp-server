@@ -52,6 +52,11 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
   }
 }
 
+/** What a widget's full editor edits: the look it starts, the DCA (or the moving heads' group) it drives, its channel fader. */
+export type AdvancedKind = "look" | "group" | "fader";
+const advancedOf = (kind: WidgetKind): AdvancedKind | undefined =>
+  kind === "look" ? "look" : kind === "group-fader" || kind === "xy" ? "group" : kind === "channel-fader" ? "fader" : undefined;
+
 /** An exclusive group, a set of buttons that behave as radio buttons. */
 export interface ExclusiveSet {
   id: string;
@@ -106,7 +111,7 @@ export function WidgetMenu({
   onChange,
   onRemove,
   onClose,
-  onEditLook,
+  onAdvanced,
 }: {
   widget: MenuWidget;
   at: { x: number; y: number };
@@ -121,8 +126,8 @@ export function WidgetMenu({
   onChange: (patch: Partial<MenuWidget>) => void;
   onRemove: () => void;
   onClose: () => void;
-  /** Opens the editor of the look this button starts (the Live page, over the dashboard). */
-  onEditLook?: (id: string) => void;
+  /** Opens the full editor of what the widget drives — a look, a DCA, a channel fader — over the dashboard. */
+  onAdvanced?: (kind: AdvancedKind, id: string) => void;
 }) {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
@@ -133,6 +138,7 @@ export function WidgetMenu({
   const [wide, setWide] = useState(false);
   const [error, setError] = useState("");
   const action = midiAction(widget);
+  const advanced = widget.target ? advancedOf(widget.kind) : undefined;
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
   useEffect(loadMappings, []);
 
@@ -163,11 +169,6 @@ export function WidgetMenu({
         {t.widgetKinds[widget.kind]}
         {widget.label ? ` · ${widget.label}` : ""}
       </h3>
-      {widget.kind === "look" && widget.target && onEditLook && (
-        <button className="primary" onClick={() => onEditLook(widget.target!)}>
-          ✎ {t.editThisLook}
-        </button>
-      )}
       {widget.kind === "look" && widget.target && (
         <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
@@ -189,6 +190,7 @@ export function WidgetMenu({
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
       </label>
       {widget.kind === "grand-master" && <GrandMasterSmoothing onError={setError} />}
+      {(widget.kind === "group-fader" || widget.kind === "channel-fader") && widget.target && <TargetSmoothing key={widget.target} kind={widget.kind === "group-fader" ? "group" : "fader"} id={widget.target} onError={setError} />}
       {widget.kind !== "preview" && (
         <div className="field">
           <span>{t.widgetColor}</span>
@@ -299,6 +301,12 @@ export function WidgetMenu({
         </div>
       )}
       {error && <p className="error">{error}</p>}
+      {/* the whole editor of what it drives, where the menu stops: members, channels, timing… */}
+      {advanced && onAdvanced && (
+        <button className="advanced" title={t.advancedHelp} onClick={() => onAdvanced(advanced, widget.target!)}>
+          ✎ {t.advanced}
+        </button>
+      )}
       <div className="row">
         <button className="danger" onClick={onRemove}>
           {t.removeWidget}
@@ -322,6 +330,32 @@ function GrandMasterSmoothing({ onError }: { onError: (e: string) => void }) {
         setValue(next);
         // null clears it: a partial settings patch cannot carry « absent »
         void cmd("show.settings.set", { grandMasterSmoothing: next ?? null }).catch((e: Error) => onError(e.message));
+      }}
+    />
+  );
+}
+
+/** A DCA's or a channel fader's smoothing, saved at once on the object it drives. */
+function TargetSmoothing({ kind, id, onError }: { kind: "group" | "fader"; id: string; onError: (e: string) => void }) {
+  type Target = { id: string; smoothing?: Smoothing; master?: { level: number; mute: boolean; smoothing?: Smoothing } };
+  const [target, setTarget] = useState<Target | null>(null);
+  useEffect(() => void cmd<Target[]>(`${kind}.list`).then((l) => setTarget(l.find((x) => x.id === id) ?? null), (e: Error) => onError(e.message)), [kind, id, onError]);
+  // a group without a master has no fader to smooth
+  if (!target || (kind === "group" && !target.master)) return null;
+  return (
+    <SmoothingField
+      value={kind === "group" ? target.master!.smoothing : target.smoothing}
+      onChange={(smoothing) => {
+        const smoothed = (x: Target) => (kind === "group" ? { ...x, master: { ...x.master!, smoothing } } : { ...x, smoothing });
+        setTarget(smoothed(target));
+        // read again first: the fader may have moved since the menu opened, its level is not ours to put back
+        void cmd<Target[]>(`${kind}.list`)
+          .then((l) => {
+            const fresh = l.find((x) => x.id === id);
+            if (!fresh) throw new Error(id);
+            return cmd(`${kind}.put`, { [kind]: smoothed(fresh) });
+          })
+          .catch((e: Error) => onError(e.message));
       }}
     />
   );

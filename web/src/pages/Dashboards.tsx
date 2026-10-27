@@ -10,6 +10,10 @@ import { Modal } from "../components/Modal";
 import type { LookDraft } from "../components/LookEditor";
 // the editor only when a look is opened from the Live: the Live page stays light to load
 const LookEditor = lazy(() => import("../components/LookEditor").then((m) => ({ default: m.LookEditor })));
+const GroupEditor = lazy(() => import("../components/GroupEditor").then((m) => ({ default: m.GroupEditor })));
+const FaderEditor = lazy(() => import("../components/FaderEditor").then((m) => ({ default: m.FaderEditor })));
+import type { GroupDraft } from "../components/GroupEditor";
+import type { FaderDraft } from "../components/FaderEditor";
 import { GettingStarted } from "../components/GettingStarted";
 import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, SWATCHES, textOn } from "../color";
@@ -211,6 +215,9 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   /** A look opened for editing from its button's menu, over the dashboard. */
   const [editingLook, setEditingLook] = useState<LookDraft | null>(null);
+  // a DCA's or a channel fader's whole editor, from the « Advanced » of a widget's menu
+  const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
+  const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
   /**
    * A finger has no right button: a long press opens the same menu on a tablet. Not on what one
    * holds or drags anyway (momentary buttons, faders, the XY pad); the click that ends it is eaten.
@@ -1128,11 +1135,44 @@ export function DashboardsPage({ role }: { role: Role }) {
             setMenu(null);
           }}
           onClose={() => setMenu(null)}
-          onEditLook={(id) => {
+          onAdvanced={(kind, id) => {
             setMenu(null);
-            void cmd<LookDraft>("look.get", { id }).then(setEditingLook, (e: Error) => setError(e.message)); // the list is brief: the editor needs the whole look
+            const fail = (e: Error) => setError(e.message);
+            if (kind === "look") void cmd<LookDraft>("look.get", { id }).then(setEditingLook, fail); // the list is brief: the editor needs the whole look
+            else if (kind === "group") void cmd<GroupDraft[]>("group.list").then((l) => setEditingGroup(l.find((g) => g.id === id) ?? null), fail);
+            else void cmd<FaderDraft[]>("fader.list").then((l) => setEditingFader(l.find((f) => f.id === id) ?? null), fail);
           }}
         />
+      )}
+      {editingGroup && (
+        <Modal label={editingGroup.name}>
+          <Suspense fallback={<p className="hint">…</p>}>
+            <GroupEditor
+              key={editingGroup.id}
+              initial={editingGroup}
+              existing={groups.map((g) => g.id)}
+              onClose={() => {
+                setEditingGroup(null);
+                refresh();
+              }}
+            />
+          </Suspense>
+        </Modal>
+      )}
+      {editingFader && (
+        <Modal label={editingFader.name}>
+          <Suspense fallback={<p className="hint">…</p>}>
+            <FaderEditor
+              key={editingFader.id}
+              initial={editingFader}
+              existing={faders.map((f) => f.id)}
+              onClose={() => {
+                setEditingFader(null);
+                refresh();
+              }}
+            />
+          </Suspense>
+        </Modal>
       )}
       {editingLook && (
         <Modal label={editingLook.name}>

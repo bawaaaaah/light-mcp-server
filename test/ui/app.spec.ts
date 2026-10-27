@@ -442,7 +442,7 @@ test("right-click on a look button in the Live: edit its look in a window, over 
   const errors = watchErrors(page);
   await login(page);
   await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click({ button: "right" });
-  await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("button", { name: "✎ Modifier le look" }).click();
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("button", { name: "✎ Avancé" }).click();
   const editor = page.getByRole("dialog", { name: "hole" });
   await expect(editor.locator(".look-editor")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Réglages du widget" })).toHaveCount(0); // the menu made way
@@ -952,6 +952,31 @@ test("smoothed DCA: the output glides to the fader, a ghost bar shows the level 
     await page.screenshot({ path: "test-results/fader-ghost-bar.png" });
     await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 5000 }); // arrived: gone
     expect((await dmx(page))[0]).toBe(0);
+  } finally {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("right-click on a DCA fader: its smoothing, and « Advanced » opens the group editor", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type G = { id: string; master?: { level: number; mute: boolean; smoothing?: unknown } };
+  const master = ((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!;
+  try {
+    await page.locator(".cell .fader").first().click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    await menu.getByLabel("Lissage").selectOption("5");
+    await expect.poll(async () => ((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!.master!.smoothing).toEqual({ curve: "linear", msPerStep: 5 });
+    await expect(page.locator(".cell .fader label").first()).toContainText("≈");
+    await page.screenshot({ path: "test-results/widget-menu-smoothing.png" });
+    await menu.getByRole("button", { name: "✎ Avancé" }).click();
+    await expect(menu).toHaveCount(0); // the menu made way
+    const editor = page.locator(".group-editor");
+    await expect(editor).toBeVisible();
+    await expect(editor.getByLabel("Lissage")).toHaveValue("5"); // the same setting, in the whole editor
+    await editor.getByRole("button", { name: "Fermer" }).click();
+    await expect(editor).toHaveCount(0);
   } finally {
     await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
   }
