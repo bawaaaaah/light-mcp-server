@@ -122,6 +122,7 @@ namespace LightMCPMenuBar {
                             break;
                     }
                     _tray.Icon = icon;
+                    _tray.Visible = true;
                     _tray.Text = "Light MCP . " + StatusText();
                 }));
             } catch { }
