@@ -19,3 +19,6 @@ __pycache__/
 # App de barre de menus macOS (macos/build-app.sh)
 macos/build/
 macos/LightMenuBar/.build/
+
+# App de barre des taches Windows (windows/build-app.ps1)
+windows/build/
