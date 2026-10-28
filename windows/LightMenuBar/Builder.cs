@@ -45,6 +45,7 @@ namespace LightMCPMenuBar {
                 proc.BeginErrorReadLine();
 
                 proc.Exited += (s, e) => {
+                    try { proc.WaitForExit(); } catch { }
                     bool success = proc.ExitCode == 0;
                     string tail;
                     lock (lockObj) {

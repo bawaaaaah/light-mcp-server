@@ -27,7 +27,7 @@ namespace LightMCPMenuBar {
             using (var g = Graphics.FromImage(bmp)) {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-                int a = dimmed ? 90 : 255;
+                int a = dimmed ? 170 : 255;
                 // projector body
                 using (var b = new SolidBrush(Color.FromArgb(a, 70, 70, 75))) {
                     g.FillRectangle(b, 6, 10, 20, 12);

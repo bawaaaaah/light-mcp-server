@@ -162,11 +162,11 @@ namespace LightMCPMenuBar {
                 CheckOnClick = false,
                 Checked = AppSettings.StartServerOnLaunch
             };
-            autoStart.Click += (s, e) => { AppSettings.StartServerOnLaunch = !AppSettings.StartServerOnLaunch; };
+            autoStart.Click += (s, e) => { AppSettings.StartServerOnLaunch = !AppSettings.StartServerOnLaunch; autoStart.Checked = AppSettings.StartServerOnLaunch; };
             _menu.Items.Add(autoStart);
 
             var login = new ToolStripMenuItem("Ouvrir a la connexion") { Checked = IsOpenAtLogin() };
-            login.Click += (s, e) => ToggleOpenAtLogin();
+            login.Click += (s, e) => { ToggleOpenAtLogin(); login.Checked = IsOpenAtLogin(); };
             _menu.Items.Add(login);
             _menu.Items.Add(new ToolStripSeparator());
 
