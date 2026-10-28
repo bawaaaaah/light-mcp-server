@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, "claude/**", "windows/**", "windows-menubar"]
   pull_request:
     branches: [main]
   # Called by release.yml so a release runs exactly the same checks before anything is published.
@@ -41,6 +41,27 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  windows-menubar:
+    name: Windows menu bar app
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Build the Windows menu bar app
+        shell: pwsh
+        run: .\windows\build-app.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-menubar
+          path: windows/build/LightMCP/
+          retention-days: 7
 
   ui:
     name: Browser tests (Playwright)
