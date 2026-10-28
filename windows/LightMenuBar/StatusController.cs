@@ -26,7 +26,7 @@ namespace LightMCPMenuBar {
             _menu.Opening += (s, e) => RebuildMenu();
 
             _tray = new NotifyIcon {
-                Icon = SystemIcons.Application,
+                Icon = TrayIcons.Normal,
                 Visible = true,
                 ContextMenuStrip = _menu,
                 Text = "Light MCP"
@@ -103,7 +103,7 @@ namespace LightMCPMenuBar {
                     Icon icon;
                     switch (d) {
                         case Display.Running:
-                            icon = (_health.Status != "HEALTHY") ? SystemIcons.Warning : SystemIcons.Application;
+                            icon = (_health.Status != "HEALTHY") ? SystemIcons.Warning : TrayIcons.Normal;
                             break;
                         case Display.Crashed:
                         case Display.Restarting:
@@ -115,10 +115,10 @@ namespace LightMCPMenuBar {
                             icon = SystemIcons.Information;
                             break;
                         case Display.Stopped:
-                            icon = SystemIcons.Application;
+                            icon = TrayIcons.Dimmed;
                             break;
                         default:
-                            icon = SystemIcons.Application;
+                            icon = TrayIcons.Normal;
                             break;
                     }
                     _tray.Icon = icon;
