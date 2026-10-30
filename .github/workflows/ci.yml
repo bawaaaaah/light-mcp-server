@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**", "windows/**", "windows-menubar"]
+    branches: [main, "claude/**"]
   pull_request:
     branches: [main]
   # Called by release.yml so a release runs exactly the same checks before anything is published.
@@ -43,20 +43,17 @@ jobs:
         run: npm run build
 
   windows-menubar:
-    name: Windows menu bar app
-    runs-on: windows-latest
-    timeout-minutes: 15
+    name: Windows tray app
+    # pinned like the Ubuntu jobs: this job gates releases too (release.yml calls this workflow)
+    runs-on: windows-2025
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci
-      - name: Build the Windows menu bar app
+      # The C# compiler of the .NET Framework only: no Node, no npm install. The artifact is the bare exe,
+      # which finds the checkout around it or reads repoPath from the registry (windows/README.md).
+      - name: Build the Windows tray app
         shell: pwsh
-        run: .\windows\build-app.ps1
+        run: .\windows\build-app.ps1 -NoInstall
       - uses: actions/upload-artifact@v4
         with:
           name: windows-menubar

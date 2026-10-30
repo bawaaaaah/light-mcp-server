@@ -1,79 +1,97 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
-using System.Web.Script.Serialization; // not available maybe; parse manually
+using System.Threading;
 
 namespace LightMCPMenuBar {
-    public class HealthMonitor {
+    /// <summary>Polls the server's anonymous `GET /health`, which answers `{"status":"HEALTHY"|"DEGRADED"|"ERROR"}`.</summary>
+    public sealed class HealthMonitor {
+        /// <summary>The last aggregate status, or null when nothing answered on the port.</summary>
         public string Status { get; private set; }
         public Action OnChange;
-        private System.Threading.Timer _timer;
-        private readonly System.Threading.SynchronizationContext _ctx;
 
-        public HealthMonitor() {
-            _ctx = System.Threading.SynchronizationContext.Current;
-        }
+        private const int TimeoutMs = 2000;
+        private System.Windows.Forms.Timer _timer;
+        private readonly SynchronizationContext _ui;
 
-        public void Start(double intervalSeconds = 3) {
+        /// <summary>Created on the UI thread: status changes happen there.</summary>
+        public HealthMonitor() { _ui = SynchronizationContext.Current; }
+
+        public void Start(int intervalMs = 3000) {
             Stop();
-            _timer = new System.Threading.Timer(_ => { Check(); }, null, 0, (int)(intervalSeconds * 1000));
+            _timer = new System.Windows.Forms.Timer { Interval = intervalMs };
+            _timer.Tick += (s, e) => Check();
+            _timer.Start();
+            Check();
         }
 
-        public void Stop() { if (_timer != null) { _timer.Dispose(); _timer = null; } }
+        public void Stop() {
+            if (_timer == null) return;
+            _timer.Stop();
+            _timer.Dispose();
+            _timer = null;
+        }
 
-        public void Reset() { Update(null); Check(null); }
+        /// <summary>
+        /// Forget the last answer, e.g. once our own process has exited, so a stale HEALTHY does not read
+        /// as an external server for the next few seconds.
+        /// </summary>
+        public void Reset() {
+            Update(null);
+            Check();
+        }
 
         public void Check(Action<string> completion = null) {
-            var url = "http://" + AppSettings.LocalHost + ":" + AppSettings.Port + "/health";
+            HttpWebRequest request;
             try {
-                var req = (HttpWebRequest)WebRequest.Create(url);
-                req.Timeout = 2000;
-                req.BeginGetResponse(ar => {
+                request = (HttpWebRequest)WebRequest.Create("http://" + AppSettings.LocalHost + ":" + AppSettings.Port + "/health");
+                request.Proxy = null; // never through the system proxy, and no proxy auto-detection delay
+                request.KeepAlive = false; // a pooled connection would outlive a restarted server
+                request.ReadWriteTimeout = TimeoutMs;
+                var pending = request.BeginGetResponse(result => {
                     string status = null;
                     try {
-                        using (var resp = (HttpWebResponse)req.EndGetResponse(ar)) {
-                            if (resp.StatusCode == HttpStatusCode.OK) {
-                                using (var s = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) {
-                                    var text = s.ReadToEnd();
-                                    status = ExtractStatus(text) ?? "UNKNOWN";
-                                }
-                            }
+                        using (var response = (HttpWebResponse)request.EndGetResponse(result))
+                        using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8)) {
+                            if (response.StatusCode == HttpStatusCode.OK) status = StatusOf(reader.ReadToEnd());
                         }
-                    } catch { status = null; }
-                    Post(() => { Update(status); if (completion != null) completion(status); });
+                    } catch { }
+                    Post(() => {
+                        Update(status);
+                        if (completion != null) completion(status);
+                    });
                 }, null);
+                // Timeout does not apply to BeginGetResponse: abort a request that hangs.
+                ThreadPool.RegisterWaitForSingleObject(pending.AsyncWaitHandle, (state, timedOut) => {
+                    if (timedOut) request.Abort();
+                }, null, TimeoutMs, true);
             } catch {
-                Post(() => { Update(null); if (completion != null) completion(null); });
+                Post(() => {
+                    Update(null);
+                    if (completion != null) completion(null);
+                });
             }
         }
 
-        private static string ExtractStatus(string json) {
-            if (string.IsNullOrEmpty(json)) return null;
-            // find "status":"..."
-            var key = "\"status\"";
-            int idx = json.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0) return null;
-            int colon = json.IndexOf(':', idx);
-            if (colon < 0) return null;
-            int i = colon + 1;
-            while (i < json.Length && (json[i] == ' ' || json[i] == '\t')) i++;
-            if (i < json.Length && json[i] == '"') {
-                int end = json.IndexOf('"', i + 1);
-                if (end > i) return json.Substring(i + 1, end - i - 1);
-            }
-            return null;
+        /// <summary>The `status` of a /health body, "UNKNOWN" without one, null when it is not JSON.</summary>
+        private static string StatusOf(string body) {
+            var json = AppSettings.ParseJson(body) as IDictionary<string, object>;
+            if (json == null) return null;
+            object status;
+            return json.TryGetValue("status", out status) && status is string ? (string)status : "UNKNOWN";
         }
 
-        private void Update(string newStatus) {
-            if (newStatus == Status) return;
-            Status = newStatus;
+        private void Update(string status) {
+            if (status == Status) return;
+            Status = status;
             if (OnChange != null) OnChange();
         }
 
-        private void Post(Action a) {
-            if (_ctx != null) _ctx.Post(_ => a(), null);
-            else a();
+        private void Post(Action action) {
+            if (_ui != null) _ui.Post(_ => action(), null);
+            else action();
         }
     }
 }

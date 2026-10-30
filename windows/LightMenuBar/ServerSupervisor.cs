@@ -1,119 +1,114 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
+using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 
 namespace LightMCPMenuBar {
-    public class ServerSupervisor {
-        public enum Phase { Stopped, Running, Stopping, WaitingToRestart, Crashed }
-        private Phase _currentPhase = Phase.Stopped;
-        public Phase CurrentPhase { get { return _currentPhase; } private set { _currentPhase = value; } }
-        public int? Pid { get; private set; }
+    /// <summary>
+    /// Owns the `node dist/cli/main.js serve` child: starts it, stops it and restarts it when it dies on
+    /// its own. Windows has no SIGTERM, so the server runs with LIGHT_STOP_ON_STDIN_CLOSE: closing its
+    /// stdin makes it save and exit, and it is killed if it is still there 5 s later. Its stdin also
+    /// closes when the app dies, so unlike on macOS the server never outlives the app and is never taken
+    /// back over (its output goes through the app anyway). The app never touches a process it did not start.
+    /// </summary>
+    public sealed class ServerSupervisor {
+        public enum Phase {
+            Stopped,
+            Running,
+            Stopping,
+            /// <summary>Died on its own; a restart is scheduled.</summary>
+            WaitingToRestart,
+            /// <summary>Died too often in a row; left stopped until the user acts.</summary>
+            Crashed
+        }
+
+        public Phase CurrentPhase { get; private set; }
+        public int? Pid { get { return _process == null ? (int?)null : _pid; } }
         public Action OnChange;
         public bool IsRunning { get { return CurrentPhase == Phase.Running || CurrentPhase == Phase.Stopping; } }
 
         private Process _process;
-        private int? _adoptedPid;
-        private System.Threading.Timer _adoptedWatch;
-        private bool _wantRunning = false;
-        private readonly System.Collections.Generic.List<DateTime> _crashTimes = new System.Collections.Generic.List<DateTime>();
-        private System.Threading.Timer _restartWork;
-        private readonly System.Collections.Generic.List<Action> _stopCompletions = new System.Collections.Generic.List<Action>();
-        private readonly System.Threading.SynchronizationContext _ctx;
+        private int _pid;
+        private LogFile _log;
+        private bool _wantRunning;
+        private readonly List<DateTime> _crashTimes = new List<DateTime>();
+        private System.Windows.Forms.Timer _restartTimer;
+        private System.Windows.Forms.Timer _killTimer;
+        private readonly List<Action> _stopCompletions = new List<Action>();
+        private readonly SynchronizationContext _ui;
 
-        private static readonly int[] RestartDelays = new int[] { 1, 2, 5, 10 };
+        private static readonly int[] RestartDelays = { 1, 2, 5, 10 };
         private const int CrashLimit = 5;
         private static readonly TimeSpan CrashWindow = TimeSpan.FromSeconds(60);
+        private const int StopTimeoutMs = 5000;
 
-        public ServerSupervisor() { _ctx = System.Threading.SynchronizationContext.Current; }
+        /// <summary>Created on the UI thread: every state change happens there.</summary>
+        public ServerSupervisor() { _ui = SynchronizationContext.Current; }
 
         public void Start() {
-            if (_process != null || _adoptedPid.HasValue) return;
-            if (_restartWork != null) { _restartWork.Dispose(); _restartWork = null; }
+            if (_process != null) return;
+            CancelTimer(ref _restartTimer);
             _wantRunning = true;
 
-            using (var log = LogFile.Open()) {
-                if (log != null) log.WriteLine("[menubar] starting node " + AppSettings.EntryPoint + " serve on port " + AppSettings.Port);
-            }
+            var log = LogFile.Open();
+            if (log != null) log.WriteLine("[menubar] starting node " + AppSettings.EntryPoint + " serve on port " + AppSettings.Port);
 
             var psi = new ProcessStartInfo {
                 FileName = AppSettings.NodePath,
                 Arguments = "\"" + AppSettings.EntryPoint + "\" serve",
                 WorkingDirectory = AppSettings.RepoPath,
                 UseShellExecute = false,
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 CreateNoWindow = true
             };
-            foreach (var kv in AppSettings.ChildEnvironment()) {
-                try { psi.EnvironmentVariables[kv.Key] = kv.Value; } catch { }
-            }
+            AppSettings.ApplyChildEnvironment(psi.EnvironmentVariables);
+            psi.EnvironmentVariables["LIGHT_STOP_ON_STDIN_CLOSE"] = "1";
 
-            var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            var logHandle = LogFile.Open();
-            if (logHandle != null) {
-                proc.OutputDataReceived += (s, e) => { if (e.Data != null) logHandle.WriteLine(e.Data); };
-                proc.ErrorDataReceived += (s, e) => { if (e.Data != null) logHandle.WriteLine(e.Data); };
-            }
+            var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            // Done once the process has exited and both its outputs have ended, so its last lines reach the
+            // log before it closes (Exited alone can come first).
+            int pending = 3;
+            Action oneDone = () => { if (Interlocked.Decrement(ref pending) == 0) Post(() => ProcessExited(process)); };
+            DataReceivedEventHandler collect = (s, e) => {
+                if (e.Data == null) oneDone();
+                else if (log != null) log.WriteRawLine(e.Data);
+            };
+            process.OutputDataReceived += collect;
+            process.ErrorDataReceived += collect;
+            process.Exited += (s, e) => oneDone();
 
             try {
-                proc.Start();
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
+                process.Start();
             } catch (Exception ex) {
-                try { if (logHandle != null) logHandle.WriteLine("[menubar] could not start node: " + ex.Message); } catch { }
-                try { if (logHandle != null) logHandle.Dispose(); } catch { }
+                if (log != null) {
+                    log.WriteLine("[menubar] could not start node: " + ex.Message);
+                    log.Dispose();
+                }
+                process.Dispose();
                 RecordCrash();
                 return;
             }
-            // child holds its own descriptor; close ours
-            try { if (logHandle != null) logHandle.Dispose(); } catch { }
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
 
-            proc.Exited += (s, e) => {
-                int status = 0;
-                try { status = proc.ExitCode; } catch { }
-                Post(() => ProcessExited(status));
-            };
-
-            _process = proc;
-            Pid = proc.Id;
-            try { File.WriteAllText(AppSettings.PidPath, proc.Id.ToString()); } catch { }
+            _process = process;
+            _pid = process.Id;
+            _log = log;
             SetPhase(Phase.Running);
-        }
-
-        public void AdoptLeftoverServer() {
-            if (_process != null || _adoptedPid.HasValue) return;
-            try {
-                if (!File.Exists(AppSettings.PidPath)) return;
-                var text = File.ReadAllText(AppSettings.PidPath).Trim();
-                int leftover;
-                if (!int.TryParse(text, out leftover)) { try { File.Delete(AppSettings.PidPath); } catch { } return; }
-                Process p;
-                try { p = Process.GetProcessById(leftover); } catch { try { File.Delete(AppSettings.PidPath); } catch { } return; }
-                // best-effort command line check
-                bool ok = true;
-                try {
-                    if (!p.ProcessName.ToLowerInvariant().Contains("node")) ok = false;
-                } catch { ok = false; }
-                if (!ok) { try { File.Delete(AppSettings.PidPath); } catch { } return; }
-
-                _adoptedPid = leftover;
-                Pid = leftover;
-                _wantRunning = true;
-                _adoptedWatch = new System.Threading.Timer(_ => {
-                    bool alive = true;
-                    try { Process.GetProcessById(leftover); } catch { alive = false; }
-                    if (!alive) Post(() => ProcessExited(-1));
-                }, null, 1000, 1000);
-                SetPhase(Phase.Running);
-            } catch { try { File.Delete(AppSettings.PidPath); } catch { } }
         }
 
         public void Stop(Action completion = null) {
             _wantRunning = false;
-            if (_restartWork != null) { _restartWork.Dispose(); _restartWork = null; }
+            CancelTimer(ref _restartTimer);
 
-            if (!Pid.HasValue) {
+            var process = _process;
+            if (process == null) {
                 if (CurrentPhase != Phase.Stopped) SetPhase(Phase.Stopped);
                 if (completion != null) completion();
                 return;
@@ -122,81 +117,105 @@ namespace LightMCPMenuBar {
             if (CurrentPhase == Phase.Stopping) return;
             SetPhase(Phase.Stopping);
 
-            int target = Pid.Value;
-            LogFile.AppendLine("[menubar] stopping server (pid " + target + ")");
-            try { Process.GetProcessById(target).Kill(); } catch { }
-            // wait up to 5s then ensure killed
-            var t = new System.Threading.Timer(_ => {
-                try {
-                    var p = Process.GetProcessById(target);
-                    try { p.Kill(); } catch { }
-                } catch { }
-            }, null, 5000, Timeout.Infinite);
+            Log("[menubar] stopping server (pid " + _pid + ")");
+            try { process.StandardInput.Close(); } catch { }
+            _killTimer = After(StopTimeoutMs, () => {
+                _killTimer = null;
+                if (process != _process) return;
+                Log("[menubar] server still running 5 s after its stdin closed, killing it");
+                try { process.Kill(); } catch { }
+            });
         }
 
         public void Restart() { Stop(() => Start()); }
 
-        public void StopAndWait(int timeoutMs = 6000) {
-            if (!Pid.HasValue) return;
+        /// <summary>Stops the server and waits until it is gone, for the app's own exit.</summary>
+        public void StopAndWait() {
+            var process = _process;
             Stop();
-            var target = Pid.Value; // note: Pid cleared on exit
-            var deadline = DateTime.Now.AddMilliseconds(timeoutMs);
-            while (true) {
-                bool alive = true;
-                try { Process.GetProcessById(target); } catch { alive = false; }
-                if (!alive || DateTime.Now >= deadline) break;
-                System.Windows.Forms.Application.DoEvents();
-                Thread.Sleep(100);
+            if (process == null) return;
+            var deadline = DateTime.UtcNow.AddMilliseconds(StopTimeoutMs + 2000);
+            while (_process == process && DateTime.UtcNow < deadline) {
+                Application.DoEvents();
+                Thread.Sleep(50);
+            }
+            if (_process == process) {
+                try { process.Kill(); } catch { }
             }
         }
 
-        private void ProcessExited(int status) {
+        private void ProcessExited(Process process) {
+            if (process != _process) return;
+            int status = -1;
+            try { status = process.ExitCode; } catch { }
+            CancelTimer(ref _killTimer);
             _process = null;
-            _adoptedPid = null;
-            if (_adoptedWatch != null) { _adoptedWatch.Dispose(); _adoptedWatch = null; }
-            Pid = null;
-            try { File.Delete(AppSettings.PidPath); } catch { }
+            process.Dispose();
 
-            var completions = new System.Collections.Generic.List<Action>(_stopCompletions);
+            var completions = new List<Action>(_stopCompletions);
             _stopCompletions.Clear();
 
-            if (_wantRunning) {
-                LogFile.AppendLine("[menubar] server exited unexpectedly");
-                RecordCrash();
-            } else {
-                LogFile.AppendLine("[menubar] server stopped");
-                SetPhase(Phase.Stopped);
+            Log(_wantRunning ? "[menubar] server exited with status " + status + " unexpectedly" : "[menubar] server stopped");
+            if (_log != null) {
+                _log.Dispose();
+                _log = null;
             }
-            foreach (var c in completions) { try { c(); } catch { } }
+            if (_wantRunning) RecordCrash();
+            else SetPhase(Phase.Stopped);
+            foreach (var completion in completions) completion();
         }
 
         private void RecordCrash() {
-            var now = DateTime.Now;
-            _crashTimes.RemoveAll(d => (now - d).TotalSeconds >= CrashWindow.TotalSeconds);
+            var now = DateTime.UtcNow;
+            _crashTimes.RemoveAll(t => now - t >= CrashWindow);
             _crashTimes.Add(now);
             if (_crashTimes.Count >= CrashLimit) {
-                LogFile.AppendLine("[menubar] " + _crashTimes.Count + " crashes in " + (int)CrashWindow.TotalSeconds + " s, giving up");
+                Log("[menubar] " + _crashTimes.Count + " crashes in " + (int)CrashWindow.TotalSeconds + " s, giving up");
                 _wantRunning = false;
                 _crashTimes.Clear();
                 SetPhase(Phase.Crashed);
                 return;
             }
-            int idx = Math.Min(_crashTimes.Count - 1, RestartDelays.Length - 1);
-            int delay = RestartDelays[idx];
+            var delay = RestartDelays[Math.Min(_crashTimes.Count - 1, RestartDelays.Length - 1)];
+            _restartTimer = After(delay * 1000, () => {
+                _restartTimer = null;
+                if (_wantRunning) Start();
+            });
             SetPhase(Phase.WaitingToRestart);
-            _restartWork = new System.Threading.Timer(_ => {
-                Post(() => { if (_wantRunning) Start(); });
-            }, null, delay * 1000, Timeout.Infinite);
         }
 
-        private void SetPhase(Phase newPhase) {
-            CurrentPhase = newPhase;
+        private void SetPhase(Phase phase) {
+            CurrentPhase = phase;
             if (OnChange != null) OnChange();
         }
 
-        private void Post(Action a) {
-            if (_ctx != null) _ctx.Post(_ => a(), null);
-            else a();
+        private void Log(string line) {
+            if (_log != null) _log.WriteLine(line);
+            else LogFile.AppendLine(line);
+        }
+
+        private void Post(Action action) {
+            if (_ui != null) _ui.Post(_ => action(), null);
+            else action();
+        }
+
+        /// <summary>Runs the action once, on the UI thread, after the delay.</summary>
+        private static System.Windows.Forms.Timer After(int ms, Action action) {
+            var timer = new System.Windows.Forms.Timer { Interval = ms };
+            timer.Tick += (s, e) => {
+                timer.Stop();
+                timer.Dispose();
+                action();
+            };
+            timer.Start();
+            return timer;
+        }
+
+        private static void CancelTimer(ref System.Windows.Forms.Timer timer) {
+            if (timer == null) return;
+            timer.Stop();
+            timer.Dispose();
+            timer = null;
         }
     }
 }

@@ -24,6 +24,7 @@ npm start                               # ou npm run serve en développement
 ```
 - Interface : `http://<machine>:8790`. On entre avec le **jeton** (`npm run light -- token`) ou, en dessous, avec le **PIN** d'un utilisateur choisi dans la liste. Un administrateur crée dans **Réglages** des **liens de partage** (utilisateur + PIN) qui connectent d'un clic.
 - **Sur le Mac, depuis la barre de menus** : `macos/build-app.sh` installe `~/Applications/LightMCP.app`, qui lance le serveur compilé, le relance s'il plante, le recompile, ouvre l'interface et les journaux, et peut s'ouvrir à la connexion (voir [macos/README.md](../macos/README.md)).
+- **Sur un PC Windows, depuis la zone de notification** : `windows\build-app.ps1` installe la même app dans `%LOCALAPPDATA%\LightMCP` (voir [windows/README.md](../windows/README.md)).
 - MCP : `http://<machine>:8790/mcp` avec le jeton de `npm run light -- token`, ou en stdio avec `node dist/cli/main.js serve --stdio --no-http`. La page **Connexion IA** de l'interface donne la marche à suivre par client.
 - **Pendant la transition avec QLC+** : un seul des deux émet. Lancer le serveur en veille (`npm run serve -- --standby`) et suivre [bascule-qlc.md](bascule-qlc.md) ; sur un Mac partagé avec QLC+, mettre `"discovery": false` (port 6454).
 - **En ligne de commande** : `npm run light -- check`, `selftest --cadence`, `pack`, `standby on|off`… (`npm run light -- help`). La CLI passe par le serveur s'il tourne, sinon elle ouvre les données directement.

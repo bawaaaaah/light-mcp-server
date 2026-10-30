@@ -1,71 +1,99 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Text;
 using System.Threading;
 
 namespace LightMCPMenuBar {
-    public class Builder {
+    /// <summary>
+    /// Runs `npm run build` in the checkout. Output goes to data/prod.log and is kept so a failure can
+    /// show its last lines.
+    /// </summary>
+    public sealed class Builder {
         public bool IsBuilding { get; private set; }
         public Action OnChange;
-        private readonly System.Threading.SynchronizationContext _ctx;
+        private readonly SynchronizationContext _ui;
 
-        public Builder() { _ctx = System.Threading.SynchronizationContext.Current; }
+        /// <summary>Created on the UI thread: the completion runs there.</summary>
+        public Builder() { _ui = SynchronizationContext.Current; }
 
         public void Build(Action<bool, string> completion) {
             if (IsBuilding) return;
-            IsBuilding = true;
-            if (OnChange != null) OnChange();
 
             var psi = new ProcessStartInfo {
-                FileName = "cmd.exe",
-                Arguments = "/c npm run build",
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                Arguments = "/d /c npm run build",
                 WorkingDirectory = AppSettings.RepoPath,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 CreateNoWindow = true
             };
-            // env
-            foreach (var kv in AppSettings.ChildEnvironment()) {
-                try { psi.EnvironmentVariables[kv.Key] = kv.Value; } catch { }
-            }
+            AppSettings.ApplyChildEnvironment(psi.EnvironmentVariables);
 
-            var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            var log = LogFile.Open();
+            if (log != null) log.WriteLine("[menubar] npm run build");
             var output = new StringBuilder();
-            var lockObj = new object();
-            proc.OutputDataReceived += (s, e) => { if (e.Data != null) { lock (lockObj) output.AppendLine(e.Data); } };
-            proc.ErrorDataReceived += (s, e) => { if (e.Data != null) { lock (lockObj) output.AppendLine(e.Data); } };
+            var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            // Done once npm has exited and both its outputs have ended (Exited alone can come first).
+            int pending = 3;
+            Action oneDone = () => {
+                if (Interlocked.Decrement(ref pending) != 0) return;
+                int status = -1;
+                try { status = process.ExitCode; } catch { }
+                process.Dispose();
+                var success = status == 0;
+                string tail;
+                lock (output) tail = Tail(output.ToString(), 20);
+                if (log != null) {
+                    log.WriteLine("[menubar] build " + (success ? "succeeded" : "failed (" + status + ")"));
+                    log.Dispose();
+                }
+                Post(() => {
+                    IsBuilding = false;
+                    if (OnChange != null) OnChange();
+                    if (completion != null) completion(success, tail);
+                });
+            };
+            DataReceivedEventHandler collect = (s, e) => {
+                if (e.Data == null) {
+                    oneDone();
+                    return;
+                }
+                lock (output) output.AppendLine(e.Data);
+                if (log != null) log.WriteRawLine(e.Data);
+            };
+            process.OutputDataReceived += collect;
+            process.ErrorDataReceived += collect;
+            process.Exited += (s, e) => oneDone();
 
-            using (var log = LogFile.Open()) {
-                if (log != null) log.WriteLine("[menubar] npm run build");
-                proc.Start();
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-
-                proc.Exited += (s, e) => {
-                    try { proc.WaitForExit(); } catch { }
-                    bool success = proc.ExitCode == 0;
-                    string tail;
-                    lock (lockObj) {
-                        var lines = output.ToString().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                        int start = Math.Max(0, lines.Length - 20);
-                        tail = string.Join("\n", lines, start, lines.Length - start);
-                    }
-                    try { using (var l = LogFile.Open()) { if (l != null) l.WriteLine("[menubar] build " + (success ? "succeeded" : "failed (" + proc.ExitCode + ")")); } } catch { }
-                    Post(() => {
-                        IsBuilding = false;
-                        if (OnChange != null) OnChange();
-                        if (completion != null) completion(success, tail);
-                    });
-                };
+            try {
+                process.Start();
+            } catch (Exception ex) {
+                if (log != null) {
+                    log.WriteLine("[menubar] could not run npm: " + ex.Message);
+                    log.Dispose();
+                }
+                process.Dispose();
+                if (completion != null) completion(false, "npm n'a pas pu être lancé : " + ex.Message);
+                return;
             }
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            IsBuilding = true;
+            if (OnChange != null) OnChange();
         }
 
-        private void Post(Action a) {
-            if (_ctx != null) _ctx.Post(_ => a(), null);
-            else a();
+        private static string Tail(string text, int lines) {
+            var all = text.TrimEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var start = Math.Max(0, all.Length - lines);
+            return string.Join("\n", all, start, all.Length - start);
+        }
+
+        private void Post(Action action) {
+            if (_ui != null) _ui.Post(_ => action(), null);
+            else action();
         }
     }
 }

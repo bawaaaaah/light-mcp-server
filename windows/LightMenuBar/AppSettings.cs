@@ -1,237 +1,216 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Web.Script.Serialization;
 using Microsoft.Win32;
-using System.Web.Script.Serialization; // may not exist; avoid. Use simple JSON? We'll parse minimal with regex? Better use System.Text.Json not in .NET 4.8. Use manual.
 
 namespace LightMCPMenuBar {
+    /// <summary>
+    /// Where the server lives and how to run it. repoPath, nodePath and port can be set under
+    /// HKCU\Software\LightMCPMenuBar; otherwise they come from appsettings.json, which build-app.ps1
+    /// writes next to the installed exe, and the checkout is looked for around the exe.
+    /// </summary>
     public static class AppSettings {
-        private const string RegPath = "Software\\LightMCPMenuBar";
-        private static readonly string AppDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
-        private static readonly string DefaultsFile = Path.Combine(AppDir, "appsettings.json");
-
-        private static string RegString(string key) {
-            try {
-                using (var k = Registry.CurrentUser.OpenSubKey(RegPath)) {
-                    if (k == null) return null;
-                    return k.GetValue(key) as string;
-                }
-            } catch { return null; }
-        }
-        private static int? RegInt(string key) {
-            try {
-                using (var k = Registry.CurrentUser.OpenSubKey(RegPath)) {
-                    if (k == null) return null;
-                    var v = k.GetValue(key);
-                    if (v is int) return (int)v;
-                    int p;
-                    if (v != null && int.TryParse(v.ToString(), out p)) return p;
-                    return null;
-                }
-            } catch { return null; }
-        }
-
-        private static string FileValue(string key) {
-            try {
-                if (!File.Exists(DefaultsFile)) return null;
-                var text = File.ReadAllText(DefaultsFile);
-                // very small parser: "key": "value" or "key": 123
-                var needle = "\"" + key + "\"";
-                int idx = text.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
-                if (idx < 0) return null;
-                int colon = text.IndexOf(':', idx);
-                if (colon < 0) return null;
-                // skip ws
-                int i = colon + 1;
-                while (i < text.Length && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r')) i++;
-                if (i >= text.Length) return null;
-                if (text[i] == '"') {
-                    int end = text.IndexOf('"', i + 1);
-                    if (end < 0) return null;
-                    return text.Substring(i + 1, end - i - 1);
-                } else {
-                    int end = i;
-                    while (end < text.Length && (char.IsDigit(text[end]) || text[end] == '-')) end++;
-                    return text.Substring(i, end - i);
-                }
-            } catch { return null; }
-        }
+        private const string RegPath = @"Software\LightMCPMenuBar";
+        private static readonly string AppDir = AppDomain.CurrentDomain.BaseDirectory;
 
         public static string RepoPath {
             get {
-                var v = RegString("repoPath") ?? FileValue("repoPath");
-                if (string.IsNullOrWhiteSpace(v)) v = Path.GetFullPath(Path.Combine(AppDir, "..", ".."));
-                return v;
+                var path = RegString("repoPath") ?? FileString("repoPath") ?? FindCheckout(AppDir);
+                return path == null ? "" : Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
             }
         }
-        public static System.Uri RepoUrl { get { return new System.Uri(RepoPath + (RepoPath.EndsWith("\\") ? "" : "\\")); } }
+
+        /// <summary>Whether RepoPath holds a checkout (the app cannot run anything otherwise).</summary>
+        public static bool RepoFound {
+            get {
+                var repo = RepoPath;
+                return repo.Length > 0 && File.Exists(Path.Combine(repo, "package.json"));
+            }
+        }
 
         public static string NodePath {
             get {
-                var v = RegString("nodePath") ?? FileValue("nodePath");
-                if (string.IsNullOrWhiteSpace(v)) v = "node";
-                return v;
+                var path = RegString("nodePath") ?? FileString("nodePath");
+                return path == null ? "node" : Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
             }
         }
 
+        /// <summary>
+        /// A registry port overrides server.port of data/machine/config.json (the server's own setting,
+        /// see src/core/env.ts), which overrides 8790.
+        /// </summary>
         public static int Port {
             get {
-                if (RegInt("port").HasValue) return RegInt("port").Value;
-                var cfg = ServerConfig();
-                if (cfg != null && cfg.ContainsKey("port")) {
-                    int p; if (int.TryParse(cfg["port"], out p) && p > 0 && p <= 65535) return p;
-                }
-                var fv = FileValue("port");
-                if (!string.IsNullOrWhiteSpace(fv)) { int p; if (int.TryParse(fv, out p) && p > 0) return p; }
+                var port = PortOverride;
+                if (port.HasValue) return port.Value;
+                var configured = ServerValue("port");
+                if (configured is int && (int)configured > 0 && (int)configured <= 65535) return (int)configured;
                 return 8790;
             }
         }
 
+        private static int? PortOverride {
+            get {
+                var value = RegValue("port");
+                int port;
+                if (value is int) port = (int)value;
+                else if (!(value is string) || !int.TryParse((string)value, out port)) return null;
+                return port > 0 && port <= 65535 ? port : (int?)null;
+            }
+        }
+
+        /// <summary>Where this PC reaches the server: server.host when it names one interface, else loopback.</summary>
         public static string LocalHost {
             get {
-                var cfg = ServerConfig();
-                string host = null;
-                if (cfg != null && cfg.ContainsKey("host")) host = cfg["host"];
-                if (string.IsNullOrWhiteSpace(host)) return "127.0.0.1";
-                host = host.Trim();
-                if (host == "0.0.0.0" || host == "::") return "127.0.0.1";
+                var host = ServerValue("host") as string;
+                host = host == null ? "" : host.Trim();
+                if (host.Length == 0 || host == "0.0.0.0" || host == "::") return "127.0.0.1";
                 return host.Contains(":") ? "[" + host + "]" : host;
             }
         }
 
         public static bool StartServerOnLaunch {
             get {
-                try {
-                    using (var k = Registry.CurrentUser.OpenSubKey(RegPath)) {
-                        if (k == null) return true;
-                        var v = k.GetValue("startServerOnLaunch");
-                        if (v is int) return ((int)v) != 0;
-                        if (v != null) { bool b; if (bool.TryParse(v.ToString(), out b)) return b; }
-                    }
-                } catch { }
-                return true;
+                var value = RegValue("startServerOnLaunch");
+                if (value is int) return (int)value != 0;
+                bool enabled;
+                return value is string && bool.TryParse((string)value, out enabled) ? enabled : true;
             }
             set {
                 try {
-                    using (var k = Registry.CurrentUser.CreateSubKey(RegPath)) {
-                        k.SetValue("startServerOnLaunch", value ? 1 : 0, RegistryValueKind.DWord);
+                    using (var key = Registry.CurrentUser.CreateSubKey(RegPath)) {
+                        key.SetValue("startServerOnLaunch", value ? 1 : 0, RegistryValueKind.DWord);
                     }
                 } catch { }
             }
         }
 
-        public static string EntryPoint { get { return "dist/cli/main.js"; } }
+        /// <summary>`node EntryPoint serve`, the same as `npm start`.</summary>
+        public const string EntryPoint = "dist/cli/main.js";
         public static string EntryPointPath { get { return Path.Combine(RepoPath, "dist", "cli", "main.js"); } }
+        /// <summary>The checkout's data/ folder, as src/core/paths.ts resolves it for a source checkout.</summary>
         public static string DataPath { get { return Path.Combine(RepoPath, "data"); } }
         public static string LogPath { get { return Path.Combine(DataPath, "prod.log"); } }
-        public static string PidPath { get { return Path.Combine(DataPath, "menubar.pid"); } }
 
-        public static System.Uri DashboardUrl {
-            get {
-                var url = "http://" + LocalHost + ":" + Port + "/";
-                return WithToken(new System.Uri(url));
-            }
+        /// <summary>The web UI, logged in with the master token (`#token=`, read by web/src/api.ts).</summary>
+        public static Uri DashboardUrl {
+            get { return WithToken(new Uri("http://" + LocalHost + ":" + Port.ToString(CultureInfo.InvariantCulture) + "/")); }
         }
 
-        private static System.Collections.Generic.Dictionary<string,string> ServerConfig() {
-            try {
-                var path = Path.Combine(DataPath, "machine", "config.json");
-                if (!File.Exists(path)) return null;
-                var text = File.ReadAllText(path);
-                // find "server" object
-                int idx = text.IndexOf("\"server\"", StringComparison.OrdinalIgnoreCase);
-                if (idx < 0) return null;
-                int brace = text.IndexOf('{', idx);
-                if (brace < 0) return null;
-                // match braces
-                int depth = 0; int end = -1;
-                for (int i = brace; i < text.Length; i++) {
-                    if (text[i] == '{') depth++;
-                    else if (text[i] == '}') { depth--; if (depth == 0) { end = i; break; } }
-                }
-                if (end < 0) return null;
-                var obj = text.Substring(brace + 1, end - brace - 1);
-                var dict = new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-                // parse "key": value (string or number)
-                // simple regex-ish scan
-                int pos = 0;
-                while (pos < obj.Length) {
-                    int q = obj.IndexOf('"', pos);
-                    if (q < 0) break;
-                    int q2 = obj.IndexOf('"', q + 1);
-                    if (q2 < 0) break;
-                    var key = obj.Substring(q + 1, q2 - q - 1);
-                    int col = obj.IndexOf(':', q2);
-                    if (col < 0) break;
-                    int vstart = col + 1;
-                    while (vstart < obj.Length && (obj[vstart] == ' ' || obj[vstart] == '\t' || obj[vstart] == '\n' || obj[vstart] == '\r')) vstart++;
-                    string val;
-                    if (vstart < obj.Length && obj[vstart] == '"') {
-                        int ve = obj.IndexOf('"', vstart + 1);
-                        if (ve < 0) break;
-                        val = obj.Substring(vstart + 1, ve - vstart - 1);
-                        pos = ve + 1;
-                    } else {
-                        int ve = vstart;
-                        while (ve < obj.Length && (char.IsDigit(obj[ve]) || obj[ve] == '-' || obj[ve] == '.')) ve++;
-                        val = obj.Substring(vstart, ve - vstart);
-                        pos = ve;
-                    }
-                    if (!dict.ContainsKey(key)) dict[key] = val;
-                }
-                return dict;
-            } catch { return null; }
-        }
-
-        public static string AuthToken {
-            get {
-                var cfg = ServerConfig();
-                if (cfg != null && cfg.ContainsKey("authToken")) return cfg["authToken"];
-                return null;
-            }
-        }
-
-        public static System.Uri WithToken(System.Uri url) {
-            var token = AuthToken;
-            if (string.IsNullOrWhiteSpace(token)) return url;
-            var ub = new System.UriBuilder(url);
-            ub.Fragment = "token=" + Uri.EscapeDataString(token);
-            return ub.Uri;
-        }
-
-        public static System.Uri PublicUrl() {
-            var cfg = ServerConfig();
-            if (cfg == null || !cfg.ContainsKey("publicUrl")) return null;
-            var value = cfg["publicUrl"];
-            if (string.IsNullOrWhiteSpace(value)) return null;
-            System.Uri url;
-            if (!System.Uri.TryCreate(value, System.UriKind.Absolute, out url)) return null;
+        /// <summary>server.publicUrl from data/machine/config.json, unless it is just the localhost default.</summary>
+        public static Uri PublicUrl() {
+            var value = ServerValue("publicUrl") as string;
+            Uri url;
+            if (string.IsNullOrWhiteSpace(value) || !Uri.TryCreate(value, UriKind.Absolute, out url)) return null;
             if (url.Host == "localhost" || url.Host == "127.0.0.1") return null;
             return WithToken(url);
         }
 
-        public static System.Collections.Generic.Dictionary<string,string> ChildEnvironment() {
-            var env = new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-            foreach (System.Collections.DictionaryEntry de in Environment.GetEnvironmentVariables()) {
-                env[de.Key.ToString()] = de.Value == null ? "" : de.Value.ToString();
-            }
-            var nodeDir = Path.GetDirectoryName(NodePath);
-            var inherited = env.ContainsKey("PATH") ? env["PATH"] : "/usr/bin:/bin";
-            env["PATH"] = nodeDir + ";" + nodeDir + ";" + inherited;
-            // port override only if registry port set
-            if (RegInt("port").HasValue) env["PORT"] = Port.ToString();
-            else env.Remove("PORT");
-            return env;
+        /// <summary>The URL with `#token=authToken`; the fragment never reaches the server or its logs.</summary>
+        private static Uri WithToken(Uri url) {
+            var token = ServerValue("authToken") as string;
+            if (string.IsNullOrEmpty(token)) return url;
+            return new UriBuilder(url) { Fragment = "token=" + Uri.EscapeDataString(token) }.Uri;
         }
 
-        public static void SetRegistry(string key, object value) {
+        /// <summary>
+        /// The environment for node and npm: the app's own, with node's directory first on PATH. Without a
+        /// port override the server reads server.port itself, and an inherited PORT would beat it.
+        /// </summary>
+        public static void ApplyChildEnvironment(StringDictionary env) {
+            string nodeDir = null;
+            try { if (Path.IsPathRooted(NodePath)) nodeDir = Path.GetDirectoryName(NodePath); } catch { }
+            if (!string.IsNullOrEmpty(nodeDir)) env["PATH"] = nodeDir + ";" + env["PATH"];
+            var port = PortOverride;
+            if (port.HasValue) env["PORT"] = port.Value.ToString(CultureInfo.InvariantCulture);
+            else env.Remove("PORT");
+        }
+
+        /// <summary>A JSON document as dictionaries, arrays and numbers, or null when it does not parse.</summary>
+        public static object ParseJson(string text) {
             try {
-                using (var k = Registry.CurrentUser.CreateSubKey(RegPath)) {
-                    if (value == null) k.DeleteValue(key, false);
-                    else if (value is int) k.SetValue(key, value, RegistryValueKind.DWord);
-                    else k.SetValue(key, value.ToString(), RegistryValueKind.String);
+                return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(text);
+            } catch { return null; }
+        }
+
+        // The `server` section of data/machine/config.json, read again only when the file changes.
+        private static readonly object CacheGate = new object();
+        private static string _cachedPath;
+        private static DateTime _cachedWrite;
+        private static long _cachedLength;
+        private static IDictionary<string, object> _cachedServer;
+
+        private static object ServerValue(string name) {
+            var server = ServerConfig();
+            object value;
+            return server != null && server.TryGetValue(name, out value) ? value : null;
+        }
+
+        private static IDictionary<string, object> ServerConfig() {
+            var path = Path.Combine(DataPath, "machine", "config.json");
+            lock (CacheGate) {
+                try {
+                    var info = new FileInfo(path);
+                    if (!info.Exists) return null;
+                    if (path == _cachedPath && info.LastWriteTimeUtc == _cachedWrite && info.Length == _cachedLength) return _cachedServer;
+                    var root = ReadJson(path) as IDictionary<string, object>;
+                    if (root == null) return null;
+                    object server;
+                    root.TryGetValue("server", out server);
+                    _cachedPath = path;
+                    _cachedWrite = info.LastWriteTimeUtc;
+                    _cachedLength = info.Length;
+                    _cachedServer = server as IDictionary<string, object>;
+                    return _cachedServer;
+                } catch { return null; }
+            }
+        }
+
+        /// <summary>
+        /// Reads with every share mode, so the server can still replace the file (write then rename) while
+        /// the app has it open.
+        /// </summary>
+        private static object ReadJson(string path) {
+            try {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8)) {
+                    return ParseJson(reader.ReadToEnd());
+                }
+            } catch { return null; }
+        }
+
+        private static string FileString(string name) {
+            var settings = ReadJson(Path.Combine(AppDir, "appsettings.json")) as IDictionary<string, object>;
+            object value;
+            var text = settings != null && settings.TryGetValue(name, out value) ? value as string : null;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+
+        /// <summary>The checkout around the exe (windows\build\LightMCP\ when it is run from there), if any.</summary>
+        private static string FindCheckout(string dir) {
+            try {
+                for (var d = new DirectoryInfo(dir); d != null; d = d.Parent) {
+                    if (File.Exists(Path.Combine(d.FullName, "package.json")) && Directory.Exists(Path.Combine(d.FullName, "windows", "LightMenuBar"))) return d.FullName;
                 }
             } catch { }
+            return null;
+        }
+
+        private static object RegValue(string name) {
+            try {
+                using (var key = Registry.CurrentUser.OpenSubKey(RegPath)) {
+                    return key == null ? null : key.GetValue(name);
+                }
+            } catch { return null; }
+        }
+
+        private static string RegString(string name) {
+            var text = RegValue(name) as string;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
         }
     }
 }
