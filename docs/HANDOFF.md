@@ -22,6 +22,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
   - reprise après un plantage ou un redémarrage rapide (état en direct de moins de 5 min) ;
   - build de production, image Docker vérifiée ;
   - **app de barre de menus macOS** (`macos/`, comme wing-mcp-server) : démarre, arrête, recompile et relance le serveur ; un port RTP-MIDI occupé ne bloque plus le démarrage ; ouvre l'interface déjà connectée (`#token=`) ;
+  - **app de la zone de notification Windows** (`windows/`, même menu) : arrête le serveur proprement en fermant son entrée standard (`LIGHT_STOP_ON_STDIN_CLOSE`), compilée par la CI (artefact `windows-menubar`) ;
   - **shows et sauvegardes** comme une console lumière (page Fichiers, `light show`, `light backup`) ;
   - **instantanés** (état complet rappelé d'un coup) et **secours complet** du Panic neutre ;
   - **utilisateurs** nommés (rôle, PIN, clés de sécurité YubiKey / passkeys) et **OAuth** pour claude.ai, repris de wing-mcp-server ;
@@ -146,6 +147,7 @@ Aucune. Toutes les décisions de conception sont prises ([decisions.md](decision
 - [tests-mac.md](tests-mac.md) : **protocole de tests pour un agent Claude sur le Mac de régie** (MIDI, Ableton, Art-Net, import réel, auto-test).
 - [install.md](install.md) : **installation et premiers pas** (Mac, Docker/Pi, import QLC+, MIDI, Ableton, IA).
 - [../macos/README.md](../macos/README.md) : **app de barre de menus** (Mac de régie).
+- [../windows/README.md](../windows/README.md) : **app de la zone de notification** (PC Windows).
 - [install-npm.md](install-npm.md) : **installation depuis GitHub Packages** (paquet publié à chaque commit de `main` dont la CI passe ; image Docker sur GHCR).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [decisions.md](decisions.md) : journal daté des décisions.

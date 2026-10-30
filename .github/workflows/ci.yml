@@ -42,6 +42,24 @@ jobs:
       - name: Build
         run: npm run build
 
+  windows-menubar:
+    name: Windows tray app
+    # pinned like the Ubuntu jobs: this job gates releases too (release.yml calls this workflow)
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      # The C# compiler of the .NET Framework only: no Node, no npm install. The artifact is the bare exe,
+      # which finds the checkout around it or reads repoPath from the registry (windows/README.md).
+      - name: Build the Windows tray app
+        shell: pwsh
+        run: .\windows\build-app.ps1 -NoInstall
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-menubar
+          path: windows/build/LightMCP/
+          retention-days: 7
+
   ui:
     name: Browser tests (Playwright)
     runs-on: ubuntu-24.04

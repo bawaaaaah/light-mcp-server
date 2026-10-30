@@ -75,3 +75,18 @@ describe("CLI light (offline)", function () {
     expect(bad.err).to.match(/commande inconnue/);
   });
 });
+
+/** `serve` under the Windows tray app (windows/): there is no SIGTERM there, a closed stdin asks for the clean stop. */
+describe("light serve, stopped by closing its stdin", function () {
+  this.timeout(60_000);
+
+  it("saves and exits with 0 once its stdin closes, with LIGHT_STOP_ON_STDIN_CLOSE", () => {
+    const dir = mkdtempSync(join(tmpdir(), "light-serve-"));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ version: 1, server: {}, plugins: { light: { discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } } } }));
+    const env = { ...process.env, LIGHT_CONFIG_PATH: join(dir, "config.json"), LIGHT_DATA_ROOT: join(dir, "data"), LIGHT_STOP_ON_STDIN_CLOSE: "1" };
+    // stdin closes right after the empty input; a server that ignored it would be SIGKILLed at the timeout
+    const r = spawnSync(process.execPath, ["--import", "tsx", main, "serve", "--no-http"], { env, input: "", encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" });
+    expect(r.signal, r.stderr).to.equal(null);
+    expect(r.status, r.stderr).to.equal(0);
+  });
+});

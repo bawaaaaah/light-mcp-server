@@ -61,7 +61,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 
 | Commande | Rôle |
 |---|---|
-| `light serve [--standby \| --live]` | lance le serveur (en veille : n'envoie rien, voir [bascule](../bascule-qlc.md)) |
+| `light serve [--standby \| --live]` | lance le serveur (en veille : n'envoie rien, voir [bascule](../bascule-qlc.md)). Il s'arrête proprement (état en direct sauvé) sur SIGINT ou SIGTERM et, avec `LIGHT_STOP_ON_STDIN_CLOSE=1`, quand son entrée standard se ferme : c'est ainsi que l'app Windows l'arrête, Windows n'ayant pas de SIGTERM (pas avec `--stdio`, dont l'entrée standard porte le MCP) |
 | `light token` / `pin <rôle> <pin>` / `roles` | jeton maître, PIN des rôles ; `token --new` renouvelle le jeton maître **sans l'afficher** : serveur en marche, c'est lui qui le change (`POST /api/auth/master-token`, droit `auth:admin`, réponse vide), aussitôt, car il réécrit toute la config depuis sa mémoire à chaque enregistrement ; serveur arrêté, la CLI écrit la config. L'ancien jeton ne vaut plus rien ; le menu de la barre relit le nouveau seul ; les sessions par PIN, les clés et les connexions OAuth déjà accordées restent valides |
 | `light check` | lint du show (schémas, conflits de notes, contraste, sections inertes, chevauchements d'adresses, définitions manquantes, noms ambigus) ; sortie 1 en cas d'erreur |
 | `light selftest [--cadence]` | auto-test : mappings, exclusivité, latence, cadence mesurée ; sortie 1 en cas d'échec |
