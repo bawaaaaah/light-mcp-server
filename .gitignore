@@ -20,5 +20,5 @@ __pycache__/
 macos/build/
 macos/LightMenuBar/.build/
 
-# App de barre des taches Windows (windows/build-app.ps1)
+# App de la zone de notification Windows (windows/build-app.ps1)
 windows/build/

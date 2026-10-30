@@ -47,8 +47,9 @@ namespace LightMCPMenuBar {
 
         /// <summary>Two arrows chasing each other.</summary>
         private static void Arrows(Graphics g, Color ink) {
-            using (var pen = new Pen(ink, 3.5f)) {
-                pen.CustomEndCap = new AdjustableArrowCap(2.2f, 2.2f);
+            using (var pen = new Pen(ink, 3.5f))
+            using (var arrow = new AdjustableArrowCap(2.2f, 2.2f)) {
+                pen.CustomEndCap = arrow;
                 g.DrawArc(pen, 6, 6, 20, 20, 200, 130);
                 g.DrawArc(pen, 6, 6, 20, 20, 20, 130);
             }
