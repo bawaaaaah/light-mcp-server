@@ -9,6 +9,7 @@ import { AuthService, newMasterToken, resolveAuthToken } from "../core/auth.js";
 import { ConfigStore } from "../core/config-store.js";
 import { bootstrap } from "../index.js";
 import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
+import { getEnvBool } from "../core/env.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
 import { diffFolder, packArchive, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
@@ -76,12 +77,20 @@ switch (command) {
     }
     const standby = values.standby ? true : values.live ? false : undefined;
     const running = await bootstrap({ configPath, port: values.port ? Number(values.port) : undefined, host: values.host, stdio: values.stdio, http: !values["no-http"], light: standby === undefined ? undefined : { standby } });
+    let stopping = false;
     const shutdown = async () => {
+      if (stopping) return;
+      stopping = true;
       await running.stop();
       process.exit(0);
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+    // Windows has no SIGTERM: its tray app (windows/) asks for a clean stop by closing our stdin, which
+    // also happens when the app dies. Not with --stdio, whose stdin carries MCP.
+    if (getEnvBool("LIGHT_STOP_ON_STDIN_CLOSE", false) && !values.stdio) {
+      process.stdin.on("end", shutdown).on("close", shutdown).on("error", shutdown).resume();
+    }
     break;
   }
   case "token": {
