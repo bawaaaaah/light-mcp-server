@@ -260,8 +260,8 @@ export function WidgetMenu({
                   </div>
                   {playable && (
                     <div className="midi-settings">
-                      {/* the mode is chosen per input — an Ableton clip's note, or a CC: momentary holds it only while it lasts */}
-                      {(action.action === "look" || action.action === "blackout") && (
+                      {/* the mode is chosen per input — an Ableton clip's note, or a CC: always on vs toggle, etc. */}
+                      {(action.action === "look" || action.action === "blackout" || m.input.type === "cc") && (
                         <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
                           {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                             <option key={mode} value={mode}>

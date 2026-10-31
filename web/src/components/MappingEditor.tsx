@@ -120,7 +120,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
 
   const dj = m.input.port === "OS2L";
   /** A level or flash action plays its own way: the mode does not apply. */
-  const modeLocked = action === "flash" || action === "dca" || action === "fader" || action === "grandmaster";
+  // a level or flash action plays its own way, except for a CC, where the mode (always on vs toggle, …) still applies
+  const modeLocked = (action === "flash" || action === "dca" || action === "fader" || action === "grandmaster") && m.input.type !== "cc";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
