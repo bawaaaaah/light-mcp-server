@@ -89,11 +89,12 @@ describe("MIDI mapping modes", () => {
     expect(mapper.handle(parseMidi([0xe0, 0, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]); // raw 65: just above
   });
 
-  it("toggle switches the CC on above the threshold and off below it", () => {
+  it("toggle: an activation above the threshold toggles on, returning to 0 does nothing", () => {
     const mapper = new MidiMapper();
     mapper.setMappings([MappingSchema.parse({ id: "cc", input: { type: "cc", channel: 1, number: 7 }, mode: "toggle", threshold: 64, on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
     expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
-    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls.map((c) => c.command)).to.deep.equal(["look.stop"]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 0])).calls.map((c) => c.command)).to.deep.equal([]);
+    expect(mapper.handle(parseMidi([0xb0, 7, 65])).calls.map((c) => c.command)).to.deep.equal(["look.stop"]); // second activation deactivates
   });
 
   it("toggle: an above-threshold CC send while engaged switches it off, then on again", () => {

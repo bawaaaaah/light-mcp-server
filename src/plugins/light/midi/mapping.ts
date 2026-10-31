@@ -221,17 +221,15 @@ export class MidiMapper {
             break;
           }
           case "toggle": {
-            // « Toggle »: every value above the threshold toggles the switch — on, then off, then on —
-            // on purpose: some controllers send only CC 127, never 0; a value below releases it
+            // « Toggle »: every value above the threshold toggles the switch — on, then off, then on.
+            // A value below the threshold does nothing: returning to 0 must not release nor toggle it,
+            // so a CC button (127 then 0) toggles on its next activation above the threshold instead of
+            // being released by its own fall.
             if (engaged) {
               s.active = !s.active;
               s.level = s.active ? level : rest;
               if (s.active) out.calls.push(withLevel(m.on, m.levelArg, level));
               else release(m, out);
-            } else if (s.active) {
-              s.active = false;
-              s.level = rest;
-              release(m, out);
             }
             break;
           }
