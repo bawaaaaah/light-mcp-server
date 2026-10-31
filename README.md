@@ -1,3 +1,4 @@
+[![M8ven Score](https://m8ven.ai/badge/mcp/bawaaaaah-light-mcp-server-1ese9f)](https://m8ven.ai/mcp/bawaaaaah-light-mcp-server-1ese9f?s=readme)
 # light-mcp-server
 
 Contrôleur lumière DMX (Art-Net / sACN) open source. On le pilote depuis une interface web temps réel (WebSocket), en MIDI ou OSC depuis Ableton et les contrôleurs, ou par une IA via MCP.
