@@ -395,6 +395,130 @@ test("Live: the show on the stage plan, top, face or 3D, to rehearse without the
   expect(errors).toEqual([]);
 });
 
+test("Live: the bar stays in view while the buttons scroll; pinned, the stage or the edit tools with it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await login(page);
+  // a dashboard taller than the window: a label far down
+  await api(page, "dashboard.put", { dashboard: { id: "tall", name: "Défilement", columns: 12, widgets: [{ id: "far", kind: "label", label: "Tout en bas", x: 0, y: 40, w: 3, h: 1 }] } });
+  await page.reload();
+  await page.locator(".dash-top .bar .tab", { hasText: "Défilement" }).click();
+  const far = page.locator(".dgrid .cell", { hasText: "Tout en bas" });
+  /** Where a part of the Live's top sits, from the header's bottom edge (0: just under it). */
+  const below = (selector: string) =>
+    page.evaluate<{ top: number; bottom: number; height: number }>(
+      `(() => {
+        const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        return { top: Math.round(r.top - document.querySelector("header.top").getBoundingClientRect().bottom), bottom: r.bottom, height: r.height };
+      })()`,
+    );
+  await far.scrollIntoViewIfNeeded();
+  expect(await page.evaluate<number>("window.scrollY")).toBeGreaterThan(0);
+  expect((await below(".dash-top .bar")).top).toBe(0); // the bar, with the dashboard's name, stays under the header
+
+  // the stage, pinned under the bar: kept by this browser, and never the whole window
+  await page.getByRole("button", { name: "Scène", exact: true }).click();
+  const pinStage = page.getByRole("button", { name: "Épingler la scène" });
+  await expect(pinStage).toHaveAttribute("aria-pressed", "false");
+  await far.scrollIntoViewIfNeeded();
+  await expect(page.locator(".live-stage-panel")).not.toBeInViewport(); // not pinned: scrolled away with the page
+  await pinStage.click();
+  await expect(pinStage).toHaveAttribute("aria-pressed", "true");
+  await expect(pinStage).toHaveText(/Épinglée/); // said in words, not only by a colour
+  await far.scrollIntoViewIfNeeded();
+  const stage = await below(".live-stage-panel");
+  expect(stage.top).toBeGreaterThan(0); // under the bar, in view
+  expect((await below(".live-stage-panel .stage-plan svg")).height).toBeLessThanOrEqual(600 * 0.42 + 1);
+  // its bottom edge sets its height (dragged, or the arrows), kept by this browser; a double click gives it back its own
+  const drawing = page.locator(".live-stage-panel .stage-plan svg");
+  const tall = async () => Math.round((await drawing.boundingBox())!.height);
+  const h0 = await tall();
+  const grip = page.getByRole("separator", { name: "Hauteur de la scène" });
+  const g = (await grip.boundingBox())!;
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2 - 100, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.abs((await tall()) - (h0 - 100))).toBeLessThanOrEqual(2);
+  await grip.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(async () => Math.abs((await tall()) - (h0 - 80))).toBeLessThanOrEqual(2);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Épingler la scène" })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => Math.abs((await tall()) - (h0 - 80))).toBeLessThanOrEqual(2);
+  await grip.dblclick();
+  await expect.poll(tall).toBe(h0);
+  // folded in place: its row stays, to open it again where it was
+  await page.locator(".live-stage-panel").getByRole("button", { name: /Masquer/ }).click();
+  await expect(page.locator(".live-stage-panel .plan-scroll")).toBeHidden();
+  await expect(grip).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Faisceaux" })).toBeVisible();
+  await page.reload();
+  await page.locator(".live-stage-panel").getByRole("button", { name: /Afficher/ }).click();
+  await expect(drawing).toBeVisible();
+  await page.getByRole("button", { name: "Scène", exact: true }).click(); // the stage hidden: nothing pinned
+  await expect(page.getByRole("button", { name: "Épingler la scène" })).toHaveCount(0);
+  await expect(page.locator(".dash-top")).not.toHaveClass(/pinned/);
+
+  // editing: the tools stay in view (by default), or only the bar once unpinned
+  await page.locator(".dash-top .bar .tab", { hasText: "Défilement" }).click();
+  await page.getByRole("button", { name: "✎" }).click();
+  const pinTools = page.getByRole("button", { name: "Épingler les outils" });
+  await expect(pinTools).toHaveAttribute("aria-pressed", "true");
+  await far.scrollIntoViewIfNeeded();
+  expect((await below(".palette")).top).toBeGreaterThan(0);
+  await expect(page.locator(".palette")).toBeInViewport();
+  await pinTools.click();
+  await expect(pinTools).toHaveAttribute("aria-pressed", "false");
+  await far.scrollIntoViewIfNeeded();
+  await expect(page.locator(".palette")).not.toBeInViewport();
+  expect((await below(".dash-top .bar")).top).toBe(0);
+  await page.getByRole("button", { name: "✕", exact: true }).first().click();
+  await api(page, "dashboard.delete", { id: "tall" });
+  expect(errors).toEqual([]);
+});
+
+test("Live: the beams on the stage and a look's preview on hover can both be left out", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  // a bar placed and turned towards jardin, lit: its cone and its arrow on the plan
+  const before = ((await api(page, "venue.fixture.list")) as { id: string }[]).find((f) => f.id === "bar-0")!;
+  await api(page, "venue.fixture.put", { fixture: { ...before, position: { x: -2, y: 4.5, z: 0.2 } } });
+  await api(page, "venue.fixture.orient", { id: "bar-0", facing: "houseLeft" });
+  await page.reload();
+  await api(page, "look.go", { id: "masks" });
+  await page.getByRole("button", { name: "Scène", exact: true }).click();
+  const panel = page.locator(".live-stage-panel");
+  const beams = page.getByRole("button", { name: "Faisceaux" });
+  await expect(beams).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.locator('.light-cone[data-beam="bar-0"]')).toHaveCount(1);
+  await expect(panel.locator('g.fixture[data-fixture="bar-0"] .beam')).toHaveCount(1);
+  await beams.click();
+  await expect(beams).toHaveAttribute("aria-pressed", "false");
+  await expect(panel.locator(".light-cone")).toHaveCount(0);
+  await expect(panel.locator("g.beam")).toHaveCount(0);
+  await expect(panel.locator("ellipse").first()).toBeVisible(); // lit, it still glows
+  await page.reload(); // remembered by this browser
+  await expect(page.getByRole("button", { name: "Faisceaux" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".live-stage-panel .light-cone")).toHaveCount(0);
+  await page.screenshot({ path: "test-results/live-stage-no-beams.png" });
+
+  // the hover preview, switched off: a look button keeps its plain title
+  const peek = page.locator(".dash-top .bar").getByRole("button", { name: "Aperçu", exact: true });
+  await expect(peek).toHaveAttribute("aria-pressed", "true");
+  await peek.click();
+  await expect(peek).toHaveAttribute("aria-pressed", "false");
+  const button = page.locator(".dgrid .cell button", { hasText: "checker" }).first();
+  await button.hover();
+  await page.waitForTimeout(700); // longer than the hover delay
+  await expect(page.locator(".hover-peek")).toHaveCount(0);
+  await expect(button).toHaveAttribute("title", /checker/);
+  await page.mouse.move(0, 0);
+  await api(page, "look.stopall");
+  await api(page, "venue.fixture.put", { fixture: before });
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: its preview at once, concise, and on the stage on demand", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -648,12 +772,13 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.dgrid-scroll')).overflowY")).toBe("hidden");
   const cdp = await ctx.newCDPSession(page);
   const strip = (await gutter.boundingBox())!;
-  // from low in the strip: its top can sit under the page tabs, which stick to the top of the screen
+  // from just under what sticks to the top of the screen (the page tabs, the pinned edit tools)
   const x = Math.round(strip.x + strip.width / 2);
-  const y = Math.round(Math.min(strip.y + strip.height, 480) - 200 - 20);
+  const y = Math.round(Math.max(strip.y, await page.locator(".dash-top").evaluate((e) => e.getBoundingClientRect().bottom)) + 10);
+  expect(y + 120).toBeLessThan(480); // room left for the swipe
   expect(await page.evaluate<boolean>(`document.elementFromPoint(${x}, ${y})?.classList.contains("scroll-gutter") ?? false`)).toBe(true);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-  for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + i * 20 }] });
+  for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + i * 12 }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect.poll(() => page.evaluate<number>("window.scrollY")).toBeLessThan(y0);
   await page.screenshot({ path: "test-results/tablet-edit-gutter.png" });

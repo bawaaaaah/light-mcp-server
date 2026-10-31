@@ -47,6 +47,11 @@ button.ghost {
   border: none;
   color: var(--muted);
 }
+/* a ghost button switched on (Scène, a view, one side of a choice): its state shows, its size stays */
+button.ghost.on {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 select,
 input:not([type]),
 input[type="text"],
@@ -1017,10 +1022,6 @@ table.cues select {
   flex: 1 1 auto;
   min-height: 0;
 }
-.view-switch button.on {
-  color: var(--accent);
-  border: 1px solid var(--accent);
-}
 .calibration-box {
   margin-top: 0.8em;
 }
@@ -1751,6 +1752,62 @@ nav.jump a:hover {
   --row: 3.65em;
   --gap: 0.45em;
   --colmin: 84px;
+}
+/* The Live's top: its bar always in view while the page scrolls, just under the header
+   (--chrome-top, App.tsx); pinned, the stage or the edit tools stay in view with it. */
+.dash-top {
+  display: contents;
+}
+.dash-top:not(.pinned) > .bar,
+.dash-top.pinned {
+  position: sticky;
+  top: var(--chrome-top, 0px);
+  z-index: 3; /* over the widgets' corner handles */
+  background: var(--bg);
+}
+.dash-top.pinned {
+  display: block;
+  border-bottom: 2px solid var(--accent); /* where what stays in view ends */
+}
+/* 📌: greyed while off, so that the red pin only reads as on when it is */
+button.pin:not(.on) {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+button.pin.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* the edit tools, pinned, never take the whole window: some of the grid stays in view, a long
+   palette scrolls inside */
+.dash-top.pinned.editing {
+  max-height: calc(100vh - var(--chrome-top, 0px) - max(7em, 30vh));
+  overflow-y: auto;
+}
+/* what sticks at the top is left out when the page brings something into view (focus, find) */
+html {
+  scroll-padding-top: calc(var(--chrome-top, 0px) + var(--live-top, 0px));
+}
+.dash-top.pinned .live-stage-panel:not(.sized) .stage-plan svg,
+.dash-top.pinned .live-stage-panel:not(.sized) .stage-3d canvas {
+  max-height: 42vh;
+}
+/* the pinned stage's bottom edge: a grip to drag its height */
+.stage-resize {
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+  background: linear-gradient(var(--muted), var(--muted)) center / 48px 4px no-repeat;
+}
+.stage-resize:hover,
+.stage-resize:focus-visible {
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  background-image: linear-gradient(var(--accent), var(--accent));
+  outline: none;
+}
+.dash-top.pinned .stage-3d canvas {
+  object-fit: contain; /* shrunk, not squashed */
 }
 .dgrid-scroll {
   overflow-x: auto;

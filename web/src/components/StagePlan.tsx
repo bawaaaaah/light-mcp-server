@@ -18,7 +18,7 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -92,6 +92,10 @@ export function StagePlan({
   initialView = "top",
   onZoneMenu,
   onZoneMove,
+  beamsShown = true,
+  controls,
+  collapsed = false,
+  height,
 }: {
   fixtures: PlanFixture[];
   zones: PlanZone[];
@@ -110,6 +114,14 @@ export function StagePlan({
   onZoneMenu?: (zone: PlanZone, at: { x: number; y: number }) => void;
   /** « Déplacer les zones »: a zone dragged on the plan, its new corners. */
   onZoneMove?: (zone: PlanZone, polygon: [number, number][]) => void;
+  /** Beams drawn (cones, the arrows of where fixtures point); off, a lit fixture only glows. */
+  beamsShown?: boolean;
+  /** With the views: more switches before them (the Live's stage: fold it, its beams). */
+  controls?: ReactNode;
+  /** Folded: only the row of the views stays, the drawing is left out. */
+  collapsed?: boolean;
+  /** A height chosen for the drawing (px), which fits inside; none: from its width. */
+  height?: number;
 }) {
   const t = useT();
   const [liveColors, setColors] = useState<Record<string, string[]>>({});
@@ -118,7 +130,7 @@ export function StagePlan({
   // a preview shows its own colours, without the live output's strobe and beams
   const colors = shownColors ?? liveColors;
   const strobe = shownColors ? {} : liveStrobe;
-  const beams = shownColors ? {} : liveBeams;
+  const beams = shownColors || !beamsShown ? {} : liveBeams;
   const [aiming, setAiming] = useState(false);
   const [placing, setPlacing] = useState(false);
   /** « Placer »: the fixture held (`held`) and those moving with it, from where the pointer took it. */
@@ -438,7 +450,12 @@ export function StagePlan({
   const show3d = in3d && (!compact || views);
   return (
     <div className={compact ? "stage-plan compact" : "stage-plan"}>
-      {compact && views && <div className="row view-row">{viewSwitch}</div>}
+      {compact && views && (
+        <div className="row view-row">
+          {controls}
+          {viewSwitch}
+        </div>
+      )}
       {!compact && (
         <div className="row">
         <small className="hint">
@@ -523,17 +540,17 @@ export function StagePlan({
           )}
         </div>
       )}
-      {show3d && (
+      {show3d && !collapsed && (
         <Suspense fallback={<p className="hint">…</p>}>
-          <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} />
+          <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} height={height} />
         </Suspense>
       )}
-      <div className="plan-scroll" ref={scroller} hidden={show3d}>
+      <div className="plan-scroll" ref={scroller} hidden={show3d || collapsed}>
       <svg
         ref={svg}
         viewBox={`${-pad.left} ${-pad.top} ${VW} ${VH}`}
         className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
-        style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : undefined}
+        style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : height ? { height, maxHeight: "none" } : undefined}
         onClick={aimAt}
         onPointerDown={(e) => {
           // « Placer », pressed on the stage rather than a fixture: a frame to choose those inside
@@ -637,7 +654,7 @@ export function StagePlan({
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
-          const showBeam = Boolean(f.orientation) || (orienting && isSelected);
+          const showBeam = (beamsShown && Boolean(f.orientation)) || (orienting && isSelected);
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
@@ -774,12 +791,30 @@ function inside(x: number, y: number, poly: [number, number][]): boolean {
 }
 
 /** Self-loading live preview, for a dashboard widget. */
-export function LiveStage({ onError, shownColors, views = false, initialView }: { onError: (msg: string) => void; shownColors?: Record<string, string[]>; views?: boolean; initialView?: "top" | "front" | "3d" }) {
+export function LiveStage({
+  onError,
+  shownColors,
+  views = false,
+  initialView,
+  beamsShown,
+  controls,
+  collapsed,
+  height,
+}: {
+  onError: (msg: string) => void;
+  shownColors?: Record<string, string[]>;
+  views?: boolean;
+  initialView?: "top" | "front" | "3d";
+  beamsShown?: boolean;
+  controls?: ReactNode;
+  collapsed?: boolean;
+  height?: number;
+}) {
   const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
   const [zones, setZones] = useState<PlanZone[]>([]);
   useEffect(() => {
     void cmd<PlanFixture[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<PlanZone[]>("stage.zone.list").then(setZones).catch(() => undefined);
   }, []);
-  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact views={views} shownColors={shownColors} initialView={initialView} />;
+  return <StagePlan fixtures={fixtures} zones={zones} onError={onError} compact views={views} shownColors={shownColors} initialView={initialView} beamsShown={beamsShown} controls={controls} collapsed={collapsed} height={height} />;
 }

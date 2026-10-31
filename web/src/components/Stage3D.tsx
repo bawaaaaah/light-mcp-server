@@ -20,14 +20,20 @@ export interface Stage3DProps {
   beams: Record<string, Vec & { angle?: number; to: Vec }>;
   noWebgl: string;
   label: string;
+  /** A height chosen for it (px), instead of one from its width. */
+  height?: number;
 }
 
 const ZONE_COLOR: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
 const toThree = (v: Vec) => new THREE.Vector3(v.x, v.z, -v.y);
 const lit = (cs?: string[]) => (cs ?? []).filter((c) => c !== "#000000");
 
-export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label }: Stage3DProps) {
+export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label, height: chosen }: Stage3DProps) {
   const host = useRef<HTMLDivElement>(null);
+  // the height chosen, read by the resize: a new one applies at once, without a new renderer
+  const chosenHeight = useRef(chosen);
+  const resizeNow = useRef<() => void>(() => undefined);
+  const heightFor = (w: number) => chosenHeight.current ?? Math.round(Math.min(520, Math.max(300, w * 0.55)));
   const world = useRef<{ scene: THREE.Scene; dynamic: THREE.Group; zones: THREE.Group; camera: THREE.PerspectiveCamera; controls: OrbitControls; framed: boolean } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -43,7 +49,7 @@ export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label
       return;
     }
     const width = el.clientWidth || 800;
-    const height = Math.round(Math.min(520, Math.max(300, width * 0.55)));
+    const height = heightFor(width);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(width, height);
     renderer.domElement.setAttribute("role", "img");
@@ -77,13 +83,15 @@ export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label
     loop();
     const resize = () => {
       const w = el.clientWidth || width;
-      const h = Math.round(Math.min(520, Math.max(300, w * 0.55)));
+      const h = heightFor(w);
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     window.addEventListener("resize", resize);
+    resizeNow.current = resize;
     return () => {
+      resizeNow.current = () => undefined;
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
       controls.dispose();
@@ -92,6 +100,10 @@ export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label
       world.current = null;
     };
   }, [label]);
+  useEffect(() => {
+    chosenHeight.current = chosen;
+    resizeNow.current();
+  }, [chosen]);
 
   // zones: slabs at their floor height, red edges for the protected and the no-aim ones
   useEffect(() => {

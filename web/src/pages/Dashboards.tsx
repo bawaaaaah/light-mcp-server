@@ -3,6 +3,7 @@ import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useHoverPeek } from "../components/HoverPeek";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
 import { LiveStage } from "../components/StagePlan";
 import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
@@ -158,6 +159,41 @@ export function DashboardsPage({ role }: { role: Role }) {
       /* per-browser comfort only */
     }
   };
+  // The bar always stays in view while the page scrolls; pinned, the stage (Live) or the edit tools
+  // stay with it, both remembered by this browser.
+  const [stagePinned, setStagePinned] = useStored("liveStagePinned", false);
+  const [toolsPinned, setToolsPinned] = useStored("dashboardToolsPinned", true);
+  /** The beams on the Live's stage, and a look's colours on hovering its button: both can be left out. */
+  const [stageBeams, setStageBeams] = useStored("liveStageBeams", true);
+  const [hoverPeekOn, setHoverPeekOn] = useStored("lookHoverPeek", true);
+  /** A mouse to hover with: a touch screen has no hover preview, nor its switch. */
+  const [mouse] = useState(() => window.matchMedia?.("(hover: hover)").matches ?? true);
+  /** The stage folded in place: its row stays, to open it again where it was. */
+  const [stageFolded, setStageFolded] = useStored("liveStageFolded", false);
+  /** The pinned stage's height, dragged by its bottom edge (px); none: up to 42 % of the window. */
+  const [stageHeight, setStageHeight] = useStored<number | null>("liveStageHeight", null);
+  const [draggedHeight, setDraggedHeight] = useState<number | null>(null);
+  const stagePanel = useRef<HTMLElement>(null);
+  const resize = useRef<{ y0: number; h0: number } | null>(null);
+  /** Never so small it vanishes, never the whole window. */
+  const fitHeight = (h: number) => Math.round(Math.min(Math.max(h, 80), window.innerHeight * 0.75));
+  const pinnedHeight = stagePinned ? (draggedHeight ?? (stageHeight === null ? undefined : fitHeight(stageHeight))) : undefined;
+  const drawnHeight = () => stagePanel.current?.querySelector(".plan-scroll:not([hidden]) svg, .stage-3d canvas")?.getBoundingClientRect().height ?? 200;
+  const pinned = edit ? toolsPinned : stageShown && stagePinned;
+  // what stays in view (the bar, or all that is pinned) is left out when the page brings something
+  // into view (keyboard focus, find in page), so nothing lands under it (--live-top)
+  const topRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const stuck = pinned ? topRef.current : topRef.current?.querySelector<HTMLElement>(".bar");
+    if (!stuck || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const watch = new ResizeObserver(() => root.style.setProperty("--live-top", `${stuck.offsetHeight}px`));
+    watch.observe(stuck);
+    return () => {
+      watch.disconnect();
+      root.style.removeProperty("--live-top");
+    };
+  }, [pinned]);
   useEffect(() => {
     document.body.classList.toggle("kiosk", kiosk);
     const out = () => !document.fullscreenElement && setKiosk(false);
@@ -485,7 +521,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
   // a look's colours in a tooltip, under the mouse; not while arranging the widgets
-  const hoverPeek = useHoverPeek(!edit);
+  const hoverPeek = useHoverPeek(!edit && hoverPeekOn);
   const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet} : ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ");
 
   const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void, confirm?: string) =>
@@ -646,7 +682,7 @@ export function DashboardsPage({ role }: { role: Role }) {
       case "preview":
         return (
           <div className="fill preview-widget">
-            <LiveStage onError={setError} />
+            <LiveStage onError={setError} beamsShown={stageBeams} />
           </div>
         );
       case "xy":
@@ -785,6 +821,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   const shared = <K extends keyof Widget>(k: K, ws: Widget[], fallback?: Widget[K]) => (new Set(ws.map((w) => w[k] ?? fallback)).size === 1 ? (ws[0]![k] ?? fallback) : undefined);
   return (
     <div className="dashboards">
+      <div ref={topRef} className={`dash-top${pinned ? " pinned" : ""}${edit ? " editing" : ""}`}>
       <section className="bar">
         {dashboards.map((d, i) => (
           <button key={d.id} className={i === current ? "tab active" : "tab"} onClick={() => setCurrent(i)}>
@@ -829,6 +866,9 @@ export function DashboardsPage({ role }: { role: Role }) {
             >
               {t.autoColors}
             </button>
+            <button className={toolsPinned ? "toggle pin on" : "toggle pin"} aria-pressed={toolsPinned} aria-label={t.pinTools} title={t.pinToolsHelp} onClick={() => setToolsPinned(!toolsPinned)}>
+              📌
+            </button>
             <button className="primary" onClick={save}>
               ✔
             </button>
@@ -846,9 +886,19 @@ export function DashboardsPage({ role }: { role: Role }) {
           </>
         ) : (
           <>
+            {mouse && (
+              <button className={hoverPeekOn ? "ghost on" : "ghost"} aria-pressed={hoverPeekOn} title={t.hoverPeekHelp} onClick={() => setHoverPeekOn(!hoverPeekOn)}>
+                {t.hoverPeekToggle}
+              </button>
+            )}
             <button className={stageShown ? "ghost on" : "ghost"} title={t.liveStageHelp} aria-pressed={stageShown} onClick={toggleStage}>
               {t.liveStageToggle}
             </button>
+            {stageShown && (
+              <button className={stagePinned ? "ghost pin on" : "ghost pin"} aria-pressed={stagePinned} aria-label={t.pinStage} title={t.pinStageHelp} onClick={() => setStagePinned(!stagePinned)}>
+                {stagePinned ? `📌 ${t.pinned}` : "📌"}
+              </button>
+            )}
             <button className="ghost" title={t.fullScreenHelp} aria-label={t.fullScreen} aria-pressed={kiosk} onClick={toggleKiosk}>
               {kiosk ? "⤡" : "⛶"}
             </button>
@@ -1021,10 +1071,59 @@ export function DashboardsPage({ role }: { role: Role }) {
       )}
 
       {stageShown && !edit && (
-        <section className="live-stage-panel" aria-label={t.liveStageToggle}>
-          <LiveStage onError={setError} views />
+        <section ref={stagePanel} className={pinnedHeight ? "live-stage-panel sized" : "live-stage-panel"} aria-label={t.liveStageToggle}>
+          <LiveStage
+            onError={setError}
+            views
+            beamsShown={stageBeams}
+            collapsed={stageFolded}
+            height={pinnedHeight}
+            controls={
+              <>
+                <button className="ghost" aria-expanded={!stageFolded} title={t.foldStageHelp} onClick={() => setStageFolded(!stageFolded)}>
+                  {stageFolded ? `▸ ${t.reveal}` : `▾ ${t.hide}`}
+                </button>
+                <button className={stageBeams ? "ghost on" : "ghost"} aria-pressed={stageBeams} title={t.stageBeamsHelp} onClick={() => setStageBeams(!stageBeams)}>
+                  {t.stageBeams}
+                </button>
+              </>
+            }
+          />
+          {/* pinned, its bottom edge sets its height: dragged, or the arrows; a double click gives it back its own */}
+          {stagePinned && !stageFolded && (
+            <div
+              className="stage-resize"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={t.stageHeight}
+              title={t.stageHeightHelp}
+              tabIndex={0}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                resize.current = { y0: e.clientY, h0: pinnedHeight ?? drawnHeight() };
+                setDraggedHeight(fitHeight(resize.current.h0));
+              }}
+              onPointerMove={(e) => resize.current && setDraggedHeight(fitHeight(resize.current.h0 + e.clientY - resize.current.y0))}
+              onPointerUp={() => {
+                if (!resize.current) return;
+                resize.current = null;
+                if (draggedHeight !== null) setStageHeight(draggedHeight);
+                setDraggedHeight(null);
+              }}
+              onPointerCancel={() => ((resize.current = null), setDraggedHeight(null))}
+              onDoubleClick={() => setStageHeight(null)}
+              onKeyDown={(e) => {
+                const step = e.key === "ArrowDown" ? 20 : e.key === "ArrowUp" ? -20 : 0;
+                if (!step) return;
+                e.preventDefault();
+                setStageHeight(fitHeight((pinnedHeight ?? drawnHeight()) + step));
+              }}
+            />
+          )}
         </section>
       )}
+      </div>
       {dash && (
         <div className={`dgrid-scroll${edit ? " editing" : ""}`}>
         <div

@@ -19,6 +19,37 @@ const ConnectPage = lazy(() => import("./pages/Connect").then((m) => ({ default:
 const FilesPage = lazy(() => import("./pages/Files").then((m) => ({ default: m.FilesPage })));
 const AccountPage = lazy(() => import("./pages/Account").then((m) => ({ default: m.AccountPage })));
 
+/**
+ * Keeps --chrome-top on the document: how much of the window's top the chrome kept there covers
+ * (the header; on a tablet, the strip of pages), for a page's own sticky bar to sit just below it.
+ * Nothing in full screen, where both are hidden.
+ */
+function keepChromeTop(app: HTMLDivElement | null): (() => void) | undefined {
+  if (!app || typeof ResizeObserver === "undefined") return;
+  const root = document.documentElement;
+  const main = app.querySelector("main");
+  const chrome = [...app.querySelectorAll<HTMLElement>(".sidebar, header.top")];
+  const measure = () => {
+    const m = main?.getBoundingClientRect();
+    let top = 0;
+    for (const el of chrome) {
+      const r = el.getBoundingClientRect();
+      // the side bar beside the pages (a computer) covers none of their top
+      if (m && r.height && getComputedStyle(el).position === "sticky" && r.right > m.left && r.left < m.right) top += r.height;
+    }
+    root.style.setProperty("--chrome-top", `${top}px`);
+  };
+  const watch = new ResizeObserver(measure);
+  for (const el of chrome) watch.observe(el);
+  window.addEventListener("resize", measure);
+  measure();
+  return () => {
+    watch.disconnect();
+    window.removeEventListener("resize", measure);
+    root.style.removeProperty("--chrome-top");
+  };
+}
+
 export const I18n = createContext<Texts>(TEXTS.fr);
 export const useT = () => useContext(I18n);
 /** Opens another page from inside one (the getting-started guide, links between pages). */
@@ -289,7 +320,7 @@ export function App() {
     <I18n.Provider value={t}>
       <Nav.Provider value={(p) => allowed(p) && setPage(p)}>
       <Me.Provider value={role}>
-      <div className="app">
+      <div className="app" ref={keepChromeTop}>
       <aside className="sidebar">
         <div className="brand">{t.appName}</div>
         <nav className="pages" aria-label={t.navigation}>
