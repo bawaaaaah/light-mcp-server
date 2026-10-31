@@ -29,7 +29,7 @@ export function oscRoutes(registry: CommandRegistry): OscRoute[] {
   return registry.list().map((d: CommandDef) => ({
     address: oscAddress(d.name),
     command: d.name,
-    params: Object.keys((d.schema as unknown as z.AnyZodObject).shape ?? {}),
+    params: Object.keys((d.schema as unknown as z.ZodObject).shape ?? {}),
     description: d.title,
   }));
 }

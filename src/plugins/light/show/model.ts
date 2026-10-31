@@ -34,7 +34,7 @@ export const LookSchema = z.object({
   technique: TechniqueSchema,
   /** By reference: the technique's colours come from this palette (changing it updates the look). */
   palette: z.string().optional(),
-  timing: TimingSchema.default({}),
+  timing: TimingSchema.prefault({}),
   /** Moving heads: position or Move FX played with the look (docs/specs/engine-effects-timing.md). */
   move: MoveSchema.optional(),
   /** Raw channels (machines, lamps) stepped with the look. */
@@ -72,7 +72,7 @@ export const GroupSchema = z.object({
       looks: z.array(z.string()).default([]),
       groups: z.array(z.string()).default([]),
     })
-    .default({}),
+    .prefault({}),
   /** Dynamic members: fixtures whose role / tags match. */
   selector: z.object({ role: z.string().optional(), tags: z.array(z.string()).optional() }).optional(),
   master: z.object({ level: z.number().min(0).max(1).default(1), mute: z.boolean().default(false), smoothing: FaderSmoothingSchema.optional() }).optional(),
@@ -90,7 +90,7 @@ export const GroupSchema = z.object({
     })
     .refine((l) => l.min === undefined || l.max === undefined || l.min <= l.max, { message: "min au-dessus du max" })
     .optional(),
-  presets: z.object({ included: z.array(z.string()).default([]), excluded: z.array(z.string()).default([]) }).default({}),
+  presets: z.object({ included: z.array(z.string()).default([]), excluded: z.array(z.string()).default([]) }).prefault({}),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary", "toggle"]).optional(),
   /** Playback fader (a QLC+ « Playback » slider): above 0 its DCA starts the looks it doses, at 0 stops them. */
   playback: z.boolean().optional(),
@@ -128,9 +128,9 @@ export const SnapshotSchema = z.object({
   /** Looks playing (latched buttons, playbacks, sections). */
   looks: z.array(z.string()).default([]),
   /** DCA levels and mutes, by group id. */
-  groups: z.record(z.string(), z.object({ level: z.number().min(0).max(1), mute: z.boolean().default(false) })).default({}),
+  groups: z.record(z.string(), z.object({ level: z.number().min(0).max(1), mute: z.boolean().default(false) })).prefault({}),
   /** Channel fader levels, by fader id. */
-  faders: z.record(z.string(), z.number().min(0).max(1)).default({}),
+  faders: z.record(z.string(), z.number().min(0).max(1)).prefault({}),
   grandMaster: z.number().min(0).max(1).optional(),
   /** Active rule program; absent = none. */
   program: z.string().optional(),

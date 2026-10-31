@@ -34,7 +34,7 @@ export const CueSchema = z.object({
   atBar: z.number().min(0),
   beat: z.number().min(0).default(0),
   command: z.string(),
-  args: z.record(z.string(), z.unknown()).default({}),
+  args: z.record(z.string(), z.unknown()).prefault({}),
   label: z.string().optional(),
 });
 export type Cue = z.infer<typeof CueSchema>;

@@ -13,9 +13,9 @@ export const NoteRegistrySchema = z.object({
   id: z.literal("notes-registry").default("notes-registry"),
   bands: z.array(BandSchema).default([]),
   /** action key → { band, channel, note } */
-  pinned: z.record(z.string(), z.object({ band: z.string(), channel: z.number().int(), note: z.number().int() })).default({}),
+  pinned: z.record(z.string(), z.object({ band: z.string(), channel: z.number().int(), note: z.number().int() })).prefault({}),
   /** notes no longer used but kept reserved: "channel:note" → former action key */
-  reserved: z.record(z.string(), z.string()).default({}),
+  reserved: z.record(z.string(), z.string()).prefault({}),
 });
 export type NoteRegistryData = z.infer<typeof NoteRegistrySchema>;
 

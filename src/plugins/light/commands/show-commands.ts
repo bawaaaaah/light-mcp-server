@@ -3,7 +3,6 @@
  * groups (level, mute, flash), show settings, and « Panic neutre ».
  */
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { displayHex } from "../engine/display.js";
 import { CommandError, type CommandRegistry } from "./registry.js";
@@ -352,7 +351,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     readOnly: true,
     profiles: ["design"],
     schema: z.object({}),
-    run: () => TechniqueSchema.options.map((o) => ({ kind: o.shape.kind.value, schema: zodToJsonSchema(o, { $refStrategy: "none" }) })),
+    run: () => TechniqueSchema.options.map((o) => ({ kind: o.shape.kind.value, schema: z.toJSONSchema(o, { io: "input", reused: "inline", unrepresentable: "any" }) })),
   });
   reg.register({
     name: "look.preview",

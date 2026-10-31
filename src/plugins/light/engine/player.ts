@@ -15,7 +15,7 @@ export type Every = z.infer<typeof EverySchema>;
 
 export const TimingSchema = z.object({
   /** Step length: beats (musical) or seconds (fixed). */
-  every: EverySchema.default({ beats: 1 }),
+  every: EverySchema.prefault({ beats: 1 }),
   attack: z.number().min(0).max(1).default(0),
   order: z.enum(["loop", "pingpong", "random", "weighted"]).default("loop"),
   /** Weighted order: weight per step (missing = 1). */

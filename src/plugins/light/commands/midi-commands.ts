@@ -26,7 +26,7 @@ export const MidiProfileSchema = z.object({
       /** Sessions joined by name whenever they are on the network. */
       connect: z.array(z.string()).default([]),
     })
-    .default({}),
+    .prefault({}),
 });
 export type MidiProfile = z.infer<typeof MidiProfileSchema>;
 

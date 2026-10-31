@@ -11,7 +11,7 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import type { ZodType, ZodTypeDef } from "zod";
+import type { ZodType } from "zod";
 import { historyTime } from "./retention.js";
 import { say } from "../../../core/lang.js";
 
@@ -71,7 +71,7 @@ export class Collection<T extends { id: string }> {
   constructor(
     private readonly store: FolderStore,
     readonly name: string,
-    private readonly schema: ZodType<T, ZodTypeDef, unknown>,
+    private readonly schema: ZodType<T, unknown>,
   ) {
     this.reload();
   }
@@ -230,7 +230,7 @@ export class FolderStore {
     this.reloadAll();
   }
 
-  collection<T extends { id: string }>(name: string, schema: ZodType<T, ZodTypeDef, unknown>): Collection<T> {
+  collection<T extends { id: string }>(name: string, schema: ZodType<T, unknown>): Collection<T> {
     const existing = this.collections.get(name);
     if (existing) return existing as unknown as Collection<T>;
     const c = new Collection<T>(this, name, schema);
@@ -249,7 +249,7 @@ export class FolderStore {
     this.emit({ collection: "*", id: "*", kind: "put" });
   }
 
-  readManifest<T>(file: string, schema: ZodType<T, ZodTypeDef, unknown>, fallback: T): T {
+  readManifest<T>(file: string, schema: ZodType<T, unknown>, fallback: T): T {
     const path = join(this.root, file);
     if (!existsSync(path)) return fallback;
     return schema.parse(JSON.parse(readFileSync(path, "utf8")));

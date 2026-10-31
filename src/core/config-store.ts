@@ -49,7 +49,7 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     trustProxy: z.unknown().optional(),
     // Dynamically-registered OAuth clients (core/oauth.ts) — kept loosely typed rather than
     // mirroring the SDK's OAuthClientInformationFull shape here, same rationale as `plugins` below.
-    oauthClients: z.record(z.unknown()).optional(),
+    oauthClients: z.record(z.string(), z.unknown()).optional(),
     // Access and refresh tokens issued to those clients (core/oauth.ts), stored hashed. Validated
     // entry by entry over there, for the same reason as `passkeys` below.
     oauthTokens: z.unknown().optional(),
@@ -72,7 +72,7 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     auth: z.unknown().optional(),
     sessions: z.unknown().optional(),
   }),
-  plugins: z.record(z.unknown()),
+  plugins: z.record(z.string(), z.unknown()),
 });
 
 /**

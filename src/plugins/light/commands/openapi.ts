@@ -3,7 +3,7 @@
  * command registry: one POST route per command, its arguments' JSON schema, its right and whether
  * it writes. Scripts in any language (Python included) can be written against it.
  */
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import type { CommandDef } from "./registry.js";
 
 const ERROR = { type: "object", properties: { ok: { type: "boolean", enum: [false] }, error: { type: "string" }, detail: {} }, required: ["error"] };
@@ -27,7 +27,7 @@ export function openApiDocument(commands: CommandDef[], version: string): Record
     },
   };
   for (const c of commands) {
-    const { $schema: _ignored, ...schema } = zodToJsonSchema(c.schema, { target: "openApi3", $refStrategy: "none" }) as Record<string, unknown>;
+    const { $schema: _ignored, ...schema } = z.toJSONSchema(c.schema, { target: "openapi-3.0", io: "input", reused: "inline", unrepresentable: "any" }) as Record<string, unknown>;
     paths[`/api/plugins/light/commands/${c.name}`] = {
       post: {
         operationId: c.name.replace(/[._](\w)/g, (_m, ch: string) => ch.toUpperCase()),

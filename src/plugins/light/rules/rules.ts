@@ -17,7 +17,7 @@ export const RuleSchema = z.object({
   name: z.string().default(""),
   level: z.enum(["type", "venue", "show"]).default("show"),
   /** zone: fixtures located in or aiming at this zone (protected zones). */
-  scope: z.object({ model: z.string().optional(), fixture: z.string().optional(), zone: z.string().optional() }).default({}),
+  scope: z.object({ model: z.string().optional(), fixture: z.string().optional(), zone: z.string().optional() }).prefault({}),
   target: z.object({
     channel: z.string().optional(),
     attribute: z.enum(["intensity", "color", "colorWheel", "pan", "tilt", "strobe", "effect", "speed", "maintenance", "other"]).optional(),

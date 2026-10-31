@@ -6,7 +6,6 @@ import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/serv
 import express, { type Request, type Response, type Router } from "express";
 import { diffFolder, packArchive, readArchive, restoreFolder } from "./data/archive.js";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AuthMiddleware } from "../../core/auth.js";
 import type { EventBus } from "../../core/event-bus.js";
 import { HttpError } from "../../core/http-errors.js";
@@ -95,18 +94,18 @@ export const LightConfigSchema = z.object({
       /** Standby: the show runs but nothing is sent (QLC+ or another console holds the nodes). Kept across restarts. */
       standby: z.boolean().default(false),
     })
-    .default({ routes: [{ universe: 1, artnet: { portAddress: 0 } }] }),
+    .prefault({ routes: [{ universe: 1, artnet: { portAddress: 0 } }] }),
   discovery: z.boolean().default(true),
   /** Current show and venue (folders under <dataRoot>/shows and /venues). */
   show: z.string().default("default"),
   venue: z.string().default("default"),
   midi: z
     .object({
-      profiles: z.record(z.string(), MidiProfileSchema).default({ local: MidiProfileSchema.parse({ inputs: ["IAC"] }) }),
+      profiles: z.record(z.string(), MidiProfileSchema).prefault({ local: MidiProfileSchema.parse({ inputs: ["IAC"] }) }),
       active: z.string().default("local"),
     })
-    .default({}),
-  osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).default({}),
+    .prefault({}),
+  osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).prefault({}),
   /** DJ software (VirtualDJ…) over OS2L: TCP, any DJ computer of the network unless `allow` names some, as for OSC. */
   os2l: z
     .object({
@@ -116,9 +115,9 @@ export const LightConfigSchema = z.object({
       /** Announced on the network (mDNS, `_os2l._tcp`), so the DJ software finds the desk by itself. */
       advertise: z.boolean().default(true),
     })
-    .default({}),
+    .prefault({}),
   /** AbleSet (setlist for Ableton Live) followed over OSC: off until the desk turns it on. */
-  ableset: z.object({ enabled: z.boolean().default(false), host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(39051) }).default({}),
+  ableset: z.object({ enabled: z.boolean().default(false), host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(39051) }).prefault({}),
 });
 export type LightConfig = z.infer<typeof LightConfigSchema>;
 
@@ -780,7 +779,7 @@ export class LightPlugin implements McpPlugin {
       }));
     }
     for (const def of this.commands.list()) {
-      const shape = (def.schema as unknown as z.AnyZodObject).shape ?? {};
+      const shape = (def.schema as unknown as z.ZodObject).shape ?? {};
       server.registerTool(
         toolName(def.name),
         { title: def.title, description: def.description, inputSchema: shape, annotations: { readOnlyHint: Boolean(def.readOnly) } },
@@ -905,7 +904,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   getConfigSchema(): object {
-    return zodToJsonSchema(LightConfigSchema);
+    return z.toJSONSchema(LightConfigSchema, { io: "input", reused: "inline", unrepresentable: "any" });
   }
 
   getConfig(): unknown {
@@ -924,7 +923,7 @@ export class LightPlugin implements McpPlugin {
     const credential = (req: Request) => this.opts.auth?.bearerOf(req);
     router.get("/openapi.json", (_req: Request, res: Response) => res.json(openApiDocument(this.commands.list(), getPackageVersion())));
     router.get("/commands", (_req: Request, res: Response) => {
-      res.json(this.commands.list().map((d) => ({ name: d.name, title: d.title, description: d.description, right: d.right, readOnly: Boolean(d.readOnly), schema: zodToJsonSchema(d.schema) })));
+      res.json(this.commands.list().map((d) => ({ name: d.name, title: d.title, description: d.description, right: d.right, readOnly: Boolean(d.readOnly), schema: z.toJSONSchema(d.schema, { io: "input", reused: "inline", unrepresentable: "any" }) })));
     });
     router.post("/commands/:name", async (req: Request, res: Response) => {
       try {

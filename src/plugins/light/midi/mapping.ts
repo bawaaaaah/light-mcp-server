@@ -27,7 +27,7 @@ import type { MidiMessage } from "./parse.js";
 /** The virtual port of the DJ's numbered commands (OS2L `cmd` n → CC n, its 0..1 value → 0..127). */
 export const OS2L_PORT = "OS2L";
 
-export const CommandCallSchema = z.object({ command: z.string(), args: z.record(z.unknown()).default({}) });
+export const CommandCallSchema = z.object({ command: z.string(), args: z.record(z.string(), z.unknown()).prefault({}) });
 export type CommandCall = z.infer<typeof CommandCallSchema>;
 
 export const MappingSchema = z.object({
@@ -56,7 +56,7 @@ export const MappingSchema = z.object({
       outMax: z.number().min(0).max(1).default(1),
       curve: z.enum(["linear", "log", "exp"]).default("linear"),
     })
-    .default({}),
+    .prefault({}),
   followAftertouch: z.boolean().default(false),
   pickup: z.boolean().default(false),
   feedback: z.enum(["none", "note", "cc"]).default("note"),

@@ -21,10 +21,10 @@ export const MoveSchema = z.object({
    * default); aleatoire = each head glides to a new point drawn in the box every cycle.
    */
   shape: z.enum(["fixe", "cercle", "huit", "pan", "tilt", "tapis", "aleatoire"]).default("fixe"),
-  center: z.object({ pan: z.number().min(0).max(1).default(0.5), tilt: z.number().min(0).max(1).default(0.5) }).default({}),
+  center: z.object({ pan: z.number().min(0).max(1).default(0.5), tilt: z.number().min(0).max(1).default(0.5) }).prefault({}),
   /** Amplitude around the centre, in fractions of the travel. */
-  size: z.object({ pan: z.number().min(0).max(0.5).default(0.1), tilt: z.number().min(0).max(0.5).default(0.1) }).default({}),
-  every: EverySchema.default({ beats: 4 }),
+  size: z.object({ pan: z.number().min(0).max(0.5).default(0.1), tilt: z.number().min(0).max(0.5).default(0.1) }).prefault({}),
+  every: EverySchema.prefault({ beats: 4 }),
   /** Phase spread across the fixtures, in cycles (default 0, or 1 for « tapis »). */
   spread: z.number().min(0).max(4).optional(),
   /** Mirror the phase from the centre of the row (symmetric moves). */

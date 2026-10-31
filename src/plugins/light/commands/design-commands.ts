@@ -76,7 +76,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       "Gives every section without a look a proposed one, following the method: the song's mood is the guard rail, energy from the section (or its name: intro/couplet posé, refrain/pont dynamique, final/vamp survolté), dominant/accent swapped between neighbours for contrast. Also creates the song's exclusive group. Saved only if save is true.",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ song: z.string(), canvas: z.string(), energies: z.record(z.string(), z.enum(["pose", "dynamique", "survolte"])).default({}), save: z.boolean().default(false) }),
+    schema: z.object({ song: z.string(), canvas: z.string(), energies: z.record(z.string(), z.enum(["pose", "dynamique", "survolte"])).prefault({}), save: z.boolean().default(false) }),
     run: ({ song: songId, canvas, energies, save }) => {
       const song = songs.get(songId);
       if (!song) throw new Error(say(`chant inconnu : ${songId}`, `unknown song: ${songId}`));
