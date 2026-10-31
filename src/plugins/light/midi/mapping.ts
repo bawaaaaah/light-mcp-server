@@ -235,8 +235,18 @@ export class MidiMapper {
           }
         }
       } else if (m.input.type === "programchange") {
-        s.active = true;
-        out.calls.push(m.on);
+        // a program change carries only a high value: in « trigger » mode it always fires (unchanged),
+        // in every other mode it toggles the action on (first receipt) and off (second receipt)
+        if (m.mode === "trigger") {
+          s.active = true;
+          s.level = 1;
+          out.calls.push(m.on);
+        } else {
+          s.active = !s.active;
+          s.level = s.active ? 1 : restLevel(m);
+          if (s.active) out.calls.push(m.on);
+          else release(m, out);
+        }
       } else if (msg.type === "noteon") {
         // a note on at or under the threshold (a light hit) does not answer
         if (msg.velocity > m.threshold) {
