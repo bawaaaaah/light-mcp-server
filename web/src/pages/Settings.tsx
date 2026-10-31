@@ -24,8 +24,8 @@ interface Os2l {
 type UsbKind = "open" | "pro";
 interface Route {
   universe: number;
-  artnet?: { portAddress: number };
-  sacn?: { universe: number };
+  artnet?: { portAddress: number; targets?: string[] };
+  sacn?: { universe: number; unicast?: string[] };
   usb?: { path: string; kind: UsbKind };
 }
 interface UsbPort {
@@ -45,7 +45,7 @@ interface Output {
   usb?: { available: boolean; error?: string; devices: { path: string; kind: UsbKind; open: boolean; framesSent: number; error?: string }[] };
 }
 /** A route's change: an output set, removed (null), or left as it is (absent). */
-type RouteChange = { artnet?: number | null; sacn?: number | null; usb?: { path: string; kind: UsbKind } | null };
+type RouteChange = { artnet?: { portAddress: number; targets?: string[] } | null; sacn?: { universe: number; unicast?: string[] } | null; usb?: { path: string; kind: UsbKind } | null };
 
 /** What a route sends, in words. */
 function describeRoute(route: Route, kinds: Record<UsbKind, string>): string {
@@ -53,17 +53,19 @@ function describeRoute(route: Route, kinds: Record<UsbKind, string>): string {
 }
 
 /** One universe's outputs, each chosen by its box: an Art-Net address, an sACN universe, a DMX USB interface. */
-function RouteRow({ route, editable, ports, onSave }: { route: Route; editable: boolean; ports: UsbPort[]; onSave: (change: RouteChange) => void }) {
+function RouteRow({ route, editable, ports, nodes, onSave }: { route: Route; editable: boolean; ports: UsbPort[]; nodes: Node[]; onSave: (change: RouteChange) => void }) {
   const t = useT();
   const initial = () => ({
     artnet: route.artnet ? String(route.artnet.portAddress) : "",
+    targets: route.artnet?.targets ?? [],
     sacn: route.sacn ? String(route.sacn.universe) : "",
+    sacnTargets: route.sacn?.unicast ?? [],
     usb: route.usb ?? null,
   });
   const [state, setState] = useState(initial);
-  useEffect(() => setState(initial()), [route.artnet?.portAddress, route.sacn?.universe, route.usb?.path, route.usb?.kind]);
+  useEffect(() => setState(initial()), [route.artnet?.portAddress, route.artnet?.targets?.join(","), route.sacn?.universe, route.sacn?.unicast?.join(","), route.usb?.path, route.usb?.kind]);
   const before = initial();
-  const changed = state.artnet !== before.artnet || state.sacn !== before.sacn || state.usb?.path !== before.usb?.path || state.usb?.kind !== before.usb?.kind;
+  const changed = state.artnet !== before.artnet || state.targets.join(",") !== before.targets.join(",") || state.sacn !== before.sacn || state.sacnTargets.join(",") !== before.sacnTargets.join(",") || state.usb?.path !== before.usb?.path || state.usb?.kind !== before.usb?.kind;
   const label = `${t.universe} ${route.universe}`;
   if (!editable)
     return (
@@ -83,12 +85,44 @@ function RouteRow({ route, editable, ports, onSave }: { route: Route; editable: 
           <input type="checkbox" checked={state.artnet !== ""} onChange={(e) => setState({ ...state, artnet: e.target.checked ? String(route.artnet?.portAddress ?? route.universe - 1) : "" })} /> Art-Net
         </label>
         {state.artnet !== "" && <input type="number" min={0} max={32767} aria-label={`${label} · Art-Net`} value={state.artnet} onChange={(e) => setState({ ...state, artnet: e.target.value })} />}
+        {state.artnet !== "" && nodes.some((n) => (n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }))).some((p) => p.portAddress === Number(state.artnet))) && (
+          <ul className="nodes artnet-nodes">
+            {nodes.filter((n) => (n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }))).some((p) => p.portAddress === Number(state.artnet))).map((n) => (
+              <li key={n.key}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={state.targets.includes(n.ip)}
+                    onChange={(e) => setState({ ...state, targets: e.target.checked ? [...new Set([...state.targets, n.ip])] : state.targets.filter((ip) => ip !== n.ip) })}
+                  />
+                  {n.shortName} {n.ip}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
       </span>
       <span className="out">
         <label>
           <input type="checkbox" checked={state.sacn !== ""} onChange={(e) => setState({ ...state, sacn: e.target.checked ? String(route.sacn?.universe ?? route.universe) : "" })} /> sACN
         </label>
         {state.sacn !== "" && <input type="number" min={1} max={63999} aria-label={`${label} · sACN`} value={state.sacn} onChange={(e) => setState({ ...state, sacn: e.target.value })} />}
+        {state.sacn !== "" && nodes.length > 0 && (
+          <ul className="nodes artnet-nodes">
+            {nodes.map((n) => (
+              <li key={`s-${n.key}`}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={state.sacnTargets.includes(n.ip)}
+                    onChange={(e) => setState({ ...state, sacnTargets: e.target.checked ? [...new Set([...state.sacnTargets, n.ip])] : state.sacnTargets.filter((ip) => ip !== n.ip) })}
+                  />
+                  {n.shortName} {n.ip}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
       </span>
       <span className="out">
         <label title={firstPort || state.usb ? undefined : t.usbNone}>
@@ -112,7 +146,7 @@ function RouteRow({ route, editable, ports, onSave }: { route: Route; editable: 
         )}
       </span>
       {changed && (
-        <button className="primary" onClick={() => onSave({ artnet: state.artnet === "" ? null : Number(state.artnet), sacn: state.sacn === "" ? null : Number(state.sacn), usb: state.usb })}>
+        <button className="primary" onClick={() => onSave({ artnet: state.artnet === "" ? null : { portAddress: Number(state.artnet), targets: state.targets }, sacn: state.sacn === "" ? null : { universe: Number(state.sacn), ...(state.sacnTargets.length ? { unicast: state.sacnTargets } : {}) }, usb: state.usb })}>
           {t.save}
         </button>
       )}
@@ -149,8 +183,8 @@ export function SettingsPage({ role }: { role: Role }) {
     const { artnet, sacn, usb } = change;
     void cmd("output.route", {
       universe,
-      ...(artnet === undefined ? {} : { artnet: artnet === null ? null : { portAddress: artnet } }),
-      ...(sacn === undefined ? {} : { sacn: sacn === null ? null : { universe: sacn } }),
+      ...(artnet === undefined ? {} : { artnet: artnet === null ? null : (typeof artnet === "number" ? { portAddress: artnet } : artnet) }),
+      ...(sacn === undefined ? {} : { sacn: sacn === null ? null : (typeof sacn === "number" ? { universe: sacn } : sacn) }),
       ...(usb === undefined ? {} : { usb }),
     }).then(
       () => (setAdded((a) => a.filter((u) => u !== universe)), load()),
@@ -205,7 +239,7 @@ export function SettingsPage({ role }: { role: Role }) {
           {error && <p className="error">{error}</p>}
           <ul className="routes">
             {routes.map((r) => (
-              <RouteRow key={r.universe} route={r} editable={routing} ports={ports} onSave={(change) => route(r.universe, change)} />
+              <RouteRow key={r.universe} route={r} editable={routing} ports={ports} nodes={nodes} onSave={(change) => route(r.universe, change)} />
             ))}
           </ul>
           {routing && nextUniverse !== undefined && (
@@ -237,7 +271,7 @@ export function SettingsPage({ role }: { role: Role }) {
               ⚠ {t.universe} {u.universe} → Art-Net {u.portAddress} : {t.unheard}
               {routing &&
                 output.coverage!.unfed.map((p) => (
-                  <button key={p.key + p.portAddress} onClick={() => route(u.universe, { artnet: p.portAddress })}>
+                  <button key={p.key + p.portAddress} onClick={() => route(u.universe, { artnet: { portAddress: p.portAddress } })}>
                     → {p.shortName || p.ip} (Art-Net {p.portAddress})
                   </button>
                 ))}

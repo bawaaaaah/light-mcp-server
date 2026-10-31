@@ -115,8 +115,8 @@ export function registerCoreCommands(
     profiles: ["setup"],
     schema: z.object({
       universe,
-      artnet: z.object({ portAddress: z.number().int().min(0).max(32767) }).nullable().optional(),
-      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional() }).nullable().optional(),
+      artnet: z.object({ portAddress: z.number().int().min(0).max(32767), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).nullable().optional(),
+      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string()).optional() }).nullable().optional(),
       usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
     }),
     run: async ({ universe: u, artnet, sacn, usb }) => {
@@ -125,7 +125,7 @@ export function registerCoreCommands(
       const before = routes.find((r) => r.universe === u);
       const next: UniverseRoute = { universe: u };
       // explicit targets and unicast addresses set by hand stay with their protocol
-      const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : { ...before?.artnet, portAddress: artnet.portAddress };
+      const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : { ...before?.artnet, portAddress: artnet.portAddress, ...(artnet.targets !== undefined ? { targets: artnet.targets && artnet.targets.length ? artnet.targets : undefined } : {}), ...(artnet.broadcast !== undefined ? { broadcast: artnet.broadcast ?? undefined } : {}) };
       const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : { ...before?.sacn, ...sacn };
       const d = usb === undefined ? before?.usb : usb === null ? undefined : usb;
       if (a) next.artnet = a;
