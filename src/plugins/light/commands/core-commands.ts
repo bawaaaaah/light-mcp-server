@@ -12,6 +12,11 @@ const universe = z.number().int().min(1).describe("Univers (1..N)");
 const channel = z.number().int().min(1).max(512).describe("Canal DMX (1..512)");
 const value = z.number().int().min(0).max(255).describe("Valeur (0..255)");
 
+/** A route's output with its cleared fields dropped: an empty list or a null is « back to the default ». */
+function compact<T extends object>(o: T): { [K in keyof T]: Exclude<T[K], null> } {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0))) as { [K in keyof T]: Exclude<T[K], null> };
+}
+
 export function registerCoreCommands(
   reg: CommandRegistry,
   engine: DmxEngine,
@@ -77,7 +82,7 @@ export function registerCoreCommands(
     name: "output.status",
     title: "État de la sortie",
     description:
-      "Art-Net/sACN/DMX USB output: routes, packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed), and the DMX USB interfaces in use (open, frames sent, error).",
+      "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed), and the DMX USB interfaces in use (open, frames sent, error).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -90,6 +95,7 @@ export function registerCoreCommands(
       foreignSources: router.foreignSources(),
       merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })),
       coverage: routeCoverage(),
+      destinations: router.destinations(),
       universes: engine.output.count,
       usb: { available: router.usb.binding !== undefined, ...(router.usb.error ? { error: router.usb.error } : {}), devices: router.usb.status() },
     }),
@@ -110,13 +116,16 @@ export function registerCoreCommands(
     name: "output.route",
     title: "Router un univers",
     description:
-      "Where a universe goes, any of: an Art-Net port-address (sent to the nodes that output it, else broadcast), an sACN universe (multicast), a DMX USB interface plugged into this machine (its serial port from output.usb.list, and its kind: « open » for Open DMX and FTDI cables, « pro » for USB Pro). null removes that output; all removed, the universe is not sent. An interface feeds one universe. Takes effect at once (the fixtures there light up with the show) and is kept in the machine config.",
+      "Where a universe goes, any of: an Art-Net port-address, sent as `send` says — « auto » (default) to the nodes that output it, else broadcast (unless broadcast is false), « broadcast » to the whole network, « nodes » only to the node IPs in `targets` (none: nothing is sent; a node answering every address stays out unless ticked); an sACN universe (multicast, or unicast to the IPs in `unicast`; an empty list goes back to multicast); a DMX USB interface plugged into this machine (its serial port from output.usb.list, and its kind: « open » for Open DMX and FTDI cables, « pro » for USB Pro). null removes that output; all removed, the universe is not sent. An interface feeds one universe. Takes effect at once (the fixtures there light up with the show) and is kept in the machine config.",
     right: "commands:output",
     profiles: ["setup"],
     schema: z.object({
       universe,
-      artnet: z.object({ portAddress: z.number().int().min(0).max(32767), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).nullable().optional(),
-      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string()).optional() }).nullable().optional(),
+      artnet: z
+        .object({ portAddress: z.number().int().min(0).max(32767), send: z.enum(["auto", "broadcast", "nodes"]).optional(), targets: z.array(z.ipv4()).optional(), broadcast: z.boolean().nullable().optional() })
+        .nullable()
+        .optional(),
+      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.ipv4()).optional() }).nullable().optional(),
       usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
     }),
     run: async ({ universe: u, artnet, sacn, usb }) => {
@@ -124,9 +133,10 @@ export function registerCoreCommands(
       const routes = router.getConfig().routes;
       const before = routes.find((r) => r.universe === u);
       const next: UniverseRoute = { universe: u };
-      // explicit targets and unicast addresses set by hand stay with their protocol
-      const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : { ...before?.artnet, portAddress: artnet.portAddress, ...(artnet.targets !== undefined ? { targets: artnet.targets && artnet.targets.length ? artnet.targets : undefined } : {}), ...(artnet.broadcast !== undefined ? { broadcast: artnet.broadcast ?? undefined } : {}) };
-      const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : { ...before?.sacn, ...sacn };
+      // a field left out keeps its value: the targets stay chosen while « auto » or « broadcast » is tried;
+      // an empty list, or a null broadcast, clears it
+      const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : compact({ ...before?.artnet, ...artnet });
+      const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : compact({ ...before?.sacn, ...sacn });
       const d = usb === undefined ? before?.usb : usb === null ? undefined : usb;
       if (a) next.artnet = a;
       if (s) next.sacn = s;

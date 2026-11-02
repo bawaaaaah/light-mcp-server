@@ -2022,10 +2022,15 @@ test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ p
   await artnet.fill("5");
   await row.getByRole("checkbox", { name: "sACN" }).check();
   await expect(page.getByLabel("Univers 2 · sACN")).toHaveValue("2"); // offered: the same number
+  // a route saved with targets is sent to the chosen nodes only; the one chosen is listed, even unseen
+  await expect(row.getByRole("radio", { name: "nodes choisis" })).toBeChecked();
+  await expect(row.locator(".send-nodes li", { hasText: "127.0.0.2" })).toContainText("pas vu sur le réseau");
+  await expect(row.getByRole("checkbox", { name: /127\.0\.0\.2/ })).toBeChecked();
+  await row.screenshot({ path: "test-results/settings-route-nodes.png" });
   const asked: string[] = [];
   page.on("dialog", (d) => (asked.push(d.message()), void d.accept()));
   await row.getByRole("button", { name: "Enregistrer" }).click();
-  await expect.poll(async () => ((await api(page, "output.status")) as { config: { routes: unknown[] } }).config.routes[1]).toEqual({ universe: 2, artnet: { portAddress: 5, targets: ["127.0.0.2"] }, sacn: { universe: 2 } });
+  await expect.poll(async () => ((await api(page, "output.status")) as { config: { routes: unknown[] } }).config.routes[1]).toEqual({ universe: 2, artnet: { portAddress: 5, send: "nodes", targets: ["127.0.0.2"] }, sacn: { universe: 2 } });
   expect(asked[0]).toContain("tout de suite");
   await expect(row.getByRole("button", { name: "Enregistrer" })).toHaveCount(0);
   // DMX USB only: Art-Net and sACN unticked, the (fake) FTDI interface ticked, as a USB Pro

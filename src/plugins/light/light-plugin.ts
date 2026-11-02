@@ -76,7 +76,7 @@ const AUTO_BACKUP_EVERY_MS = 3600_000;
 
 const RouteSchema = z.object({
   universe: z.number().int().min(1),
-  artnet: z.object({ portAddress: z.number().int().min(0).max(32767), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).optional(),
+  artnet: z.object({ portAddress: z.number().int().min(0).max(32767), send: z.enum(["auto", "broadcast", "nodes"]).optional(), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).optional(),
   sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string()).optional() }).optional(),
   usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]) }).optional(),
 });

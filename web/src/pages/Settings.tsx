@@ -22,9 +22,16 @@ interface Os2l {
   log: { at: number; address: string; event: { evt: string; name?: string; state?: string; id?: number } }[];
 }
 type UsbKind = "open" | "pro";
+type ArtnetSend = "auto" | "broadcast" | "nodes";
+/** Where a universe goes now (output.status). */
+interface Destinations {
+  universe: number;
+  artnet?: string[];
+  sacn?: string[];
+}
 interface Route {
   universe: number;
-  artnet?: { portAddress: number; targets?: string[] };
+  artnet?: { portAddress: number; send?: ArtnetSend; targets?: string[] };
   sacn?: { universe: number; unicast?: string[] };
   usb?: { path: string; kind: UsbKind };
 }
@@ -40,40 +47,84 @@ interface Output {
   merging: { ip: string; shortName: string; portAddresses: number[] }[];
   stats: { framesSent: number; packetsSent: number; errors: number; discovery: string; discoveryError?: string };
   config: { routes: Route[] };
+  destinations?: Destinations[];
   coverage?: { unheard: { universe: number; portAddress: number }[]; unfed: { key: string; ip: string; shortName: string; portAddress: number }[] };
   universes?: number;
   usb?: { available: boolean; error?: string; devices: { path: string; kind: UsbKind; open: boolean; framesSent: number; error?: string }[] };
 }
 /** A route's change: an output set, removed (null), or left as it is (absent). */
-type RouteChange = { artnet?: { portAddress: number; targets?: string[] } | null; sacn?: { universe: number; unicast?: string[] } | null; usb?: { path: string; kind: UsbKind } | null };
+type RouteChange = { artnet?: { portAddress: number; send?: ArtnetSend; targets?: string[] } | null; sacn?: { universe: number; unicast?: string[] } | null; usb?: { path: string; kind: UsbKind } | null };
+
+/** A node's output ports; an older server only gives their port-addresses. */
+const nodePorts = (n: Node) => n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }));
+
+/** How an Art-Net route is sent; a route saved before the choice goes to its targets when it has some. */
+const artnetSendOf = (a: NonNullable<Route["artnet"]>): ArtnetSend => a.send ?? (a.targets?.length ? "nodes" : "auto");
+
+/** The nodes by IP (a multi-port node answers once per bind index), then the chosen IPs no node answers from. */
+function nodesByIp(nodes: Node[], chosen: string[]): { ip: string; name: string; ports: ReturnType<typeof nodePorts>; seen: boolean }[] {
+  const out = new Map<string, { ip: string; name: string; ports: ReturnType<typeof nodePorts>; seen: boolean }>();
+  for (const n of nodes) {
+    const known = out.get(n.ip);
+    if (known) known.ports.push(...nodePorts(n));
+    else out.set(n.ip, { ip: n.ip, name: n.shortName, ports: [...nodePorts(n)], seen: true });
+  }
+  for (const ip of chosen) if (!out.has(ip)) out.set(ip, { ip, name: "", ports: [], seen: false });
+  return [...out.values()];
+}
 
 /** What a route sends, in words. */
-function describeRoute(route: Route, kinds: Record<UsbKind, string>): string {
-  return [route.artnet && `Art-Net ${route.artnet.portAddress}`, route.sacn && `sACN ${route.sacn.universe}`, route.usb && `DMX USB ${route.usb.path} (${kinds[route.usb.kind]})`].filter(Boolean).join(" · ");
+function describeRoute(route: Route, t: ReturnType<typeof useT>): string {
+  return [route.artnet && `Art-Net ${route.artnet.portAddress} (${t.artnetSends[artnetSendOf(route.artnet)]})`, route.sacn && `sACN ${route.sacn.universe}${route.sacn.unicast?.length ? ` (${t.sacnSends.unicast})` : ""}`, route.usb && `DMX USB ${route.usb.path} (${t.usbKinds[route.usb.kind]})`].filter(Boolean).join(" · ");
+}
+
+/** Where a universe goes now, as the server sends it: the node IPs, the broadcast or multicast address. */
+function SendingNow({ hosts }: { hosts?: string[] }) {
+  const t = useT();
+  if (!hosts) return null;
+  return (
+    <small className="sending-now">
+      {t.sendingNow} {hosts.length ? hosts.join(", ") : t.routeNone}
+    </small>
+  );
 }
 
 /** One universe's outputs, each chosen by its box: an Art-Net address, an sACN universe, a DMX USB interface. */
-function RouteRow({ route, editable, ports, nodes, onSave }: { route: Route; editable: boolean; ports: UsbPort[]; nodes: Node[]; onSave: (change: RouteChange) => void }) {
+function RouteRow({ route, editable, ports, nodes, sending, onSave }: { route: Route; editable: boolean; ports: UsbPort[]; nodes: Node[]; sending?: Destinations; onSave: (change: RouteChange) => void }) {
   const t = useT();
   const initial = () => ({
     artnet: route.artnet ? String(route.artnet.portAddress) : "",
+    send: route.artnet ? artnetSendOf(route.artnet) : ("auto" as ArtnetSend),
     targets: route.artnet?.targets ?? [],
     sacn: route.sacn ? String(route.sacn.universe) : "",
+    unicast: Boolean(route.sacn?.unicast?.length),
     sacnTargets: route.sacn?.unicast ?? [],
     usb: route.usb ?? null,
   });
+  type State = ReturnType<typeof initial>;
   const [state, setState] = useState(initial);
-  useEffect(() => setState(initial()), [route.artnet?.portAddress, route.artnet?.targets?.join(","), route.sacn?.universe, route.sacn?.unicast?.join(","), route.usb?.path, route.usb?.kind]);
-  const before = initial();
-  const changed = state.artnet !== before.artnet || state.targets.join(",") !== before.targets.join(",") || state.sacn !== before.sacn || state.sacnTargets.join(",") !== before.sacnTargets.join(",") || state.usb?.path !== before.usb?.path || state.usb?.kind !== before.usb?.kind;
+  const key = JSON.stringify([route.artnet, route.sacn, route.usb]);
+  useEffect(() => setState(initial()), [key]);
+  // what Save sends; also what tells a change
+  const change = (s: State): RouteChange => ({
+    artnet: s.artnet === "" ? null : { portAddress: Number(s.artnet), send: s.send, targets: s.targets },
+    sacn: s.sacn === "" ? null : { universe: Number(s.sacn), unicast: s.unicast ? s.sacnTargets : [] },
+    usb: s.usb,
+  });
+  const changed = JSON.stringify(change(state)) !== JSON.stringify(change(initial()));
   const label = `${t.universe} ${route.universe}`;
   if (!editable)
     return (
       <li>
-        {label} → {describeRoute(route, t.usbKinds)}
+        {label} → {describeRoute(route, t)}
         {!route.artnet && !route.sacn && !route.usb && <small className="hint">{t.routeNone}</small>}
       </li>
     );
+  const address = Number(state.artnet);
+  const toggle = (list: string[], ip: string, on: boolean) => (on ? [...new Set([...list, ip])] : list.filter((x) => x !== ip));
+  // « auto » lists the nodes it sends to, « nodes » every node to tick; « broadcast » goes to all of them
+  const artnetNodes = nodesByIp(nodes, state.send === "nodes" ? state.targets : []).filter((n) => state.send === "nodes" || n.ports.some((p) => !p.sacn && p.portAddress === address));
+  const sacnNodes = nodesByIp(nodes, state.sacnTargets).filter((n) => !n.seen || n.ports.some((p) => p.sacn));
   // the interface of the route stays listed while unplugged
   const choices = route.usb && !ports.some((p) => p.path === route.usb!.path) ? [...ports, { path: route.usb.path, ftdi: false, unplugged: true }] : ports;
   const firstPort = (ports.find((p) => p.ftdi) ?? ports[0])?.path;
@@ -84,44 +135,79 @@ function RouteRow({ route, editable, ports, nodes, onSave }: { route: Route; edi
         <label>
           <input type="checkbox" checked={state.artnet !== ""} onChange={(e) => setState({ ...state, artnet: e.target.checked ? String(route.artnet?.portAddress ?? route.universe - 1) : "" })} /> Art-Net
         </label>
-        {state.artnet !== "" && <input type="number" min={0} max={32767} aria-label={`${label} · Art-Net`} value={state.artnet} onChange={(e) => setState({ ...state, artnet: e.target.value })} />}
-        {state.artnet !== "" && nodes.some((n) => (n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }))).some((p) => p.portAddress === Number(state.artnet))) && (
-          <ul className="nodes artnet-nodes">
-            {nodes.filter((n) => (n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }))).some((p) => p.portAddress === Number(state.artnet))).map((n) => (
-              <li key={n.key}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={state.targets.includes(n.ip)}
-                    onChange={(e) => setState({ ...state, targets: e.target.checked ? [...new Set([...state.targets, n.ip])] : state.targets.filter((ip) => ip !== n.ip) })}
-                  />
-                  {n.shortName} {n.ip}
+        {state.artnet !== "" && (
+          <>
+            <input type="number" min={0} max={32767} aria-label={`${label} · Art-Net`} value={state.artnet} onChange={(e) => setState({ ...state, artnet: e.target.value })} />
+            <span className="send-choice" role="radiogroup" aria-label={`${label} · ${t.artnetSend}`}>
+              {(["auto", "broadcast", "nodes"] as const).map((m) => (
+                <label key={m}>
+                  <input type="radio" name={`artnet-send-${route.universe}`} checked={state.send === m} onChange={() => setState({ ...state, send: m })} /> {t.artnetSends[m]}
                 </label>
-              </li>
-            ))}
-          </ul>
+              ))}
+            </span>
+            <small className="hint send-help">{t.artnetSendHelp[state.send]}</small>
+            {state.send !== "broadcast" && (
+              <ul className="send-nodes">
+                {artnetNodes.length === 0 && <li className="hint">{state.send === "nodes" ? t.noNodes : t.artnetNoOutput}</li>}
+                {artnetNodes.map((n) => {
+                  const outputs = n.ports.some((p) => !p.sacn && p.portAddress === address);
+                  const live = sending?.artnet?.includes(n.ip);
+                  const name = (
+                    <>
+                      <span className={`dot ${live ? "ok" : "idle"}`} title={live ? t.receivesNow : t.receivesNot} /> {n.name} {n.ip}
+                    </>
+                  );
+                  return (
+                    <li key={n.ip}>
+                      {state.send === "nodes" ? (
+                        <label>
+                          <input type="checkbox" checked={state.targets.includes(n.ip)} onChange={(e) => setState({ ...state, targets: toggle(state.targets, n.ip, e.target.checked) })} />
+                          {name}
+                        </label>
+                      ) : (
+                        name
+                      )}
+                      {outputs ? <small className="hint"> · {t.outputsAddress} {address}</small> : n.seen && <small className="hint"> · {t.otherAddresses} {[...new Set(n.ports.filter((p) => !p.sacn).map((p) => p.portAddress))].join(", ") || "—"}</small>}
+                      {!n.seen && <small className="warn"> · {t.nodeUnseen}</small>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <SendingNow hosts={sending?.artnet} />
+          </>
         )}
       </span>
       <span className="out">
         <label>
           <input type="checkbox" checked={state.sacn !== ""} onChange={(e) => setState({ ...state, sacn: e.target.checked ? String(route.sacn?.universe ?? route.universe) : "" })} /> sACN
         </label>
-        {state.sacn !== "" && <input type="number" min={1} max={63999} aria-label={`${label} · sACN`} value={state.sacn} onChange={(e) => setState({ ...state, sacn: e.target.value })} />}
-        {state.sacn !== "" && nodes.length > 0 && (
-          <ul className="nodes artnet-nodes">
-            {nodes.map((n) => (
-              <li key={`s-${n.key}`}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={state.sacnTargets.includes(n.ip)}
-                    onChange={(e) => setState({ ...state, sacnTargets: e.target.checked ? [...new Set([...state.sacnTargets, n.ip])] : state.sacnTargets.filter((ip) => ip !== n.ip) })}
-                  />
-                  {n.shortName} {n.ip}
+        {state.sacn !== "" && (
+          <>
+            <input type="number" min={1} max={63999} aria-label={`${label} · sACN`} value={state.sacn} onChange={(e) => setState({ ...state, sacn: e.target.value })} />
+            <span className="send-choice" role="radiogroup" aria-label={`${label} · ${t.artnetSend} sACN`}>
+              {(["multicast", "unicast"] as const).map((m) => (
+                <label key={m}>
+                  <input type="radio" name={`sacn-send-${route.universe}`} checked={state.unicast === (m === "unicast")} onChange={() => setState({ ...state, unicast: m === "unicast" })} /> {t.sacnSends[m]}
                 </label>
-              </li>
-            ))}
-          </ul>
+              ))}
+            </span>
+            {state.unicast && (
+              <ul className="send-nodes">
+                {sacnNodes.length === 0 && <li className="hint">{t.noSacnNodes}</li>}
+                {sacnNodes.map((n) => (
+                  <li key={n.ip}>
+                    <label>
+                      <input type="checkbox" checked={state.sacnTargets.includes(n.ip)} onChange={(e) => setState({ ...state, sacnTargets: toggle(state.sacnTargets, n.ip, e.target.checked) })} />
+                      <span className={`dot ${sending?.sacn?.includes(n.ip) ? "ok" : "idle"}`} /> {n.name} {n.ip}
+                    </label>
+                    {!n.seen && <small className="warn"> · {t.nodeUnseen}</small>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <SendingNow hosts={sending?.sacn} />
+          </>
         )}
       </span>
       <span className="out">
@@ -146,7 +232,7 @@ function RouteRow({ route, editable, ports, nodes, onSave }: { route: Route; edi
         )}
       </span>
       {changed && (
-        <button className="primary" onClick={() => onSave({ artnet: state.artnet === "" ? null : { portAddress: Number(state.artnet), targets: state.targets }, sacn: state.sacn === "" ? null : { universe: Number(state.sacn), ...(state.sacnTargets.length ? { unicast: state.sacnTargets } : {}) }, usb: state.usb })}>
+        <button className="primary" onClick={() => onSave(change(state))}>
           {t.save}
         </button>
       )}
@@ -183,8 +269,8 @@ export function SettingsPage({ role }: { role: Role }) {
     const { artnet, sacn, usb } = change;
     void cmd("output.route", {
       universe,
-      ...(artnet === undefined ? {} : { artnet: artnet === null ? null : (typeof artnet === "number" ? { portAddress: artnet } : artnet) }),
-      ...(sacn === undefined ? {} : { sacn: sacn === null ? null : (typeof sacn === "number" ? { universe: sacn } : sacn) }),
+      ...(artnet === undefined ? {} : { artnet }),
+      ...(sacn === undefined ? {} : { sacn }),
       ...(usb === undefined ? {} : { usb }),
     }).then(
       () => (setAdded((a) => a.filter((u) => u !== universe)), load()),
@@ -239,7 +325,7 @@ export function SettingsPage({ role }: { role: Role }) {
           {error && <p className="error">{error}</p>}
           <ul className="routes">
             {routes.map((r) => (
-              <RouteRow key={r.universe} route={r} editable={routing} ports={ports} nodes={nodes} onSave={(change) => route(r.universe, change)} />
+              <RouteRow key={r.universe} route={r} editable={routing} ports={ports} nodes={nodes} sending={output?.destinations?.find((d) => d.universe === r.universe)} onSave={(change) => route(r.universe, change)} />
             ))}
           </ul>
           {routing && nextUniverse !== undefined && (
@@ -284,7 +370,7 @@ export function SettingsPage({ role }: { role: Role }) {
               <li key={n.key}>
                 <strong>{n.shortName}</strong> {n.ip} <small className="hint">{n.longName}</small>
                 <ul>
-                  {(n.ports ?? n.outputAddresses.map((portAddress) => ({ portAddress, outputting: false, sacn: false, ltp: false, merging: false }))).map((p) => {
+                  {nodePorts(n).map((p) => {
                     const unfed = output?.coverage?.unfed.some((u) => u.key === n.key && u.portAddress === p.portAddress);
                     return (
                       <li key={p.portAddress}>
