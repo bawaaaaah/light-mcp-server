@@ -177,6 +177,41 @@ describe("MIDI mapping modes", () => {
     expect(mapper.syncState("a", false)).to.deep.equal([[0x80, 36, 0]]);
     expect(mapper.syncState("a", false)).to.deep.equal([]); // no change, no message
   });
+
+  it("program change trigger: three receipts give look.go each time, never look.stop", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "pc", input: { type: "programchange", channel: 1, number: 5 }, mode: "trigger", on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
+    const pc = () => parseMidi([0xc0, 5]);
+    expect(mapper.handle(pc()).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+    expect(mapper.handle(pc()).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+    expect(mapper.handle(pc()).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+  });
+
+  it("program change in latch, momentary and toggle: look.go, then look.stop, then look.go", () => {
+    for (const mode of ["latch", "momentary", "toggle"] as const) {
+      const mapper = new MidiMapper();
+      mapper.setMappings([MappingSchema.parse({ id: "pc", input: { type: "programchange", channel: 1, number: 5 }, mode, on: { command: "look.go", args: { id: "pale" } }, off: { command: "look.stop", args: { id: "pale" } } })]);
+      const pc = () => parseMidi([0xc0, 5]);
+      expect(mapper.handle(pc()).calls.map((c) => c.command), mode).to.deep.equal(["look.go"]);
+      expect(mapper.handle(pc()).calls.map((c) => c.command), mode).to.deep.equal(["look.stop"]);
+      expect(mapper.handle(pc()).calls.map((c) => c.command), mode).to.deep.equal(["look.go"]);
+    }
+  });
+
+  it("a program change with another number or channel matches nothing", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "pc", input: { type: "programchange", channel: 1, number: 5 }, mode: "trigger", on: { command: "look.go", args: { id: "pale" } } })]);
+    expect(mapper.handle(parseMidi([0xc0, 6])).matched).to.deep.equal([]);
+    expect(mapper.handle(parseMidi([0xc1, 5])).matched).to.deep.equal([]);
+  });
+
+  it("program change release without off sends no call", () => {
+    const mapper = new MidiMapper();
+    mapper.setMappings([MappingSchema.parse({ id: "pc", input: { type: "programchange", channel: 1, number: 5 }, mode: "latch", on: { command: "look.go", args: { id: "pale" } } })]);
+    const pc = () => parseMidi([0xc0, 5]);
+    expect(mapper.handle(pc()).calls.map((c) => c.command)).to.deep.equal(["look.go"]);
+    expect(mapper.handle(pc()).calls).to.deep.equal([]);
+  });
 });
 
 describe("note registry", () => {
