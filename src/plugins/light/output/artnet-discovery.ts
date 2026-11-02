@@ -52,6 +52,40 @@ export class NodeRegistry {
   }
 }
 
+/**
+ * How an Art-Net route is sent: « auto » to the nodes that output its port-address (broadcast when
+ * none does, unless broadcast is false), « broadcast » to the whole network, « nodes » only to the
+ * chosen IPs (none chosen: nothing). A route saved before the choice existed goes to its targets
+ * when it has some.
+ */
+export type ArtnetSend = "auto" | "broadcast" | "nodes";
+
+export interface ArtnetRoute {
+  portAddress: number;
+  send?: ArtnetSend;
+  targets?: string[];
+  /** In « auto », false sends nothing when no node outputs the address. */
+  broadcast?: boolean;
+}
+
+export function artnetSend(route: ArtnetRoute): ArtnetSend {
+  return route.send ?? (route.targets?.length ? "nodes" : "auto");
+}
+
+/** The hosts an Art-Net route's packets go to, given the nodes outputting its address. */
+export function artnetDestinations(route: ArtnetRoute, outputs: readonly { ip: string }[], broadcast: string): string[] {
+  switch (artnetSend(route)) {
+    case "nodes":
+      return [...new Set(route.targets ?? [])];
+    case "broadcast":
+      return [broadcast];
+    case "auto": {
+      const ips = [...new Set(outputs.map((n) => n.ip))];
+      return ips.length ? ips : route.broadcast === false ? [] : [broadcast];
+    }
+  }
+}
+
 export interface Coverage {
   /** Routes sent to an Art-Net port-address that no node seen outputs (by broadcast, to no one). */
   unheard: { universe: number; portAddress: number }[];
@@ -60,16 +94,16 @@ export interface Coverage {
 }
 
 /**
- * Do the routes reach the nodes? Only Art-Net is checked: a route with explicit targets is trusted,
+ * Do the routes reach the nodes? Only Art-Net is checked: a route sent to chosen nodes is trusted,
  * and a port set to sACN listens to sACN universes, which ArtPollReply does not tell. With no node
  * seen (discovery off, or an empty network), there is nothing to say.
  */
-export function coverage(routes: readonly { universe: number; artnet?: { portAddress: number; targets?: string[] } }[], nodes: readonly KnownNode[]): Coverage {
+export function coverage(routes: readonly { universe: number; artnet?: ArtnetRoute }[], nodes: readonly KnownNode[]): Coverage {
   if (!nodes.length) return { unheard: [], unfed: [] };
   const heard = new Set(nodes.flatMap((n) => n.ports.filter((p) => !p.sacn).map((p) => p.portAddress)));
   const fed = new Set(routes.flatMap((r) => (r.artnet ? [r.artnet.portAddress] : [])));
   return {
-    unheard: routes.flatMap((r) => (r.artnet && !r.artnet.targets?.length && !heard.has(r.artnet.portAddress) ? [{ universe: r.universe, portAddress: r.artnet.portAddress }] : [])),
+    unheard: routes.flatMap((r) => (r.artnet && artnetSend(r.artnet) !== "nodes" && !heard.has(r.artnet.portAddress) ? [{ universe: r.universe, portAddress: r.artnet.portAddress }] : [])),
     unfed: nodes.flatMap((n) => n.ports.filter((p) => !p.sacn && !fed.has(p.portAddress)).map((p) => ({ key: n.key, ip: n.ip, shortName: n.shortName, portAddress: p.portAddress }))),
   };
 }

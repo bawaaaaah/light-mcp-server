@@ -2,7 +2,8 @@
  * Sends rendered universes over Art-Net and/or sACN, and discovers Art-Net nodes.
  *
  * - Art-Net: unicast to the nodes whose outputs match the universe's port-address (auto routing
- *   from ArtPollReply), or to configured IPs, or broadcast as a fallback. Keep-alive ≥ 1 Hz.
+ *   from ArtPollReply, broadcast as a fallback), or to the whole network, or only to chosen node
+ *   IPs (artnetDestinations). Keep-alive ≥ 1 Hz.
  * - Discovery: ArtPoll every 3 s on the bound interface; nodes expire after 10 s of silence.
  *   Needs UDP 6454: if it is taken (QLC+ running on the same machine), output still works from an
  *   ephemeral port and discovery is reported unavailable.
@@ -13,13 +14,13 @@ import { createSocket, type Socket } from "node:dgram";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
-import { NodeRegistry, type KnownNode } from "./artnet-discovery.js";
+import { NodeRegistry, artnetDestinations, type ArtnetRoute, type KnownNode } from "./artnet-discovery.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, type DmxUsbKind } from "./dmx-usb.js";
 
 export interface UniverseRoute {
   universe: number; // 1-based internal universe
-  artnet?: { portAddress: number; targets?: string[]; broadcast?: boolean };
+  artnet?: ArtnetRoute;
   sacn?: { universe: number; priority?: number; unicast?: string[] };
   /** A DMX USB interface: its serial port, and its kind (Open DMX or USB Pro). */
   usb?: { path: string; kind: DmxUsbKind };
@@ -256,6 +257,15 @@ export class OutputRouter {
     return Boolean(this.config.standby);
   }
 
+  private artnetHosts(route: ArtnetRoute): string[] {
+    return artnetDestinations(route, this.registry.outputsFor(route.portAddress), broadcastFor(this.config.bindAddress));
+  }
+
+  /** Where each routed universe goes now, by protocol: node IPs, the broadcast or the multicast address. */
+  destinations(): { universe: number; artnet?: string[]; sacn?: string[] }[] {
+    return this.config.routes.map((r) => ({ universe: r.universe, ...(r.artnet ? { artnet: this.artnetHosts(r.artnet) } : {}), ...(r.sacn ? { sacn: sacnHosts(r.sacn) } : {}) }));
+  }
+
   /** Sends every routed universe that changed, or that has not been sent for KEEPALIVE_MS. */
   sendFrame(buffers: readonly Uint8Array[], nowMs = Date.now(), force = false): void {
     if (this.config.standby) return;
@@ -272,9 +282,7 @@ export class OutputRouter {
       if (route.artnet) {
         const packet = encodeDmx({ sequence: this.nextSequence(`a${route.universe}`), physical: 0, portAddress: route.artnet.portAddress, data });
         this.rememberSent(packet, nowMs);
-        const targets = route.artnet.targets?.length ? route.artnet.targets : this.registry.outputsFor(route.artnet.portAddress).map((n) => n.ip);
-        if (targets.length > 0) for (const ip of [...new Set(targets)]) this.send(this.artnet, packet, this.artnetPort, ip);
-        else if (route.artnet.broadcast !== false) this.send(this.artnet, packet, this.artnetPort, broadcastFor(this.config.bindAddress));
+        for (const host of this.artnetHosts(route.artnet)) this.send(this.artnet, packet, this.artnetPort, host);
       }
       if (route.sacn) {
         const packet = encodeSacnData({
@@ -287,8 +295,7 @@ export class OutputRouter {
           universe: route.sacn.universe,
           data,
         });
-        const targets = route.sacn.unicast?.length ? route.sacn.unicast : [multicastGroup(route.sacn.universe)];
-        for (const host of targets) this.send(this.sacn, packet, SACN_PORT, host);
+        for (const host of sacnHosts(route.sacn)) this.send(this.sacn, packet, SACN_PORT, host);
       }
     }
     if (sentAny) {
@@ -302,6 +309,11 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
+}
+
+/** sACN goes to the chosen IPs, else to the universe's multicast group. */
+function sacnHosts(route: NonNullable<UniverseRoute["sacn"]>): string[] {
+  return route.unicast?.length ? route.unicast : [multicastGroup(route.universe)];
 }
 
 /** How long a packet we sent may take to come back to us (broadcast echo). */

@@ -6,6 +6,7 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { decodePollReply, encodePollReply } from "../../../src/plugins/light/output/artnet.js";
+import { broadcastFor } from "../../../src/plugins/light/output/output-router.js";
 
 describe("starting on standby (switchover with QLC+)", () => {
   const make = (stored: Record<string, unknown>, standby?: boolean) => {
@@ -106,5 +107,43 @@ describe("routing a universe to the nodes", () => {
       () => expect.fail("universe 3 does not exist"),
       (e: Error) => expect(e.message).to.match(/1\.\.2/),
     );
+  });
+  it("sends Art-Net auto, broadcast or only to the chosen nodes, and clears a choice with an empty list", async () => {
+    const { run } = make();
+    const sentTo = async (u: number) => ((await run("output.status")).destinations as { universe: number; artnet?: string[]; sacn?: string[] }[]).find((d) => d.universe === u);
+    // a node answering every address stays out once the nodes are chosen
+    let r = await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "nodes", targets: ["192.0.2.10"] } });
+    expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 1, send: "nodes", targets: ["192.0.2.10"] } });
+    expect((await sentTo(1))!.artnet).to.deep.equal(["192.0.2.10"]);
+    // auto: the node announcing the address; the choice is kept for later
+    r = await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "auto" } });
+    expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 1, send: "auto", targets: ["192.0.2.10"] } });
+    expect((await sentTo(1))!.artnet).to.deep.equal(["10.0.0.50"]);
+    await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "broadcast" } });
+    expect((await sentTo(1))!.artnet).to.deep.equal([broadcastFor()]);
+    // chosen nodes, none ticked: nothing at all, not the broadcast
+    r = await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "nodes", targets: [] } });
+    expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 1, send: "nodes" } });
+    expect((await sentTo(1))!.artnet).to.deep.equal([]);
+    // auto with no node on the address: broadcast, unless turned off; null brings it back
+    await run("output.route", { universe: 1, artnet: { portAddress: 0, send: "auto", broadcast: false } });
+    expect((await sentTo(1))!.artnet).to.deep.equal([]);
+    r = await run("output.route", { universe: 1, artnet: { portAddress: 0, broadcast: null } });
+    expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 0, send: "auto" } });
+    expect((await sentTo(1))!.artnet).to.deep.equal([broadcastFor()]);
+    await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "nodes", targets: ["node.local"] } }).then(
+      () => expect.fail("a target is an IPv4 address"),
+      (e: Error) => expect(e.message).to.match(/ipv4|IPv4/),
+    );
+  });
+
+  it("sends sACN unicast to the chosen IPs, and back to multicast with an empty list", async () => {
+    const { run } = make();
+    let r = await run("output.route", { universe: 2, sacn: { universe: 2, unicast: ["192.0.2.20"] } });
+    expect((r.routes as unknown[])[1]).to.deep.equal({ universe: 2, sacn: { universe: 2, unicast: ["192.0.2.20"] } });
+    r = await run("output.route", { universe: 2, sacn: { universe: 2, unicast: [] } });
+    expect((r.routes as unknown[])[1]).to.deep.equal({ universe: 2, sacn: { universe: 2 } });
+    const status = await run("output.status");
+    expect((status.destinations as { universe: number; sacn?: string[] }[])[1]).to.deep.equal({ universe: 2, sacn: ["239.255.0.2"] });
   });
 });
