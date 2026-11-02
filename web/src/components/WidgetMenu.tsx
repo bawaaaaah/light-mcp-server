@@ -244,6 +244,8 @@ export function WidgetMenu({
             {mine.map((m) => {
               const put = (patch: Partial<MappingDraft>) => void cmd("midi.mapping.put", { mapping: build({ ...m, ...patch }, action.action, action.target) }).then(loadMappings, (err: Error) => setError(err.message));
               const playable = m.input.type === "note" || m.input.type === "cc" || m.input.type === "programchange";
+              // a CC on a level (fader, DCA, grand master) is the level itself: a mode would only make it flicker
+              const levelCc = m.input.type === "cc" && (action.action === "dca" || action.action === "fader" || action.action === "grandmaster");
               return (
                 <li key={m.id} className="midi-input">
                   <div className="midi-head">
@@ -260,7 +262,7 @@ export function WidgetMenu({
                   </div>
                   {playable && (
                     <div className="midi-settings">
-                      {(action.action === "look" || action.action === "blackout" || m.input.type === "cc" || m.input.type === "programchange") && (
+                      {(action.action === "look" || action.action === "blackout" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
                         <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
                           {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                             <option key={mode} value={mode}>
