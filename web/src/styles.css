@@ -2321,6 +2321,21 @@ ul.online {
 .routes .route select {
   max-width: 16em;
 }
+/* how an output is sent (auto, broadcast, chosen nodes), then the nodes it reaches */
+.routes .route .send-choice {
+  display: inline-flex;
+  gap: 0.6em;
+}
+.routes .route .send-help,
+.routes .route .send-nodes,
+.routes .route .sending-now {
+  flex-basis: 100%;
+}
+.routes .route .send-nodes {
+  list-style: none;
+  margin: 0;
+  padding-left: 1.2em;
+}
 .nodes ul {
   margin: 0.2em 0 0.5em;
 }

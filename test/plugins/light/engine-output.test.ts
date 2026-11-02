@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { decodeDmx, decodePollReply, encodeDmx, encodePollReply, portAddress } from "../../../src/plugins/light/output/artnet.js";
 import { OutputRouter } from "../../../src/plugins/light/output/output-router.js";
-import { NodeRegistry } from "../../../src/plugins/light/output/artnet-discovery.js";
+import { NodeRegistry, artnetDestinations, coverage } from "../../../src/plugins/light/output/artnet-discovery.js";
 import { Ticker, type TickerClock } from "../../../src/plugins/light/engine/ticker.js";
 
 /** Manual clock: timers fire only when advance() passes their due time. */
@@ -53,6 +53,50 @@ describe("Art-Net node registry", () => {
     reg.seen(reply("10.0.0.2", [1]), 0);
     expect(reg.outputsFor(portAddress(0, 0, 1)).map((n) => n.ip)).to.deep.equal(["10.0.0.1", "10.0.0.2"]);
     expect(reg.outputsFor(portAddress(0, 0, 0)).map((n) => n.ip)).to.deep.equal(["10.0.0.1"]);
+  });
+});
+
+describe("Art-Net destinations", () => {
+  const outputs = [{ ip: "192.0.2.1" }, { ip: "192.0.2.1" }, { ip: "192.0.2.2" }]; // a two-port node answers twice
+  const bcast = "192.0.2.255";
+
+  it("auto: the nodes announcing the address, once each; broadcast when none, unless turned off", () => {
+    expect(artnetDestinations({ portAddress: 0 }, outputs, bcast)).to.deep.equal(["192.0.2.1", "192.0.2.2"]);
+    expect(artnetDestinations({ portAddress: 0, send: "auto" }, [], bcast)).to.deep.equal([bcast]);
+    expect(artnetDestinations({ portAddress: 0, broadcast: false }, [], bcast)).to.deep.equal([]);
+  });
+
+  it("broadcast: the whole network, even with nodes announcing the address", () => {
+    expect(artnetDestinations({ portAddress: 0, send: "broadcast", targets: ["192.0.2.9"] }, outputs, bcast)).to.deep.equal([bcast]);
+  });
+
+  it("nodes: only the chosen IPs, never another node nor the broadcast; none chosen sends nothing", () => {
+    expect(artnetDestinations({ portAddress: 0, send: "nodes", targets: ["192.0.2.9", "192.0.2.9"] }, outputs, bcast)).to.deep.equal(["192.0.2.9"]);
+    expect(artnetDestinations({ portAddress: 0, send: "nodes" }, outputs, bcast)).to.deep.equal([]);
+    // a route saved before the choice existed goes to its targets
+    expect(artnetDestinations({ portAddress: 0, targets: ["192.0.2.9"] }, outputs, bcast)).to.deep.equal(["192.0.2.9"]);
+  });
+
+  it("the router sends each frame where the route says, and coverage trusts the chosen nodes", () => {
+    const router = new OutputRouter({
+      bindAddress: "127.0.0.1",
+      routes: [
+        { universe: 1, artnet: { portAddress: 0, send: "nodes", targets: ["192.0.2.30"] } },
+        { universe: 2, artnet: { portAddress: 1, send: "nodes" } },
+        { universe: 3, sacn: { universe: 3, unicast: ["192.0.2.40"] } },
+      ],
+    });
+    router.registry.seen(decodePollReply(encodePollReply({ ip: "192.0.2.50", shortName: "all", longName: "answers every address", swOut: [0, 1] }))!, Date.now());
+    const hosts: string[] = [];
+    (router as unknown as { send: (s: unknown, b: Buffer, p: number, h: string) => void }).send = (_s, _b, _p, h) => void hosts.push(h);
+    router.sendFrame([new Uint8Array(512), new Uint8Array(512), new Uint8Array(512)], 0);
+    expect(hosts).to.deep.equal(["192.0.2.30", "192.0.2.40"]);
+    expect(router.destinations()).to.deep.equal([
+      { universe: 1, artnet: ["192.0.2.30"] },
+      { universe: 2, artnet: [] },
+      { universe: 3, sacn: ["192.0.2.40"] },
+    ]);
+    expect(coverage(router.getConfig().routes, router.registry.list()).unheard).to.deep.equal([]);
   });
 });
 
