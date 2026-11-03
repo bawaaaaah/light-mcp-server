@@ -12,8 +12,11 @@ import { decodeDmx } from "../../src/plugins/light/output/artnet.js";
 import { decodeOsc, encodeOsc } from "../../src/plugins/light/osc/codec.js";
 import { RtpMidiSession } from "../../src/plugins/light/midi/rtp/session.js";
 
-/** Fake Art-Net node on its own loopback address, on the tests' Art-Net port (127.0.0.2:16454): the stage server never hears it. */
-async function fakeNode(): Promise<{ sock: Socket; next: (pred: (d: Uint8Array) => boolean, ms?: number) => Promise<Uint8Array> }> {
+/**
+ * Fake Art-Net node on the tests' Art-Net port (16454): the stage server never hears it. It takes its own loopback
+ * address (127.0.0.2) where there is one; macOS only answers for 127.0.0.1 unless aliased, so it shares it there.
+ */
+async function fakeNode(): Promise<{ sock: Socket; address: string; next: (pred: (d: Uint8Array) => boolean, ms?: number) => Promise<Uint8Array> }> {
   const sock = createSocket({ type: "udp4", reuseAddr: true });
   const waiters: { pred: (d: Uint8Array) => boolean; resolve: (d: Uint8Array) => void }[] = [];
   sock.on("message", (msg) => {
@@ -24,9 +27,21 @@ async function fakeNode(): Promise<{ sock: Socket; next: (pred: (d: Uint8Array) 
       w.resolve(dmx.data);
     }
   });
-  await new Promise<void>((r) => sock.bind(16454, "127.0.0.2", r));
+  // a bind error is an event, not a callback result: without listening to it the promise never settles
+  const address = await new Promise<string>((resolve, reject) => {
+    const tryBind = (candidates: string[]) => {
+      const [host, ...rest] = candidates;
+      sock.once("error", (err: NodeJS.ErrnoException) => (err.code === "EADDRNOTAVAIL" && rest.length ? tryBind(rest) : reject(err)));
+      sock.bind(16454, host, () => {
+        sock.removeAllListeners("error");
+        resolve(host!);
+      });
+    };
+    tryBind(["127.0.0.2", "127.0.0.1"]);
+  });
   return {
     sock,
+    address,
     next: (pred, ms = 1000) =>
       new Promise((resolve, reject) => {
         const t = setTimeout(() => reject(new Error("no matching ArtDmx")), ms);
@@ -42,11 +57,12 @@ describe("server end to end", function () {
   let node: Awaited<ReturnType<typeof fakeNode>>;
 
   before(async () => {
+    node = await fakeNode();
     const dir = mkdtempSync(join(tmpdir(), "light-e2e-"));
     const configPath = join(dir, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e", advertise: false } } } } } } }),
+      JSON.stringify({ version: 1, server: {}, plugins: { light: { universes: 2, discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: [node.address] } }] }, osc: { port: 0 }, os2l: { port: 0, advertise: false }, midi: { active: "rtp", profiles: { rtp: { inputs: [], rtp: { enabled: true, port: 15304, name: "e2e", advertise: false } } } } } } }),
     );
     mkdirSync(join(dir, "data", "fixtures"), { recursive: true });
     copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dir, "data", "fixtures", "bar4.qxf"));
@@ -54,7 +70,6 @@ describe("server end to end", function () {
     copyFileSync(new URL("../fixtures/synthetic.qxw", import.meta.url), join(dir, "data", "imports", "workspace.qxw"));
     mkdirSync(join(dir, "data", "private"), { recursive: true });
     writeFileSync(join(dir, "data", "private", "shell.adg"), gzipSync(readFileSync(new URL("../fixtures/shell-rack.xml", import.meta.url))));
-    node = await fakeNode();
     running = await bootstrap({ configPath, port: 0, host: "127.0.0.1", log: () => undefined, light: { dataRoot: join(dir, "data"), midiNative: null } });
     base = `http://127.0.0.1:${running.gateway!.address!.port}`;
     await running.auth.setPin("regisseur", "1234");
@@ -62,8 +77,8 @@ describe("server end to end", function () {
   });
 
   after(async () => {
-    await running.stop();
-    node.sock.close();
+    await running?.stop();
+    node?.sock.close();
   });
 
   const login = async (pin: string) => {
