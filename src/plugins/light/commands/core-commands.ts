@@ -1,6 +1,7 @@
 /**
  * Base commands: DMX console (park/release), blackout, output and Art-Net nodes.
  */
+import { isIPv4 } from "node:net";
 import { z } from "zod";
 import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
@@ -122,10 +123,10 @@ export function registerCoreCommands(
     schema: z.object({
       universe,
       artnet: z
-        .object({ portAddress: z.number().int().min(0).max(32767), send: z.enum(["auto", "broadcast", "nodes"]).optional(), targets: z.array(z.ipv4()).optional(), broadcast: z.boolean().nullable().optional() })
+        .object({ portAddress: z.number().int().min(0).max(32767), send: z.enum(["auto", "broadcast", "nodes"]).optional(), targets: z.array(z.string().min(1)).optional(), broadcast: z.boolean().nullable().optional() })
         .nullable()
         .optional(),
-      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.ipv4()).optional() }).nullable().optional(),
+      sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string().min(1)).optional() }).nullable().optional(),
       usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
     }),
     run: async ({ universe: u, artnet, sacn, usb }) => {
@@ -135,6 +136,13 @@ export function registerCoreCommands(
       const next: UniverseRoute = { universe: u };
       // a field left out keeps its value: the targets stay chosen while « auto » or « broadcast » is tried;
       // an empty list, or a null broadcast, clears it
+      // a node address is IPv4; a value already stored stays as it is, so a route saved before this check can still be edited
+      const checkIps = (given: string[] | undefined, stored: string[] | undefined) => {
+        const bad = given?.find((ip) => !stored?.includes(ip) && !isIPv4(ip));
+        if (bad !== undefined) throw new CommandError("invalid", say(`« ${bad} » n'est pas une adresse IPv4`, `“${bad}” is not an IPv4 address`));
+      };
+      checkIps(artnet?.targets, before?.artnet?.targets);
+      checkIps(sacn?.unicast, before?.sacn?.unicast);
       const a = artnet === undefined ? before?.artnet : artnet === null ? undefined : compact({ ...before?.artnet, ...artnet });
       const s = sacn === undefined ? before?.sacn : sacn === null ? undefined : compact({ ...before?.sacn, ...sacn });
       const d = usb === undefined ? before?.usb : usb === null ? undefined : usb;

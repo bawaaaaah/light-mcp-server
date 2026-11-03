@@ -70,7 +70,7 @@ describe("routing a universe to the nodes", () => {
     });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext()) as Promise<Record<string, unknown>>;
     // a two-port node that outputs port-addresses 1 and 2, as a cheap node set to « universes 1 and 2 »
-    for (const [i, out] of [1, 2].entries()) plugin.router.registry.seen(decodePollReply(encodePollReply({ ip: "10.0.0.50", shortName: `Port ${i + 1}`, longName: "Two-port node", swOut: [out], bindIndex: i + 1 }))!, Date.now());
+    for (const [i, out] of [1, 2].entries()) plugin.router.registry.seen(decodePollReply(encodePollReply({ ip: "192.0.2.50", shortName: `Port ${i + 1}`, longName: "Two-port node", swOut: [out], bindIndex: i + 1 }))!, Date.now());
     return { plugin, run, saved: () => saved };
   };
 
@@ -80,8 +80,8 @@ describe("routing a universe to the nodes", () => {
     expect(status.coverage).to.deep.equal({
       unheard: [{ universe: 1, portAddress: 0 }],
       unfed: [
-        { key: "10.0.0.50#1", ip: "10.0.0.50", shortName: "Port 1", portAddress: 1 },
-        { key: "10.0.0.50#2", ip: "10.0.0.50", shortName: "Port 2", portAddress: 2 },
+        { key: "192.0.2.50#1", ip: "192.0.2.50", shortName: "Port 1", portAddress: 1 },
+        { key: "192.0.2.50#2", ip: "192.0.2.50", shortName: "Port 2", portAddress: 2 },
       ],
     });
   });
@@ -89,7 +89,7 @@ describe("routing a universe to the nodes", () => {
   it("points a universe at a node's port, adds one in sACN, keeps it in the config", async () => {
     const { plugin, run, saved } = make();
     let r = await run("output.route", { universe: 1, artnet: { portAddress: 1 } });
-    expect(r.coverage).to.deep.equal({ unheard: [], unfed: [{ key: "10.0.0.50#2", ip: "10.0.0.50", shortName: "Port 2", portAddress: 2 }] });
+    expect(r.coverage).to.deep.equal({ unheard: [], unfed: [{ key: "192.0.2.50#2", ip: "192.0.2.50", shortName: "Port 2", portAddress: 2 }] });
     r = await run("output.route", { universe: 2, artnet: { portAddress: 2 }, sacn: { universe: 2 } });
     expect(r.routes).to.deep.equal([
       { universe: 1, artnet: { portAddress: 1 } },
@@ -118,7 +118,7 @@ describe("routing a universe to the nodes", () => {
     // auto: the node announcing the address; the choice is kept for later
     r = await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "auto" } });
     expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 1, send: "auto", targets: ["192.0.2.10"] } });
-    expect((await sentTo(1))!.artnet).to.deep.equal(["10.0.0.50"]);
+    expect((await sentTo(1))!.artnet).to.deep.equal(["192.0.2.50"]);
     await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "broadcast" } });
     expect((await sentTo(1))!.artnet).to.deep.equal([broadcastFor()]);
     // chosen nodes, none ticked: nothing at all, not the broadcast
@@ -134,6 +134,24 @@ describe("routing a universe to the nodes", () => {
     await run("output.route", { universe: 1, artnet: { portAddress: 1, send: "nodes", targets: ["node.local"] } }).then(
       () => expect.fail("a target is an IPv4 address"),
       (e: Error) => expect(e.message).to.match(/ipv4|IPv4/),
+    );
+  });
+
+  it("keeps a target stored before the IPv4 check, and refuses a new one that is not an address", async () => {
+    const { plugin, run } = make();
+    // a route saved by an older version, with a host name as target
+    plugin.router.setRoutes([{ universe: 1, artnet: { portAddress: 1, send: "nodes", targets: ["node.local"] } }]);
+    // saved again as the page does (every field, same targets), only the address changes
+    const r = await run("output.route", { universe: 1, artnet: { portAddress: 2, send: "nodes", targets: ["node.local"] } });
+    expect((r.routes as unknown[])[0]).to.deep.equal({ universe: 1, artnet: { portAddress: 2, send: "nodes", targets: ["node.local"] } });
+    // a new entry next to it is still checked
+    await run("output.route", { universe: 1, artnet: { portAddress: 2, send: "nodes", targets: ["node.local", "other.local"] } }).then(
+      () => expect.fail("a new target must be IPv4"),
+      (e: Error) => expect(e.message).to.match(/other\.local/),
+    );
+    await run("output.route", { universe: 2, sacn: { universe: 2, unicast: ["relay.local"] } }).then(
+      () => expect.fail("a new sACN unicast must be IPv4"),
+      (e: Error) => expect(e.message).to.match(/relay\.local/),
     );
   });
 

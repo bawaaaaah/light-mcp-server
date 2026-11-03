@@ -31,7 +31,7 @@ interface Destinations {
 }
 interface Route {
   universe: number;
-  artnet?: { portAddress: number; send?: ArtnetSend; targets?: string[] };
+  artnet?: { portAddress: number; send?: ArtnetSend; targets?: string[]; broadcast?: boolean };
   sacn?: { universe: number; unicast?: string[] };
   usb?: { path: string; kind: UsbKind };
 }
@@ -148,7 +148,7 @@ function RouteRow({ route, editable, ports, nodes, sending, onSave }: { route: R
             <small className="hint send-help">{t.artnetSendHelp[state.send]}</small>
             {state.send !== "broadcast" && (
               <ul className="send-nodes">
-                {artnetNodes.length === 0 && <li className="hint">{state.send === "nodes" ? t.noNodes : t.artnetNoOutput}</li>}
+                {artnetNodes.length === 0 && <li className="hint">{state.send === "nodes" ? t.noNodes : route.artnet?.broadcast === false ? t.artnetNoOutputQuiet : t.artnetNoOutput}</li>}
                 {artnetNodes.map((n) => {
                   const outputs = n.ports.some((p) => !p.sacn && p.portAddress === address);
                   const live = sending?.artnet?.includes(n.ip);
