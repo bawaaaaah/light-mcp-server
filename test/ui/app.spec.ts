@@ -596,6 +596,7 @@ async function probeUnderLaunch(page: Page, panic = false): Promise<{ x: number;
     Object.assign(host.style, { position: "fixed", left: b.x + "px", top: b.y + "px", width: b.width + "px", height: b.height + "px", zIndex: "10" });
     const probe = document.createElement("button");
     probe.style.cssText = "width:100%;height:100%;opacity:0.01";
+    ${panic ? 'probe.classList.add("panic");' : ""}
     window.probed = 0;
     probe.addEventListener("click", () => (window.probed += 1));
     host.appendChild(probe);
@@ -667,6 +668,27 @@ test("preview before launch: a press that starts in the sheet and ends on the ba
   await page.mouse.up(); // the click goes to the common ancestor, the backdrop
   await expect(sheet).toBeVisible(); // not a way out
   await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a press on the backdrop during the guard sends the focus to the page, and Tab and Escape still belong to the sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  const box = (await sheet.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, Math.max(2, box.y - 30)); // on the backdrop, inside the guard: it closes nothing
+  await expect(sheet).toBeVisible();
+  expect(await page.evaluate("!document.activeElement || document.activeElement === document.body")).toBe(true); // the focus is on the page
+  await page.keyboard.press("Tab");
+  await expect(sheet.locator(":focus")).toHaveCount(1); // back into the sheet
+  await page.mouse.click(box.x + box.width / 2, Math.max(2, box.y - 30));
+  await page.keyboard.press("Escape"); // from the page: still the sheet's
   await expect(sheet).toHaveCount(0);
   await api(page, "look.stopall");
   expect(errors).toEqual([]);

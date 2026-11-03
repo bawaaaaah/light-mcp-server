@@ -6,7 +6,7 @@ import { z } from "zod";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { displayHex } from "../engine/display.js";
 import { CommandError, type CommandRegistry } from "./registry.js";
-import { flashesPerLoop, MAX_FLASHES_PER_SECOND, playOrder } from "../show/flashes.js";
+import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
@@ -357,7 +357,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.preview",
     title: "Aperçu d'un look",
-    description: "Steps a look (saved or not) generates on its canvas: one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): the flash rate is `perLoop / (period × seconds per step)`. Nothing is played.",
+    description: "Steps a look (saved or not) generates on its canvas: one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. Nothing is played.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
@@ -366,7 +366,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const canvas = venue.canvases.get(look.canvas);
       if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
       const steps = show.stepsOf(look);
-      return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { perLoop: flashesPerLoop(steps, look.timing.attack, look.timing.order, true), period: playOrder(steps.length, look.timing.order).length, max: MAX_FLASHES_PER_SECOND } };
+      return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
     },
   });
   reg.register({

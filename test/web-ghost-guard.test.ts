@@ -29,3 +29,36 @@ describe("preview before launch: the echo of the press that closed the sheet", (
     expect(SHEET_GUARD_MS).to.equal(400);
   });
 });
+
+describe("preview before launch: what the guard lets through while it lasts", () => {
+  type Listener = (e: unknown) => void;
+  const listeners = new Map<string, Listener>();
+  (globalThis as { window?: unknown }).window = { addEventListener: (type: string, fn: Listener) => void listeners.set(type, fn) };
+  const press = (type: string, pointerId: number, closest: string | null = null) => {
+    const calls: string[] = [];
+    const e = { type, pointerId, clientX: 100, clientY: 100, target: { closest: (sel: string) => (sel === closest ? {} : null) }, stopPropagation: () => calls.push("stop"), preventDefault: () => calls.push("prevent") };
+    listeners.get(type)!(e);
+    return calls.length > 0; // true: swallowed
+  };
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("swallows the echo, but never Panic; its undo is an ordinary button", async () => {
+    const { armGhostGuard } = await import("../web/src/ghost-guard.js");
+    armGhostGuard({ x: 100, y: 100 }, performance.now(), 40);
+    expect(press("pointerdown", 1)).to.equal(true);
+    expect(press("pointerdown", 2, "button.panic")).to.equal(false);
+    expect(press("pointerdown", 3, "button.panic-undo")).to.equal(true);
+    expect(press("pointerdown", 4, "button.panic-undo")).to.equal(true);
+  });
+
+  it("swallows the release and the click of a swallowed press, however late", async () => {
+    const { armGhostGuard } = await import("../web/src/ghost-guard.js");
+    armGhostGuard({ x: 100, y: 100 }, performance.now(), 40);
+    expect(press("pointerdown", 7)).to.equal(true);
+    await wait(80); // held past the guard
+    expect(press("pointerup", 7)).to.equal(true);
+    expect(press("click", 7)).to.equal(true);
+    expect(press("pointerdown", 7)).to.equal(false); // the next press of that pointer is its own
+    expect(press("pointerup", 7)).to.equal(false);
+  });
+});

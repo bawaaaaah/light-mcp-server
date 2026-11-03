@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { flashesPerLoop, flashesPerSecond, playOrder } from "../../../src/plugins/light/show/flashes.js";
+import { flashesPerLoop, flashesPerSecond, flashesWithin, flashProfile, playOrder } from "../../../src/plugins/light/show/flashes.js";
 
 const lit = { red: 1, green: 1, blue: 1 };
 const dark = { red: 0, green: 0, blue: 0 };
@@ -51,8 +51,36 @@ describe("flashes per second (photosensitive safety)", () => {
     expect(playOrder(2, "pingpong")).to.deep.equal([0, 1]);
     expect(flashesPerLoop(steps, 0, "loop")).to.equal(1);
     expect(flashesPerLoop(steps, 0, "pingpong")).to.equal(2); // lit, dark, lit, dark, ...: two flashes every four steps
-    expect(flashesPerSecond(steps, 0.125, 0, "loop")).to.be.closeTo(2.6667, 1e-3);
+    expect(flashesPerSecond(steps, 0.125, 0, "loop")).to.equal(3); // the 8 steps of a second hold 3 flashes of a cycle of 3 steps: the average said 2.7
     expect(flashesPerSecond(steps, 0.125, 0, "pingpong")).to.equal(4); // over the 3 s limit: the loop count said 2.7
+  });
+
+  it("counts the worst second, not the average of the cycle: a burst then a long dark spell is still a burst", () => {
+    const burst = [...Array.from({ length: 5 }, () => [[lit], [dark]]).flat(), ...Array.from({ length: 30 }, () => [dark])]; // 5 flashes in 10 steps, then 30 dark
+    expect(flashesPerLoop(burst, 0)).to.equal(5);
+    expect(flashesPerSecond(burst, 0.05, 0)).to.equal(5); // 5 flashes in half a second; the average over the 2 s cycle said 2.5
+    expect(flashesPerSecond(burst, 0.5, 0)).to.equal(1); // slowed down, a second holds 2 steps
+    expect(flashesPerSecond(burst, 1 / 3, 0)).to.equal(2); // 3 steps start in a second: at most 2 flashes among 3 changes
+    expect(flashProfile(burst, 0).windows[10]).to.equal(5);
+  });
+
+  it("counts the steps that start in one second, and whole cycles beyond the profile", () => {
+    const profile = { perLoop: 2, period: 4, windows: [0, 1, 1, 2, 2] };
+    expect(flashesWithin(profile, 3)).to.equal(2);
+    expect(flashesWithin(profile, 4)).to.equal(2);
+    expect(flashesWithin(profile, 9)).to.equal(5); // two cycles, then one step
+    expect(flashesWithin({ perLoop: 0, period: 0, windows: [0] }, 5)).to.equal(0);
+  });
+
+  it("counts a fade out of an untouched cell for a preview, which cuts there, but not a fade between real levels", () => {
+    expect(flashesPerLoop([[lit], [null as never]], 0.5, "loop", true)).to.equal(1); // back to the first step, out of the untouched cell: cut, not fade
+    expect(flashesPerLoop([[lit], [lit], [null as never]], 0.5, "pingpong", true)).to.equal(1); // there and back: a cut at each end only counts once a cycle
+    expect(flashesPerLoop([[dark], [lit]], 0.5, "loop", true)).to.equal(0); // a real dark fades up
+    expect(flashesPerLoop([[null as never], [lit]], 0.5, "loop")).to.equal(0); // the stage keeps its level and fades: no flash
+    expect(flashesPerLoop([[null as never], [lit]], 0, "loop", true)).to.equal(1);
+    // random: a fading look flashes only through a cut
+    expect(flashProfile([[null as never], [lit]], 0.5, "random", true)).to.deep.equal({ perLoop: 1, period: 2, windows: [0, 1, 1] });
+    expect(flashProfile([[dark], [lit]], 0.5, "random", true).perLoop).to.equal(0);
   });
 
   it("counts flashes per loop", () => {
@@ -177,12 +205,12 @@ describe("flashes per second (photosensitive safety)", () => {
     const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
     const look = (attack: number) => ({ id: `l-${attack}`, name: `l-${attack}`, canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds: 0.1 }, attack, order: "loop", entryFade: 0 } });
     const flashing = (await run("look.preview", { look: look(0) })) as { flashes: { perLoop: number; period: number; max: number } };
-    expect(flashing.flashes).to.deep.equal({ perLoop: 1, period: 2, max: 3 }); // a loop: the cycle is the steps
+    expect(flashing.flashes).to.deep.equal({ perLoop: 1, period: 2, windows: [0, 1, 1], max: 3 }); // a loop: the cycle is the steps
     const fading = (await run("look.preview", { look: look(1) })) as { flashes: { perLoop: number } };
     expect(fading.flashes.perLoop).to.equal(0);
     // ping-pong: the cycle is longer than the steps, and the answer says so
     const back = { id: "l-pp", name: "l-pp", canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"], ["#ffffff"]] }, timing: { every: { seconds: 0.125 }, attack: 0, order: "pingpong", entryFade: 0 } };
     const pingpong = (await run("look.preview", { look: back })) as { flashes: { perLoop: number; period: number; max: number } };
-    expect(pingpong.flashes).to.deep.equal({ perLoop: 2, period: 4, max: 3 });
+    expect(pingpong.flashes).to.deep.equal({ perLoop: 2, period: 4, windows: [0, 1, 1, 2, 2], max: 3 });
   });
 });

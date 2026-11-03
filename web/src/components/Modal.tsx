@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { wrappedFocus } from "../focus-trap";
 import { guardPassed } from "../preview-first";
@@ -27,29 +27,31 @@ export function Modal({ label, className, onClose, children }: { label: string; 
     document.body.style.overflow = "hidden";
     // the first field takes the keyboard, as the editor did inline
     box.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus({ preventScroll: true });
+    // a quick choice owns the keyboard wherever the focus is (a press on the backdrop sends it to the page): at the document, before
+    // the page behind sees a key (the digits switch dashboards there)
+    const keys = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        close.current?.();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // the focus goes round inside the dialog, and comes back into it when it was outside
+      const items = [...(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((el) => !el.hasAttribute("disabled"));
+      if (!items.length) return;
+      const to = items.includes(document.activeElement as HTMLElement) ? wrappedFocus(items, document.activeElement, e.shiftKey) : items[e.shiftKey ? items.length - 1 : 0];
+      if (to) {
+        e.preventDefault();
+        to.focus();
+      }
+    };
+    if (close.current) document.addEventListener("keydown", keys, true);
     return () => {
+      document.removeEventListener("keydown", keys, true);
       document.body.style.overflow = before;
       opener?.focus?.({ preventScroll: true });
     };
   }, []);
-  const keys = (e: ReactKeyboardEvent) => {
-    if (!close.current) return;
-    // nothing typed here reaches the page behind (the digits switch dashboards there)
-    e.stopPropagation();
-    if (e.key === "Escape") {
-      close.current();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    // the focus goes round inside the dialog
-    const items = [...(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((el) => !el.hasAttribute("disabled"));
-    if (!items.length) return;
-    const to = wrappedFocus(items, document.activeElement, e.shiftKey);
-    if (to) {
-      e.preventDefault();
-      to.focus();
-    }
-  };
   return createPortal(
     <div
       className="modal-backdrop"
@@ -64,7 +66,7 @@ export function Modal({ label, className, onClose, children }: { label: string; 
         if (close.current && started && e.target === e.currentTarget && guardPassed(performance.now(), openedAt.current)) close.current();
       }}
     >
-      <div ref={box} className={className ? `modal ${className}` : "modal"} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={keys}>
+      <div ref={box} className={className ? `modal ${className}` : "modal"} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
         {children}
       </div>
     </div>,

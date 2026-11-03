@@ -28,6 +28,17 @@ describe("preview before launch: how fast a look flashes", () => {
     expect(flashRate({ steps: steps(3), flashes: { perLoop: 2, max: 3 } }, timing({ seconds: 0.125 }), 120)).to.be.closeTo(5.3333, 1e-3); // an older server: the steps
   });
 
+  it("is the worst second of the cycle when the server sends its windows, not the average", () => {
+    // 5 flashes in the first 10 steps of a cycle of 40 steps of 0.05 s: 2.5 on average, 5 in the worst second
+    const windows = Array.from({ length: 41 }, (_, w) => Math.min(5, Math.ceil(w / 2)));
+    const burst = { steps: steps(40), flashes: { perLoop: 5, period: 40, windows, max: 3 } };
+    expect(flashRate(burst, timing({ seconds: 0.05 }), 120)).to.equal(5);
+    expect(flashRate(burst, timing({ seconds: 0.5 }), 120)).to.equal(1); // a second holds 2 steps
+    expect(flashRate({ steps: steps(4), flashes: { perLoop: 2, period: 4, windows: [0, 1, 1, 2, 2], max: 3 } }, timing({ seconds: 0.125 }, "pingpong"), 120)).to.equal(4);
+    // windows of another length than the cycle are not trusted: the average
+    expect(flashRate({ steps: steps(4), flashes: { perLoop: 2, period: 4, windows: [0, 1], max: 3 } }, timing({ seconds: 0.5 }), 120)).to.equal(1);
+  });
+
   it("is 0 when there is nothing to count: no flashes sent (an older server), no step, no duration", () => {
     expect(flashRate({ steps: steps(4) }, timing({ seconds: 0.1 }), 120)).to.equal(0);
     expect(flashRate({ steps: [], flashes: { perLoop: 2, max: 3 } }, timing({ seconds: 0.1 }), 120)).to.equal(0);
