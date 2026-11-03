@@ -210,7 +210,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         }
         const every = l.timing.every;
         const stepSeconds = "seconds" in every ? every.seconds : (every.beats * 60) / bpm;
-        const rate = flashesPerSecond(steps, stepSeconds, l.timing.attack);
+        const rate = flashesPerSecond(steps, stepSeconds, l.timing.attack, l.timing.order);
         if (rate > MAX_FLASHES_PER_SECOND) warn(`look ${l.id}`, say(`jusqu'à ${rate.toFixed(1)} éclats par seconde${"beats" in every ? ` à ${bpm} BPM` : ""} : au-delà de ${MAX_FLASHES_PER_SECOND}, un risque pour les personnes photosensibles (WCAG 2.3.1) ; ralentir la cadence ou adoucir l'attaque`, `up to ${rate.toFixed(1)} flashes a second${"beats" in every ? ` at ${bpm} BPM` : ""}: above ${MAX_FLASHES_PER_SECOND}, a risk for photosensitive people (WCAG 2.3.1); slow the rate down or soften the attack`));
       }
       // once per model: the same .qxf fixes them all

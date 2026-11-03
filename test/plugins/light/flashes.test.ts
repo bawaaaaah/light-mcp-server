@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { flashesPerSecond } from "../../../src/plugins/light/show/flashes.js";
+import { flashesPerLoop, flashesPerSecond, playOrder } from "../../../src/plugins/light/show/flashes.js";
 
 const lit = { red: 1, green: 1, blue: 1 };
 const dark = { red: 0, green: 0, blue: 0 };
@@ -18,6 +18,48 @@ describe("flashes per second (photosensitive safety)", () => {
     expect(flashesPerSecond([[lit], [null], [dark], [null]], 0.25, 0)).to.be.closeTo(1, 1e-9); // untouched keeps its level
     expect(flashesPerSecond([[lit], [blue]], 0.05, 0)).to.equal(0); // a palette always lit does not flash
     expect(flashesPerSecond([[lit, dark], [dark, lit]], 0.1, 0)).to.be.closeTo(5, 1e-9); // the worst cell
+  });
+
+  it("has no flash rate without a step or a step duration, and never divides by zero", () => {
+    expect(flashesPerSecond([], 0.5, 0)).to.equal(0);
+    expect(flashesPerSecond([[lit], [dark]], 0, 0)).to.equal(0);
+    expect(flashesPerSecond([[lit], [dark]], 0.5, 0)).to.equal(1); // one flash per loop of two steps of 0.5 s
+  });
+
+  it("counts an untouched cell as dark for a preview, which draws it hatched and dark, but not for the stage, which keeps its level", () => {
+    const steps = [[lit], [null as never]];
+    expect(flashesPerLoop(steps, 0)).to.equal(0); // the stage: the lit level stays
+    expect(flashesPerLoop(steps, 0, "loop", true)).to.equal(1); // the preview: lit, then dark: one flash a loop
+  });
+
+  it("raises a random or weighted order to one flash every two steps for a look that has a dark and a lit step", () => {
+    const steps = [[dark], [{ red: 0.3, green: 0.3, blue: 0.3 }], [lit]]; // the loop never goes dark then lit
+    expect(flashesPerLoop(steps, 0, "loop")).to.equal(0);
+    expect(flashesPerSecond(steps, 0.05, 0, "loop")).to.equal(0);
+    expect(flashesPerLoop(steps, 0, "random")).to.equal(1);
+    expect(flashesPerSecond(steps, 0.05, 0, "random")).to.be.closeTo(10, 1e-9); // 1 / (2 × 0.05 s)
+    expect(flashesPerSecond(steps, 0.05, 0, "weighted")).to.be.closeTo(10, 1e-9);
+    expect(flashesPerSecond([[lit], [lit]], 0.05, 0, "random")).to.equal(0); // never dark: no flash
+    expect(flashesPerSecond(steps, 0.05, 1, "random")).to.equal(0); // a fade is not a flash
+  });
+
+  it("counts flashes along the order the steps are played: ping-pong goes there and back", () => {
+    const steps = [[lit], [dark], [lit]];
+    expect(playOrder(3, "loop")).to.deep.equal([0, 1, 2]);
+    expect(playOrder(3, "pingpong")).to.deep.equal([0, 1, 2, 1]); // the ends are not played twice
+    expect(playOrder(4, "pingpong")).to.deep.equal([0, 1, 2, 3, 2, 1]);
+    expect(playOrder(2, "pingpong")).to.deep.equal([0, 1]);
+    expect(flashesPerLoop(steps, 0, "loop")).to.equal(1);
+    expect(flashesPerLoop(steps, 0, "pingpong")).to.equal(2); // lit, dark, lit, dark, ...: two flashes every four steps
+    expect(flashesPerSecond(steps, 0.125, 0, "loop")).to.be.closeTo(2.6667, 1e-3);
+    expect(flashesPerSecond(steps, 0.125, 0, "pingpong")).to.equal(4); // over the 3 s limit: the loop count said 2.7
+  });
+
+  it("counts flashes per loop", () => {
+    expect(flashesPerLoop([[lit], [dark]], 0)).to.equal(1); // alternating lit/dark: 1 flash
+    expect(flashesPerLoop([[lit], [dark]], 1)).to.equal(0); // a fading attack ramps, no flash
+    expect(flashesPerLoop([[lit]], 0)).to.equal(0); // a single step
+    expect(flashesPerLoop([[lit, dark], [dark, lit]], 0)).to.equal(1); // the worst cell, still an integer
   });
 
   it("warns in the show check for a look flashing faster than 3 times a second", async () => {
@@ -122,5 +164,25 @@ describe("flashes per second (photosensitive safety)", () => {
     const blind = await blindTo(bar4);
     expect(blind.map((i) => i.where)).to.deep.equal(["règle photo"]);
     expect(await blindTo(bar4.replace('Preset="StrobeSlowToFast"', 'Preset="StrobeFreqRange" Res1="1" Res2="25"'))).to.deep.equal([]);
+  });
+
+  it("returns flashes in look.preview", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-preview-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
+    const look = (attack: number) => ({ id: `l-${attack}`, name: `l-${attack}`, canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds: 0.1 }, attack, order: "loop", entryFade: 0 } });
+    const flashing = (await run("look.preview", { look: look(0) })) as { flashes: { perLoop: number; period: number; max: number } };
+    expect(flashing.flashes).to.deep.equal({ perLoop: 1, period: 2, max: 3 }); // a loop: the cycle is the steps
+    const fading = (await run("look.preview", { look: look(1) })) as { flashes: { perLoop: number } };
+    expect(fading.flashes.perLoop).to.equal(0);
+    // ping-pong: the cycle is longer than the steps, and the answer says so
+    const back = { id: "l-pp", name: "l-pp", canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"], ["#ffffff"]] }, timing: { every: { seconds: 0.125 }, attack: 0, order: "pingpong", entryFade: 0 } };
+    const pingpong = (await run("look.preview", { look: back })) as { flashes: { perLoop: number; period: number; max: number } };
+    expect(pingpong.flashes).to.deep.equal({ perLoop: 2, period: 4, max: 3 });
   });
 });
