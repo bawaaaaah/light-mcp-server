@@ -48,6 +48,7 @@ import { LiveSnapshotFile } from "./data/live-snapshot.js";
 import { openApiDocument } from "./commands/openapi.js";
 import { getPackageVersion } from "../../core/version.js";
 import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
+import { toolHints } from "./commands/tool-hints.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
 import { DmxUsbOutputs, type SerialBinding } from "./output/dmx-usb.js";
@@ -782,7 +783,7 @@ export class LightPlugin implements McpPlugin {
       const shape = (def.schema as unknown as z.ZodObject).shape ?? {};
       server.registerTool(
         toolName(def.name),
-        { title: def.title, description: def.description, inputSchema: shape, annotations: { readOnlyHint: Boolean(def.readOnly) } },
+        { title: def.title, description: def.description, inputSchema: shape, annotations: toolHints(def) },
         async (args: unknown, extra: { authInfo?: { token: string } }) => {
           try {
             // Over HTTP every call carries its caller (core/gateway.ts) and is checked against their

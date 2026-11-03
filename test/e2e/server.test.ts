@@ -242,8 +242,15 @@ describe("server end to end", function () {
     const client = new Client({ name: "e2e", version: "0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: `Bearer ${running.masterToken}` } } });
     await client.connect(transport);
-    const tools = (await client.listTools()).tools.map((t) => t.name);
+    const listed = (await client.listTools()).tools;
+    const tools = listed.map((t) => t.name);
     expect(tools).to.include.members(["light_dmx_set", "light_blackout", "light_panic", "light_nodes_list"]);
+    // a tool directory refuses a tool that leaves one of the four hints out: all of them, as booleans, over the wire
+    expect(listed.length).to.be.above(100);
+    for (const t of listed) {
+      for (const k of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"]) expect(typeof (t.annotations as Record<string, unknown> | undefined)?.[k], `${t.name} ${k}`).to.equal("boolean");
+    }
+    expect(listed.find((t) => t.name === "light_look_delete")!.annotations).to.deep.include({ destructiveHint: true, readOnlyHint: false });
     // every tool the instructions name exists: a model is told nothing it cannot call
     const named = [...new Set(client.getInstructions()?.match(/light_[a-z_]+/g) ?? [])];
     expect(named).to.include.members(["light_panic", "light_look_get", "light_show_references", "light_history_restore", "light_activity_list"]);
