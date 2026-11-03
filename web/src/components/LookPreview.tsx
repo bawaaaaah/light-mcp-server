@@ -4,6 +4,7 @@
  * as a cross-fade, loop / ping-pong / random order. The same frame can light the stage plan.
  */
 import { useEffect, useRef, useState } from "react";
+import { blockEdges } from "../canvas-blocks";
 
 export interface Preview {
   cells: number;
@@ -71,6 +72,10 @@ export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: nu
   return frame;
 }
 
+/** A strip cell's classes: free (nothing painted), where a fixture starts, and the ends of its block (glued cells, rounded at the ends). */
+const cellClass = (color: string | null | undefined, i: number, starts: ReadonlySet<number> | undefined, e: { first: boolean; last: boolean }) =>
+  `${color ? "cell" : "cell free"}${starts?.has(i) ? " block-start" : ""}${e.first ? " block-first" : ""}${e.last ? " block-last" : ""}`;
+
 /**
  * The preview strip. A line canvas sits on the steps' grid (`order`: the cell shown at each place;
  * `starts`: places where a new fixture begins, a separator before); a grid canvas keeps its rows.
@@ -87,11 +92,12 @@ export function LookPreview({ preview, frame, label, order, starts, plain = fals
     );
   }
   const shown = order ?? Array.from({ length: preview.cells }, (_, k) => k);
+  const edges = blockEdges(shown.length, starts);
   if (plain)
     return (
       <div className="preview plain" style={{ gridTemplateColumns: columns ?? `repeat(${preview.cells}, minmax(0, 1fr))` }} aria-label={label}>
         {shown.map((k, i) => (
-          <span key={k} className={`${frame[k] ? "cell" : "cell free"}${starts?.has(i) ? " block-start" : ""}`} style={{ background: frame[k] ?? undefined }} />
+          <span key={k} className={cellClass(frame[k], i, starts, edges[i]!)} style={{ background: frame[k] ?? undefined }} />
         ))}
       </div>
     );
@@ -99,7 +105,7 @@ export function LookPreview({ preview, frame, label, order, starts, plain = fals
     <div className="step-row preview-row" aria-label={label}>
       <small />
       {shown.map((k, i) => (
-        <span key={k} className={`${frame[k] ? "cell" : "cell free"}${starts?.has(i) ? " block-start" : ""}`} style={{ background: frame[k] ?? undefined }} />
+        <span key={k} className={cellClass(frame[k], i, starts, edges[i]!)} style={{ background: frame[k] ?? undefined }} />
       ))}
     </div>
   );

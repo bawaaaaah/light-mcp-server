@@ -150,10 +150,16 @@ export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label
       body.rotation.y = ((f.orientation?.yaw ?? 0) * Math.PI) / 180; // front (local +z) towards its heading
       body.rotation.z = ((f.orientation?.roll ?? 0) * Math.PI) / 180;
       const cell = Math.min(0.25, 1.2 / heads.length);
+      const casing = new THREE.Mesh(
+        new THREE.BoxGeometry(heads.length * cell + 0.03, 0.17, 0.22), // a lip at both ends: no flicker where faces meet
+        new THREE.MeshStandardMaterial({ color: "#3a3f4a", roughness: 0.8 }),
+      );
+      casing.position.z = -0.05;
+      body.add(casing);
       heads.forEach((c, k) => {
         const on = c !== "#000000";
         const box = new THREE.Mesh(
-          new THREE.BoxGeometry(cell * 0.9, 0.15, 0.2),
+          new THREE.BoxGeometry(cell, 0.15, 0.2),
           new THREE.MeshStandardMaterial({ color: on ? c : "#2b2f38", emissive: on ? c : "#000000", emissiveIntensity: on ? 0.9 : 0 }),
         );
         box.position.x = (k - (heads.length - 1) / 2) * cell;

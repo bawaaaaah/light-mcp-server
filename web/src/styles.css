@@ -702,7 +702,21 @@ input.swatch {
 .look-editor .preview-row .cell {
   height: 2.2em;
   aspect-ratio: auto;
+  border-radius: 0;
+}
+.look-editor .preview-row .cell.block-first {
+  border-radius: 4px 0 0 4px;
+}
+.look-editor .preview-row .cell.block-last {
+  border-radius: 0 4px 4px 0;
+}
+.look-editor .preview-row .cell.block-first.block-last {
   border-radius: 4px;
+}
+/* the rest of a bar's cells reach back over the column gap, and keep their right edge */
+.look-editor .preview-row .cell:not(.block-first) {
+  margin-left: -3px;
+  width: calc(100% + 3px);
 }
 .look-editor .cells-view {
   overflow-x: auto;
@@ -1188,16 +1202,25 @@ table.rules td {
 /* Right-click menu of a dashboard widget (components/WidgetMenu.tsx). */
 /* a look's preview in its button's menu: as wide as the menu, many cells close together */
 .preview.plain {
-  gap: 1px;
+  gap: 0;
   margin: 0.4em 0 0.2em;
 }
 .preview.plain .cell {
   height: 1.6em;
   min-width: 0;
-  border-radius: 2px;
+  border-radius: 0;
 }
 .preview.plain .cell.block-start {
   margin-left: 3px;
+}
+.preview.plain .cell.block-first {
+  border-radius: 2px 0 0 2px;
+}
+.preview.plain .cell.block-last {
+  border-radius: 0 2px 2px 0;
+}
+.preview.plain .cell.block-first.block-last {
+  border-radius: 2px;
 }
 /* above the strip, each fixture's code: concise, the full name on hover */
 .preview-names {

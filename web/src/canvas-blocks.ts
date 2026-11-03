@@ -100,3 +100,13 @@ export function stripColumns(blocks: readonly Block[]): { template: string; widt
     .join(" ");
   return { template, width };
 }
+
+/**
+ * For a row of `count` places, where a new block (a fixture, a bar) opens at each index in
+ * `starts` (and at 0), says of every place whether it opens a block and whether it closes one:
+ * a place closes its block when the next place opens a new one, or when it is the last.
+ * Plain, no DOM: the look strips turn these edges into `block-first` / `block-last` classes.
+ */
+export function blockEdges(count: number, starts: ReadonlySet<number> = new Set()): { first: boolean; last: boolean }[] {
+  return Array.from({ length: count }, (_, i) => ({ first: i === 0 || starts.has(i), last: i === count - 1 || starts.has(i + 1) }));
+}

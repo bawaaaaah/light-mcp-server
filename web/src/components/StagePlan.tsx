@@ -687,8 +687,9 @@ export function StagePlan({
               <title>{f.name}</title>
               <g transform={body}>
                 {cols.map((c, i) => (
-                  <rect key={i} x={x0 + i * cw} y={y0} width={Math.max(2, cw - 1)} height={h} fill={c} stroke="#4a5060" strokeWidth={0.5} />
+                  <rect key={i} x={x0 + i * cw} y={y0} width={i < cols.length - 1 ? cw + 0.6 : cw} height={h} fill={c} />
                 ))}
+                <rect className="bar-outline" x={x0} y={y0} width={w} height={h} fill="none" pointerEvents="none" stroke="#4a5060" strokeWidth={0.5} />
                 {isSelected && <rect className="selection" x={x0 - 4} y={y0 - 4} width={w + 8} height={h + 8} fill="none" />}
                 {f.id in strobe && cols.some((c) => c !== "#000000") && <rect className="strobe-outline" x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />}
               </g>

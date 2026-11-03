@@ -519,6 +519,34 @@ test("Live: the beams on the stage and a look's preview on hover can both be lef
   expect(errors).toEqual([]);
 });
 
+test("an LED bar is one rectangle: glued heads on the plan and in a look's strip, a gap only between two bars", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Scène", exact: true }).click();
+  const panel = page.locator(".live-stage-panel");
+  await api(page, "look.go", { id: "masks" });
+  // the plan: heads side by side without a border of their own, and one outline around the bar
+  const body = panel.locator('g.fixture[data-fixture="bar-0"] > g > rect:not(.selection):not(.strobe-outline):not(.bar-outline)');
+  await expect.poll(() => body.count()).toBeGreaterThan(2);
+  const heads = await body.evaluateAll((rs) => rs.map((r) => ({ x: Number(r.getAttribute("x")), w: Number(r.getAttribute("width")), stroke: r.getAttribute("stroke") })));
+  await expect(panel.locator('g.fixture[data-fixture="bar-0"] .bar-outline')).toHaveCount(1); // one outline around the whole bar
+  expect(heads.every((r) => r.stroke === null)).toBe(true);
+  for (let i = 0; i + 1 < heads.length; i++) expect(heads[i]!.x + heads[i]!.w).toBeGreaterThanOrEqual(heads[i + 1]!.x - 0.001);
+  await api(page, "look.stopall");
+  // a look's strip: cells of one bar touch, two bars stay apart
+  await page.locator(".dgrid .cell button", { hasText: "checker" }).first().click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  const cells = menu.locator(".preview.plain .cell");
+  await expect(cells).toHaveCount(8);
+  const boxes = await cells.evaluateAll((cs) => cs.map((c) => ({ x: c.getBoundingClientRect().x, right: c.getBoundingClientRect().right, start: c.classList.contains("block-start") })));
+  for (let i = 1; i < boxes.length; i++) {
+    const gap = boxes[i]!.x - boxes[i - 1]!.right;
+    if (boxes[i]!.start) expect(gap).toBeGreaterThan(1);
+    else expect(gap).toBeLessThan(0.6);
+  }
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: its preview at once, concise, and on the stage on demand", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -1716,6 +1744,13 @@ test("look editor: create with a live preview, then paint steps", async ({ page 
   await editor.getByLabel("Technique").selectOption("damier");
   await expect(editor.locator(".fields .colors input.swatch")).toHaveCount(2);
   await expect(editor.locator(".preview-row .cell")).toHaveCount(8); // server preview on the 8-cell canvas
+  // an LED bar is one rectangle there too: its cells touch, two bars stay apart
+  const stripCells = await editor.locator(".preview-row .cell").evaluateAll((cs) => cs.map((c) => ({ x: c.getBoundingClientRect().x, right: c.getBoundingClientRect().right, start: c.classList.contains("block-start") })));
+  for (let i = 1; i < stripCells.length; i++) {
+    const gap = stripCells[i]!.x - stripCells[i - 1]!.right;
+    if (stripCells[i]!.start) expect(gap).toBeGreaterThan(1);
+    else expect(Math.abs(gap)).toBeLessThan(0.6);
+  }
   await expect(editor.locator(".preview-row .cell.free")).toHaveCount(0);
   await page.screenshot({ path: "test-results/look-editor.png", fullPage: true });
   await editor.getByRole("button", { name: "Enregistrer et lancer" }).click();
@@ -2894,7 +2929,7 @@ test("orient a fixture on the live stage: towards a wall, the ceiling, turned by
   await panel.getByRole("button", { name: "┃ verticale" }).click();
   await expect.poll(async () => ((await facing()).orientation as { roll?: number } | undefined)?.roll).toBe(90);
   await expect(panel.getByRole("button", { name: "┃ verticale" })).toHaveAttribute("aria-pressed", "true");
-  const cells = bar.locator("g rect:not(.selection):not(.strobe-outline)");
+  const cells = bar.locator("g rect:not(.selection):not(.strobe-outline):not(.bar-outline)");
   await expect(cells).toHaveCount(1); // from above, only its top
   await page.getByRole("button", { name: "Face", exact: true }).click();
   await expect(cells).toHaveCount(4);

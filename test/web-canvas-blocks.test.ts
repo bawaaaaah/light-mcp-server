@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { canvasBlocks, fixtureColors, stageOrder, stripColumns } from "../web/src/canvas-blocks.js";
+import { canvasBlocks, fixtureColors, stageOrder, stripColumns, blockEdges } from "../web/src/canvas-blocks.js";
 
 const fixtures = [
   { id: "b1", name: "B1 · barre (gauche)", color: "#22c55e" },
@@ -58,5 +58,23 @@ describe("look editor: the fixtures behind a canvas's cells", () => {
     expect(width).to.deep.equal([30, 10, 30]); // a third of a bar
     // a canvas of spots only: one column each, as before
     expect(stripColumns([spot, { ...spot, from: 61, to: 61 }]).width).to.deep.equal([3, 3]);
+  });
+});
+
+describe("look strips: which cells open or close a block", () => {
+  it("one block: only its first cell opens and its last cell closes", () => {
+    const edges = blockEdges(4, new Set());
+    expect(edges.map((e) => e.first)).to.deep.equal([true, false, false, false]);
+    expect(edges.map((e) => e.last)).to.deep.equal([false, false, false, true]);
+  });
+  it("several blocks: each opens on its first cell and closes on its last", () => {
+    const edges = blockEdges(6, new Set([2, 4]));
+    expect(edges.map((e) => e.first)).to.deep.equal([true, false, true, false, true, false]);
+    expect(edges.map((e) => e.last)).to.deep.equal([false, true, false, true, false, true]);
+  });
+  it("a lone cell is both the first and the last of its block", () => {
+    const edges = blockEdges(1, new Set());
+    expect(edges.map((e) => e.first)).to.deep.equal([true]);
+    expect(edges.map((e) => e.last)).to.deep.equal([true]);
   });
 });
