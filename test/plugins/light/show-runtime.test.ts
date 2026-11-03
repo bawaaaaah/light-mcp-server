@@ -1,11 +1,14 @@
 import { expect } from "chai";
-import { copyFileSync, mkdtempSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { Venue } from "../../../src/plugins/light/venue/venue.js";
 import { dcaLevel, ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { GroupSchema } from "../../../src/plugins/light/show/model.js";
+import { EventBus } from "../../../src/core/event-bus.js";
+import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
+import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "light-show-"));
@@ -165,6 +168,72 @@ describe("show runtime", () => {
     show.go("f");
     show.drop("f");
     expect(dmx()[3]).to.equal(0);
+  });
+
+  it("keeps a fade-out going while strictBounds samples the future for another launch", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#00ff00" }, timing: { exitFade: 2 } });
+    show.looks.put({ id: "r", name: "R", canvas: "mur", technique: { kind: "plat", color: "#ff0000" } });
+    show.rules.put({ id: "max-red", name: "Max red", level: "show", target: { color: "red" }, max: 128, onViolation: "reject" });
+    show.go("a");
+    show.stop("a");
+    advance(2); // 1 s of 2
+    expect(show.strictBounds("r")).to.have.length(1); // sampled up to 4 s ahead, past the end of A's fade
+    expect(dmx()[4]).to.be.within(100, 155); // still half way down
+    advance(2);
+    expect(dmx()[4]).to.equal(0);
+  });
+
+  it("leaves out a look's own fading copy when strictBounds checks its relaunch, and keeps the copy", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "r", name: "R", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.rules.put({ id: "max-red", name: "Max red", level: "show", target: { color: "red" }, max: 128, onViolation: "reject" });
+    expect(show.strictBounds("r")).to.have.length(1); // not playing: its launch is bounded
+    show.go("r");
+    show.stop("r");
+    advance(1); // 0.5 s into its fade-out: the copy still goes over the bound
+    // go() would drop the fading copy, so the launch is bounded just the same
+    expect(show.strictBounds("r")).to.have.length(1);
+    advance(2); // 1.5 s into the 2 s fade-out; the live output is held at the bound (128) until it falls below
+    expect(dmx()[3]).to.be.within(20, 60); // the copy is still fading, not dropped by the check
+  });
+
+  it("merges a fading look with the active ones by the highest in « highest » mode", () => {
+    const { show, dmx, advance } = setup();
+    show.saveSettings({ looksMerge: "highest" });
+    show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" } });
+    show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+    show.go("a");
+    show.go("b");
+    advance(1); // 0.5 s into A's fade-out
+    expect(dmx()[3]).to.be.within(1, 254); // A is still seen: the highest of the two wins per channel
+    expect(dmx()[4]).to.equal(255);
+    advance(4);
+    expect([dmx()[3], dmx()[4]]).to.deep.equal([0, 255]); // only B is left
+  });
+
+  it("look.delete drops a look that is fading out", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-delete-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const { runtime } = plugin;
+    const canvas = runtime.venue.canvases.list()[0]!.id;
+    await run("look.put", { look: { id: "fond", name: "Fond", canvas, technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 30 } } });
+    const lit = () => {
+      const buffers = [new Uint8Array(512), new Uint8Array(512), new Uint8Array(512), new Uint8Array(512)];
+      runtime.render(buffers);
+      return Object.values(runtime.venue.displayColors(buffers)).some((cells) => cells.some((c) => c !== "#000000"));
+    };
+    await run("look.go", { id: "fond" });
+    await run("look.stop", { id: "fond" });
+    expect(lit()).to.equal(true); // fading out over 30 s: still on stage
+    await run("look.delete", { id: "fond" });
+    expect(lit()).to.equal(false);
   });
 
   it("uses palettes by reference", () => {
