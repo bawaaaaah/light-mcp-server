@@ -4,6 +4,7 @@
  * as a cross-fade, loop / ping-pong / random order. The same frame can light the stage plan.
  */
 import { useEffect, useRef, useState } from "react";
+import type { Flashes } from "../preview-rate";
 import { blockEdges } from "../canvas-blocks";
 
 export interface Preview {
@@ -11,6 +12,8 @@ export interface Preview {
   topology: string;
   columns?: number;
   steps: (string | null)[][];
+  /** How often the look flashes (docs/specs/rules-limits.md); an older server does not send it. */
+  flashes?: Flashes;
 }
 interface Timing {
   every: { beats?: number; seconds?: number };
@@ -25,8 +28,11 @@ const mix = (a: string | null, b: string | null, k: number): string | null => {
   return `rgb(${x.map((v, i) => Math.round(v + (y[i]! - v) * k)).join(",")})`;
 };
 
-/** The preview's frame now (cells in the canvas's order), replayed at the look's timing: the strip and the stage show the same one. */
-export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: number): (string | null)[] {
+/**
+ * The preview's frame now (cells in the canvas's order), replayed at the look's timing: the strip and the stage show the same one.
+ * `frozen` (a look that flashes too fast, for people who are photosensitive) shows its first step and plays nothing.
+ */
+export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: number, frozen = false): (string | null)[] {
   const [frame, setFrame] = useState<(string | null)[]>([]);
   const start = useRef(performance.now());
   const order = useRef<number[]>([]);
@@ -38,6 +44,10 @@ export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: nu
 
   useEffect(() => {
     if (!preview) return;
+    if (frozen) {
+      setFrame(preview.steps[0] ?? []);
+      return;
+    }
     const n = preview.steps.length;
     const stepAt = (i: number) => {
       if (n === 1) return 0;
@@ -68,7 +78,7 @@ export function usePreviewFrame(preview: Preview | null, timing: Timing, bpm: nu
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [preview, timing.every.beats, timing.every.seconds, timing.attack, timing.order, bpm]);
+  }, [preview, timing.every.beats, timing.every.seconds, timing.attack, timing.order, bpm, frozen]);
   return frame;
 }
 

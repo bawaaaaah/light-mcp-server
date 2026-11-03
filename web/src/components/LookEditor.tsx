@@ -14,6 +14,7 @@ import { BlockNames, StepsEditor } from "./StepsEditor";
 import { canvasBlocks, fixtureColors, stageOrder, type CanvasRender } from "../canvas-blocks";
 import { LiveStage } from "./StagePlan";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
+import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
@@ -117,7 +118,8 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
   }, [byStage, blocks, cells, fixtures]);
   const starts = useMemo(() => new Set(shown.blocks.filter((b) => b.from > 0).map((b) => b.from)), [shown]);
   const [onStage, setOnStage] = useState(false);
-  const frame = usePreviewFrame(preview, look.timing, tempo?.bpm ?? 120);
+  const frozen = useFrozenPreview(preview, look.timing, tempo?.bpm ?? 120);
+  const frame = usePreviewFrame(preview, look.timing, tempo?.bpm ?? 120, frozen);
   const stageColors = useMemo(() => (onStage ? fixtureColors(frame, canvas?.render ?? []) : undefined), [onStage, frame, canvas]);
   // one grid for the strip, the names and the steps: the number, a column per cell, duplicate and delete
   const grid = { "--step-columns": `2em repeat(${cells}, minmax(0.4em, 1.6em)) 2.2em 2.2em` } as CSSProperties;
@@ -168,6 +170,7 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           </div>
           {preview.topology !== "grid" && <BlockNames blocks={shown.blocks} />}
           <LookPreview preview={preview} frame={frame} label={t.preview} order={shown.order} starts={starts} />
+          {frozen && <p className="peek-frozen" role="status">{t.previewFrozen}</p>}
           {onStage && <LiveStage onError={setError} shownColors={stageColors} views />}
         </div>
       )}

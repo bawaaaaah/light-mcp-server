@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { expect, test, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
 
 /** Collects page errors and console errors; every test asserts there are none. */
 function watchErrors(page: Page): string[] {
@@ -13,7 +13,7 @@ function watchErrors(page: Page): string[] {
 }
 
 /** PINs set by test/ui/server.ts, and the user each one belongs to. */
-const PIN_USERS: Record<string, string> = { "1234": "regisseur", "9999": "admin", "5678": "benevole" };
+const PIN_USERS: Record<string, string> = { "1234": "regisseur", "9999": "admin", "5678": "benevole", "1357": "lecture" };
 
 async function login(page: Page, pin = "1234"): Promise<void> {
   await page.goto("/");
@@ -51,6 +51,14 @@ async function api(page: Page, name: string, args: unknown = {}): Promise<unknow
       await page.waitForLoadState("load");
     }
   }
+}
+
+/** Waits out the launch guard, then launches from the preview sheet and waits for it to close. */
+async function launchFromSheet(page: Page, name: string): Promise<void> {
+  await page.waitForTimeout(450);
+  const dialog = page.getByRole("dialog", { name: `Aperçu avant lancement : ${name}` });
+  await dialog.getByRole("button", { name: "Lancer" }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 test("signs in with the token by default, and the menu bar's token link signs in at once", async ({ page }) => {
@@ -547,6 +555,123 @@ test("an LED bar is one rectangle: glued heads on the plan and in a look's strip
   expect(errors).toEqual([]);
 });
 
+test("preview before launch: a tap on the backdrop closes the sheet and does not press what is under it", async ({ browser }) => {
+  // a finger: the click that follows a tap goes to what is under the finger once the backdrop is gone
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "look.go", { id: "hole" });
+  const playing = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  await expect(playing).toHaveClass(/on/);
+  await page.locator(".dgrid .cell button", { hasText: "masks" }).first().tap();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : masks" });
+  await expect(sheet).toBeVisible();
+  await page.waitForTimeout(450); // past the guard of the backdrop
+  const at = (await playing.boundingBox())!;
+  await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+  await expect(sheet).toHaveCount(0); // the tap was a way out
+  await page.waitForTimeout(300);
+  // and it did not stop the look that was under the finger, nor start the one of the sheet
+  const state = (await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[];
+  expect(state.find((l) => l.id === "hole")?.active).toBe(true);
+  expect(state.find((l) => l.id === "masks")?.active).toBe(false);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+/** What the preview strip of a sheet draws now: the colour of each cell. */
+const strip = (sheet: Locator) => sheet.locator(".preview.plain .cell").evaluateAll((cs) => cs.map((c) => (c as unknown as { style: { background: string } }).style.background).join("|"));
+
+/** A probe under the Launch button of the open sheet, counting the presses that reach it (the sheet is above it, then gone). */
+async function probeUnderLaunch(page: Page, panic = false): Promise<{ x: number; y: number }> {
+  const box = (await page.getByRole("dialog", { name: /Aperçu avant lancement/ }).getByRole("button", { name: "Lancer" }).boundingBox())!;
+  // as a string, like the other scripts of this file: the server's typecheck has no DOM types
+  await page.evaluate(`(() => {
+    const b = ${JSON.stringify(box)};
+    const host = document.createElement("div");
+    ${panic ? 'host.className = "panic-cell";' : ""}
+    Object.assign(host.style, { position: "fixed", left: b.x + "px", top: b.y + "px", width: b.width + "px", height: b.height + "px", zIndex: "10" });
+    const probe = document.createElement("button");
+    probe.style.cssText = "width:100%;height:100%;opacity:0.01";
+    window.probed = 0;
+    probe.addEventListener("click", () => (window.probed += 1));
+    host.appendChild(probe);
+    document.body.appendChild(host);
+  })()`);
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** How many presses reached the probe. */
+const probed = (page: Page) => page.evaluate<number>("window.probed");
+
+test("preview before launch: the second tap of a double tap on Lancer does not reach what is under it", async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator(".dgrid .cell button", { hasText: "masks" }).first().tap();
+  await expect(page.getByRole("dialog", { name: "Aperçu avant lancement : masks" })).toBeVisible();
+  await page.waitForTimeout(450);
+  const at = await probeUnderLaunch(page);
+  await page.touchscreen.tap(at.x, at.y); // Lancer
+  await page.waitForTimeout(80);
+  await page.touchscreen.tap(at.x, at.y); // the second tap, on the spot the sheet has just left
+  await page.waitForTimeout(300);
+  expect(await probed(page)).toBe(0); // swallowed
+  const state = (await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[];
+  expect(state.find((l) => l.id === "masks")?.active).toBe(true); // and the look went on
+  await page.waitForTimeout(500); // the guard is over: a press at the same spot passes
+  await page.touchscreen.tap(at.x, at.y);
+  await expect.poll(() => probed(page)).toBe(1);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test("preview before launch: Panic is never swallowed after the sheet closes", async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await page.locator(".dgrid .cell button", { hasText: "masks" }).first().tap();
+  await expect(page.getByRole("dialog", { name: "Aperçu avant lancement : masks" })).toBeVisible();
+  await page.waitForTimeout(450);
+  const at = await probeUnderLaunch(page, true); // the same probe, in a Panic cell
+  await page.touchscreen.tap(at.x, at.y); // Lancer
+  await page.waitForTimeout(80);
+  await page.touchscreen.tap(at.x, at.y); // at once, on Panic
+  await expect.poll(() => probed(page)).toBe(1);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test("preview before launch: a press that starts in the sheet and ends on the backdrop does not close it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  await page.waitForTimeout(450); // past the guard
+  const box = (await sheet.boundingBox())!;
+  await page.mouse.move(box.x + 20, box.y + 20); // on the sheet
+  await page.mouse.down();
+  await page.mouse.move(box.x - 40, box.y + 20); // out, on the backdrop
+  await page.mouse.up(); // the click goes to the common ancestor, the backdrop
+  await expect(sheet).toBeVisible(); // not a way out
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: its preview at once, concise, and on the stage on demand", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -869,9 +994,12 @@ test("tablet: a long press opens the widget menu, without starting the look", as
   await expect(page.getByRole("dialog", { name: "Réglages du widget" })).toBeVisible();
   await page.waitForTimeout(300);
   expect(((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(false);
-  // a short tap still plays it
+  // a short tap now opens the preview sheet (touch context ⇒ mode on by default): launch it
   await page.keyboard.press("Escape");
   await button.tap();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  await launchFromSheet(page, "hole");
   await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active).toBe(true);
   await api(page, "look.stopall");
   expect(errors).toEqual([]);
@@ -3082,4 +3210,402 @@ test("a volunteer cannot write the show: no DMX console offered, and the server 
     return ((await res.json()) as { result: { parked: Record<string, number> } }).result.parked;
   });
   expect(parked["4"]).toBeUndefined();
+});
+
+test("preview before launch: « Voir avant de lancer » is pressed by default with touch, not with a mouse", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await expect(page.getByRole("button", { name: "Voir avant de lancer" })).toHaveAttribute("aria-pressed", "false");
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const touchPage = await ctx.newPage();
+  const touchErrors = watchErrors(touchPage);
+  await login(touchPage);
+  await expect(touchPage.getByRole("button", { name: "Voir avant de lancer" })).toHaveAttribute("aria-pressed", "true");
+  await api(touchPage, "look.stopall");
+  expect(touchErrors).toEqual([]);
+  await ctx.close();
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: with the mode on, opening then cancelling launches nothing", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+  await button.click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  expect(await active()).toBe(false);
+  await sheet.getByRole("button", { name: "Annuler" }).click();
+  await expect(sheet).toHaveCount(0);
+  expect(await active()).toBe(false);
+  await button.click();
+  await launchFromSheet(page, "hole");
+  expect(await active()).toBe(true);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: Escape closes the sheet and launches nothing", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+  await button.click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  expect(await active()).toBe(false);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a double tap is blocked by the 400 ms guard and leaves the sheet open", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  await button.click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  await expect(sheet).toBeVisible();
+  const box = (await sheet.getByRole("button", { name: "Lancer" }).boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.waitForTimeout(80);
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(100);
+  const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+  expect(await active()).toBe(false);
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: stopping a playing look is immediate, with no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  await api(page, "look.go", { id: "hole" });
+  await expect(button).toHaveClass(/on/);
+  await button.click();
+  const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+  // stopping is immediate: no sheet opens
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active).toBe(false);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: Blackout opens no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const blackout = page.locator("button.blackout").first();
+  await blackout.click();
+  await expect(blackout).toHaveText("Blackout actif");
+  await expect(page.getByRole("dialog", { name: /Aperçu avant lancement/ })).toHaveCount(0);
+  await blackout.click(); // back out of blackout
+  await expect(blackout).toHaveText("Blackout");
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a « À confirmer » look opens the sheet on the first press and never arms", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const cell = page.locator(".dgrid .cell", { has: page.locator("button", { hasText: "hole" }) }).first();
+  const button = cell.locator("button");
+  await button.click({ button: "right" });
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("À confirmer (deux appuis)").check();
+  try {
+    await page.keyboard.press("Escape");
+    await button.click();
+    const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+    await expect(sheet).toBeVisible();
+    await expect(button).not.toContainText("Appuyer encore");
+    await page.keyboard.press("Escape");
+    await api(page, "look.stopall");
+    // back to a plain button
+    await button.click({ button: "right" });
+    await page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("À confirmer (deux appuis)").uncheck();
+    await page.keyboard.press("Escape");
+    await expect.poll(async () => JSON.stringify(await api(page, "dashboard.list"))).not.toContain('"confirm"');
+  } finally {
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await button.click({ button: "right" }).catch(() => undefined);
+    await page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("À confirmer (deux appuis)").uncheck().catch(() => undefined);
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await expect.poll(async () => JSON.stringify(await api(page, "dashboard.list"))).not.toContain('"confirm"').catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a read-only role has its look button disabled and no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem("lookPreviewFirst", "true"));
+  await login(page, "1357");
+  const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+  await expect(button).toBeDisabled();
+  await button.click({ force: true });
+  await expect(page.getByRole("dialog", { name: /Aperçu avant lancement/ })).toHaveCount(0);
+  const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+  expect(await active()).toBe(false);
+  // cleanup as the token holder (the lecture role cannot stop looks; no new login screen needed)
+  await page.evaluate(async () => {
+    await fetch("/api/plugins/light/commands/look.stopall", { method: "POST", headers: { authorization: "Bearer ui-test-token", "content-type": "application/json" }, body: "{}" });
+  });
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: deleting the look while the sheet is open closes it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+  await api(page, "look.stopall");
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const tempId = "preview-temp";
+  await api(page, "look.put", { look: { id: tempId, name: "Temp", canvas, technique: { kind: "plat", color: "#00ff00" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } } });
+  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string }[] }[];
+  const dash = dashboards[0]!;
+  const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  const backup = JSON.parse(JSON.stringify(dash));
+  const patched = JSON.parse(JSON.stringify(dash));
+  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
+  w.target = tempId;
+  w.label = "Temp";
+  try {
+    await api(page, "dashboard.put", { dashboard: patched });
+    await page.reload();
+    await expect(page.locator("header.top")).toBeVisible();
+    const button = page.locator(".dgrid .cell button", { hasText: "Temp" }).first();
+    await expect(button).toBeVisible();
+    await button.click();
+    const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : Temp" });
+    await expect(sheet).toBeVisible();
+    await api(page, "look.delete", { id: tempId, force: true });
+    await expect(sheet).toHaveCount(0);
+  } finally {
+    await api(page, "dashboard.put", { dashboard: backup });
+    await api(page, "look.delete", { id: tempId, force: true }).catch(() => undefined);
+  }
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: freezing a flashing look shows the frozen note", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const hole = (await api(page, "look.get", { id: "hole" })) as { canvas: string };
+  const tempId = "preview-flash";
+  await api(page, "look.put", { look: { id: tempId, name: "Flash", canvas: hole.canvas ?? canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds: 0.1 }, attack: 0, order: "loop", entryFade: 0 } } });
+  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string }[] }[];
+  const dash = dashboards[0]!;
+  const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  const backup = JSON.parse(JSON.stringify(dash));
+  const patched = JSON.parse(JSON.stringify(dash));
+  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
+  w.target = tempId;
+  w.label = "Flash";
+  try {
+    await api(page, "dashboard.put", { dashboard: patched });
+    await page.reload();
+    await expect(page.locator("header.top")).toBeVisible();
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click(); // mode on (mouse default off)
+    const flashBtn = page.locator(".dgrid .cell button", { hasText: "Flash" }).first();
+    await expect(flashBtn).toBeVisible();
+    // freeze off by default: no frozen note
+    await flashBtn.click();
+    const sheetOff = page.getByRole("dialog", { name: "Aperçu avant lancement : Flash" });
+    await expect(sheetOff).toBeVisible();
+    await expect(sheetOff.getByText("Aperçu figé : flashs rapides")).toHaveCount(0);
+    // not frozen: the strip really flashes (several different colours in a third of a second)
+    const seen = new Set<string>();
+    for (let k = 0; k < 8; k++) {
+      seen.add(await strip(sheetOff));
+      await page.waitForTimeout(50);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+    await page.keyboard.press("Escape");
+    // switch freeze on via toggle
+    await page.getByRole("button", { name: "Aperçus sans flash" }).click();
+    await expect(page.getByRole("button", { name: "Aperçus sans flash" })).toHaveAttribute("aria-pressed", "true");
+    await flashBtn.click();
+    const sheetOn = page.getByRole("dialog", { name: "Aperçu avant lancement : Flash" });
+    await expect(sheetOn).toBeVisible();
+    await expect(sheetOn.getByText("Aperçu figé : flashs rapides")).toBeVisible();
+    // frozen: the same colours, whatever the time
+    await page.waitForTimeout(150); // the first render draws nothing yet; then the first step, and no other
+    const frozen = new Set<string>();
+    for (let k = 0; k < 8; k++) {
+      frozen.add(await strip(sheetOn));
+      await page.waitForTimeout(50);
+    }
+    expect(frozen.size).toBe(1);
+    await page.keyboard.press("Escape");
+  } finally {
+    await api(page, "dashboard.put", { dashboard: backup });
+    await api(page, "look.delete", { id: tempId, force: true });
+  }
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: edit mode opens no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  try {
+    await login(page);
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+    await api(page, "look.stopall");
+    await page.getByRole("button", { name: "✎" }).click();
+    const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+    await button.click({ force: true });
+    await expect(page.getByRole("dialog", { name: /Aperçu avant lancement/ })).toHaveCount(0);
+  } finally {
+    const done = page.getByRole("button", { name: "✔" });
+    if (await done.isVisible().catch(() => false)) await done.click().catch(() => undefined);
+    await api(page, "look.stopall").catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: focus returns to the button after closing the sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  try {
+    await login(page);
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+    await api(page, "look.stopall");
+    const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+    const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+    await button.click();
+    await expect(sheet).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(button).toBeFocused();
+    await button.click();
+    await expect(sheet).toBeVisible();
+    await sheet.getByRole("button", { name: "Annuler" }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(button).toBeFocused();
+  } finally {
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await api(page, "look.stopall").catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a trigger-mode button that is already playing opens no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string; mode?: string }[] }[];
+  const dash = dashboards[0]!;
+  const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  const backup = JSON.parse(JSON.stringify(dash));
+  const patched = JSON.parse(JSON.stringify(dash));
+  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
+  w.mode = "trigger";
+  try {
+    await api(page, "dashboard.put", { dashboard: patched });
+    await page.reload();
+    await expect(page.locator("header.top")).toBeVisible();
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+    await api(page, "look.stopall");
+    await api(page, "look.go", { id: "hole" });
+    const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+    await expect(button).toHaveClass(/on/);
+    await button.click();
+    await expect(page.getByRole("dialog", { name: /Aperçu avant lancement/ })).toHaveCount(0);
+    await expect(button).toHaveClass(/on/);
+    await api(page, "look.stopall");
+    await expect.poll(async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active).toBe(false);
+    await button.click();
+    const sheet = page.getByRole("dialog", { name: "Aperçu avant lancement : hole" });
+    await expect(sheet).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  } finally {
+    await api(page, "dashboard.put", { dashboard: backup }).catch(() => undefined);
+    await api(page, "look.stopall").catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a momentary button opens no sheet", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string; mode?: string }[] }[];
+  const dash = dashboards[0]!;
+  const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  const backup = JSON.parse(JSON.stringify(dash));
+  const patched = JSON.parse(JSON.stringify(dash));
+  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
+  w.mode = "momentary";
+  try {
+    await api(page, "dashboard.put", { dashboard: patched });
+    await page.reload();
+    await expect(page.locator("header.top")).toBeVisible();
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+    await api(page, "look.stopall");
+    const button = page.locator(".dgrid .cell button", { hasText: "hole" }).first();
+    const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+    await button.hover();
+    await page.mouse.down();
+    await expect(page.getByRole("dialog", { name: /Aperçu avant lancement/ })).toHaveCount(0);
+    await expect.poll(active).toBe(true);
+    await page.mouse.up();
+    await expect.poll(active).toBe(false);
+  } finally {
+    await api(page, "dashboard.put", { dashboard: backup }).catch(() => undefined);
+    await api(page, "look.stopall").catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("preview before launch: a confirm rule shows its native dialog after Lancer", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "rule.put", { rule: { id: "demande", name: "Rouge demandé", level: "show", target: { color: "red" }, max: 128, onViolation: "confirm" } });
+  try {
+    await page.getByRole("button", { name: "Voir avant de lancer" }).click();
+    await api(page, "look.stopall");
+    const button = page.locator(".dgrid button.look", { hasText: "hole" }).first();
+    const active = async () => ((await api(page, "look.list", { brief: true })) as { id: string; active: boolean }[]).find((l) => l.id === "hole")!.active;
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.accept()));
+    await button.click();
+    await launchFromSheet(page, "hole");
+    await expect.poll(() => asked, { timeout: 10000 }).toContain("Rouge demandé"); // the rule's question, after Lancer
+    await expect.poll(active, { timeout: 10000 }).toBe(true);
+  } finally {
+    await api(page, "rule.delete", { where: "show", id: "demande" });
+    await api(page, "look.stopall");
+  }
+  expect(errors.filter((e) => !e.includes("422"))).toEqual([]);
+});
+
+test("preview before launch: the preview toggle is absent for a read-only role", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "1357");
+  await expect(page.getByRole("button", { name: "Voir avant de lancer" })).toHaveCount(0);
+  await page.evaluate(async () => {
+    await fetch("/api/plugins/light/commands/look.stopall", { method: "POST", headers: { authorization: "Bearer ui-test-token", "content-type": "application/json" }, body: "{}" });
+  });
+  expect(errors).toEqual([]);
 });

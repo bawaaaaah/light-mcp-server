@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useHoverPeek } from "../components/HoverPeek";
+import { warmPeek } from "../components/LookPeek";
+import { PreviewBeforeLaunch } from "../components/PreviewBeforeLaunch";
+import { useFreezeFast, usePreviewFirst } from "../hooks/usePreviewSettings";
+import { asksBeforeLaunch } from "../preview-first";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
@@ -166,6 +170,11 @@ export function DashboardsPage({ role }: { role: Role }) {
   /** The beams on the Live's stage, and a look's colours on hovering its button: both can be left out. */
   const [stageBeams, setStageBeams] = useStored("liveStageBeams", true);
   const [hoverPeekOn, setHoverPeekOn] = useStored("lookHoverPeek", true);
+  /** A press on a look button opens its preview first (on by default on a touch screen), and the previews of fast-flashing looks can be frozen. */
+  const [previewFirst, setPreviewFirst] = usePreviewFirst();
+  const [freezeFast, setFreezeFast] = useFreezeFast();
+  /** The look whose preview is open before its launch: what to show, and what starting it runs. */
+  const [previewing, setPreviewing] = useState<{ id: string; name: string; fire: () => void } | null>(null);
   /** A mouse to hover with: a touch screen has no hover preview, nor its switch. */
   const [mouse] = useState(() => window.matchMedia?.("(hover: hover)").matches ?? true);
   /** The stage folded in place: its row stays, to open it again where it was. */
@@ -402,6 +411,10 @@ export function DashboardsPage({ role }: { role: Role }) {
     });
   const dash = dashboards[current];
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
+  // a look deleted while its sheet is open: forget it, or a look put back under the same id would bring the sheet back
+  useEffect(() => {
+    if (previewing && !lookById.has(previewing.id)) setPreviewing(null);
+  }, [previewing, lookById]);
   /** The exclusive sets (radio buttons): a look started releases the others of its set only. */
   const sets = useMemo<ExclusiveSet[]>(() => groups.filter((g) => g.exclusive).map((g) => ({ id: g.id, name: g.name, looks: g.members?.looks ?? [] })), [groups]);
   const setOf = (look: string | undefined) => sets.find((g) => look !== undefined && g.looks.includes(look));
@@ -645,18 +658,22 @@ export function DashboardsPage({ role }: { role: Role }) {
       case "look": {
         const l = lookById.get(w.target ?? "");
         if (!l) return <div className="fill missing">{w.target}</div>;
+        const go = () => void run("look.go", { id: l.id });
+        const asksFirst = asksBeforeLaunch({ on: previewFirst, mode: w.mode, playing: l.active });
         return (
           <button
             className={`fill look ${l.active ? "on" : ""} ${l.danger ? "danger" : ""} ${armed === w.id ? "armed" : ""}`}
             title={hoverPeek.shows(l.id) ? undefined : lookTitle(w, l) /* the whole name: a long one is cut on the button */}
             {...hoverPeek.bind(l.id, lookTitle(w, l))}
             {...locked("commands:trigger")}
+            onPointerDown={() => previewFirst && !edit && warmPeek(l.id)}
             {...press(
               w.mode ?? "latch",
               l.active,
-              () => void run("look.go", { id: l.id }),
+              asksFirst ? () => setPreviewing({ id: l.id, name: w.label ?? l.name, fire: go }) : go,
               () => void run("look.stop", { id: l.id }),
-              w.confirm ? w.id : undefined,
+              // the preview takes the place of the two presses of « À confirmer »: not asked twice
+              asksFirst ? undefined : w.confirm ? w.id : undefined,
             )}
           >
             {l.manualOnly ? "✋ " : ""}
@@ -891,6 +908,14 @@ export function DashboardsPage({ role }: { role: Role }) {
                 {t.hoverPeekToggle}
               </button>
             )}
+            {may("commands:trigger") && (
+              <button className={previewFirst ? "ghost on" : "ghost"} aria-pressed={previewFirst} title={t.previewFirstHelp} onClick={() => setPreviewFirst(!previewFirst)}>
+                {t.previewFirstToggle}
+              </button>
+            )}
+            <button className={freezeFast ? "ghost on" : "ghost"} aria-pressed={freezeFast} title={t.freezeFastHelp} onClick={() => setFreezeFast(!freezeFast)}>
+              {t.freezeFastToggle}
+            </button>
             <button className={stageShown ? "ghost on" : "ghost"} title={t.liveStageHelp} aria-pressed={stageShown} onClick={toggleStage}>
               {t.liveStageToggle}
             </button>
@@ -1217,6 +1242,21 @@ export function DashboardsPage({ role }: { role: Role }) {
       {/* under the grid: the safety bar stays at the top, where the hand looks for it */}
       {!edit && !kiosk && <GettingStarted role={role} looks={looks.length} dashboards={dashboards} current={dash} onDashboard={() => void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l)))} />}
       {hoverPeek.node}
+      {previewing && lookById.get(previewing.id) && (
+        <PreviewBeforeLaunch
+          lookId={previewing.id}
+          name={previewing.name}
+          danger={lookById.get(previewing.id)!.danger}
+          manualOnly={lookById.get(previewing.id)!.manualOnly}
+          onCancel={() => setPreviewing(null)}
+          onLaunch={() => {
+            // the sheet goes first, so the rule dialog of the browser does not pile onto it
+            const { fire } = previewing;
+            setPreviewing(null);
+            fire();
+          }}
+        />
+      )}
       {menu && dash?.widgets.some((w) => w.id === menu.id) && (
         <WidgetMenu
           key={menu.id}

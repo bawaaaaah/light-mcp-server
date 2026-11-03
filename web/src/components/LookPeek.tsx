@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
+import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { canvasBlocks, fixtureColors, stageOrder, stripColumns, type Block, type CanvasRender } from "../canvas-blocks";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { LiveStage } from "./StagePlan";
@@ -25,6 +26,9 @@ const peeks = new Map<string, Promise<Shown>>();
 
 /** Forgets the fetched peeks: a look, a palette or the venue changed. */
 export const clearPeeks = () => peeks.clear();
+
+/** Starts fetching a look's peek before it is asked for (a finger going down on its button): a failure is left for the peek itself to show. */
+export const warmPeek = (id: string): void => void fetchPeek(id).catch(() => undefined);
 
 function fetchPeek(id: string): Promise<Shown> {
   const known = peeks.get(id);
@@ -71,7 +75,9 @@ export function LookPeek({ id, onStage, compact }: { id: string; onStage?: (on: 
       live = false;
     };
   }, [id, compact]);
-  const frame = usePreviewFrame(shown?.preview ?? null, shown?.look.timing ?? { every: { beats: 1 }, attack: 0, order: "loop" }, tempo?.bpm ?? 120);
+  const timing = shown?.look.timing ?? { every: { beats: 1 }, attack: 0, order: "loop" };
+  const frozen = useFrozenPreview(shown?.preview ?? null, timing, tempo?.bpm ?? 120);
+  const frame = usePreviewFrame(shown?.preview ?? null, timing, tempo?.bpm ?? 120, frozen);
   const starts = useMemo(() => new Set((shown?.blocks ?? []).filter((b) => b.from > 0).map((b) => b.from)), [shown]);
   const stageColors = useMemo(() => (stage && shown ? fixtureColors(frame, shown.render) : undefined), [stage, shown, frame]);
   if (error) return <p className="error">{error}</p>;
@@ -90,6 +96,11 @@ export function LookPeek({ id, onStage, compact }: { id: string; onStage?: (on: 
         </div>
       )}
       <LookPreview preview={shown.preview} frame={frame} label={t.preview} order={shown.order} starts={starts} plain columns={columns?.template} />
+      {frozen && (
+        <p className="peek-frozen" role="status">
+          {t.previewFrozen}
+        </p>
+      )}
       {!compact && (
       <button
         className={stage ? "ghost on" : "ghost"}
