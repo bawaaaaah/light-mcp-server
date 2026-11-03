@@ -4,8 +4,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as Reac
  * A menu opened where the click was (right-click, or a long press on a touch screen), kept on screen
  * by its real size (it grows with its content, narrows on a phone; taller than the window, it
  * scrolls inside), closed by a click elsewhere or Escape.
+ * `above`: the y just over the thing it hangs from (a tooltip): with no room below `at`, it opens
+ * above that instead of sliding up over it.
  */
-export function useFloatingMenu(at: { x: number; y: number }, onClose: () => void) {
+export function useFloatingMenu(at: { x: number; y: number }, onClose: () => void, above?: number) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 340, height: 380 });
   useEffect(() => {
@@ -24,7 +26,8 @@ export function useFloatingMenu(at: { x: number; y: number }, onClose: () => voi
     if (el && (el.offsetWidth !== size.width || el.offsetHeight !== size.height)) setSize({ width: el.offsetWidth, height: el.offsetHeight });
   });
   const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
-  const top = Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
+  const flip = above !== undefined && at.y + size.height + 8 > window.innerHeight;
+  const top = flip ? Math.max(8, above - size.height) : Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
   return { box, style: { left, top } };
 }
 

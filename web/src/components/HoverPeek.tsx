@@ -14,6 +14,8 @@ interface Peek {
   id: string;
   title: string;
   at: { x: number; y: number };
+  /** The y just over the button, where the tooltip goes when there is no room under it. */
+  above: number;
 }
 
 export function useHoverPeek(enabled: boolean) {
@@ -43,7 +45,7 @@ export function useHoverPeek(enabled: boolean) {
         if (!enabled || e.pointerType !== "mouse") return;
         const r = e.currentTarget.getBoundingClientRect();
         window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setPeek({ id, title, at: { x: r.left, y: r.bottom + 6 } }), HOVER_MS);
+        timer.current = window.setTimeout(() => setPeek({ id, title, at: { x: r.left, y: r.bottom + 6 }, above: r.top - 6 }), HOVER_MS);
       },
       onPointerLeave: close,
       onPointerDownCapture: close,
@@ -53,7 +55,7 @@ export function useHoverPeek(enabled: boolean) {
 }
 
 function HoverPeekBox({ peek, onClose }: { peek: Peek; onClose: () => void }) {
-  const { box, style } = useFloatingMenu(peek.at, onClose);
+  const { box, style } = useFloatingMenu(peek.at, onClose, peek.above);
   return (
     <div ref={box} className="hover-peek" role="tooltip" style={style}>
       <strong>{peek.title}</strong>

@@ -590,6 +590,29 @@ test("a mouse resting on a look button of the Live shows its colours in a toolti
   expect(errors).toEqual([]);
 });
 
+test("the tooltip of a look button at the bottom of the window opens above it, never over it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const button = page.locator(".dgrid .cell button", { hasText: "checker" }).first();
+  await button.scrollIntoViewIfNeeded();
+  // a window that ends just under the button: no room below for the tooltip
+  const at = (await button.boundingBox())!;
+  await page.setViewportSize({ width: 1280, height: Math.ceil(at.y + at.height + 10) });
+  await button.scrollIntoViewIfNeeded();
+  await button.hover();
+  const tip = page.locator(".hover-peek");
+  await expect(tip).toBeVisible();
+  const box = (await button.boundingBox())!;
+  const peek = (await tip.boundingBox())!;
+  expect(peek.y + peek.height).toBeLessThanOrEqual(box.y + 1); // above the button, not over it
+  expect(peek.y).toBeGreaterThanOrEqual(0); // and on the screen
+  await button.click(); // the button can still be pressed
+  await expect(tip).toHaveCount(0);
+  await expect.poll(async () => ((await api(page, "look.list")) as { id: string; active?: boolean }[]).some((l) => l.id === "checker" && l.active)).toBe(true);
+  await api(page, "look.stopall");
+  expect(errors).toEqual([]);
+});
+
 test("right-click on a look button in the Live: edit its look in a window, over the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
