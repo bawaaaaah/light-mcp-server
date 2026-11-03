@@ -374,7 +374,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["design"],
     schema: deletable,
-    run: ({ id: i, force }) => (removable("look", i, show.looks.get(i)?.name, force), show.stop(i), { deleted: show.looks.delete(i) }),
+    run: ({ id: i, force }) => (removable("look", i, show.looks.get(i)?.name, force), show.drop(i), { deleted: show.looks.delete(i) }),
   });
   reg.register({
     name: "look.go",

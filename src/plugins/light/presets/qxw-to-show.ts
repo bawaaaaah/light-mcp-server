@@ -312,7 +312,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
         fan: 0,
         group: groupId,
       },
-      timing: { every: { seconds: 1 }, attack: 0, order: "loop", entryFade: 0 },
+      timing: { every: { seconds: 1 }, attack: 0, order: "loop", entryFade: 0, exitFade: 0 },
       manualOnly: false,
       noCut: false,
       danger: false,
@@ -441,13 +441,13 @@ export function entryStep(fn: QxwFunction): number {
 function timingOf(fn: QxwFunction, dial?: { fadeIn: number; duration: number }, skipFirst = false): Look["timing"] {
   const order = fn.runOrder === "Random" ? "random" : fn.runOrder === "PingPong" ? "pingpong" : "loop";
   if (dial && dial.duration > 0) {
-    return { every: { beats: dial.duration }, attack: Math.min(1, dial.fadeIn / dial.duration), order, entryFade: 0 };
+    return { every: { beats: dial.duration }, attack: Math.min(1, dial.fadeIn / dial.duration), order, entryFade: 0, exitFade: 0 };
   }
   const loopSteps = skipFirst ? fn.steps.slice(1) : fn.steps;
   const durations = loopSteps.map((s) => (fn.speedModes?.duration === "PerStep" ? s.fadeIn + s.hold : fn.speed.duration)).filter((d) => d > 0);
   const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 1000;
   const fade = fn.speedModes?.fadeIn === "PerStep" ? loopSteps.reduce((a, s) => a + s.fadeIn, 0) / Math.max(1, loopSteps.length) : fn.speed.fadeIn;
-  return { every: { seconds: Math.max(0.01, avg / 1000) }, attack: Math.min(1, fade / Math.max(1, avg)), order, entryFade: 0 };
+  return { every: { seconds: Math.max(0.01, avg / 1000) }, attack: Math.min(1, fade / Math.max(1, avg)), order, entryFade: 0, exitFade: 0 };
 }
 
 function group(id: string, name: string, o: { exclusive?: boolean; looks?: string[]; fixtures?: string[]; master?: boolean }): Group {

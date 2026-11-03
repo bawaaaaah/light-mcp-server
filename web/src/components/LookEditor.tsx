@@ -37,7 +37,7 @@ export interface LookDraft {
   canvas: string;
   technique: Record<string, unknown> & { kind: string };
   palette?: string;
-  timing: { every: Every; attack: number; order: string; weights?: number[]; entryFade: number };
+  timing: { every: Every; attack: number; order: string; weights?: number[]; entryFade: number; exitFade: number };
   move?: Move;
   channels?: LookChannelsDraft;
   mirror?: boolean;
@@ -60,7 +60,7 @@ interface Named {
 }
 
 export function newLook(canvas: string): LookDraft {
-  return { id: "", name: "", canvas, technique: { kind: "plat", color: "#ffffff" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, manualOnly: false, noCut: false, danger: false, tags: [] };
+  return { id: "", name: "", canvas, technique: { kind: "plat", color: "#ffffff" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0, exitFade: 0 }, manualOnly: false, noCut: false, danger: false, tags: [] };
 }
 
 const MOVE: Move = { shape: "fixe", center: { pan: 0.5, tilt: 0.5 }, size: { pan: 0.1, tilt: 0.1 }, every: { beats: 4 }, wings: false, reverse: false, fan: 0 };
@@ -259,6 +259,10 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
         <label className="field">
           <span>{t.entryFade} (s)</span>
           <input type="number" min={0} max={30} step={0.1} value={look.timing.entryFade} onChange={(e) => setTiming({ entryFade: Number(e.target.value) })} />
+        </label>
+        <label className="field">
+          <span>{t.exitFade} (s)</span>
+          <input type="number" min={0} max={30} step={0.1} value={look.timing.exitFade} onChange={(e) => setTiming({ exitFade: Number(e.target.value) })} />
         </label>
       </div>
 

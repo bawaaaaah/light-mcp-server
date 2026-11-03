@@ -7,7 +7,7 @@
  */
 import type { Collection, FolderStore } from "../data/store.js";
 import { Glide } from "../engine/glide.js";
-import { LookPlayer } from "../engine/player.js";
+import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
@@ -27,6 +27,13 @@ export interface TempoSource {
 interface ActiveLook {
   look: Look;
   player: LookPlayer;
+}
+
+interface ReleasingLook {
+  look: Look;
+  player: LookPlayer;
+  stopTime: number;
+  exitFade: number;
 }
 
 /** Stable small seed from a string, so a random-order look plays the same way every time. */
@@ -55,6 +62,8 @@ export class ShowRuntime {
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
+  /** Looks stopped with an exit fade, still fading to black (not active). */
+  private readonly releasing = new Map<string, ReleasingLook>();
   /** group id → flash held */
   private readonly flashes = new Set<string>();
   /** Manual positions (XY pad, aiming): override the looks' moves until released. */
@@ -243,10 +252,20 @@ export class ShowRuntime {
     const look = this.looks.get(lookId);
     if (!look) throw new Error(say(`look inconnu : ${lookId}`, `unknown look: ${lookId}`));
     if (auto && look.manualOnly) throw new Error(say(`« ${look.name} » est en manuel seulement`, `“${look.name}” is manual only`));
+    // Starting (again) while fading out drops the fading copy and starts fresh.
+    this.releasing.delete(lookId);
     const released: string[] = [];
+    const now = this.now();
     for (const g of this.groups.list()) {
       if (!g.exclusive || !g.members.looks.includes(lookId)) continue;
-      for (const other of g.members.looks) if (other !== lookId && this.active.delete(other)) released.push(other);
+      for (const other of g.members.looks) {
+        if (other === lookId) continue;
+        const otherActive = this.active.get(other);
+        if (otherActive && this.active.delete(other)) {
+          released.push(other);
+          this.startFadeOut(otherActive.look, otherActive.player, now);
+        }
+      }
     }
     if (this.active.has(lookId)) return { started: false, released };
     const player = this.build(look);
@@ -256,18 +275,39 @@ export class ShowRuntime {
   }
 
   stop(lookId: string): boolean {
-    return this.active.delete(lookId);
+    const a = this.active.get(lookId);
+    if (!a) return false;
+    this.active.delete(lookId);
+    this.startFadeOut(a.look, a.player);
+    return true;
+  }
+
+  /** Moves a stopped look into the `releasing` fade-out, when its exitFade > 0. */
+  private startFadeOut(look: Look, player: LookPlayer, stopTime = this.now()): void {
+    const exitFade = look.timing?.exitFade ?? 0;
+    if (exitFade <= 0) return;
+    // Drop any earlier fading copy of the same look.
+    this.releasing.delete(look.id);
+    this.releasing.set(look.id, { look, player, stopTime, exitFade });
+  }
+
+  /** Forgets a look at once, fading copy included (it is being deleted). */
+  drop(lookId: string): void {
+    this.active.delete(lookId);
+    this.releasing.delete(lookId);
   }
 
   stopAll(): string[] {
     const ids = [...this.active.keys()];
     this.active.clear();
+    this.releasing.clear();
     return ids;
   }
 
   /** Forgets everything live (looks, flashes, manual positions, program): another show opens. */
   resetLive(): void {
     this.active.clear();
+    this.releasing.clear();
     this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();
@@ -518,15 +558,20 @@ export class ShowRuntime {
       }
       return seen;
     };
-    const without = sample();
-    const player = this.build(look);
-    player.start(t0, b0);
-    this.active.set(lookId, { look, player });
+    // go() drops the look's own fading copy: it belongs to neither sample (put back after)
+    const fadingCopy = this.releasing.get(lookId);
+    this.releasing.delete(lookId);
+    let without: Set<string>;
     let withIt: Set<string>;
     try {
+      without = sample();
+      const player = this.build(look);
+      player.start(t0, b0);
+      this.active.set(lookId, { look, player });
       withIt = sample();
     } finally {
       this.active.delete(lookId);
+      if (fadingCopy) this.releasing.set(lookId, fadingCopy);
     }
     const byRule = new Map<string, Clamp[]>();
     for (const key of withIt) {
@@ -541,10 +586,23 @@ export class ShowRuntime {
   private compose(buffers: Uint8Array[], now: number, beats: number): string[] {
     const frame = emptyFrame();
     const errors: string[] = [];
+    // Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing).
+    const real = this.now();
+    for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     /** Raw channels of the looks, by fixture then offset (highest of the looks playing them). */
     const lookChannels = new Map<string, Map<number, number>>();
-    for (const { look, player } of this.active.values()) {
-      if (look.channels) {
+    // Looks fading out on exit come first, then the active ones, so a look just started (or still
+    // playing) wins over the one leaving, in both colours and movement. They share the render loop,
+    // the differences being the fade factor in lookLevel and the raw channels (cut at once on stop).
+    const fading: { look: Look; player: LookPlayer; fade: number; collectRaw: boolean }[] = [
+      ...[...this.releasing.values()].flatMap((r) => {
+        const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
+        return t < 1 ? [{ look: r.look, player: r.player, fade: 1 - ease(t), collectRaw: false }] : [];
+      }),
+      ...[...this.active.values()].map(({ look, player }) => ({ look, player, fade: 1, collectRaw: true })),
+    ];
+    for (const { look, player, fade, collectRaw } of fading) {
+      if (collectRaw && look.channels) {
         const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
         look.channels.targets.forEach((t, k) => {
           const byOffset = lookChannels.get(t.fixture) ?? new Map<number, number>();
@@ -553,7 +611,7 @@ export class ShowRuntime {
         });
       }
       let step: Step = player.render(now, beats);
-      let lookLevel = 1;
+      let lookLevel = fade;
       const excluded = new Set<string>();
       for (const g of this.groups.list()) {
         if (g.presets.included.includes(look.id)) lookLevel *= this.effectiveLevel(g.id);

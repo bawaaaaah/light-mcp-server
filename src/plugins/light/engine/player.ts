@@ -22,6 +22,8 @@ export const TimingSchema = z.object({
   weights: z.array(z.number().min(0)).optional(),
   /** Entry fade (seconds) from what was on stage before. */
   entryFade: z.number().min(0).max(30).default(0),
+  /** Exit fade (seconds): on stop, keep playing while scaling colours to black. */
+  exitFade: z.number().min(0).max(30).default(0),
 });
 export type Timing = z.infer<typeof TimingSchema>;
 
@@ -42,7 +44,7 @@ function mixStep(a: Step, b: Step, t: number): Step {
 }
 
 /** Smoothstep easing for fades. */
-const ease = (t: number) => t * t * (3 - 2 * t);
+export const ease = (t: number) => t * t * (3 - 2 * t);
 
 export class LookPlayer {
   private startBeats = 0;

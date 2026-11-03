@@ -286,7 +286,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           canvas: canvas.id,
           technique,
           palette: `auto-${a.id}`,
-          timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 1, ...a.timing },
+          timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 1, exitFade: 0, ...a.timing },
           manualOnly: false,
           noCut: false,
           danger: false,

@@ -80,18 +80,18 @@ export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: En
   let timing: Timing;
   if (energy === "pose") {
     technique = colors.length > 1 ? { kind: "respiration", colors, steps: 4, depth: 0.3 } : { kind: "plat", color: colors[0]! };
-    timing = { every: { beats: 2 }, attack: 1, order: "loop", entryFade: 2 };
+    timing = { every: { beats: 2 }, attack: 1, order: "loop", entryFade: 2, exitFade: 0 };
     explanation.push("énergie posée : respiration lente, 2 temps par pas, fondu continu");
   } else if (energy === "dynamique") {
     technique = colors.length >= 3 ? { kind: "palette", colors: colors.slice(0, 4), block: 4 } : { kind: "damier", colors: [colors[0]!, colors[1] ?? "#ffffff"], block: 4 };
-    timing = { every: { beats: 1 }, attack: intent.cut === false ? 1 : 0.05, order: "loop", entryFade: 0.5 };
+    timing = { every: { beats: 1 }, attack: intent.cut === false ? 1 : 0.05, order: "loop", entryFade: 0.5, exitFade: 0 };
     explanation.push(`énergie dynamique : ${technique.kind}, 1 temps par pas, ${intent.cut === false ? "respire" : "bord franc (claque)"}`);
   } else {
     technique =
       colors.length >= 3
         ? { kind: "palette", colors: colors.slice(0, 5), block: 2 }
         : { kind: "masques", colors: [colors[0]!, colors[1] ?? colors[0]!], block: 4, masks: ["####", "-##-", "#--#", "##--", "--##"], floor: 0 };
-    timing = { every: { beats: 1 }, attack: 0.03, order: "random", entryFade: 0 };
+    timing = { every: { beats: 1 }, attack: 0.03, order: "random", entryFade: 0, exitFade: 0 };
     explanation.push(`énergie survoltée : ${technique.kind} en ordre aléatoire, claque`);
   }
   if (colors.length >= 2 && (technique.kind === "damier" || technique.kind === "masques")) {

@@ -113,6 +113,60 @@ describe("show runtime", () => {
     expect(dmx()[3]).to.equal(255);
   });
 
+  it("fades out on stop with the exit fade", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.go("f");
+    expect(show.isActive("f")).to.equal(true);
+    show.stop("f");
+    expect(show.isActive("f")).to.equal(false);
+    expect(show.activeLooks()).to.not.include("f");
+    expect(dmx()[3]).to.equal(255);
+    advance(2); // 1 s of 2
+    expect(dmx()[3]).to.be.within(100, 155);
+    advance(2);
+    expect(dmx()[3]).to.equal(0);
+  });
+
+  it("stops immediately with stopAll, even with an exit fade", () => {
+    const { show, dmx } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.go("f");
+    show.stopAll();
+    expect(dmx()[3]).to.equal(0);
+  });
+
+  it("restarts a look that is fading out, from scratch", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.go("f");
+    show.stop("f");
+    advance(2); // halfway through the fade
+    const r = show.go("f");
+    expect(r.started).to.equal(true);
+    expect(show.isActive("f")).to.equal(true);
+    expect(dmx()[3]).to.equal(255);
+  });
+
+  it("lets the look that arrives win over the one fading out of an exclusive group", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" } });
+    show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+    show.go("a");
+    show.go("b");
+    advance(1); // 0.5 s into A's 2 s fade-out: A is still lit, yet B (active) wins over it
+    expect([dmx()[3], dmx()[4]]).to.deep.equal([0, 255]);
+  });
+
+  it("drops a deleted look at once, its fade-out included", () => {
+    const { show, dmx } = setup();
+    show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+    show.go("f");
+    show.drop("f");
+    expect(dmx()[3]).to.equal(0);
+  });
+
   it("uses palettes by reference", () => {
     const { show, dmx } = setup();
     show.palettes.put({ id: "chaud", name: "Chaud", colors: ["#ff8000", "#ffff00"] });
