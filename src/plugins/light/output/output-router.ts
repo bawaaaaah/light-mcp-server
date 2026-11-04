@@ -113,9 +113,7 @@ export class OutputRouter {
   }
 
   private usbRoutes(): { path: string; kind: DmxUsbKind }[] {
-    // an interface feeds one universe: of two routes to the same port, the first
-    const seen = new Set<string>();
-    return this.config.routes.flatMap((r) => (r.usb && !seen.has(portPath(r.usb.path)) && seen.add(portPath(r.usb.path)) ? [r.usb] : []));
+    return this.config.routes.flatMap((r) => (r.usb ? [r.usb] : [])); // of two routes to one port, DmxUsbOutputs.use takes the first
   }
 
   onNodesChanged(fn: (change: { added?: KnownNode; lost?: KnownNode[] }) => void): void {

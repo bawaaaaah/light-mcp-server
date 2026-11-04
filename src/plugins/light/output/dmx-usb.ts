@@ -3,7 +3,7 @@
  * computer, with its own DMX line, no network. Two kinds, as in QLC+'s « DMX USB » :
  * - « open » (Enttec Open DMX USB and the FTDI FT232R cables like it): the computer makes the DMX
  *   signal itself, 250 kbaud, 8 bits, 2 stop bits: a break, then the start code and 512 channels,
- *   again and again, since fixtures expect a steady signal (about 40 frames a second).
+ *   again and again, since fixtures expect a steady signal (about 36 to 39 frames a second).
  * - « pro » (Enttec DMX USB Pro and compatibles): a message to the interface (0x7E, label 6 « send
  *   DMX », the length, the start code and the channels, 0xE7), which makes the signal and repeats
  *   the last frame by itself; sent when it changes, and every second.
@@ -82,15 +82,16 @@ const BREAK_MS = 1;
 /** The start code and 512 channels, 11 bits each (start, 8 data, 2 stop) at 250 kbaud: what a frame takes on the line. */
 const FRAME_MS = (513 * 11 * 1000) / 250_000;
 /** The next break comes at least this long after the end of a frame, whatever drain() said (it may return when the OS buffer is empty, not the chip's). */
-const FRAME_GUARD_MS = 1;
+const FRAME_GUARD_MS = 2;
 const PRO_KEEPALIVE_MS = 1000;
 /** After an error the interface is opened again: soon the first time, then less and less often. */
 const RETRY_MIN_MS = 250;
 const RETRY_MAX_MS = 2000;
 /** Before the first frame has come in, the loop only waits. */
 const IDLE_MS = 5;
-/** A stop waits this long at most for the frame being sent. */
+/** Safety nets in real time (they only matter when the line hangs): a stop waits this long at most for the loop to end, a start for the loop it follows. */
 const STOP_WAIT_MS = 500;
+const START_WAIT_MS = 2000;
 /** The same error is written to the log at most this often. */
 const WARN_EVERY_MS = 30_000;
 
@@ -122,8 +123,12 @@ export class DmxUsbDevice {
   private lastWrite = 0;
   /** A frame has come in since the last stop: before that the buffer is only zeros, which are not worth a signal (a flash of black). */
   private haveFrame = false;
-  /** One thing at a time on the line: a frame, or the last one of a stop. */
+  /** One thing at a time on the line. */
   private busy: Promise<void> = Promise.resolve();
+  /** The end of the loop that runs (or ran last): a stop waits for it, and the next loop does not open the port before it. */
+  private loopDone: Promise<void> = Promise.resolve();
+  /** Set by a stop for the loop that is ending: it owns the port, so it sends the last frame and closes it. */
+  private blackoutOnExit = false;
   private retryMs = RETRY_MIN_MS;
   private lastFrameAt: number | undefined;
   /** When the frame being sent ends on the line, for the guard before the next break. */
@@ -159,7 +164,7 @@ export class DmxUsbDevice {
   start(): void {
     if (this.running) return;
     this.running = true;
-    void this.loop(++this.generation);
+    this.loopDone = this.loop(++this.generation, this.loopDone);
   }
 
   private fail(err: unknown): void {
@@ -200,7 +205,9 @@ export class DmxUsbDevice {
   }
 
   /** Runs until stopped; a loop from before a stop and a start ends by itself, closing only its own port. */
-  private async loop(generation: number): Promise<void> {
+  private async loop(generation: number, previous: Promise<void>): Promise<void> {
+    // a port is held by one opener at a time: after a stop, the loop that ended has closed it before this one opens it
+    await Promise.race([previous, new Promise((r) => setTimeout(r, START_WAIT_MS).unref())]);
     const alive = () => this.running && this.generation === generation;
     let port: SerialPortHandle | undefined;
     const release = async () => {
@@ -223,6 +230,9 @@ export class DmxUsbDevice {
           this.error = undefined;
           this.changed = true;
           this.lastFrameAt = undefined; // a gap across a reopening is not a gap between frames
+          this.maxGapMs = 0; // since the interface was opened
+          // the lines low from the start, as every break leaves them (the OS raises them at open)
+          if (this.kind === "open") await port.set({ dtr: false, rts: false }).catch(() => undefined);
         } catch (err) {
           this.fail(err);
           await retry();
@@ -253,34 +263,54 @@ export class DmxUsbDevice {
         this.retryMs = RETRY_MIN_MS;
       } catch (err) {
         // unplugged, or a hiccup: let go, and try again soon, then less and less often, until it is back
-        if (alive()) this.fail(err);
-        this.reopens++;
+        if (alive()) {
+          this.fail(err);
+          this.reopens++;
+        }
         await release();
         await retry();
         continue;
       }
       await this.sleep(Math.max(1, OPEN_PERIOD_MS - (this.now() - began), this.frameEnd - this.now()));
     }
+    if (port && this.blackoutOnExit) {
+      this.blackoutOnExit = false;
+      await this.farewell(port);
+    }
     await release();
+  }
+
+  /** The last frame of a stop: all zeros, out on the line (not only handed to the OS) before the port is closed. */
+  private async farewell(port: SerialPortHandle): Promise<void> {
+    try {
+      await this.emit(port, new Uint8Array(512));
+      if (this.kind === "pro") await port.drain();
+      else {
+        const wait = this.frameEnd - this.now();
+        if (wait > 0) await this.sleep(wait);
+      }
+    } catch {
+      // the line is going away anyway
+    }
   }
 
   /**
    * `blackout`: one last all-zero frame goes out before the line is let go (standby: QLC+ may take the interface, and a
    * line left silent keeps what the fixtures last showed). What comes after a stop starts from a real frame, never from
-   * what was here before.
+   * what was here before. The loop that ends owns the port: it sends that frame and closes it; if it does not end in
+   * time (a line that hangs), the port is closed here.
    */
   async stop(blackout = false): Promise<void> {
+    const hadFrame = this.haveFrame;
     this.running = false;
     this.generation++;
+    this.haveFrame = false;
+    this.blackoutOnExit = blackout && hadFrame;
+    await Promise.race([this.loopDone, new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref())]);
+    this.blackoutOnExit = false;
     const p = this.port;
     this.port = undefined;
-    // a frame in flight goes out whole, and nothing after it (a line that hangs does not hold the stop for long)
-    await Promise.race([this.busy, new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref())]);
-    if (p) {
-      if (blackout && this.haveFrame) await this.exclusive(() => this.emit(p, new Uint8Array(512))).catch(() => undefined);
-      await p.close().catch(() => undefined);
-    }
-    this.haveFrame = false;
+    if (p) await p.close().catch(() => undefined);
   }
 
   status(): DmxUsbStatus {
@@ -305,7 +335,7 @@ export class DmxUsbOutputs {
   readonly binding: SerialBinding | undefined;
   readonly error: string | undefined;
 
-  constructor(binding?: SerialBinding | null, private readonly sleep?: (ms: number) => Promise<void>) {
+  constructor(binding?: SerialBinding | null, private readonly sleep?: (ms: number) => Promise<void>, private readonly platform = process.platform) {
     if (binding === null) this.error = "DMX USB désactivé";
     else if (binding) this.binding = binding;
     else ({ binding: this.binding, error: this.error } = loadSerial());
@@ -315,7 +345,7 @@ export class DmxUsbOutputs {
   use(wanted: { path: string; kind: DmxUsbKind }[]): void {
     // one name per port, and the first of two routes to the same one wins (the router sends that one only)
     const keep = new Map<string, DmxUsbKind>();
-    for (const w of wanted) if (!keep.has(portPath(w.path))) keep.set(portPath(w.path), w.kind);
+    for (const w of wanted) if (!keep.has(portPath(w.path, this.platform))) keep.set(portPath(w.path, this.platform), w.kind);
     for (const [path, d] of this.devices) {
       if (keep.get(path) !== d.kind) {
         void d.stop();
@@ -332,7 +362,7 @@ export class DmxUsbOutputs {
   }
 
   send(path: string, data: Uint8Array): void {
-    this.devices.get(portPath(path))?.frame(data);
+    this.devices.get(portPath(path, this.platform))?.frame(data);
   }
 
   /** Standby lets the interfaces go (QLC+ may open them); back, they are opened again. */

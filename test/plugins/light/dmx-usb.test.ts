@@ -55,7 +55,7 @@ describe("DMX USB", () => {
     await until(() => serial.writes(PORT).length >= 3);
     await d.stop();
     expect(serial.calls[0]).to.deep.include({ op: "open", baudRate: 250_000, stopBits: 2 });
-    expect(serial.calls.slice(1, 4).map((c) => c.op + (c.on === undefined ? "" : c.on ? "+" : "-"))).to.deep.equal(["brk+", "brk-", "write"]);
+    expect(serial.calls.filter((c) => c.op !== "line").slice(1, 4).map((c) => c.op + (c.on === undefined ? "" : c.on ? "+" : "-"))).to.deep.equal(["brk+", "brk-", "write"]);
     expect(serial.writes(PORT)[0]![3]).to.equal(128);
     expect(serial.calls.at(-1)!.op).to.equal("close");
   });
@@ -104,7 +104,7 @@ describe("DMX USB", () => {
       expect(portPath("/dev/tty.usbserial-TEST1", "darwin")).to.equal(PORT);
       expect(portPath(PORT, "darwin")).to.equal(PORT);
       expect(portPath("/dev/ttyUSB0", "linux")).to.equal("/dev/ttyUSB0");
-      const outputs = new DmxUsbOutputs(new FakeSerial(), fast);
+      const outputs = new DmxUsbOutputs(new FakeSerial(), fast, "darwin"); // the platform is given: this holds on Linux too
       outputs.use([
         { path: "/dev/tty.usbserial-TEST1", kind: "open" },
         { path: PORT, kind: "pro" },
@@ -208,12 +208,98 @@ describe("DMX USB", () => {
       d.start();
       await until(() => d.status().framesSent >= 1);
       await d.stop();
-      // the frame starts at 5 ms (2 + the 1 ms break + 2) and takes 22.6 ms: the next break not before 28.6 ms,
-      // not at 25 ms as the period alone would say, although drain() returned at once
+      // the frame starts at 5 ms (2 + the 1 ms break + 2) and takes 22.6 ms: the next break not before 29.6 ms
+      // (2 ms of margin), not at 25 ms as the period alone would say, although drain() returned at once
       const wait = waits.find((w) => w > 2)!;
-      expect(wait).to.be.closeTo(5 + 22.572 + 1 - 5, 0.01);
+      expect(wait).to.be.closeTo(5 + 22.572 + 2 - 5, 0.01);
       expect(d.status().drainMs).to.equal(0);
       expect(d.status().breakMs).to.equal(5);
+    });
+
+    it("sets DTR and RTS low as soon as the port is open, not at the first break: the OS raises them at open", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.start();
+      await until(() => d.status().open);
+      await d.stop();
+      const line = serial.calls.find((c) => c.op === "line")!;
+      expect([line.dtr, line.rts]).to.deep.equal([false, false]);
+    });
+
+    it("on standby the last frame, all zeros, is written before the port is closed, and nothing after the close", async () => {
+      const serial = new FakeSerial(); // refuses anything after close(), as the real binding does
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const lit = zeros();
+      lit[0] = 200;
+      d.frame(lit);
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      await d.stop(true);
+      const ops = serial.calls.filter((c) => c.op !== "line").map((c) => c.op + (c.on === undefined ? "" : c.on ? "+" : "-"));
+      expect(ops.slice(-4)).to.deep.equal(["brk+", "brk-", "write", "close"]); // the break is let go before the close
+      expect(serial.writes(PORT).at(-1)![1]).to.equal(0);
+      expect(d.status().lastError).to.equal(undefined); // and no write was refused
+    });
+
+    it("a stop that is followed at once by a start does not open the port while the old loop still holds it", async () => {
+      const serial = new FakeSerial(); // an open that finds the port held fails, as flock does
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const lit = zeros();
+      lit[0] = 200;
+      d.frame(lit);
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      const stopping = d.stop(true);
+      d.start();
+      d.frame(lit);
+      await stopping;
+      await until(() => d.status().open && serial.calls.filter((c) => c.op === "open").length === 2);
+      expect(d.status().lastError).to.equal(undefined);
+      expect(d.status().reopens).to.equal(0);
+      const before = serial.writes(PORT).length;
+      await until(() => serial.writes(PORT).length > before);
+      await d.stop();
+    });
+
+    it("a driver that hangs does not hold a stop, and the port is closed", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      serial.hang = "drain";
+      for (let i = 0; i < 10; i++) await fast(); // the next frame hangs in drain()
+      await d.stop(true);
+      expect(serial.calls.at(-1)!.op).to.equal("close");
+    }).timeout(5000);
+
+    it("counts the longest gap since the interface was opened, not since the object was made", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 3);
+      serial.fail = { op: "write", times: 1 };
+      t += 60_000; // a long hiccup: the gap across it is not between two frames
+      await until(() => d.status().reopens === 1);
+      const frames = d.status().framesSent;
+      await until(() => d.status().framesSent >= frames + 3);
+      await d.stop();
+      expect(d.status().maxGapMs).to.be.lessThan(100);
+    });
+
+    it("a route given with the Mac's tty name is kept under its cu name", async () => {
+      const serial = new FakeSerial();
+      const cfg = { discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+      const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot: join(mkdtempSync(join(tmpdir(), "light-usb-")), "data"), midiNative: null, serial });
+      await plugin.start();
+      try {
+        await plugin.commands.invoke("output.route", { universe: 2, usb: { path: "/dev/tty.usbserial-TEST1" } }, systemContext());
+        expect(plugin.router.getConfig().routes[0]!.usb!.path).to.equal(portPath("/dev/tty.usbserial-TEST1"));
+      } finally {
+        await plugin.stop();
+      }
     });
 
     it("names DTR and RTS with every break, at 0 as they have always been left", async () => {

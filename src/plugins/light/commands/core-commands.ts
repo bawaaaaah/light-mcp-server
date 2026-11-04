@@ -151,8 +151,8 @@ export function registerCoreCommands(
       if (s) next.sacn = s;
       if (d) next.usb = d;
       const others = routes.filter((r) => r.universe !== u);
-      const taken = d && others.find((r) => r.usb?.path === d.path);
-      if (taken) throw new CommandError("invalid", say(`${d.path} sort déjà l'univers ${taken.universe} : une interface DMX USB sort un seul univers`, `${d.path} already outputs universe ${taken.universe}: a DMX USB interface outputs one universe`));
+      const taken = usb && others.find((r) => r.usb?.path === usb.path); // only for an interface being given: an old config with two routes to one port can still be edited otherwise
+      if (taken) throw new CommandError("invalid", say(`${usb.path} sort déjà l'univers ${taken.universe} : une interface DMX USB sort un seul univers`, `${usb.path} already outputs universe ${taken.universe}: a DMX USB interface outputs one universe`));
       const updated = (next.artnet || next.sacn || next.usb ? [...others, next] : others).sort((x, y) => x.universe - y.universe);
       router.setRoutes(updated);
       await persistRoutes(updated);
