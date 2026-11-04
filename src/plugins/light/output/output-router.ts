@@ -16,7 +16,7 @@ import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { NodeRegistry, artnetDestinations, type ArtnetRoute, type KnownNode } from "./artnet-discovery.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
-import { DmxUsbOutputs, type DmxUsbKind } from "./dmx-usb.js";
+import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
 
 export interface UniverseRoute {
   universe: number; // 1-based internal universe
@@ -113,7 +113,9 @@ export class OutputRouter {
   }
 
   private usbRoutes(): { path: string; kind: DmxUsbKind }[] {
-    return this.config.routes.flatMap((r) => (r.usb ? [r.usb] : []));
+    // an interface feeds one universe: of two routes to the same port, the first
+    const seen = new Set<string>();
+    return this.config.routes.flatMap((r) => (r.usb && !seen.has(portPath(r.usb.path)) && seen.add(portPath(r.usb.path)) ? [r.usb] : []));
   }
 
   onNodesChanged(fn: (change: { added?: KnownNode; lost?: KnownNode[] }) => void): void {
@@ -270,10 +272,15 @@ export class OutputRouter {
   sendFrame(buffers: readonly Uint8Array[], nowMs = Date.now(), force = false): void {
     if (this.config.standby) return;
     let sentAny = false;
+    const usbPorts = new Set<string>();
     for (const route of this.config.routes) {
       const data = buffers[route.universe - 1];
       if (!data) continue;
-      if (route.usb) this.usb.send(route.usb.path, data); // the interface keeps its own pace
+      // the interface keeps its own pace; a port named by two routes gets the first one's universe, not the two in turn
+      if (route.usb && !usbPorts.has(portPath(route.usb.path))) {
+        usbPorts.add(portPath(route.usb.path));
+        this.usb.send(route.usb.path, data);
+      }
       const last = this.lastSent.get(route.universe);
       const changed = !last || !equalBytes(last.data, data);
       if (!force && !changed && last && nowMs - last.at < KEEPALIVE_MS) continue;

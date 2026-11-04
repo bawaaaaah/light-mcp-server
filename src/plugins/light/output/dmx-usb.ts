@@ -18,7 +18,7 @@ export type DmxUsbKind = "open" | "pro";
 export interface SerialPortHandle {
   write(buffer: Buffer): Promise<void>;
   drain(): Promise<void>;
-  set(options: { brk?: boolean; rts?: boolean }): Promise<void>;
+  set(options: { brk?: boolean; dtr?: boolean; rts?: boolean }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -51,10 +51,18 @@ export function openDmxFrame(data: Uint8Array): Buffer {
   return Buffer.concat([Buffer.from([0]), Buffer.from(data)]);
 }
 
+/**
+ * A serial port by its one name: the Mac lists the same device as /dev/tty.* and /dev/cu.*, and opening both would
+ * run two writers on one line. The single place that names a port: routes, the outputs and the port list use it.
+ */
+export function portPath(path: string, platform = process.platform): string {
+  return platform === "darwin" ? path.replace(/^\/dev\/tty\./, "/dev/cu.") : path;
+}
+
 /** The ports a DMX interface may be on: USB devices only (not Bluetooth nor an app's virtual port), FTDI chips first (both kinds use one). */
 export function dmxCandidates(ports: SerialPortInfo[], platform = process.platform): (SerialPortInfo & { ftdi: boolean })[] {
   return ports
-    .map((p) => ({ ...p, path: platform === "darwin" ? p.path.replace(/^\/dev\/tty\./, "/dev/cu.") : p.path, ftdi: p.vendorId?.toLowerCase() === FTDI_VENDOR }))
+    .map((p) => ({ ...p, path: portPath(p.path, platform), ftdi: p.vendorId?.toLowerCase() === FTDI_VENDOR }))
     .filter((p) => (p.vendorId !== undefined || /usb/i.test(p.path)) && !/Bluetooth|debug-console/i.test(p.path))
     .sort((a, b) => Number(b.ftdi) - Number(a.ftdi) || a.path.localeCompare(b.path));
 }
@@ -71,15 +79,37 @@ export function loadSerial(): { binding?: SerialBinding; error?: string } {
 
 const OPEN_PERIOD_MS = 25; // a full frame takes 23 ms at 250 kbaud
 const BREAK_MS = 1;
+/** The start code and 512 channels, 11 bits each (start, 8 data, 2 stop) at 250 kbaud: what a frame takes on the line. */
+const FRAME_MS = (513 * 11 * 1000) / 250_000;
+/** The next break comes at least this long after the end of a frame, whatever drain() said (it may return when the OS buffer is empty, not the chip's). */
+const FRAME_GUARD_MS = 1;
 const PRO_KEEPALIVE_MS = 1000;
-const RETRY_MS = 2000;
+/** After an error the interface is opened again: soon the first time, then less and less often. */
+const RETRY_MIN_MS = 250;
+const RETRY_MAX_MS = 2000;
+/** Before the first frame has come in, the loop only waits. */
+const IDLE_MS = 5;
+/** A stop waits this long at most for the frame being sent. */
+const STOP_WAIT_MS = 500;
+/** The same error is written to the log at most this often. */
+const WARN_EVERY_MS = 30_000;
 
 export interface DmxUsbStatus {
   path: string;
   kind: DmxUsbKind;
   open: boolean;
   framesSent: number;
+  /** The current error: cleared when the interface comes back. */
   error?: string;
+  /** Times the interface was closed after an error to be opened again. */
+  reopens: number;
+  /** The last error and when (ms, the clock of the server): kept after the interface comes back, so that a glitch leaves a trace. */
+  lastError?: string;
+  lastErrorAt?: number;
+  /** Open DMX: the longest time between two frames since the interface was opened, the last break and the last time from writing a frame to drain() returning (about 22.6 ms if drain waits for the line). */
+  maxGapMs?: number;
+  breakMs?: number;
+  drainMs?: number;
 }
 
 /** One interface: opens it, sends the latest frame in its own rhythm, opens it again when it comes back. */
@@ -90,8 +120,23 @@ export class DmxUsbDevice {
   private running = false;
   private generation = 0;
   private lastWrite = 0;
+  /** A frame has come in since the last stop: before that the buffer is only zeros, which are not worth a signal (a flash of black). */
+  private haveFrame = false;
+  /** One thing at a time on the line: a frame, or the last one of a stop. */
+  private busy: Promise<void> = Promise.resolve();
+  private retryMs = RETRY_MIN_MS;
+  private lastFrameAt: number | undefined;
+  /** When the frame being sent ends on the line, for the guard before the next break. */
+  private frameEnd = 0;
+  private readonly warned = new Map<string, number>();
   framesSent = 0;
   error: string | undefined;
+  reopens = 0;
+  lastError: string | undefined;
+  lastErrorAt: number | undefined;
+  maxGapMs = 0;
+  breakMs: number | undefined;
+  drainMs: number | undefined;
 
   constructor(
     readonly path: string,
@@ -99,10 +144,12 @@ export class DmxUsbDevice {
     private readonly binding: SerialBinding,
     private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms).unref()),
     private readonly now: () => number = Date.now,
+    private readonly log: (message: string) => void = (message) => console.warn(message),
   ) {}
 
   /** The universe to send: taken at the next frame. */
   frame(data: Uint8Array): void {
+    this.haveFrame = true;
     if (data.length !== this.data.length || data.some((v, i) => v !== this.data[i])) {
       this.data = data.slice();
       this.changed = true;
@@ -113,6 +160,43 @@ export class DmxUsbDevice {
     if (this.running) return;
     this.running = true;
     void this.loop(++this.generation);
+  }
+
+  private fail(err: unknown): void {
+    const message = (err as Error).message;
+    const at = this.now();
+    this.error = message;
+    this.lastError = message;
+    this.lastErrorAt = at;
+    const before = this.warned.get(message);
+    if (before === undefined || at - before >= WARN_EVERY_MS) {
+      this.warned.set(message, at);
+      this.log(`DMX USB ${this.path}: ${message}`);
+    }
+  }
+
+  private exclusive(fn: () => Promise<void>): Promise<void> {
+    const run = this.busy.then(fn, fn);
+    this.busy = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  /** One frame on the line. DTR and RTS are named, at 0 as set() has always left them: the lines do not move with the break. */
+  private async emit(port: SerialPortHandle, data: Uint8Array): Promise<void> {
+    if (this.kind === "pro") {
+      await port.write(encodeUsbPro(data));
+      return;
+    }
+    const began = this.now();
+    await port.set({ brk: true, dtr: false, rts: false });
+    await this.sleep(BREAK_MS);
+    await port.set({ brk: false, dtr: false, rts: false });
+    const writing = this.now();
+    this.breakMs = writing - began;
+    await port.write(openDmxFrame(data));
+    await port.drain(); // the next break must not cut this frame
+    this.drainMs = this.now() - writing;
+    this.frameEnd = writing + FRAME_MS + FRAME_GUARD_MS;
   }
 
   /** Runs until stopped; a loop from before a stop and a start ends by itself, closing only its own port. */
@@ -126,6 +210,10 @@ export class DmxUsbDevice {
       if (this.port === p) this.port = undefined;
       await p.close().catch(() => undefined);
     };
+    const retry = async () => {
+      await this.sleep(this.retryMs);
+      this.retryMs = Math.min(RETRY_MAX_MS, this.retryMs * 2);
+    };
     while (alive()) {
       if (!port) {
         try {
@@ -134,49 +222,78 @@ export class DmxUsbDevice {
           this.port = port;
           this.error = undefined;
           this.changed = true;
+          this.lastFrameAt = undefined; // a gap across a reopening is not a gap between frames
         } catch (err) {
-          this.error = (err as Error).message;
-          await this.sleep(RETRY_MS);
+          this.fail(err);
+          await retry();
           continue;
         }
       }
-      const began = this.now();
-      try {
-        if (this.kind === "open") {
-          await port.set({ brk: true });
-          await this.sleep(BREAK_MS);
-          await port.set({ brk: false });
-          await port.write(openDmxFrame(this.data));
-          await port.drain(); // the next break must not cut this frame
-          this.framesSent++;
-        } else if (this.changed || began - this.lastWrite >= PRO_KEEPALIVE_MS) {
-          this.changed = false;
-          this.lastWrite = began;
-          await port.write(encodeUsbPro(this.data));
-          this.framesSent++;
-        }
-      } catch (err) {
-        // unplugged: let go, and try again until it is back
-        if (alive()) this.error = (err as Error).message;
-        await release();
-        await this.sleep(RETRY_MS);
+      if (!this.haveFrame) {
+        await this.sleep(IDLE_MS);
         continue;
       }
-      await this.sleep(Math.max(1, OPEN_PERIOD_MS - (this.now() - began)));
+      const began = this.now();
+      try {
+        const open = port;
+        await this.exclusive(async () => {
+          if (!alive()) return; // stopped while it waited for the line: nothing after a stop
+          if (this.kind === "open") {
+            if (this.lastFrameAt !== undefined) this.maxGapMs = Math.max(this.maxGapMs, began - this.lastFrameAt);
+            this.lastFrameAt = began;
+            await this.emit(open, this.data);
+            this.framesSent++;
+          } else if (this.changed || began - this.lastWrite >= PRO_KEEPALIVE_MS) {
+            this.changed = false;
+            this.lastWrite = began;
+            await this.emit(open, this.data);
+            this.framesSent++;
+          }
+        });
+        this.retryMs = RETRY_MIN_MS;
+      } catch (err) {
+        // unplugged, or a hiccup: let go, and try again soon, then less and less often, until it is back
+        if (alive()) this.fail(err);
+        this.reopens++;
+        await release();
+        await retry();
+        continue;
+      }
+      await this.sleep(Math.max(1, OPEN_PERIOD_MS - (this.now() - began), this.frameEnd - this.now()));
     }
     await release();
   }
 
-  async stop(): Promise<void> {
+  /**
+   * `blackout`: one last all-zero frame goes out before the line is let go (standby: QLC+ may take the interface, and a
+   * line left silent keeps what the fixtures last showed). What comes after a stop starts from a real frame, never from
+   * what was here before.
+   */
+  async stop(blackout = false): Promise<void> {
     this.running = false;
     this.generation++;
     const p = this.port;
     this.port = undefined;
-    if (p) await p.close().catch(() => undefined);
+    // a frame in flight goes out whole, and nothing after it (a line that hangs does not hold the stop for long)
+    await Promise.race([this.busy, new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref())]);
+    if (p) {
+      if (blackout && this.haveFrame) await this.exclusive(() => this.emit(p, new Uint8Array(512))).catch(() => undefined);
+      await p.close().catch(() => undefined);
+    }
+    this.haveFrame = false;
   }
 
   status(): DmxUsbStatus {
-    return { path: this.path, kind: this.kind, open: this.port !== undefined, framesSent: this.framesSent, ...(this.error ? { error: this.error } : {}) };
+    return {
+      path: this.path,
+      kind: this.kind,
+      open: this.port !== undefined,
+      framesSent: this.framesSent,
+      reopens: this.reopens,
+      ...(this.error ? { error: this.error } : {}),
+      ...(this.lastError !== undefined ? { lastError: this.lastError, lastErrorAt: this.lastErrorAt } : {}),
+      ...(this.kind === "open" ? { maxGapMs: this.maxGapMs, ...(this.breakMs !== undefined ? { breakMs: this.breakMs } : {}), ...(this.drainMs !== undefined ? { drainMs: this.drainMs } : {}) } : {}),
+    };
   }
 }
 
@@ -196,7 +313,9 @@ export class DmxUsbOutputs {
 
   /** The interfaces wanted now (path → kind): new ones opened, the others let go. */
   use(wanted: { path: string; kind: DmxUsbKind }[]): void {
-    const keep = new Map(wanted.map((w) => [w.path, w.kind]));
+    // one name per port, and the first of two routes to the same one wins (the router sends that one only)
+    const keep = new Map<string, DmxUsbKind>();
+    for (const w of wanted) if (!keep.has(portPath(w.path))) keep.set(portPath(w.path), w.kind);
     for (const [path, d] of this.devices) {
       if (keep.get(path) !== d.kind) {
         void d.stop();
@@ -213,7 +332,7 @@ export class DmxUsbOutputs {
   }
 
   send(path: string, data: Uint8Array): void {
-    this.devices.get(path)?.frame(data);
+    this.devices.get(portPath(path))?.frame(data);
   }
 
   /** Standby lets the interfaces go (QLC+ may open them); back, they are opened again. */
@@ -221,7 +340,7 @@ export class DmxUsbOutputs {
     this.active = on;
     for (const d of this.devices.values()) {
       if (on) d.start();
-      else void d.stop();
+      else void d.stop(true);
     }
   }
 

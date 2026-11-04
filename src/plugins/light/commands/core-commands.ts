@@ -7,6 +7,7 @@ import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import type { OutputRouter, UniverseRoute } from "../output/output-router.js";
 import { coverage } from "../output/artnet-discovery.js";
+import { portPath } from "../output/dmx-usb.js";
 import { say } from "../../../core/lang.js";
 
 const universe = z.number().int().min(1).describe("Univers (1..N)");
@@ -127,7 +128,7 @@ export function registerCoreCommands(
         .nullable()
         .optional(),
       sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string().min(1)).optional() }).nullable().optional(),
-      usb: z.object({ path: z.string().min(1), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
+      usb: z.object({ path: z.string().min(1).transform((p) => portPath(p)), kind: z.enum(["open", "pro"]).default("open") }).nullable().optional(),
     }),
     run: async ({ universe: u, artnet, sacn, usb }) => {
       if (u > engine.output.count) throw new CommandError("invalid", say(`univers ${u} hors de 1..${engine.output.count}`, `universe ${u} out of 1..${engine.output.count}`));

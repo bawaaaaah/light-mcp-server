@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { dmxCandidates, DmxUsbDevice, encodeUsbPro, openDmxFrame } from "../../../src/plugins/light/output/dmx-usb.js";
+import { dmxCandidates, DmxUsbDevice, DmxUsbOutputs, encodeUsbPro, openDmxFrame, portPath } from "../../../src/plugins/light/output/dmx-usb.js";
 import { FakeSerial } from "../../fakes/serial.js";
 
 const PORT = "/dev/cu.usbserial-TEST1";
@@ -64,6 +64,7 @@ describe("DMX USB", () => {
     const serial = new FakeSerial();
     let now = 0;
     const d = new DmxUsbDevice(PORT, "pro", serial, fast, () => now);
+    d.frame(new Uint8Array(512)); // nothing goes out before a real frame has come in
     d.start();
     await until(() => serial.writes(PORT).length === 1);
     for (let i = 0; i < 20; i++) await fast();
@@ -82,6 +83,7 @@ describe("DMX USB", () => {
   it("unplugged, says why and opens the interface again when it comes back", async () => {
     const serial = new FakeSerial();
     const d = new DmxUsbDevice(PORT, "open", serial, fast);
+    d.frame(new Uint8Array(512));
     d.start();
     await until(() => d.status().open);
     serial.unplugged.add(PORT);
@@ -92,6 +94,148 @@ describe("DMX USB", () => {
     const writes = serial.writes(PORT).length;
     await until(() => serial.writes(PORT).length > writes);
     await d.stop();
+  });
+
+  describe("a steady signal, and what is left when it is not", () => {
+    const quiet = () => undefined;
+    const zeros = () => new Uint8Array(512);
+
+    it("names a port once: the Mac's tty and cu paths are one device, with two routes to it the first wins", () => {
+      expect(portPath("/dev/tty.usbserial-TEST1", "darwin")).to.equal(PORT);
+      expect(portPath(PORT, "darwin")).to.equal(PORT);
+      expect(portPath("/dev/ttyUSB0", "linux")).to.equal("/dev/ttyUSB0");
+      const outputs = new DmxUsbOutputs(new FakeSerial(), fast);
+      outputs.use([
+        { path: "/dev/tty.usbserial-TEST1", kind: "open" },
+        { path: PORT, kind: "pro" },
+      ]);
+      expect(outputs.status().map((d) => [d.path, d.kind])).to.deep.equal([[PORT, "open"]]);
+    });
+
+    it("sends nothing before a real frame has come in, and after a stop starts again from a real one, never from the old buffer", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.start();
+      await until(() => d.status().open);
+      for (let i = 0; i < 20; i++) await fast();
+      expect(serial.writes(PORT)).to.have.length(0); // only zeros so far: not worth a flash of black
+      const lit = zeros();
+      lit[0] = 200;
+      d.frame(lit);
+      await until(() => serial.writes(PORT).length >= 2);
+      await d.stop();
+      const written = serial.writes(PORT).length;
+      d.start();
+      for (let i = 0; i < 20; i++) await fast();
+      expect(serial.writes(PORT)).to.have.length(written); // the old frame is not sent again
+      const other = zeros();
+      other[0] = 77;
+      d.frame(other);
+      await until(() => serial.writes(PORT).length > written);
+      expect(serial.writes(PORT).at(-1)![1]).to.equal(77);
+      await d.stop();
+    });
+
+    it("on standby sends one last all-zero frame, then lets the line go", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const lit = zeros();
+      lit[0] = 200;
+      d.frame(lit);
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      await d.stop(true);
+      expect(serial.writes(PORT).at(-1)![1]).to.equal(0); // the last thing on the line is black
+      expect(serial.calls.at(-1)!.op).to.equal("close");
+    });
+
+    it("opens the interface again soon, then less and less often, and keeps the last error after it is back", async () => {
+      const serial = new FakeSerial();
+      serial.unplugged.add(PORT);
+      const waits: number[] = [];
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), await fast()), () => 5000, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => waits.filter((w) => w >= 250).length >= 6);
+      expect(waits.filter((w) => w >= 250).slice(0, 6)).to.deep.equal([250, 500, 1000, 2000, 2000, 2000]);
+      serial.unplugged.delete(PORT);
+      await until(() => d.status().open);
+      expect(d.status().error).to.equal(undefined);
+      expect(d.status().lastError).to.match(/no such device/);
+      expect(d.status().lastErrorAt).to.equal(5000);
+      await d.stop();
+    });
+
+    it("a hiccup on the line does not cut it for two seconds: closed, opened again at the first delay, counted", async () => {
+      const serial = new FakeSerial();
+      const waits: number[] = [];
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), await fast()), undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      serial.fail = { op: "write", times: 1 };
+      await until(() => d.status().reopens === 1);
+      const writes = serial.writes(PORT).length;
+      await until(() => serial.writes(PORT).length > writes);
+      expect(waits).to.include(250);
+      expect(waits).to.not.include(2000);
+      expect(d.status().lastError).to.match(/input\/output error/);
+      expect(d.status().error).to.equal(undefined);
+      await d.stop();
+    });
+
+    it("tells the log about an error once in a while, not on every try", async () => {
+      const serial = new FakeSerial();
+      serial.unplugged.add(PORT);
+      const lines: string[] = [];
+      let t = 0;
+      const d = new DmxUsbDevice(PORT, "open", serial, async () => void (t < 70_000 && (t += 1000), await fast()), () => t, (m) => lines.push(m)); // the clock stops at 70 s
+      d.frame(zeros());
+      d.start();
+      await until(() => t >= 70_000);
+      await d.stop();
+      expect(lines.length).to.be.within(2, 4); // at 0, 30 and 60 s of the same message
+      expect(lines[0]).to.match(/DMX USB .*usbserial-TEST1.*no such device/);
+    });
+
+    it("keeps the break from cutting a frame that drain() said was out too early", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      serial.before = (op) => void (op === "set" && (t += 2)); // a break signal takes 2 ms to reach the line
+      const waits: number[] = [];
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 1);
+      await d.stop();
+      // the frame starts at 5 ms (2 + the 1 ms break + 2) and takes 22.6 ms: the next break not before 28.6 ms,
+      // not at 25 ms as the period alone would say, although drain() returned at once
+      const wait = waits.find((w) => w > 2)!;
+      expect(wait).to.be.closeTo(5 + 22.572 + 1 - 5, 0.01);
+      expect(d.status().drainMs).to.equal(0);
+      expect(d.status().breakMs).to.equal(5);
+    });
+
+    it("names DTR and RTS with every break, at 0 as they have always been left", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => serial.calls.filter((c) => c.op === "brk").length >= 4);
+      await d.stop();
+      for (const c of serial.calls.filter((x) => x.op === "brk")) expect([c.dtr, c.rts]).to.deep.equal([false, false]);
+    });
+
+    it("measures the longest gap between two frames", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 5);
+      await d.stop();
+      expect(d.status().maxGapMs).to.be.within(25, 40);
+    });
   });
 
   describe("in the output", function () {
@@ -108,6 +252,21 @@ describe("DMX USB", () => {
     });
     afterEach(async () => {
       await plugin.stop();
+    });
+
+    it("sends a port named by two routes once, the first one's universe, not the two in turn", async () => {
+      const path = ((await run("output.usb.list")) as { ports: { path: string }[] }).ports[0]!.path;
+      plugin.router.setRoutes([
+        { universe: 1, usb: { path: "/dev/tty.usbserial-TEST1", kind: "open" } },
+        { universe: 2, usb: { path, kind: "open" } },
+      ]);
+      const first = new Uint8Array(512).fill(11);
+      const second = new Uint8Array(512).fill(22);
+      for (let i = 0; i < 40; i++) plugin.router.sendFrame([first, second], Date.now() + i, true);
+      await until(() => serial.writes(path).length >= 3);
+      const seen = new Set(serial.writes(path).map((w) => w[1]));
+      expect(seen.has(11)).to.equal(true);
+      expect(seen.has(22)).to.equal(false); // the second route's universe never reaches the interface (the engine's own frames are zeros)
     });
 
     it("routes a universe to an interface, alone or with Art-Net, one universe per interface", async () => {
