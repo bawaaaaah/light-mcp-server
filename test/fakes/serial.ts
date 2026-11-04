@@ -1,6 +1,6 @@
 import type { SerialBinding, SerialPortHandle, SerialPortInfo } from "../../src/plugins/light/output/dmx-usb.js";
 
-type Op = "open" | "brk" | "line" | "write" | "close";
+type Op = "open" | "brk" | "line" | "write" | "drain" | "close";
 
 /** Serial ports without hardware: what is opened, written and signalled, an unplug, and failures made on purpose. */
 export class FakeSerial implements SerialBinding {
@@ -13,6 +13,8 @@ export class FakeSerial implements SerialBinding {
   before: ((op: "set" | "write" | "drain") => void) | undefined;
   /** `op` never comes back on any port (a driver that hangs). */
   hang: "set" | "write" | "drain" | undefined;
+  /** An open that waits for this to settle (a port that is slow to open). */
+  slowOpen: Promise<void> | undefined;
   /** Paths held open now: a port is held by one opener at a time (flock), and an open that finds it held fails. */
   private readonly held = new Set<string>();
 
@@ -26,6 +28,7 @@ export class FakeSerial implements SerialBinding {
     if (this.unplugged.has(o.path)) throw new Error(`${o.path}: no such device`);
     if (this.held.has(o.path)) throw new Error(`${o.path}: Cannot lock port`);
     this.held.add(o.path);
+    await this.slowOpen;
     this.calls.push({ path: o.path, op: "open", baudRate: o.baudRate, stopBits: o.stopBits });
     let closed = false;
     const check = (op: "set" | "write" | "drain") => {
@@ -40,7 +43,7 @@ export class FakeSerial implements SerialBinding {
     const stuck = (op: "set" | "write" | "drain") => (this.hang === op ? new Promise<void>(() => undefined) : undefined);
     return {
       write: async (bytes) => (check("write"), await stuck("write"), void this.calls.push({ path: o.path, op: "write", bytes })),
-      drain: async () => (check("drain"), await stuck("drain")),
+      drain: async () => (check("drain"), await stuck("drain"), void this.calls.push({ path: o.path, op: "drain" })),
       set: async ({ brk, dtr, rts }) => (check("set"), await stuck("set"), void this.calls.push({ path: o.path, op: brk === undefined ? "line" : "brk", on: brk, dtr, rts })),
       close: async () => {
         closed = true;

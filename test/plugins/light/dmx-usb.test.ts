@@ -236,7 +236,7 @@ describe("DMX USB", () => {
       await until(() => serial.writes(PORT).length >= 2);
       await d.stop(true);
       const ops = serial.calls.filter((c) => c.op !== "line").map((c) => c.op + (c.on === undefined ? "" : c.on ? "+" : "-"));
-      expect(ops.slice(-4)).to.deep.equal(["brk+", "brk-", "write", "close"]); // the break is let go before the close
+      expect(ops.slice(-5)).to.deep.equal(["brk+", "brk-", "write", "drain", "close"]); // the break is let go before the close
       expect(serial.writes(PORT).at(-1)![1]).to.equal(0);
       expect(d.status().lastError).to.equal(undefined); // and no write was refused
     });
@@ -287,6 +287,138 @@ describe("DMX USB", () => {
       await until(() => d.status().framesSent >= frames + 3);
       await d.stop();
       expect(d.status().maxGapMs).to.be.lessThan(100);
+    });
+
+    it("after a driver that hung and a stop, a new start sends again once the old loop is given up on", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      serial.hang = "drain";
+      for (let i = 0; i < 10; i++) await fast();
+      await d.stop(true); // the port is closed here, the old loop stays stuck in drain()
+      serial.hang = undefined;
+      d.start();
+      d.frame(zeros());
+      const written = serial.writes(PORT).length;
+      await until(() => serial.writes(PORT).length > written + 2, 600); // after the 2 s the start waits for the old loop at most
+      expect(d.status().open).to.equal(true);
+      await d.stop();
+    }).timeout(10_000);
+
+    it("a second stop before the loop has ended does not cancel the last all-zero frame of the first", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const lit = zeros();
+      lit[0] = 200;
+      d.frame(lit);
+      d.start();
+      await until(() => serial.writes(PORT).length >= 2);
+      const first = d.stop(true);
+      const second = d.stop();
+      await Promise.all([first, second]);
+      expect(serial.writes(PORT).at(-1)![1]).to.equal(0);
+    });
+
+    it("a standby before any frame writes nothing at all", async () => {
+      const serial = new FakeSerial();
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.start();
+      await until(() => d.status().open);
+      await d.stop(true);
+      expect(serial.writes(PORT)).to.have.length(0);
+    });
+
+    it("waits for the last frame to leave the line before closing, and drains a Pro interface", async () => {
+      const open = new FakeSerial();
+      let t = 0;
+      const waits: number[] = [];
+      open.before = (op) => void (op === "set" && (t += 2));
+      const d = new DmxUsbDevice(PORT, "open", open, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 2);
+      waits.length = 0;
+      await d.stop(true);
+      expect(waits.some((w) => w > 20)).to.equal(true); // the 22.6 ms of the frame, not an instant
+      const pro = new FakeSerial();
+      const p = new DmxUsbDevice(PORT, "pro", pro, fast, undefined, quiet);
+      const lit = zeros();
+      lit[0] = 9;
+      p.frame(lit);
+      p.start();
+      await until(() => pro.writes(PORT).length >= 1);
+      await p.stop(true);
+      expect(pro.calls.filter((c) => c.op !== "open").slice(-3).map((c) => c.op)).to.deep.equal(["write", "drain", "close"]);
+      expect(pro.writes(PORT).at(-1)![5]).to.equal(0);
+    });
+
+    it("a stop while the port is still opening leaves it closed and sends nothing", async () => {
+      const serial = new FakeSerial();
+      let opened!: () => void;
+      serial.slowOpen = new Promise<void>((r) => (opened = r));
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      for (let i = 0; i < 5; i++) await fast();
+      const stopping = d.stop(true);
+      opened();
+      await stopping;
+      await until(() => serial.calls.some((c) => c.op === "close"));
+      expect(serial.writes(PORT)).to.have.length(0);
+      expect(d.status().open).to.equal(false);
+    });
+
+    it("changing the kind of an interface opens it again only after the old device has let go", async () => {
+      const serial = new FakeSerial();
+      const outputs = new DmxUsbOutputs(serial, undefined, "darwin");
+      outputs.setActive(true);
+      outputs.use([{ path: PORT, kind: "open" }]);
+      const lit = zeros();
+      lit[0] = 1;
+      outputs.send(PORT, lit);
+      await until(() => serial.writes(PORT).length >= 2);
+      outputs.use([{ path: PORT, kind: "pro" }]);
+      outputs.send(PORT, lit);
+      await until(() => outputs.status()[0]!.open && outputs.status()[0]!.framesSent >= 1);
+      expect(outputs.status()[0]).to.deep.include({ kind: "pro" });
+      expect(outputs.status()[0]!.lastError).to.equal(undefined); // no « Cannot lock port »
+      await outputs.stop();
+    }).timeout(8000);
+
+    it("an old config with two routes to one port can still be edited, unless the interface is the one given", async () => {
+      const serial = new FakeSerial();
+      const cfg = { discovery: false, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+      const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot: join(mkdtempSync(join(tmpdir(), "light-usb-")), "data"), midiNative: null, serial });
+      await plugin.start();
+      try {
+        const run = (name: string, args: unknown) => plugin.commands.invoke(name, args, systemContext());
+        plugin.router.setRoutes([
+          { universe: 1, usb: { path: PORT, kind: "open" } },
+          { universe: 2, usb: { path: PORT, kind: "open" } },
+        ]);
+        await run("output.route", { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }); // Art-Net alone: fine
+        await run("output.route", { universe: 3, usb: { path: PORT } }).then(
+          () => expect.fail("the port is taken"),
+          (e: Error) => expect(e.message).to.match(/sort déjà l'univers|already outputs universe/),
+        );
+      } finally {
+        await plugin.stop();
+      }
+    });
+
+    it("a refused DTR/RTS at open leaves the interface open, and leaves a trace", async () => {
+      const serial = new FakeSerial();
+      serial.fail = { op: "set", times: 1, message: "set refused" };
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 2);
+      expect(d.status().open).to.equal(true);
+      expect(d.status().error).to.equal(undefined);
+      expect(d.status().lastError).to.equal("set refused");
+      await d.stop();
     });
 
     it("a route given with the Mac's tty name is kept under its cu name", async () => {

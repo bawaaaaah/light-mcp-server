@@ -123,10 +123,8 @@ export class DmxUsbDevice {
   private lastWrite = 0;
   /** A frame has come in since the last stop: before that the buffer is only zeros, which are not worth a signal (a flash of black). */
   private haveFrame = false;
-  /** One thing at a time on the line. */
-  private busy: Promise<void> = Promise.resolve();
   /** The end of the loop that runs (or ran last): a stop waits for it, and the next loop does not open the port before it. */
-  private loopDone: Promise<void> = Promise.resolve();
+  private loopDone: Promise<void>;
   /** Set by a stop for the loop that is ending: it owns the port, so it sends the last frame and closes it. */
   private blackoutOnExit = false;
   private retryMs = RETRY_MIN_MS;
@@ -150,7 +148,11 @@ export class DmxUsbDevice {
     private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms).unref()),
     private readonly now: () => number = Date.now,
     private readonly log: (message: string) => void = (message) => console.warn(message),
-  ) {}
+    /** What must have ended before this device opens the port: the device it replaces on the same port (another kind). */
+    after: Promise<void> = Promise.resolve(),
+  ) {
+    this.loopDone = after;
+  }
 
   /** The universe to send: taken at the next frame. */
   frame(data: Uint8Array): void {
@@ -167,10 +169,10 @@ export class DmxUsbDevice {
     this.loopDone = this.loop(++this.generation, this.loopDone);
   }
 
-  private fail(err: unknown): void {
+  /** An error that leaves the interface as it is: kept in lastError, and in the log. */
+  private note(err: unknown): void {
     const message = (err as Error).message;
     const at = this.now();
-    this.error = message;
     this.lastError = message;
     this.lastErrorAt = at;
     const before = this.warned.get(message);
@@ -180,10 +182,10 @@ export class DmxUsbDevice {
     }
   }
 
-  private exclusive(fn: () => Promise<void>): Promise<void> {
-    const run = this.busy.then(fn, fn);
-    this.busy = run.then(() => undefined, () => undefined);
-    return run;
+  /** An error that stops the interface: shown as its current error until it comes back. */
+  private fail(err: unknown): void {
+    this.error = (err as Error).message;
+    this.note(err);
   }
 
   /** One frame on the line. DTR and RTS are named, at 0 as set() has always left them: the lines do not move with the break. */
@@ -210,6 +212,7 @@ export class DmxUsbDevice {
     await Promise.race([previous, new Promise((r) => setTimeout(r, START_WAIT_MS).unref())]);
     const alive = () => this.running && this.generation === generation;
     let port: SerialPortHandle | undefined;
+    let sent = false; // this loop has put a frame on the line: only then is there something to blank
     const release = async () => {
       if (!port) return;
       const p = port;
@@ -232,7 +235,7 @@ export class DmxUsbDevice {
           this.lastFrameAt = undefined; // a gap across a reopening is not a gap between frames
           this.maxGapMs = 0; // since the interface was opened
           // the lines low from the start, as every break leaves them (the OS raises them at open)
-          if (this.kind === "open") await port.set({ dtr: false, rts: false }).catch(() => undefined);
+          if (this.kind === "open") await port.set({ dtr: false, rts: false }).catch((err) => this.note(err)); // not worth closing for: the first break puts them there
         } catch (err) {
           this.fail(err);
           await retry();
@@ -246,20 +249,18 @@ export class DmxUsbDevice {
       const began = this.now();
       try {
         const open = port;
-        await this.exclusive(async () => {
-          if (!alive()) return; // stopped while it waited for the line: nothing after a stop
-          if (this.kind === "open") {
-            if (this.lastFrameAt !== undefined) this.maxGapMs = Math.max(this.maxGapMs, began - this.lastFrameAt);
-            this.lastFrameAt = began;
-            await this.emit(open, this.data);
-            this.framesSent++;
-          } else if (this.changed || began - this.lastWrite >= PRO_KEEPALIVE_MS) {
-            this.changed = false;
-            this.lastWrite = began;
-            await this.emit(open, this.data);
-            this.framesSent++;
-          }
-        });
+        if (this.kind === "open") {
+          if (this.lastFrameAt !== undefined) this.maxGapMs = Math.max(this.maxGapMs, began - this.lastFrameAt);
+          this.lastFrameAt = began;
+          await this.emit(open, this.data);
+          this.framesSent++;
+        } else if (this.changed || began - this.lastWrite >= PRO_KEEPALIVE_MS) {
+          this.changed = false;
+          this.lastWrite = began;
+          await this.emit(open, this.data);
+          this.framesSent++;
+        }
+        sent = true;
         this.retryMs = RETRY_MIN_MS;
       } catch (err) {
         // unplugged, or a hiccup: let go, and try again soon, then less and less often, until it is back
@@ -273,7 +274,7 @@ export class DmxUsbDevice {
       }
       await this.sleep(Math.max(1, OPEN_PERIOD_MS - (this.now() - began), this.frameEnd - this.now()));
     }
-    if (port && this.blackoutOnExit) {
+    if (port && sent && this.blackoutOnExit) {
       this.blackoutOnExit = false;
       await this.farewell(port);
     }
@@ -303,11 +304,11 @@ export class DmxUsbDevice {
   async stop(blackout = false): Promise<void> {
     const hadFrame = this.haveFrame;
     this.running = false;
-    this.generation++;
+    const generation = ++this.generation;
     this.haveFrame = false;
-    this.blackoutOnExit = blackout && hadFrame;
+    this.blackoutOnExit ||= blackout && hadFrame; // a second stop before the loop has ended does not cancel the first one's last frame
     await Promise.race([this.loopDone, new Promise((r) => setTimeout(r, STOP_WAIT_MS).unref())]);
-    this.blackoutOnExit = false;
+    if (this.generation === generation) this.blackoutOnExit = false;
     const p = this.port;
     this.port = undefined;
     if (p) await p.close().catch(() => undefined);
@@ -330,6 +331,8 @@ export class DmxUsbDevice {
 /** The interfaces the routes name: opened while the output sends, let go on standby. */
 export class DmxUsbOutputs {
   private readonly devices = new Map<string, DmxUsbDevice>();
+  /** Devices being stopped to be replaced on their port (another kind). */
+  private readonly stopping = new Map<string, Promise<void>>();
   /** Sending (the output started, not on standby). */
   private active = false;
   readonly binding: SerialBinding | undefined;
@@ -348,14 +351,15 @@ export class DmxUsbOutputs {
     for (const w of wanted) if (!keep.has(portPath(w.path, this.platform))) keep.set(portPath(w.path, this.platform), w.kind);
     for (const [path, d] of this.devices) {
       if (keep.get(path) !== d.kind) {
-        void d.stop();
+        this.stopping.set(path, d.stop()); // another kind on the same port: the new device opens it once this one has let go
         this.devices.delete(path);
       }
     }
     if (!this.binding) return;
     for (const [path, kind] of keep) {
       if (this.devices.has(path)) continue;
-      const d = new DmxUsbDevice(path, kind, this.binding, this.sleep);
+      const d = new DmxUsbDevice(path, kind, this.binding, this.sleep, undefined, undefined, this.stopping.get(path));
+      this.stopping.delete(path);
       this.devices.set(path, d);
       if (this.active) d.start();
     }
