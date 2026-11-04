@@ -3,7 +3,8 @@ import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { emptyFrame, Venue } from "../../../src/plugins/light/venue/venue.js";
+import { emptyFrame, Venue, type PatchedFixture } from "../../../src/plugins/light/venue/venue.js";
+import { pairFixtures, placementChange } from "../../../src/plugins/light/venue/positions-import.js";
 
 /** Two 4-cell bars (Test Bar 4, 15 channels: dimmer, strobe, program, 4×RGB) and one RGB PAR without dimmer. */
 function makeVenue(): Venue {
@@ -100,5 +101,32 @@ describe("venue: patch, canvas and DMX conversion", () => {
     expect(v.toDmx(frame, [new Uint8Array(512)])).to.deep.equal([]);
     v.refreshDefinitions(); // nothing changed: nothing reread, the broken file reported once
     expect(v.store.loadErrors).to.have.length(1);
+  });
+  it("leaves an absent fixture dark and out of the address check, without touching the patch", () => {
+    const v = makeVenue();
+    v.fixtures.put({ id: "par-2", name: "PAR 2", manufacturer: "Test", model: "Par RGB", mode: "3 Channel", universe: 1, address: 100 + 1 });
+    expect(v.patchProblems()).to.have.length(1); // par and par-2 overlap on channels 101
+    v.absent = new Set(["par-2"]);
+    expect(v.patchProblems()).to.deep.equal([]); // absent: no conflict
+    const frame = emptyFrame();
+    frame.colors.set("par", new Map([[-1, { red: 1 }]]));
+    frame.colors.set("par-2", new Map([[-1, { green: 1 }]]));
+    const buffers = [new Uint8Array(512)];
+    v.toDmx(frame, buffers);
+    expect(buffers[0]![99]).to.equal(255); // the installed PAR is lit
+    expect(buffers[0]![100]).to.equal(0); // the absent one wrote nothing
+    expect(v.fixtures.get("par-2")).to.not.equal(undefined); // still in the patch
+  });
+  it("pairs fixtures of two venues by id, then name, then model in address order, and moves only the placement", () => {
+    const fx = (id: string, name: string, address: number, extra: Partial<PatchedFixture> = {}): PatchedFixture => ({ id, name, manufacturer: "Test", model: "Bar 4", mode: "15-channel", universe: 1, address, tags: [], ...extra });
+    const source = [fx("a", "Barre jardin", 1, { position: { x: -3, y: 1, z: 4 } }), fx("b", "Barre cour", 16, { position: { x: 3, y: 1, z: 4 }, mount: "truss" }), fx("c", "Extra", 31, { position: { x: 0, y: 0, z: 0 } })];
+    const target = [fx("a", "Autre nom", 1), fx("zz", "barre  COUR", 40), fx("y", "Bis", 61)];
+    const { pairs, unmatchedSource, unmatchedTarget } = pairFixtures(source, target);
+    expect(pairs.map((p) => [p.from.id, p.to.id, p.by])).to.deep.equal([["a", "a", "id"], ["b", "zz", "name"], ["c", "y", "model"]]);
+    expect([unmatchedSource.length, unmatchedTarget.length]).to.deep.equal([0, 0]);
+    const change = placementChange(source[1]!, target[1]!);
+    expect(change.changed).to.deep.equal(["position", "mount"]);
+    expect(change.fields).to.deep.equal({ position: { x: 3, y: 1, z: 4 }, mount: "truss" }); // address and name stay the target's
+    expect(placementChange(source[1]!, { ...target[1]!, ...change.fields }).changed).to.deep.equal([]);
   });
 });

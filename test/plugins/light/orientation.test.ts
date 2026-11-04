@@ -59,6 +59,14 @@ describe("fixture orientation", () => {
     expect(listed.find((f) => f.id === "bar-0")!.facing).to.equal("floor");
     expect(listed.find((f) => f.id === "bar-1")!.facing).to.equal(undefined); // never oriented
     await run("venue.fixture.put", { fixture: listed.find((f) => f.id === "bar-0") }); // a listed fixture goes back as it is
+    // a fixture not installed for this show: flagged in the patch, kept there, and put back
+    expect(await run("venue.fixture.presence", { fixtures: ["bar-1"], present: false })).to.deep.equal({ absent: ["bar-1"], changed: ["bar-1"] });
+    expect(((await run("venue.fixture.list")) as { id: string; absent?: boolean }[]).map((f) => [f.id, f.absent])).to.deep.include(["bar-1", true]);
+    await run("venue.fixture.presence", { fixtures: ["nope"], present: false }).then(
+      () => expect.fail("an unknown fixture is refused"),
+      (e: Error) => expect(e.message).to.contain("nope"),
+    );
+    expect(await run("venue.fixture.presence", { fixtures: ["bar-1"], present: true })).to.deep.equal({ absent: [], changed: ["bar-1"] });
     // renamed and given a marker colour, both kept apart; the colour goes back to none
     expect(((await run("venue.fixture.mark", { id: "bar-1", name: "Barre jardin", color: "#22C55E" })) as { fixture: object }).fixture).to.deep.include({ id: "bar-1", name: "Barre jardin", color: "#22c55e", address: 1 + 15 });
     expect(((await run("venue.fixture.mark", { id: "bar-1", color: "#ef4444" })) as { fixture: object }).fixture).to.deep.include({ name: "Barre jardin", color: "#ef4444" });

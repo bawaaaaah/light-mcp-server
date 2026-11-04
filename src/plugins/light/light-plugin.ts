@@ -438,10 +438,11 @@ export class LightPlugin implements McpPlugin {
 
   /** Opens another show and its venue, in place: everything live stops, every screen follows. */
   async openShow(id: string): Promise<void> {
-    if (id === this.config.show) return;
     const showRoot = path.join(this.dataRoot, "shows", id);
     const settingsFile = path.join(showRoot, "show.json");
     const venue = ShowSettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {}).venue;
+    // the open show again is a no-op, unless its venue changed (show.venue.set / detach): then it follows
+    if (id === this.config.show && venue === this.config.venue) return;
     this.saveLive();
     this.runtime.resetLive();
     this.engine.setBlackout(false);

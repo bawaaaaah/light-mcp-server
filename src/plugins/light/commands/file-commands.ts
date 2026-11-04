@@ -10,6 +10,8 @@ import { z } from "zod";
 import { packArchive, readArchive, type ArchiveManifest } from "../data/archive.js";
 import { ID_RE, slugify, stableStringify } from "../data/store.js";
 import { ShowSettingsSchema } from "../show/model.js";
+import { PatchedFixtureSchema, type PatchedFixture } from "../venue/venue.js";
+import { pairFixtures, placementChange } from "../venue/positions-import.js";
 import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
 import type { CommandRegistry } from "./registry.js";
 import { say } from "../../../core/lang.js";
@@ -97,6 +99,30 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     return path.join(backupsDir, file);
   };
 
+  /** Venue folders, and the shows that play on each. */
+  const venueIds = () => (existsSync(venuesDir) ? readdirSync(venuesDir).filter((id) => ID_RE.test(id) && statSync(path.join(venuesDir, id)).isDirectory()) : []);
+  const showIds = () => (existsSync(showsDir) ? readdirSync(showsDir).filter((id) => ID_RE.test(id) && statSync(showDir(id)).isDirectory()) : []);
+  const showsOn = (venueId: string, except?: string) => showIds().filter((id) => id !== except && settingsOf(id).venue === venueId);
+  const knownVenue = (id: string) => {
+    if (!ID_RE.test(id) || !existsSync(path.join(venuesDir, id))) throw new Error(say(`lieu inconnu : ${id}`, `unknown venue: ${id}`));
+  };
+  const fixturesOfVenue = (id: string): PatchedFixture[] => {
+    const dir = path.join(venuesDir, id, "fixtures");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        const parsed = PatchedFixtureSchema.safeParse(JSON.parse(readFileSync(path.join(dir, f), "utf8")));
+        return parsed.success ? [parsed.data] : [];
+      });
+  };
+  /** Points a show at a venue; the open show is reopened on it. */
+  const attach = async (showId: string, venueId: string) => {
+    s.flush();
+    writeSettings(showId, { venue: venueId });
+    if (showId === s.current().show) await s.open(showId);
+  };
+
   reg.register({
     name: "show.list",
     title: "Shows",
@@ -164,6 +190,88 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       known(id);
       await s.open(id);
       return { id, name: settingsOf(id).name, venue: settingsOf(id).venue };
+    },
+  });
+
+  reg.register({
+    name: "venue.list",
+    title: "Lieux",
+    description: "The venues on this machine (folders under data/venues): id, how many fixtures, the shows that play on it (a venue shared by several shows changes for all of them), and which one is open.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({}),
+    run: () =>
+      venueIds()
+        .map((id) => {
+          const shows = showsOn(id);
+          return { id, fixtures: fixturesOfVenue(id).length, shows, shared: shows.length > 1, active: id === s.current().venue };
+        })
+        .sort((a, b) => a.id.localeCompare(b.id)),
+  });
+
+  reg.register({
+    name: "show.venue.set",
+    title: "Changer le lieu d'un show",
+    description: "Makes a show play on another existing venue (default: the open show, which is reopened on it). Nothing is copied: the show now shares that venue with the others that use it. Its absent fixtures are kept by id.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ venue: z.string(), show: z.string().optional() }),
+    run: async ({ venue, show }) => {
+      const target = show ?? s.current().show;
+      known(target);
+      knownVenue(venue);
+      const was = settingsOf(target).venue;
+      await attach(target, venue);
+      return { show: target, venue, was, sharedWith: showsOn(venue, target) };
+    },
+  });
+
+  reg.register({
+    name: "show.venue.detach",
+    title: "Dissocier le lieu d'un show",
+    description: "Gives a show its own copy of the venue it shares (patch, positions, canvases, zones, rules), so changing one no longer changes the other. Default: the open show, which is reopened on its copy. The other shows keep the original.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ show: z.string().optional() }),
+    run: async ({ show }) => {
+      const target = show ?? s.current().show;
+      known(target);
+      const from = settingsOf(target).venue;
+      const others = showsOn(from, target);
+      if (!others.length) return { show: target, venue: from, detached: false, sharedWith: [] };
+      s.flush();
+      const copy = freeId(target, venuesDir);
+      if (existsSync(path.join(venuesDir, from))) cpSync(path.join(venuesDir, from), path.join(venuesDir, copy), { recursive: true });
+      else mkdirSync(path.join(venuesDir, copy), { recursive: true });
+      await attach(target, copy);
+      return { show: target, venue: copy, from, detached: true, sharedWith: others };
+    },
+  });
+
+  reg.register({
+    name: "venue.positions.import",
+    title: "Reprendre les positions d'un autre lieu",
+    description:
+      "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order. Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, and what has no equivalent on either side. With apply true the moves are written, one venue.fixture.put each.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ from: z.string(), apply: z.boolean().default(false) }),
+    run: async ({ from, apply }, ctx) => {
+      knownVenue(from);
+      if (from === s.current().venue) throw new Error(say("c'est le lieu ouvert", "that is the open venue"));
+      const mine = PatchedFixtureSchema.array().parse(await reg.invoke("venue.fixture.list", {}, ctx));
+      const { pairs, unmatchedSource, unmatchedTarget } = pairFixtures(fixturesOfVenue(from), mine);
+      const moves = pairs.map((p) => ({ ...p, ...placementChange(p.from, p.to) }));
+      const toMove = moves.filter((m) => m.changed.length);
+      if (apply) for (const m of toMove) await reg.invoke("venue.fixture.put", { fixture: { ...m.to, ...m.fields } }, ctx);
+      return {
+        applied: apply,
+        moves: toMove.map((m) => ({ id: m.to.id, name: m.to.name, from: m.from.id, by: m.by, changed: m.changed })),
+        unchanged: moves.length - toMove.length,
+        noEquivalentHere: unmatchedSource.map((f) => ({ id: f.id, name: f.name })),
+        notInSource: unmatchedTarget.map((f) => ({ id: f.id, name: f.name })),
+      };
     },
   });
 

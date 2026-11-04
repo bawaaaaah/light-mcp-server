@@ -2543,3 +2543,6 @@ fieldset.checklist .checklist-search {
   flex-wrap: wrap;
   gap: 0.6em 1.4em;
 }
+
+/* A fixture not installed for the open show: still listed, dimmed. */
+.venue tr.absent td:not(:has(input[type=checkbox])) { opacity: 0.45; }

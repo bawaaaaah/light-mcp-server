@@ -119,6 +119,52 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(again).to.match(/existe déjà/);
   });
 
+  it("lists venues with their shows, detaches a shared one, and attaches a show to another", async () => {
+    await run("show.create", { name: "Concert" }); // same venue as the first show
+    type VenueRow = { id: string; fixtures: number; shows: string[]; shared: boolean; active: boolean };
+    const venues = async () => (await run("venue.list")) as VenueRow[];
+    const shared = (await venues()).find((v) => v.id === "default")!;
+    expect(shared).to.deep.include({ shared: true, active: true });
+    expect(shared.shows).to.have.members(["default", "concert"]);
+    const count = ((await run("venue.fixture.list")) as unknown[]).length;
+    // the copy is the open show's own: removing a fixture there leaves the other show's venue whole
+    expect(await run("show.venue.detach")).to.deep.include({ detached: true, from: "default", venue: "concert", sharedWith: ["default"] });
+    const mine = (await run("venue.fixture.list")) as { id: string }[];
+    await run("venue.fixture.delete", { id: mine[0]!.id });
+    expect(((await run("venue.fixture.list")) as unknown[]).length).to.equal(count - 1);
+    await run("show.open", { id: "default" });
+    expect(((await run("venue.fixture.list")) as unknown[]).length).to.equal(count);
+    expect(await run("show.venue.detach")).to.deep.include({ detached: false, venue: "default" }); // nothing shared: nothing copied
+    // back onto the shared venue
+    expect(await run("show.venue.set", { show: "concert", venue: "default" })).to.deep.include({ venue: "default", was: "concert", sharedWith: ["default"] });
+    expect((await venues()).find((v) => v.id === "default")!.shared).to.equal(true);
+    await run("show.venue.set", { venue: "nope" }).then(
+      () => expect.fail("an unknown venue is refused"),
+      (e: Error) => expect(e.message).to.contain("nope"),
+    );
+  });
+
+  it("moves the fixtures of a venue to where another one has them, after showing what would move", async () => {
+    await run("show.create", { name: "Autre", venue: "copy" }); // opens on its own copy of the venue
+    const placed = ((await run("venue.fixture.list")) as { id: string }[])[0]!;
+    await run("venue.fixture.put", { fixture: { ...placed, position: { x: 5, y: 1, z: 3 }, mount: "truss" } });
+    await run("show.open", { id: "default" });
+    const positionOf = async () => ((await run("venue.fixture.list")) as { id: string; position?: object }[]).find((f) => f.id === placed.id)!.position;
+    expect(await positionOf()).to.equal(undefined);
+    const preview = (await run("venue.positions.import", { from: "autre" })) as { applied: boolean; moves: { id: string; name: string; from: string; by: string; changed: string[] }[]; notInSource: unknown[] };
+    expect(preview.applied).to.equal(false);
+    expect(preview.moves).to.deep.include({ id: placed.id, name: preview.moves[0]!.name, from: placed.id, by: "id", changed: ["position", "mount"] });
+    expect(preview.notInSource).to.deep.equal([]);
+    expect(await positionOf()).to.equal(undefined); // nothing written without apply
+    await run("venue.positions.import", { from: "autre", apply: true });
+    expect(await positionOf()).to.deep.equal({ x: 5, y: 1, z: 3 });
+    expect(((await run("venue.positions.import", { from: "autre", apply: true })) as { moves: unknown[] }).moves).to.deep.equal([]); // already there
+    await run("venue.positions.import", { from: "default" }).then(
+      () => expect.fail("the open venue is not a source"),
+      () => undefined,
+    );
+  });
+
   it("keeps named backups on the server", async () => {
     const { file } = (await run("backup.create", { label: "Avant répétition" })) as { file: string };
     expect(file).to.match(/^default-.*-avant-repetition\.lightshow$/);

@@ -108,6 +108,8 @@ export const HINTS: Record<string, string> = {
   "show.reset": "DI",
   "show.revert": "D",
   "show.settings.set": "I",
+  "show.venue.detach": "",
+  "show.venue.set": "I",
   "snapshot.delete": "DI",
   "snapshot.recall": "I",
   "snapshot.save": "D",
@@ -131,7 +133,9 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.delete": "DI",
   "venue.fixture.mark": "I",
   "venue.fixture.orient": "",
+  "venue.fixture.presence": "I",
   "venue.fixture.put": "DI",
+  "venue.positions.import": "DI",
   // read-only commands that look at the network, the hardware or another program
   "ableset.status": "O",
   "link.status": "O",

@@ -282,6 +282,8 @@ export class Venue {
   readonly fixtures: Collection<PatchedFixture>;
   readonly canvases: Collection<Canvas>;
   private resolved = new Map<string, ResolvedFixture | { error: string }>();
+  /** Fixtures not installed for the open show (set from its settings): no DMX, no address conflicts. */
+  absent: ReadonlySet<string> = new Set();
   /** Names, sizes and dates of the .qxf files last read, and the errors they gave. */
   private definitionStamp = "";
   private definitionErrors: string[] = [];
@@ -353,7 +355,7 @@ export class Venue {
 
   /** Each patched fixture's DMX footprint (one channel when its definition is missing). */
   patchRanges(): PatchedRange[] {
-    return this.fixtures.list().map((f) => {
+    return this.fixtures.list().filter((f) => !this.absent.has(f.id)).map((f) => {
       const r = this.resolve(f.id);
       return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels: "error" in r ? 1 : r.mode.channels.length, kind: `${f.manufacturer}|${f.model}|${f.mode}` };
     });
@@ -469,6 +471,7 @@ export class Venue {
   toDmx(frame: AttributeFrame, buffers: Uint8Array[]): string[] {
     const errors: string[] = [];
     for (const patch of this.fixtures.list()) {
+      if (this.absent.has(patch.id)) continue;
       const r = this.resolve(patch.id);
       if ("error" in r) {
         if (frame.colors.has(patch.id) || frame.raw.has(patch.id)) errors.push(r.error);

@@ -93,3 +93,11 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
 - Conflits de patch.
 - Calculs d'orientation et de pan/tilt (lyre suspendue ou au sol).
 - Rendu d'un canevas sur deux kits différents, avec la symétrie conservée.
+
+## Lieux partagés, matériel absent, positions (2026-11-05)
+
+- **Partage** : plusieurs shows peuvent jouer sur un même lieu ; modifier le patch dans l'un le modifie dans l'autre. `venue.list` donne pour chaque lieu ses shows (`shared`), `show.venue.set {venue, show?}` rattache un show à un lieu existant, `show.venue.detach {show?}` lui donne sa propre copie (sans effet si le lieu n'est pas partagé). Le show ouvert est rouvert sur son nouveau lieu.
+- **Matériel absent** : `show.json` porte `absentFixtures`. `venue.fixture.presence {fixtures?, tag?, present}` l'édite. Un projecteur absent reste au patch (adresse, position) mais n'émet rien, ne compte pas dans `venue.patch.check` ni dans `movingHeads`, et `venue.fixture.list` le marque `absent`. Page Lieu : case « Installé pour ce show ».
+- **Positions** : `venue.positions.import {from, apply}` apparie par id, nom puis marque/modèle/mode (ordre d'adresse) et ne reprend que position, fixation, orientation, cible. Sans `apply`, aperçu seul.
+- Reste à faire : bandeau « lieu partagé » avec bouton Dissocier sur la page Lieu, avertissement avant suppression de matériel d'un lieu partagé, atténuation des projecteurs absents dans l'aperçu de scène, raccourcis CLI `light show venue …`.
+

@@ -30,6 +30,8 @@ interface Fixture {
   mount?: string;
   position?: { x: number; y: number; z: number };
   color?: string;
+  /** Not installed for the open show: dark, no DMX. */
+  absent?: boolean;
 }
 interface Canvas {
   id: string;
@@ -125,7 +127,7 @@ export function VenuePage() {
               {[...fixtures]
                 .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
                 .map((f) => (
-                <tr key={f.id} className={overlaps[f.id] ? "conflict" : undefined} title={t.fixtureMenuHint} {...rowMenu(f.id)}>
+                <tr key={f.id} className={[overlaps[f.id] ? "conflict" : "", f.absent ? "absent" : ""].filter(Boolean).join(" ") || undefined} title={t.fixtureMenuHint} {...rowMenu(f.id)}>
                   <td>
                     <input type="checkbox" aria-label={`${t.inNewCanvas} ${f.name}`} checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>
@@ -149,6 +151,9 @@ export function VenuePage() {
                     {overlaps[f.id] && <span className="badge conflict"> ⚠ {t.overlapBadge}</span>}
                   </td>
                   <td>{f.role}</td>
+                  <td>
+                    <input type="checkbox" title={t.installedHelp} aria-label={`${t.installed} ${f.name}`} checked={!f.absent} onChange={(e) => void run("venue.fixture.presence", { fixtures: [f.id], present: e.target.checked })} />
+                  </td>
                   <td>
                     <button className="ghost" title={t.delete} onClick={() => void run("venue.fixture.delete", { id: f.id }).then((r) => {
                         const usedBy = (r as { usedBy?: string[] } | undefined)?.usedBy ?? [];

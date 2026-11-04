@@ -81,8 +81,28 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: () =>
       venue.fixtures.list().map((f) => {
         const facing = facingOf(f.orientation);
-        return facing ? { ...f, facing } : f;
+        const base = venue.absent.has(f.id) ? { ...f, absent: true } : f;
+        return facing ? { ...base, facing } : base;
       }),
+  });
+  reg.register({
+    name: "venue.fixture.presence",
+    title: "Matériel installé ou absent",
+    description:
+      "Says which fixtures of the venue are installed for the open show. An absent fixture stays in the patch (address, position, mode) but is dark, sends nothing on DMX and is left out of the address-overlap check; the venue and other shows are untouched. Give fixtures (ids) and/or tag (every fixture with that tag), and present true or false.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ fixtures: z.array(z.string()).default([]), tag: z.string().optional(), present: z.boolean() }),
+    run: ({ fixtures, tag, present }) => {
+      const ids = new Set(fixtures);
+      if (tag) for (const f of venue.fixtures.list()) if (f.tags.includes(tag)) ids.add(f.id);
+      const unknown = [...ids].filter((i) => !venue.fixtures.get(i));
+      if (unknown.length) throw new Error(say(`fixture inconnue : ${unknown.join(", ")}`, `unknown fixture: ${unknown.join(", ")}`));
+      const absent = new Set(show.settings.absentFixtures.filter((i) => venue.fixtures.get(i)));
+      for (const i of ids) present ? absent.delete(i) : absent.add(i);
+      show.saveSettings({ absentFixtures: [...absent].sort() });
+      return { absent: [...absent].sort(), changed: [...ids].sort() };
+    },
   });
   reg.register({
     name: "venue.fixture.channels",

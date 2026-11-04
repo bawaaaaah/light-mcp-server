@@ -110,6 +110,7 @@ export class ShowRuntime {
     this.zones = venue.store.collection("zones", ZoneSchema);
     this.snapshots = store.collection("snapshots", SnapshotSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
+    this.venue.absent = new Set(this.settings.absentFixtures);
     store.onChange((e) => {
       // A look or palette edited while playing restarts with the new definition (effects stay editable live).
       if (e.collection === "looks" && this.active.has(e.id)) this.restart(e.id);
@@ -119,10 +120,12 @@ export class ShowRuntime {
 
   reloadSettings(): void {
     this.settings = this.store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
+    this.venue.absent = new Set(this.settings.absentFixtures);
   }
 
   saveSettings(patch: Partial<ShowSettings>): ShowSettings {
     this.settings = ShowSettingsSchema.parse({ ...this.settings, ...patch });
+    this.venue.absent = new Set(this.settings.absentFixtures);
     this.store.writeManifest("show.json", this.settings);
     return this.settings;
   }
@@ -580,6 +583,7 @@ export class ShowRuntime {
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
   movingHeads(): string[] {
     return this.venue.fixtures.list().filter((f) => {
+      if (this.venue.absent.has(f.id)) return false;
       const r = this.venue.resolve(f.id);
       return !("error" in r) && (r.pan || r.tilt);
     }).map((f) => f.id);
@@ -788,7 +792,7 @@ export class ShowRuntime {
     for (const [fixtureId, byOffset] of lookChannels) {
       const f = this.venue.fixtures.get(fixtureId);
       const buf = f && buffers[f.universe - 1];
-      if (!f || !buf) continue;
+      if (!f || !buf || this.venue.absent.has(fixtureId)) continue;
       for (const [offset, value] of byOffset) {
         const index = f.address - 1 + offset;
         if (index >= 0 && index < 512) buf[index] = value;
@@ -808,7 +812,7 @@ export class ShowRuntime {
         const f = this.venue.fixtures.get(c.fixture);
         const buf = f && buffers[f.universe - 1];
         const index = f ? f.address - 1 + c.offset : -1;
-        if (!buf || index < 0 || index >= 512) continue;
+        if (!buf || index < 0 || index >= 512 || this.venue.absent.has(c.fixture)) continue;
         if (this.dosesDimmer(c.fixture, c.offset)) {
           const dosed = doses.get(buf) ?? new Map<number, number>();
           doses.set(buf, dosed.set(index, Math.max(dosed.get(index) ?? 0, level)));
