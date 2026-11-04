@@ -3,7 +3,7 @@ import { copyFileSync, mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { Venue } from "../../../src/plugins/light/venue/venue.js";
+import { addWeighted, settle, splitByShown, Venue, weighted } from "../../../src/plugins/light/venue/venue.js";
 import { dcaLevel, ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { GroupSchema } from "../../../src/plugins/light/show/model.js";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -39,6 +39,36 @@ function setup() {
   };
   return { venue, show, dmx, advance };
 }
+
+describe("weighted sheets (cross-fade)", () => {
+  const red = { red: 1 };
+  const green = { green: 1 };
+  const sheet = (heads: [number, object][]) => new Map([["f", new Map(heads as [number, typeof red][])]]);
+
+  it("adds the colours and the weights where both paint a head, and a whole fixture reaches the heads of the other", () => {
+    const sum = addWeighted(weighted(sheet([[-1, red]]), 0.5), weighted(sheet([[0, green]]), 0.5));
+    expect(sum.get("f")!.get(0)).to.deep.equal({ color: { red: 1, green: 1 }, weight: 1 }); // A's whole red reaches head 0
+    expect(sum.get("f")!.get(-1)!.weight).to.equal(0.5); // and stays alone on the others
+    const other = addWeighted(weighted(sheet([[0, red]]), 0.5), weighted(sheet([[-1, green]]), 0.5));
+    expect(other.get("f")!.get(0)!.weight).to.equal(1); // the same the other way round
+  });
+
+  it("settles a cell shared out past 1 and leaves a lighter one as it is", () => {
+    const heavy = settle(addWeighted(weighted(sheet([[0, { red: 0.74 }]]), 0.74), weighted(sheet([[0, green]]), 1))); // colours already scaled by their weight
+    expect(heavy.get("f")!.get(0)!.red).to.be.closeTo(0.74 / 1.74, 1e-9);
+    expect(heavy.get("f")!.get(0)!.green).to.be.closeTo(1 / 1.74, 1e-9);
+    expect(settle(weighted(sheet([[0, { red: 0.4 }]]), 0.4)).get("f")!.get(0)).to.deep.equal({ red: 0.4 });
+  });
+
+  it("splits what is on the heads another sheet shows from the rest", () => {
+    const a = weighted(sheet([[-1, red], [2, green]]), 1);
+    const { inside, outside } = splitByShown(a, sheet([[0, green]]));
+    expect([...inside.get("f")!.keys()]).to.deep.equal([0]); // the whole red copied to head 0
+    expect([...outside.get("f")!.keys()].sort()).to.deep.equal([-1, 2]); // and still there for the other heads
+    expect(splitByShown(a, new Map()).outside.get("f")).to.equal(a.get("f")); // a fixture the other does not paint: all outside
+    expect(splitByShown(a, sheet([[-1, green]])).inside.get("f")).to.equal(a.get("f")); // painted whole: all inside
+  });
+});
 
 describe("show runtime", () => {
   it("reads back what each head shows, for the live 2D preview", () => {
@@ -413,6 +443,68 @@ describe("show runtime", () => {
       advance(1); // A leaves at 0.84 of 255 = 215 over the limit, which a launch of A must not hide
       expect(show.strictBounds("a")).to.have.length(1);
       expect(held(show).size).to.equal(1); // and the crossfade is back
+    });
+
+    /** bar-l has 4 heads of 3 channels from channel 1: head h reads at 3 + 3h (red), +1 (green), +2 (blue). */
+    const head = (b: Uint8Array, h: number) => [b[3 + 3 * h]!, b[4 + 3 * h]!, b[5 + 3 * h]!];
+    function heads(opts: { aCanvas: string; bCanvas: string; bColor?: string }) {
+      const t = setup();
+      const one = (id: string, h?: number) => t.venue.canvases.put({ id, name: id, topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [h === undefined ? { fixture: "bar-l" } : { fixture: "bar-l", head: h }] }] });
+      one("entier");
+      one("tete0", 0);
+      one("tete1", 1);
+      t.show.looks.put({ id: "a", name: "A", canvas: opts.aCanvas, technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
+      t.show.looks.put({ id: "d", name: "D", canvas: "tete1", technique: { kind: "plat", color: "#0000ff" } }); // on head 1 only, launched after A
+      t.show.looks.put({ id: "b", name: "B", canvas: opts.bCanvas, technique: { kind: "plat", color: opts.bColor ?? "#00ff00" }, timing: { entryFade: 2 } });
+      t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+      t.show.go("a");
+      t.show.go("d");
+      t.show.go("b");
+      return t;
+    }
+
+    it("keeps the tail of A under a look launched after it on the heads B does not paint of a fixture B paints a head of", () => {
+      const { dmx, advance } = heads({ aCanvas: "mur", bCanvas: "tete0" });
+      advance(2); // 1 s of 2
+      const b = dmx();
+      expect(head(b, 1)).to.deep.equal([0, 0, 255]); // D shows on head 1, not A's red tail laid over it
+      expect(head(b, 2)[0]).to.be.within(100, 140); // head 2: nobody else, A's tail is still there (half way)
+      expect(head(b, 0)[0]).to.be.within(100, 140); // head 0: A and B share it
+      expect(head(b, 0)[1]).to.be.within(100, 140);
+    });
+
+    it("does the same when A paints the whole fixture: shared with B on its head, under D elsewhere", () => {
+      const { dmx, advance } = heads({ aCanvas: "entier", bCanvas: "tete0" });
+      advance(2);
+      const b = dmx();
+      expect(head(b, 1)).to.deep.equal([0, 0, 255]);
+      expect(head(b, 2)[0]).to.be.within(100, 140);
+      expect(head(b, 0)[0]).to.be.within(100, 140);
+      expect(head(b, 0)[1]).to.be.within(100, 140);
+      advance(10);
+      expect(head(dmx(), 2)).to.deep.equal([0, 0, 0]);
+    });
+
+    it("shares every head with B when B paints the whole fixture and A paints heads", () => {
+      const { dmx, advance } = heads({ aCanvas: "mur", bCanvas: "entier" });
+      advance(2);
+      const b = dmx();
+      expect(head(b, 2)[0]).to.be.within(100, 140);
+      expect(head(b, 2)[1]).to.be.within(100, 140);
+    });
+
+    it("resetLive lets go of every crossfade, and a look whose build fails while one runs does not cut the others", () => {
+      const { show, dmx, advance } = pair({ b: { entryFade: 2, exitFade: 2 } });
+      advance(1);
+      show.looks.put({ id: "x", name: "X", canvas: "nowhere", technique: { kind: "plat", color: "#0000ff" } });
+      show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b", "x"] } });
+      const before = rg(dmx());
+      expect(() => show.go("x")).to.throw(/canevas inconnu|unknown canvas/); // B and A were released for it, then it did not build
+      const after = rg(dmx());
+      expect(after[0]).to.be.within(before[0] - 3, before[0] + 3);
+      expect(after[1]).to.be.within(before[1] - 3, before[1] + 3);
+      show.resetLive();
+      expect(held(show).size).to.equal(0);
     });
 
     it("keeps the tail of A from covering a look that has nothing to do with the crossfade (another look under B's fixtures)", () => {

@@ -11,7 +11,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByFixtures, weighted, type AttributeFrame, type Venue, type WeightedColors } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -34,8 +34,6 @@ interface ReleasingLook {
   player: LookPlayer;
   stopTime: number;
   exitFade: number;
-  /** The weight the fade starts from (1; less when the look was itself coming in). */
-  start: number;
 }
 
 /** A look leaving through a crossfade: its weight goes from `start` to 0 over `dur` seconds from `t`. */
@@ -389,12 +387,12 @@ export class ShowRuntime {
   }
 
   /** Moves a stopped look into the `releasing` fade-out, when its exitFade > 0. */
-  private startFadeOut(look: Look, player: LookPlayer, stopTime = this.now(), start = 1): void {
+  private startFadeOut(look: Look, player: LookPlayer, stopTime = this.now()): void {
     const exitFade = look.timing?.exitFade ?? 0;
     if (exitFade <= 0) return;
     // Drop any earlier fading copy of the same look.
     this.releasing.delete(look.id);
-    this.releasing.set(look.id, { look, player, stopTime, exitFade, start });
+    this.releasing.set(look.id, { look, player, stopTime, exitFade });
   }
 
   /** Forgets a look at once, fading copy included (it is being deleted). */
@@ -752,7 +750,7 @@ export class ShowRuntime {
     for (const r of this.releasing.values()) {
       const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
       if (t >= 1) continue;
-      mergeColors(frame.colors, colorsOf(r.look, r.player, r.start * (1 - ease(t))), this.settings.looksMerge);
+      mergeColors(frame.colors, colorsOf(r.look, r.player, 1 - ease(t)), this.settings.looksMerge);
       moveOf(r.look, r.player);
     }
     // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
@@ -772,7 +770,7 @@ export class ShowRuntime {
         leaving = addWeighted(leaving, weighted(colorsOf(o.look, o.player, w), w));
         moveOf(o.look, o.player);
       }
-      const { inside, outside } = splitByFixtures(leaving, ownOf.get(x) ?? new Map());
+      const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? new Map());
       shared.set(x, inside);
       mergeColors(frame.colors, settle(outside), this.settings.looksMerge);
     }

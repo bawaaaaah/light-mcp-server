@@ -198,11 +198,31 @@ export function settle(w: WeightedColors): AttributeFrame["colors"] {
   return out;
 }
 
-/** The part of a weighted sheet on the fixtures `of` paints, and the rest. */
-export function splitByFixtures(w: WeightedColors, of: AttributeFrame["colors"]): { inside: WeightedColors; outside: WeightedColors } {
+/**
+ * The part of a weighted sheet on the heads `of` shows (those it paints, or all of a fixture it paints whole: a head
+ * shows its own colour, else the fixture's, as toDmx reads them), and the rest. A whole-fixture colour of the sheet
+ * is copied to the heads `of` paints, and stays in the rest for the heads it does not.
+ */
+export function splitByShown(w: WeightedColors, of: AttributeFrame["colors"]): { inside: WeightedColors; outside: WeightedColors } {
   const inside: WeightedColors = new Map();
   const outside: WeightedColors = new Map();
-  for (const [fixture, heads] of w) (of.has(fixture) ? inside : outside).set(fixture, heads);
+  for (const [fixture, heads] of w) {
+    const shown = of.get(fixture);
+    if (!shown) {
+      outside.set(fixture, heads);
+    } else if (shown.has(-1)) {
+      inside.set(fixture, heads);
+    } else {
+      const own = new Map<number, { color: Color; weight: number }>();
+      for (const h of shown.keys()) {
+        const c = heads.get(h) ?? heads.get(-1);
+        if (c) own.set(h, c);
+      }
+      if (own.size) inside.set(fixture, own);
+      const rest = new Map([...heads].filter(([h]) => !shown.has(h)));
+      if (rest.size) outside.set(fixture, rest);
+    }
+  }
   return { inside, outside };
 }
 
