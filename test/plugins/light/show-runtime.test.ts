@@ -178,7 +178,11 @@ describe("show runtime", () => {
     it("is the weighted mix of both while B comes in and A goes, then B alone", () => {
       const { dmx, advance } = pair({ b: { entryFade: 2 } }); // A has no exit fade: it follows B's entry
       expect(rg(dmx())).to.deep.equal([255, 0]); // nothing of B yet, and A did not drop out
-      advance(2); // 1 s of 2: both at half
+      advance(1); // 0.5 s of 2: B at 0.16, A at 0.84
+      const [r0, g0] = rg(dmx());
+      expect(r0).to.be.within(213, 217);
+      expect(g0).to.be.within(38, 42);
+      advance(1); // 1 s of 2: both at half
       const [r, g] = rg(dmx());
       expect(r).to.be.within(126, 129);
       expect(g).to.be.within(126, 129);
@@ -214,7 +218,11 @@ describe("show runtime", () => {
 
     it("passes through a dip when A leaves faster than B comes in (1 s out, 3 s in)", () => {
       const { dmx, advance } = pair({ a: { exitFade: 1 }, b: { entryFade: 3 } });
-      advance(3); // 1.5 s: A is gone, B is at half
+      advance(1); // 0.5 s: both still on the cell, A at 0.5 and B at 0.07: not shared out up to 1, a dip
+      const [ra, ga] = rg(dmx());
+      expect(ra).to.be.within(125, 130);
+      expect(ga).to.be.within(17, 21);
+      advance(2); // 1.5 s: A is gone, B is at half
       const [r, g] = rg(dmx());
       expect(r).to.equal(0);
       expect(g).to.be.within(126, 129);
@@ -291,13 +299,137 @@ describe("show runtime", () => {
       expect(g).to.be.within(126, 129);
     });
 
-    it("is not changed by strictBounds, which samples the future", () => {
-      const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+    it("is not changed by strictBounds, which samples the future, with a rule that really bounds the look it checks", () => {
+      const { show, dmx, advance } = pair({ b: { entryFade: 2 }, aColor: "#00ff00", bColor: "#0000ff" });
+      show.looks.put({ id: "r", name: "R", canvas: "mur", technique: { kind: "plat", color: "#ff0000" } });
+      show.rules.put({ id: "max-red", name: "Max red", level: "show", target: { color: "red" }, max: 128, onViolation: "reject" });
       advance(1);
-      const before = rg(dmx());
-      show.strictBounds("b");
-      show.strictBounds("a");
-      expect(rg(dmx())).to.deep.equal(before);
+      const before = [dmx()[4], dmx()[5]];
+      expect(show.strictBounds("r")).to.have.length(1); // sampled up to 4 s ahead, past the end of the crossfade
+      expect([dmx()[4], dmx()[5]]).to.deep.equal(before);
+      advance(1);
+      const mid = [dmx()[4]!, dmx()[5]!];
+      expect(mid[0]).to.be.within(100, 155); // still going: the crossfade was kept
+      expect(show.strictBounds("a")).to.have.length(0);
+      expect([dmx()[4], dmx()[5]]).to.deep.equal(mid);
+      advance(4);
+      expect([dmx()[4], dmx()[5]]).to.deep.equal([0, 255]);
+    });
+
+    describe("when the look coming in leaves while it comes in", () => {
+      it("go(C) without a fade: A and B go on leaving from where they were, and A is not cut", () => {
+        const { show, dmx, advance } = pair({ a: {}, b: { entryFade: 2, exitFade: 2 } });
+        show.looks.put({ id: "c", name: "C", canvas: "mur", technique: { kind: "plat", color: "#0000ff" } });
+        show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b", "c"] } });
+        show.settings = { ...show.settings, looksMerge: "highest" };
+        advance(1); // 0.5 s: B at 0.16, A at 0.84
+        const before = rg(dmx());
+        show.go("c");
+        const after = rg(dmx());
+        expect(after[0]).to.be.within(before[0] - 3, before[0] + 3); // A not cut
+        expect(after[1]).to.be.within(before[1] - 3, before[1] + 3); // B not at full
+        expect(dmx()[5]).to.equal(255); // C is there at once
+        advance(10);
+        expect(rg(dmx())).to.deep.equal([0, 0]); // both gone
+        show.stop("c");
+        show.go("b"); // a stale crossfade would bring A back
+        expect(dmx()[3]).to.equal(0);
+      });
+
+      it("stop(B) while B has an exit fade: B and A add up as they did, they do not cover each other", () => {
+        const { show, dmx, advance } = pair({ b: { entryFade: 2, exitFade: 2 } });
+        advance(2); // half way: 0.5 and 0.5
+        const before = rg(dmx());
+        show.stop("b");
+        const after = rg(dmx());
+        expect(after[0]).to.be.within(before[0] - 3, before[0] + 3);
+        expect(after[1]).to.be.within(before[1] - 3, before[1] + 3);
+        advance(10);
+        expect(rg(dmx())).to.deep.equal([0, 0]);
+      });
+
+      it("a third look comes in over B half in: A and B leave from the weights they had, adding up", () => {
+        const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+        show.looks.put({ id: "c", name: "C", canvas: "mur", technique: { kind: "plat", color: "#0000ff" }, timing: { entryFade: 2 } });
+        show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b", "c"] } });
+        advance(2); // B half in over A
+        show.go("c");
+        const [r, g] = rg(dmx());
+        expect(r).to.be.within(125, 131); // not [0, 128]: A did not vanish under B
+        expect(g).to.be.within(125, 131);
+        advance(10);
+        const b = dmx();
+        expect([b[3], b[4], b[5]]).to.deep.equal([0, 0, 255]);
+      });
+
+      it("deleting B leaves what it replaced going on leaving", () => {
+        const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+        advance(1);
+        show.drop("b");
+        advance(2);
+        expect(dmx()[3]).to.be.within(1, 254); // A is still on its way down
+        advance(10);
+        expect(rg(dmx())).to.deep.equal([0, 0]);
+      });
+    });
+
+    /** The crossfades the runtime holds (private state: what a test can only see here is whether they are let go). */
+    const held = (show: unknown) => (show as { crossfades: Map<string, { outgoing: { look: { id: string } }[] }> }).crossfades;
+
+    it("is let go of once it has ended, and when a look starts again it no longer leaves under another", () => {
+      const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+      expect(held(show).size).to.equal(1);
+      advance(10);
+      dmx(); // a frame lets go of what has ended
+      expect(held(show).size).to.equal(0);
+      const again = pair({ b: { entryFade: 2 } });
+      again.show.go("a"); // A starts again: B leaves, A is not under anything
+      expect([...held(again.show).values()].flatMap((c) => c.outgoing.map((o) => o.look.id))).to.not.include("a");
+    });
+
+    it("keeps coming in at the right weight when B is edited while it comes in (it restarts without its own entry fade)", () => {
+      const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+      advance(2); // half way
+      show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00fe00" }, timing: { entryFade: 2 } }); // edited live (another green): it restarts
+      const [r, g] = rg(dmx());
+      expect(g).to.be.within(124, 132); // not from black again
+      expect(r).to.be.within(124, 132);
+    });
+
+    it("does not bring a crossfade back when a deleted look is started again", () => {
+      const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
+      advance(1); // 0.5 s: B just started to come in
+      show.drop("b");
+      show.go("b"); // B again, from its own entry fade: nothing of the old crossfade
+      advance(2); // 1 s into the new entry fade, 1.5 s after the old start (it would be at 0.84)
+      const [r, g] = rg(dmx());
+      expect(g).to.be.within(126, 129); // its own entry fade only, not times the old one
+      expect(r).to.equal(0); // and A is not back
+    });
+
+    it("sets aside the crossfade that names a look when strictBounds checks its launch: starting A again would break the rule even while it leaves", () => {
+      const { show, advance } = pair({ b: { entryFade: 2 }, aColor: "#00ff00", bColor: "#0000ff" });
+      show.rules.put({ id: "max-green", name: "Max green", level: "show", target: { color: "green" }, max: 200, onViolation: "reject" });
+      advance(1); // A leaves at 0.84 of 255 = 215 over the limit, which a launch of A must not hide
+      expect(show.strictBounds("a")).to.have.length(1);
+      expect(held(show).size).to.equal(1); // and the crossfade is back
+    });
+
+    it("keeps the tail of A from covering a look that has nothing to do with the crossfade (another look under B's fixtures)", () => {
+      const { venue, show, dmx, advance } = setup();
+      venue.canvases.put({ id: "gauche", name: "Gauche", topology: "line", cells: 4, render: [0, 1, 2, 3].map((i) => ({ from: i, to: i, targets: [{ fixture: "bar-l", head: i }] })) });
+      show.looks.put({ id: "d", name: "D", canvas: "mur", technique: { kind: "plat", color: "#0000ff" } });
+      show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#ff0000" } });
+      show.looks.put({ id: "b", name: "B", canvas: "gauche", technique: { kind: "plat", color: "#00ff00" }, timing: { entryFade: 2 } });
+      show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+      show.go("d");
+      show.go("a");
+      show.go("b");
+      for (let i = 0; i < 6; i++) {
+        const b = dmx();
+        expect([b[18], b[20]]).to.deep.equal([0, 255]); // on the right bar D shows, not A's red tail
+        advance(0.5);
+      }
     });
   });
 

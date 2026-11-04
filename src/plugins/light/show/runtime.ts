@@ -11,7 +11,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import { aimSetupOf, crossfadeColors, emptyFrame, mergeColors, type AttributeFrame, type Venue } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByFixtures, weighted, type AttributeFrame, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -49,7 +49,9 @@ interface Leaving {
 
 /**
  * A look coming in over the looks of its exclusive group that it released (docs/specs/engine-effects-
- * timing.md, « Fondu enchaîné »): it rises over `tIn` seconds from `t0` while they go, laid on one sheet.
+ * timing.md, « Fondu enchaîné »): it rises over `tIn` seconds from `t0` while they go, their weights adding up
+ * on the cells they share. Kept under the id of the incoming look; once that look has left or is gone, the
+ * others go on leaving under a key of their own (`tIn` 0).
  */
 interface Crossfade {
   t0: number;
@@ -87,6 +89,7 @@ export class ShowRuntime {
   private readonly releasing = new Map<string, ReleasingLook>();
   /** Looks coming in over the ones they replaced (by incoming look id); the leaving ones are not active. */
   private readonly crossfades = new Map<string, Crossfade>();
+  private orphans = 0;
   /** group id → flash held */
   private readonly flashes = new Set<string>();
   /** Manual positions (XY pad, aiming): override the looks' moves until released. */
@@ -293,7 +296,7 @@ export class ShowRuntime {
         }
       }
     }
-    const fadeOut = () => leaving.forEach((l) => this.startFadeOut(l.look, l.player, now));
+    const fadeOut = () => leaving.forEach((l) => this.leaveActive(l, now));
     if (this.active.has(lookId)) {
       fadeOut();
       return { started: false, released };
@@ -318,18 +321,37 @@ export class ShowRuntime {
     const a = this.active.get(lookId);
     if (!a) return false;
     this.active.delete(lookId);
-    const crossfade = this.crossfades.get(lookId);
-    if (crossfade) {
-      // stopped while coming in: it leaves from the weight it had, and the ones it was replacing keep leaving
-      const now = this.now();
-      this.crossfades.delete(lookId);
-      this.startFadeOut(a.look, a.player, now, this.inWeight(crossfade, now));
-      for (const o of crossfade.outgoing) {
-        const dur = Math.max(0.05, o.dur - (now - o.t) / 1000);
-        this.releasing.set(o.look.id, { look: o.look, player: o.player, stopTime: now, exitFade: dur, start: this.outWeight(o, now) });
-      }
-    } else this.startFadeOut(a.look, a.player);
+    this.leaveActive(a, this.now());
     return true;
+  }
+
+  /**
+   * An active look that is released or stopped leaves: over its exit fade, or at once without one. A look that was
+   * itself coming in through a crossfade leaves from the weight it had, and the looks that were leaving under it keep
+   * leaving on the same sheet: nothing jumps.
+   */
+  private leaveActive(a: ActiveLook, now: number): void {
+    const crossfade = this.crossfades.get(a.look.id);
+    if (!crossfade) {
+      this.startFadeOut(a.look, a.player, now);
+      return;
+    }
+    this.crossfades.delete(a.look.id);
+    const outgoing = [...crossfade.outgoing];
+    if (a.look.timing.exitFade > 0) outgoing.push({ look: a.look, player: a.player, start: this.inWeight(crossfade, now), t: now, dur: a.look.timing.exitFade });
+    if (outgoing.length) this.crossfades.set(this.orphanKey(), { t0: now, tIn: 0, outgoing });
+  }
+
+  private orphanKey(): string {
+    return `\0${++this.orphans}`;
+  }
+
+  /** The incoming look of a crossfade is gone: what was leaving under it goes on leaving. */
+  private orphan(lookId: string): void {
+    const crossfade = this.crossfades.get(lookId);
+    if (!crossfade) return;
+    this.crossfades.delete(lookId);
+    if (crossfade.outgoing.length) this.crossfades.set(this.orphanKey(), crossfade);
   }
 
   /** The weight of a look coming in through a crossfade: 0 → 1 over its entry fade (smoothstep, like the entry fade). */
@@ -379,7 +401,7 @@ export class ShowRuntime {
   drop(lookId: string): void {
     this.active.delete(lookId);
     this.releasing.delete(lookId);
-    this.crossfades.delete(lookId);
+    this.orphan(lookId);
     this.leaveCrossfades(lookId);
   }
 
@@ -410,10 +432,12 @@ export class ShowRuntime {
         const player = this.build(look, !this.crossfades.has(lookId));
         player.start(this.now(), this.tempo.state().beats);
         this.active.set(lookId, { look, player });
+        return;
       } catch (err) {
         this.lastErrors = [(err as Error).message];
       }
     }
+    this.orphan(lookId); // gone, or it no longer builds: what was leaving under it goes on leaving
   }
 
   setFlash(groupId: string, on: boolean): void {
@@ -650,8 +674,8 @@ export class ShowRuntime {
     const fadingCopy = this.releasing.get(lookId);
     this.releasing.delete(lookId);
     // and so do the crossfades that name it, as the incoming look or one of the leaving ones
-    const crossfadesAside = [...this.crossfades].filter(([to, c]) => to === lookId || c.outgoing.some((o) => o.look.id === lookId));
-    for (const [to] of crossfadesAside) this.crossfades.delete(to);
+    const crossfadesAside = [...this.crossfades].filter(([key, c]) => key === lookId || c.outgoing.some((o) => o.look.id === lookId));
+    for (const [key] of crossfadesAside) this.crossfades.delete(key);
     let without: Set<string>;
     let withIt: Set<string>;
     try {
@@ -663,7 +687,7 @@ export class ShowRuntime {
     } finally {
       this.active.delete(lookId);
       if (fadingCopy) this.releasing.set(lookId, fadingCopy);
-      for (const [to, c] of crossfadesAside) this.crossfades.set(to, c);
+      for (const [key, c] of crossfadesAside) this.crossfades.set(key, c);
     }
     const byRule = new Map<string, Clamp[]>();
     for (const key of withIt) {
@@ -684,33 +708,8 @@ export class ShowRuntime {
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
     /** Raw channels of the looks, by fixture then offset (highest of the looks playing them). */
     const lookChannels = new Map<string, Map<number, number>>();
-    // Looks fading out on exit come first, then the active ones, so a look just started (or still
-    // playing) wins over the one leaving, in both colours and movement. They share the render loop,
-    // the differences being the fade factor in lookLevel and the raw channels (cut at once on stop). A look
-    // coming in over the ones it replaced ("in") and those leaving under it ("out") go on one sheet per
-    // crossfade, laid on the others once, where the incoming look comes.
-    const fading: { look: Look; player: LookPlayer; fade: number; collectRaw: boolean; crossfade?: Crossfade; role?: "in" | "out" }[] = [
-      ...[...this.releasing.values()].flatMap((r) => {
-        const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
-        return t < 1 ? [{ look: r.look, player: r.player, fade: r.start * (1 - ease(t)), collectRaw: false }] : [];
-      }),
-      ...[...this.crossfades.values()].flatMap((crossfade) => crossfade.outgoing.map((o) => ({ look: o.look, player: o.player, fade: this.outWeight(o, now), collectRaw: false, crossfade, role: "out" as const }))),
-      ...[...this.active.values()].map(({ look, player }) => {
-        const crossfade = this.crossfades.get(look.id);
-        return { look, player, fade: crossfade ? this.inWeight(crossfade, now) : 1, collectRaw: true, crossfade, role: crossfade ? ("in" as const) : undefined };
-      }),
-    ];
-    const sheets = new Map<Crossfade, AttributeFrame["colors"]>();
-    for (const { look, player, fade, collectRaw, crossfade, role } of fading) {
-      if (role === "out" && fade <= 0) continue; // gone: it would only paint black over the others
-      if (collectRaw && look.channels) {
-        const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
-        look.channels.targets.forEach((t, k) => {
-          const byOffset = lookChannels.get(t.fixture) ?? new Map<number, number>();
-          byOffset.set(t.offset, Math.max(byOffset.get(t.offset) ?? 0, row[k] ?? 0));
-          lookChannels.set(t.fixture, byOffset);
-        });
-      }
+    /** A look's colours on its own sheet, scaled by `fade` and the masters of its groups, its exclusions taken out. */
+    const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
       let step: Step = player.render(now, beats);
       let lookLevel = fade;
       const excluded = new Set<string>();
@@ -719,7 +718,6 @@ export class ShowRuntime {
         if (g.presets.excluded.includes(look.id)) for (const f of this.fixturesOf(g.id)) excluded.add(f);
       }
       if (lookLevel < 1) step = step.map((c) => (c ? scaleColor(c, lookLevel) : c));
-      // each look on its own sheet, its exclusions taken out, then onto the others (show setting looksMerge)
       const own = emptyFrame();
       try {
         this.venue.paintCanvas(own, look.canvas, step);
@@ -727,26 +725,63 @@ export class ShowRuntime {
         errors.push((err as Error).message);
       }
       for (const f of excluded) own.colors.delete(f);
-      const sheet = crossfade && sheets.get(crossfade);
-      if (crossfade && role === "out") {
-        // the leaving looks first, among themselves as the others are
-        const into = sheets.get(crossfade) ?? new Map();
-        sheets.set(crossfade, into);
-        mergeColors(into, own.colors, this.settings.looksMerge);
-      } else if (crossfade && sheet) {
-        // coming in: added to what is leaving, never brighter than the brighter of the two (see crossfadeColors)
-        const leaving = Math.max(0, ...crossfade.outgoing.map((o) => this.outWeight(o, now)));
-        mergeColors(frame.colors, crossfadeColors(sheet, own.colors, 1 / Math.max(1, leaving + fade)), this.settings.looksMerge);
-      } else mergeColors(frame.colors, own.colors, this.settings.looksMerge);
-      if (look.move) {
-        try {
-          const moved = this.movedBy(look);
-          const cycles = player.position(now, beats, look.move.every);
-          moved.forEach((f, i) => frame.positions.set(f, movePosition(look.move!, cycles, i, moved.length)));
-        } catch (err) {
-          errors.push((err as Error).message);
-        }
+      return own.colors;
+    };
+    const rawOf = (look: Look, player: LookPlayer): void => {
+      if (!look.channels) return;
+      const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+      look.channels.targets.forEach((t, k) => {
+        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, number>();
+        byOffset.set(t.offset, Math.max(byOffset.get(t.offset) ?? 0, row[k] ?? 0));
+        lookChannels.set(t.fixture, byOffset);
+      });
+    };
+    const moveOf = (look: Look, player: LookPlayer): void => {
+      if (!look.move) return;
+      try {
+        const moved = this.movedBy(look);
+        const cycles = player.position(now, beats, look.move.every);
+        moved.forEach((f, i) => frame.positions.set(f, movePosition(look.move!, cycles, i, moved.length)));
+      } catch (err) {
+        errors.push((err as Error).message);
       }
+    };
+    // Each look on its own sheet, then onto the others (show setting looksMerge), in this order so that a look just
+    // started (or still playing) wins over the one leaving, in colours and in movement. First the looks fading out on
+    // exit (their raw channels are cut at once on stop, so none).
+    for (const r of this.releasing.values()) {
+      const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
+      if (t >= 1) continue;
+      mergeColors(frame.colors, colorsOf(r.look, r.player, r.start * (1 - ease(t))), this.settings.looksMerge);
+      moveOf(r.look, r.player);
+    }
+    // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
+    // weights add up on one sheet; what is on the fixtures the incoming look paints waits to share them with it, the
+    // rest goes under the active looks like the ones above.
+    const ownOf = new Map<Crossfade, AttributeFrame["colors"]>();
+    for (const { look, player } of this.active.values()) {
+      const x = this.crossfades.get(look.id);
+      if (x) ownOf.set(x, colorsOf(look, player, this.inWeight(x, now)));
+    }
+    const shared = new Map<Crossfade, WeightedColors>();
+    for (const x of this.crossfades.values()) {
+      let leaving: WeightedColors = new Map();
+      for (const o of x.outgoing) {
+        const w = this.outWeight(o, now);
+        if (w <= 0) continue; // gone: it would only paint black over the others
+        leaving = addWeighted(leaving, weighted(colorsOf(o.look, o.player, w), w));
+        moveOf(o.look, o.player);
+      }
+      const { inside, outside } = splitByFixtures(leaving, ownOf.get(x) ?? new Map());
+      shared.set(x, inside);
+      mergeColors(frame.colors, settle(outside), this.settings.looksMerge);
+    }
+    for (const { look, player } of this.active.values()) {
+      rawOf(look, player);
+      const x = this.crossfades.get(look.id);
+      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(ownOf.get(x)!, this.inWeight(x, now)))) : colorsOf(look, player, 1);
+      mergeColors(frame.colors, colors, this.settings.looksMerge);
+      moveOf(look, player);
     }
     for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));

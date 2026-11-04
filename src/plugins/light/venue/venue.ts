@@ -138,18 +138,24 @@ export function mergeColors(into: AttributeFrame["colors"], from: AttributeFrame
   }
 }
 
+/** Colours already scaled by their weight, with the weight that painted each cell (a crossfade's looks add up). */
+export type WeightedColors = Map<string, Map<number, { color: Color; weight: number }>>;
+
+/** A sheet of colours (already scaled by `weight`) as weighted colours. */
+export function weighted(colors: AttributeFrame["colors"], weight: number): WeightedColors {
+  return new Map([...colors].map(([fixture, heads]) => [fixture, new Map([...heads].map(([h, color]) => [h, { color, weight }]))]));
+}
+
 /**
- * Two looks' sheets laid over each other for a crossfade (docs/specs/engine-effects-timing.md, « Fondu
- * enchaîné »): the incoming look's colours and the leaving ones, each already scaled by its own weight.
- * Where both paint a cell they add up times `norm` (1 / max(1, the two weights): never brighter than the
- * brighter of the two); where only one paints it, it stays as it is. A head shows its own colour, else the
- * whole fixture's, as toDmx reads them: the sum is taken on what each sheet shows for that head.
+ * Two weighted sheets laid over each other: where both paint a cell the colours and the weights add up, where
+ * one paints it it stays as it is. A head shows its own colour, else the whole fixture's, as toDmx reads them:
+ * the sum is taken on what each sheet shows for that head.
  */
-export function crossfadeColors(a: AttributeFrame["colors"], b: AttributeFrame["colors"], norm: number): AttributeFrame["colors"] {
-  const out: AttributeFrame["colors"] = new Map();
+export function addWeighted(a: WeightedColors, b: WeightedColors): WeightedColors {
+  const out: WeightedColors = new Map();
   const add = (x: Color, y: Color): Color => {
     const sum: Color = {};
-    for (const k of new Set([...Object.keys(x), ...Object.keys(y)]) as Set<ColorComponent>) sum[k] = Math.min(1, ((x[k] ?? 0) + (y[k] ?? 0)) * norm);
+    for (const k of new Set([...Object.keys(x), ...Object.keys(y)]) as Set<ColorComponent>) sum[k] = (x[k] ?? 0) + (y[k] ?? 0);
     return sum;
   };
   for (const fixture of new Set([...a.keys(), ...b.keys()])) {
@@ -159,16 +165,45 @@ export function crossfadeColors(a: AttributeFrame["colors"], b: AttributeFrame["
       out.set(fixture, new Map(ha ?? hb));
       continue;
     }
-    const heads = new Map<number, Color>();
+    const heads = new Map<number, { color: Color; weight: number }>();
     for (const h of new Set([...ha.keys(), ...hb.keys()])) {
       const x = ha.get(h) ?? (h === -1 ? undefined : ha.get(-1));
       const y = hb.get(h) ?? (h === -1 ? undefined : hb.get(-1));
-      const c = x && y ? add(x, y) : (x ?? y);
+      const c = x && y ? { color: add(x.color, y.color), weight: x.weight + y.weight } : (x ?? y);
       if (c) heads.set(h, c);
     }
     out.set(fixture, heads);
   }
   return out;
+}
+
+/**
+ * Weighted sheets as plain colours (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): a cell whose weights
+ * add up past 1 is shared out, so it is never brighter than the brighter of the looks on it; below 1 it keeps its
+ * weight (a dip, or the tail of a look that is leaving).
+ */
+export function settle(w: WeightedColors): AttributeFrame["colors"] {
+  const out: AttributeFrame["colors"] = new Map();
+  for (const [fixture, heads] of w) {
+    out.set(
+      fixture,
+      new Map(
+        [...heads].map(([h, { color, weight }]) => {
+          const k = 1 / Math.max(1, weight);
+          return [h, Object.fromEntries(Object.entries(color).map(([c, v]) => [c, Math.min(1, (v ?? 0) * k)])) as Color];
+        }),
+      ),
+    );
+  }
+  return out;
+}
+
+/** The part of a weighted sheet on the fixtures `of` paints, and the rest. */
+export function splitByFixtures(w: WeightedColors, of: AttributeFrame["colors"]): { inside: WeightedColors; outside: WeightedColors } {
+  const inside: WeightedColors = new Map();
+  const outside: WeightedColors = new Map();
+  for (const [fixture, heads] of w) (of.has(fixture) ? inside : outside).set(fixture, heads);
+  return { inside, outside };
 }
 
 /** A 8- or 16-bit channel pair. */

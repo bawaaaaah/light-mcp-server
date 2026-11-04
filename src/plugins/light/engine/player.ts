@@ -3,7 +3,8 @@
  * - cadence in beats (follows the tempo, no phase jump when the BPM changes) or in seconds;
  * - attack = fade / step duration (0 % « claque », 100 % « respire »);
  * - order: loop, pingpong, random, weighted random (deterministic per look);
- * - optional entry fade from the previous state (« pas 0 d'entrée »).
+ * - optional entry fade from black on the cells the look paints (« pas 0 d'entrée »); a look that replaces another of
+ *   its exclusive group comes in over it instead (ShowRuntime, crossfade).
  */
 import { z } from "zod";
 import { rng, type CellState, type Step } from "./techniques.js";
