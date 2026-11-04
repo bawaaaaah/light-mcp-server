@@ -249,7 +249,8 @@ export function ShowPage() {
             {t.saveSnapshot}
           </button>
         </div>
-        <table className="listing">
+        {snapshots.length === 0 && <p className="hint">{t.noSnapshots}</p>}
+        <table className="listing" hidden={snapshots.length === 0}>
           <thead><tr><th>{t.cols.snapshot}</th><th>{t.cols.content}</th><th /></tr></thead>
           <tbody>
             {snapshots.map((s) => (
@@ -282,7 +283,7 @@ export function ShowPage() {
         <div className="editor">
           <input placeholder={t.name} value={intent.name} onChange={(e) => setIntent({ ...intent, name: e.target.value })} />
           <input placeholder={t.moods} value={intent.mood} onChange={(e) => setIntent({ ...intent, mood: e.target.value })} />
-          <select value={intent.energy} onChange={(e) => setIntent({ ...intent, energy: e.target.value })}>
+          <select aria-label={t.energy} value={intent.energy} onChange={(e) => setIntent({ ...intent, energy: e.target.value })}>
             <option value="">
               {t.energy} {t.auto}
             </option>
@@ -292,7 +293,7 @@ export function ShowPage() {
               </option>
             ))}
           </select>
-          <select value={intent.canvas} onChange={(e) => setIntent({ ...intent, canvas: e.target.value })}>
+          <select aria-label={t.canvas} value={intent.canvas} onChange={(e) => setIntent({ ...intent, canvas: e.target.value })}>
             {canvases.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.cells})
@@ -352,7 +353,8 @@ export function ShowPage() {
             )}
           </div>
         )}
-        <table className="listing">
+        {looks.length === 0 ? <p className="hint">{t.noLooks}</p> : shownLooks.length === 0 && <p className="hint">{t.noMatch}</p>}
+        <table className="listing" hidden={shownLooks.length === 0}>
           <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
             {shownLooks.map((l) => (
@@ -409,7 +411,8 @@ export function ShowPage() {
             + {t.newGroup}
           </button>
         </h2>
-        <table className="listing">
+        {groups.length === 0 && <p className="hint">{t.noGroups}</p>}
+        <table className="listing" hidden={groups.length === 0}>
           <thead><tr><th>{t.cols.group}</th><th>{t.exclusive}</th><th>DCA</th><th>{t.cols.limits}</th><th>{t.cols.content}</th></tr></thead>
           <tbody>
             {groups.map((g) => (
@@ -421,7 +424,7 @@ export function ShowPage() {
                   {g.name}
                 </td>
                 <td>{g.exclusive ? t.exclusive : ""}</td>
-                <td>{g.master ? `DCA ${Math.round(g.master.level * 100)} % → ${Math.round(g.effectiveLevel * 100)} %` : ""}</td>
+                <td className="nowrap">{g.master ? `DCA ${Math.round(g.master.level * 100)} % → ${Math.round(g.effectiveLevel * 100)} %` : ""}</td>
                 <td>
                   {g.master && (
                     <span className="row dca-limits">
@@ -487,7 +490,8 @@ export function ShowPage() {
           </button>
         </h2>
         <p className="hint">{t.channelFadersHelp}</p>
-        <table className="listing">
+        {faders.length === 0 && <p className="hint">{t.noFaders}</p>}
+        <table className="listing" hidden={faders.length === 0}>
           <thead><tr><th>{t.cols.fader}</th><th>{t.cols.channels}</th><th>{t.cols.level}</th></tr></thead>
           <tbody>
             {faders.map((f) => (

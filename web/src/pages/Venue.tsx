@@ -127,7 +127,7 @@ export function VenuePage() {
                 .map((f) => (
                 <tr key={f.id} className={overlaps[f.id] ? "conflict" : undefined} title={t.fixtureMenuHint} {...rowMenu(f.id)}>
                   <td>
-                    <input type="checkbox" checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
+                    <input type="checkbox" aria-label={`${t.inNewCanvas} ${f.name}`} checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>
                   <td>
                     {f.color && <span className="swatch-dot" style={{ background: f.color }} aria-hidden />}
@@ -168,7 +168,7 @@ export function VenuePage() {
             })()}
           <div className="editor">
             <input placeholder={t.name} value={canvasDraft.name} onChange={(e) => setCanvasDraft({ ...canvasDraft, name: e.target.value })} />
-            <select value={canvasDraft.topology} onChange={(e) => setCanvasDraft({ ...canvasDraft, topology: e.target.value })}>
+            <select aria-label={t.canvasShape} value={canvasDraft.topology} onChange={(e) => setCanvasDraft({ ...canvasDraft, topology: e.target.value })}>
               {(["line", "line-mirror", "ring"] as const).map((k) => (
                 <option key={k} value={k}>
                   {t.topologies[k]}
@@ -304,9 +304,9 @@ export function VenuePage() {
         </section>
         <section>
           <h2>{t.library} ({library.length})</h2>
-          <input className="search" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="search" type="search" aria-label={t.search} placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="editor">
-            <select value={draft.def} onChange={(e) => setDraft({ ...draft, def: e.target.value, mode: "" })}>
+            <select aria-label={t.definition} value={draft.def} onChange={(e) => setDraft({ ...draft, def: e.target.value, mode: "" })}>
               <option value="">—</option>
               {shown.map((d) => (
                 <option key={`${d.manufacturer}|${d.model}`} value={`${d.manufacturer}|${d.model}`}>
@@ -314,7 +314,7 @@ export function VenuePage() {
                 </option>
               ))}
             </select>
-            <select value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
+            <select aria-label={t.mode} value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
               <option value="">{t.mode}</option>
               {def?.modes.map((m) => (
                 <option key={m.name} value={m.name}>

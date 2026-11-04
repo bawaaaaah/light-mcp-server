@@ -35,10 +35,11 @@ export function OscPage() {
   return (
     <div className="osc">
       <section className="bar">
-        <input className="search" placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input className="search" type="search" aria-label={t.search} placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button onClick={exportTable}>{t.copyTable}</button>
         <span className="hint">{t.oscHelp}</span>
       </section>
+      {routes.length > 0 && shown.length === 0 && <p className="hint">{t.noMatch}</p>}
       <table>
         <tbody>
           {shown.map((r) => (
@@ -51,7 +52,7 @@ export function OscPage() {
               </td>
               <td>{r.description}</td>
               <td>
-                <button className="ghost" onClick={() => copy(r.address)}>
+                <button className="ghost" aria-label={`${t.copyAddress} ${r.address}`} title={copied === r.address ? t.copied : t.copyAddress} onClick={() => copy(r.address)}>
                   {copied === r.address ? "✔" : "⧉"}
                 </button>
               </td>

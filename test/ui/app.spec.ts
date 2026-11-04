@@ -1643,8 +1643,14 @@ test("notes: grouped by kind, one line each, edited in place", async ({ page }) 
   const row = looks.locator("li", { hasText: "note de test" });
   await row.locator(".note-text").click();
   await row.getByRole("textbox").fill("note de test, relue");
-  await row.getByRole("button", { name: "✔" }).click();
+  await row.getByRole("button", { name: "Enregistrer" }).click();
   await expect(looks.locator("li", { hasText: "note de test, relue" })).toBeVisible();
+  // from the keyboard too: a note is a button, Enter opens it for editing
+  const edited = looks.locator("li", { has: page.locator("strong", { hasText: /^checker$/ }) });
+  await edited.getByRole("button", { name: "note de test, relue" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(edited.getByRole("textbox")).toHaveValue(/^note de test, relue/); // the server dates a note
+  await edited.getByRole("button", { name: "Enregistrer" }).click();
   await api(page, "notes.set", { collection: "looks", id: "checker", notes: "note de test" });
   expect(errors).toEqual([]);
 });
@@ -3629,5 +3635,31 @@ test("preview before launch: the preview toggle is absent for a read-only role",
   await page.evaluate(async () => {
     await fetch("/api/plugins/light/commands/look.stopall", { method: "POST", headers: { authorization: "Bearer ui-test-token", "content-type": "application/json" }, body: "{}" });
   });
+  expect(errors).toEqual([]);
+});
+
+test("accessibility: icon buttons have names, empty lists and searches say so, the keyboard focus shows", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  // Live: the song navigation is named, not only drawn
+  await expect(page.getByRole("button", { name: "Chant précédent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Chant suivant" })).toBeVisible();
+  // the keyboard focus is an accent ring
+  await page.getByRole("button", { name: "Chant suivant" }).focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  const outline = await page.evaluate<string>("getComputedStyle(document.activeElement).outlineStyle");
+  expect(outline).toBe("solid");
+  // OSC: each copy button names the address it copies; a search with no result says so
+  await page.locator("nav.pages").getByRole("button", { name: "OSC" }).click();
+  await expect(page.getByRole("button", { name: "Copier l'adresse /light/look/go" })).toBeVisible();
+  await page.getByRole("searchbox", { name: "Rechercher" }).fill("zzz-nothing");
+  await expect(page.getByText("Rien ne correspond à cette recherche.")).toBeVisible();
+  // MIDI: the monitor says it has heard nothing yet
+  await page.locator("nav.pages").getByRole("button", { name: "MIDI" }).click();
+  await expect(page.locator("pre.monitor")).toContainText("Aucun message reçu");
+  // Lieu: a fixture's box says what it does (the empty lists of the Show page: the empty-show tour)
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  await expect(page.getByRole("checkbox", { name: /^Dans le nouveau canevas : / }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });

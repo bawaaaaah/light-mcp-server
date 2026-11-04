@@ -96,11 +96,11 @@ export function UsersPanel({ role }: { role: Role }) {
                     <div className="row">
                       <span className="hint">{u.hasPin ? "PIN ✔" : t.noPin}</span>
                       <input type="password" inputMode="numeric" placeholder="PIN" aria-label={`PIN ${u.name}`} value={pins[u.id] ?? ""} onChange={(e) => setPins({ ...pins, [u.id]: e.target.value })} />
-                      <button disabled={!pins[u.id]} onClick={() => act(api(`/api/auth/users/${u.id}/pin`, "PUT", { pin: pins[u.id] }).then(() => setPins({ ...pins, [u.id]: "" })), t.pinSaved)}>
+                      <button disabled={!pins[u.id]} aria-label={`${t.savePin} ${u.name}`} title={t.savePin} onClick={() => act(api(`/api/auth/users/${u.id}/pin`, "PUT", { pin: pins[u.id] }).then(() => setPins({ ...pins, [u.id]: "" })), t.pinSaved)}>
                         ✔
                       </button>
                       {u.hasPin && (
-                        <button className="ghost" title={t.removePin} onClick={() => act(api(`/api/auth/users/${u.id}/pin`, "PUT", { pin: "" }))}>
+                        <button className="ghost" title={t.removePin} aria-label={`${t.removePin} ${u.name}`} onClick={() => act(api(`/api/auth/users/${u.id}/pin`, "PUT", { pin: "" }))}>
                           ✕
                         </button>
                       )}

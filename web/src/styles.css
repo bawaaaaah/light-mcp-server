@@ -36,6 +36,16 @@ button {
 button:hover {
   border-color: var(--muted);
 }
+/* keyboard focus always shows, in the accent colour, on every control of every page */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* placeholders readable on the dark panels (the browser's grey was below 4.5:1) */
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
 button.primary,
 .button-like.primary {
   background: var(--accent);
@@ -783,8 +793,17 @@ table.listing th {
   font-weight: normal;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding-bottom: 0.3em;
+  /* same side padding as the cells: two column names never run into each other */
+  padding: 0 0.3em 0.3em;
   border-bottom: 1px solid var(--line);
+}
+/* an empty list shows its « none yet » line instead (the phone layout sets tables to display: block) */
+table.listing[hidden] {
+  display: none !important;
+}
+/* a look's colour dot stays on its name's line, on a phone too */
+table.listing button.look {
+  white-space: nowrap;
 }
 table.sections th {
   text-align: left;

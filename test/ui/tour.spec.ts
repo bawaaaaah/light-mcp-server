@@ -37,6 +37,7 @@ for (const viewport of VIEWPORTS) {
       const wide: string[] = [];
       for (const name of pages) {
         await page.locator("nav.pages button", { hasText: name }).first().click();
+        await expect(page.locator("main .page-loading")).toHaveCount(0);
         await page.waitForTimeout(250);
         const width = await page.evaluate<number>("document.documentElement.scrollWidth");
         if (width > viewport.width + 1) wide.push(`${name}: ${width}px`);
@@ -57,6 +58,7 @@ test("tour in English · admin: every page, nothing wider than the screen", asyn
   const pages = await page.locator("nav.pages button").allTextContents();
   for (const name of pages) {
     await page.locator("nav.pages button", { hasText: name }).first().click();
+    await expect(page.locator("main .page-loading")).toHaveCount(0); // the page itself, not its loading line
     await page.waitForTimeout(250);
     await page.screenshot({ path: `test-results/tour/en-${name.replace(/\s/g, "-")}.png`, fullPage: true });
   }
@@ -82,9 +84,18 @@ test("tour of a new empty show · admin: first-run states, then back to the test
     const pages = await page.locator("nav.pages button").allTextContents();
     for (const name of pages) {
       await page.locator("nav.pages button", { hasText: name }).first().click();
+      await expect(page.locator("main .page-loading")).toHaveCount(0);
       await page.waitForTimeout(250);
       await page.screenshot({ path: `test-results/tour/empty-${name.replace(/\s/g, "-")}.png`, fullPage: true });
     }
+    // an empty list says so, instead of column names over nothing
+    await page.locator("nav.pages button", { hasText: "Show" }).first().click();
+    const show = page.locator("main .show");
+    await expect(show.getByText(/^Aucun instantané/)).toBeVisible();
+    await expect(show.getByText(/^Aucun look\./)).toBeVisible();
+    await expect(show.getByText("Aucun groupe ni DCA.")).toBeVisible();
+    await expect(show.getByText("Aucun fader de canaux.")).toBeVisible();
+    await expect(page.locator("table.listing:visible")).toHaveCount(0);
   } finally {
     await page.goto("about:blank"); // leave before the app reloads on the show switch: no request cut mid-flight
     await call("show.open", { id: before });

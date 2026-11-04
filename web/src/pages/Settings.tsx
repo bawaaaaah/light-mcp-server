@@ -130,7 +130,7 @@ function RouteRow({ route, editable, ports, nodes, sending, onSave }: { route: R
   const firstPort = (ports.find((p) => p.ftdi) ?? ports[0])?.path;
   return (
     <li className="row route">
-      <strong>{label}</strong> →
+      <strong className="nowrap">{label}</strong> →
       <span className="out">
         <label>
           <input type="checkbox" checked={state.artnet !== ""} onChange={(e) => setState({ ...state, artnet: e.target.checked ? String(route.artnet?.portAddress ?? route.universe - 1) : "" })} /> Art-Net

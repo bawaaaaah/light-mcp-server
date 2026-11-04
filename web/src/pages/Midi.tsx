@@ -419,7 +419,7 @@ export function MidiPage() {
           </ul>
           <h2>{t.monitor}</h2>
           <p className="hint">{t.monitorHelp}</p>
-          <pre className="monitor">{monitor.join("\n")}</pre>
+          <pre className="monitor">{monitor.length ? monitor.join("\n") : <span className="hint">{t.monitorEmpty}</span>}</pre>
         </section>
         <section>
           <h2>

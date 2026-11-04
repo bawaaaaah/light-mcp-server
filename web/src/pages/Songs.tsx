@@ -75,7 +75,7 @@ export function SongsPage() {
   return (
     <div className="songs">
       <section className="bar">
-        <select value={state.setlist ?? ""} onChange={(e) => e.target.value && void run("setlist.select", { id: e.target.value })}>
+        <select aria-label={t.setlist} value={state.setlist ?? ""} onChange={(e) => e.target.value && void run("setlist.select", { id: e.target.value })}>
           <option value="">{t.setlist} —</option>
           {setlists.map((s) => (
             <option key={s.id} value={s.id}>

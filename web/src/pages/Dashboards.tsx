@@ -641,9 +641,9 @@ export function DashboardsPage({ role }: { role: Role }) {
       case "song-nav":
         return (
           <div className="fill row">
-            <button {...locked("commands:trigger")} onClick={() => void run("song.prev")}>◀</button>
+            <button title={t.prevSong} {...locked("commands:trigger")} aria-label={t.prevSong} onClick={() => void run("song.prev")}>◀</button>
             <span className="grow">{song.song ? `${song.song} · ${song.section ?? ""}` : "—"}</span>
-            <button {...locked("commands:trigger")} onClick={() => void run("song.next")}>▶</button>
+            <button title={t.nextSong} {...locked("commands:trigger")} aria-label={t.nextSong} onClick={() => void run("song.next")}>▶</button>
           </div>
         );
       case "section": {

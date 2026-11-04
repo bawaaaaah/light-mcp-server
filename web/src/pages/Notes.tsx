@@ -42,7 +42,7 @@ export function NotesPage() {
         <input className="search" type="search" aria-label={t.search} placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
         {error && <span className="error">{error}</span>}
       </section>
-      {notes.length === 0 && <p className="hint">{t.noNotes}</p>}
+      {notes.length === 0 && <p className="hint">{query.trim() ? t.noMatch : t.noNotes}</p>}
       {[...groups].map(([collection, list]) => (
         // a search opens every group it found something in
         <details key={`${collection}-${Boolean(query.trim())}`} className="note-group" open={Boolean(query.trim()) || list.length <= OPEN_UP_TO}>
@@ -56,12 +56,24 @@ export function NotesPage() {
                 {editing[key(n)] !== undefined ? (
                   <div className="editor">
                     <textarea rows={3} aria-label={`${t.notes} ${n.name}`} value={editing[key(n)]} onChange={(e) => setEditing({ ...editing, [key(n)]: e.target.value })} />
-                    <button className="primary" onClick={() => save(n)}>
+                    <button className="primary" aria-label={t.save} title={t.save} onClick={() => save(n)}>
                       ✔
                     </button>
                   </div>
                 ) : (
-                  <p className="note-text" title={t.clickToEdit} onClick={() => setEditing({ ...editing, [key(n)]: n.notes })}>
+                  // a button for the keyboard too: Enter or Space edits it, as a click does
+                  <p
+                    className="note-text"
+                    role="button"
+                    tabIndex={0}
+                    title={t.clickToEdit}
+                    onClick={() => setEditing({ ...editing, [key(n)]: n.notes })}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      setEditing({ ...editing, [key(n)]: n.notes });
+                    }}
+                  >
                     {n.notes}
                   </p>
                 )}

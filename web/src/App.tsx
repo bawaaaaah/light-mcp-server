@@ -405,7 +405,7 @@ export function App() {
       </header>
       <main>
         <PageGuard key={shown} failed={t.pageFailed} reload={t.reload}>
-        <Suspense fallback={<p className="hint">…</p>}>
+        <Suspense fallback={<p className="hint page-loading" role="status">{t.loading}</p>}>
         {shown === "live" && <DashboardsPage role={role} />}
         {shown === "songs" && <SongsPage />}
         {shown === "show" && <ShowPage />}
