@@ -138,6 +138,39 @@ export function mergeColors(into: AttributeFrame["colors"], from: AttributeFrame
   }
 }
 
+/**
+ * Two looks' sheets laid over each other for a crossfade (docs/specs/engine-effects-timing.md, « Fondu
+ * enchaîné »): the incoming look's colours and the leaving ones, each already scaled by its own weight.
+ * Where both paint a cell they add up times `norm` (1 / max(1, the two weights): never brighter than the
+ * brighter of the two); where only one paints it, it stays as it is. A head shows its own colour, else the
+ * whole fixture's, as toDmx reads them: the sum is taken on what each sheet shows for that head.
+ */
+export function crossfadeColors(a: AttributeFrame["colors"], b: AttributeFrame["colors"], norm: number): AttributeFrame["colors"] {
+  const out: AttributeFrame["colors"] = new Map();
+  const add = (x: Color, y: Color): Color => {
+    const sum: Color = {};
+    for (const k of new Set([...Object.keys(x), ...Object.keys(y)]) as Set<ColorComponent>) sum[k] = Math.min(1, ((x[k] ?? 0) + (y[k] ?? 0)) * norm);
+    return sum;
+  };
+  for (const fixture of new Set([...a.keys(), ...b.keys()])) {
+    const ha = a.get(fixture);
+    const hb = b.get(fixture);
+    if (!ha || !hb) {
+      out.set(fixture, new Map(ha ?? hb));
+      continue;
+    }
+    const heads = new Map<number, Color>();
+    for (const h of new Set([...ha.keys(), ...hb.keys()])) {
+      const x = ha.get(h) ?? (h === -1 ? undefined : ha.get(-1));
+      const y = hb.get(h) ?? (h === -1 ? undefined : hb.get(-1));
+      const c = x && y ? add(x, y) : (x ?? y);
+      if (c) heads.set(h, c);
+    }
+    out.set(fixture, heads);
+  }
+  return out;
+}
+
 /** A 8- or 16-bit channel pair. */
 export interface CoarseFine {
   coarse: number;

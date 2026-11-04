@@ -20,9 +20,16 @@ export const TimingSchema = z.object({
   order: z.enum(["loop", "pingpong", "random", "weighted"]).default("loop"),
   /** Weighted order: weight per step (missing = 1). */
   weights: z.array(z.number().min(0)).optional(),
-  /** Entry fade (seconds) from what was on stage before. */
+  /**
+   * Entry fade (seconds): from black on the cells the look paints. A look that replaces another of its
+   * exclusive group comes in over it instead, as a crossfade (docs/specs/engine-effects-timing.md).
+   */
   entryFade: z.number().min(0).max(30).default(0),
-  /** Exit fade (seconds): on stop, keep playing while scaling colours to black. */
+  /**
+   * Exit fade (seconds): on stop, keep playing while scaling colours to black. When another look of its
+   * exclusive group replaces it, it leaves under the incoming one over this time, or over the incoming
+   * look's entry fade when it has none.
+   */
   exitFade: z.number().min(0).max(30).default(0),
 });
 export type Timing = z.infer<typeof TimingSchema>;
