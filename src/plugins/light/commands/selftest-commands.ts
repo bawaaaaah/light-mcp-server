@@ -73,11 +73,12 @@ function messageFor(m: Mapping): MidiMessage {
 }
 
 export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine, runtime: ShowRuntime, mappings: () => Mapping[], bpm: () => number = () => 120): void {
-  const fixturesOfLook = (lookId: string): string[] => {
+  /** The fixtures a look paints; not the absent ones (with absent: only those): they send nothing, and their addresses may be an installed fixture's. */
+  const fixturesOfLook = (lookId: string, absent = false): string[] => {
     const look = runtime.looks.get(lookId);
     if (!look) return [];
     try {
-      return [...new Set(runtime.venue.cellTargets(look.canvas).flat().map((t) => t.fixture))];
+      return [...new Set(runtime.venue.cellTargets(look.canvas).flat().map((t) => t.fixture))].filter((f) => runtime.venue.absent.has(f) === absent);
     } catch {
       return [];
     }
@@ -113,6 +114,7 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     const expectedMs = "seconds" in every ? every.seconds * 1000 : (every.beats * 60_000) / tempoBpm;
     if (look.timing.attack > 0.5) return { look: lookId, expectedMs, ok: true, detail: say("fondu (attaque) de plus d'un demi-pas : cadence non mesurable par changement, ignoré", "fade (attack) longer than half a step: rate not measurable by changes, skipped") };
     if (expectedMs > 4000) return { look: lookId, expectedMs, ok: true, detail: say("pas de plus de 4 s : ignoré", "steps longer than 4 s: skipped") };
+    if (!fixturesOfLook(lookId).length && fixturesOfLook(lookId, true).length) return { look: lookId, expectedMs, ok: true, detail: say("que des projecteurs absents pour ce show : ignoré", "only fixtures absent for this show: skipped") };
     runtime.stopAll();
     runtime.go(lookId);
     // the entry fade changes the output on every frame: measure the steps once it is over
@@ -170,7 +172,10 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
             if (call.command === "look.go") {
               const id = String(call.args.id);
               if (!runtime.isActive(id)) reason = `le look ${id} ne joue pas`;
-              else if (!litFor(fixturesOfLook(id))) reason = `le look ${id} ne produit aucun DMX`;
+              else if (!litFor(fixturesOfLook(id))) {
+                const installed = fixturesOfLook(id).length;
+                reason = !installed && fixturesOfLook(id, true).length ? say(`le look ${id} ne peint que des projecteurs absents pour ce show`, `look ${id} paints only fixtures absent for this show`) : `le look ${id} ne produit aucun DMX`;
+              }
             } else if (call.command === "group.level") {
               const g = runtime.groups.get(String(call.args.id));
               if (!g || Math.abs((g.master?.level ?? -1) - Number(call.args.level)) > 0.01) reason = say(`niveau du groupe ${String(call.args.id)} non appliqué`, `level of group ${String(call.args.id)} not applied`);

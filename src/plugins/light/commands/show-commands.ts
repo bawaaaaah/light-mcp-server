@@ -98,10 +98,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (tag) for (const f of venue.fixtures.list()) if (f.tags.includes(tag)) ids.add(f.id);
       const unknown = [...ids].filter((i) => !venue.fixtures.get(i));
       if (unknown.length) throw new Error(say(`fixture inconnue : ${unknown.join(", ")}`, `unknown fixture: ${unknown.join(", ")}`));
-      const absent = new Set(show.settings.absentFixtures.filter((i) => venue.fixtures.get(i)));
+      // ids this venue does not have are kept: they are another venue's, should the show go back to it (show.venue.set)
+      const absent = new Set(show.settings.absentFixtures);
       for (const i of ids) present ? absent.delete(i) : absent.add(i);
       show.saveSettings({ absentFixtures: [...absent].sort() });
-      return { absent: [...absent].sort(), changed: [...ids].sort() };
+      return { absent: [...absent].filter((i) => venue.fixtures.get(i)).sort(), changed: [...ids].sort() };
     },
   });
   reg.register({
@@ -138,7 +139,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const saved = venue.fixtures.put(fixture);
       const r = venue.resolve(saved.id);
       // patched anyway (two lamps on one address can be wanted), but said at once
-      const warnings = ["error" in r ? r.error : "", ...venue.patchProblems(saved.id).map((o) => o.message)].filter(Boolean);
+      const warnings = [
+        "error" in r ? r.error : "",
+        ...venue.patchProblems(saved.id).map((o) => o.message),
+        // absence goes by id: a fixture patched again under an absent one's id stays dark, and must be told
+        venue.absent.has(saved.id) ? say("absent pour ce show : rien n'est envoyé (venue.fixture.presence pour l'installer)", "absent for this show: nothing is sent (venue.fixture.presence to install it)") : "",
+      ].filter(Boolean);
       return { fixture: saved, warning: warnings.length ? warnings.join(" ; ") : undefined };
     },
   });
@@ -240,7 +246,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...show.looks.list().filter((l) => l.channels?.targets.some((c) => c.fixture === i)).map((l) => `look ${l.name}`),
         ...venue.canvases.list().filter((c) => c.render.some((r) => r.targets.some((t) => t.fixture === i))).map((c) => `canevas ${c.name}`),
       ];
-      return { deleted: venue.fixtures.delete(i), usedBy };
+      const deleted = venue.fixtures.delete(i);
+      // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
+      if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });
+      return { deleted, usedBy };
     },
   });
   reg.register({ name: "venue.canvas.list", title: "Canevas", description: "Canvases of the venue and their rendering onto fixtures.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.canvases.list() });

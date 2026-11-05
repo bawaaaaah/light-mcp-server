@@ -12,7 +12,7 @@ import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
 import { getEnvBool } from "../core/env.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
-import { diffFolder, packArchive, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
+import { diffFolder, packArchive, pinShowVenue, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
 
 const USAGE = `light <commande>
   serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
@@ -352,7 +352,10 @@ async function unpack(caller: Caller, file: string, check = false): Promise<numb
   const p = caller.plugin!;
   const content = readArchive(new Uint8Array(bytes));
   const backups = path.join(DATA_ROOT, "backups", "restore-" + new Date().toISOString().replace(/[:.]/g, "-"));
-  if (Object.keys(content.show).length) restoreFolder(p.runtime.store.root, content.show, path.join(backups, "show"));
+  if (Object.keys(content.show).length) {
+    restoreFolder(p.runtime.store.root, content.show, path.join(backups, "show"));
+    pinShowVenue(p.runtime.store.root, path.basename(p.venue.store.root)); // the show stays on the venue restored into
+  }
   if (Object.keys(content.venue).length) restoreFolder(p.venue.store.root, content.venue, path.join(backups, "venue"));
   console.log(`✔ restauré (${Object.keys(content.show).length} fichiers de show, ${Object.keys(content.venue).length} de lieu) ; copie de l'existant : ${path.relative(DATA_ROOT, backups)}`);
   return 0;

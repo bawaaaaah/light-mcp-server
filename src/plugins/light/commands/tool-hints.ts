@@ -108,7 +108,7 @@ export const HINTS: Record<string, string> = {
   "show.reset": "DI",
   "show.revert": "D",
   "show.settings.set": "I",
-  "show.venue.detach": "",
+  "show.venue.detach": "I",
   "show.venue.set": "I",
   "snapshot.delete": "DI",
   "snapshot.recall": "I",

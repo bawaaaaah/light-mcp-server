@@ -171,7 +171,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           const said = new Set<string>();
           l.channels.targets.forEach((t, k) => {
             const r = runtime.venue.resolve(t.fixture);
-            if ("error" in r) return;
+            if ("error" in r || runtime.venue.absent.has(t.fixture)) return; // absent: nothing is sent, nothing is bounded
             const name = r.mode.channels[t.offset];
             for (const value of new Set(l.channels!.steps.map((row) => row[k] ?? 0))) {
               const buf = new Uint8Array(512);
@@ -189,7 +189,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       // a « Hz max » only bounds strobes whose definition gives their frequencies: say where it does nothing
       for (const rule of [...runtime.venueRules.list(), ...runtime.rules.list()].filter((r) => r.maxHz !== undefined)) {
         const blind = new Set<string>();
-        for (const f of runtime.venue.fixtures.list()) {
+        for (const f of runtime.venue.installed()) {
           const r = runtime.venue.resolve(f.id);
           if ("error" in r) continue;
           for (const name of r.mode.channels) {

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -163,6 +163,58 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
       () => expect.fail("the open venue is not a source"),
       () => undefined,
     );
+  });
+
+  it("keeps the absent list where it means something: copies, a new venue, a reset, a deletion, another venue", async () => {
+    const [first, second] = ((await run("venue.fixture.list")) as { id: string }[]).map((f) => f.id);
+    const absentOf = (show: string) => (JSON.parse(readFileSync(join(dataRoot, "shows", show, "show.json"), "utf8")) as { absentFixtures?: string[] }).absentFixtures ?? [];
+    await run("venue.fixture.presence", { fixtures: [first, second], present: false });
+    // patched again under an absent id: said at once, it stays dark
+    const listed = ((await run("venue.fixture.list")) as { id: string }[]).find((f) => f.id === first)!;
+    expect(((await run("venue.fixture.put", { fixture: listed })) as { warning?: string }).warning).to.match(/absent/);
+    await run("show.create", { name: "Copie", from: "default", venue: "copy", open: false });
+    expect(absentOf("copie")).to.deep.equal([first, second].sort()); // its venue is a copy: the same fixtures are absent
+    await run("show.create", { name: "Neuf", from: "default", venue: "new", open: false });
+    expect(absentOf("neuf")).to.deep.equal([]); // an empty venue: nothing to be absent from
+    await run("show.reset");
+    expect(absentOf("default")).to.deep.equal([first, second].sort()); // the venue kept, so is what is not installed
+    await run("venue.fixture.delete", { id: first });
+    expect(absentOf("default")).to.deep.equal([second]); // gone from the patch, gone from the list
+    // on another venue, the ids are kept; only those it has are reported as dark
+    expect(await run("show.venue.set", { venue: "neuf" })).to.deep.include({ venue: "neuf", absent: [] });
+    await run("venue.fixture.presence", { fixtures: [], present: false });
+    expect(absentOf("default")).to.deep.equal([second]); // an edit on this venue keeps the other venue's ids
+    expect(await run("show.venue.set", { venue: "default" })).to.deep.include({ absent: [second] });
+  });
+
+  it("keeps a restored show on the venue it was restored into, and refuses a venue that is not an id", async () => {
+    await run("show.create", { name: "Autre", open: false }); // shares the venue
+    const { file } = (await run("backup.create")) as { file: string };
+    await run("show.venue.detach"); // the open show now on its own copy
+    await run("backup.restore", { file }); // packed when it played on the shared venue
+    expect(saved.venue).to.equal("default-2");
+    expect((JSON.parse(readFileSync(join(dataRoot, "shows", "default", "show.json"), "utf8")) as { venue: string }).venue).to.equal("default-2");
+    expect(((await run("show.list")) as ShowRow[]).find((s) => s.id === "default")!.venue).to.equal("default-2");
+    // a hand-edited show.json naming a path
+    writeFileSync(join(dataRoot, "shows", "autre", "show.json"), JSON.stringify({ name: "Autre", venue: "../shows/default" }));
+    for (const [command, args] of [["show.open", { id: "autre" }], ["show.venue.detach", { show: "autre" }]] as const) {
+      await run(command, args).then(
+        () => expect.fail(`${command} follows a venue outside data/venues`),
+        (e: Error) => expect(e.message).to.match(/invalid|invalide/),
+      );
+    }
+  });
+
+  it("previews a position import from a damaged venue without failing on it", async () => {
+    await run("show.create", { name: "Source", venue: "copy" });
+    const placed = ((await run("venue.fixture.list")) as { id: string }[])[0]!;
+    await run("stage.zone.put", { zone: { id: "ailleurs", name: "Ailleurs", polygon: [[0, 0], [1, 0], [1, 1]] } });
+    await run("venue.fixture.put", { fixture: { ...placed, position: { x: 1, y: 1, z: 1 }, target: "ailleurs" } });
+    await run("show.open", { id: "default" });
+    writeFileSync(join(dataRoot, "venues", "source", "fixtures", "broken.json"), "{ not json");
+    const preview = (await run("venue.positions.import", { from: "source" })) as { moves: { id: string; changed: string[]; skipped?: string[] }[]; unreadable?: string[] };
+    expect(preview.unreadable).to.deep.equal(["broken.json"]);
+    expect(preview.moves.find((m) => m.id === placed.id)).to.deep.include({ changed: ["position"], skipped: ["target"] }); // no such zone here
   });
 
   it("keeps named backups on the server", async () => {

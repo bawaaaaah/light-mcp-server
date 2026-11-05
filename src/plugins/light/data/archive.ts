@@ -7,6 +7,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import path from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { say } from "../../../core/lang.js";
+import { stableStringify } from "./store.js";
 
 export interface ArchiveManifest {
   format: "lightshow";
@@ -103,4 +104,28 @@ export function restoreFolder(dir: string, files: Record<string, string>, backup
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, text, "utf8");
   }
+}
+
+/**
+ * After a restore into the open show's folder: its show.json names the venue it was packed with,
+ * which may be another one since (show.venue.set / detach) — or, in a hand-made archive, no id at
+ * all. The venue in place is the one restored into and kept loaded: show.json is made to say so.
+ * Returns the venue the archive named when it differed. An unreadable show.json is left alone.
+ */
+export function pinShowVenue(showDir: string, venue: string): string | undefined {
+  const file = path.join(showDir, "show.json");
+  let settings: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+      settings = parsed as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+  if (settings.venue === venue) return undefined;
+  mkdirSync(showDir, { recursive: true });
+  writeFileSync(file, stableStringify({ ...settings, venue }));
+  return typeof settings.venue === "string" ? settings.venue : "default";
 }

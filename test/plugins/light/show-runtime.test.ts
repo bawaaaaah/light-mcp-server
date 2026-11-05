@@ -90,6 +90,20 @@ describe("show runtime", () => {
     expect(venue.strobing([strobe])).to.deep.equal({});
   });
 
+  it("bounds nothing through an absent fixture that shares an installed one's addresses", () => {
+    const { venue, show, dmx } = setup();
+    show.looks.put({ id: "rouge", name: "Rouge", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#ff0000"], block: 1 } });
+    show.go("rouge");
+    expect(dmx()[3]).to.equal(255); // bar-l, head 1, red
+    // one channel further, the same model: its channels land on bar-l's, and its rule says « all at 0 »
+    venue.fixtures.put({ id: "a-ghost", name: "Fantôme", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 2 });
+    show.rules.put({ id: "noir", name: "Noir", level: "show", scope: { fixture: "a-ghost" }, target: {}, max: 0 });
+    expect(dmx()[3]).to.equal(0); // installed, it is bounded (and so is bar-l, on the same bytes)
+    show.saveSettings({ absentFixtures: ["a-ghost"] });
+    expect(dmx()[3]).to.equal(255); // absent: its rule bounds nothing
+    expect(show.explainChannel(1, 4).fixture?.id).to.equal("bar-l"); // and a channel is the installed fixture's
+  });
+
   it("glides smoothed DCA, channel and grand master faders to their level (groups-masters.md, « Lissage »)", () => {
     const { show, dmx, advance } = setup();
     show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" } });

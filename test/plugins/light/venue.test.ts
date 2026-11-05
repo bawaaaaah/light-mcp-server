@@ -129,4 +129,13 @@ describe("venue: patch, canvas and DMX conversion", () => {
     expect(change.fields).to.deep.equal({ position: { x: 3, y: 1, z: 4 }, mount: "truss" }); // address and name stay the target's
     expect(placementChange(source[1]!, { ...target[1]!, ...change.fields }).changed).to.deep.equal([]);
   });
+  it("pairs no fixtures by an empty name, marks pairs taken among several, and copies only targets this venue has", () => {
+    const fx = (id: string, name: string, address: number, extra: Partial<PatchedFixture> = {}): PatchedFixture => ({ id, name, manufacturer: "Test", model: "Bar 4", mode: "15-channel", universe: 1, address, tags: [], ...extra });
+    const other = (f: PatchedFixture): PatchedFixture => ({ ...f, model: "Par RGB", mode: "3 Channel" });
+    // names in another script normalise to nothing: they must not all pair with each other
+    const { pairs } = pairFixtures([other(fx("s1", "Лира", 1)), fx("s2", "Бар", 20), fx("s3", "Бар", 40)], [fx("t1", "Барра", 1), other(fx("t2", "Лира", 30))]);
+    expect(pairs.map((p) => [p.from.id, p.to.id, p.by, p.ambiguous ?? false])).to.deep.equal([["s1", "t2", "model", false], ["s2", "t1", "model", true]]);
+    const change = placementChange(fx("a", "A", 1, { target: "pupitre", mount: "truss" }), fx("a", "A", 1), new Set(["scene"]));
+    expect(change).to.deep.equal({ fields: { mount: "truss" }, changed: ["mount"], skipped: ["target"] });
+  });
 });

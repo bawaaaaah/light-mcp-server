@@ -106,14 +106,28 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   const knownVenue = (id: string) => {
     if (!ID_RE.test(id) || !existsSync(path.join(venuesDir, id))) throw new Error(say(`lieu inconnu : ${id}`, `unknown venue: ${id}`));
   };
-  const fixturesOfVenue = (id: string): PatchedFixture[] => {
+  /** The venue a show.json names, refused when it is not an id (a hand-edited or restored file must not reach outside data/venues). */
+  const venueOf = (showId: string) => {
+    const v = settingsOf(showId).venue;
+    if (!ID_RE.test(v)) throw new Error(say(`lieu invalide dans le show ${showId} : ${v}`, `invalid venue in show ${showId}: ${v}`));
+    return v;
+  };
+  /** A venue's patch as on disk; files that do not read as a fixture are skipped, and named in `unreadable` when given. */
+  const fixturesOfVenue = (id: string, unreadable?: string[]): PatchedFixture[] => {
     const dir = path.join(venuesDir, id, "fixtures");
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
       .flatMap((f) => {
-        const parsed = PatchedFixtureSchema.safeParse(JSON.parse(readFileSync(path.join(dir, f), "utf8")));
-        return parsed.success ? [parsed.data] : [];
+        let parsed;
+        try {
+          parsed = PatchedFixtureSchema.safeParse(JSON.parse(readFileSync(path.join(dir, f), "utf8")));
+        } catch {
+          parsed = undefined;
+        }
+        if (parsed?.success) return [parsed.data];
+        unreadable?.push(f);
+        return [];
       });
   };
   /** Points a show at a venue; the open show is reopened on it. */
@@ -165,14 +179,15 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       const id = freeId(name, showsDir);
       if (from) cpSync(showDir(from), showDir(id), { recursive: true });
       else mkdirSync(showDir(id), { recursive: true });
-      const baseVenue = from ? settingsOf(from).venue : s.current().venue;
+      const baseVenue = from ? venueOf(from) : s.current().venue;
       let venueId = baseVenue;
       if (venue !== "current") {
         venueId = freeId(id, venuesDir);
         if (venue === "copy" && existsSync(path.join(venuesDir, baseVenue))) cpSync(path.join(venuesDir, baseVenue), path.join(venuesDir, venueId), { recursive: true });
         else mkdirSync(path.join(venuesDir, venueId), { recursive: true });
       }
-      writeSettings(id, { name, venue: venueId });
+      // an empty venue has none of the copied show's fixtures: its absent list would darken fixtures patched later under the same ids
+      writeSettings(id, { name, venue: venueId, ...(venue === "new" ? { absentFixtures: [] } : {}) });
       if (open) await s.open(id);
       const imported = qxw ? await s.importQxw(qxw) : undefined;
       return { id, name, venue: venueId, opened: open, imported };
@@ -213,7 +228,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.venue.set",
     title: "Changer le lieu d'un show",
-    description: "Makes a show play on another existing venue (default: the open show, which is reopened on it). Nothing is copied: the show now shares that venue with the others that use it. Its absent fixtures are kept by id.",
+    description: "Makes a show play on another existing venue (default: the open show, which is reopened on it). Nothing is copied: the show now shares that venue with the others that use it. Its absent fixtures are kept by id: `absent` lists those the new venue has, dark for this show.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ venue: z.string(), show: z.string().optional() }),
@@ -223,7 +238,9 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       knownVenue(venue);
       const was = settingsOf(target).venue;
       await attach(target, venue);
-      return { show: target, venue, was, sharedWith: showsOn(venue, target) };
+      const here = new Set(fixturesOfVenue(venue).map((f) => f.id));
+      // the absent ids it keeps: those this venue has are dark for this show from now on
+      return { show: target, venue, was, sharedWith: showsOn(venue, target), absent: settingsOf(target).absentFixtures.filter((i) => here.has(i)) };
     },
   });
 
@@ -237,7 +254,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     run: async ({ show }) => {
       const target = show ?? s.current().show;
       known(target);
-      const from = settingsOf(target).venue;
+      const from = venueOf(target);
       const others = showsOn(from, target);
       if (!others.length) return { show: target, venue: from, detached: false, sharedWith: [] };
       s.flush();
@@ -253,7 +270,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     name: "venue.positions.import",
     title: "Reprendre les positions d'un autre lieu",
     description:
-      "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order. Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, and what has no equivalent on either side. With apply true the moves are written, one venue.fixture.put each.",
+      "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order (`ambiguous`: several candidates shared that name or model, paired by address: check them). A target zone this venue lacks is not copied (`skipped`). Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, what has no equivalent on either side, and the source files that did not read (`unreadable`). With apply true every move is checked first, then written, one venue.fixture.put each; a write refused midway stops and says how many were moved.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ from: z.string(), apply: z.boolean().default(false) }),
@@ -261,16 +278,32 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       knownVenue(from);
       if (from === s.current().venue) throw new Error(say("c'est le lieu ouvert", "that is the open venue"));
       const mine = PatchedFixtureSchema.array().parse(await reg.invoke("venue.fixture.list", {}, ctx));
-      const { pairs, unmatchedSource, unmatchedTarget } = pairFixtures(fixturesOfVenue(from), mine);
-      const moves = pairs.map((p) => ({ ...p, ...placementChange(p.from, p.to) }));
+      // a target is a zone of the source: kept only where this venue has a zone of that id
+      const zones = new Set((z.array(z.object({ id: z.string() }).passthrough()).parse(await reg.invoke("stage.zone.list", {}, ctx))).map((x) => x.id));
+      const unreadable: string[] = [];
+      const { pairs, unmatchedSource, unmatchedTarget } = pairFixtures(fixturesOfVenue(from, unreadable), mine);
+      const moves = pairs.map((p) => ({ ...p, ...placementChange(p.from, p.to, zones) }));
       const toMove = moves.filter((m) => m.changed.length);
-      if (apply) for (const m of toMove) await reg.invoke("venue.fixture.put", { fixture: { ...m.to, ...m.fields } }, ctx);
+      // every fixture checked before the first write: a refused one would leave the venue half moved
+      const next = toMove.map((m) => PatchedFixtureSchema.parse({ ...m.to, ...m.fields }));
+      let written = 0;
+      if (apply) {
+        for (const fixture of next) {
+          try {
+            await reg.invoke("venue.fixture.put", { fixture }, ctx);
+          } catch (err) {
+            throw new Error(say(`${written} projecteur(s) déplacé(s) sur ${next.length}, arrêt sur ${fixture.id} : ${(err as Error).message}`, `${written} of ${next.length} fixture(s) moved, stopped at ${fixture.id}: ${(err as Error).message}`));
+          }
+          written++;
+        }
+      }
       return {
         applied: apply,
-        moves: toMove.map((m) => ({ id: m.to.id, name: m.to.name, from: m.from.id, by: m.by, changed: m.changed })),
+        moves: toMove.map((m) => ({ id: m.to.id, name: m.to.name, from: m.from.id, by: m.by, ...(m.ambiguous ? { ambiguous: true } : {}), changed: m.changed, ...(m.skipped.length ? { skipped: m.skipped } : {}) })),
         unchanged: moves.length - toMove.length,
         noEquivalentHere: unmatchedSource.map((f) => ({ id: f.id, name: f.name })),
         notInSource: unmatchedTarget.map((f) => ({ id: f.id, name: f.name })),
+        ...(unreadable.length ? { unreadable } : {}),
       };
     },
   });
@@ -320,9 +353,10 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     run: ({ venue }) => {
       const saved = backup("avant-reinitialisation");
       const { show, venue: venueId } = s.current();
-      const name = settingsOf(show).name;
+      const { name, absentFixtures } = settingsOf(show);
       rmSync(showDir(show), { recursive: true, force: true });
-      writeSettings(show, { name, venue: venueId });
+      // the venue kept, what is not installed stays so (its fixtures often share addresses with installed ones)
+      writeSettings(show, { name, venue: venueId, ...(venue ? {} : { absentFixtures }) });
       if (venue) {
         rmSync(path.join(venuesDir, venueId), { recursive: true, force: true });
         mkdirSync(path.join(venuesDir, venueId), { recursive: true });

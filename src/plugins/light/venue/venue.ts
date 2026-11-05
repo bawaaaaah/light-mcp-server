@@ -298,6 +298,15 @@ export class Venue {
     store.onChange(() => this.resolved.clear());
   }
 
+  /**
+   * The fixtures installed for the open show (the patch without the absent ones). Whatever reads or
+   * bounds the output per fixture walks these: an absent fixture often shares its addresses with an
+   * installed one, and its channel layout would misread (or clamp) that one's bytes.
+   */
+  installed(): PatchedFixture[] {
+    return this.fixtures.list().filter((f) => !this.absent.has(f.id));
+  }
+
   /** Points the venue at another folder (the venue of another show) and reads it. */
   retarget(root: string, backupRoot: string | undefined, definitionDirs: string[]): void {
     this.definitionDirs = definitionDirs;
@@ -355,7 +364,7 @@ export class Venue {
 
   /** Each patched fixture's DMX footprint (one channel when its definition is missing). */
   patchRanges(): PatchedRange[] {
-    return this.fixtures.list().filter((f) => !this.absent.has(f.id)).map((f) => {
+    return this.installed().map((f) => {
       const r = this.resolve(f.id);
       return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels: "error" in r ? 1 : r.mode.channels.length, kind: `${f.manufacturer}|${f.model}|${f.mode}` };
     });
@@ -623,10 +632,13 @@ export class Venue {
     return pointing(aimSetupOf(r)!, { pan, tilt });
   }
 
-  /** DMX slots (0-based, per universe) holding pan/tilt: kept on Blackout so heads do not swing. */
+  /**
+   * DMX slots (0-based, per universe) holding pan/tilt: kept on Blackout so heads do not swing. Not
+   * an absent fixture's: its pan/tilt slots may be an installed fixture's dimmer, kept lit otherwise.
+   */
   positionSlots(): Map<number, number[]> {
     const out = new Map<number, number[]>();
-    for (const patch of this.fixtures.list()) {
+    for (const patch of this.installed()) {
       const r = this.resolve(patch.id);
       if ("error" in r) continue;
       const offs = [r.pan?.coarse, r.pan?.fine, r.tilt?.coarse, r.tilt?.fine].filter((x): x is number => x !== undefined);

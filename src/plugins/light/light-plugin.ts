@@ -4,7 +4,7 @@
  */
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
-import { diffFolder, packArchive, readArchive, restoreFolder } from "./data/archive.js";
+import { diffFolder, packArchive, pinShowVenue, readArchive, restoreFolder } from "./data/archive.js";
 import { z } from "zod";
 import type { AuthMiddleware } from "../../core/auth.js";
 import type { EventBus } from "../../core/event-bus.js";
@@ -32,7 +32,7 @@ import { loadKnowledge, type Knowledge } from "./knowledge/knowledge.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
-import { FolderStore } from "./data/store.js";
+import { FolderStore, ID_RE } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
@@ -441,6 +441,8 @@ export class LightPlugin implements McpPlugin {
     const showRoot = path.join(this.dataRoot, "shows", id);
     const settingsFile = path.join(showRoot, "show.json");
     const venue = ShowSettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {}).venue;
+    // a folder name: a hand-edited show.json must not open a venue outside data/venues
+    if (!ID_RE.test(venue)) throw new Error(say(`lieu invalide dans le show ${id} : ${venue}`, `invalid venue in show ${id}: ${venue}`));
     // the open show again is a no-op, unless its venue changed (show.venue.set / detach): then it follows
     if (id === this.config.show && venue === this.config.venue) return;
     this.saveLive();
@@ -460,7 +462,10 @@ export class LightPlugin implements McpPlugin {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backups = path.join(this.dataRoot, "backups", "restore-" + stamp);
     this.runtime.stopAll();
-    if (Object.keys(content.show).length) restoreFolder(this.show.root, content.show, path.join(backups, "show"));
+    if (Object.keys(content.show).length) {
+      restoreFolder(this.show.root, content.show, path.join(backups, "show"));
+      pinShowVenue(this.show.root, this.config.venue); // the show stays on the venue it was restored with
+    }
     if (Object.keys(content.venue).length) restoreFolder(this.venue.store.root, content.venue, path.join(backups, "venue"));
     this.reloadFromDisk();
     return { manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) };
@@ -765,6 +770,7 @@ export class LightPlugin implements McpPlugin {
       "Changing safely: propose before you write — light_show_diff says what a put would change, field by field, without writing; for several changes, light_show_propose holds them as one proposal that the user applies on the Show page (or you, on their yes, with light_show_apply; light_show_revert takes it back as a whole). Show what it does and write on the user's yes. light_show_references says where a look, group or channel fader is used; deletes are refused while something uses it unless force. light_history_undo takes back a change from its light_activity_list line (say first what was changed on that object since); light_history_list / light_history_restore put an earlier version back, light_history_deleted lists what can come back.",
       "Checking: light_show_lint (references, patch overlaps, missing definitions, ambiguous names), light_venue_patch_check, light_selftest_run. light_activity_list says who did what and from where.",
       "Building a show: patch fixtures, make a canvas, create looks (light_look_from_intent, light_show_autopresets), then light_dashboard_generate.",
+      "Venues: several shows may play on one venue (light_venue_list), and a patch change then changes all of them; light_show_venue_detach gives the open show its own copy first. Gear not installed for this show is marked with light_venue_fixture_presence (dark, silent, kept in the patch), not deleted; light_venue_positions_import copies placement from another venue (preview, then apply).",
       "During a service (profile live), only if the desk switched « IA en live » on (show settings, liveAi): light_live_adjust makes small touch-ups — a DCA by up to 25 % at a time, a look started or stopped — within the rules, without asking each time. Never a manual-only or danger look; Panic and Blackout remain for emergencies.",
     ].join("\n");
   }
@@ -818,7 +824,7 @@ export class LightPlugin implements McpPlugin {
       }),
     );
     server.registerResource("venue", "light://venue", { title: "Lieu", description: "Patch, canvases and rules of the venue.", mimeType: "application/json" }, (uri) =>
-      json(uri, { fixtures: this.venue.fixtures.list(), canvases: this.venue.canvases.list().map(({ render, ...c }) => ({ ...c, renderedRanges: render.length })), rules: this.runtime.venueRules.list() }),
+      json(uri, { fixtures: this.venue.fixtures.list().map((f) => (this.venue.absent.has(f.id) ? { ...f, absent: true } : f)), canvases: this.venue.canvases.list().map(({ render, ...c }) => ({ ...c, renderedRanges: render.length })), rules: this.runtime.venueRules.list() }),
     );
     server.registerResource("live", "light://live", { title: "En direct", description: "What is playing now, in plain French: standby, forced channels, looks, masters, blackout, tempo, song and section.", mimeType: "text/plain" }, async (uri) => {
       const t = this.tempo.state();

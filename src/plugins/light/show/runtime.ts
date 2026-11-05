@@ -514,7 +514,8 @@ export class ShowRuntime {
    * the output value and any forcing from the console, which live in the engine.
    */
   explainChannel(universe: number, channel: number) {
-    const fixture = this.venue.fixtures.list().find((f) => {
+    // an installed fixture first: an absent one on the same address sends nothing there
+    const fixture = [...this.venue.installed(), ...this.venue.fixtures.list().filter((f) => this.venue.absent.has(f.id))].find((f) => {
       if (f.universe !== universe || channel < f.address) return false;
       const r = this.venue.resolve(f.id);
       return channel < f.address + ("error" in r ? 1 : r.mode.channels.length);
@@ -663,7 +664,7 @@ export class ShowRuntime {
       for (let k = 0; k < 20; k++) {
         const buffers = Array.from({ length: universes }, () => new Uint8Array(512));
         this.compose(buffers, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60);
-        for (const f of this.venue.fixtures.list()) {
+        for (const f of this.venue.installed()) {
           const r = this.venue.resolve(f.id);
           const buf = buffers[f.universe - 1];
           if ("error" in r || !buf) continue;
@@ -843,7 +844,7 @@ export class ShowRuntime {
     if (rules.some((r) => r.maxDegPerSecond || r.steadySeconds)) {
       const now = this.now();
       const zoneById = this.zoneLookup();
-      for (const f of this.venue.fixtures.list()) {
+      for (const f of this.venue.installed()) {
         const r = this.venue.resolve(f.id);
         const buf = buffers[f.universe - 1];
         if ("error" in r || !buf) continue;
@@ -854,7 +855,7 @@ export class ShowRuntime {
     const playing = new Set(this.activeLooks());
     const noAim = this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
     if (!noAim.length) return;
-    for (const f of this.venue.fixtures.list()) {
+    for (const f of this.venue.installed()) {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
       if (!f.position || "error" in r || !buf || (!r.pan && !r.tilt)) continue;
@@ -893,7 +894,8 @@ export class ShowRuntime {
     if (!rules.length) return clamps;
     const now = this.now();
     const zoneById = this.zoneLookup();
-    for (const f of this.venue.fixtures.list()) {
+    // not the absent fixtures: their channel layout would bound an installed fixture sharing their addresses
+    for (const f of this.venue.installed()) {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
       if ("error" in r || !buf) continue;

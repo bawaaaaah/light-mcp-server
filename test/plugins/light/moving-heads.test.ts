@@ -348,5 +348,12 @@ describe("moving heads", () => {
       expect([b[0], b[2]]).to.deep.equal([64, 64]); // pan/tilt kept
       expect([b[4], b[5]]).to.deep.equal([0, 0]); // wheel and dimmer out
     });
+
+    it("keeps no slot of an absent head on Blackout: there an installed fixture may hold its dimmer", () => {
+      const { venue, show } = setup();
+      expect(venue.positionSlots().get(1)).to.include.members([0, 1, 2, 3, 10]);
+      show.saveSettings({ absentFixtures: ["spot-r"] });
+      expect(venue.positionSlots().get(1)).to.deep.equal([0, 1, 2, 3]); // spot-l's pan/tilt only
+    });
   });
 });
