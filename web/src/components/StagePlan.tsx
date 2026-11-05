@@ -42,6 +42,8 @@ export interface PlanFixture {
   facing?: Facing;
   /** Marker colour (venue.fixture.mark): the name is written in it. */
   color?: string;
+  /** Not installed for the open show: dark, no DMX, dimmed on the plan. */
+  absent?: boolean;
 }
 export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
 export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number; roll?: number };
@@ -634,6 +636,7 @@ export function StagePlan({
         {/* light first, under every fixture: a cone where the beam is known, a halo otherwise */}
         {fixtures.map((f) => {
           const p = placeOf(f.id);
+          if (f.absent) return null;
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
           const beam = cone(f, lit[Math.floor(lit.length / 2)]!);
@@ -654,14 +657,14 @@ export function StagePlan({
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
-          const showBeam = (beamsShown && Boolean(f.orientation)) || (orienting && isSelected);
+          const showBeam = !f.absent && ((beamsShown && Boolean(f.orientation)) || (orienting && isSelected));
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
           return (
             <g
               key={f.id}
-              className={isSelected ? "fixture selected" : "fixture"}
+              className={[isSelected ? "fixture selected" : "fixture", f.absent ? "absent" : ""].filter(Boolean).join(" ")}
               data-fixture={f.id}
               onPointerDown={(e) => {
                 if (orienting) {
@@ -691,7 +694,7 @@ export function StagePlan({
                 ))}
                 <rect className="bar-outline" x={x0} y={y0} width={w} height={h} fill="none" pointerEvents="none" stroke="#4a5060" strokeWidth={0.5} />
                 {isSelected && <rect className="selection" x={x0 - 4} y={y0 - 4} width={w + 8} height={h + 8} fill="none" />}
-                {f.id in strobe && cols.some((c) => c !== "#000000") && <rect className="strobe-outline" x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />}
+                {f.id in strobe && !f.absent && cols.some((c) => c !== "#000000") && <rect className="strobe-outline" x={x0 - 3} y={y0 - 3} width={w + 6} height={h + 6} fill="none" />}
               </g>
               {showBeam && (
                 <g className="beam">
@@ -705,7 +708,7 @@ export function StagePlan({
                   )}
                 </g>
               )}
-              {f.id in strobe && cols.some((c) => c !== "#000000") && (
+              {f.id in strobe && !f.absent && cols.some((c) => c !== "#000000") && (
                 <g className="strobe-mark">
                   <title>{strobe[f.id] === null ? t.strobing : `${t.strobing} · ${Math.round(strobe[f.id]!)} Hz`}</title>
                   <text x={sx(p.x)} y={y0 - 6} textAnchor="middle">

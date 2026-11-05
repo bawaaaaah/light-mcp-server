@@ -194,10 +194,13 @@ export function VenuePage() {
                     <input type="checkbox" title={t.installedHelp} aria-label={`${t.installed} ${f.name}`} checked={!f.absent} onChange={(e) => void run("venue.fixture.presence", { fixtures: [f.id], present: e.target.checked })} />
                   </td>
                   <td>
-                    <button className="ghost" title={t.delete} onClick={() => void run("venue.fixture.delete", { id: f.id }).then((r) => {
+                    <button className="ghost" title={t.delete} onClick={() => {
+                      if (openVenue?.shared && !confirm(`${t.deleteSharedConfirm} ${sharedShows.join(", ")}`)) return;
+                      void run("venue.fixture.delete", { id: f.id }).then((r) => {
                         const usedBy = (r as { usedBy?: string[] } | undefined)?.usedBy ?? [];
                         if (usedBy.length) setError(`${f.name} : ${t.stillUsedBy} ${usedBy.join(", ")}`);
-                      })}>
+                      });
+                    }}>
                       ✕
                     </button>
                   </td>

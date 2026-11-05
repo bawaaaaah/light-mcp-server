@@ -2546,3 +2546,6 @@ fieldset.checklist .checklist-search {
 
 /* A fixture not installed for the open show: still listed, dimmed. */
 .venue tr.absent td:not(:has(input[type=checkbox])) { opacity: 0.45; }
+
+/* An absent fixture on the stage plan: dimmed, but still selectable and draggable. */
+.stage-plan .fixture.absent { opacity: 0.45; }
