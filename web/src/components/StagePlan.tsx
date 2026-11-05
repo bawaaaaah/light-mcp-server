@@ -635,8 +635,8 @@ export function StagePlan({
         {dragged?.guide.y !== undefined && <line className="plan-guide" x1={-pad.left} x2={W + pad.right} y1={sy(dragged.guide.y)} y2={sy(dragged.guide.y)} />}
         {/* light first, under every fixture: a cone where the beam is known, a halo otherwise */}
         {fixtures.map((f) => {
-          const p = placeOf(f.id);
           if (f.absent) return null;
+          const p = placeOf(f.id);
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
           const beam = cone(f, lit[Math.floor(lit.length / 2)]!);
@@ -657,7 +657,8 @@ export function StagePlan({
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
-          const showBeam = !f.absent && ((beamsShown && Boolean(f.orientation)) || (orienting && isSelected));
+          // an absent fixture casts no light, but the one being oriented keeps its arrow
+          const showBeam = (!f.absent && beamsShown && Boolean(f.orientation)) || (orienting && isSelected);
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);

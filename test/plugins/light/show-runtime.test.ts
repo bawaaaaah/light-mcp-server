@@ -84,6 +84,10 @@ describe("show runtime", () => {
     const strobe = dmx();
     strobe[1] = 200; // bar-l's strobe channel, in its « slow to fast » range: no frequency given
     expect(venue.strobing([strobe])).to.deep.equal({ "bar-l": null });
+    // an absent fixture shows nothing, even on channels another fixture drives (here its own, read from a buffer it did not fill)
+    venue.absent = new Set(["bar-l"]);
+    expect(venue.displayColors([strobe])["bar-l"]).to.deep.equal(["#000000", "#000000", "#000000", "#000000"]);
+    expect(venue.strobing([strobe])).to.deep.equal({});
   });
 
   it("glides smoothed DCA, channel and grand master faders to their level (groups-masters.md, « Lissage »)", () => {

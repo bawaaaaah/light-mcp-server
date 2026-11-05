@@ -1610,6 +1610,50 @@ test("venue: the patch reads by address, and fixtures sharing channels are flagg
   expect(errors).toEqual([]);
 });
 
+test("venue: a shared venue says so, asks before deleting a fixture, and detaches", async ({ page, request }) => {
+  const errors = watchErrors(page);
+  // setup and cleanup with the master token, outside the page
+  const call = async (name: string, args: unknown = {}) =>
+    ((await (await request.post(`/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+  const shows = (await call("show.list")) as { id: string; venue: string; active: boolean }[];
+  const open = shows.find((s) => s.active)!;
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  const banner = page.locator(".venue p.hint", { hasText: "Ce lieu est partagé" });
+  await expect(page.locator("#venue-patch tr").first()).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  // another show on the same venue, not opened: the page hears it and says so
+  const other = (await call("show.create", { name: "Show partagé", venue: "current", open: false })) as { id: string };
+  try {
+    await expect(banner).toContainText("Show partagé");
+    await call("venue.fixture.put", { fixture: { id: "spare", name: "Spare", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 2, address: 400 } });
+    const del = page.locator("#venue-patch tr", { hasText: "Spare" }).getByRole("button", { name: "Supprimer Spare" });
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await del.click();
+    expect(asked).toContain("Show partagé");
+    expect(asked).toContain("Installé pour ce show");
+    await expect(page.locator("#venue-patch tr", { hasText: "Spare" })).toHaveCount(1); // dismissed: kept
+    page.once("dialog", (d) => void d.accept());
+    await del.click();
+    await expect(page.locator("#venue-patch tr", { hasText: "Spare" })).toHaveCount(0);
+    // detach: the open show gets its own copy (same show, no reload), its patch kept; the banner goes
+    page.once("dialog", (d) => void d.accept());
+    await banner.getByRole("button", { name: "Dissocier" }).click();
+    await expect(banner).toHaveCount(0);
+    await expect(page.locator("#venue-patch tr", { hasText: "Bar 0" })).toHaveCount(1);
+    const venues = (await call("venue.list")) as { id: string; shows: string[]; active: boolean }[];
+    expect(venues.find((v) => v.active)!.id).not.toBe(open.venue);
+    expect(venues.find((v) => v.id === open.venue)!.shows).toEqual([other.id]);
+  } finally {
+    // back on the first venue (same show: no reload), whatever step failed
+    await call("venue.fixture.delete", { id: "spare" });
+    await call("show.venue.set", { venue: open.venue });
+    await call("show.delete", { id: other.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: right-click a fixture to rename it and give it a marker colour", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -74,6 +74,8 @@ describe("moving heads", () => {
       buf[7] = 255;
       expect(venue.openingOf(r, buf)).to.equal(40);
       expect(venue.beams([buf])["s"]!.angle).to.equal(40);
+      venue.absent = new Set(["s"]);
+      expect(venue.beams([buf])).to.deep.equal({}); // not installed for this show: no light, no beam
     });
   });
 

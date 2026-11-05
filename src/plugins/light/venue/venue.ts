@@ -535,7 +535,9 @@ export class Venue {
       const r = this.resolve(patch.id);
       const buf = buffers[patch.universe - 1];
       if ("error" in r || !buf) continue;
-      const at = (off: number) => (buf[patch.address - 1 + off] ?? 0) / 255;
+      // an absent fixture sends nothing: dark, even where it shares channels with an installed one
+      const off = this.absent.has(patch.id);
+      const at = (o: number) => (off ? 0 : (buf[patch.address - 1 + o] ?? 0) / 255);
       const dimmer = r.dimmers.length ? Math.max(...r.dimmers.map(at)) : 1;
       if (r.lampOnly) {
         if (!r.dimmers.length) continue;
@@ -564,6 +566,7 @@ export class Venue {
   strobing(buffers: readonly Uint8Array[]): Record<string, number | null> {
     const out: Record<string, number | null> = {};
     for (const patch of this.fixtures.list()) {
+      if (this.absent.has(patch.id)) continue;
       const r = this.resolve(patch.id);
       const buf = buffers[patch.universe - 1];
       if ("error" in r || !buf) continue;
@@ -588,7 +591,7 @@ export class Venue {
     const out: Record<string, { x: number; y: number; z: number; angle?: number; to: { x: number; y: number; z: number } }> = {};
     const round = (d: { x: number; y: number; z: number }) => ({ x: Math.round(d.x * 1000) / 1000, y: Math.round(d.y * 1000) / 1000, z: Math.round(d.z * 1000) / 1000 });
     for (const patch of this.fixtures.list()) {
-      if (!patch.position) continue;
+      if (!patch.position || this.absent.has(patch.id)) continue;
       const r = this.resolve(patch.id);
       const buf = buffers[patch.universe - 1];
       if ("error" in r || !buf) continue;
