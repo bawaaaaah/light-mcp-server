@@ -70,6 +70,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light export ableton [--shell f]` | MIDI Effect Rack depuis la coquille |
 | `light export liveset --setlist id --als f --track nom` | pose la setlist dans une copie du Live Set (Live fermé) |
 | `light show list` / `new <nom> [--from id] [--venue current\|copy\|new]` / `open <id>` / `rename <nom>` / `reset [--with-venue]` | shows de la machine (voir plus haut) |
+| `light venue list` / `positions <lieu> [--apply]` ; `light show venue set <lieu> [--show id]` / `detach [--show id]` | lieux de la machine et shows qui les partagent ; reprise des positions d'un autre lieu (aperçu sans `--apply`) ; rattacher un show à un lieu ou lui en donner une copie |
 | `light backup list` / `create [libellé]` / `restore <fichier>` | sauvegardes `.lightshow` gardées dans `data/backups/` |
 | `light pack [fichier] [--no-venue]` / `light unpack <fichier>` | sauvegarde `.lightshow`, restauration avec copie de l'existant |
 | `light standby on\|off` | sortie en veille, reprendre la main |

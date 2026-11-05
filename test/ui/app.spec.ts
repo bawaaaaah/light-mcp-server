@@ -3130,7 +3130,7 @@ test("place the checked fixtures along the front of a zone, turned towards the a
   const zones = (await api(page, "stage.zone.list")) as { id: string }[];
   if (!zones.some((z) => z.id === "scene")) await api(page, "stage.zone.put", { zone: { id: "scene", name: "Scène", type: "stage", polygon: [[-4, 0], [4, 0], [4, 5], [-4, 5]] } });
   await page.locator("nav.pages button", { hasText: "Lieu" }).click();
-  const row = (name: string) => page.locator("#venue-patch tr", { hasText: name }).getByRole("checkbox");
+  const row = (name: string) => page.locator("#venue-patch tr", { hasText: name }).getByRole("checkbox", { name: /canevas/ });
   await row("Bar 1").check(); // checked first: placed first, on the jardin side
   await row("Bar 0").check();
   const form = page.locator(".editor.arrange");

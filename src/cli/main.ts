@@ -42,6 +42,10 @@ const USAGE = `light <commande>
   show open <id>                  ouvre un autre show (et son lieu)
   show rename <nom>               renomme le show ouvert
   show reset [--with-venue]       vide le show ouvert (et son lieu), après une sauvegarde
+  show venue set <lieu> [--show id]  fait jouer un show sur un lieu existant (partagé avec ses autres shows)
+  show venue detach [--show id]   donne au show sa propre copie du lieu qu'il partage
+  venue list                      lieux de la machine et shows qui les utilisent
+  venue positions <lieu> [--apply]  reprend les positions d'un autre lieu (aperçu sans --apply)
   backup list|create [libellé]|restore <fichier>
                                   sauvegardes .lightshow gardées dans data/backups
   pack [fichier] [--no-venue]     sauvegarde .lightshow
@@ -171,6 +175,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       check: { type: "boolean", default: false },
       from: { type: "string" },
       venue: { type: "string" },
+      show: { type: "string" },
       "with-venue": { type: "boolean", default: false },
       limit: { type: "string" },
     },
@@ -236,7 +241,16 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         else if (action === "open" && arg) json(await caller.call("show.open", { id: arg }));
         else if (action === "rename" && arg) json(await caller.call("show.rename", { name: arg }));
         else if (action === "reset") json(await caller.call("show.reset", { venue: values["with-venue"] }));
-        else throw new CliError("usage : light show list|new <nom>|open <id>|rename <nom>|reset [--with-venue]");
+        else if (action === "venue" && arg === "set" && positionals[2]) json(await caller.call("show.venue.set", { venue: positionals[2], show: values.show }));
+        else if (action === "venue" && arg === "detach") json(await caller.call("show.venue.detach", { show: values.show }));
+        else throw new CliError("usage : light show list|new <nom>|open <id>|rename <nom>|reset [--with-venue]|venue set <lieu> [--show id]|venue detach [--show id]");
+        return 0;
+      }
+      case "venue": {
+        const [action, arg] = positionals;
+        if (action === "list") for (const v of await caller.call<{ id: string; fixtures: number; shows: string[]; shared: boolean; active: boolean }[]>("venue.list")) console.log(`${v.active ? "▶" : " "} ${v.id.padEnd(40)} ${String(v.fixtures).padStart(3)} projecteurs  ${v.shared ? "partagé : " : ""}${v.shows.join(", ")}`);
+        else if (action === "positions" && arg) json(await caller.call("venue.positions.import", { from: arg, apply: values.apply }));
+        else throw new CliError("usage : light venue list|positions <lieu-source> [--apply]");
         return 0;
       }
       case "backup": {

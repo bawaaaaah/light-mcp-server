@@ -41,6 +41,19 @@ interface Canvas {
 }
 type Zone = PlanZone;
 
+interface VenueRow {
+  id: string;
+  fixtures: number;
+  shows: string[];
+  shared: boolean;
+  active: boolean;
+}
+interface ShowRow {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 export function VenuePage() {
   const t = useT();
   const [library, setLibrary] = useState<Def[]>([]);
@@ -71,6 +84,8 @@ export function VenuePage() {
     return `${m(Math.max(...xs) - Math.min(...xs))} × ${m(Math.max(...ys) - Math.min(...ys))} m${z.floorHeight ? `, ${t.floorAt} ${z.floorHeight} m` : ""}`;
   };
   const [error, setError] = useState("");
+  const [venueRows, setVenueRows] = useState<VenueRow[]>([]);
+  const [showRows, setShowRows] = useState<ShowRow[]>([]);
   /** The show's looks, for those allowed into a zone closed to moving heads. */
   const [lookNames, setLookNames] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => void cmd<{ id: string; name: string }[]>("look.list").then(setLookNames, () => undefined), []);
@@ -91,13 +106,26 @@ export function VenuePage() {
       .catch(() => undefined);
     void cmd<Canvas[]>("venue.canvas.list").then(setCanvases).catch(() => undefined);
     void cmd<Zone[]>("stage.zone.list").then(setZones).catch(() => undefined);
+    void cmd<VenueRow[]>("venue.list").then(setVenueRows).catch(() => undefined);
+    void cmd<ShowRow[]>("show.list").then(setShowRows).catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();
     void cmd<Def[]>("venue.library").then(setLibrary).catch(() => undefined);
   }, [refresh]);
-  useCommandEvents(["venue.", "stage.", "import."], refresh);
+  useCommandEvents(["venue.", "stage.", "import.", "show."], refresh);
   const run = (name: string, args: unknown) => cmd(name, args).catch((e: Error) => setError(e.message));
+  /** The open venue's row (venue.list), and the other shows that play on it. */
+  const openVenue = useMemo(() => venueRows.find((v) => v.active), [venueRows]);
+  const sharedShows = useMemo(
+    () =>
+      openVenue?.shared
+        ? openVenue.shows
+            .filter((id) => !showRows.find((s) => s.id === id)?.active)
+            .map((id) => showRows.find((s) => s.id === id)?.name ?? id)
+        : [],
+    [openVenue, showRows],
+  );
 
   const shown = useMemo(() => library.filter((d) => `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase())).slice(0, 50), [library, search]);
   const def = library.find((d) => `${d.manufacturer}|${d.model}` === draft.def);
@@ -111,6 +139,17 @@ export function VenuePage() {
       {error && (
         <p className="error" onClick={() => setError("")}>
           {error}
+        </p>
+      )}
+      {openVenue?.shared && (
+        <p className="hint">
+          {t.sharedVenue} {sharedShows.join(", ")}
+          <button
+            className="ghost"
+            onClick={() => confirm(t.detachConfirm) && void run("show.venue.detach", {}).then(refresh)}
+          >
+            {t.detach}
+          </button>
         </p>
       )}
       <nav className="jump" aria-label={t.onThisPage}>
