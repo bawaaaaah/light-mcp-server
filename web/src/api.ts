@@ -304,11 +304,25 @@ export interface FolderDiff {
   unchanged: number;
 }
 
-/** What restoring this backup would change; nothing is written. */
-export async function previewArchive(file: File): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null }> {
-  return json(await fetch("/api/plugins/light/archive?dryRun=1", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+export type FixturePolicy = "missing" | "replace" | "none";
+
+/** The fixture definitions (.qxf) of an archive against the library: lists are archive file names. */
+export interface FixtureSummary {
+  policy: FixturePolicy;
+  missing: string[];
+  differs: string[];
+  unchanged: number;
+  invalid: { file: string; error: string }[];
+  rejected: string[];
+  wouldImport: string[];
+  wouldReplace: string[];
 }
 
-export async function restoreArchive(file: File): Promise<{ files: { show: number; venue: number }; backup: string }> {
-  return json(await fetch("/api/plugins/light/archive", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+/** What restoring this backup would change; nothing is written. */
+export async function previewArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null; fixtures: FixtureSummary }> {
+  return json(await fetch(`/api/plugins/light/archive?dryRun=1&fixtures=${fixtures}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+}
+
+export async function restoreArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ files: { show: number; venue: number }; backup: string; fixtures: FixtureSummary }> {
+  return json(await fetch(`/api/plugins/light/archive?fixtures=${fixtures}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
 }

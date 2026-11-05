@@ -12,7 +12,8 @@ import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
 import { getEnvBool } from "../core/env.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
-import { diffFolder, packArchive, pinShowVenue, readArchive, restoreFolder, type FolderDiff } from "../plugins/light/data/archive.js";
+import { applyRestore, packArchive, readArchive, restoreBackupDir, type FolderDiff, type RestorePreview } from "../plugins/light/data/archive.js";
+import { definitionDirsFor, FixturePolicySchema, type FixturePolicy, type FixtureSummary } from "../plugins/light/data/archive-fixtures.js";
 
 const USAGE = `light <commande>
   serve [--port 8790] [--host 0.0.0.0] [--stdio] [--no-http] [--standby | --live]
@@ -46,10 +47,12 @@ const USAGE = `light <commande>
   show venue detach [--show id]   donne au show sa propre copie du lieu qu'il partage
   venue list                      lieux de la machine et shows qui les utilisent
   venue positions <lieu> [--apply]  reprend les positions d'un autre lieu (aperçu sans --apply)
-  backup list|create [libellé]|restore <fichier>
+  backup list|create [libellé]|restore <fichier> [--check] [--fixtures missing|replace|none]
                                   sauvegardes .lightshow gardées dans data/backups
   pack [fichier] [--no-venue]     sauvegarde .lightshow
-  unpack <fichier> [--check]      restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement
+  unpack <fichier> [--check] [--fixtures missing|replace|none]
+                                  restaure une sauvegarde (avec copie de l'existant) ; --check : différences seulement ;
+                                  définitions .qxf de l'archive : missing (défaut) ajoute les absentes, replace remplace aussi les différentes, none n'y touche pas
   standby on|off                  sortie en veille / reprendre la main
   activity [--limit 30]           activité récente : quand, qui, d'où, quoi, sur quel objet
   call <commande> [json] [--check]  n'importe quelle commande (voir « commands ») ;
@@ -178,6 +181,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       show: { type: "string" },
       "with-venue": { type: "boolean", default: false },
       limit: { type: "string" },
+      fixtures: { type: "string" },
     },
   });
   const caller = await connect({ configPath, dataRoot: DATA_ROOT, url: values.url, offline: values.offline, token: async () => (await machine()).token });
@@ -257,7 +261,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         const [action, arg] = positionals;
         if (action === "list") for (const b of await caller.call<{ file: string; size: number; show?: string }[]>("backup.list")) console.log(`${b.file}  ${Math.round(b.size / 1024)} Kio`);
         else if (action === "create") json(await caller.call("backup.create", arg ? { label: arg } : {}));
-        else if (action === "restore" && arg) json(await caller.call("backup.restore", { file: arg }));
+        else if (action === "restore" && arg) json(await caller.call("backup.restore", { file: arg, ...(values.fixtures ? { fixtures: values.fixtures } : {}), ...(values.check ? { dryRun: true } : {}) }));
         else throw new CliError("usage : light backup list|create [libellé]|restore <fichier>");
         return 0;
       }
@@ -265,7 +269,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         return await pack(caller, positionals[0], !values["no-venue"]);
       case "unpack":
         if (!positionals[0]) throw new CliError("usage : light unpack <fichier.lightshow>");
-        return await unpack(caller, positionals[0], values.check);
+        return await unpack(caller, positionals[0], values.check, values.fixtures);
       case "commands": {
         const list = caller.plugin ? caller.plugin.commands.list() : ((await (await caller.http!("/commands")).json()) as { name: string; title: string; readOnly?: boolean }[]);
         for (const c of list) console.log(`${c.name.padEnd(28)} ${c.readOnly ? "lecture" : "écriture"}  ${c.title}`);
@@ -306,7 +310,7 @@ async function pack(caller: Caller, file: string | undefined, withVenue: boolean
     name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "show.lightshow";
   } else {
     const p = caller.plugin!;
-    bytes = packArchive({ show: { id: path.basename(p.runtime.store.root), dir: p.runtime.store.root }, venue: withVenue ? { id: path.basename(p.venue.store.root), dir: p.venue.store.root } : undefined });
+    bytes = packArchive({ show: { id: path.basename(p.runtime.store.root), dir: p.runtime.store.root }, venue: withVenue ? { id: path.basename(p.venue.store.root), dir: p.venue.store.root } : undefined, definitionDirs: definitionDirsFor(DATA_ROOT, path.basename(p.venue.store.root)) });
     name = `${path.basename(p.runtime.store.root)}.lightshow`;
   }
   const out = file ?? name;
@@ -323,27 +327,38 @@ function printDiff(label: string, d: FolderDiff | null): void {
   for (const p of d.removed) console.log(`  - ${p}`);
 }
 
-async function unpack(caller: Caller, file: string, check = false): Promise<number> {
+function printFixtures(f: FixtureSummary): void {
+  if (!f.missing.length && !f.differs.length && !f.invalid.length && !f.rejected.length) return console.log(`Définitions : ${f.unchanged} identique(s), rien à reprendre`);
+  console.log(`Définitions (${f.policy}) : ${f.missing.length} absente(s), ${f.differs.length} différente(s), ${f.unchanged} identique(s)`);
+  for (const x of f.missing) console.log(`  ${f.wouldImport.includes(x) ? "+" : "·"} ${x}`);
+  for (const x of f.differs) console.log(`  ${f.wouldReplace.includes(x) ? "~" : "·"} ${x}`);
+  for (const x of f.invalid) console.log(`  ! ${x.file} ignorée : ${x.error}`);
+  for (const x of f.rejected) console.log(`  ! ${x} ignoré : nom non admis (fixtures/<nom>.qxf seulement)`);
+}
+
+async function unpack(caller: Caller, file: string, check = false, fixtures = "missing"): Promise<number> {
+  const policyParsed = FixturePolicySchema.safeParse(fixtures);
+  if (!policyParsed.success) throw new CliError("--fixtures : missing, replace ou none");
+  const policy: FixturePolicy = policyParsed.data;
   const bytes = readFileSync(file);
   if (check) {
-    let diff: { show: FolderDiff | null; venue: FolderDiff | null };
+    let diff: RestorePreview;
     if (caller.http) {
-      const res = await caller.http("/archive?dryRun=1", { method: "POST", body: bytes });
-      const body = (await res.json()) as typeof diff & { error?: string };
+      const res = await caller.http(`/archive?dryRun=1&fixtures=${policy}`, { method: "POST", body: bytes });
+      const body = (await res.json()) as RestorePreview & { error?: string };
       if (!res.ok) throw new CliError(`archive : ${body.error ?? res.statusText}`);
       diff = body;
     } else {
-      const content = readArchive(new Uint8Array(bytes));
-      const p = caller.plugin!;
-      diff = { show: Object.keys(content.show).length ? diffFolder(p.runtime.store.root, content.show) : null, venue: Object.keys(content.venue).length ? diffFolder(p.venue.store.root, content.venue) : null };
+      diff = caller.plugin!.previewArchive(new Uint8Array(bytes), policy);
     }
     printDiff("Show", diff.show);
     printDiff("Lieu", diff.venue);
+    printFixtures(diff.fixtures);
     console.error("(rien n'a été écrit : relancer sans --check pour restaurer)");
     return 0;
   }
   if (caller.http) {
-    const res = await caller.http("/archive", { method: "POST", body: bytes });
+    const res = await caller.http(`/archive?fixtures=${policy}`, { method: "POST", body: bytes });
     const body = (await res.json()) as { error?: string };
     if (!res.ok) throw new CliError(`restauration : ${body.error ?? res.statusText}`);
     console.log(JSON.stringify(body, null, 2));
@@ -351,12 +366,9 @@ async function unpack(caller: Caller, file: string, check = false): Promise<numb
   }
   const p = caller.plugin!;
   const content = readArchive(new Uint8Array(bytes));
-  const backups = path.join(DATA_ROOT, "backups", "restore-" + new Date().toISOString().replace(/[:.]/g, "-"));
-  if (Object.keys(content.show).length) {
-    restoreFolder(p.runtime.store.root, content.show, path.join(backups, "show"));
-    pinShowVenue(p.runtime.store.root, path.basename(p.venue.store.root)); // the show stays on the venue restored into
-  }
-  if (Object.keys(content.venue).length) restoreFolder(p.venue.store.root, content.venue, path.join(backups, "venue"));
-  console.log(`✔ restauré (${Object.keys(content.show).length} fichiers de show, ${Object.keys(content.venue).length} de lieu) ; copie de l'existant : ${path.relative(DATA_ROOT, backups)}`);
+  const backups = restoreBackupDir(DATA_ROOT);
+  const r = applyRestore(content, p.restoreTargets(), policy, backups);
+  console.log(`✔ restauré (${r.files.show} fichiers de show, ${r.files.venue} de lieu) ; copie de l'existant : ${path.relative(DATA_ROOT, backups)}`);
+  printFixtures(r.fixtures);
   return 0;
 }

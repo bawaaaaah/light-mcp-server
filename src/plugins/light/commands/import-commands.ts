@@ -11,6 +11,7 @@ import type { Collection, FolderStore } from "../data/store.js";
 import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.js";
 import { parseQxw } from "../presets/qxw-import.js";
 import { parseQxf } from "../venue/qxf-import.js";
+import { definitionFileName } from "../venue/definition-files.js";
 import { mergeImport } from "../presets/merge-import.js";
 
 /** Fingerprints of what the last import wrote, per collection and id (re-import « mode hybride »). */
@@ -43,7 +44,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     schema: z.object({ name: z.string().min(1), xml: z.string().min(1), replace: z.boolean().default(false) }),
     run: ({ name, xml, replace }) => {
       const def = parseQxf(xml); // throws on anything that is not a definition
-      const file = `${path.basename(name).replace(/\.qxf$/i, "").replace(/[^\w.-]+/g, "-").slice(0, 100) || "definition"}.qxf`;
+      const file = definitionFileName(name);
       const target = path.join(s.fixturesDir, file);
       if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace) throw new Error(say(`${file} existe déjà (replace pour le remplacer)`, `${file} already exists (replace to replace it)`));
       mkdirSync(s.fixturesDir, { recursive: true });

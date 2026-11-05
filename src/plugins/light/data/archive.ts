@@ -3,11 +3,12 @@
  * venue folder) plus a manifest. Never contains machine config, secrets or private files.
  * Restoring first backs up the current folders, then writes the archive's files.
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { say } from "../../../core/lang.js";
 import { stableStringify } from "./store.js";
+import { applyFixtures, patchModels, planFixtures, summarizeFixtures, usedDefinitions, isPlainQxfName, MAX_DEFINITION_BYTES, type FixturePolicy, type FixtureSummary } from "./archive-fixtures.js";
 
 export interface ArchiveManifest {
   format: "lightshow";
@@ -15,48 +16,113 @@ export interface ArchiveManifest {
   createdAt: string;
   show?: string;
   venue?: string;
+  /** Names of the fixture definitions carried under `fixtures/` (absent in older archives). */
+  fixtures?: string[];
 }
 
-function walk(dir: string, base = dir, out: Record<string, Uint8Array> = {}): Record<string, Uint8Array> {
+/** Relative paths ("looks/joie.json") of the files of a folder, sorted; `json` picks JSON or the rest. */
+function filesOf(dir: string, json: boolean, base = dir, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
   for (const name of readdirSync(dir).sort()) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) walk(full, base, out);
-    else if (name.endsWith(".json")) out[path.relative(base, full).split(path.sep).join("/")] = readFileSync(full);
+    if (statSync(full).isDirectory()) filesOf(full, json, base, out);
+    else if (name.endsWith(".json") === json) out.push(path.relative(base, full).split(path.sep).join("/"));
   }
   return out;
 }
 
-export function packArchive(parts: { show?: { id: string; dir: string }; venue?: { id: string; dir: string } }): Uint8Array {
+function walk(dir: string): Record<string, Uint8Array> {
+  return Object.fromEntries(filesOf(dir, true).map((rel) => [rel, readFileSync(path.join(dir, rel))]));
+}
+
+/**
+ * `definitionDirs`: the library folders (data/fixtures, then the venue's own), searched for the
+ * definitions the packed venue's patch uses: they go under `fixtures/`, never the whole library.
+ * Without a venue there is no patch, so no definitions. Two packs of the same folders differ only
+ * by `createdAt` (sorted entries, fixed zip dates).
+ */
+export function packArchive(parts: { show?: { id: string; dir: string }; venue?: { id: string; dir: string }; definitionDirs?: string[] }): Uint8Array {
   const manifest: ArchiveManifest = { format: "lightshow", version: 1, createdAt: new Date().toISOString(), show: parts.show?.id, venue: parts.venue?.id };
-  const files: Record<string, Uint8Array> = { "manifest.json": strToU8(JSON.stringify(manifest, null, 2)) };
+  const files: Record<string, Uint8Array> = {};
   if (parts.show) for (const [p, d] of Object.entries(walk(parts.show.dir))) files[`show/${p}`] = d;
-  if (parts.venue) for (const [p, d] of Object.entries(walk(parts.venue.dir))) files[`venue/${p}`] = d;
-  return zipSync(files, { level: 6, mtime: new Date("2026-01-01T00:00:00Z") });
+  let venueFiles: Record<string, Uint8Array> = {};
+  if (parts.venue) {
+    venueFiles = walk(parts.venue.dir);
+    for (const [p, d] of Object.entries(venueFiles)) files[`venue/${p}`] = d;
+  }
+  if (parts.venue && parts.definitionDirs) {
+    const defs = usedDefinitions(parts.definitionDirs, patchModels(venueFiles));
+    for (const [name, bytes] of defs) files[`fixtures/${name}`] = bytes;
+    if (defs.length) manifest.fixtures = defs.map(([name]) => name);
+  }
+  return zipSync({ "manifest.json": strToU8(JSON.stringify(manifest, null, 2)), ...files }, { level: 6, mtime: new Date("2026-01-01T00:00:00Z") });
 }
 
 export interface ArchiveContent {
   manifest: ArchiveManifest;
   show: Record<string, string>;
   venue: Record<string, string>;
+  /** Definitions by file name (`fixtures/<name>.qxf`, not yet checked). */
+  fixtures: Record<string, string>;
+  /** Entries under `fixtures/` that are not a plain `<name>.qxf`: ignored, named. */
+  rejectedFixtures: string[];
+  /** Definitions too big to read (MAX_DEFINITION_BYTES): not decompressed, named. */
+  invalidFixtures: { file: string; error: string }[];
 }
 
+/** Largest an archive may grow to once decompressed (a show is a few MB): beyond, it is refused unread. */
+export const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+
+/** An entry name that could write outside its folder: a `..` segment (either separator) or an absolute path. */
+const forbiddenEntry = (name: string) => name.split(/[\\/]/).includes("..") || path.isAbsolute(name) || /^[A-Za-z]:/.test(name);
+
+/**
+ * Reads an archive. Sizes are checked from the zip directory before anything is decompressed (a
+ * small zip can inflate to gigabytes): over MAX_ARCHIVE_BYTES in all, the archive is refused; a
+ * definition over MAX_DEFINITION_BYTES is skipped and named. Only the entries a restore uses are
+ * decompressed. A forbidden path or a name given twice refuses the archive.
+ */
 export function readArchive(bytes: Uint8Array): ArchiveContent {
-  const entries = unzipSync(bytes);
+  const show: Record<string, string> = {};
+  const venue: Record<string, string> = {};
+  const fixtures: Record<string, string> = {};
+  const rejectedFixtures: string[] = [];
+  const invalidFixtures: { file: string; error: string }[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  const entries = unzipSync(bytes, {
+    filter: (f) => {
+      const name = f.name;
+      if (forbiddenEntry(name)) throw new Error(say(`chemin interdit dans l'archive : ${name}`, `forbidden path in the archive: ${name}`));
+      if (seen.has(name)) throw new Error(say(`entrée en double dans l'archive : ${name}`, `duplicate entry in the archive: ${name}`));
+      seen.add(name);
+      if (name.endsWith("/")) return false;
+      if (name.startsWith("fixtures/")) {
+        if (!isPlainQxfName(name.slice(9))) {
+          rejectedFixtures.push(name);
+          return false;
+        }
+        if (f.originalSize > MAX_DEFINITION_BYTES) {
+          invalidFixtures.push({ file: name.slice(9), error: say(`trop gros (${f.originalSize} octets)`, `too big (${f.originalSize} bytes)`) });
+          return false;
+        }
+      } else if (!(name === "manifest.json" || ((name.startsWith("show/") || name.startsWith("venue/")) && name.endsWith(".json")))) return false;
+      total += f.originalSize;
+      if (total > MAX_ARCHIVE_BYTES) throw new Error(say("archive trop grosse une fois décompressée", "archive too big once decompressed"));
+      return true;
+    },
+  });
   const raw = entries["manifest.json"];
   if (!raw) throw new Error(say("archive .lightshow invalide : manifest.json absent", "invalid .lightshow archive: manifest.json missing"));
   const manifest = JSON.parse(strFromU8(raw)) as ArchiveManifest;
   if (manifest.format !== "lightshow") throw new Error(say("ce fichier n'est pas une archive .lightshow", "this file is not a .lightshow archive"));
-  const show: Record<string, string> = {};
-  const venue: Record<string, string> = {};
   for (const [name, data] of Object.entries(entries)) {
-    if (name.includes("..") || path.isAbsolute(name)) throw new Error(say(`chemin interdit dans l'archive : ${name}`, `forbidden path in the archive: ${name}`));
-    if (!name.endsWith(".json")) continue;
-    if (name.startsWith("show/")) show[name.slice(5)] = strFromU8(data);
+    if (name.startsWith("fixtures/")) fixtures[name.slice(9)] = strFromU8(data);
+    else if (name.startsWith("show/")) show[name.slice(5)] = strFromU8(data);
     else if (name.startsWith("venue/")) venue[name.slice(6)] = strFromU8(data);
   }
   for (const text of [...Object.values(show), ...Object.values(venue)]) JSON.parse(text); // every file must be valid JSON
-  return { manifest, show, venue };
+  return { manifest, show, venue, fixtures, rejectedFixtures, invalidFixtures };
 }
 
 export interface FolderDiff {
@@ -91,8 +157,13 @@ export function diffFolder(dir: string, files: Record<string, string>): FolderDi
   return diff;
 }
 
-/** Replaces a folder's JSON content with the archive's, after copying the current one to `backupDir`. */
+/**
+ * Replaces a folder's JSON content with the archive's, after copying the current one to
+ * `backupDir`. The archive carries JSON only: the folder's other files (a venue's own .qxf
+ * definitions in `fixture-definitions/`) are not its to remove and are put back.
+ */
 export function restoreFolder(dir: string, files: Record<string, string>, backupDir: string): void {
+  const kept = filesOf(dir, false);
   if (existsSync(dir)) {
     mkdirSync(path.dirname(backupDir), { recursive: true });
     cpSync(dir, backupDir, { recursive: true });
@@ -104,6 +175,18 @@ export function restoreFolder(dir: string, files: Record<string, string>, backup
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, text, "utf8");
   }
+  for (const rel of kept) {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    copyFileSync(path.join(backupDir, rel), path.join(dir, rel));
+  }
+}
+
+/** A new folder for a restore's copies, `backups/restore-<date>` (never one already there). */
+export function restoreBackupDir(dataRoot: string, now = new Date()): string {
+  const base = path.join(dataRoot, "backups", "restore-" + now.toISOString().replace(/[:.]/g, "-"));
+  let dir = base;
+  for (let i = 2; existsSync(dir); i++) dir = `${base}-${i}`;
+  return dir;
 }
 
 /**
@@ -128,4 +211,60 @@ export function pinShowVenue(showDir: string, venue: string): string | undefined
   mkdirSync(showDir, { recursive: true });
   writeFileSync(file, stableStringify({ ...settings, venue }));
   return typeof settings.venue === "string" ? settings.venue : "default";
+}
+
+/** The folders a restore reads and writes. */
+export interface RestoreTargets {
+  showDir: string;
+  venueDir: string;
+  /** Id of the venue in place (the restored show stays on it). */
+  venueId: string;
+  /** Library folders in resolution order, and the one new definitions are written to. */
+  definitionDirs: string[];
+  fixturesDir: string;
+}
+
+export interface RestorePreview {
+  dryRun: true;
+  manifest: ArchiveManifest;
+  show: FolderDiff | null;
+  venue: FolderDiff | null;
+  fixtures: FixtureSummary;
+}
+
+/** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
+export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
+  const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
+  return {
+    dryRun: true,
+    manifest: content.manifest,
+    show: Object.keys(content.show).length ? diffFolder(t.showDir, content.show) : null,
+    venue: Object.keys(content.venue).length ? diffFolder(t.venueDir, content.venue) : null,
+    fixtures: summarizeFixtures(plan, policy),
+  };
+}
+
+export interface RestoreResult {
+  files: { show: number; venue: number };
+  fixtures: FixtureSummary;
+  /** Folder (under backups) holding the copies of what was replaced. */
+  backup: string;
+}
+
+/**
+ * Restores an archive: the definitions are checked first (an invalid one is reported and skipped,
+ * never fatal), then the show and venue folders are replaced after a copy to `backups`, then the
+ * definitions the policy allows are written (a replaced one is copied to `backups/fixtures` first).
+ * The caller reloads the venue afterwards (its library re-reads changed .qxf files by itself).
+ */
+export function applyRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy, backups: string): RestoreResult {
+  const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
+  if (Object.keys(content.show).length) {
+    restoreFolder(t.showDir, content.show, path.join(backups, "show"));
+    pinShowVenue(t.showDir, t.venueId); // the show stays on the venue it was restored with
+  }
+  // the venue's own definitions (fixture-definitions/) are not JSON: restoreFolder keeps them
+  if (Object.keys(content.venue).length) restoreFolder(t.venueDir, content.venue, path.join(backups, "venue"));
+  const fixtures = applyFixtures(plan, policy, backups);
+  return { files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, fixtures, backup: path.basename(backups) };
 }

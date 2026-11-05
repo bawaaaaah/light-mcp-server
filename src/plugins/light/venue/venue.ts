@@ -6,10 +6,11 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
+import { listQxfFiles } from "./definition-files.js";
 import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
@@ -322,9 +323,7 @@ export class Venue {
    * library listing, without a restart. Cheap when nothing changed (one stat per file).
    */
   refreshDefinitions(): void {
-    const files = this.definitionDirs.flatMap((dir) =>
-      existsSync(dir) ? readdirSync(dir).filter((x) => x.endsWith(".qxf")).map((f) => path.join(dir, f)) : [],
-    );
+    const files = this.definitionDirs.flatMap(listQxfFiles);
     const stamp = files
       .map((f) => {
         const st = statSync(f);

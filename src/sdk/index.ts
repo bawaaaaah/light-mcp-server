@@ -82,8 +82,15 @@ export class LightClient {
     return new Uint8Array(await res.arrayBuffer());
   }
 
-  async restoreArchive(bytes: Uint8Array): Promise<unknown> {
-    const res = await this.request("/api/plugins/light/archive", { method: "POST", headers: { "content-type": "application/zip" }, body: bytes });
+  /**
+   * Restores a .lightshow archive. `fixtures`: what to do with its fixture definitions (.qxf):
+   * "missing" (default) adds the ones the library lacks, "replace" also overwrites those that differ
+   * (the old file is kept in the restore's backup folder), "none" leaves the library alone.
+   * `dryRun`: only report what would change (show, venue, definitions), write nothing.
+   */
+  async restoreArchive(bytes: Uint8Array, opts: { fixtures?: "missing" | "replace" | "none"; dryRun?: boolean } = {}): Promise<unknown> {
+    const query = new URLSearchParams({ fixtures: opts.fixtures ?? "missing", ...(opts.dryRun ? { dryRun: "1" } : {}) });
+    const res = await this.request(`/api/plugins/light/archive?${query}`, { method: "POST", headers: { "content-type": "application/zip" }, body: bytes });
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) throw new LightError(res.status, body.error ?? res.statusText);
     return body;

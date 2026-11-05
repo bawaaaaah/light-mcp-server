@@ -23,7 +23,7 @@ export function openApiDocument(commands: CommandDef[], version: string): Record
     "/api/plugins/light/state": { get: { operationId: "state", summary: "État : blackout, veille, univers, autres consoles", tags: ["light"], responses: { "200": { description: "état" }, "401": { description: "jeton manquant ou invalide" } } } },
     "/api/plugins/light/archive": {
       get: { operationId: "archiveDownload", summary: "Sauvegarde .lightshow du show (et du lieu, sauf venue=0)", tags: ["light"], parameters: [{ name: "venue", in: "query", schema: { type: "string", enum: ["0", "1"] } }], responses: { "200": { description: "archive", content: { "application/zip": {} } }, "403": { description: "droit requis : show:write" } } },
-      post: { operationId: "archiveRestore", summary: "Restaure une sauvegarde .lightshow (copie de l'existant d'abord)", tags: ["light"], requestBody: { required: true, content: { "application/zip": { schema: { type: "string", format: "binary" } } } }, responses: { "200": { description: "restauré" }, "400": { description: "archive illisible" } } },
+      post: { operationId: "archiveRestore", summary: "Restaure une sauvegarde .lightshow (copie de l'existant d'abord) ; dryRun=1 : aperçu sans rien écrire ; fixtures : sort des définitions .qxf de l'archive", tags: ["light"], parameters: [{ name: "dryRun", in: "query", schema: { type: "string", enum: ["1"] } }, { name: "fixtures", in: "query", schema: { type: "string", enum: ["missing", "replace", "none"], default: "missing" } }], requestBody: { required: true, content: { "application/zip": { schema: { type: "string", format: "binary" } } } }, responses: { "200": { description: "restauré" }, "400": { description: "archive illisible" } } },
     },
   };
   for (const c of commands) {

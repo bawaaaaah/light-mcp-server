@@ -4,7 +4,8 @@
  */
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
-import { diffFolder, packArchive, pinShowVenue, readArchive, restoreFolder } from "./data/archive.js";
+import { applyRestore, packArchive, previewRestore, readArchive, restoreBackupDir, type RestorePreview, type RestoreResult, type RestoreTargets } from "./data/archive.js";
+import { definitionDirsFor, FixturePolicySchema, type FixturePolicy } from "./data/archive-fixtures.js";
 import { z } from "zod";
 import type { AuthMiddleware } from "../../core/auth.js";
 import type { EventBus } from "../../core/event-bus.js";
@@ -281,7 +282,8 @@ export class LightPlugin implements McpPlugin {
         this.runtime.resetLive();
         this.reloadFromDisk();
       },
-      restore: (bytes) => this.restoreArchive(bytes),
+      restore: (bytes, fixtures) => this.restoreArchive(bytes, fixtures),
+      preview: (bytes, fixtures) => this.previewArchive(bytes, fixtures),
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
     };
     registerFileCommands(this.commands, this.files);
@@ -422,7 +424,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   private definitionDirs(venue: string): string[] {
-    return [path.join(this.dataRoot, "fixtures"), path.join(this.dataRoot, "venues", venue, "fixture-definitions")];
+    return definitionDirsFor(this.dataRoot, venue);
   }
 
   /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
@@ -456,19 +458,27 @@ export class LightPlugin implements McpPlugin {
     this.reloadFromDisk();
   }
 
-  /** Replaces the current show (and venue, when the archive has one), after copying them to the backups. */
-  private restoreArchive(bytes: Uint8Array): { backup: string; files: { show: number; venue: number }; manifest: ReturnType<typeof readArchive>["manifest"] } {
+  restoreTargets(): RestoreTargets {
+    return { showDir: this.show.root, venueDir: this.venue.store.root, venueId: this.config.venue, definitionDirs: this.definitionDirs(this.config.venue), fixturesDir: path.join(this.dataRoot, "fixtures") };
+  }
+
+  /** What restoring an archive would change (show, venue, definitions); nothing is written. */
+  previewArchive(bytes: Uint8Array, fixtures: FixturePolicy = "missing"): RestorePreview {
+    return previewRestore(readArchive(bytes), this.restoreTargets(), fixtures);
+  }
+
+  /**
+   * Replaces the current show (and venue, when the archive has one), after copying them to the
+   * backups, and merges the archive's fixture definitions into the library as the policy says.
+   */
+  private restoreArchive(bytes: Uint8Array, fixtures: FixturePolicy = "missing"): RestoreResult & { manifest: ReturnType<typeof readArchive>["manifest"] } {
     const content = readArchive(bytes);
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backups = path.join(this.dataRoot, "backups", "restore-" + stamp);
     this.runtime.stopAll();
-    if (Object.keys(content.show).length) {
-      restoreFolder(this.show.root, content.show, path.join(backups, "show"));
-      pinShowVenue(this.show.root, this.config.venue); // the show stays on the venue it was restored with
+    try {
+      return { manifest: content.manifest, ...applyRestore(content, this.restoreTargets(), fixtures, restoreBackupDir(this.dataRoot)) };
+    } finally {
+      this.reloadFromDisk(); // also re-reads the definitions that were added or replaced; after a failure, what is on disk now
     }
-    if (Object.keys(content.venue).length) restoreFolder(this.venue.store.root, content.venue, path.join(backups, "venue"));
-    this.reloadFromDisk();
-    return { manifest: content.manifest, files: { show: Object.keys(content.show).length, venue: Object.keys(content.venue).length }, backup: path.basename(backups) };
   }
 
   private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
@@ -948,30 +958,24 @@ export class LightPlugin implements McpPlugin {
       if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
       const withVenue = req.query.venue !== "0";
       this.show.flushLive(); // live levels not yet on disk
-      const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined });
+      const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined, definitionDirs: this.definitionDirs(this.config.venue) });
       res.setHeader("content-type", "application/zip");
       res.setHeader("content-disposition", `attachment; filename="${this.config.show}.lightshow"`);
       res.send(Buffer.from(zip));
     });
     router.post("/archive", express.raw({ type: () => true, limit: "64mb" }), (req: Request, res: Response) => {
       if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
-      let content: ReturnType<typeof readArchive>;
+      const policy = FixturePolicySchema.safeParse(req.query.fixtures ?? "missing");
+      if (!policy.success) throw new HttpError(400, say("fixtures : missing, replace ou none", "fixtures: missing, replace or none"));
+      const bytes = new Uint8Array(req.body as Buffer);
       try {
-        content = readArchive(new Uint8Array(req.body as Buffer));
+        readArchive(bytes);
       } catch (err) {
         throw new HttpError(400, say(`archive illisible : ${(err as Error).message}`, `unreadable archive: ${(err as Error).message}`));
       }
-      if (req.query.dryRun === "1") {
-        // preview: what restoring would change, nothing written
-        res.json({
-          dryRun: true,
-          manifest: content.manifest,
-          show: Object.keys(content.show).length ? diffFolder(this.show.root, content.show) : null,
-          venue: Object.keys(content.venue).length ? diffFolder(this.venue.store.root, content.venue) : null,
-        });
-        return;
-      }
-      res.json({ restored: true, ...this.restoreArchive(new Uint8Array(req.body as Buffer)) });
+      // preview: what restoring would change, nothing written
+      if (req.query.dryRun === "1") return void res.json(this.previewArchive(bytes, policy.data));
+      res.json({ restored: true, ...this.restoreArchive(bytes, policy.data) });
     });
     router.get("/backups/:file", (req: Request, res: Response) => {
       if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));

@@ -7,7 +7,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { packArchive, readArchive, type ArchiveManifest } from "../data/archive.js";
+import { packArchive, readArchive, type ArchiveManifest, type RestorePreview, type RestoreResult } from "../data/archive.js";
+import { definitionDirsFor, FixturePolicySchema, type FixturePolicy } from "../data/archive-fixtures.js";
 import { ID_RE, slugify, stableStringify } from "../data/store.js";
 import { ShowSettingsSchema } from "../show/model.js";
 import { PatchedFixtureSchema, type PatchedFixture } from "../venue/venue.js";
@@ -25,8 +26,10 @@ export interface FileServices {
   flush(): void;
   /** Re-reads the current show and venue from disk (after a reset or a restore). */
   reload(): void;
-  /** Replaces the current show (and venue) with an archive's content, after a backup copy. */
-  restore(bytes: Uint8Array): { backup: string; files: { show: number; venue: number } };
+  /** Replaces the current show (and venue) with an archive's content, after a backup copy, and merges its fixture definitions as `fixtures` says. */
+  restore(bytes: Uint8Array, fixtures: FixturePolicy): RestoreResult;
+  /** What restore would change; nothing is written. */
+  preview(bytes: Uint8Array, fixtures: FixturePolicy): RestorePreview;
   /** Imports a QLC+ workspace (.qxw text) into the open show. */
   importQxw(xml: string): Promise<unknown>;
 }
@@ -45,7 +48,7 @@ export function writeBackup(s: FileServices, label?: string, now = new Date()): 
   const backupsDir = path.join(s.dataRoot, "backups");
   mkdirSync(backupsDir, { recursive: true });
   const name = `${show}-${stamp(now)}${label ? `-${slugify(label)}` : ""}.lightshow`;
-  writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: path.join(s.dataRoot, "shows", show) }, venue: { id: venue, dir: path.join(s.dataRoot, "venues", venue) } }));
+  writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: path.join(s.dataRoot, "shows", show) }, venue: { id: venue, dir: path.join(s.dataRoot, "venues", venue) }, definitionDirs: definitionDirsFor(s.dataRoot, venue) }));
   return name;
 }
 
@@ -406,11 +409,15 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "backup.restore",
     title: "Restaurer une sauvegarde",
-    description: "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first.",
+    description:
+      "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first. The backup's fixture definitions (.qxf) are merged into the library: fixtures \"missing\" (default) adds the ones the library lacks, \"replace\" also overwrites the ones that differ (the old file is kept in the restore's backup folder), \"none\" leaves the library alone. dryRun: true only reports what would change (show, venue, definitions missing/differing/invalid).",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ file: z.string() }),
-    run: ({ file }) => s.restore(new Uint8Array(readFileSync(backupFile(file)))),
+    schema: z.object({ file: z.string(), fixtures: FixturePolicySchema.default("missing"), dryRun: z.boolean().default(false) }),
+    run: ({ file, fixtures, dryRun }) => {
+      const bytes = new Uint8Array(readFileSync(backupFile(file)));
+      return dryRun ? s.preview(bytes, fixtures) : s.restore(bytes, fixtures);
+    },
   });
 }
 

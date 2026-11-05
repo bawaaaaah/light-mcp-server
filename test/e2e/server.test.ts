@@ -432,6 +432,10 @@ describe("server end to end", function () {
     expect(running.light.runtime.looks.get("secours")).to.not.equal(undefined);
     const bad = await fetch(`${base}/api/plugins/light/archive`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: new Uint8Array([1, 2, 3]) });
     expect(bad.status).to.equal(400);
+    const badPolicy = await fetch(`${base}/api/plugins/light/archive?fixtures=all`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip });
+    expect(badPolicy.status).to.equal(400);
+    const replacePreview = (await (await fetch(`${base}/api/plugins/light/archive?dryRun=1&fixtures=replace`, { method: "POST", headers: { ...auth, "content-type": "application/octet-stream" }, body: zip })).json()) as { fixtures: { policy: string } };
+    expect(replacePreview.fixtures.policy).to.equal("replace");
     const volunteer = await login("5678");
     expect((await fetch(`${base}/api/plugins/light/archive`, { headers: { authorization: `Bearer ${volunteer}` } })).status).to.equal(403);
   });
