@@ -152,6 +152,9 @@ Aucune. Toutes les décisions de conception sont prises ([decisions.md](decision
 - [../windows/README.md](../windows/README.md) : **app de la zone de notification** (PC Windows).
 - [install-npm.md](install-npm.md) : **installation depuis GitHub Packages** (paquet publié à chaque commit de `main` dont la CI passe ; image Docker sur GHCR).
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
+- [todo.md](todo.md) : **liste de travail courante** (retours des essais avec les lyres).
+- [plan-agent.md](plan-agent.md) : **brief de reprise pour une IA** (règles, pièges, plan par phases, état).
+- [plan-t2.md](plan-t2.md) : **plan détaillé et revu du premier chantier de code (T2)**, prêt à implémenter.
 - [decisions.md](decisions.md) : journal daté des décisions.
 - [glossaire.md](glossaire.md) : vocabulaire du projet.
 - [architecture.md](architecture.md) : principes, arborescence, données, WS, pipeline, auth, déploiement.
