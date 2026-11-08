@@ -22,3 +22,8 @@ macos/LightMenuBar/.build/
 
 # App de la zone de notification Windows (windows/build-app.ps1)
 windows/build/
+
+# Convention de sécurité : tout fichier ou dossier dont le nom commence par __NO_COMMIT__
+# (n'importe où, docs/ et sous-dossiers compris) ne part jamais dans git : mémoire locale de
+# l'IA, transcripts, revues brutes, brouillons privés. Voir CLAUDE.md.
+__NO_COMMIT__*

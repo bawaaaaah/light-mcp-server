@@ -4,7 +4,7 @@
 
 - Le détail de chaque tâche (symptôme, pistes, critères) est dans [todo.md](todo.md), numéroté **T1 à T30**. Le plan de code détaillé du premier chantier est dans [plan-t2.md](plan-t2.md). **Ce fichier-ci ne le répète pas** : il le complète.
 - Contexte général du projet : [HANDOFF.md](HANDOFF.md) (à lire en premier), [../CLAUDE.md](../CLAUDE.md) (règles), puis la spec concernée dans `specs/`.
-- **Dossier local non commité `data/reprise/`** (s'il existe sur cette machine) : contexte complet hors dépôt (revues brutes des 14 modèles, mémoire locale de l'IA, transcript de la session, outils de revue). Lire son `README.md`. Privé : ne rien en copier dans le dépôt.
+- **Dossier local non commité `docs/__NO_COMMIT__reprise/`** (s'il existe sur cette machine) : contexte complet hors dépôt (revues brutes des 14 modèles, mémoire locale de l'IA, transcript de la session, outils de revue). Lire son `README.md`. Privé : ne rien en copier dans le dépôt.
 - Dernière mise à jour : 2026-11-08. **Quand tu termines une tâche, mets à jour la colonne « État » plus bas.**
 
 ## 1. De quoi s'agit-il
@@ -16,7 +16,8 @@ L'utilisateur vient de brancher de **vraies lyres** pour la première fois et a 
 ## 2. Règles non négociables
 
 1. **Réutiliser avant d'écrire.** Les outils MCP, routes HTTP, adresses OSC et la CLI sont de minces adaptateurs sur la **couche de commandes** (`src/plugins/light/commands/`, registre dans `registry.ts`). Toute nouvelle fonction commence par une commande ; l'interface vient après. Pas de duplication.
-2. **Confidentialité : le dépôt est public.** Aucune donnée privée de l'utilisateur dans le code, la doc, les tests, les exemples ni les commits : pas de nom de lieu, d'événement, de chant, de personne, de groupe de projecteurs propre à l'utilisateur, pas d'adresse IP, pas d'URL publique. Le privé vit dans `data/` (exclu de git). Faire un **grep de contrôle avant chaque commit** (IP, noms de lieux, noms de chants, adresses).
+2. **Fichiers privés : préfixe `__NO_COMMIT__`.** Tout ce qui ne doit jamais être commité (mémoire d'une IA, transcripts, brouillons privés) porte ce préfixe dans son nom, où que ce soit : `.gitignore` l'exclut. Jamais de `git add -f`.
+   **Confidentialité : le dépôt est public.** Aucune donnée privée de l'utilisateur dans le code, la doc, les tests, les exemples ni les commits : pas de nom de lieu, d'événement, de chant, de personne, de groupe de projecteurs propre à l'utilisateur, pas d'adresse IP, pas d'URL publique. Le privé vit dans `data/` (exclu de git). Faire un **grep de contrôle avant chaque commit** (IP, noms de lieux, noms de chants, adresses).
    - Les noms de modèles commerciaux de projecteurs sont publics et peuvent figurer dans le dépôt.
    - Les `.qxf` de `data/fixtures/` et les shows de `data/shows/` ne vont **jamais** dans git.
 3. **Décisions** : une nouvelle décision va dans [decisions.md](decisions.md) **et** dans la spec concernée, jamais en annexe en fin de fichier.
