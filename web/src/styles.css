@@ -1027,6 +1027,51 @@ table.cues select {
    over it, while the value glides); without the standing bar, the end of a glide would take back
    the whole path the ghost bar filled and the fader would look like it halved (groups-masters.md,
    « Lissage ») */
+/* no native paint on the slider at all: a vertical RTL native fill sits above the thumb (full at 0,
+   gone at 100), the wrong way round for a fader — the rail, the bar below and the thumb are ours */
+.cell .fader input[type="range"] {
+  appearance: none;
+  background: none;
+}
+.cell .fader input[type="range"]::-webkit-slider-runnable-track {
+  background: none;
+}
+.cell .fader input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 3px solid var(--wc, var(--accent));
+  box-sizing: border-box;
+}
+.cell .fader input[type="range"]::-moz-range-track {
+  background: none;
+}
+.cell .fader input[type="range"]::-moz-range-progress {
+  background: none;
+}
+.cell .fader input[type="range"]::-moz-range-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 3px solid var(--wc, var(--accent));
+  box-sizing: border-box;
+}
+.cell .fader .track::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  pointer-events: none;
+}
 .fader .track .ghost-bar,
 .fader .track .level-bar {
   position: absolute;
