@@ -1309,6 +1309,54 @@ test("right-click on a DCA fader: its smoothing, and « Advanced » opens the gr
   expect(errors).toEqual([]);
 });
 
+test("a smoothed DCA fader dragged up and back down keeps its travel and lands on its real level", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type G = { id: string; master?: { level: number; mute: boolean; smoothing?: unknown }; effectiveLevel: number };
+  const master = ((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!;
+  const height = async (locator: Locator) => Math.round((await locator.boundingBox())!.height);
+  try {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false, smoothing: { curve: "linear", msPerStep: 5 } } } });
+    await page.reload();
+    const cell = page.locator(".cell .fader").first();
+    const fader = cell.locator("input[type=range]");
+    await expect(fader).toBeVisible();
+    await expect(cell.locator("label")).toContainText("≈");
+    await expect.poll(async () => (await dmx(page))[0]).toBe(255);
+    const travel = await height(cell.locator(".track"));
+    const length = await height(fader);
+
+    // the gesture of the report: up by dragging, back down by dragging, then let go
+    const box = (await fader.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = (fraction: number) => box.y + (1 - fraction) * box.height;
+    const at = async (fraction: number) => {
+      await page.mouse.move(x, y(fraction));
+      await page.waitForTimeout(60);
+      // the read-out's second line goes from the effective level to the one sent: it must keep its height,
+      // or the track would take back the room under the finger
+      expect(await height(cell.locator(".track")), `travel at ${fraction}`).toBe(travel);
+      expect(await height(fader), `slider length at ${fraction}`).toBe(length);
+    };
+    await page.mouse.move(x, y(0.4));
+    await page.mouse.down();
+    for (const f of [0.55, 0.7, 0.85, 0.95]) await at(f);
+    for (const f of [0.85, 0.7, 0.55, 0.4]) await at(f);
+    await page.mouse.up();
+
+    // the glide lands: the level shown, the level beside it and the level reached all agree
+    await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 5000 });
+    const asked = Math.round(Number(await fader.inputValue()) / 10);
+    await expect.poll(async () => (await cell.locator(".value").innerText()).replace(/\s+/g, " ").trim()).toBe(`${asked}% (${asked}%)`);
+    await expect.poll(async () => Math.round(((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!.effectiveLevel * 100)).toBe(asked);
+    expect(await height(cell.locator(".track")), "the fader ends on the travel it started with").toBe(travel);
+    expect(await height(fader), "the slider ends on the length it started with").toBe(length);
+  } finally {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("DCA limits: a max set on the Show page stops the fader on the dashboard", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

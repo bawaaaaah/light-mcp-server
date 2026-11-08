@@ -112,7 +112,8 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | Tâche | État | Commit / note |
 |---|---|---|
 | T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade` ; essai sur la sortie locale fait (flash reproduit puis disparu), **pas encore sur les vraies lyres** |
-| T4, T3 | à faire | T3 : voir sa précision sur les du groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
+| T4 | **fait** (test vert) | relevé du fader DCA : niveau effectif rafraîchi à l'arrivée du glissement, second nombre sur une ligne à hauteur fixe ; test Playwright dans `test/ui/app.spec.ts` |
+| T3 | à faire | voir sa précision sur le groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
 | T7, T12, T17, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |
 | T5, T11, T6, T9 | à faire | |

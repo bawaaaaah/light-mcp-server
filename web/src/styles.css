@@ -458,6 +458,14 @@ button.danger {
 .cell .fader > .track {
   flex-shrink: 1;
 }
+/* a DCA's read-out gives its second number a line of its own, whether it has one to show or not: while
+   the level glides the line goes from the effective level to the one sent, and the read-out must keep
+   the same height through it, or the track would take back the room under the finger */
+.cell .fader .value.dca {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 
 .song h2 {
   cursor: pointer;

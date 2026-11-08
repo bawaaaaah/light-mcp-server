@@ -38,6 +38,10 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ### T4 — Lissage d'un fader DCA : la valeur tombe à moitié au clic
 - En activant le lissage sur un fader DCA, il descend de moitié au clic alors qu'il paraît plein ; le clic le **redimensionne** à moitié et la plage de réglage est réduite.
 - Probablement un décalage entre la valeur affichée, la valeur envoyée (`light:glide`, ghost bar) et la course du fader (limites min/max). À reproduire en test UI Playwright puis corriger.
+- **Fait (2026-11-08)**, reproduit en Playwright en glissant le fader vers le haut puis vers le bas avant de relâcher. Deux défauts d'**affichage**, la valeur envoyée était juste (le fader, le serveur et le DMX tombaient d'accord) :
+  1. le second nombre du relevé, entre parenthèses, est le **niveau effectif** lu au dernier `group.list` ; il restait figé à la valeur d'un milieu de glissement quand le glissement arrivait (`0 % (43 %)` alors que la sortie était à 0 %). Rafraîchi à l'arrivée (topic `light:glide` vidé), et remplacé pendant le glissement par le **niveau envoyé** (`→ 43 %`), qui lui est à jour ;
+  2. ce second nombre faisait passer le relevé d'une ligne à deux (le `→` est plus large que la parenthèse, ou l'inverse selon la largeur de la cellule) ; seule la piste du fader pouvait se réduire, elle perdait une vingtaine de pixels en pleine manipulation — d'où le fader qui **rétrécit** au clic et grandit à l'arrivée. Le relevé d'un fader DCA donne maintenant à ce second nombre **une ligne à lui, toujours présente** (`.value.dca`, colonne) : sa hauteur ne change plus.
+- Test de non-régression : `test/ui/app.spec.ts`, « a smoothed DCA fader dragged up and back down keeps its travel and lands on its real level » (piste et curseur de hauteur constante à chaque pas du geste, puis `NN % (NN %)` et niveau effectif égaux à ce qui a été demandé).
 
 ## 🟠 Lyres : pilotage et réglage
 

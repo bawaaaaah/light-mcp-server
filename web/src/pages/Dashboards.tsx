@@ -382,6 +382,14 @@ export function DashboardsPage({ role }: { role: Role }) {
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
   useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets"], refresh);
+  // a glide ends with an empty light:glide frame: the effective levels read before it landed are stale
+  // (a fader left at 5 % kept showing the 43 % it had half-way there)
+  const gliding = glide.gm !== undefined || Object.keys(glide.groups).length > 0 || Object.keys(glide.faders).length > 0;
+  const wasGliding = useRef(false);
+  useEffect(() => {
+    if (wasGliding.current && !gliding) void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
+    wasGliding.current = gliding;
+  }, [gliding]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -773,6 +781,7 @@ export function DashboardsPage({ role }: { role: Role }) {
         if (!g) return <div className="fill missing">{w.target}</div>;
         // stop mode: the fader is shown where the DCA really is (on the mark when pushed past it)
         const shown = g.limits?.mode === "scale" ? (g.master?.level ?? 1) : Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, g.master?.level ?? 1));
+        const sent = glide.groups[g.id];
         return (
           <div className="fader fill">
             <div className="track">
@@ -793,11 +802,14 @@ export function DashboardsPage({ role }: { role: Role }) {
             />
             {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
             {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
-            <GhostBar level={glide.groups[g.id]} />
+            <GhostBar level={sent} />
             </div>
-            <span className="value">
-              {Math.round(shown * 100)}%<Sent level={glide.groups[g.id]} />
-              <small> ({Math.round(g.effectiveLevel * 100)}%)</small>
+            <span className="value dca">
+              {Math.round(shown * 100)}%
+              {/* a line of its own, always there: while the level glides it shows the level sent, otherwise
+                  the effective one (a snapshot read at the last command), so the read-out never changes
+                  height and the track never moves under the finger */}
+              <small className="sent">{sent === undefined ? `(${Math.round(g.effectiveLevel * 100)}%)` : `→ ${Math.round(sent * 100)}%`}</small>
             </span>
             {g.limits && (g.limits.min !== undefined || g.limits.max !== undefined) && (
               <small className="limits">
