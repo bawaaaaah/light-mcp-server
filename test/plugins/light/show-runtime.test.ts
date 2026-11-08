@@ -187,7 +187,7 @@ describe("show runtime", () => {
     expect(dmx()[3]).to.equal(0);
   });
 
-  it("restarts a look that is fading out, from scratch", () => {
+  it("restarts a look that is fading out at full when it has no entry fade (a hard cut)", () => {
     const { show, dmx, advance } = setup();
     show.looks.put({ id: "f", name: "Face", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { exitFade: 2 } });
     show.go("f");
@@ -211,13 +211,14 @@ describe("show runtime", () => {
   });
 
   describe("crossfade between looks of an exclusive group", () => {
-    /** A red look A playing, then B (colour `b`) started over it; A and B in one exclusive group. */
-    function pair(opts: { a?: object; b?: object; bColor?: string; aColor?: string } = {}) {
+    /** A red look A playing, then B (colour `b`) started over it; A and B in one exclusive group. `between`: beats advanced between the two starts, so A is established when B takes over. */
+    function pair(opts: { a?: object; b?: object; bColor?: string; aColor?: string; between?: number } = {}) {
       const t = setup();
       t.show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: opts.aColor ?? "#ff0000" }, timing: { ...opts.a } });
       t.show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: opts.bColor ?? "#00ff00" }, timing: { ...opts.b } });
       t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
       t.show.go("a");
+      if (opts.between) t.advance(opts.between);
       t.show.go("b");
       return t;
     }
@@ -295,10 +296,16 @@ describe("show runtime", () => {
       expect(rg(dmx())).to.deep.equal([0, 0]);
     });
 
-    it("starting A again during the crossfade starts it fresh and ends the one under B", () => {
-      const { show, dmx, advance } = pair({ b: { entryFade: 2 } });
-      advance(1);
-      show.go("a"); // B is released by A (same group), A starts over from black... a plain start: no entry fade for A
+    it("starting A again during the crossfade resumes it from its queue weight, and B keeps the weight it has", () => {
+      // the presets' case: entry 1 s, exit 0 — A too has an entry fade, so the relaunch is a crossfade
+      const { show, dmx, advance } = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+      advance(1); // half way into B's entry: A at 0.5 under it, B at 0.5
+      const before = rg(dmx());
+      show.go("a"); // A again: it resumes from the 0.5 it still has; B leaves from its 0.5
+      const after = rg(dmx());
+      expect(after[0]).to.be.within(before[0] - 4, before[0] + 4); // A at its queue weight, not from black
+      expect(after[1]).to.be.within(before[1] - 4, before[1] + 4); // B at the weight it had, not dropped
+      advance(2); // A's 1 s resumption: A back to full, B gone
       expect(rg(dmx())).to.deep.equal([255, 0]);
     });
 
@@ -523,6 +530,246 @@ describe("show runtime", () => {
       expect(after[1]).to.be.within(before[1] - 3, before[1] + 3);
       show.resetLive();
       expect(held(show).size).to.equal(0);
+    });
+
+    describe("resuming a look that still leaves (fast changes must not flash)", () => {
+      /**
+       * Samples the three channels of head 0 every 20 ms over `ms` milliseconds (plan-t2 §1), with `at` running
+       * between samples (a relaunch, usually at i === 0), and checks the whole span:
+       * - continuity: no channel moves faster than the fades in `fades` allow — smoothstep's steepest slope is
+       *   1.5 per second of fade, and fades driving the same cell add up;
+       * - no trough: the sum of the channels never dips below `floor` (default: the lesser of its two ends) —
+       *   a relaunch that drops the old light shows at once;
+       * - no overshoot: no channel, nor their sum, rises above the greater of its two ends — the look painted twice.
+       */
+      const sampled = (
+        t: { dmx: () => Uint8Array; advance: (beats: number) => void },
+        ms: number,
+        fades: number[],
+        opts: { floor?: number; at?: (i: number) => void; label?: string } = {},
+      ): number[][] => {
+        const margin = 8;
+        const step = 255 * 0.02 * fades.reduce((sum, d) => sum + 1.5 / d, 0) + margin; // the most all the fades can move in 20 ms
+        // sample 0 is the span's start; sample 1 is the same instant, right after `at` ran; then one every 20 ms
+        const atMs = (k: number) => (k <= 1 ? 0 : (k - 1) * 20);
+        const where = (i: number, what: string) => `${opts.label ?? ""} ${what} at sample ${i} (${atMs(i)} ms)`;
+        const out: number[][] = [];
+        let prev = head(t.dmx(), 0);
+        out.push(prev);
+        for (let i = 0; i * 20 < ms; i++) {
+          opts.at?.(i);
+          const cur = head(t.dmx(), 0);
+          out.push(cur);
+          for (let c = 0; c < 3; c++)
+            expect(Math.abs(cur[c]! - prev[c]!), where(out.length - 1, `channel ${c} jumped ${prev[c]} → ${cur[c]}, more than ${step.toFixed(1)}`)).to.be.at.most(step);
+          prev = cur;
+          t.advance(0.04);
+        }
+        const sums = out.map((s) => s.reduce((a, b) => a + b, 0));
+        const floor = opts.floor ?? Math.min(sums[0]!, sums.at(-1)!) - margin;
+        const top = Math.max(sums[0]!, sums.at(-1)!) + margin;
+        sums.forEach((s, i) => {
+          expect(s, where(i, `a trough: ${s} under ${floor}`)).to.be.at.least(floor);
+          expect(s, where(i, `an overshoot: ${s} over ${top}`)).to.be.at.most(top);
+        });
+        const tops = [0, 1, 2].map((c) => Math.max(out[0]![c]!, out.at(-1)![c]!) + margin);
+        out.forEach((s, i) => s.forEach((v, c) => expect(v, where(i, `channel ${c} overshoot: ${v} over ${tops[c]}`)).to.be.at.most(tops[c]!)));
+        return out;
+      };
+
+      it("resumes A mid-crossfade with no jump, no trough and no overshoot (25 %, 50 %, 75 %; entries 1 s and 2 s)", () => {
+        for (const entry of [1, 2]) {
+          for (const part of [0.25, 0.5, 0.75]) {
+            const t = pair({ a: { entryFade: entry }, b: { entryFade: entry }, between: entry * 4 }); // A established when B takes over
+            t.advance(part * entry * 2); // part of the way into B's entry (1 beat = 500 ms)
+            sampled(t, (entry + 0.5) * 1000, [entry, entry], {
+              label: `entry ${entry} s, relaunch at ${part * 100} %`,
+              at: (i) => {
+                if (i === 0) t.show.go("a");
+              },
+            });
+          }
+        }
+      });
+
+      it("resumes A after a chain A → B → C, with no jump and no overshoot (the chain's own dip stays)", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.show.looks.put({ id: "c", name: "C", canvas: "mur", technique: { kind: "plat", color: "#0000ff" }, timing: { entryFade: 1 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b", "c"] } });
+        t.advance(0.5); // 25 % into B's entry
+        t.show.go("c");
+        t.advance(0.5); // 25 % into C's entry: A at 0.63, B at 0.13 under C at 0.16 (blue)
+        // the chain passes shortened tails on (dur − elapsed) while every entry is full length, so the full
+        // light dips on its own — but that dip is before this span: what must not happen is the relaunch
+        // dropping A's queue (pre-fix: red 159 → 0 at once) or any channel overshooting.
+        sampled(t, 2500, [1, 0.5, 1], {
+          at: (i) => {
+            if (i === 0) t.show.go("a");
+          },
+        });
+      });
+
+      it("resumes a look relaunched from its own fading copy (stopped with an exit fade, nothing else playing)", () => {
+        const t = setup();
+        t.show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#ff0000" }, timing: { entryFade: 1, exitFade: 1 } });
+        t.show.go("a");
+        t.advance(4); // 2 s: in, past its entry
+        t.show.stop("a"); // fades out over 1 s
+        t.advance(1); // half way down: at 0.5
+        sampled(t, 2000, [1], {
+          at: (i) => {
+            if (i === 0) t.show.go("a");
+          },
+        });
+      });
+
+      it("resumes B in turn, relaunched after A took its place back", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.advance(0.5); // 25 % into B's entry
+        t.show.go("a"); // A takes its place back; B leaves under it
+        t.advance(0.5); // 25 % into A's resumption
+        sampled(t, 2000, [1, 1], {
+          at: (i) => {
+            if (i === 0) t.show.go("b");
+          },
+        });
+      });
+
+      it("holds through two relaunches less than 100 ms apart", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        sampled(t, 2200, [1, 1], {
+          at: (i) => {
+            if (i === 2) t.show.go("a"); // 40 ms into B's entry
+            if (i === 4) t.show.go("b"); // 80 ms: less than 100 ms after
+          },
+        });
+      });
+
+      it("keeps the look's place in its animation when it resumes (it does not go back to the first step)", () => {
+        const t = setup();
+        t.show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 }, timing: { every: { beats: 2 }, entryFade: 1 } });
+        t.show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" }, timing: { entryFade: 1 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+        t.show.go("a");
+        t.advance(3); // 1.5 s: in, and on step 1 (a step every 2 beats) — cell 0 blue
+        t.show.go("b");
+        t.advance(0.2); // 100 ms into B's entry: A leaves under it
+        t.show.go("a"); // A resumes: still on step 1, not back on step 0
+        const b = t.dmx();
+        expect(b[5]).to.be.within(230, 255); // head 0 blue, at the weight A still has (≈ 0.97)
+        expect(b[3]).to.be.below(25); // not red: the animation did not restart on step 0
+      });
+
+      it("starts a look fresh that was edited while it was leaving (it does not resume the old copy)", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.advance(0.5); // 25 % into B's entry: A at 0.84 under it
+        t.show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "plat", color: "#ff8000" }, timing: { entryFade: 1 } }); // edited live
+        t.show.go("a");
+        const [r, g] = rg(t.dmx());
+        expect(r).to.be.below(10); // from black again, not from the 0.84 its old copy still had
+        expect(g).to.be.within(30, 45); // B keeps leaving from the weight it has (0.16)
+        t.advance(2); // 1 s: the edited look is in
+        expect(rg(t.dmx())).to.deep.equal([255, 128]); // the new definition plays
+      });
+
+      it("resumes without a jump when the look is saved again unchanged (a put stores another object)", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.advance(1); // half way: A at 0.5 under B
+        const before = rg(t.dmx());
+        t.show.looks.put(t.show.looks.get("a")!); // same definition, saved again: not an edit
+        t.show.go("a");
+        const after = rg(t.dmx());
+        expect(after[0]).to.be.within(before[0] - 4, before[0] + 4); // A from its queue weight, not from black
+        expect(after[1]).to.be.within(before[1] - 4, before[1] + 4);
+      });
+
+      it("resumes when the look is saved again with its technique map in another key order (a map has no order)", () => {
+        const t = setup();
+        const look = (map: object) => ({ id: "a", name: "A", canvas: "mur", technique: { kind: "masques-colores", block: 1, map, patterns: ["RB"] }, timing: { entryFade: 1 } });
+        t.show.looks.put(look({ R: "#ff0000", B: "#0000ff" }));
+        t.show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" }, timing: { entryFade: 1 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+        t.show.go("a");
+        t.advance(4); // A established
+        t.show.go("b");
+        t.advance(1); // half way: A at 0.5 under B
+        const before = head(t.dmx(), 0);
+        t.show.looks.put(look({ B: "#0000ff", R: "#ff0000" })); // same content, other key order
+        t.show.go("a");
+        const after = head(t.dmx(), 0);
+        for (let c = 0; c < 3; c++) expect(after[c]).to.be.within(before[c]! - 4, before[c]! + 4);
+      });
+
+      it("applies a palette edited while the look queued, rather than resuming the old one", () => {
+        const t = setup();
+        t.show.palettes.put({ id: "p", name: "P", colors: ["#ff0000"] });
+        t.show.looks.put({ id: "a", name: "A", canvas: "mur", palette: "p", technique: { kind: "plat", color: "#000000" }, timing: { entryFade: 1 } });
+        t.show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" }, timing: { entryFade: 1 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+        t.show.go("a");
+        t.advance(4); // A established
+        t.show.go("b");
+        t.advance(0.5); // 25 % into B's entry: A at 0.84 under it
+        t.show.palettes.put({ id: "p", name: "P", colors: ["#0000ff"] }); // edited while A queues
+        t.show.go("a");
+        t.advance(2); // A's 1 s resumption
+        expect(head(t.dmx(), 0)).to.deep.equal([0, 0, 255]); // the palette now current, not the one it queued under
+      });
+
+      it("cuts at once on relaunch when the look has no entry fade, but its animation keeps its place", () => {
+        const t = setup();
+        t.show.looks.put({ id: "a", name: "A", canvas: "mur", technique: { kind: "damier", colors: ["#ff0000", "#0000ff"], block: 1 }, timing: { every: { beats: 2 } } });
+        t.show.looks.put({ id: "b", name: "B", canvas: "mur", technique: { kind: "plat", color: "#00ff00" }, timing: { entryFade: 2 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+        t.show.go("a");
+        t.advance(3); // on step 1: cell 0 blue
+        t.show.go("b");
+        t.advance(0.2); // 100 ms into B's 2 s entry: A leaves under it
+        t.show.go("a"); // no entry fade: A cuts back at once — on the step it is on
+        expect(head(t.dmx(), 0)).to.deep.equal([0, 0, 255]); // blue, not the red of a restart on step 0
+      });
+
+      it("still drops the queue at once when the look is deleted", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.advance(1); // half way: A at 0.5 under B
+        t.show.drop("a");
+        expect(rg(t.dmx())).to.deep.equal([0, 128]); // A's tail is gone, B keeps its weight
+        t.advance(10);
+        expect(rg(t.dmx())).to.deep.equal([0, 255]);
+      });
+
+      it("starts from black after stopAll, with nothing left of the old state", () => {
+        const t = pair({ a: { entryFade: 1 }, b: { entryFade: 1 }, between: 4 });
+        t.advance(1); // half way into B's entry
+        t.show.stopAll();
+        expect(rg(t.dmx())).to.deep.equal([0, 0]);
+        t.show.go("a");
+        expect(rg(t.dmx())).to.deep.equal([0, 0]); // nothing to resume: its own entry fade, from black
+        expect(held(t.show).size).to.equal(0); // no crossfade: nothing was released, nothing resumed
+        t.advance(2);
+        expect(rg(t.dmx())).to.deep.equal([255, 0]);
+      });
+
+      it("shares the cell and never goes brighter when A resumes over a longer tail (1 s in, 3 s out), in both merges", () => {
+        for (const looksMerge of ["last", "highest"] as const) {
+          const t = pair({ a: { entryFade: 1, exitFade: 3 }, b: { entryFade: 1 }, between: 4 });
+          t.show.settings = { ...t.show.settings, looksMerge };
+          t.advance(1); // 0.5 s: A leaves over its 3 s exit, B half in
+          const before = rg(t.dmx());
+          t.show.go("a"); // A resumes from 0.93, B leaves from 0.5: they share the cell over their sum
+          const after = rg(t.dmx());
+          expect(after[0]).to.be.within(before[0] - 3, before[0] + 3); // continuous
+          expect(after[1]).to.be.within(before[1] - 3, before[1] + 3);
+          expect(after[0]).to.be.within(160, 172); // 0.93 of the 1.43 the cell carries
+          expect(after[1]).to.be.within(83, 95);
+          t.advance(1); // 0.5 s of A's resumption
+          const mid = rg(t.dmx());
+          expect(mid[0]).to.be.within(196, 208); // 0.96 of 1.21 — never brighter than the brighter
+          expect(mid[1]).to.be.within(46, 58);
+          t.advance(5); // A's 1 s in, B's 1 s tail gone
+          expect(rg(t.dmx())).to.deep.equal([255, 0]);
+        }
+      });
     });
 
     it("keeps the tail of A from covering a look that has nothing to do with the crossfade (another look under B's fixtures)", () => {
