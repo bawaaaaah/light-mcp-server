@@ -371,25 +371,33 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const song = useTopic<SongState>("light:song", {});
 
+  const reads = useRef(0);
   const refresh = useCallback(() => {
-    void cmd<Look[]>("look.list", { brief: true }).then(setLooks).catch(() => undefined);
-    void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
-    void cmd<ChannelFader[]>("fader.list").then(setFaders).catch(() => undefined);
-    void cmd<{ id: string; name: string }[]>("snapshot.list").then(setSnapshots).catch(() => undefined);
+    // a late answer arriving after a newer one must not rewrite the widgets with a mid-glide
+    // snapshot (a thumb left at 20 % while the fader sits at 80 %); only the last read wins
+    const stamp = ++reads.current;
+    void cmd<Look[]>("look.list", { brief: true }).then((l) => stamp === reads.current && setLooks(l)).catch(() => undefined);
+    void cmd<Group[]>("group.list").then((l) => stamp === reads.current && setGroups(l)).catch(() => undefined);
+    void cmd<ChannelFader[]>("fader.list").then((l) => stamp === reads.current && setFaders(l)).catch(() => undefined);
+    void cmd<{ id: string; name: string }[]>("snapshot.list").then((l) => stamp === reads.current && setSnapshots(l)).catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
   useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets"], refresh);
-  // a glide ends with an empty light:glide frame: the effective levels read before it landed are stale
-  // (a fader left at 5 % kept showing the 43 % it had half-way there)
-  const gliding = glide.gm !== undefined || Object.keys(glide.groups).length > 0 || Object.keys(glide.faders).length > 0;
-  const wasGliding = useRef(false);
+  // an effective level read while the group still glided is stale (a fader left at 5 % kept showing
+  // the 43 % it had half-way there): the topic announces the gliders still running, so a group that
+  // leaves it has landed — read its effective level then, not once the last glide of the page ended
+  const glided = useRef<string[]>([]);
   useEffect(() => {
-    if (wasGliding.current && !gliding) void cmd<Group[]>("group.list").then(setGroups).catch(() => undefined);
-    wasGliding.current = gliding;
-  }, [gliding]);
+    const now = Object.keys(glide.groups);
+    if (glided.current.some((id) => !now.includes(id))) {
+      const stamp = ++reads.current;
+      void cmd<Group[]>("group.list").then((l) => stamp === reads.current && setGroups(l)).catch(() => undefined);
+    }
+    glided.current = now;
+  }, [glide.groups]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -731,6 +739,7 @@ export function DashboardsPage({ role }: { role: Role }) {
                   void run("fader.level", { id: f.id, level });
                 }}
               />
+              <span className="level-bar" style={{ height: `${f.level * 100}%` }} />
               <GhostBar level={glide.faders[f.id]} />
             </div>
             <span className="value">
@@ -764,6 +773,7 @@ export function DashboardsPage({ role }: { role: Role }) {
                   void run("grandmaster.set", { level: v });
                 }}
               />
+              <span className="level-bar" style={{ height: `${level * 100}%` }} />
               <GhostBar level={glide.gm} />
             </div>
             <span className="value">
@@ -800,6 +810,7 @@ export function DashboardsPage({ role }: { role: Role }) {
                 void run("group.level", { id: g.id, level });
               }}
             />
+            <span className="level-bar" style={{ height: `${shown * 100}%` }} />
             {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
             {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
             <GhostBar level={sent} />
@@ -809,7 +820,7 @@ export function DashboardsPage({ role }: { role: Role }) {
               {/* a line of its own, always there: while the level glides it shows the level sent, otherwise
                   the effective one (a snapshot read at the last command), so the read-out never changes
                   height and the track never moves under the finger */}
-              <small className="sent">{sent === undefined ? `(${Math.round(g.effectiveLevel * 100)}%)` : `→ ${Math.round(sent * 100)}%`}</small>
+              <small className={sent !== undefined ? "sent" : undefined}>{sent === undefined ? `(${Math.round(g.effectiveLevel * 100)}%)` : `→ ${Math.round(sent * 100)}%`}</small>
             </span>
             {g.limits && (g.limits.min !== undefined || g.limits.max !== undefined) && (
               <small className="limits">

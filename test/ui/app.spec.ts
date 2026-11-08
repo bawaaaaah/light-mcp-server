@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route, type WebSocketRoute } from "@playwright/test";
 
 /** Collects page errors and console errors; every test asserts there are none. */
 function watchErrors(page: Page): string[] {
@@ -1330,19 +1330,25 @@ test("a smoothed DCA fader dragged up and back down keeps its travel and lands o
     const box = (await fader.boundingBox())!;
     const x = box.x + box.width / 2;
     const y = (fraction: number) => box.y + (1 - fraction) * box.height;
+    let sawGhost = false;
     const at = async (fraction: number) => {
       await page.mouse.move(x, y(fraction));
       await page.waitForTimeout(60);
+      // the level path has to stay drawn while it glides, or the arrival would take the whole bar
+      // back and the fader would look like it halved under the finger
+      expect(await cell.locator(".level-bar").count(), `the level path at ${fraction}`).toBe(1);
       // the read-out's second line goes from the effective level to the one sent: it must keep its height,
       // or the track would take back the room under the finger
       expect(await height(cell.locator(".track")), `travel at ${fraction}`).toBe(travel);
       expect(await height(fader), `slider length at ${fraction}`).toBe(length);
+      if (await cell.locator(".ghost-bar").count()) sawGhost = true; // the glide was really running
     };
     await page.mouse.move(x, y(0.4));
     await page.mouse.down();
     for (const f of [0.55, 0.7, 0.85, 0.95]) await at(f);
     for (const f of [0.85, 0.7, 0.55, 0.4]) await at(f);
     await page.mouse.up();
+    expect(sawGhost, "the level was on its way during the gesture").toBe(true);
 
     // the glide lands: the level shown, the level beside it and the level reached all agree
     await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 5000 });
@@ -1351,7 +1357,50 @@ test("a smoothed DCA fader dragged up and back down keeps its travel and lands o
     await expect.poll(async () => Math.round(((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!.effectiveLevel * 100)).toBe(asked);
     expect(await height(cell.locator(".track")), "the fader ends on the travel it started with").toBe(travel);
     expect(await height(fader), "the slider ends on the length it started with").toBe(length);
+    expect(Math.abs((await height(cell.locator(".level-bar"))) - Math.round((travel * asked) / 100))).toBeLessThanOrEqual(2);
   } finally {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("a group list answer that lands late does not rewrite the fader", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type G = { id: string; master?: { level: number; mute: boolean; smoothing?: unknown }; effectiveLevel: number };
+  const master = ((await api(page, "group.list")) as G[]).find((g) => g.id === "master")!;
+  let held: { route: Route; status: number; headers: Record<string, string>; body: string } | undefined;
+  let lists = 0;
+  try {
+    await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false, smoothing: { curve: "linear", msPerStep: 10 } } } });
+    await page.reload();
+    const cell = page.locator(".cell .fader").first();
+    const fader = cell.locator("input[type=range]");
+    await expect(fader).toHaveValue("1000");
+    // the desk's slow link: the first group.list's answer is held in the wire
+    await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+      lists++;
+      if (lists === 1) {
+        const response = await route.fetch();
+        held = { route, status: response.status(), headers: response.headers(), body: await response.text() };
+        return;
+      }
+      await route.fulfill({ response: await route.fetch() });
+    });
+    await api(page, "group.level", { id: master.id, level: 0.2 });
+    await expect.poll(() => Boolean(held)).toBe(true);
+    await expect.poll(async () => (JSON.parse(held!.body) as { result: G[] }).result.find((g) => g.id === master.id)!.master!.level).toBe(0.2);
+    await api(page, "group.level", { id: master.id, level: 0.8 });
+    await expect(fader).toHaveValue("800");
+    await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 6000 });
+    await expect.poll(() => lists).toBeGreaterThanOrEqual(3); // the landing's own read ran after the held one
+
+    // the held answer is released now, after the landing: the last read must win
+    await held!.route.fulfill({ status: held!.status, headers: held!.headers, body: held!.body });
+    await expect(fader).toHaveValue("800"); // the 20 % state is gone, the fader stays at 80 %
+    await expect(cell.locator(".value")).toContainText("80%");
+  } finally {
+    await page.unrouteAll();
     await api(page, "group.put", { group: { ...master, master: { level: 1, mute: false } } });
   }
   expect(errors).toEqual([]);

@@ -112,7 +112,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | Tâche | État | Commit / note |
 |---|---|---|
 | T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade` ; essai sur la sortie locale fait (flash reproduit puis disparu), **pas encore sur les vraies lyres** |
-| T4 | **fait** (test vert) | relevé du fader DCA : niveau effectif rafraîchi à l'arrivée du glissement, second nombre sur une ligne à hauteur fixe ; test Playwright dans `test/ui/app.spec.ts` |
+| T4 | **fait** (deux passes, tests verts) | relevé du fader DCA : effectif rafraîchi dès la sortie d'un groupe du glissement, second nombre sur une ligne à hauteur fixe et grisée au repos ; **barre de niveau permanente** sous la barre fantôme (l'arrivée ne rétrécit plus le fader de moitié) ; relectures : la dernière gagne (réponse en retard reproduite). Revu par deux modèles locaux et relu par Fable. Reste noté dans [todo.md](todo.md) : le hub WS déconnecte un client très en retard (> 4 Mio) |
 | T3 | à faire | voir sa précision sur le groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
 | T7, T12, T17, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |
