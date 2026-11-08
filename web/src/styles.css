@@ -246,11 +246,6 @@ main {
   gap: 0.3em;
   min-width: 70px;
 }
-.fader input[type="range"] {
-  writing-mode: vertical-lr;
-  direction: rtl;
-  height: 180px;
-}
 .fader label {
   font-size: 0.8rem;
   text-align: center;
@@ -434,11 +429,6 @@ td {
 }
 button.danger {
   border-color: var(--danger);
-}
-.cell .fader input[type="range"] {
-  height: auto;
-  flex: 1;
-  min-height: 48px;
 }
 /* in a dashboard cell the fader takes the cell's height: the slider shrinks, the buttons and
    the name stay visible */
@@ -1000,15 +990,86 @@ table.cues select {
   color: var(--muted);
 }
 
-/* DCA limits on faders */
+/* A dashboard fader is drawn entirely in DOM: no engine-specific vertical range rendering.
+   The transparent horizontal range keeps native focus and assistive-tool behaviour; pointer
+   mapping and vertical arrows are normalized by FaderTrack. The thumb's overhang lives in fixed margins. */
 .fader .track {
   position: relative;
-  display: flex;
   flex: 1;
-  justify-content: center;
+  width: 36px;
+  min-height: 48px;
+  margin: 8px 0;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+.fader .track input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.fader .track .fader-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 6px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--wc, var(--accent)) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent);
+  pointer-events: none;
+}
+.fader .track .ghost-bar,
+.fader .track .level-bar {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 14px;
+  transform: translateX(-50%);
+  border-radius: 3px 3px 0 0;
+  pointer-events: none;
+}
+.fader .track .level-bar {
+  background: color-mix(in srgb, var(--wc, var(--accent)) 30%, transparent);
+}
+.fader .track .ghost-bar {
+  z-index: 2;
+  background: color-mix(in srgb, var(--wc, var(--accent)) 40%, transparent);
+  border-top: 2px solid var(--wc, var(--accent));
+}
+.fader .track .fader-thumb {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  width: 30px;
+  height: 16px;
+  transform: translate(-50%, 50%);
+  border: 1px solid color-mix(in srgb, var(--wc, var(--accent)) 65%, var(--text));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--wc, var(--accent)) 28%, var(--text));
+  box-shadow: 0 1px 4px #0008;
+  touch-action: none;
+}
+.fader .track input[type="range"]:focus-visible ~ .fader-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.fader .track.disabled {
+  cursor: default;
+}
+.fader .track.disabled .fader-thumb {
+  opacity: 0.55;
 }
 .fader .track .mark {
   position: absolute;
+  z-index: 3;
   left: 10%;
   right: 10%;
   height: 2px;
@@ -1022,41 +1083,6 @@ table.cues select {
 }
 .fader .limits {
   font-size: 0.7rem;
-}
-/* the level path of a fader, from the bottom: at rest the level itself (the sent one replaces it,
-   over it, while the value glides); without the standing bar, the end of a glide would take back
-   the whole path the ghost bar filled and the fader would look like it halved (groups-masters.md,
-   « Lissage ») */
-/* the native fill of a vertical RTL range runs from the TOP to the thumb: full at 0 %, empty at
-   100 %, the wrong way round for a fader — the track is painted ourselves instead, from the
-   bottom, with --fill set by the widget at its level; the thumb stays native */
-.cell .fader input[type="range"]::-webkit-slider-runnable-track,
-.cell .fader input[type="range"]::-moz-range-track {
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--wc, var(--accent)) 30%, transparent) var(--fill, 100%),
-    color-mix(in srgb, var(--wc, var(--accent)) 6%, transparent) var(--fill, 100%)
-  );
-}
-.cell .fader input[type="range"]::-moz-range-progress {
-  background: transparent;
-}
-.fader .track .ghost-bar,
-.fader .track .level-bar {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 14px;
-  transform: translateX(-50%);
-  border-radius: 3px 3px 0 0;
-  pointer-events: none;
-}
-.fader .track .ghost-bar {
-  background: color-mix(in srgb, var(--wc, var(--accent)) 40%, transparent);
-  border-top: 2px solid var(--wc, var(--accent));
-}
-.fader .track .level-bar {
-  background: color-mix(in srgb, var(--wc, var(--accent)) 30%, transparent);
 }
 .fader .sent {
   color: var(--wc, var(--accent));
@@ -1812,9 +1838,6 @@ nav.jump a:hover {
   background: var(--wc);
   color: var(--wc-text);
   border: none;
-}
-.cell.tinted .fader input[type="range"] {
-  accent-color: var(--wc);
 }
 .cell.tinted .fader label,
 .cell.tinted .w-label {

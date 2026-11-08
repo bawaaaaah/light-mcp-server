@@ -725,24 +725,17 @@ export function DashboardsPage({ role }: { role: Role }) {
         if (!f) return <div className="fill missing">{w.target}</div>;
         return (
           <div className="fader fill channel">
-            <div className="track">
-              <input
-                type="range"
-                min={0}
-                max={1000}
-                aria-label={`${t.channelFader} ${f.name}`}
-                disabled={!may("commands:level")}
-                value={Math.round(f.level * 1000)}
-                style={{ "--fill": `${f.level * 100}%` } as React.CSSProperties}
-                onChange={(e) => {
-                  const level = Number(e.target.value) / 1000;
-                  setFaders((fs) => fs.map((x) => (x.id === f.id ? { ...x, level } : x)));
-                  void run("fader.level", { id: f.id, level });
-                }}
-              />
-              <span className="level-bar" style={{ height: `${f.level * 100}%` }} />
-              <GhostBar level={glide.faders[f.id]} />
-            </div>
+            <FaderTrack
+              label={`${t.channelFader} ${f.name}`}
+              value={f.level}
+              sent={glide.faders[f.id]}
+              disabled={!may("commands:level")}
+              interactive={!edit}
+              onChange={(level) => {
+                setFaders((fs) => fs.map((x) => (x.id === f.id ? { ...x, level } : x)));
+                void run("fader.level", { id: f.id, level });
+              }}
+            />
             <span className="value">
               {Math.round(f.level * 100)}%<Sent level={glide.faders[f.id]} />
             </span>
@@ -760,24 +753,17 @@ export function DashboardsPage({ role }: { role: Role }) {
         const level = gm ?? state?.grandMaster ?? 1;
         return (
           <div className="fader fill grand-master">
-            <div className="track">
-              <input
-                type="range"
-                min={0}
-                max={1000}
-                aria-label={t.widgetKinds["grand-master"]}
-                disabled={!may("commands:level")}
-                value={Math.round(level * 1000)}
-                style={{ "--fill": `${level * 100}%` } as React.CSSProperties}
-                onChange={(e) => {
-                  const v = Number(e.target.value) / 1000;
-                  setGm(v);
-                  void run("grandmaster.set", { level: v });
-                }}
-              />
-              <span className="level-bar" style={{ height: `${level * 100}%` }} />
-              <GhostBar level={glide.gm} />
-            </div>
+            <FaderTrack
+              label={t.widgetKinds["grand-master"]}
+              value={level}
+              sent={glide.gm}
+              disabled={!may("commands:level")}
+              interactive={!edit}
+              onChange={(v) => {
+                setGm(v);
+                void run("grandmaster.set", { level: v });
+              }}
+            />
             <span className="value">
               {Math.round(level * 100)}%<Sent level={glide.gm} />
             </span>
@@ -796,28 +782,22 @@ export function DashboardsPage({ role }: { role: Role }) {
         const sent = glide.groups[g.id];
         return (
           <div className="fader fill">
-            <div className="track">
-            <input
-              type="range"
-              min={0}
-              max={1000}
-              aria-label={`DCA ${g.name}`}
+            <FaderTrack
+              label={`DCA ${g.name}`}
+              value={shown}
+              sent={sent}
               disabled={!may("commands:level")}
-              value={Math.round(shown * 1000)}
-              style={{ "--fill": `${shown * 100}%` } as React.CSSProperties}
-              onChange={(e) => {
-                let level = Number(e.target.value) / 1000;
+              interactive={!edit}
+              onChange={(raw) => {
                 // clamp mode: the fader stops at the DCA limits (position = level)
-                if (g.limits?.mode !== "scale") level = Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, level));
+                const level = g.limits?.mode === "scale" ? raw : Math.min(g.limits?.max ?? 1, Math.max(g.limits?.min ?? 0, raw));
                 setGroups((gs) => gs.map((x) => (x.id === g.id ? { ...x, master: { ...x.master, level, mute: x.master?.mute ?? false } } : x)));
                 void run("group.level", { id: g.id, level });
               }}
-            />
-            <span className="level-bar" style={{ height: `${shown * 100}%` }} />
-            {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
-            {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
-            <GhostBar level={sent} />
-            </div>
+            >
+              {g.limits?.mode !== "scale" && g.limits?.max !== undefined && <span className="mark max" style={{ bottom: `${g.limits.max * 100}%` }} title={`max ${Math.round(g.limits.max * 100)} %`} />}
+              {g.limits?.mode !== "scale" && g.limits?.min !== undefined && <span className="mark min" style={{ bottom: `${g.limits.min * 100}%` }} title={`min ${Math.round(g.limits.min * 100)} %`} />}
+            </FaderTrack>
             <span className="value dca">
               {Math.round(shown * 100)}%
               {/* a line of its own, always there: while the level glides it shows the level sent, otherwise
@@ -1354,6 +1334,78 @@ export function DashboardsPage({ role }: { role: Role }) {
           </Suspense>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/** A vertical fader drawn entirely in DOM, with a native range kept for focus and assistive tools. */
+function FaderTrack({ label, value, sent, disabled, interactive, onChange, children }: {
+  label: string;
+  value: number;
+  sent?: number;
+  disabled: boolean;
+  interactive: boolean;
+  onChange: (level: number) => void;
+  children?: React.ReactNode;
+}) {
+  const track = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const pointer = useRef<number | null>(null);
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = track.current?.getBoundingClientRect();
+    if (!box?.height) return;
+    const offset = box.bottom - e.clientY;
+    // WebKit rounds pointer coordinates to whole pixels: without an end stop, clicking a thumb at 0 % writes a few steps.
+    const level = offset <= 1 ? 0 : offset >= box.height - 1 ? 1 : Math.round((offset / box.height) * 1000) / 1000;
+    onChange(level);
+  };
+  const end = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointer.current !== e.pointerId) return;
+    pointer.current = null;
+    if (track.current?.hasPointerCapture(e.pointerId)) track.current.releasePointerCapture(e.pointerId);
+  };
+  return (
+    <div
+      ref={track}
+      className={`track${disabled ? " disabled" : ""}`}
+      onPointerDown={(e) => {
+        if (disabled || !interactive || e.button !== 0 || !e.isPrimary) return;
+        e.preventDefault();
+        pointer.current = e.pointerId;
+        track.current?.setPointerCapture(e.pointerId);
+        input.current?.focus({ preventScroll: true });
+        move(e);
+      }}
+      onPointerMove={(e) => {
+        if (pointer.current === e.pointerId) move(e);
+      }}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onLostPointerCapture={() => (pointer.current = null)}
+    >
+      <input
+        ref={input}
+        type="range"
+        min={0}
+        max={1000}
+        step={1}
+        aria-label={label}
+        aria-orientation="vertical"
+        disabled={disabled}
+        value={Math.round(value * 1000)}
+        onChange={(e) => onChange(Number(e.currentTarget.value) / 1000)}
+        onKeyDown={(e) => {
+          const delta = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
+          if (!delta) return;
+          e.preventDefault();
+          onChange(Math.min(1, Math.max(0, (Math.round(value * 1000) + delta) / 1000)));
+        }}
+      />
+      <span className="fader-rail" aria-hidden />
+      <span className="level-bar" aria-hidden style={{ height: `${value * 100}%` }} />
+      {children}
+      <GhostBar level={sent} />
+      <span className="fader-thumb" aria-hidden style={{ bottom: `${value * 100}%` }} />
     </div>
   );
 }

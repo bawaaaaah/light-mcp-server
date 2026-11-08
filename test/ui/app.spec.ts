@@ -1261,6 +1261,60 @@ test("group fader drives the master and the dimmer", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("a dashboard fader maps its whole track and keeps keyboard access", async ({ page, browserName }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const cell = page.locator(".cell .fader").first();
+  const fader = cell.locator("input[type=range]");
+  const track = cell.locator(".track");
+  const thumb = cell.locator(".fader-thumb");
+  const level = cell.locator(".level-bar");
+  const travel = (await track.boundingBox())!.height;
+
+  for (const value of [0, 250, 500, 750, 1000]) {
+    await fader.fill(String(value));
+    const trackBox = (await track.boundingBox())!;
+    const levelBox = (await level.boundingBox())!;
+    const thumbBox = (await thumb.boundingBox())!;
+    expect(trackBox.height).toBe(travel);
+    expect((await fader.boundingBox())!.height).toBe(travel);
+    expect(Math.abs(levelBox.height - (travel * value) / 1000)).toBeLessThanOrEqual(1);
+    expect(Math.abs(thumbBox.y + thumbBox.height / 2 - (trackBox.y + trackBox.height - levelBox.height))).toBeLessThanOrEqual(1);
+  }
+
+  const box = (await track.boundingBox())!;
+  // WebKit rounds pointer coordinates to whole CSS pixels; allow one pixel, Chromium must be exact.
+  const clickTolerance = browserName === "webkit" ? Math.ceil(1000 / box.height) : 0;
+  const clicked = async (fraction: number) => {
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height * (1 - fraction));
+    await expect.poll(async () => Math.abs(Number(await fader.inputValue()) - fraction * 1000)).toBeLessThanOrEqual(clickTolerance);
+  };
+  await clicked(0.8);
+  await clicked(0.2);
+  await fader.fill("1000");
+  await thumb.click();
+  await expect(fader).toHaveValue("1000");
+  await fader.fill("0");
+  await thumb.click();
+  await expect(fader).toHaveValue("0");
+
+  await fader.focus();
+  const press = async (key: string, value: string) => {
+    await page.keyboard.press(key);
+    // let each command and its refresh settle before the next distinct key press
+    await page.waitForTimeout(100);
+    await expect(fader).toHaveValue(value);
+  };
+  await press("End", "1000");
+  await press("Home", "0");
+  await press("ArrowUp", "1");
+  await press("ArrowRight", "2");
+  await press("ArrowDown", "1");
+  await press("ArrowLeft", "0");
+  await fader.fill("1000");
+  expect(errors).toEqual([]);
+});
+
 test("smoothed DCA: the output glides to the fader, a ghost bar shows the level sent", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
