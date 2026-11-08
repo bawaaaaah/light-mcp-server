@@ -111,7 +111,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 
 | Tâche | État | Commit / note |
 |---|---|---|
-| T2 | **plan prêt, à implémenter en premier** | [plan-t2.md](plan-t2.md) ; plan revu par 14 modèles, corrections intégrées |
+| T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade`, pas encore essayé sur les vraies lyres |
 | T4, T3 | à faire | T3 : voir sa précision sur les du groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
 | T7, T12, T17, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |
@@ -126,7 +126,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 États possibles : à faire · en cours · fait (tests verts, commité) · bloqué (dire pourquoi) · en attente.
 
 ## 7 bis. Décisions déjà prises (ne pas les rediscuter)
-- **T2** : un look relancé en plein fondu (A → B → A) repart de son **niveau courant** et reprend sa **position dans l'animation** (le `LookPlayer` de la queue est réutilisé, sauf look modifié). Remplace la règle de la spec « repart à neuf depuis le noir ». À noter dans [decisions.md](decisions.md) à l'implémentation.
+- **T2** : un look relancé en plein fondu (A → B → A) repart de son **niveau courant** et reprend sa **position dans l'animation** (le `LookPlayer` de la queue est réutilisé, sauf look modifié ou palette changée pendant la queue ; un enregistrement à l'identique n'est pas une modification). Remplace la règle de la spec « repart à neuf depuis le noir ». Noté dans [decisions.md](decisions.md) et la spec.
 - **T26** : verrou « Figer les lyres » à **deux niveaux** : souple (looks et cible bloqués, pad XY libre) et dur (tout, pad compris).
 - **T24** : chaque cible a son **groupe ou sa liste de lyres** ; plusieurs cibles à la fois.
 - **T10** : manette placée en fin de parcours ; PS5 (pavé tactile, gyro) seulement après discussion.

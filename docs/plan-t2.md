@@ -1,7 +1,7 @@
 # Plan détaillé de T2 — plus de flash en changeant vite de look
 
-> Statut (2026-11-08) : **plan validé et revu, pas encore implémenté.** Premier chantier de code à lancer (phase 0 de [plan-agent.md](plan-agent.md), tâche T2 de [todo.md](todo.md)). Un commit à part pour le correctif, un autre pour les docs.
-> La décision de l'utilisateur (A relancé en plein fondu repart de son niveau **et** de sa position dans l'animation) doit aussi aller dans [decisions.md](decisions.md) et [specs/engine-effects-timing.md](specs/engine-effects-timing.md) au moment de l'implémentation.
+> Statut (2026-11-08) : **fait et revu**, tests verts (`npm test`, `npm run typecheck`), commité sur `fix/t2-look-restart-mid-fade` (`a3d4585` pour le correctif, un second commit pour les docs). Non vérifié sur les vraies lyres.
+> Mesures (tests de caractérisation, échantillonnage 20 ms) : avant correctif, A→B→A jetait la queue de A (rouge 215 → 0 en une trame), la relance depuis `releasing` passait de 128 à 0, deux relances en moins de 100 ms de 255 à 0, et l'animation repartait au pas 0 ; après correctif, tous les sauts retombent sous la borne de continuité et les sommes restent dans les bornes.
 
 ## Contexte
 Notes de l'utilisateur (2026-11-07) : « si je change trop vite entre les scènes, je peux avoir un flash, lié à la transition entre les looks (temps de montée/descente) ». Tâche T2 de `docs/todo.md`, phase 0 de `docs/plan-agent.md`. Le DMX USB est écarté (l'utilisateur joue en Art-Net), donc ce flash vient du moteur, pas de la sortie.

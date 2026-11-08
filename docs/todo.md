@@ -25,6 +25,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - **Symptôme** : enchaîner rapidement les scènes provoque un flash ; lié aux temps de montée/descente (fondu) des looks.
 - **Pistes** : un look qui se relance pendant son fondu repart-il de 0 au lieu de la valeur courante ? Le look sortant et le look entrant s'additionnent-ils (HTP) pendant le croisement ? Exclusivité : le relâchement du précédent et l'attaque du suivant doivent partir de la valeur **courante**, pas de la cible.
 - **À faire** : test moteur (temps injectable) : A → B → A en 100 ms avec fondu de 2 s, la sortie ne doit jamais dépasser max(A, B) ni retomber à 0 puis remonter.
+- **Fait (2026-11-08)** : la queue d'un look relancé n'est plus jetée — poids de départ `from`, player réutilisé (animation continue), sauf look modifié ou palette changée pendant la queue ; tests d'échantillonnage 20 ms (A → B → A à 25/50/75 %, chaîne A → B → C → A, relance depuis `releasing`, deux relances < 100 ms, partage 1 s / 3 s en fusion « dernier » et « plus fort »). 647 tests verts.
 
 ### T3 — Vitesse de montée/descente ignorée pour certains projecteurs (groupe extérieur de l'utilisateur)
 - Le fondu d'entrée/sortie n'est pas pris en compte sur eux. Trouver pourquoi (chemin spécifique : canaux bruts ? gradateur générique ? règle ?) et corriger dans la couche moteur commune.
