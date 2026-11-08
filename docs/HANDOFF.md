@@ -84,7 +84,7 @@ Point d'entrée pour un agent ou un humain qui reprend le projet. **À lire en p
 - **Interface web** : Live (dashboards modulables), Chants (avec l'éditeur de chants et de setlists), Show (avec l'éditeur de looks), Lieu, Console DMX, MIDI (dont Web MIDI), OSC, Import, Notes, Réglages ; FR/EN. **Testée dans Chromium headless** avec Playwright (`npm run test:ui`, `test/ui/`) : connexion par PIN, looks et exclusivité, Panic, fader de groupe, console DMX, chants, toutes les pages en FR/EN, éditeur de dashboard, pad XY des lyres, éditeur de looks (aperçu et pas), éditeur de chants et de setlists, éditeurs de groupes/DCA, de faders de canaux, de règles et de mappings MIDI (avec « Apprendre », programmes par note), boutons de dashboard marche/arrêt, tant qu'on appuie ou déclencher, toutes les pages au format tablette, calibration des lyres, orientation des projecteurs sur la scène en direct, boutons à confirmer, refus d'écriture pour un bénévole. Les captures vont dans `test-results/` (à regarder après chaque changement visuel).
 
 ## Prochaines étapes
-0. **Chantier en cours (2026-11-08)** : retours des essais avec de vraies lyres. Reprise par un agent IA : [plan-agent.md](plan-agent.md) (brief, pièges, état), [todo.md](todo.md) (30 tâches, T1 à T30, classées et en phases) et [plan-t2.md](plan-t2.md) (premier chantier de code, **fait et revu**, tests verts, commité sur `fix/t2-look-restart-mid-fade` ; pas encore essayé sur les vraies lyres).
+0. **Chantier en cours (2026-11-08)** : retours des essais avec de vraies lyres. Reprise par un agent IA : [plan-agent.md](plan-agent.md) (brief, pièges, état), [todo.md](todo.md) (30 tâches, T1 à T30, classées et en phases) et [plan-t2.md](plan-t2.md) (premier chantier de code, **fait et revu**, tests verts, commité sur `fix/t2-look-restart-mid-fade` ; essai sur la sortie locale fait, pas encore sur les vraies lyres).
 1. **L'utilisateur** :
    - tests matériel (prototypes) ;
    - `.qxf` personnels dans `data/fixtures/`, import de son workspace puis auto-test ;
@@ -156,7 +156,7 @@ Aucune. Toutes les décisions de conception sont prises ([decisions.md](decision
 - [roadmap.md](roadmap.md) : prototypes, v0, phases, plus tard.
 - [todo.md](todo.md) : **liste de travail courante** (retours des essais avec les lyres).
 - [plan-agent.md](plan-agent.md) : **brief de reprise pour une IA** (règles, pièges, plan par phases, état).
-- [plan-t2.md](plan-t2.md) : **plan détaillé et revu du premier chantier de code (T2)**, prêt à implémenter.
+- [plan-t2.md](plan-t2.md) : **plan détaillé et revu du premier chantier de code (T2)**, implémenté, commité et essayé sur la sortie locale.
 - [decisions.md](decisions.md) : journal daté des décisions.
 - [glossaire.md](glossaire.md) : vocabulaire du projet.
 - [architecture.md](architecture.md) : principes, arborescence, données, WS, pipeline, auth, déploiement.

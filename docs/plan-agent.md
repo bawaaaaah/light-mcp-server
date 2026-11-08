@@ -111,7 +111,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 
 | Tâche | État | Commit / note |
 |---|---|---|
-| T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade`, pas encore essayé sur les vraies lyres |
+| T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade` ; essai sur la sortie locale fait (flash reproduit puis disparu), **pas encore sur les vraies lyres** |
 | T4, T3 | à faire | T3 : voir sa précision sur les du groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
 | T7, T12, T17, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |

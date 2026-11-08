@@ -1,6 +1,6 @@
 # Plan détaillé de T2 — plus de flash en changeant vite de look
 
-> Statut (2026-11-08) : **fait et revu**, tests verts (`npm test`, `npm run typecheck`), commité sur `fix/t2-look-restart-mid-fade` (`a3d4585` pour le correctif, un second commit pour les docs). Non vérifié sur les vraies lyres.
+> Statut (2026-11-08) : **fait et revu**, tests verts (`npm test`, `npm run typecheck`), commité sur `fix/t2-look-restart-mid-fade` (`a3d4585` pour le correctif, un second commit pour les docs). Essai sur la **sortie locale** (`127.0.0.1:16454`, vrai moteur, vrais paquets ArtDmx, faux node) : fait, voir la section « Vérification ». **Pas encore essayé sur les vraies lyres.**
 > Mesures (tests de caractérisation, échantillonnage 20 ms) : avant correctif, A→B→A jetait la queue de A (rouge 215 → 0 en une trame), la relance depuis `releasing` passait de 128 à 0, deux relances en moins de 100 ms de 255 à 0, et l'animation repartait au pas 0 ; après correctif, tous les sauts retombent sous la borne de continuité et les sommes restent dans les bornes.
 
 ## Contexte
@@ -68,6 +68,18 @@ Noter les chiffres obtenus dans la description du commit.
 2. Grep de confidentialité sur le diff ; indexation **par chemin explicite**.
 3. Essai réel, **seulement avec la sortie en veille** (`output.status`) ou sur la sortie locale 127.0.0.1 : suivre l'aperçu de la scène en direct en enchaînant vite deux looks avec fondu d'entrée de 1 s. Sur le matériel, ne rien jouer sans l'accord de l'utilisateur.
 4. Dire clairement ce qui n'a pas été vérifié sur de vraies lyres.
+
+### Essai sur la sortie locale (2026-11-08)
+
+Montage : un vrai `LightPlugin` (moteur et ticker réels, définition de test `test/fixtures/bar4.qxf`), sortie liée à `127.0.0.1`, route vers un faux node Art-Net sur `127.0.0.1:16454` ; aucun paquet ne quitte la machine. Deux looks `plat` (rouge puis bleu) dans un groupe exclusif, fondu d'entrée 1 s, puis A → B à 500 ms → A à 600 ms. 50 trames ArtDmx capturées (44 Hz), canal rouge du premier projecteur :
+
+| | Avant correctif | Après correctif |
+|---|---|---|
+| Canal rouge | … 141, 149, **156 → 0**, 1, 2, 4 … (chute de 156 à 0 en une trame, puis nouvelle montée depuis 0) | … 149, 156, 161, **163, 171, 179** … jusqu'à 255, sans retour en arrière |
+| Plus forte chute sur une trame | −156 | −1 (arrondi) |
+| Animation | repart au premier pas | continue sa course (une seule montée) |
+
+Cela reproduit le flash décrit par l'utilisateur, puis montre qu'il a disparu sur le chemin de sortie réel (encodage ArtDmx compris). Ce qui reste non vérifié : les vraies lyres, leur réponse optique et un réseau de scène réel. Le script d'essai était jetable (fichier `__NO_COMMIT__`, supprimé après mesure).
 
 ## Hors périmètre
 T3 (fondu ignoré sur certains projecteurs) et T4 (fader DCA) : mêmes zones de code, mais traités après T2. Si la mesure montre un autre flash (par ex. une fusion `highest` qui dépasse), le noter dans `todo.md` plutôt que d'élargir ce lot.
