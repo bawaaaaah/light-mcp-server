@@ -733,6 +733,7 @@ export function DashboardsPage({ role }: { role: Role }) {
                 aria-label={`${t.channelFader} ${f.name}`}
                 disabled={!may("commands:level")}
                 value={Math.round(f.level * 1000)}
+                style={{ "--fill": `${f.level * 100}%` } as React.CSSProperties}
                 onChange={(e) => {
                   const level = Number(e.target.value) / 1000;
                   setFaders((fs) => fs.map((x) => (x.id === f.id ? { ...x, level } : x)));
@@ -767,6 +768,7 @@ export function DashboardsPage({ role }: { role: Role }) {
                 aria-label={t.widgetKinds["grand-master"]}
                 disabled={!may("commands:level")}
                 value={Math.round(level * 1000)}
+                style={{ "--fill": `${level * 100}%` } as React.CSSProperties}
                 onChange={(e) => {
                   const v = Number(e.target.value) / 1000;
                   setGm(v);
@@ -802,6 +804,7 @@ export function DashboardsPage({ role }: { role: Role }) {
               aria-label={`DCA ${g.name}`}
               disabled={!may("commands:level")}
               value={Math.round(shown * 1000)}
+              style={{ "--fill": `${shown * 100}%` } as React.CSSProperties}
               onChange={(e) => {
                 let level = Number(e.target.value) / 1000;
                 // clamp mode: the fader stops at the DCA limits (position = level)
