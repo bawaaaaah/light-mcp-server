@@ -2,6 +2,8 @@
 
 Lire d'abord [`docs/HANDOFF.md`](docs/HANDOFF.md), puis la spec concernée dans `docs/specs/`.
 
+**Reprise du chantier en cours** (retours des essais avec les lyres) : lire ensuite [`docs/plan-agent.md`](docs/plan-agent.md) (règles, pièges, état, décisions déjà prises), puis [`docs/todo.md`](docs/todo.md). Le premier chantier de code est T2, dont le plan est dans [`docs/plan-t2.md`](docs/plan-t2.md).
+
 ## Règles
 - **Réutiliser avant d'écrire.** Chercher les commandes, codecs, utilitaires et schémas existants avant d'en créer un. Pas de duplication. Les outils MCP, les routes HTTP et OSC et la CLI sont de minces adaptateurs sur la couche de commandes.
 - **Confidentialité (dépôt public).** Aucune donnée privée de l'utilisateur : pas de nom de lieu, d'événement, de chant ou de personne, pas d'IP, ni dans le code, ni dans la doc, ni dans les tests, les exemples ou les commits. Le privé vit dans `data/` (exclu de git). Faire un grep de contrôle avant chaque commit.
