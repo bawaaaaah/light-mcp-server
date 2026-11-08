@@ -4,6 +4,7 @@
 
 - Le détail de chaque tâche (symptôme, pistes, critères) est dans [todo.md](todo.md), numéroté **T1 à T30**. Le plan de code détaillé du premier chantier est dans [plan-t2.md](plan-t2.md). **Ce fichier-ci ne le répète pas** : il le complète.
 - Contexte général du projet : [HANDOFF.md](HANDOFF.md) (à lire en premier), [../CLAUDE.md](../CLAUDE.md) (règles), puis la spec concernée dans `specs/`.
+- **Dossier local non commité `data/reprise/`** (s'il existe sur cette machine) : contexte complet hors dépôt (revues brutes des 14 modèles, mémoire locale de l'IA, transcript de la session, outils de revue). Lire son `README.md`. Privé : ne rien en copier dans le dépôt.
 - Dernière mise à jour : 2026-11-08. **Quand tu termines une tâche, mets à jour la colonne « État » plus bas.**
 
 ## 1. De quoi s'agit-il
