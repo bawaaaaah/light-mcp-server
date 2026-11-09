@@ -90,6 +90,7 @@ Groupe {
 
 ## Moteur
 Les groupes s'appliquent **après la fusion** et **avant** blackout, freeze, flash et le masque de règles ([engine](engine-effects-timing.md)).
+- Le poids de fondu d'un look qui ne pilote un projecteur que par un **canal de machine** (roue, macro, effet — la couleur ne peut pas se mettre à l'échelle, T3) **dose l'octet d'intensité** du projecteur — le gradateur que le show tient à fond, les DCA dosant ensuite dessus. Un look qui y écrit aussi le gradateur en prend possession (valeur × poids, une seule fois) et le fondu ne le multiplie plus ; les faders de canaux se composent derrière, multiplicativement ([engine](engine-effects-timing.md), « Fondu des canaux bruts d'un look »).
 
 ## UI
 - **Page Groupes** : arbre des groupes avec glisser-déposer, membres, sélecteur, options master, exclusif, limites et presets.

@@ -125,6 +125,17 @@ export class LookPlayer {
     return count === this.steps.length ? this.stepAt(i) : i % count;
   }
 
+  /**
+   * The fade the look is still rising through (its own entry fade, smoothstep, the ramp the colours
+   * are mixed with): the weight its raw channels ride with, so a look's scene rises and falls
+   * symmetrically, like its colours. 1 once the entry is over, and without one.
+   */
+  entryWeight(nowMs: number): number {
+    const elapsedS = (nowMs - this.startMs) / 1000;
+    if (!this.entry || this.timing.entryFade <= 0 || elapsedS >= this.timing.entryFade) return 1;
+    return ease(Math.min(1, Math.max(0, elapsedS)) / this.timing.entryFade);
+  }
+
   render(nowMs: number, beats: number): Step {
     const elapsedS = (nowMs - this.startMs) / 1000;
     const pos = Math.max(0, this.position(nowMs, beats));

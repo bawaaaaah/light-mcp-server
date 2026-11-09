@@ -75,15 +75,27 @@ export type Canvas = z.infer<typeof CanvasSchema>;
 
 export type Color = Partial<Record<ColorComponent, number>>; // components 0..1
 
+/** A raw-channel write of a look, carrying the fade weight of the look that wrote it (highest value wins, its weight rides with it). */
+export interface RawWrite {
+  value: number;
+  weight: number;
+}
+
 export interface AttributeFrame {
   /** fixtureId → head (-1 = whole fixture) → colour */
   colors: Map<string, Map<number, Color>>;
   /** fixtureId → intensity 0..1 (from groups/masters; default 1) */
   intensity: Map<string, number>;
-  /** fixtureId → channel offset (0-based in the mode) → raw DMX value */
-  raw: Map<string, Map<number, number>>;
+  /** fixtureId → channel offset (0-based in the mode) → raw DMX value with its look's fade weight */
+  raw: Map<string, Map<number, RawWrite>>;
   /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
   positions: Map<string, Position>;
+  /**
+   * fixtureId → fade weight riding with the look contributions that cannot dose themselves: a look's machine
+   * channels (a wheel, a macro, an effect, any mode channel) hold verbatim, and their weight doses here the
+   * dimmer(s) of the fixture no look wrote — "when the colour cannot scale, the fade acts on the dimmer".
+   */
+  fade: Map<string, number>;
 }
 
 /** A placed moving head's geometry for aiming and reading back where it points (aim.ts). */
@@ -100,7 +112,7 @@ function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; op
   return offset < 0 ? undefined : { offset, opens: def.channels.get(mode.channels[offset]!)!.zoom === "opens" };
 }
 
-export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map() });
+export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map(), fade: new Map() });
 
 /** How the colours of several looks playing on the same fixture combine (show setting `looksMerge`). */
 export type LooksMerge = "last" | "highest";
@@ -475,13 +487,30 @@ export class Venue {
    * Converts an attribute frame to DMX. Dimmer channels carry the intensity; fixtures without a
    * dimmer get their colours scaled instead ("scènes sans intensité": the level always comes from
    * the masters). A fixture written as a whole (head -1) paints every head.
+   *
+   * The looks' raw channels are emitted in the same pass (one resolve per fixture), dosed by the
+   * weight of their look (docs/specs/engine-effects-timing.md, « Fondu des canaux bruts d'un look »):
+   * a write on a dimmer offset takes the dimmer over (value × weight, once, never re-dosed), one on
+   * a colour offset scales (value × weight), a machine channel (a wheel, a macro, an effect) holds
+   * verbatim — a machine never fades — and its weight goes to frame.fade, which doses the dimmer(s)
+   * of the fixture no look wrote. Offsets off the definition stay verbatim, with no fade.
    */
   toDmx(frame: AttributeFrame, buffers: Uint8Array[]): string[] {
     const errors: string[] = [];
     for (const patch of this.fixtures.list()) {
       if (this.absent.has(patch.id)) continue;
       const r = this.resolve(patch.id);
+      const raws = frame.raw.get(patch.id);
       if ("error" in r) {
+        // No definition: the looks' raw channels stay verbatim by address, never faded.
+        const buf = buffers[patch.universe - 1];
+        if (buf && raws) {
+          const i = patch.address - 1;
+          for (const [offset, { value }] of raws) {
+            const j = i + offset;
+            if (j >= 0 && j < 512) buf[j] = value;
+          }
+        }
         if (frame.colors.has(patch.id) || frame.raw.has(patch.id)) errors.push(r.error);
         continue;
       }
@@ -492,16 +521,25 @@ export class Venue {
         const i = base + offset;
         if (i >= 0 && i < 512) buf[i] = Math.max(0, Math.min(255, Math.round(value)));
       };
+      const colorOffsets = new Set<number>();
+      if (raws) for (const comps of r.heads.values()) for (const off of Object.values(comps)) colorOffsets.add(off);
+      // The fade of this frame: the strongest weight among the fixture's machine-channel writes (the
+      // contributions that cannot dose themselves), dosing the dimmer(s) no look wrote; 1 without one.
+      let faded = 0;
+      for (const [offset, { weight }] of raws ?? []) if (!r.dimmers.includes(offset) && !colorOffsets.has(offset) && offset < r.mode.channels.length) faded = Math.max(faded, weight);
+      const fade = faded || 1;
+      if (faded > 0) frame.fade.set(patch.id, faded);
       const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
       const painted = frame.colors.get(patch.id);
       for (const [off, v] of r.shutterOpen) write(off, v);
       if (r.lampOnly) {
-        // Lamp-only fixtures are lit by what the looks paint on them, at its level.
+        // Lamp-only fixtures are lit by what the looks paint on them, at its level; a look driving
+        // them by machine channels fades the dimmer with its weight (frame.fade).
         const color = painted?.get(-1) ?? painted?.values().next().value;
-        for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * 255 : 0);
+        for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * fade * 255 : 0);
         if (r.wheel && color) write(r.wheel.offset, nearestSlot(r.wheel.slots, color));
-      } else for (const d of r.dimmers) write(d, intensity * 255);
+      } else for (const d of r.dimmers) write(d, intensity * fade * 255);
       const colorScale = hasDimmer ? 1 : intensity;
       if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
       if (painted && !r.lampOnly) {
@@ -511,7 +549,11 @@ export class Venue {
           for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) write(off, (color[comp] ?? 0) * 255 * colorScale);
         }
       }
-      for (const [off, v] of frame.raw.get(patch.id) ?? []) write(off, v);
+      for (const [offset, { value, weight }] of raws ?? []) {
+        if (r.dimmers.includes(offset)) write(offset, value * weight); // the look owns the dimmer: value × weight, once
+        else if (colorOffsets.has(offset)) write(offset, value * weight); // a colour offset scales with the look
+        else write(offset, value); // a machine channel: verbatim, a machine never fades
+      }
     }
     return errors;
   }

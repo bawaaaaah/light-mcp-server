@@ -11,7 +11,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Venue, type WeightedColors } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -779,8 +779,20 @@ export class ShowRuntime {
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
-    /** Raw channels of the looks, by fixture then offset (highest of the looks playing them). */
-    const lookChannels = new Map<string, Map<number, number>>();
+    /** Raw channels of the looks, by fixture then offset: the strongest value, with the weight of the look that wrote it. */
+    const lookChannels = new Map<string, Map<number, RawWrite>>();
+    const rawOf = (look: Look, player: LookPlayer, weight: number): void => {
+      if (!look.channels) return;
+      const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+      look.channels.targets.forEach((t, k) => {
+        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite>();
+        const value = row[k] ?? 0;
+        const prev = byOffset.get(t.offset);
+        // the strongest value wins, with the weight of its look: the most visible on stage, coming in or going out
+        if (!prev || value > prev.value) byOffset.set(t.offset, { value, weight });
+        lookChannels.set(t.fixture, byOffset);
+      });
+    };
     /** A look's colours on its own sheet, scaled by `fade` and the masters of its groups, its exclusions taken out. */
     const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
       let step: Step = player.render(now, beats);
@@ -800,15 +812,6 @@ export class ShowRuntime {
       for (const f of excluded) own.colors.delete(f);
       return own.colors;
     };
-    const rawOf = (look: Look, player: LookPlayer): void => {
-      if (!look.channels) return;
-      const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
-      look.channels.targets.forEach((t, k) => {
-        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, number>();
-        byOffset.set(t.offset, Math.max(byOffset.get(t.offset) ?? 0, row[k] ?? 0));
-        lookChannels.set(t.fixture, byOffset);
-      });
-    };
     const moveOf = (look: Look, player: LookPlayer): void => {
       if (!look.move) return;
       try {
@@ -820,12 +823,14 @@ export class ShowRuntime {
       }
     };
     // Each look on its own sheet, then onto the others (show setting looksMerge), in this order so that a look just
-    // started (or still playing) wins over the one leaving, in colours and in movement. First the looks fading out on
-    // exit (their raw channels are cut at once on stop, so none).
+    // started (or still playing) wins over the one leaving, in colours and in movement; their weight rides into the
+    // looks' raw channels the same way. First the looks fading out on exit.
     for (const r of this.releasing.values()) {
       const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
       if (t >= 1) continue;
       mergeColors(frame.colors, colorsOf(r.look, r.player, 1 - ease(t)), this.settings.looksMerge);
+      // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
+      rawOf(r.look, r.player, (1 - ease(t)) * r.player.entryWeight(now));
       moveOf(r.look, r.player);
     }
     // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
@@ -843,6 +848,7 @@ export class ShowRuntime {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
         leaving = addWeighted(leaving, weighted(colorsOf(o.look, o.player, w), w));
+        rawOf(o.look, o.player, w * o.player.entryWeight(now));
         moveOf(o.look, o.player);
       }
       const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? new Map());
@@ -850,25 +856,20 @@ export class ShowRuntime {
       mergeColors(frame.colors, settle(outside), this.settings.looksMerge);
     }
     for (const { look, player } of this.active.values()) {
-      rawOf(look, player);
       const x = this.crossfades.get(look.id);
+      // a look rising on its own rises with its entry fade, like its colours; one coming in over another
+      // (a crossfade) carries the crossfade's weight
+      rawOf(look, player, x ? this.inWeight(x, now) : player.entryWeight(now));
       const colors = x ? settle(addWeighted(shared.get(x)!, weighted(ownOf.get(x)!, this.inWeight(x, now)))) : colorsOf(look, player, 1);
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);
     }
     for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id));
+    // The looks' raw channels, collected above with their weight: the venue's pass classifies and
+    // emits them, by address even without a definition.
+    frame.raw = lookChannels;
     errors.push(...this.venue.toDmx(frame, buffers));
-    // Raw channels of the looks: they set their channels (by address, even without a definition).
-    for (const [fixtureId, byOffset] of lookChannels) {
-      const f = this.venue.fixtures.get(fixtureId);
-      const buf = f && buffers[f.universe - 1];
-      if (!f || !buf || this.venue.absent.has(fixtureId)) continue;
-      for (const [offset, value] of byOffset) {
-        const index = f.address - 1 + offset;
-        if (index >= 0 && index < 512) buf[index] = value;
-      }
-    }
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
     // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/
     // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on
