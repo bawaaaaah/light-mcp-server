@@ -19,6 +19,7 @@ import type { QxwFunction, QxwWorkspace } from "./qxw-import.js";
 import { analyzeSequence, cellsFor, stepColors, type Rgbw } from "./qxw-analyze.js";
 import type { FixtureDefinition } from "../venue/qxf-import.js";
 import { findDefinition, findMode } from "../venue/qxf-import.js";
+import { withFolder } from "../show/folders.js";
 import { slugify } from "../data/store.js";
 import type { Canvas, PatchedFixture } from "../venue/venue.js";
 import type { ChannelFader, Group, Look, LookChannels } from "../show/model.js";
@@ -211,7 +212,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
         manualOnly: false,
         noCut: false,
         danger: false,
-        tags: ["machines", ...(fn.path ? [`dossier:${fn.path}`] : [])],
+        tags: withFolder(["machines"], fn.path),
         notes: `Importé de QLC+ (#${fn.id}) : ${channels.targets.length} canal(aux) hors couleur, ${channels.steps.length} pas.`,
       });
       continue;
@@ -228,7 +229,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       manualOnly: false,
       noCut: false,
       danger: false,
-      tags: [`technique:${analysis.technique}`, `attaque:${analysis.attackLabel}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
+      tags: withFolder([`technique:${analysis.technique}`, `attaque:${analysis.attackLabel}`], fn.path),
       notes: `Importé de QLC+ (#${fn.id}). Technique reconnue : ${analysis.technique} (${analysis.confidence}). Couleurs : ${analysis.colors.slice(0, 6).join(" ")}`,
     });
     if (fn.speedModes && (fn.speedModes.duration === "PerStep" || fn.speedModes.fadeIn === "PerStep")) warnings.push(say(`« ${fn.name} » : timing par pas approximé par sa moyenne`, `“${fn.name}”: per-step timing approximated by its average`));
@@ -258,7 +259,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       manualOnly: false,
       noCut: false,
       danger: false,
-      tags: [`technique:${technique.kind}`, `matrice:${m.algorithm}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
+      tags: withFolder([`technique:${technique.kind}`, `matrice:${m.algorithm}`], fn.path),
       notes: `Importé de QLC+ (#${fn.id}) : matrice « ${m.algorithm} » sur le groupe « ${fg.name} »${approx ? " — approximée" : ""}.`,
     });
     if (approx) warnings.push(say(`matrice « ${fn.name} » (${m.algorithm}) : approximée par la technique ${technique.kind}`, `matrix “${fn.name}” (${m.algorithm}): approximated by the ${technique.kind} technique`));
@@ -316,7 +317,7 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
       manualOnly: false,
       noCut: false,
       danger: false,
-      tags: [`technique:efx-${efx.algorithm.toLowerCase()}`, ...(fn.path ? [`dossier:${fn.path}`] : [])],
+      tags: withFolder([`technique:efx-${efx.algorithm.toLowerCase()}`], fn.path),
       notes: `Importé de QLC+ (EFX #${fn.id}) : ${efx.algorithm}, ${seconds} s par cycle, propagation ${efx.propagation}.`,
     });
   }

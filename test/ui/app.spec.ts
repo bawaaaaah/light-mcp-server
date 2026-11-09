@@ -66,6 +66,9 @@ function folderLook(id: string, name: string, tags: string[], canvas: string) {
   return { id, name, canvas, technique: { kind: "plat", color: "#ff0000" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, tags };
 }
 
+/** The `dossier:` tags of a look; every other tag is left alone by the folder commands. */
+const folderTags = (tags: string[]) => tags.filter((t) => t.startsWith("dossier:"));
+
 test("signs in with the token by default, and the menu bar's token link signs in at once", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -1652,8 +1655,8 @@ test("show page: a right-click moves a look to another folder", async ({ page })
     const menu = page.getByRole("dialog", { name: "Look", exact: true });
     await expect(menu).toBeVisible();
     // the menu stays open, like the other actions, and the select follows the moved look
-    await menu.getByLabel("Dossier").selectOption("Chants");
-    await expect(menu.getByLabel("Dossier")).toHaveValue("Chants");
+    await menu.getByRole("combobox", { name: "Dossier" }).selectOption("Chants");
+    await expect(menu.getByRole("combobox", { name: "Dossier" })).toHaveValue("Chants");
     await expect.poll(async () => ((await api(page, "look.get", { id: "men-mac-0" })) as { tags: string[] }).tags).toEqual(["dossier:Chants"]);
     await page.keyboard.press("Escape");
     await expect(page.locator("tr.group-row button", { hasText: "Machines (1)" })).toBeVisible();
@@ -1727,9 +1730,99 @@ test("show page: an empty or doubled folder tag counts for nothing, the first fo
     // the first pass of the menu rewrites those tags to a single dossier tag
     await page.locator("button.look", { hasText: "Double A" }).click({ button: "right" });
     const menu = page.getByRole("dialog", { name: "Look", exact: true });
-    await menu.getByLabel("Dossier").selectOption("Chants");
+    await menu.getByRole("combobox", { name: "Dossier" }).selectOption("Chants");
     await expect.poll(async () => ((await api(page, "look.get", { id: "dbl-a" })) as { tags: string[] }).tags).toEqual(["dossier:Chants"]);
     await page.keyboard.press("Escape");
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: picked looks drag together onto a folder header", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [
+    folderLook("drag-a", "Trapeze 0", ["dossier:Rigging"], canvas),
+    folderLook("drag-b", "Trapeze 1", ["dossier:Rigging"], canvas),
+  ];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // ⌘/Ctrl picks two looks of the same folder (a click without modifiers launches and selects nothing)
+    await page.locator("button.look", { hasText: "Trapeze 0" }).click({ modifiers: ["ControlOrMeta"] });
+    await page.locator("button.look", { hasText: "Trapeze 1" }).click({ modifiers: ["ControlOrMeta"] });
+    // dragged together onto the « sans dossier » header right below (the drop target must be on screen: elementFromPoint knows the viewport only)
+    const source = page.locator("button.look", { hasText: "Trapeze 1" });
+    const header = page.locator('tr.group-row[data-folder=""]');
+    await header.scrollIntoViewIfNeeded();
+    const from = (await source.boundingBox())!;
+    const to = (await header.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    await expect(header).toHaveClass(/drop/);
+    await page.mouse.up();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "drag-a" })) as { tags: string[] }).tags)).toEqual([]);
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "drag-b" })) as { tags: string[] }).tags)).toEqual([]);
+    // the last folder empty, the table is flat again: not one group row
+    await expect(page.locator("tr.group-row")).toHaveCount(0);
+    await expect(page.locator("button.look", { hasText: "Trapeze 1" })).toBeVisible();
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: a look's menu creates a folder and goes straight into it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "look.put", { look: folderLook("new-mc", "Méca 0", ["dossier:Machines"], canvas) });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.locator("button.look", { hasText: "Méca 0" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Look", exact: true });
+    await menu.getByRole("textbox", { name: "Nouveau dossier…" }).fill("Véranda");
+    await menu.getByRole("button", { name: "Nouveau dossier…" }).click();
+    await expect(menu.getByRole("textbox", { name: "Nouveau dossier…" })).toHaveValue(""); // the field clears
+    await expect.poll(async () => ((await api(page, "look.get", { id: "new-mc" })) as { tags: string[] }).tags).toEqual(["dossier:Véranda"]);
+    await expect(page.locator("tr.group-row button", { hasText: "Véranda (1)" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await api(page, "look.delete", { id: "new-mc", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: a folder header is renamed or disbanded from its menu", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [folderLook("head-a", "Méca 0", ["dossier:Machines"], canvas), folderLook("head-b", "Méca 1", ["dossier:Machines"], canvas)];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    const menu = page.getByRole("dialog", { name: "Dossier", exact: true });
+    // rename: the tag is rewritten on every look of the folder
+    await page.locator("tr.group-row[data-folder=Machines]").click({ button: "right" });
+    await menu.getByRole("button", { name: "Renommer" }).click();
+    const field = menu.getByRole("textbox", { name: "Renommer" });
+    await expect(field).toHaveValue("Machines");
+    await field.fill("Atelier");
+    await field.press("Enter");
+    await expect(menu).toBeHidden();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "head-b" })) as { tags: string[] }).tags)).toEqual(["dossier:Atelier"]);
+    // disband: its looks go back « sans dossier », confirmed like a delete
+    await page.locator("tr.group-row[data-folder=Atelier]").click({ button: "right" });
+    page.once("dialog", (d) => void d.accept());
+    await menu.getByRole("button", { name: "Dissoudre" }).click();
+    await expect(menu).toBeHidden();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "head-a" })) as { tags: string[] }).tags)).toEqual([]);
+    // the last folder gone, the table is flat again: not one group row
+    await expect(page.locator("tr.group-row")).toHaveCount(0);
+    await expect(page.locator("button.look", { hasText: "Méca 1" })).toBeVisible();
   } finally {
     for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
   }

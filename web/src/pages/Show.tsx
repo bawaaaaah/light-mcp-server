@@ -1,11 +1,13 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { folderOf, foldersOf, withoutFolderTag } from "../folder";
+import { pick } from "../selection";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
+import { FolderMenu } from "../components/FolderMenu";
 import { LookMenu } from "../components/LookMenu";
 import { useContextMenu } from "../components/menu";
 import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEditor";
@@ -83,6 +85,22 @@ export function ShowPage() {
   /** The look whose right-click menu is open, and where. */
   const [lookMenu, setLookMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const rowMenu = useContextMenu<string>((at, id) => setLookMenu({ id, ...at }));
+  /** The folder header whose right-click menu is open (renamed or disbanded from there). */
+  const [folderMenu, setFolderMenu] = useState<{ folder: string; x: number; y: number } | null>(null);
+  const folderRowMenu = useContextMenu<string>((at, folder) => setFolderMenu({ folder, ...at }));
+  /** The looks picked to be moved together (⌘/Ctrl: one, Shift: framed from the anchor). */
+  const [selection, setSelected] = useState<string[]>([]);
+  const anchor = useRef<string | undefined>(undefined);
+  /** A looks list mirroring the latest render, for the pointer listeners that live for the page. */
+  const looksRef = useRef(looks);
+  looksRef.current = looks;
+  const pressed = useRef<{ ids: string[]; x: number; y: number } | null>(null);
+  const dragging = useRef(false);
+  const [dragged, setDragged] = useState<string[] | null>(null);
+  /** The header hovered during a drag: undefined = none, "" = « sans dossier », or the folder name. */
+  const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined);
+  /** The click that follows a real drag must not launch the look under it. */
+  const afterDrag = useRef(false);
   const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
   const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
   const [lookSearch, setLookSearch] = useState("");
@@ -133,6 +151,73 @@ export function ShowPage() {
       (!actifFolder || folderOf(l.tags) === actifFolder) &&
       (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
   );
+  const shownIds = useMemo(() => new Set(shownLooks.map((l) => l.id)), [shownLooks]);
+  // a selection with a look deleted since loses it
+  useEffect(() => setSelected((s) => (s.length ? s.filter((id) => looks.some((l) => l.id === id)) : s)), [looks]);
+  // Échap désélectionne, comme en édition d'un dashboard
+  useEffect(() => {
+    if (!selection.length) return;
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setSelected([]);
+      anchor.current = undefined;
+    };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [selection.length]);
+  // the drag of picked looks onto a folder header (mouse or pen: a touch finger keeps scrolling, and
+  // its menus move looks): one move command per drop, the looks read whole server-side
+  useEffect(() => {
+    const headerAt = (x: number, y: number): string | undefined => {
+      const row = document.elementFromPoint(x, y)?.closest("tr.group-row") as HTMLTableRowElement | null;
+      return row?.dataset.folder;
+    };
+    const move = (e: PointerEvent) => {
+      const p = pressed.current;
+      if (!p) return;
+      if (!dragging.current) {
+        if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
+        dragging.current = true;
+        setDragged(p.ids);
+      }
+      setDropTarget(headerAt(e.clientX, e.clientY));
+    };
+    const settle = (start: boolean) => {
+      dragging.current = false;
+      setDragged(null);
+      setDropTarget(undefined);
+      if (start) {
+        afterDrag.current = true;
+        window.setTimeout(() => (afterDrag.current = false), 500);
+      }
+    };
+    const drop = (e: PointerEvent) => {
+      const p = pressed.current;
+      pressed.current = null;
+      if (!p || !dragging.current) return;
+      settle(true);
+      const at = headerAt(e.clientX, e.clientY);
+      if (at === undefined) return;
+      const target = at || undefined;
+      // dropping back in the folder the looks already sit in would only churn versions
+      if (p.ids.every((id) => folderOf(looksRef.current.find((l) => l.id === id)?.tags ?? []) === target)) return;
+      void run("show.folder.move", { ids: p.ids, ...(target ? { folder: target } : {}) });
+    };
+    const cancel = () => {
+      if (!pressed.current) return;
+      pressed.current = null;
+      settle(true);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", drop);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", drop);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /** « Spot 3 · Dimmer/CW » per fixture, in the order of the fader's channels; ids for an unknown fixture. */
   const faderTargets = (f: ChannelFader) => {
     const byFixture = new Map<string, number[]>();
@@ -163,10 +248,40 @@ export function ShowPage() {
     return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : ""].filter(Boolean).join(" · ");
   };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
+  /** ⌘/Ctrl or Shift on a look's click selects instead of launching (the picked ones drag together). */
+  const pickClick = (l: Look, e: ReactMouseEvent) => {
+    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) return false;
+    e.preventDefault();
+    const boxes = shownLooks.map((x, i) => ({ id: x.id, x: 0, y: i, w: 1, h: 1 }));
+    const at = boxes.findIndex((b) => b.id === l.id);
+    if (at >= 0) {
+      const got = pick(boxes, selection, anchor.current, boxes[at]!, { add: e.metaKey || e.ctrlKey, frame: e.shiftKey });
+      anchor.current = got.anchor;
+      setSelected(got.selection);
+    }
+    return true;
+  };
   const lookRow = (l: Look) => (
-    <tr key={l.id} title={t.lookRowHint} {...rowMenu(l.id)}>
+    <tr
+      key={l.id}
+      className={`${selection.includes(l.id) ? "selected" : ""}${dragged?.includes(l.id) ? " dragging" : ""}`}
+      title={t.lookRowHint}
+      {...rowMenu(l.id)}
+      onPointerDown={(e) => {
+        rowMenu(l.id).onPointerDown(e); // the long press of a touch keeps its menu
+        if (e.pointerType === "touch" || e.button !== 0) return;
+        pressed.current = { ids: selection.includes(l.id) ? selection.filter((id) => shownIds.has(id)) : [l.id], x: e.clientX, y: e.clientY };
+      }}
+    >
       <td>
-        <button className={`look ${l.active ? "on" : ""}`} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
+        <button
+          className={`look ${l.active ? "on" : ""}`}
+          title={t.selectLooks}
+          onClick={(e) => {
+            if (pickClick(l, e) || afterDrag.current) return;
+            void run(l.active ? "look.stop" : "look.go", { id: l.id });
+          }}
+        >
           {l.swatch && <span className="swatch-dot" style={{ background: l.swatch }} aria-hidden />}
           {l.name}
         </button>
@@ -182,7 +297,15 @@ export function ShowPage() {
         <small>{withoutFolderTag(l.tags).join(" · ")}</small>
       </td>
       <td>
-        <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => void cmd<LookDraft>("look.get", { id: l.id }).then(setEditing, (e: Error) => setError(e.message)) /* the list is brief: the editor needs the whole look */}>
+        <button
+          className="ghost"
+          title={t.edit}
+          aria-label={`${t.edit} ${l.name}`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return; // the click selects, the edit stays at the plain click
+            void cmd<LookDraft>("look.get", { id: l.id }).then(setEditing, (e2: Error) => setError(e2.message)) /* the list is brief: the editor needs the whole look */;
+          }}
+        >
           ✎
         </button>
       </td>
@@ -400,7 +523,7 @@ export function ShowPage() {
                   const open = !folded.has(f);
                   return (
                     <Fragment key={f}>
-                      <tr className="group-row">
+                      <tr className={`group-row${dropTarget === f ? " drop" : ""}`} data-folder={f} {...(f !== "" ? folderRowMenu(f) : {})}>
                         {/* as wide as the whole header (7 columns) */}
                         <td colSpan={7}>
                           <button aria-expanded={open} title={open ? t.collapse : t.expand} onClick={() => setFolded((s) => { const next = new Set(s); if (next.has(f)) next.delete(f); else next.add(f); return next; })}>
@@ -419,6 +542,7 @@ export function ShowPage() {
             const l = looks.find((x) => x.id === lookMenu.id);
             return l ? <LookMenu key={l.id} look={l} folder={folderOf(l.tags)} folders={folders} at={lookMenu} onEdit={setEditing} onChanged={refresh} onClose={() => setLookMenu(null)} /> : null;
           })()}
+        {folderMenu && folders.includes(folderMenu.folder) && <FolderMenu key={folderMenu.folder} folder={folderMenu.folder} at={folderMenu} onChanged={refresh} onClose={() => setFolderMenu(null)} />}
       </section>
 
       {editingGroup && (

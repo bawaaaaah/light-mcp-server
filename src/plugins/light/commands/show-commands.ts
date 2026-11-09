@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { displayHex } from "../engine/display.js";
-import { CommandError, type CommandRegistry } from "./registry.js";
+import { CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
@@ -14,6 +14,7 @@ import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, Pale
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
+import { folderOf, withFolder } from "../show/folders.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -395,6 +396,60 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["design"],
     schema: z.object({}),
     run: () => TechniqueSchema.options.map((o) => ({ kind: o.shape.kind.value, schema: z.toJSONSchema(o, { io: "input", reused: "inline", unrepresentable: "any" }) })),
+  });
+
+  // ---- folders: the looks' `dossier:` tag (show/folders.ts), not an object of its own — it exists
+  // only while some look carries it. Each look goes through look.put: its checks and history apply.
+  const folderName = z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .describe("a folder name, free to create");
+  /** Every look of the show whose folder is `name` (an empty `dossier:` tag counts for nothing). */
+  const inFolder = (name: string) => show.looks.list().filter((l) => folderOf(l.tags) === name);
+  const moveThroughLookPut = async (looks: { id: string; tags: string[]; [k: string]: unknown }[], folder: string | undefined, ctx: CommandContext) => {
+    for (const l of looks) await reg.invoke("look.put", { look: { ...l, tags: withFolder(l.tags, folder) } }, ctx);
+    return looks.length;
+  };
+  reg.register({
+    name: "show.folder.move",
+    title: "Déplacer des looks",
+    description: "Puts whole looks (read here, so their steps and raw channels keep) in one folder: the `dossier:` tag of each one is rewritten. Without a folder name, back « sans dossier ».",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ ids: z.array(z.string()).min(1).describe("looks to move, whole unknown ids refused before any write"), folder: folderName.optional() }),
+    run: async ({ ids, folder }, ctx) => {
+      const looks = [...new Set(ids)].map((i) => {
+        const l = show.looks.get(i);
+        if (!l) throw new Error(say(`look inconnu : ${i}`, `unknown look: ${i}`));
+        return l;
+      });
+      return { moved: await moveThroughLookPut(looks, folder, ctx) };
+    },
+  });
+  reg.register({
+    name: "show.folder.rename",
+    title: "Renommer un dossier",
+    description: "Renames the `dossier:` tag of every look of the folder; renaming onto an existing folder merges the two. A look twice tagged counts under its first folder, and its extra tags are cleaned by the rewrite.",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ from: folderName, to: folderName }),
+    run: async ({ from, to }, ctx) => {
+      const count = from === to ? 0 : await moveThroughLookPut(inFolder(from), to, ctx);
+      return { renamed: count, from, to };
+    },
+  });
+  reg.register({
+    name: "show.folder.delete",
+    title: "Dissoudre un dossier",
+    description: "Empties a folder: every look of it goes back « sans dossier » (the looks stay — the folder only ever was their `dossier:` tag).",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ folder: folderName }),
+    run: async ({ folder }, ctx) => ({
+      disbanded: await moveThroughLookPut(inFolder(folder), undefined, ctx),
+    }),
   });
   reg.register({
     name: "look.preview",

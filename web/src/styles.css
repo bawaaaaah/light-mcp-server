@@ -2256,6 +2256,16 @@ body.kiosk .app {
 .group-row button:hover {
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
+/* the looks picked to move together (⌘/Ctrl or Maj), and the header a drag hovers */
+table.listing tr.selected td {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+table.listing tr.dragging td {
+  opacity: 0.4;
+}
+.group-row.drop td {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 
 /* M and F under a fader one column wide (56 px on a tablet): smaller, so neither is cut */
 .cell .fader .row {
