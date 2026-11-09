@@ -21,7 +21,7 @@ interface Result {
   applied: boolean;
 }
 
-export function Calibration({ zones, placed, onError, onApplied }: { zones: { id: string; name: string }[]; placed: Set<string>; onError: (msg: string) => void; onApplied: () => void }) {
+export function Calibration({ zones, placed, follow, onError, onApplied }: { zones: { id: string; name: string }[]; placed: Set<string>; /** The fixture held on the plan: this head opens, wherever it sits in the list. */ follow?: string; onError: (msg: string) => void; onApplied: () => void }) {
   const t = useT();
   const [heads, setHeads] = useState<Head[]>([]);
   const [head, setHead] = useState("");
@@ -35,10 +35,14 @@ export function Calibration({ zones, placed, onError, onApplied }: { zones: { id
     void cmd<Head[]>("position.list").then((h) => {
       const usable = h.filter((x) => placed.has(x.id));
       setHeads(usable);
-      setHead((cur) => (usable.some((x) => x.id === cur) ? cur : (usable[0]?.id ?? "")));
+      setHead((cur) => {
+        if (follow && usable.some((x) => x.id === follow)) return follow;
+        if (usable.some((x) => x.id === cur)) return cur;
+        return usable[0]?.id ?? "";
+      });
     });
     // the set is rebuilt on every render of the page: its content is the dependency
-  }, [placedKey]);
+  }, [placedKey, follow]);
   useEffect(() => {
     if (head) void cmd<unknown[]>("calibration.list", { fixture: head }).then((l) => setMarks(l.length));
     setResult(null);
@@ -46,9 +50,10 @@ export function Calibration({ zones, placed, onError, onApplied }: { zones: { id
 
   if (!heads.length) return <p className="hint">{t.calibrationNone}</p>;
   const fail = (e: Error) => onError(e.message);
+  const held = follow && heads.some((h) => h.id === follow) && head === follow;
   return (
     <div className="calibration">
-      <p className="hint">{t.calibrationHelp}</p>
+      <p className="hint">{t.calibrationHelp}{held ? ` ${t.calibrationFollows}` : ""}</p>
       <div className="fields">
         <label className="field">
           <span>{t.heads}</span>

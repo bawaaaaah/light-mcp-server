@@ -10,8 +10,10 @@ interface Head {
 /**
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). Sends `position.set` at most every 40 ms
  * while dragging (the last position is always sent), « ⟲ » releases back to the looks.
+ * `onPosition` says each read or sent position (a panel's feedback); bump `resync` to read again
+ * what has moved from elsewhere (an aim, a Panic, a release by another screen).
  */
-export function XyPad({ group, fixture, label, onError, disabled = false }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void; disabled?: boolean }) {
+export function XyPad({ group, fixture, label, onError, disabled = false, onPosition, resync }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void; disabled?: boolean; onPosition?: (p: { pan: number; tilt: number } | null) => void; resync?: unknown }) {
   const t = useT();
   const [pos, setPos] = useState<{ pan: number; tilt: number } | null>(null);
   const pad = useRef<HTMLDivElement>(null);
@@ -21,10 +23,15 @@ export function XyPad({ group, fixture, label, onError, disabled = false }: { gr
 
   useEffect(() => {
     void cmd<Head[]>("position.list")
-      .then((heads) => setPos((fixture ? heads.find((h) => h.id === fixture) : heads.find((h) => h.manual))?.manual ?? null))
+      .then((heads) => {
+        const manual = (fixture ? heads.find((h) => h.id === fixture) : heads.find((h) => h.manual))?.manual ?? null;
+        setPos(manual);
+        onPosition?.(manual);
+      })
       .catch(() => undefined);
     return () => window.clearTimeout(timer.current);
-  }, [group, fixture]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group, fixture, resync]);
 
   const flush = () => {
     timer.current = undefined;
@@ -36,6 +43,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false }: { gr
   };
   const send = (p: { pan: number; tilt: number }) => {
     setPos(p);
+    onPosition?.(p);
     pending.current = p;
     if (timer.current === undefined) flush();
   };
@@ -75,6 +83,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false }: { gr
           onClick={() => {
             pending.current = null;
             setPos(null);
+            onPosition?.(null);
             void cmd("position.release", target).catch((e: Error) => onError(e.message));
           }}
         >

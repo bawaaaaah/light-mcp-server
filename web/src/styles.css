@@ -814,6 +814,14 @@ table.sections th {
 }
 
 /* Output standby / another console */
+.badge.invert {
+  margin-left: 0.45em;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 600;
+  cursor: help;
+}
 .badge {
   padding: 0.2em 0.6em;
   border-radius: 999px;
@@ -1088,6 +1096,43 @@ table.cues select {
   color: var(--wc, var(--accent));
 }
 .fader .smoothed-mark {
+  cursor: help;
+}
+/* The control panel of a fixture held on the stage plan: its channel faders in a row of small tracks */
+.fixture-panel {
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: 8px;
+  padding: 0.5em 0.7em;
+  margin-top: 0.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.fixture-panel section h4 {
+  margin: 0.2em 0;
+}
+.fixture-panel .panel-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  align-items: flex-end;
+}
+.fixture-panel .panel-channels .fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+}
+.fixture-panel .panel-channels .fader .track {
+  flex: none;
+  height: 92px;
+}
+.fixture-panel .panel-channels .fader label {
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
   cursor: help;
 }
 .preview-widget {
@@ -1505,6 +1550,16 @@ table.rules td {
 .widget-menu .field span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+/* A switch row of the fixture menu: label left, a ghost toggle right (the app's switches) */
+.widget-menu .invert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+.widget-menu .invert-row > button {
+  min-width: 2.2em;
 }
 /* MIDI of a widget: one card per note or CC, its mode and threshold on one line */
 .widget-menu .midi ul {

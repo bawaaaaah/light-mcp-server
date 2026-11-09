@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -89,6 +89,58 @@ describe("fixture orientation", () => {
     expect(((await run("venue.fixture.arrange", { fixtures: ["bar-0"], zone: "estrade", edge: "back", height: 2 })) as { position: { z: number } }[])[0]!.position).to.deep.equal({ x: 0, y: 2.7, z: 2.5 });
     await run("venue.fixture.arrange", { fixtures: ["bar-0"], zone: "nulle-part" }).catch((e: Error) => (failed = e.message));
     expect(failed).to.contain("zone inconnue");
+  });
+
+  it("inverts pan and tilt per fixture: written only when given, kept by a partial call, carried by an import", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-invert-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+    const orient = async (args: object) =>
+      ((await run("venue.fixture.orient", { id: "bar-0", ...args })) as { fixture: { orientation: { invertPan: boolean; invertTilt: boolean; yaw: number } } }).fixture.orientation;
+    expect(await orient({ invertPan: true })).to.include({ yaw: 0, invertPan: true, invertTilt: false });
+    expect(await orient({ invertPan: true, invertTilt: true })).to.include({ invertPan: true, invertTilt: true });
+    expect(await orient({ facing: "houseRight" })).to.include({ yaw: 90, invertPan: true, invertTilt: true }); // a facing keeps them
+    expect(await orient({ yaw: -30 })).to.include({ yaw: -30, invertPan: true, invertTilt: true }); // a partial call keeps them
+    expect(await orient({ invertPan: false })).to.include({ invertPan: false, invertTilt: true });
+    // another venue's patch carries the inversions in the orientation it imports
+    const other = join(dataRoot, "venues", "autre", "fixtures");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(
+      join(other, "bar-1.json"),
+      JSON.stringify({ id: "bar-1", name: "Bar 1", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 16, orientation: { yaw: 20, pitch: 10, invertPan: true, invertTilt: false, swapPanTilt: true, panOffset: 0, tiltOffset: 2 } }),
+    );
+    await run("venue.positions.import", { from: "autre", apply: true });
+    const listed = (await run("venue.fixture.list")) as { id: string; orientation?: { invertPan: boolean; invertTilt: boolean; swapPanTilt: boolean; pitch: number } }[];
+    expect(listed.find((f) => f.id === "bar-1")!.orientation).to.include({ invertPan: true, invertTilt: false, swapPanTilt: true, pitch: 10 });
+  });
+
+  it("re-solves the inversions of a calibration while keeping the body's pitch, roll and swap, the pan offset folded into the yaw", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-solve-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    // the head these marks were taken on, its body stored slanted and rolled, pan wired backwards
+    await run("venue.fixture.put", {
+      fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 2, y: 3, z: 5 }, mount: "hung", orientation: { yaw: 0, pitch: 20, roll: 45, invertPan: true, invertTilt: false, swapPanTilt: true, panOffset: 5, tiltOffset: 0 } },
+    });
+    const truth = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 4 };
+    for (const target of [{ x: 0, y: 1, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 2, y: 5.5, z: 0 }]) {
+      const a = aimAt(truth, target) as { pan: number; tilt: number };
+      await run("position.set", { fixtures: ["lyre"], pan: 1 - a.pan, tilt: a.tilt }); // what the hand saw: pan inverted
+      await run("calibration.record", { fixture: "lyre", point: target });
+    }
+    const result = (await run("calibration.solve", { fixture: "lyre", apply: true })) as { yaw: number; tiltOffset: number; invertPan: boolean; invertTilt: boolean };
+    const listed = (await run("venue.fixture.list")) as { id: string; orientation?: Record<string, unknown> }[];
+    const o = listed.find((f) => f.id === "lyre")!.orientation!;
+    expect(o).to.include({ pitch: 20, roll: 45, swapPanTilt: true, panOffset: 0 }); // the body kept, the pan offset folded into the yaw
+    expect(o.invertPan).to.equal(result.invertPan); // the inversions are the solve's own (recalculated)
+    expect(o.invertTilt).to.equal(result.invertTilt);
   });
 
   it("hangs a moving head pointed at the floor, whatever its mount; the mount decides otherwise", () => {

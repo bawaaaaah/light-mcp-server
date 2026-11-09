@@ -134,7 +134,9 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
       const result = calibrate({ position: f.position!, hung: isHung(f), panMax: r.panMax, tiltMax: r.tiltMax }, samples.get(fixture) ?? []);
       if ("error" in result) throw new Error(result.error);
       if (apply) {
-        show.venue.fixtures.put({ ...f, orientation: { yaw: result.yaw, invertPan: result.invertPan, invertTilt: result.invertTilt, swapPanTilt: f.orientation?.swapPanTilt ?? false, panOffset: 0, tiltOffset: result.tiltOffset } });
+        // the solve replaces the inversions (a solved calibration re-measures them) and folds the pan
+        // offset into the yaw, but keeps the body's pitch and roll as saved
+        show.venue.fixtures.put({ ...f, orientation: { ...f.orientation, yaw: result.yaw, invertPan: result.invertPan, invertTilt: result.invertTilt, swapPanTilt: f.orientation?.swapPanTilt ?? false, panOffset: 0, tiltOffset: result.tiltOffset } });
         samples.delete(fixture);
         show.releasePositions([fixture]);
       }

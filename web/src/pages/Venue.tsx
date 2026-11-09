@@ -29,6 +29,10 @@ interface Fixture {
   target?: string;
   mount?: string;
   position?: { x: number; y: number; z: number };
+  /** Pan or tilt channels in its definition: the invert switches live on these only. */
+  movable?: boolean;
+  /** A moving head's orientation (venue.fixture.list); the inversions show as badges in the patch. */
+  orientation?: { yaw: number; pitch?: number; roll?: number; invertPan?: boolean; invertTilt?: boolean };
   color?: string;
   /** Not installed for the open show: dark, no DMX. */
   absent?: boolean;
@@ -83,6 +87,8 @@ export function VenuePage() {
     const m = (v: number) => Math.round(v * 10) / 10;
     return `${m(Math.max(...xs) - Math.min(...xs))} × ${m(Math.max(...ys) - Math.min(...ys))} m${z.floorHeight ? `, ${t.floorAt} ${z.floorHeight} m` : ""}`;
   };
+  /** The fixture held on the plan: the calibration box opens it. */
+  const [heldId, setHeldId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [venueRows, setVenueRows] = useState<VenueRow[]>([]);
   const [showRows, setShowRows] = useState<ShowRow[]>([]);
@@ -161,7 +167,18 @@ export function VenuePage() {
         <section>
           <h2>{t.patch} ({fixtures.length})</h2>
           {fixtures.length === 0 && <p className="hint">{t.noPatchYet}</p>}
-          <table>
+          <table className="listing">
+            <thead>
+              <tr>
+                <th title={t.inNewCanvas} />
+                <th>{t.cols.patchName}</th>
+                <th>{t.cols.patchMode}</th>
+                <th>{t.cols.patchAddress}</th>
+                <th>{t.cols.patchRole}</th>
+                <th>{t.cols.patchInstalled}</th>
+                <th>{t.cols.patchDelete}</th>
+              </tr>
+            </thead>
             <tbody>
               {[...fixtures]
                 .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
@@ -173,6 +190,16 @@ export function VenuePage() {
                   <td>
                     {f.color && <span className="swatch-dot" style={{ background: f.color }} aria-hidden />}
                     {f.name}
+                    {(() => {
+                      const o = f.orientation;
+                      const axes = [o?.invertPan ? "X" : "", o?.invertTilt ? "Y" : ""].filter(Boolean).join("·");
+                      if (!axes) return null;
+                      return (
+                        <span className="badge invert" title={[o?.invertPan ? t.invertPanLabel : "", o?.invertTilt ? t.invertTiltLabel : ""].filter(Boolean).join(" + ")}>
+                          ⇄ {axes}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td>
                     <small>
@@ -413,6 +440,7 @@ export function VenuePage() {
             })()
           }
           onOrient={(f, change) => void run("venue.fixture.orient", { id: f.id, ...change }).then(refresh)}
+          onSelect={setHeldId}
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
           onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}
         />
@@ -433,7 +461,7 @@ export function VenuePage() {
           })()}
         <details className="calibration-box">
           <summary>{t.calibrationTitle}</summary>
-          <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} onError={setError} onApplied={refresh} />
+          <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} follow={heldId ?? undefined} onError={setError} onApplied={refresh} />
         </details>
       </section>
       <section id="venue-rules">

@@ -9,6 +9,9 @@ import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { DmxEngine } from "../../../src/plugins/light/engine/dmx-engine.js";
+import { EventBus } from "../../../src/core/event-bus.js";
+import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
+import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 
 const spotXml = readFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), "utf8");
 
@@ -355,5 +358,77 @@ describe("moving heads", () => {
       show.saveSettings({ absentFixtures: ["spot-r"] });
       expect(venue.positionSlots().get(1)).to.deep.equal([0, 1, 2, 3]); // spot-l's pan/tilt only
     });
+  });
+});
+
+describe("a head driven by the command layer (the pad's path)", () => {
+  let plugin: LightPlugin;
+  const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+  const render = () => plugin.engine.render()[0]!;
+  /** 16-bit value of a channel (1-based coarse address). */
+  const at = (b: Uint8Array, channel: number) => (b[channel - 1]! << 8) | b[channel]!;
+
+  before(async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-heads-cmd-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    writeFileSync(
+      join(dataRoot, "fixtures", "cheap-head.qxf"),
+      `<?xml version="1.0" encoding="UTF-8"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Test</Manufacturer>
+ <Model>Cheap Head</Model>
+ <Type>Moving Head</Type>
+ <Channel Name="Pan"><Group Byte="0">Pan</Group></Channel>
+ <Channel Name="Tilt"><Group Byte="0">Tilt</Group></Channel>
+ <Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>
+ <Mode Name="Standard">
+  <Channel Number="0">Pan</Channel>
+  <Channel Number="1">Tilt</Channel>
+  <Channel Number="2">Dimmer</Channel>
+ </Mode>
+</FixtureDefinition>
+`,
+    );
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    await run("venue.fixture.put", { fixture: { id: "spot", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 0, y: 2, z: 5 }, mount: "hung" } });
+    await run("venue.fixture.put", { fixture: { id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 30 } });
+    await run("venue.fixture.put", { fixture: { id: "cheap", name: "Lyre à pas cher", manufacturer: "Test", model: "Cheap Head", mode: "Standard", universe: 1, address: 40 } });
+  });
+
+  it("inverts the DMX it sends per axis through venue.fixture.orient, and points the same read back both ways", async () => {
+    const pointed = () => plugin.venue.pointingOf(plugin.venue.resolve("spot") as ResolvedFixture, render());
+    await run("position.set", { fixtures: ["spot"], pan: 0.25, tilt: 0.75 });
+    expect(at(render(), 1)).to.be.closeTo(0.25 * 65535, 1);
+    expect(at(render(), 3)).to.be.closeTo(0.75 * 65535, 1);
+    await run("venue.fixture.orient", { id: "spot", invertPan: true });
+    expect(at(render(), 1)).to.be.closeTo(0.75 * 65535, 1); // pan flipped on its output channel
+    expect(at(render(), 3)).to.be.closeTo(0.75 * 65535, 1); // tilt untouched
+    const whileInverted = pointed();
+    await run("venue.fixture.orient", { id: "spot", invertPan: false, invertTilt: true });
+    expect(at(render(), 1)).to.be.closeTo(0.25 * 65535, 1);
+    expect(at(render(), 3)).to.be.closeTo(0.25 * 65535, 1); // tilt flipped as well now
+    expect(pointed()).to.deep.equal(whileInverted); // the read-back undoes whatever the wiring flips
+    await run("venue.fixture.orient", { id: "spot", invertTilt: false });
+    expect(at(render(), 3)).to.be.closeTo(0.75 * 65535, 1);
+    expect(pointed()).to.deep.equal(whileInverted);
+    await run("position.release", { fixtures: ["spot"] });
+    expect(at(render(), 1)).to.be.closeTo(0.5 * 65535, 1); // back to the centre
+  });
+
+  it("doses a fixture's dimmer through fader.put then fader.level, one channel, never a DCA", async () => {
+    await run("fader.put", { fader: { id: "panel-bar-0", name: "Panneau Barre · Dimmer", channels: [{ fixture: "bar", offset: 0 }], level: 0.4 } });
+    expect(render()[29]).to.equal(Math.round(0.4 * 255)); // the Bar's dimmer (channel 30): the fader doses it
+    await run("fader.level", { id: "panel-bar-0", level: 0.8 });
+    expect(render()[29]).to.equal(Math.round(0.8 * 255));
+  });
+
+  it("says which fixtures carry pan or tilt: the invert switches live on these only", async () => {
+    const rows = (await run("venue.fixture.list")) as { id: string; movable?: boolean }[];
+    expect(rows.find((r) => r.id === "spot")!.movable).to.equal(true); // a moving head (PositionPan presets)
+    expect(rows.find((r) => r.id === "cheap")!.movable).to.equal(true); // a head whose Pan/Tilt are named channels in groups, without a preset
+    expect(rows.find((r) => r.id === "bar")).to.not.have.property("movable"); // a bar without pan/tilt
   });
 });

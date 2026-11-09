@@ -18,14 +18,16 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
+import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
 import { moveZone } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { useStored } from "../hooks/useStored";
+import { FixturePanel } from "./FixturePanel";
 
 /** The 3D view, loaded when first opened: three.js stays out of the rest of the interface. */
 const Stage3D = lazy(() => import("./Stage3D"));
@@ -36,8 +38,11 @@ export interface PlanFixture {
   role?: string;
   mount?: string;
   position?: { x: number; y: number; z: number };
-  /** yaw: 0 audience, 90 cour, 180 upstage, −90 jardin; pitch: −90 floor … 90 ceiling (venue/orientation.ts). */
-  orientation?: { yaw: number; pitch?: number; roll?: number };
+  /** Pan or tilt channels in its definition (venue.fixture.list): the invert switches live on these only. */
+  movable?: boolean;
+  /** yaw: 0 audience, 90 cour, 180 upstage, −90 jardin; pitch: −90 floor … 90 ceiling (venue/orientation.ts).
+   *  invertPan/invertTilt: a head whose pan or tilt runs the other way round (venue.fixture.orient). */
+  orientation?: { yaw: number; pitch?: number; roll?: number; invertPan?: boolean; invertTilt?: boolean };
   /** The named facing the orientation matches (venue.fixture.list). */
   facing?: Facing;
   /** Marker colour (venue.fixture.mark): the name is written in it. */
@@ -46,7 +51,7 @@ export interface PlanFixture {
   absent?: boolean;
 }
 export type Facing = "audience" | "upstage" | "houseLeft" | "houseRight" | "ceiling" | "floor";
-export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number; roll?: number };
+export type OrientChange = { facing?: Facing; yaw?: number; pitch?: number; turn?: number; roll?: number; invertPan?: boolean; invertTilt?: boolean };
 const FACINGS: Facing[] = ["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"];
 type Vec = { x: number; y: number; z: number };
 /** Zoom steps of the plan; above 1 it scrolls inside its frame. */
@@ -88,6 +93,7 @@ export function StagePlan({
   onError,
   onMove,
   onOrient,
+  onSelect,
   compact = false,
   views = false,
   shownColors,
@@ -105,6 +111,8 @@ export function StagePlan({
   /** « Placer »: fixtures moved (one dragged, or several at once), their new positions. */
   onMove?: (moves: { fixture: PlanFixture; position: Vec }[]) => void;
   onOrient?: (fixture: PlanFixture, change: OrientChange) => void;
+  /** A fixture held on the plan (selected), or none: the page follows it (calibration, panel). */
+  onSelect?: (id: string | null) => void;
   compact?: boolean;
   /** Compact, but with the top / face / 3D switch (the Live's stage, a look's preview). */
   views?: boolean;
@@ -151,7 +159,19 @@ export function StagePlan({
     if (z) onZoneMenu?.(z, at);
   });
   const [orienting, setOrienting] = useState(false);
+  /**
+   * The selected fixture, held outside the modes: a click on a fixture selects it (in « Orienter » it
+   * starts a turn too), the control panel below the plan (or Escape) lets it go. Survives leaving a mode.
+   */
   const [selected, setSelected] = useState<string | null>(null);
+  /** A held fixture, echoed to the page (the calibration box follows it). */
+  const select = useCallback(
+    (id: string | null) => {
+      setSelected(id);
+      onSelect?.(id);
+    },
+    [onSelect],
+  );
   /** Heading while dragging around the selected fixture, saved on release. */
   const [turning, setTurning] = useState<number | null>(null);
   const [view, setView] = useState<"top" | "front" | "3d">(initialView);
@@ -170,7 +190,8 @@ export function StagePlan({
       : zones;
     return { fixtures: fx, zones: zs };
   }, [fixtures, zones, front]);
-  const [heads, setHeads] = useState(0);
+  /** The moving heads (position.list): whether « Viser » shows, and a held selection is only narrowed to one. */
+  const [heads, setHeads] = useState<string[]>([]);
   const svg = useRef<SVGSVGElement>(null);
   // zoom: the drawing grows inside a scrolling frame, keeping what was at the centre there
   const [zoom, setZoom] = useState(1);
@@ -199,9 +220,12 @@ export function StagePlan({
       }),
     [],
   );
-  useEffect(() => {
-    void cmd<unknown[]>("position.list").then((h) => setHeads(h.length)).catch(() => undefined);
-  }, [fixtures]);
+  const readHeads = useCallback(() => {
+    void cmd<{ id: string }[]>("position.list").then((h) => setHeads(h.map((x) => x.id))).catch(() => undefined);
+  }, []);
+  useEffect(readHeads, [readHeads, fixtures]);
+  // the heads move from elsewhere too (another screen, MIDI, an aim, a Panic): read again
+  useCommandEvents(["position.", "panic", "show."], readHeads);
 
   // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front.
   const layout = useMemo(() => {
@@ -389,7 +413,7 @@ export function StagePlan({
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         onOrient(selectedFixture, { turn: e.key === "ArrowLeft" ? 15 : -15 });
-      } else if (e.key === "Escape") setSelected(null);
+      } else if (e.key === "Escape") select(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -427,7 +451,9 @@ export function StagePlan({
     if (!aiming || placing || orienting || front || !svg.current) return;
     const p = eventToStage(e);
     const zone = zones.find((z) => inside(p.x, p.y, z.polygon));
-    void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 } })
+    // a selected moving head turns to the point alone; without a selection, all of them do
+    const only = selected && heads.includes(selected) ? [selected] : undefined;
+    void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 }, ...(only ? { fixtures: only } : {}) })
       .then((res) => {
         const errors = res.results.filter((x) => x.error).map((x) => `${x.fixture} : ${x.error}`);
         if (errors.length) onError(errors.join(" · "));
@@ -492,7 +518,7 @@ export function StagePlan({
         )}
         {onOrient && !in3d && (
           <label className="row">
-            <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), setSelected(null))} /> {t.orientMode}
+            <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false))} /> {t.orientMode}
           </label>
         )}
         {viewSwitch}
@@ -507,7 +533,7 @@ export function StagePlan({
           </button>
         </span>
         )}
-        {heads > 0 && !placing && !orienting && !front && !in3d && (
+        {heads.length > 0 && !placing && !orienting && !front && !in3d && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
@@ -651,14 +677,15 @@ export function StagePlan({
           const cw = w / cols.length;
           const x0 = sx(p.x) - w / 2;
           const y0 = sy(p.y) - h / 2;
-          const isSelected = (orienting && selected === f.id) || (placing && chosen.includes(f.id));
+          // the selection holds in every mode; the « Placer » choice is drawn the same way
+          const isSelected = selected === f.id || (placing && chosen.includes(f.id));
           const body = angle ? `rotate(${-angle} ${sx(p.x)} ${sy(p.y)})` : undefined;
           // the beam, projected on the view; what is left points at or away from the viewer
           const d = beam(o);
           const [px, py, toward] = front ? [d.x, -d.z, -d.y] : [d.x, -d.y, d.z];
           const reach = Math.max(w, h) / 2 + 16;
           // an absent fixture casts no light, but the one being oriented keeps its arrow
-          const showBeam = (!f.absent && beamsShown && Boolean(f.orientation)) || (orienting && isSelected);
+          const showBeam = (!f.absent && beamsShown && Boolean(f.orientation)) || isSelected;
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
@@ -670,22 +697,30 @@ export function StagePlan({
               onPointerDown={(e) => {
                 if (orienting) {
                   e.stopPropagation();
-                  setSelected(f.id);
+                  select(f.id);
                   if (!front) {
                     svg.current?.setPointerCapture(e.pointerId);
                     setTurning(f.orientation?.yaw ?? 0);
                   }
                   return;
                 }
-                if (!placing) return;
+                if (placing) {
+                  // Ctrl/⌘ or Shift: one more chosen, or one less
+                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                    e.stopPropagation();
+                    return setChosen(chosen.includes(f.id) ? chosen.filter((id) => id !== f.id) : [...chosen, f.id]);
+                  }
+                  e.stopPropagation();
+                  const ids = chosen.includes(f.id) ? chosen : [f.id];
+                  setChosen(ids);
+                  svg.current?.setPointerCapture(e.pointerId);
+                  const at = eventToStage(e);
+                  setDrag({ held: f.id, ids, from: at, at, moved: false });
+                  return;
+                }
+                // no mode on: a click holds the fixture for its panel (an aiming click selects instead of aiming)
                 e.stopPropagation();
-                // Ctrl/⌘ or Shift: one more chosen, or one less
-                if (e.ctrlKey || e.metaKey || e.shiftKey) return setChosen(chosen.includes(f.id) ? chosen.filter((id) => id !== f.id) : [...chosen, f.id]);
-                const ids = chosen.includes(f.id) ? chosen : [f.id];
-                setChosen(ids);
-                svg.current?.setPointerCapture(e.pointerId);
-                const at = eventToStage(e);
-                setDrag({ held: f.id, ids, from: at, at, moved: false });
+                select(f.id);
               }}
             >
               <title>{f.name}</title>
@@ -747,6 +782,16 @@ export function StagePlan({
               </button>
               <AngleField key={`yaw-${selectedFixture.orientation?.yaw ?? 0}`} label={t.heading} value={selectedFixture.orientation?.yaw ?? 0} min={-180} max={180} onCommit={(yaw) => onOrient(selectedFixture, { yaw })} />
               <AngleField key={`pitch-${selectedFixture.orientation?.pitch ?? 0}`} label={t.pitchLabel} value={selectedFixture.orientation?.pitch ?? 0} min={-90} max={90} onCommit={(pitch) => onOrient(selectedFixture, { pitch })} />
+              {selectedFixture.movable && (
+                <>
+                  <button className={(selectedFixture.orientation?.invertPan ?? false) ? "on" : ""} aria-pressed={Boolean(selectedFixture.orientation?.invertPan)} title={t.invertAxisHelp} onClick={() => onOrient(selectedFixture, { invertPan: !(selectedFixture.orientation?.invertPan ?? false) })}>
+                    {t.invertPanLabel}
+                  </button>
+                  <button className={(selectedFixture.orientation?.invertTilt ?? false) ? "on" : ""} aria-pressed={Boolean(selectedFixture.orientation?.invertTilt)} title={t.invertAxisHelp} onClick={() => onOrient(selectedFixture, { invertTilt: !(selectedFixture.orientation?.invertTilt ?? false) })}>
+                    {t.invertTiltLabel}
+                  </button>
+                </>
+              )}
               {(colors[selectedFixture.id]?.length ?? 1) > 1 && (
                 <>
                   <span className="hint">{t.barLabel}</span>
@@ -766,6 +811,8 @@ export function StagePlan({
           )}
         </div>
       )}
+      {/* A fixture held on the plan (any mode or none) is controlled in full below: it moves, and the channels of its light are faders. */}
+      {selectedFixture && onOrient && !compact && <FixturePanel fixture={selectedFixture} onError={onError} onClose={() => select(null)} />}
     </div>
   );
 }

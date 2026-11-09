@@ -2,7 +2,7 @@
 
 **But de ce fichier** : permettre à n'importe quelle IA (ou à un humain) de reprendre le chantier « retours des essais avec les lyres » sans avoir assisté aux conversations précédentes. Il dit **quoi faire, dans quel ordre, où regarder, et quels pièges éviter**.
 
-- Le détail de chaque tâche (symptôme, pistes, critères) est dans [todo.md](todo.md), numéroté **T1 à T30**. Le plan de code détaillé du premier chantier est dans [plan-t2.md](plan-t2.md). **Ce fichier-ci ne le répète pas** : il le complète.
+- Le détail de chaque tâche (symptôme, pistes, critères) est dans [todo.md](todo.md), numéroté **T1 à T31**. Le plan de code détaillé du premier chantier est dans [plan-t2.md](plan-t2.md). **Ce fichier-ci ne le répète pas** : il le complète.
 - Contexte général du projet : [HANDOFF.md](HANDOFF.md) (à lire en premier), [../CLAUDE.md](../CLAUDE.md) (règles), puis la spec concernée dans `specs/`.
 - **Dossier local non commité `docs/__NO_COMMIT__reprise/`** (s'il existe sur cette machine) : contexte complet hors dépôt (revues brutes des 14 modèles, mémoire locale de l'IA, transcript de la session, outils de revue). Lire son `README.md`. Privé : ne rien en copier dans le dépôt.
 - Dernière mise à jour : 2026-11-08. **Quand tu termines une tâche, mets à jour la colonne « État » plus bas.**
@@ -84,10 +84,10 @@ Les chemins sont des **points de départ** relevés le 2026-11-07, à vérifier 
 |---|---|---|
 | **T2** flash en changeant vite de look (**plan complet et revu : [plan-t2.md](plan-t2.md), commencer par là**) | `src/plugins/light/engine/player.ts` (fondu d'entrée/sortie, « crossfade » avec le groupe exclusif), `src/plugins/light/show/runtime.ts`, `show/exclusive.ts` | Le look entrant et le sortant doivent partir de la valeur **courante**, jamais de 0 ni de la cible. Test à temps injectable : A → B → A en 100 ms, fondu 2 s, la sortie ne dépasse jamais max(A, B) et ne retombe pas à 0. |
 | **T4** fader DCA + lissage | `engine/glide.ts`, `web/src/pages/Dashboards.tsx`, `show/model.ts` (limites min/max des DCA, `light:glide`) | Écart entre valeur affichée, valeur envoyée et course (limites). Reproduire en Playwright avant de corriger. |
-| **T3** fondu ignoré sur certains projecteurs | `engine/player.ts`, `venue/venue.ts` (chemins : canaux bruts, gradateur générique, règle) | Corriger dans la couche moteur commune, pas par un cas particulier. |
+| **T3** fondu ignoré sur certains projecteurs | `engine/player.ts`, `venue/venue.ts` (chemins : canaux bruts, gradateur générique, règle) | **Fait (2026-11-08)** : poids du fondu porté par les canaux bruts (`RawWrite { value, weight }`), émission unique dans `venue.toDmx`, `frame.fade` dose le gradateur quand la couleur ne peut pas se mettre à l'échelle ; voir [todo.md](todo.md) T3 et la spec [engine-effects-timing](specs/engine-effects-timing.md). |
 
 ### Phase 1 — Gains rapides
-**T7** (inversion pan/tilt : `orientation.invertPan` / `invertTilt` existent déjà, voir `venue/orientation.ts`, à exposer dans le patch, l'aperçu et `venue/aim.ts`), **T12**, **T17**, **T16**, **T14**. Pour T16, trancher avec l'utilisateur si l'instantané de démarrage passe outre la sortie en veille ; par prudence **non** tant qu'il n'a pas répondu.
+**T7 fait** (2026-11-09) et **T31 fait** (panneau de la lyre sélectionnée ; voir l'état plus bas). Restent **T12**, **T17**, **T16**, **T14**. Pour T16, trancher avec l'utilisateur si l'instantané de démarrage passe outre la sortie en veille ; par prudence **non** tant qu'il n'a pas répondu.
 
 ### Phase 2 — Définitions saines
 - **T20a** : détecter les définitions en doublon. Aujourd'hui `findDefinition` (`venue/qxf-import.ts`) prend la **première** correspondance après normalisation des noms ; l'ordre de lecture du dossier décide donc sans prévenir. Ajouter l'avertissement à `venue/patch-check.ts` et « Vérifier le show ».
@@ -113,8 +113,10 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 |---|---|---|
 | T2 | **fait** (tests verts, commité) | [plan-t2.md](plan-t2.md) ; revu deux fois, 647 tests verts ; commit `a3d4585` sur `fix/t2-look-restart-mid-fade` ; essai sur la sortie locale fait (flash reproduit puis disparu), **pas encore sur les vraies lyres** |
 | T4 | **fait** (tests verts ; changement local non commité) | `FaderTrack` commun aux trois faders : rail, curseur, niveau demandé et fantôme dessinés en DOM du bas vers le haut ; range transparent pour le focus et l'assistance, pointeurs et flèches normalisés. Relevé DCA à deux lignes et dernière réponse de `group.list` gagnante conservés. Captures et mesures Chromium + WebKit à 1440 × 900 et 480 × 900, toucher Chromium ; Firefox non lancé (sandbox macOS). Reste noté dans [todo.md](todo.md) : le hub WS déconnecte un client très en retard (> 4 Mio) |
-| T3 | à faire | voir sa précision sur le groupe extérieur de l'utilisateur dans [todo.md](todo.md) |
-| T7, T12, T17, T16, T14 | à faire | |
+| T3 | **fait** (tests verts, non commité) | poids du fondu porté par les canaux bruts (+ `frame.fade` vers le gradateur quand la couleur ne peut pas se mettre à l'échelle) ; 8 tests, 655 verts, 150 UI ; **vérification régie restante** avec l'utilisateur devant la machine (`output.status` en veille, puis `dmx.explain` du projecteur extérieur pendant un look en fondu) — la précision est dans [todo.md](todo.md) T3 |
+| T7 | **fait** (tests verts, non commité) | `venue.fixture.orient` porte `invertPan` / `invertTilt` (écrits seulement quand donnés) ; cases au menu de l'appareil et au panneau d'orientation, badges X / Y au patch ; calibration résolue : pitch/roll/swap gardés, panOffset remis à 0, inversions re-mesurées ; tests [orientation](../test/plugins/light/orientation.test.ts) et DMX inversé au chemin commandes ([moving-heads](../test/plugins/light/moving-heads.test.ts)) |
+| T31 (2026-11-09) | **fait** (tests verts, non commité) | **Panneau de contrôle de la lyre sélectionnée** ([FixturePanel.tsx](../web/src/components/FixturePanel.tsx)) : clic sur un projecteur du plan = sélection tenue hors des modes ; pad XY de la lyre seule + « Viser » affiné à la sélection ; lumière en faders de canaux créés au premier toucher (id `panel-…`, niveau initial lu, sans `dca`, mono-canal seulement réutilisé, pan/tilt exclus) ; sections fermées par droits réels ; resynchronisation du pad sur `position.*` / `panic` / show ouvert. Périmètre dans [todo.md](todo.md) T31 ; `FaderTrack` extrait de Dashboards.tsx (web/src/components/FaderTrack.tsx) |
+| T12, T17, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |
 | T5, T11, T6, T9 | à faire | |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |

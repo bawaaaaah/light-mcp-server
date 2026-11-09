@@ -1829,6 +1829,14 @@ test("venue: right-click a fixture to rename it and give it a marker colour", as
   expect(errors).toEqual([]);
 });
 
+test("venue: the patch table names its columns", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  await expect(page.locator("#venue-patch thead th")).toHaveText(["", "Nom", "Mode", "Univers", "Rôle", "Présent", "Retirer"]);
+  expect(errors).toEqual([]);
+});
+
 test("notes: grouped by kind, one line each, edited in place", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

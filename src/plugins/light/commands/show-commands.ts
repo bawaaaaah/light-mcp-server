@@ -73,16 +73,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.list",
     title: "Patch",
-    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's).",
+    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
     schema: z.object({}),
     run: () =>
       venue.fixtures.list().map((f) => {
+        const r = venue.resolve(f.id);
         const facing = facingOf(f.orientation);
         const base = venue.absent.has(f.id) ? { ...f, absent: true } : f;
-        return facing ? { ...base, facing } : base;
+        return { ...base, ...(!("error" in r) && (r.pan || r.tilt) ? { movable: true } : {}), ...(facing ? { facing } : {}) };
       }),
   });
   reg.register({
@@ -152,11 +153,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.orient",
     title: "Orienter une fixture",
     description:
-      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom).",
+      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); both stay as stored when not given.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional(), roll: z.number().min(-180).max(180).optional() }),
-    run: ({ id: fixtureId, facing, yaw, pitch, turn, roll }) => {
+    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional(), roll: z.number().min(-180).max(180).optional(), invertPan: z.boolean().optional(), invertTilt: z.boolean().optional() }),
+    run: ({ id: fixtureId, facing, yaw, pitch, turn, roll, invertPan, invertTilt }) => {
       const f = venue.fixtures.get(fixtureId);
       if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
       let o = { yaw: f.orientation?.yaw ?? 0, pitch: f.orientation?.pitch ?? 0 };
@@ -164,7 +165,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (yaw !== undefined) o.yaw = yaw;
       if (pitch !== undefined) o.pitch = pitch;
       if (turn !== undefined) o.yaw += turn;
-      const orientation = { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, yaw: wrapYaw(o.yaw), pitch: o.pitch, ...(roll !== undefined ? { roll } : {}) };
+      const orientation = {
+        invertPan: false,
+        invertTilt: false,
+        swapPanTilt: false,
+        panOffset: 0,
+        tiltOffset: 0,
+        ...f.orientation,
+        yaw: wrapYaw(o.yaw),
+        pitch: o.pitch,
+        ...(roll !== undefined ? { roll } : {}),
+        ...(invertPan !== undefined ? { invertPan } : {}),
+        ...(invertTilt !== undefined ? { invertTilt } : {}),
+      };
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };
     },
