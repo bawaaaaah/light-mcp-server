@@ -5,7 +5,7 @@
 - Le détail de chaque tâche (symptôme, pistes, critères) est dans [todo.md](todo.md), numéroté **T1 à T31**. Le plan de code détaillé du premier chantier est dans [plan-t2.md](plan-t2.md). **Ce fichier-ci ne le répète pas** : il le complète.
 - Contexte général du projet : [HANDOFF.md](HANDOFF.md) (à lire en premier), [../CLAUDE.md](../CLAUDE.md) (règles), puis la spec concernée dans `specs/`.
 - **Dossier local non commité `docs/__NO_COMMIT__reprise/`** (s'il existe sur cette machine) : contexte complet hors dépôt (revues brutes des 14 modèles, mémoire locale de l'IA, transcript de la session, outils de revue). Lire son `README.md`. Privé : ne rien en copier dans le dépôt.
-- Dernière mise à jour : 2026-11-08. **Quand tu termines une tâche, mets à jour la colonne « État » plus bas.**
+- Dernière mise à jour : 2026-11-09. **Quand tu termines une tâche, mets à jour la colonne « État » plus bas.**
 
 ## 1. De quoi s'agit-il
 
@@ -87,7 +87,7 @@ Les chemins sont des **points de départ** relevés le 2026-11-07, à vérifier 
 | **T3** fondu ignoré sur certains projecteurs | `engine/player.ts`, `venue/venue.ts` (chemins : canaux bruts, gradateur générique, règle) | **Fait (2026-11-08)** : poids du fondu porté par les canaux bruts (`RawWrite { value, weight }`), émission unique dans `venue.toDmx`, `frame.fade` dose le gradateur quand la couleur ne peut pas se mettre à l'échelle ; voir [todo.md](todo.md) T3 et la spec [engine-effects-timing](specs/engine-effects-timing.md). |
 
 ### Phase 1 — Gains rapides
-**T7 fait** (2026-11-09) et **T31 fait** (panneau de la lyre sélectionnée ; voir l'état plus bas). Restent **T12**, **T17**, **T16**, **T14**. Pour T16, trancher avec l'utilisateur si l'instantané de démarrage passe outre la sortie en veille ; par prudence **non** tant qu'il n'a pas répondu.
+**T7 fait** (2026-11-09), **T31 fait** (panneau de la lyre sélectionnée ; voir l'état plus bas) et **T17 fait** (dossiers de looks ; voir l'état plus bas). Restent **T12**, **T16**, **T14**. Pour T16, trancher avec l'utilisateur si l'instantané de démarrage passe outre la sortie en veille ; par prudence **non** tant qu'il n'a pas répondu.
 
 ### Phase 2 — Définitions saines
 - **T20a** : détecter les définitions en doublon. Aujourd'hui `findDefinition` (`venue/qxf-import.ts`) prend la **première** correspondance après normalisation des noms ; l'ordre de lecture du dossier décide donc sans prévenir. Ajouter l'avertissement à `venue/patch-check.ts` et « Vérifier le show ».
@@ -116,7 +116,8 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T3 | **fait** (tests verts, non commité) | poids du fondu porté par les canaux bruts (+ `frame.fade` vers le gradateur quand la couleur ne peut pas se mettre à l'échelle) ; 8 tests, 655 verts, 150 UI ; **vérification régie restante** avec l'utilisateur devant la machine (`output.status` en veille, puis `dmx.explain` du projecteur extérieur pendant un look en fondu) — la précision est dans [todo.md](todo.md) T3 |
 | T7 | **fait** (tests verts, non commité) | `venue.fixture.orient` porte `invertPan` / `invertTilt` (écrits seulement quand donnés) ; cases au menu de l'appareil et au panneau d'orientation, badges X / Y au patch ; calibration résolue : pitch/roll/swap gardés, panOffset remis à 0, inversions re-mesurées ; tests [orientation](../test/plugins/light/orientation.test.ts) et DMX inversé au chemin commandes ([moving-heads](../test/plugins/light/moving-heads.test.ts)) |
 | T31 (2026-11-09) | **fait** (tests verts, non commité) | **Panneau de contrôle de la lyre sélectionnée** ([FixturePanel.tsx](../web/src/components/FixturePanel.tsx)) : clic sur un projecteur du plan = sélection tenue hors des modes ; pad XY de la lyre seule + « Viser » affiné à la sélection ; lumière en faders de canaux créés au premier toucher (id `panel-…`, niveau initial lu, sans `dca`, mono-canal seulement réutilisé, pan/tilt exclus) ; sections fermées par droits réels ; resynchronisation du pad sur `position.*` / `panic` / show ouvert. Périmètre dans [todo.md](todo.md) T31 ; `FaderTrack` extrait de Dashboards.tsx (web/src/components/FaderTrack.tsx) |
-| T12, T17, T16, T14 | à faire | |
+| T17 (2026-11-09) | **fait** (tests verts, commité) | **Dossiers de looks** : le dossier reste le tag `dossier:` (aucune commande ni migration), helpers purs [web/src/folder.ts](../web/src/folder.ts) (dossier = premier tag nommé, vide et doublons ignorés, nettoyés au premier passage) ; champ dossier dans l'éditeur (`<datalist>`, tags sans dossier, champ dédié prioritaire), sélecteur au menu clic droit (`look.get` avant `look.put`, menu ouvert en cas d'échec), liste du show groupée (une table, en-têtes dépliés par défaut, « sans dossier » dernier, groupes vides masqués, filtre aligné sur `folderOf` et remis à « Tous » si le dossier choisi disparaît) ; les deux hôtes de l'éditeur (Show, Dashboards) passent la liste des dossiers ; 4 tests UI dans app.spec.ts |
+| T12, T16, T14 | à faire | |
 | T20a, T21, T22, T18 | à faire | |
 | T5, T11, T6, T9 | à faire | |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |

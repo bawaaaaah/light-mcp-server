@@ -61,6 +61,11 @@ async function launchFromSheet(page: Page, name: string): Promise<void> {
   await expect(dialog).toHaveCount(0);
 }
 
+/** A bare look for the folder tests, seeded over the five looks of the imported show. */
+function folderLook(id: string, name: string, tags: string[], canvas: string) {
+  return { id, name, canvas, technique: { kind: "plat", color: "#ff0000" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 }, tags };
+}
+
 test("signs in with the token by default, and the menu bar's token link signs in at once", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");
@@ -1587,6 +1592,146 @@ test("show page: a long list of looks is searched and filtered by its QLC+ folde
     await expect(page.getByRole("heading", { name: /Looks \(1 \/ 11\)/ })).toBeVisible();
   } finally {
     for (const look of extra) await api(page, "look.delete", { id: look.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: looks group by folder, unfolded, and folding hides only its group", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [
+    folderLook("grp-mac-0", "Méca 0", ["dossier:Machines"], canvas),
+    folderLook("grp-mac-1", "Méca 1", ["dossier:Machines"], canvas),
+    folderLook("grp-mac-2", "Méca 2", ["dossier:Machines"], canvas),
+    folderLook("grp-chant-0", "Oratoire 0", ["dossier:Chants"], canvas),
+    folderLook("grp-chant-1", "Oratoire 1", ["dossier:Chants"], canvas),
+  ];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // one header per folder, sorted, « sans dossier » last, every group unfolded
+    await expect(page.locator("tr.group-row button")).toHaveText(["▾ Chants (2)", "▾ Machines (3)", "▾ Sans dossier (5)"]);
+    await expect(page.locator("button.look", { hasText: "Méca 2" })).toBeVisible();
+    // folding one header hides only its own rows
+    await page.locator("tr.group-row button", { hasText: "Machines (3)" }).click();
+    await expect(page.locator("button.look", { hasText: "Méca 2" })).toBeHidden();
+    await expect(page.locator("button.look", { hasText: "Oratoire 1" })).toBeVisible();
+    await expect(page.locator("tr.group-row button", { hasText: "▸ Machines (3)" })).toBeVisible();
+    await page.locator("tr.group-row button", { hasText: "Machines (3)" }).click();
+    await expect(page.locator("button.look", { hasText: "Méca 2" })).toBeVisible();
+    // the folder filter composes with the groups: only its group keeps rows, empty groups never render
+    await page.getByLabel("Dossier").selectOption("Chants");
+    await expect(page.locator("tr.group-row")).toHaveCount(1);
+    await expect(page.locator("tr.group-row button", { hasText: "Chants (2)" })).toBeVisible();
+    await expect(page.locator("button.look", { hasText: "Méca 0" })).toBeHidden();
+    await page.getByLabel("Dossier").selectOption("");
+    // the search as well: one matching row, one group, no phantom header for an empty one
+    await page.getByRole("searchbox", { name: "Chercher un look" }).fill("méca 1");
+    await expect(page.locator("tr.group-row")).toHaveCount(1);
+    await expect(page.locator("tr.group-row button", { hasText: "Machines (1)" })).toBeVisible();
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: a right-click moves a look to another folder", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [
+    folderLook("men-mac-0", "Méca 0", ["dossier:Machines"], canvas),
+    folderLook("men-mac-1", "Méca 1", ["dossier:Machines"], canvas),
+    folderLook("men-chant-0", "Oratoire 0", ["dossier:Chants"], canvas),
+  ];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.locator("button.look", { hasText: "Méca 0" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Look", exact: true });
+    await expect(menu).toBeVisible();
+    // the menu stays open, like the other actions, and the select follows the moved look
+    await menu.getByLabel("Dossier").selectOption("Chants");
+    await expect(menu.getByLabel("Dossier")).toHaveValue("Chants");
+    await expect.poll(async () => ((await api(page, "look.get", { id: "men-mac-0" })) as { tags: string[] }).tags).toEqual(["dossier:Chants"]);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("tr.group-row button", { hasText: "Machines (1)" })).toBeVisible();
+    await expect(page.locator("tr.group-row button", { hasText: "Chants (2)" })).toBeVisible();
+    // the folder tag is not repeated on the row: the header shows it
+    await expect(page.locator("tr", { hasText: "Méca 0" }).locator("td small")).not.toContainText("dossier");
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: the editor's folder field survives the tags field, and creates a folder", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "look.put", { look: folderLook("edn-solo", "Soliste", ["dossier:Machines"], canvas) });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.getByLabel("Modifier Soliste").click();
+    const dialog = page.getByRole("dialog", { name: "Soliste" });
+    const folderField = dialog.getByLabel("Dossier");
+    await expect(folderField).toHaveValue("Machines");
+    await expect(folderField).toHaveAttribute("list", "look-folder-suggestions");
+    await folderField.fill("Rigging"); // a folder is created by typing it
+    // typing tags and blurring must not erase the folder typed just before
+    await dialog.getByLabel("tags").fill("libre");
+    await dialog.getByLabel("tags").press("Tab");
+    await dialog.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("tr.group-row button", { hasText: "Rigging (1)" })).toBeVisible();
+    // the free tags are kept, the folder tag is not repeated on the row
+    await expect(page.locator("tr", { hasText: "Soliste" }).locator("td small")).toContainText("libre");
+    await expect(page.locator("tr", { hasText: "Soliste" }).locator("td small")).not.toContainText("dossier");
+    const saved = ((await api(page, "look.get", { id: "edn-solo" })) as { tags: string[] }).tags;
+    expect(saved.filter((g) => g.startsWith("dossier:"))).toEqual(["dossier:Rigging"]);
+    expect(saved).toContain("libre");
+  } finally {
+    await api(page, "look.delete", { id: "edn-solo", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: an empty or doubled folder tag counts for nothing, the first folder wins", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [
+    folderLook("dbl-a", "Double A", ["dossier:", "dossier:Machines", "dossier:Machines"], canvas),
+    folderLook("dbl-b", "Double B", ["dossier:Chants", "dossier:Machines"], canvas),
+    folderLook("dbl-mac-0", "Méca 0", ["dossier:Machines"], canvas),
+    folderLook("dbl-mac-1", "Méca 1", ["dossier:Machines"], canvas),
+  ];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // the empty tag makes no group and no option; deduped, sorted, « sans dossier » last
+    await expect(page.locator("tr.group-row button")).toHaveText(["▾ Chants (1)", "▾ Machines (3)", "▾ Sans dossier (5)"]);
+    const folders = await page.getByLabel("Dossier").locator("option").evaluateAll((os) => os.map((o) => (o as unknown as { value: string }).value));
+    expect(folders).toEqual(["", "Chants", "Machines"]);
+    // a double-folder look stands once, under its first folder
+    await page.locator("tr.group-row button", { hasText: "Chants (1)" }).click();
+    await expect(page.locator("button.look", { hasText: "Double B" })).toBeHidden();
+    await page.locator("tr.group-row button", { hasText: "Chants (1)" }).click();
+    await expect(page.locator("button.look", { hasText: "Double B" })).toBeVisible();
+    // the filter follows the first folder too: « Machines » does not surface « Double B »
+    await page.getByLabel("Dossier").selectOption("Machines");
+    await expect(page.getByRole("heading", { name: /Looks \(3 \/ 9\)/ })).toBeVisible();
+    await expect(page.locator("button.look", { hasText: "Double B" })).toBeHidden();
+    await page.getByLabel("Dossier").selectOption("");
+    // the first pass of the menu rewrites those tags to a single dossier tag
+    await page.locator("button.look", { hasText: "Double A" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Look", exact: true });
+    await menu.getByLabel("Dossier").selectOption("Chants");
+    await expect.poll(async () => ((await api(page, "look.get", { id: "dbl-a" })) as { tags: string[] }).tags).toEqual(["dossier:Chants"]);
+    await page.keyboard.press("Escape");
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
   }
   expect(errors).toEqual([]);
 });

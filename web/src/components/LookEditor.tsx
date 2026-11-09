@@ -16,6 +16,7 @@ import { LiveStage } from "./StagePlan";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
+import { folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 
@@ -81,7 +82,7 @@ function EveryInput({ value, onChange }: { value: Every; onChange: (v: Every) =>
   );
 }
 
-export function LookEditor({ initial, existing, onClose }: { initial: LookDraft; existing: string[]; onClose: (saved?: string) => void }) {
+export function LookEditor({ initial, existing, folders, onClose }: { initial: LookDraft; existing: string[]; folders?: string[]; onClose: (saved?: string) => void }) {
   const t = useT();
   const [look, setLook] = useState<LookDraft>(initial);
   const isNew = !look.id;
@@ -179,6 +180,16 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
           <span>{t.name}</span>
           <input value={look.name} onChange={(e) => set({ name: e.target.value })} />
           {isNew && look.name && <small>id : {id}</small>}
+        </label>
+        <label className="field" title={t.folderHelp}>
+          <span>{t.folder}</span>
+          <input value={folderOf(look.tags) ?? ""} list="look-folder-suggestions" onChange={(e) => set({ tags: withFolder(look.tags, e.target.value) })} />
+          <datalist id="look-folder-suggestions">
+            {(folders ?? []).map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+          <small className="hint">{t.folderHelp}</small>
         </label>
         <label className="field">
           <span>{t.canvas}</span>
@@ -366,7 +377,8 @@ export function LookEditor({ initial, existing, onClose }: { initial: LookDraft;
         ))}
         <label className="field">
           <span>tags</span>
-          <input defaultValue={look.tags.join(", ")} onBlur={(e) => set({ tags: splitList(e.target.value) })} />
+          {/* the folder has its own field above: a folder tag typed here is dropped on blur, the dedicated field keeps its folder */}
+          <input defaultValue={withoutFolderTag(look.tags).join(", ")} onBlur={(e) => set({ tags: withFolder(splitList(e.target.value), folderOf(look.tags)) })} />
         </label>
       </div>
       <textarea placeholder={t.notes} value={look.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />

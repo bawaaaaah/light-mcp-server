@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
+import { folderOf, foldersOf, withoutFolderTag } from "../folder";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
 import { LookMenu } from "../components/LookMenu";
@@ -24,8 +25,6 @@ interface Look {
   /** Dominant colour of the look (look.list), for the dot before its name. */
   swatch?: string;
 }
-/** The folder of an imported look (QLC+ « dossier » tag), to filter a long list by. */
-const FOLDER = "dossier:";
 interface Group {
   id: string;
   name: string;
@@ -88,6 +87,8 @@ export function ShowPage() {
   const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
   const [lookSearch, setLookSearch] = useState("");
   const [folder, setFolder] = useState("");
+  /** The folders folded up by their header; empty, every group is unfolded (the imported lists stay readable at a glance). */
+  const [folded, setFolded] = useState<Set<string>>(new Set());
   /** Fixture and channel names, to show what a channel fader drives instead of ids and offsets. */
   const [channelNames, setChannelNames] = useState<Record<string, { name: string; channels: string[] }>>({});
 
@@ -119,11 +120,17 @@ export function ShowPage() {
     ...(intent.energy ? { energy: intent.energy } : {}),
     save,
   });
-  const folders = [...new Set(looks.flatMap((l) => l.tags.filter((g) => g.startsWith(FOLDER)).map((g) => g.slice(FOLDER.length))))].sort((a, b) => a.localeCompare(b));
+  // the folders effectively in use (a look counts under its first named dossier: tag, an empty one counts for nothing)
+  const folders = foldersOf(looks);
+  const actifFolder = folders.includes(folder) ? folder : "";
+  // a folder chosen for the filter and vanished since no longer filters, and does not silently come back when a later folder takes the same name
+  useEffect(() => {
+    if (folders.length > 0 && !folders.includes(folder)) setFolder("");
+  }, [folders, folder]);
   const needle = lookSearch.trim().toLowerCase();
   const shownLooks = looks.filter(
     (l) =>
-      (!folder || l.tags.includes(FOLDER + folder)) &&
+      (!actifFolder || folderOf(l.tags) === actifFolder) &&
       (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
   );
   /** « Spot 3 · Dimmer/CW » per fixture, in the order of the fader's channels; ids for an unknown fixture. */
@@ -156,6 +163,33 @@ export function ShowPage() {
     return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : ""].filter(Boolean).join(" · ");
   };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
+  const lookRow = (l: Look) => (
+    <tr key={l.id} title={t.lookRowHint} {...rowMenu(l.id)}>
+      <td>
+        <button className={`look ${l.active ? "on" : ""}`} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
+          {l.swatch && <span className="swatch-dot" style={{ background: l.swatch }} aria-hidden />}
+          {l.name}
+        </button>
+      </td>
+      <td>
+        {labelOf(t.techniqueNames, l.technique.kind)}
+        {l.move && <small> · ↻ {labelOf(t.moveShapes, l.move.shape)}</small>}
+      </td>
+      <td>{cadence(l)}</td>
+      <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
+      <td>{labelOf(t.orders, l.timing.order)}</td>
+      <td>
+        <small>{withoutFolderTag(l.tags).join(" · ")}</small>
+      </td>
+      <td>
+        <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => void cmd<LookDraft>("look.get", { id: l.id }).then(setEditing, (e: Error) => setError(e.message)) /* the list is brief: the editor needs the whole look */}>
+          ✎
+        </button>
+      </td>
+    </tr>
+  );
+  /** One group per folder, « none » last; an empty group (search, folder filter) never renders. */
+  const rowsOfFolder = (f: string) => shownLooks.filter((l) => (folderOf(l.tags) ?? "") === f);
 
   return (
     <div className="show">
@@ -323,6 +357,7 @@ export function ShowPage() {
             key={editing.id || "new"}
             initial={editing}
             existing={looks.map((l) => l.id)}
+            folders={folders}
             onClose={() => {
               setEditing(null);
               refresh();
@@ -357,37 +392,32 @@ export function ShowPage() {
         <table className="listing" hidden={shownLooks.length === 0}>
           <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
-            {shownLooks.map((l) => (
-              <tr key={l.id} title={t.lookRowHint} {...rowMenu(l.id)}>
-                <td>
-                  <button className={`look ${l.active ? "on" : ""}`} onClick={() => void run(l.active ? "look.stop" : "look.go", { id: l.id })}>
-                    {l.swatch && <span className="swatch-dot" style={{ background: l.swatch }} aria-hidden />}
-                    {l.name}
-                  </button>
-                </td>
-                <td>
-                  {labelOf(t.techniqueNames, l.technique.kind)}
-                  {l.move && <small> · ↻ {labelOf(t.moveShapes, l.move.shape)}</small>}
-                </td>
-                <td>{cadence(l)}</td>
-                <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
-                <td>{labelOf(t.orders, l.timing.order)}</td>
-                <td>
-                  <small>{l.tags.filter((g) => !folder || g !== FOLDER + folder).join(" · ")}</small>
-                </td>
-                <td>
-                  <button className="ghost" title={t.edit} aria-label={`${t.edit} ${l.name}`} onClick={() => void cmd<LookDraft>("look.get", { id: l.id }).then(setEditing, (e: Error) => setError(e.message)) /* the list is brief: the editor needs the whole look */}>
-                    ✎
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {folders.length === 0
+              ? shownLooks.map(lookRow)
+              : [...folders, ""].map((f) => {
+                  const rows = rowsOfFolder(f);
+                  if (rows.length === 0) return null;
+                  const open = !folded.has(f);
+                  return (
+                    <Fragment key={f}>
+                      <tr className="group-row">
+                        {/* as wide as the whole header (7 columns) */}
+                        <td colSpan={7}>
+                          <button aria-expanded={open} title={open ? t.collapse : t.expand} onClick={() => setFolded((s) => { const next = new Set(s); if (next.has(f)) next.delete(f); else next.add(f); return next; })}>
+                            {open ? "▾" : "▸"} {f || t.noFolder} ({rows.length})
+                          </button>
+                        </td>
+                      </tr>
+                      {open && rows.map(lookRow)}
+                    </Fragment>
+                  );
+                })}
           </tbody>
         </table>
         {lookMenu &&
           (() => {
             const l = looks.find((x) => x.id === lookMenu.id);
-            return l ? <LookMenu key={l.id} look={l} at={lookMenu} onEdit={setEditing} onChanged={refresh} onClose={() => setLookMenu(null)} /> : null;
+            return l ? <LookMenu key={l.id} look={l} folder={folderOf(l.tags)} folders={folders} at={lookMenu} onEdit={setEditing} onChanged={refresh} onClose={() => setLookMenu(null)} /> : null;
           })()}
       </section>
 

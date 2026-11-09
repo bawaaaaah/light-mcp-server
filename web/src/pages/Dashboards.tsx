@@ -14,6 +14,7 @@ import { LiveStage } from "../components/StagePlan";
 import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
 import { Modal } from "../components/Modal";
 import type { LookDraft } from "../components/LookEditor";
+import { foldersOf } from "../folder";
 // the editor only when a look is opened from the Live: the Live page stays light to load
 const LookEditor = lazy(() => import("../components/LookEditor").then((m) => ({ default: m.LookEditor })));
 const GroupEditor = lazy(() => import("../components/GroupEditor").then((m) => ({ default: m.GroupEditor })));
@@ -1327,6 +1328,7 @@ export function DashboardsPage({ role }: { role: Role }) {
               key={editingLook.id}
               initial={editingLook}
               existing={looks.map((l) => l.id)}
+              folders={foldersOf(looks)}
               onClose={() => {
                 setEditingLook(null);
                 refresh();

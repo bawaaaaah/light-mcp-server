@@ -2240,6 +2240,22 @@ body.kiosk .app {
   border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
   vertical-align: baseline;
 }
+/* the looks, grouped by folder (a header as wide as the table, a button because it folds) */
+.group-row td {
+  padding: 0;
+}
+.group-row button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3em 0.4em;
+  font-weight: 600;
+}
+.group-row button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
 
 /* M and F under a fader one column wide (56 px on a tablet): smaller, so neither is cut */
 .cell .fader .row {

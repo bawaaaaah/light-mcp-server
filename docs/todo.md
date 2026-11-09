@@ -98,6 +98,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ### T17 — Dossiers de looks
 - Changer le dossier d'un look (éditeur et clic droit).
 - **Vue par dossier** de la page Show : dossiers dépliés par défaut.
+- **Fait (2026-11-09)** : le dossier reste le **tag conventionnel `dossier:`** posé par l'import QLC+ — pas de champ dédié dans le modèle, aucune commande ni migration (anciens shows, imports et archives `.lightshow` fonctionnent tels quels) ; l'écriture passe par `look.put`, déjà tout-puissant. Helpers purs dans [folder.ts](../web/src/folder.ts) : le dossier d'un look est son **premier** tag `dossier:` nommé (un tag vide ou doublé ne compte pas, et un premier passage éditeur/menu le nettoie). **Éditeur** : champ « Dossier » (`<input>` + `<datalist>` des dossiers connus) dans le haut des champs ; le champ tags ne porte plus le dossier (un `dossier:` tapé là est éliminé au flou, le champ dédié l'emporte). **Clic droit** : un `<select>` des dossiers existants + « Sans dossier », qui relit le look entier avant `look.put` (le look abrégé serait refusé). **Liste du show** : dès qu'un dossier existe, une seule table groupée — en-têtes repliables dépliés par défaut, « Sans dossier » en dernier, groupes vides masqués (recherche ou filtre), le filtre déroulant suit le rangement réel (`folderOf`, pas une sous-chaîne de tag, pour un look au double dossier). La liste des dossiers est passée à l'éditeur par ses deux hôtes (page Show et Live). Tests : [app.spec.ts](../test/ui/app.spec.ts), 4 nouveaux sur le semis du filtre (groupes et repliage, menu, éditeur, tags vides et doublons).
 
 ## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : Wash 1915Z-R, Spot 200, Fog Spray 3000 RGB)
 
@@ -220,6 +221,14 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **Retours du jour (2026-11-09)** : dans le menu de l'appareil, les inversions se rendent comme les bascules de l'interface (« libellé à gauche, bascule à droite », motif `ghost` pressé) — une case cochée native y restait sur sa propre ligne et ne répondait pas ; elles **ne se rendent que sur un projecteur qui porte pan ou tilt** (`venue.fixture.list` ajoute `movable`) ; et le **calibrage suit la sélection** (la lyre tenue sur le plan ouvre « Calibrer les lyres » sur elle).
 - **Rang** : fait (facile : le pad XY et les faders existaient, il ne restait qu'à les composer derrière une sélection).
 
+### T32 — Positions nommées des lyres (presets de position), réutilisables dans les looks (demandé le 2026-11-09)
+- **Besoin** : enregistrer des **positions nommées** pour les lyres : la position se pose au **pad XY** de la lyre sélectionnée (T31) ou en visant une zone, puis s'**enregistre sous un nom** ; une **liste** les retrouve, on les **rappelle** (les lyres s'y rendent), et un **look peut y faire référence** au lieu de copier des pan/tilt — le look suit si la position est réajustée.
+- **Existant** : `position.set` / `position.aim` (commands/move-commands.ts) posent une position **manuelle en mémoire seule** (perdue à une Panic, une libération, la réouverture d'un show, cf. T31) ; le pad XY de la T31 pose des positions mais n'en garde rien ; les **faders de canaux** (`fader.put`) montrent le chemin du réglage persistant par objet (un JSON par objet, id déterministe) ; le `move` d'un look est une **forme** autour d'un centre normalisé ([engine/move.ts](../src/plugins/light/engine/move.ts)), sans référence à rien. **Aucune position n'est persistée** aujourd'hui, aucun look n'en cite une.
+- **Modèle proposé** : un objet **Position** (id, nom, contenu : pan/tilt par lyre couverte, ou point `{x, y, z}` si les positions des lyres le permettent — cf. T24), stocké comme les faders ; commandes `position.preset.list / save / go / delete` (MCP, HTTP, OSC et CLI en adaptateurs minces ; la **suppression refusée** tant qu'un look s'en sert — `show.references`, comme pour les autres liens) ; export `.lightshow` avec le show ; bouton « Enregistrer cette position… » au **panneau de la lyre sélectionnée** (T31) ; dans l'éditeur de look, la section Mouvement peut **référencer** une position nommée (la priorité « manuelle > cible > look » du T25 décidera du conflit au rappel).
+- **À trancher à l'attaque** (décisions à noter dans `decisions.md` + la spec) : une position porte **une lyre, un groupe ou toutes** ; ce que fait le rappel pendant qu'un look tourne ; les **plages pan/tilt** différentes (une position ne s'applique qu'aux lyres qui la couvrent) ; une position **périmée** après un déplacement ou une recalibration de lyre (T8).
+- **Interface** : partout où l'on choisit une position nommée — l'**éditeur de look** (référence du mouvement), le **panneau de la lyre sélectionnée** (rappel rapide) et le **Live** — le choix se fait dans une **liste déroulante avec recherche**, pas un `<select>` qui déborde dès qu'il y a beaucoup de positions. L'application n'a pas de combobox aujourd'hui : à créer à cette occasion (ou `<datalist>` natif, cf. le champ dossier du T17).
+- **Rang** : moyen-dur. **Phase 3-4** — l'enregistrement et le rappel d'une position (une lyre seule) est de la phase 3 ; la **référence dans les touches au modèle des looks** (T25 conçoit la couche Mouvement). S'articule avec T24 (la **cible** 3D est pilotée en continu, la position nommée est **statique** — complémentaires), T8, T27 et T28.
+
 ## Du plus simple au plus dur (estimation du 2026-11-08)
 | # | Item | Pourquoi |
 |---|---|---|
@@ -245,14 +254,15 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 | 20 | T8 calibration manuelle | interaction temps réel avec une vraie lyre |
 | 21 | T19 images de gobos | format, bibliothèque, aperçu, export |
 | 22 | T24 point cible 3D (X, Y, Z) suivi par un groupe de lyres | objet vivant dans le moteur, widget pad + fader Z |
-| 23 | T28 looks de lyres par zone, motifs et aléatoire | liste de points dans le mouvement, ordres, vitesse limitée |
-| 24 | T30 placer les lyres avec des angles seulement | interface au-dessus de T23, incertitude à afficher |
-| 25 | T20 bibliothèque des projecteurs | page entière : doublons, fusion par alias, éditeur de définition |
-| 26 | T23 triangulation des lyres par visées communes | maths de résolution + interaction temps réel avec de vraies lyres |
-| 27 | T25 revoir les mouvements via les looks | modèle, moteur, éditeur, migration ; décision de priorité à prendre |
-| 28 | T29 sous-looks et mouvements indépendants des pas | très dur : modèle, moteur, éditeur, références, migration |
-| 29 | T10 manette | trois étapes, API navigateur, scènes de manette |
-| 30 | T1 flashs sur le DMX USB | temps réel, matériel, difficile à reproduire ; en attente |
+| 23 | T32 positions nommées des lyres (presets) | enregistrer au pad et rappeler ; la référence dans les looks suit T25 |
+| 24 | T28 looks de lyres par zone, motifs et aléatoire | liste de points dans le mouvement, ordres, vitesse limitée |
+| 25 | T30 placer les lyres avec des angles seulement | interface au-dessus de T23, incertitude à afficher |
+| 26 | T20 bibliothèque des projecteurs | page entière : doublons, fusion par alias, éditeur de définition |
+| 27 | T23 triangulation des lyres par visées communes | maths de résolution + interaction temps réel avec de vraies lyres |
+| 28 | T25 revoir les mouvements via les looks | modèle, moteur, éditeur, migration ; décision de priorité à prendre |
+| 29 | T29 sous-looks et mouvements indépendants des pas | très dur : modèle, moteur, éditeur, références, migration |
+| 30 | T10 manette | trois étapes, API navigateur, scènes de manette |
+| 31 | T1 flashs sur le DMX USB | temps réel, matériel, difficile à reproduire ; en attente |
 
 T1 est en dernier pour la difficulté, mais **mis en attente** : l'utilisateur joue en Art-Net. À reprendre plus tard, en mesurant avant de corriger.
 
@@ -264,9 +274,9 @@ Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les d�
 | Phase | Items | But | Fini quand |
 |---|---|---|---|
 | **0. Jouer proprement** | T2 ([plan-t2.md](plan-t2.md)), T4, T3 (avec sa précision sur les du groupe extérieur de l'utilisateur) | plus de flash en changeant de look, fader DCA juste, fondu respecté partout | un test moteur A → B → A passe ; le fader DCA garde sa course avec le lissage ; le fondu agit sur tous les projecteurs |
-| **1. Gains rapides** | T7 fait, T31 fait, T12, T17, T16, T14 | inversion pan/tilt, panneau de la lyre sélectionnée, canaux du type choisi, dossiers de looks, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
+| **1. Gains rapides** | T7 fait, T17 fait, T31 fait, T12, T16, T14 | inversion pan/tilt, dossiers de looks, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
 | **2. Définitions saines** | T20a (détecter les doublons et avertir), T21, T22, T18 | plus de définition choisie au hasard, le Wash allume ses 3 zones, patch contrôlé, roue de couleurs fiable | « Vérifier le show » signale un doublon ; les 10 couleurs du Spot tombent sur la bonne case ; Wash 29 canaux piloté sur toutes les zones |
-| **3. Réglage et mouvements des lyres** | T5, **T25 (conception, avec T29)**, T26, T11, T6, T9, T24, T27 | pistes fondables, couche Mouvement claire, verrou, menu de l'appareil, modes nommés, pad XY, cible 3D, zones de visée | essai sur les vraies lyres ; T5 avant T6, T25 avant T24, T26 et T29, T24 avant T27 pour le pad |
+| **3. Réglage et mouvements des lyres** | T5, **T25 (conception, avec T29)**, T26, T11, T6, T9, T24, T32 (enregistrer et rappeler une position nommée), T27 | pistes fondables, couche Mouvement claire, verrou, menu de l'appareil, modes nommés, pad XY, cible 3D, presets de position, zones de visée | essai sur les vraies lyres ; T5 avant T6, T25 avant T24, T26 et T29, T24 avant T27 pour le pad |
 | **4. Confort et contenu** | T15, T13, T20b (fusion, duplication, éditeur de définition), T8, T23, T30, T28 | intentions exportées, canevas, bibliothèque complète, calibration manuelle, triangulation, placement par angles, looks par zone | archive `.lightshow` aller-retour ; fusion sans changer adresses ni modes ; T23 avant T30 ; T27 et T25 avant T28 |
 | **5. Visuel** | T19 | images de gobos | après T6 (miniatures dans la liste de plages) et T20b (où déposer les images) |
 | **6. En fin de parcours** | T10 (manette : sticks et gâchettes, puis scènes de manette ; PS5 seulement après discussion), puis T1 (retour du DMX USB, en mesurant avant de corriger) | pilotage à la manette, USB à nouveau fiable | essai avec 2 lyres aux 2 sticks |
@@ -280,6 +290,7 @@ Ouvertes :
 - T6 : une variante de mode (plusieurs valeurs voisines) se présente en sous-menu ou dans le même menu ?
 - T27 : formes de zones voulues (rectangle seulement, ou aussi ellipse et polygone) ?
 - **T25 : priorité entre position manuelle, cible et mouvement du look** : reportée par l'utilisateur, à trancher à l'attaque de T25 (proposition de départ : manuelle > cible > look).
+- **T32 : une position nommée porte une lyre, un groupe ou toutes** ; et ce que fait le rappel pendant qu'un look tourne (proposition de départ : la position manuelle l'emporte jusqu'à relâchement, comme aujourd'hui). Reportée, à trancher à l'attaque de T32.
 - **T29 : deux looks ayant le même sous-look** : une instance partagée comptée par référence (proposition) ou une par parent ? Reportée, à trancher à l'attaque de T29.
 
 Tranchées (2026-11-08) :
