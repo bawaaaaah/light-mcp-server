@@ -124,6 +124,14 @@ function clone<T>(v: T): T {
 }
 const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
+type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
+
+/** Applies a read's answer only if no newer read of the same list started meanwhile. */
+function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, request: Promise<T>, apply: (v: T) => void) {
+  const stamp = ++counters[list];
+  void request.then((v) => stamp === counters[list] && apply(v)).catch(() => undefined);
+}
+
 export function DashboardsPage({ role }: { role: Role }) {
   const t = useT();
   /** A control whose command the role may not run is shown, greyed, rather than refused on use. */
@@ -380,17 +388,13 @@ export function DashboardsPage({ role }: { role: Role }) {
   // a late answer arriving after a newer read of the same list must not rewrite the widgets with a
   // mid-glide snapshot (a thumb left at 20 % while the fader sits at 80 %): per list, only the last read wins
   const reads = useRef({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
-  const latest = useCallback(function latest<T>(list: keyof typeof reads.current, request: Promise<T>, apply: (v: T) => void) {
-    const stamp = ++reads.current[list];
-    void request.then((v) => stamp === reads.current[list] && apply(v)).catch(() => undefined);
-  }, []);
   const refresh = useCallback(() => {
-    latest("looks", cmd<Look[]>("look.list", { brief: true }), setLooks);
-    latest("groups", cmd<Group[]>("group.list"), setGroups);
-    latest("faders", cmd<ChannelFader[]>("fader.list"), setFaders);
-    latest("snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), setSnapshots);
-    latest("folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
-  }, [latest]);
+    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), setLooks);
+    latestRead(reads.current, "groups", cmd<Group[]>("group.list"), setGroups);
+    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), setFaders);
+    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), setSnapshots);
+    latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
+  }, [reads]);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
@@ -402,9 +406,9 @@ export function DashboardsPage({ role }: { role: Role }) {
   const glided = useRef<string[]>([]);
   useEffect(() => {
     const now = Object.keys(glide.groups);
-    if (glided.current.some((id) => !now.includes(id))) latest("groups", cmd<Group[]>("group.list"), setGroups);
+    if (glided.current.some((id) => !now.includes(id))) latestRead(reads.current, "groups", cmd<Group[]>("group.list"), setGroups);
     glided.current = now;
-  }, [glide.groups, latest]);
+  }, [glide.groups, reads]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;

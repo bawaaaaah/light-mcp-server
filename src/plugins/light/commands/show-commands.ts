@@ -706,9 +706,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const now = engine.output.get(patch.universe)[patch.address - 1 + offset] ?? 0;
       const taken = new Set(show.faders.list().map((f) => f.id));
       const base = `panel-${fixture}-${offset}`;
-      let id = base;
-      for (let k = 2; taken.has(id); k++) id = `${base}-${k}`;
-      const fader = show.faders.put({ id, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? Math.round((now / 255) * 1000) / 1000 });
+      let faderId = base;
+      for (let k = 2; taken.has(faderId); k++) faderId = `${base}-${k}`;
+      const fader = show.faders.put({ id: faderId, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? Math.round((now / 255) * 1000) / 1000 });
       return { ...fader, created: true };
     },
   });
