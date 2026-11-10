@@ -3165,7 +3165,9 @@ test("venue plan: several fixtures chosen, moved together, lined up and spread, 
     await page.getByLabel("Placer les projecteurs").check();
     await page.getByLabel("Grille").selectOption("0.5");
     await page.getByLabel("Aligner sur les autres").uncheck();
-    await fx("bar-0").scrollIntoViewIfNeeded();
+    // the plan in the middle of the screen: where the earlier tests leave the scroll, a fixture may
+    // sit right under the sticky header, and a drag upwards would end on the header
+    await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
     // a click chooses one, Shift adds another
     await fx("bar-0").click();
     await fx("bar-1").click({ modifiers: ["Shift"] });
@@ -3187,9 +3189,11 @@ test("venue plan: several fixtures chosen, moved together, lined up and spread, 
     await dragBy(spot, bar1.x - spot.x + 3, -30);
     await expect.poll(async () => (await at("spot")).x).toBe(b1.x);
     // a frame drawn on the stage chooses all three; spread across, then nudged upstage by a grid step
-    const all = [await centre("bar-0"), await centre("bar-1"), await centre("spot")];
-    const [left, top] = [Math.min(...all.map((c) => c.x)) - 60, Math.min(...all.map((c) => c.y)) - 40];
-    await dragBy({ x: left, y: top }, Math.max(...all.map((c) => c.x)) + 60 - left, Math.max(...all.map((c) => c.y)) + 40 - top);
+    // from outside the fixtures' own boxes (their hit area included), whatever size the plan is drawn at
+    const boxes = await Promise.all(["bar-0", "bar-1", "spot"].map(async (id) => (await page.locator(`.stage-plan g.fixture[data-fixture="${id}"]`).first().boundingBox())!));
+    const [left, top] = [Math.min(...boxes.map((b) => b.x)) - 20, Math.min(...boxes.map((b) => b.y)) - 20];
+    const [right, bottom] = [Math.max(...boxes.map((b) => b.x + b.width)) + 20, Math.max(...boxes.map((b) => b.y + b.height)) + 20];
+    await dragBy({ x: left, y: top }, right - left, bottom - top);
     await expect(page.locator(".place-panel")).toContainText("3 projecteurs choisis");
     await page.getByRole("button", { name: "Répartir en largeur" }).click();
     await expect.poll(async () => (await at("bar-1")).x).not.toBe(b1.x);
