@@ -14,7 +14,7 @@ import { LiveStage } from "../components/StagePlan";
 import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
 import { Modal } from "../components/Modal";
 import type { LookDraft } from "../components/LookEditor";
-import { foldersOf } from "../folder";
+import { foldersOf, withParents } from "../folder";
 // the editor only when a look is opened from the Live: the Live page stays light to load
 const LookEditor = lazy(() => import("../components/LookEditor").then((m) => ({ default: m.LookEditor })));
 const GroupEditor = lazy(() => import("../components/GroupEditor").then((m) => ({ default: m.GroupEditor })));
@@ -147,6 +147,8 @@ export function DashboardsPage({ role }: { role: Role }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
+  /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
+  const [namedFolders, setNamedFolders] = useState<string[]>([]);
   const [edit, setEdit] = useState(false);
   const [paletteSearch, setPaletteSearch] = useState("");
   // Full screen to play: no side bar, no top bar, only the dashboards.
@@ -375,33 +377,34 @@ export function DashboardsPage({ role }: { role: Role }) {
   };
   const song = useTopic<SongState>("light:song", {});
 
-  const reads = useRef(0);
-  const refresh = useCallback(() => {
-    // a late answer arriving after a newer one must not rewrite the widgets with a mid-glide
-    // snapshot (a thumb left at 20 % while the fader sits at 80 %); only the last read wins
-    const stamp = ++reads.current;
-    void cmd<Look[]>("look.list", { brief: true }).then((l) => stamp === reads.current && setLooks(l)).catch(() => undefined);
-    void cmd<Group[]>("group.list").then((l) => stamp === reads.current && setGroups(l)).catch(() => undefined);
-    void cmd<ChannelFader[]>("fader.list").then((l) => stamp === reads.current && setFaders(l)).catch(() => undefined);
-    void cmd<{ id: string; name: string }[]>("snapshot.list").then((l) => stamp === reads.current && setSnapshots(l)).catch(() => undefined);
+  // a late answer arriving after a newer read of the same list must not rewrite the widgets with a
+  // mid-glide snapshot (a thumb left at 20 % while the fader sits at 80 %): per list, only the last read wins
+  const reads = useRef({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
+  const latest = useCallback(function latest<T>(list: keyof typeof reads.current, request: Promise<T>, apply: (v: T) => void) {
+    const stamp = ++reads.current[list];
+    void request.then((v) => stamp === reads.current[list] && apply(v)).catch(() => undefined);
   }, []);
+  const refresh = useCallback(() => {
+    latest("looks", cmd<Look[]>("look.list", { brief: true }), setLooks);
+    latest("groups", cmd<Group[]>("group.list"), setGroups);
+    latest("faders", cmd<ChannelFader[]>("fader.list"), setFaders);
+    latest("snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), setSnapshots);
+    latest("folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
+  }, [latest]);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   }, [refresh]);
-  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets"], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets", "show.settings", "show.folder"], refresh);
   // an effective level read while the group still glided is stale (a fader left at 5 % kept showing
   // the 43 % it had half-way there): the topic announces the gliders still running, so a group that
   // leaves it has landed — read its effective level then, not once the last glide of the page ended
   const glided = useRef<string[]>([]);
   useEffect(() => {
     const now = Object.keys(glide.groups);
-    if (glided.current.some((id) => !now.includes(id))) {
-      const stamp = ++reads.current;
-      void cmd<Group[]>("group.list").then((l) => stamp === reads.current && setGroups(l)).catch(() => undefined);
-    }
+    if (glided.current.some((id) => !now.includes(id))) latest("groups", cmd<Group[]>("group.list"), setGroups);
     glided.current = now;
-  }, [glide.groups]);
+  }, [glide.groups, latest]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -1330,7 +1333,7 @@ export function DashboardsPage({ role }: { role: Role }) {
               key={editingLook.id}
               initial={editingLook}
               existing={looks.map((l) => l.id)}
-              folders={foldersOf(looks)}
+              folders={withParents([...foldersOf(looks), ...namedFolders])}
               onClose={() => {
                 setEditingLook(null);
                 refresh();
@@ -1342,8 +1345,6 @@ export function DashboardsPage({ role }: { role: Role }) {
     </div>
   );
 }
-
-/** A vertical fader drawn entirely in DOM, with a native range kept for focus and assistive tools. */
 
 /** Levels of the smoothed faders still on their way (topic light:glide). */
 interface Glide {
