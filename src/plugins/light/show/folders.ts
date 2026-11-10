@@ -9,10 +9,11 @@ import { say } from "../../../core/lang.js";
 /** The tag prefix that names a look's folder. */
 export const FOLDER = "dossier:";
 
-/** A look's folder: the first named `dossier:` tag (an empty one is ignored). */
+/** A look's folder: the first named `dossier:` tag, normalised (an empty one is ignored). */
 export function folderOf(tags: string[]): string | undefined {
   for (const tag of tags) {
-    if (tag.startsWith(FOLDER) && tag.slice(FOLDER.length)) return tag.slice(FOLDER.length);
+    const name = tag.startsWith(FOLDER) ? normalizeFolder(tag.slice(FOLDER.length)) : "";
+    if (name) return name;
   }
   return undefined;
 }
@@ -27,6 +28,15 @@ export function withFolder(tags: string[], folder?: string): string[] {
 
 /** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
 export const SEPARATOR = "/";
+
+/** A folder path as stored: each segment trimmed, empty segments dropped (« A / B/ » is « A/B »). */
+export function normalizeFolder(path: string): string {
+  return path
+    .split(SEPARATOR)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .join(SEPARATOR);
+}
 
 /** True when a look sits in the folder `node` itself or nested under it. */
 export function inTree(tags: string[], node: string): boolean {

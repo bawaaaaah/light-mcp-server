@@ -1972,6 +1972,29 @@ test("show page: a folder header is renamed or disbanded from its menu", async (
   expect(errors).toEqual([]);
 });
 
+test("show page: a parent folder with no look of its own still has its menu", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const deep = folderLook("deep-a", "Profond", ["dossier:Haut/Bas"], canvas);
+  await api(page, "look.put", { look: deep });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    const menu = page.getByRole("dialog", { name: "Dossier", exact: true });
+    // « Haut » only exists as the parent of « Haut/Bas »: its header opens the menu all the same
+    await page.locator("tr.group-row[data-folder=Haut]").click({ button: "right" });
+    await menu.getByRole("button", { name: "Renommer" }).click();
+    const field = menu.getByRole("textbox", { name: "Renommer" });
+    await field.fill("Sommet");
+    await field.press("Enter");
+    await expect(menu).toBeHidden();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "deep-a" })) as { tags: string[] }).tags)).toEqual(["dossier:Sommet/Bas"]);
+  } finally {
+    await api(page, "look.delete", { id: deep.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("show page: a deleted look comes back from « Récemment supprimés »", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

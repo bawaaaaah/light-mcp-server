@@ -10,11 +10,11 @@ import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
-import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema } from "../show/model.js";
+import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
-import { folderOf, inTree, nestOf, renamedPath, withFolder } from "../show/folders.js";
+import { folderOf, inTree, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -354,6 +354,27 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { ...l, active: show.isActive(l.id), swatch: swatch(l) };
     },
   });
+  const sameTags = (a: string[], b: string[]) => a.length === b.length && a.every((t, i) => t === b[i]);
+  /**
+   * The checks a look passes before it is stored: look.put, and every look a folder command rewrites
+   * (all checked before the first write). Its folder tag comes back normalised (segments trimmed, no
+   * empty one), so a folder typed « Foo » with a trailing space is the folder « Foo ».
+   */
+  const checkLook = (look: Look): Look => {
+    if (!venue.canvases.get(look.canvas)) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
+    // « jamais coupé » (noCut): only techniques that never switch a cell off
+    if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
+      throw new Error(say(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`, `“${look.name}” is marked “never cut” but its technique turns cells off (black steps, masks without a floor, flash…)`));
+    }
+    if (look.channels) {
+      checkChannels(look.channels.targets);
+      const bad = look.channels.steps.findIndex((row) => row.length !== look.channels!.targets.length);
+      if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
+    }
+    const folder = folderOf(look.tags);
+    const tags = folder === undefined ? look.tags : withFolder(look.tags, folder);
+    return sameTags(tags, look.tags) ? look : { ...look, tags };
+  };
   reg.register({
     name: "look.put",
     title: "Look",
@@ -373,19 +394,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         LookSchema,
       ),
     }),
-    run: ({ look }) => {
-      if (!venue.canvases.get(look.canvas)) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
-      // « jamais coupé » (noCut): only techniques that never switch a cell off
-      if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
-        throw new Error(say(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`, `“${look.name}” is marked “never cut” but its technique turns cells off (black steps, masks without a floor, flash…)`));
-      }
-      if (look.channels) {
-        checkChannels(look.channels.targets);
-        const bad = look.channels.steps.findIndex((row) => row.length !== look.channels!.targets.length);
-        if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
-      }
-      return show.looks.put(look);
-    },
+    run: ({ look }) => show.looks.put(checkLook(look)),
   });
   reg.register({
     name: "look.techniques",
@@ -400,21 +409,27 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
 
   // ---- folders: the looks' `dossier:` tag (show/folders.ts), not an object of its own — a folder
   // born from tags lives as long as its looks; one named ahead (show.folder.create) stays, stored
-  // with the show's settings. Every look goes through look.put: its checks and history apply.
+  // with the show's settings. Every look goes through look.put (its checks and history apply), all of
+  // them checked first: a look that no longer passes refuses the whole command before any write.
   const folderName = z
     .string()
     .trim()
     .min(1)
     .max(100)
-    .refine((v) => !v.startsWith("/") && !v.endsWith("/") && !v.includes("//"), { message: "a folder may nest by path (« Famille/Sous-dossier »): no slash at the ends, no empty segment" })
+    .refine((v) => !v.startsWith("/") && !v.endsWith("/") && normalizeFolder(v).split("/").length === v.split("/").length, { message: "a folder may nest by path (« Famille/Sous-dossier »): no slash at the ends, no empty segment" })
+    .transform(normalizeFolder)
     .describe("a folder name or path (« Famille/Sous-dossier »), free to create");
   /** Every look in the folder `name`, its whole sub-tree included. */
   const underFolder = (name: string) => show.looks.list().filter((l) => inTree(l.tags, name));
   const setNamedFolders = (next: string[]) => show.saveSettings({ folders: [...new Set(next)].sort((a, b) => a.localeCompare(b)) });
-  const moveThroughLookPut = async (looks: { id: string; tags: string[]; [k: string]: unknown }[], folder: string | undefined, ctx: CommandContext) => {
-    for (const l of looks) await reg.invoke("look.put", { look: { ...l, tags: withFolder(l.tags, folder) } }, ctx);
-    return looks.length;
+  /** Files each look in its new folder (undefined: « sans dossier »): every look checked first, then only the ones that change written. */
+  const refile = async (moves: { look: Look; folder: string | undefined }[], ctx: CommandContext) => {
+    const changed = moves.map(({ look, folder }) => ({ ...look, tags: withFolder(look.tags, folder) })).filter((l, i) => !sameTags(l.tags, moves[i]!.look.tags));
+    for (const l of changed) checkLook(l);
+    for (const l of changed) await reg.invoke("look.put", { look: l }, ctx);
+    return moves.length;
   };
+  const moveThroughLookPut = (looks: Look[], folder: string | undefined, ctx: CommandContext) => refile(looks.map((look) => ({ look, folder })), ctx);
   reg.register({
     name: "show.folder.create",
     title: "Créer un dossier",
@@ -454,7 +469,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (to.startsWith(from + "/")) throw new Error(say(`« ${to} » serait un sous-dossier de « ${from} »`, `“${to}” would become a sub-folder of “${from}”`));
       if (from === to) return { renamed: 0, from, to };
       const subtree = underFolder(from);
-      for (const l of subtree) await reg.invoke("look.put", { look: { ...l, tags: withFolder(l.tags, renamedPath(folderOf(l.tags)!, from, to)) } }, ctx);
+      await refile(subtree.map((look) => ({ look, folder: renamedPath(folderOf(look.tags)!, from, to) })), ctx);
       const stored = show.settings.folders.map((f) => renamedPath(f, from, to));
       if (stored.some((f, i) => f !== show.settings.folders[i])) setNamedFolders(stored);
       return { renamed: subtree.length, from, to };
@@ -486,6 +501,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (target === src) return { nested: 0, from: src, to: target };
       const exists = underFolder(src).length > 0 || show.settings.folders.some((f) => f === src || f.startsWith(src + "/"));
       if (!exists) throw new Error(say(`dossier inconnu : ${src}`, `unknown folder: ${src}`));
+      // dropped where a folder of that name already sits: refused rather than merged unseen (show.folder.rename merges on purpose)
+      if (underFolder(target).length > 0 || show.settings.folders.some((f) => f === target || f.startsWith(target + "/"))) throw new Error(say(`« ${target} » existe déjà : renommer « ${src} » pour les fusionner`, `“${target}” already exists: rename “${src}” onto it to merge them`));
       const out = (await reg.invoke("show.folder.rename", { from: src, to: target }, ctx)) as { renamed: number };
       return { nested: out.renamed, from: src, to: target };
     },

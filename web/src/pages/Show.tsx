@@ -3,7 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
-import { folderLabel, folderOf, foldersOf, inTree, withoutFolderTag } from "../folder";
+import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../folder";
 import { pick } from "../selection";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
@@ -152,19 +152,24 @@ export function ShowPage() {
   });
   // the folders in use — a look counts under its first named dossier: tag, an empty one counts for
   // nothing — plus the ones named ahead (show.folder.create) which exist empty until dissolved
-  const savedFolders = new Set(settings?.folders ?? []);
-  const folders = [...new Set([...foldersOf(looks), ...(settings?.folders ?? [])])].sort((a, b) => a.localeCompare(b));
+  // (a nested one brings its parents: « A » heads « A/B » and has its menu even without a look of its own)
+  const savedFolders = useMemo(() => new Set(settings?.folders ?? []), [settings]);
+  const folders = useMemo(() => withParents([...foldersOf(looks), ...(settings?.folders ?? [])]), [looks, settings]);
   const actifFolder = folders.includes(folder) ? folder : "";
   // a folder chosen for the filter and vanished since no longer filters, and does not silently come back when a later folder takes the same name
   useEffect(() => {
     if (folders.length > 0 && !folders.includes(folder)) setFolder("");
   }, [folders, folder]);
   const needle = lookSearch.trim().toLowerCase();
-  const shownLooks = looks.filter(
-    (l) =>
-      // the filter follows the tree: a folder shows its looks and the ones of its sub-folders
-      (!actifFolder || inTree(l.tags, actifFolder)) &&
-      (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
+  const shownLooks = useMemo(
+    () =>
+      looks.filter(
+        (l) =>
+          // the filter follows the tree: a folder shows its looks and the ones of its sub-folders
+          (!actifFolder || inTree(l.tags, actifFolder)) &&
+          (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
+      ),
+    [looks, actifFolder, needle, t],
   );
   const shownIds = useMemo(() => new Set(shownLooks.map((l) => l.id)), [shownLooks]);
   // a selection with a look deleted since loses it
@@ -208,6 +213,7 @@ export function ShowPage() {
       const rowId = el?.getAttribute("data-look") ?? undefined;
       return { rowId, header: rowId ? undefined : el?.classList.contains("group-row") ? el.dataset.folder ?? "" : undefined };
     };
+    let release: number | undefined;
     const settle = (start: boolean) => {
       dragging.current = false;
       setCarried(null);
@@ -215,7 +221,8 @@ export function ShowPage() {
       setDropRow(null);
       if (start) {
         afterDrag.current = true;
-        window.setTimeout(() => (afterDrag.current = false), 500);
+        window.clearTimeout(release);
+        release = window.setTimeout(() => (afterDrag.current = false), 500);
       }
     };
     const drop = (e: PointerEvent) => {
@@ -249,6 +256,7 @@ export function ShowPage() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", drop);
       window.removeEventListener("pointercancel", cancel);
+      window.clearTimeout(release);
     };
 
   }, []);
@@ -672,7 +680,7 @@ export function ShowPage() {
           <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
             {folders.length === 0
-              ? shownLooks.map(lookRow)
+              ? shownLooks.map((l) => lookRow(l))
               : [...tree.container.children.map((c) => renderNode(c, 0)), renderNode(tree.sans, 0)]}
           </tbody>
         </table>

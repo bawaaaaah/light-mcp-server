@@ -8,17 +8,40 @@
 /** The tag prefix that names a look's folder. */
 export const FOLDER = "dossier:";
 
-/** A look's folder: the first named `dossier:` tag (an empty one is ignored). */
+/** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
+export const SEPARATOR = "/";
+
+/** A folder path as stored: each segment trimmed, empty segments dropped (« A / B/ » is « A/B »), as the server does. */
+export function normalizeFolder(path: string): string {
+  return path
+    .split(SEPARATOR)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .join(SEPARATOR);
+}
+
+/** A look's folder: the first named `dossier:` tag, normalised (an empty one is ignored). */
 export function folderOf(tags: string[]): string | undefined {
   for (const tag of tags) {
-    if (tag.startsWith(FOLDER) && tag.slice(FOLDER.length)) return tag.slice(FOLDER.length);
+    const name = tag.startsWith(FOLDER) ? normalizeFolder(tag.slice(FOLDER.length)) : "";
+    if (name) return name;
   }
   return undefined;
 }
 
-/** Every folder in use, from each look's folder: named, deduped, sorted. */
+/** The folders with every parent of a nested one: « A/B » brings « A », a header of the tree even without a look of its own. Deduped, sorted. */
+export function withParents(folders: Iterable<string>): string[] {
+  const all = new Set<string>();
+  for (const f of folders) {
+    const parts = f.split(SEPARATOR);
+    for (let i = 1; i <= parts.length; i++) all.add(parts.slice(0, i).join(SEPARATOR));
+  }
+  return [...all].sort((a, b) => a.localeCompare(b));
+}
+
+/** Every folder in use, from each look's folder, with their parents: named, deduped, sorted. */
 export function foldersOf(looks: { tags: string[] }[]): string[] {
-  return [...new Set(looks.map((l) => folderOf(l.tags)).filter((f): f is string => f !== undefined))].sort((a, b) => a.localeCompare(b));
+  return withParents(looks.map((l) => folderOf(l.tags)).filter((f): f is string => f !== undefined));
 }
 
 /**
@@ -34,9 +57,6 @@ export function withFolder(tags: string[], folder?: string): string[] {
 export function withoutFolderTag(tags: string[]): string[] {
   return tags.filter((t) => !t.startsWith(FOLDER));
 }
-
-/** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
-export const SEPARATOR = "/";
 
 /** True when a look sits in the folder `node` itself or nested under it. */
 export function inTree(tags: string[], node: string): boolean {

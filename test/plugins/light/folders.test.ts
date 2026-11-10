@@ -38,16 +38,43 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     expect(freeTags(await tags("checker"))).to.deep.equal(before);
   });
 
-  it("cleans an empty or doubled tag on the first write, and counts a look under its first folder", async () => {
+  it("cleans an empty, doubled or untrimmed folder tag as the look is saved, and counts a look under its first folder", async () => {
     const look = (await run("look.get", { id: "hole" })) as Record<string, unknown>;
-    await run("look.put", { look: { ...look, tags: ["dossier:", "dossier:A", "dossier:A", "libre"] } });
-    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:", "dossier:A", "dossier:A"]);
-    await run("show.folder.rename", { from: "B", to: "C" });
-    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:", "dossier:A", "dossier:A"]); // it stands under its first folder (A)
+    await run("look.put", { look: { ...look, tags: ["dossier:", "dossier: A /", "dossier:A", "libre"] } });
+    const saved = await tags("hole");
+    expect(saved).to.include("libre"); // the free tags of the look are kept
+    expect(folderTags(saved)).to.deep.equal(["dossier:A"]); // one tag, its path trimmed: the folder « A » renames and disbands
     await run("show.folder.rename", { from: "A", to: "C" });
-    const now = await tags("hole");
-    expect(now).to.include("libre"); // the free tags of the look are kept
-    expect(folderTags(now)).to.deep.equal(["dossier:C"]); // one tag only: the extra ones were cleaned
+    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:C"]);
+    await run("show.folder.move", { ids: ["hole"], folder: " Foo / Bar " });
+    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:Foo/Bar"]); // a name given to a command is trimmed the same way
+    await run("show.folder.delete", { folder: "Foo" });
+    expect(folderTags(await tags("hole"))).to.deep.equal([]);
+  });
+
+  it("refuses a whole folder command when one of its looks no longer passes, before any write", async () => {
+    await run("show.folder.move", { ids: ["checker", "palette"], folder: "Lot" });
+    const broken: Record<string, unknown> = { ...((await run("look.get", { id: "palette" })) as Record<string, unknown>), canvas: "gone" };
+    delete broken.active;
+    delete broken.swatch;
+    plugin.runtime.looks.put(broken as never); // stored past look.put: its canvas has since gone
+    let refused = "";
+    await run("show.folder.rename", { from: "Lot", to: "Autre lot" }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("gone");
+    expect(folderTags(await tags("checker"))).to.deep.equal(["dossier:Lot"]); // nothing renamed half way
+    plugin.runtime.looks.put({ ...broken, canvas: (await run("look.get", { id: "checker" }) as { canvas: string }).canvas } as never);
+    await run("show.folder.delete", { folder: "Lot" });
+  });
+
+  it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {
+    await run("show.folder.move", { ids: ["checker"], folder: "X/B" });
+    await run("show.folder.move", { ids: ["palette"], folder: "B" });
+    let refused = "";
+    await run("show.folder.nest", { src: "B", under: "X" }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("X/B");
+    expect(folderTags(await tags("palette"))).to.deep.equal(["dossier:B"]);
+    await run("show.folder.delete", { folder: "X" });
+    await run("show.folder.delete", { folder: "B" });
   });
 
   it("renames onto an existing folder to merge the two, and disbands keeps the looks", async () => {

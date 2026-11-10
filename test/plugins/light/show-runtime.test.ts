@@ -1076,6 +1076,21 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(dmx()[2]).to.equal(0); // and the machine channel is gone with its look
   });
 
+  it("plays on untouched when a playing look is only renamed, filed in a folder or annotated", () => {
+    const { show, dmx, advance } = setup();
+    const look = sceneLook("scene", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" });
+    show.looks.put(look);
+    show.go("scene");
+    advance(4);
+    expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]);
+    show.looks.put({ ...look, name: "Scène", tags: ["dossier:Rangés"], notes: "rangé" });
+    expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]); // no fade-in replayed from black
+    advance(1);
+    expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]);
+    show.looks.put({ ...look, channels: { targets: [{ fixture: "bar-l", offset: 0 }], steps: [[200]] } }); // what it plays changed: it restarts
+    expect(dmx()[0]).to.be.below(200);
+  });
+
   it("fades nothing on a fixture with machine channels only: the channels hold their value to the end", () => {
     const { venue, show, dmx, advance } = setup();
     venue.fixtures.put({ id: "machine", name: "Machine", manufacturer: "Test", model: "Machine 1", mode: "1 Channel", universe: 1, address: 33 });

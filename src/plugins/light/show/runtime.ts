@@ -30,6 +30,12 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/** What a look plays, without what only names or files it (name, tags — its folder —, notes): renaming or filing a look changes nothing on stage. */
+function played(look: Look): string {
+  const { name: _name, tags: _tags, notes: _notes, ...rest } = look;
+  return canonical(rest);
+}
+
 export interface TempoSource {
   state(): { beats: number };
 }
@@ -132,8 +138,14 @@ export class ShowRuntime {
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
     store.onChange((e) => {
-      // A look or palette edited while playing restarts with the new definition (effects stay editable live).
-      if (e.collection === "looks" && this.active.has(e.id)) this.restart(e.id);
+      // A look or palette edited while playing restarts with the new definition (effects stay editable live);
+      // renamed, filed in a folder or annotated, it plays on untouched.
+      if (e.collection === "looks") {
+        const playing = this.active.get(e.id);
+        const fresh = playing && this.looks.get(e.id);
+        if (playing && fresh && played(fresh) === played(playing.look)) playing.look = fresh;
+        else if (playing) this.restart(e.id);
+      }
       if (e.collection === "palettes") {
         this.paletteRevs.set(e.id, (this.paletteRevs.get(e.id) ?? 0) + 1);
         for (const a of [...this.active.values()]) if (a.look.palette === e.id) this.restart(a.look.id);
@@ -374,7 +386,7 @@ export class ShowRuntime {
   /** Whether the queued copy still paints what `look` paints now: same definition (a no-op save stores another object) and same palette. */
   private resumable(resume: { look: Look; rev: number }, look: Look): boolean {
     if (resume.rev !== this.lookRev(look)) return false;
-    return resume.look === look || canonical(resume.look) === canonical(look);
+    return resume.look === look || played(resume.look) === played(look);
   }
 
   /** The revision of the palette `look` uses (0 when it uses none). */
