@@ -61,9 +61,17 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     let refused = "";
     await run("show.folder.rename", { from: "Lot", to: "Autre lot" }).catch((e: Error) => (refused = e.message));
     expect(refused).to.contain("gone");
+    expect(refused).to.contain("(palette)"); // the look that holds the folder back is named
     expect(folderTags(await tags("checker"))).to.deep.equal(["dossier:Lot"]); // nothing renamed half way
     plugin.runtime.looks.put({ ...broken, canvas: (await run("look.get", { id: "checker" }) as { canvas: string }).canvas } as never);
     await run("show.folder.delete", { folder: "Lot" });
+  });
+
+  it("reads the folders named ahead normalised, as the looks' tags are", async () => {
+    plugin.runtime.saveSettings({ folders: [" A / B ", "A/B", " / "] });
+    expect(((await run("show.settings")) as { folders: string[] }).folders).to.deep.equal(["A/B"]);
+    await run("show.folder.delete", { folder: "A" });
+    expect(((await run("show.settings")) as { folders: string[] }).folders).to.deep.equal([]);
   });
 
   it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {

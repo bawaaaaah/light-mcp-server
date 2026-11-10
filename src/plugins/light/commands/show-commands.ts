@@ -428,7 +428,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   /** Files each look in its new folder (undefined: « sans dossier »): every look checked first, then only the ones that change written. */
   const refile = async (moves: { look: Look; folder: string | undefined }[], ctx: CommandContext) => {
     const changed = moves.map(({ look, folder }) => ({ ...look, tags: withFolder(look.tags, folder) })).filter((l, i) => !sameTags(l.tags, moves[i]!.look.tags));
-    for (const l of changed) checkLook(l);
+    for (const l of changed) {
+      try {
+        checkLook(l);
+      } catch (err) {
+        // which look holds the whole folder back: without its name, an orphan look is a needle in the folder
+        const why = (err as Error).message;
+        throw new Error(say(`« ${l.name} » (${l.id}) : ${why}`, `“${l.name}” (${l.id}): ${why}`));
+      }
+    }
     for (const l of changed) await reg.invoke("look.put", { look: l }, ctx);
     return moves.length;
   };

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { TimingSchema } from "../engine/player.js";
 import { MoveSchema } from "../engine/move.js";
+import { normalizeFolder } from "./folders.js";
 
 export const PaletteSchema = z.object({
   id: z.string(),
@@ -148,7 +149,11 @@ export const ShowSettingsSchema = z.object({
   /** Fixtures of the venue that are not installed for this show: kept in the patch, but dark, silent on DMX and ignored by the address check. */
   absentFixtures: z.array(z.string()).default([]),
   /** Folders named ahead for this show: they exist even before a look carries them (the rest come from the looks' dossier: tags). */
-  folders: z.array(z.string()).default([]),
+  // read normalised like the looks' folder tags (« A / B » is « A/B »), deduped, an empty name dropped
+  folders: z
+    .array(z.string())
+    .default([])
+    .transform((list) => [...new Set(list.map(normalizeFolder).filter(Boolean))]),
   /** Look recalled by « Panic neutre » when no safe snapshot is set; none → Blackout. */
   safeLook: z.string().optional(),
   /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */
