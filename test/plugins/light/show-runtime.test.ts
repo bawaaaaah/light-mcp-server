@@ -1145,6 +1145,69 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(levels.at(-1)).to.equal(255); // gone: the held level again
   });
 
+  it("fades a scene that lights a fixture by its raw dimmer and a mode channel alone, from black and back", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }], [[255, 200]]));
+    show.go("scene");
+    const rise: number[] = [];
+    for (let i = 0; i <= 20; i++) {
+      rise.push(dmx()[0]!);
+      advance(0.2);
+    }
+    expect(rise[0], rise.join(",")).to.equal(0); // nothing else lights it: its dimmer is its light, from black
+    for (let i = 1; i < rise.length; i++) expect(rise[i]!, rise.join(",")).to.be.at.least(rise[i - 1]!);
+    expect(rise.at(-1)).to.equal(255);
+    show.stop("scene");
+    advance(2); // 1 s of its 2 s exit
+    expect(dmx()[0]).to.equal(128);
+    expect(dmx()[2]).to.equal(200); // the mode channel holds all the way
+  });
+
+  it("keeps two unrelated looks on the same raw dimmer at the highest of them, without a hole", () => {
+    const sample = (second: number, delay: number) => {
+      const { show, dmx, advance } = setup();
+      show.looks.put({ id: "colour", name: "Colour", canvas: "mur", technique: { kind: "plat", color: "#ffffff" } });
+      show.looks.put(sceneLook("a", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[200]]));
+      show.looks.put(sceneLook("b", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[second]]));
+      show.go("colour");
+      advance(4);
+      show.go("a");
+      const levels: number[] = [];
+      for (let i = 0; i <= 40; i++) {
+        if (i === delay) show.go("b");
+        levels.push(dmx()[0]!);
+        advance(0.2);
+      }
+      return levels;
+    };
+    const together = sample(200, 0); // both to 200, launched together: they do not cross, the highest sheet holds
+    for (let i = 1; i < together.length; i++) expect(together[i]!, together.join(",")).to.be.at.most(together[i - 1]!);
+    expect(together.at(-1)).to.equal(200);
+    const staggered = sample(100, 5); // the lower one 500 ms later: still from the held 255 down to 200, never back up
+    for (let i = 1; i < staggered.length; i++) expect(staggered[i]!, staggered.join(",")).to.be.at.most(staggered[i - 1]!);
+    expect(staggered.at(-1)).to.equal(200);
+  });
+
+  it("doses a raw dimmer once on twin fixtures patched on the same addresses", () => {
+    const targets = (twin: boolean, offset: number) => (twin ? ["bar-l", "bar-twin"] : ["bar-l"]).map((fixture) => ({ fixture, offset }));
+    const sample = (twin: boolean) => {
+      const { venue, show, dmx, advance } = setup();
+      if (twin) venue.fixtures.put({ id: "bar-twin", name: "Barre jumelle", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 });
+      show.looks.put(sceneLook("lit", {}, targets(twin, 3), [targets(twin, 3).map(() => 255)])); // each lit by a raw red at full: the dimmer is held up
+      show.looks.put(sceneLook("dim", { entryFade: 2 }, targets(twin, 0), [targets(twin, 0).map(() => 100)]));
+      show.go("lit");
+      advance(4);
+      show.go("dim");
+      const levels: number[] = [];
+      for (let i = 0; i <= 20; i++) {
+        levels.push(dmx()[0]!);
+        advance(0.2);
+      }
+      return levels;
+    };
+    expect(sample(true)).to.deep.equal(sample(false)); // the twin reads what the show held, not its neighbour's dose
+  });
+
   it("keeps the dimmer of a look that paints a fixture and holds its mode channel: dosed once, by its colours", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 2 }], [[200]], { kind: "plat", color: "#ffffff" }));

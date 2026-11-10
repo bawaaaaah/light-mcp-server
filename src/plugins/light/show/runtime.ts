@@ -815,7 +815,7 @@ export class ShowRuntime {
     /**
      * Raw channels of the looks, by fixture then offset: every look's write with its weight and its sheet — a
      * crossfade and the looks it replaces share one (`x:<incoming>`), any other look has its own — so that
-     * venue.toDmx shares a channel inside a sheet and keeps the highest sheet (rawLevel).
+     * venue.toDmx shares a channel inside a sheet and keeps the highest sheet (rawOver).
      */
     const lookChannels = new Map<string, Map<number, RawWrite[]>>();
     const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
