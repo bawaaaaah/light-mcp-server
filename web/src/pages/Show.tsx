@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -72,7 +72,7 @@ interface Snapshot {
   savedAt?: string;
 }
 
-export function ShowPage() {
+export function ShowPage(): ReactElement {
   const t = useT();
   const [looks, setLooks] = useState<Look[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);

@@ -5,7 +5,7 @@
  * shown (search by name, type or address, or one group's): all, none, invert, a kind of channel
  * (intensity, colours, strobe, effects), or the same channel on every fixture that has it.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import type { FixtureChannels } from "./FaderEditor";
 
@@ -25,7 +25,7 @@ const SWATCH: Record<string, string> = { red: "#e5484d", green: "#30a46c", blue:
 /** Quick picks, as QLC+'s « accès rapide »: which attributes each one ticks. */
 const KINDS: Record<string, string[]> = { intensity: ["intensity"], color: ["color"], strobe: ["strobe"], effects: ["effect", "speed", "colorWheel", "other"] };
 
-export function ChannelTree({ fixtures, groups, selected, onChange }: { fixtures: FixtureChannels[]; groups: GroupLike[]; selected: PickedChannel[]; onChange: (picked: PickedChannel[]) => void }) {
+export function ChannelTree({ fixtures, groups, selected, onChange }: { fixtures: FixtureChannels[]; groups: GroupLike[]; selected: PickedChannel[]; onChange: (picked: PickedChannel[]) => void }): ReactElement {
   const t = useT();
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("");

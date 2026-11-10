@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { api, cmd, grants } from "../api";
 import { useT } from "../App";
 
@@ -32,7 +32,7 @@ function toggle(rights: string[], right: string): string[] {
  * Roles (administrator): the rights of each, by what they let one do, and the dashboards it sees.
  * The administrator keeps every right; built-in roles stay; a role given to nobody can go.
  */
-export function RolesPanel() {
+export function RolesPanel(): ReactElement {
   const t = useT();
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [dashboards, setDashboards] = useState<{ id: string; name: string }[]>([]);

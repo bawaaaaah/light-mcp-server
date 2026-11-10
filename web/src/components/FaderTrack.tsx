@@ -1,7 +1,7 @@
-import { useRef, type ReactNode } from "react";
+import { useRef, type ReactNode, type ReactElement } from "react";
 
 /** The level really sent by a smoothed fader on its way, over its track; nothing once arrived. */
-export function GhostBar({ level }: { level: number | undefined }) {
+export function GhostBar({ level }: { level: number | undefined }): ReactElement | null {
   if (level === undefined) return null;
   return <span className="ghost-bar" aria-hidden style={{ height: `${level * 100}%` }} />;
 }
@@ -16,7 +16,7 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
   interactive: boolean;
   onChange: (level: number) => void;
   children?: ReactNode;
-}) {
+}): ReactElement {
   const track = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const pointer = useRef<number | null>(null);

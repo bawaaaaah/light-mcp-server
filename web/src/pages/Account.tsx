@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
 
@@ -8,7 +8,7 @@ const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—")
  * Who is signed in, their security keys (YubiKey, passkeys) and their PIN. Signed in with the master
  * token there is no account to hang a key on: the page offers to create one (administrator role).
  */
-export function AccountPage({ role }: { role: Role }) {
+export function AccountPage({ role }: { role: Role }): ReactElement {
   const t = useT();
   const me = role.user;
   const admin = can(role, "auth:admin");

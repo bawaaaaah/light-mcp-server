@@ -65,4 +65,4 @@ export function inTree(tags: string[], node: string): boolean {
 }
 
 /** A path read as people read it: « Rigging/Trappe » shown « Rigging ▸ Trappe ». */
-export const folderLabel = (path: string) => path.split(SEPARATOR).join(" ▸ ");
+export const folderLabel = (path: string): string => path.split(SEPARATOR).join(" ▸ ");

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
@@ -21,7 +21,7 @@ export interface MarkedFixture {
  * (venue.fixture.mark), and the pan/tilt inversions of a moving head (venue.fixture.orient). Every
  * change is saved at once; the colour is never sent to the fixture.
  */
-export function FixtureMenu({ fixture, at, onSaved, onClose }: { fixture: MarkedFixture; at: { x: number; y: number }; onSaved: () => void; onClose: () => void }) {
+export function FixtureMenu({ fixture, at, onSaved, onClose }: { fixture: MarkedFixture; at: { x: number; y: number }; onSaved: () => void; onClose: () => void }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const [name, setName] = useState(fixture.name);

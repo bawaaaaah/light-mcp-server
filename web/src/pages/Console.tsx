@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -85,7 +85,7 @@ function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
  * By default it shows the patched channels grouped by fixture, with their names, as a console's
  * fixture sheet does; « tous les canaux » brings back the 512.
  */
-export function ConsolePage() {
+export function ConsolePage(): ReactElement {
   const t = useT();
   const [universe, setUniverse] = useState(1);
   const [count, setCount] = useState(1);
@@ -107,8 +107,8 @@ export function ConsolePage() {
     if (explained === null) return setWhy(null);
     const load = () => void cmd<Explain>("dmx.explain", { universe, channel: explained }).then(setWhy, (e: Error) => setError(e.message));
     load();
-    const timer = window.setInterval(load, 1000);
-    return () => window.clearInterval(timer);
+    const poll = window.setInterval(load, 1000);
+    return () => window.clearInterval(poll);
   }, [explained, universe]);
   const pending = useRef(new Map<number, number>());
   const timer = useRef<number | null>(null);
@@ -121,7 +121,7 @@ export function ConsolePage() {
       cmd<{ id: string; name: string; universe: number; address: number }[]>("venue.fixture.list"),
       cmd<{ id: string; channels: { offset: number; name: string }[] }[]>("venue.fixture.channels"),
     ])
-      .then(([fixtures, channels]) => setPatch(fixtures.map((f) => ({ ...f, channels: channels.find((c) => c.id === f.id)?.channels ?? [] }))))
+      .then(([list, channels]) => setPatch(list.map((f) => ({ ...f, channels: channels.find((c) => c.id === f.id)?.channels ?? [] }))))
       .catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -144,9 +144,9 @@ export function ConsolePage() {
     if (timer.current !== null) return;
     timer.current = requestAnimationFrame(() => {
       timer.current = null;
-      const values = Object.fromEntries(pending.current);
+      const batch = Object.fromEntries(pending.current);
       pending.current.clear();
-      void cmd("dmx.set", { universe, values }).catch((e: Error) => {
+      void cmd("dmx.set", { universe, values: batch }).catch((e: Error) => {
         setError(e.message);
         void cmd<{ parked: Record<number, number> }>("dmx.get", { universe }).then((r) => setParked(r.parked));
       });

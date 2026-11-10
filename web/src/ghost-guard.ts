@@ -17,8 +17,8 @@ export interface Armed {
 }
 
 /** Whether a press at `point`, at `now`, is the echo of the one that armed the guard. Pure. */
-export function swallows(now: number, armed: Armed | null, point: { x: number; y: number }): boolean {
-  return armed !== null && now < armed.until && Math.hypot(point.x - armed.x, point.y - armed.y) <= GHOST_RADIUS_PX;
+export function swallows(now: number, guard: Armed | null, point: { x: number; y: number }): boolean {
+  return guard !== null && now < guard.until && Math.hypot(point.x - guard.x, point.y - guard.y) <= GHOST_RADIUS_PX;
 }
 
 /** What the guard needs of a pointer or click event (the server's typecheck compiles the tests that import this file, with no DOM types). */

@@ -4,7 +4,7 @@ import { initialLang, type Lang } from "./i18n";
 
 /** The interface's language, sent with every request: the server answers its messages in it. */
 let apiLang: Lang = initialLang();
-export const setApiLang = (l: Lang) => void (apiLang = l);
+export const setApiLang = (l: Lang): void => void (apiLang = l);
 /** Every request of this module says the interface's language (x-light-lang). */
 const fetch = (input: RequestInfo | URL, init: RequestInit = {}) => window.fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "x-light-lang": apiLang } });
 
@@ -115,7 +115,7 @@ export async function switchingShow<T>(run: () => Promise<T>): Promise<T> {
     ownShowSwitches--;
   }
 }
-export const switchInProgress = () => ownShowSwitches > 0;
+export const switchInProgress = (): boolean => ownShowSwitches > 0;
 
 const signedOutListeners = new Set<() => void>();
 // The page's calls that ignore their errors would each report a refused session: it is handled
@@ -237,7 +237,7 @@ export async function me(): Promise<Role | null> {
 }
 
 /** The server could not be reached or answered with its own failure (as opposed to a refusal). */
-export const unreachable = (e: unknown) => !(e instanceof ApiError) || e.status >= 500;
+export const unreachable = (e: unknown): boolean => !(e instanceof ApiError) || e.status >= 500;
 
 /** Forgets the token here first, so leaving the page right away cannot sign back in. */
 export async function logout(): Promise<void> {
@@ -278,7 +278,10 @@ export async function lightState(): Promise<{
 /** Saves an authenticated download under the name the server gives (or `fallback`). */
 async function saveDownload(route: string, fallback: string): Promise<void> {
   const res = await fetch(route, { headers: { authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({ error: res.statusText }))).error);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(res.status, body.error ?? res.statusText);
+  }
   const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallback;
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");

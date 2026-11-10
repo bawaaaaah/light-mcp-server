@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense, type ReactElement } from "react";
 import { ApiError, can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { useHoverPeek } from "../components/HoverPeek";
@@ -132,7 +132,7 @@ function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, reque
   void request.then((v) => stamp === counters[list] && apply(v)).catch(() => undefined);
 }
 
-export function DashboardsPage({ role }: { role: Role }) {
+export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const t = useT();
   /** A control whose command the role may not run is shown, greyed, rather than refused on use. */
   const may = (right: string) => can(role, right);
@@ -398,6 +398,7 @@ export function DashboardsPage({ role }: { role: Role }) {
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `mine` is a new closure on every render; the list is filtered once, when the page opens (the role does not change under it)
   }, [refresh]);
   useCommandEvents(["look.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets", "show.settings", "show.folder"], refresh);
   // an effective level read while the group still glided is stale (a fader left at 5 % kept showing
@@ -634,7 +635,10 @@ export function DashboardsPage({ role }: { role: Role }) {
               onBlur={(e) => setBpmByHand(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") ((bpmCancelled.current = true), e.currentTarget.blur());
+                if (e.key === "Escape") {
+                  bpmCancelled.current = true;
+                  e.currentTarget.blur();
+                }
               }}
             />
             {/* Ableton plays but its clock is not followed (a tempo typed or tapped, the DJ): one press gives it the lead back */}
@@ -714,11 +718,11 @@ export function DashboardsPage({ role }: { role: Role }) {
         );
       }
       case "snapshot": {
-        const snap = snapshots.find((x) => x.id === w.target);
-        if (!snap) return <div className="fill missing">{w.target}</div>;
+        const shot = snapshots.find((x) => x.id === w.target);
+        if (!shot) return <div className="fill missing">{w.target}</div>;
         return (
-          <button className={`fill snapshot ${armed === w.id ? "armed" : ""}`} title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => confirmed(w.confirm ? w.id : undefined, () => void run("snapshot.recall", { id: snap.id }))}>
-            ◉ {w.label ?? snap.name}
+          <button className={`fill snapshot ${armed === w.id ? "armed" : ""}`} title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => confirmed(w.confirm ? w.id : undefined, () => void run("snapshot.recall", { id: shot.id }))}>
+            ◉ {w.label ?? shot.name}
             {armedMark(w)}
           </button>
         );
@@ -1156,10 +1160,10 @@ export function DashboardsPage({ role }: { role: Role }) {
               onPointerCancel={() => ((resize.current = null), setDraggedHeight(null))}
               onDoubleClick={() => setStageHeight(null)}
               onKeyDown={(e) => {
-                const step = e.key === "ArrowDown" ? 20 : e.key === "ArrowUp" ? -20 : 0;
-                if (!step) return;
+                const nudge = e.key === "ArrowDown" ? 20 : e.key === "ArrowUp" ? -20 : 0;
+                if (!nudge) return;
                 e.preventDefault();
-                setStageHeight(fitHeight((pinnedHeight ?? drawnHeight()) + step));
+                setStageHeight(fitHeight((pinnedHeight ?? drawnHeight()) + nudge));
               }}
             />
           )}

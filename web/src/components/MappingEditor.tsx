@@ -3,10 +3,10 @@
  * « Apprendre » (the next message received), mode, and the action — start a look, a DCA level,
  * a flash, a song section, a rule program, the transport, panic or blackout. Saved with `midi.mapping.put`.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { slug, uniqueId } from "../util";
+import { plain, slug, uniqueId } from "../util";
 
 export interface MappingDraft {
   id: string;
@@ -34,15 +34,15 @@ export type Action = (typeof ACTIONS)[number];
 const NO_PROGRAM = "-";
 
 export function actionOf(m: MappingDraft): { action: Action; target: string } {
-  const id = String(m.on.args.id ?? "");
+  const id = plain(m.on.args.id);
   if (m.on.command === "look.go") return { action: "look", target: id };
   if (m.on.command === "group.level") return { action: "dca", target: id };
   if (m.on.command === "fader.level") return { action: "fader", target: id };
   if (m.on.command === "grandmaster.set") return { action: "grandmaster", target: "" };
   if (m.on.command === "group.flash") return { action: "flash", target: id };
-  if (m.on.command === "snapshot.recall") return { action: "snapshot", target: String(m.on.args.id ?? "") };
-  if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : String(m.on.args.id ?? "") };
-  if (m.on.command === "song.section.go") return { action: "section", target: `${String(m.on.args.song ?? "")}/${String(m.on.args.section ?? "")}` };
+  if (m.on.command === "snapshot.recall") return { action: "snapshot", target: plain(m.on.args.id) };
+  if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : plain(m.on.args.id) };
+  if (m.on.command === "song.section.go") return { action: "section", target: `${plain(m.on.args.song)}/${plain(m.on.args.section)}` };
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
 }
 
@@ -76,7 +76,7 @@ export function build(m: MappingDraft, action: Action, target: string): MappingD
 
 export const newMapping = (): MappingDraft => ({ id: "", label: "", input: { type: "note", channel: 1, number: 36 }, mode: "trigger", on: { command: "look.go", args: { id: "" } }, feedback: "note" });
 
-export function MappingEditor({ initial, existing, onClose }: { initial: MappingDraft; existing: string[]; onClose: () => void }) {
+export function MappingEditor({ initial, existing, onClose }: { initial: MappingDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
   const [m, setM] = useState<MappingDraft>(initial);
   const [{ action, target }, setAction] = useState(actionOf(initial));

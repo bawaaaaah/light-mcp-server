@@ -3,10 +3,10 @@
  * interface signed in, without typing the address and the PIN. Drawn as SVG modules from
  * qrcode-generator, error correction M; dark on a white quiet zone, as phone cameras expect.
  */
-import { useMemo } from "react";
+import { useMemo, type ReactElement } from "react";
 import qrcode from "qrcode-generator";
 
-export function QrCode({ text, label, size = 220 }: { text: string; label: string; size?: number }) {
+export function QrCode({ text, label, size = 220 }: { text: string; label: string; size?: number }): ReactElement {
   const { n, path } = useMemo(() => {
     const qr = qrcode(0, "M");
     qr.addData(text);

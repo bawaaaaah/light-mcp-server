@@ -5,7 +5,7 @@
  * with an animated preview computed by the server. Everything is saved with `look.put`.
  */
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
@@ -82,7 +82,7 @@ function EveryInput({ value, onChange }: { value: Every; onChange: (v: Every) =>
   );
 }
 
-export function LookEditor({ initial, existing, folders, onClose }: { initial: LookDraft; existing: string[]; folders?: string[]; onClose: (saved?: string) => void }) {
+export function LookEditor({ initial, existing, folders, onClose }: { initial: LookDraft; existing: string[]; folders?: string[]; onClose: (saved?: string) => void }): ReactElement {
   const t = useT();
   const [look, setLook] = useState<LookDraft>(initial);
   const isNew = !look.id;

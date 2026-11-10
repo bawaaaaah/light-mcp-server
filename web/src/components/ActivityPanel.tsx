@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { api, cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -27,7 +27,7 @@ interface Client {
 }
 
 /** Who has the interface open right now (one line per open page), read every 5 s. */
-export function OnlinePanel() {
+export function OnlinePanel(): ReactElement {
   const t = useT();
   const [clients, setClients] = useState<Client[] | null>(null);
   useEffect(() => {
@@ -69,7 +69,7 @@ const time = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "
  * channel fader or dashboard can be undone from its line (history.undo), after saying what was
  * changed on that object since, and by whom.
  */
-export function ActivityPanel() {
+export function ActivityPanel(): ReactElement {
   const t = useT();
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [who, setWho] = useState("");

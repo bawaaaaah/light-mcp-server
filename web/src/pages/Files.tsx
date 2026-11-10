@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { can, cmd, downloadBackup, type Role } from "../api";
 import { useT } from "../App";
 import { ArchiveButtons } from "../components/ArchiveButtons";
@@ -25,7 +25,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
  * sous »), rename, delete, reset, and .lightshow backups kept on the server. Opening a show switches
  * every screen (the app reloads when the open show changes).
  */
-export function FilesPage({ role }: { role: Role }) {
+export function FilesPage({ role }: { role: Role }): ReactElement {
   const t = useT();
   const [shows, setShows] = useState<ShowRow[]>([]);
   const [backups, setBackups] = useState<BackupRow[]>([]);

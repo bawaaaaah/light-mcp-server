@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { ApiError, cmd, switchingShow } from "../api";
 import { useT } from "../App";
 
@@ -41,7 +41,7 @@ const LAST_IMPORT = "lastImport";
  * Guided QLC+ import: 1. fixture definitions (.qxf), 2. the workspace (.qxw) into the open show or a
  * new show of its own, proposal then apply, 3. rebuild into techniques, 4. self-test.
  */
-export function ImportPage() {
+export function ImportPage(): ReactElement {
   const t = useT();
   const [xml, setXml] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");

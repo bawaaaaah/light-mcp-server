@@ -2,7 +2,7 @@
  * Group editor (docs/specs/groups-masters.md): name, members (fixtures, looks, sub-groups), DCA
  * (master) on or off, exclusive, looks dosed or excluded by the DCA. Saved with `group.put`.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
@@ -40,7 +40,7 @@ export const byAddress = (list: Patched[]): Named[] =>
 
 export const newGroup = (): GroupDraft => ({ id: "", name: "", members: { fixtures: [], looks: [], groups: [] }, master: { level: 1, mute: false }, exclusive: false, presets: { included: [], excluded: [] } });
 
-export function Checklist({ title, items, selected, onChange }: { title: string; items: Named[]; selected: string[]; onChange: (ids: string[]) => void }) {
+export function Checklist({ title, items, selected, onChange }: { title: string; items: Named[]; selected: string[]; onChange: (ids: string[]) => void }): ReactElement {
   const t = useT();
   // a long list (a whole patch) is searched by name or address: « barre », « U1 · 04 », « 118 »
   const [query, setQuery] = useState("");
@@ -66,7 +66,7 @@ export function Checklist({ title, items, selected, onChange }: { title: string;
   );
 }
 
-export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraft; existing: string[]; onClose: () => void }) {
+export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
   const [g, setG] = useState<GroupDraft>(initial);
   const [fixtures, setFixtures] = useState<Named[]>([]);

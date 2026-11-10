@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { control } from "../ws";
+import { plain } from "../util";
 import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
 import { Modal } from "../components/Modal";
@@ -194,6 +195,7 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
       access?.inputs.forEach((input) => (input.onmidimessage = null));
       if (access) access.onstatechange = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access
   }, [enabled]);
   return { inputs, error };
 }
@@ -209,7 +211,7 @@ interface AbleSetStatus {
   lastMatch?: { song: string; section: string; found: boolean };
 }
 
-export function MidiPage() {
+export function MidiPage(): ReactElement {
   const t = useT();
   const tempo = useTopic<{ bpm: number; source: string; clock?: boolean } | null>("light:tempo", null);
   // the Link session heard, while Link leads
@@ -249,7 +251,7 @@ export function MidiPage() {
   const shownMappings = [...mappings]
     .sort((a, b) => a.input.channel - b.input.channel || (TYPE_ORDER[a.input.type] ?? 9) - (TYPE_ORDER[b.input.type] ?? 9) || a.input.number - b.input.number || a.id.localeCompare(b.id))
     .filter((m) => !heard || playedBy(m, heard))
-    .filter((m) => !needle || [`${m.input.type} ${m.input.number}`, m.label, m.on.command, String(m.on.args.id ?? "")].some((x) => x.toLowerCase().includes(needle)));
+    .filter((m) => !needle || [`${m.input.type} ${m.input.number}`, m.label, m.on.command, plain(m.on.args.id)].some((x) => x.toLowerCase().includes(needle)));
   const loadMappings = () => void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
   const listen = () => {
     setListening(true);
@@ -297,6 +299,7 @@ export function MidiPage() {
       clearInterval(timer);
       off();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- subscribes once; `describe` only words the monitor lines, and a new closure each render must not re-subscribe or restart the polling
   }, []);
 
   return (
@@ -485,7 +488,7 @@ export function MidiPage() {
                     )}
                   </td>
                   <td>{t.modes[m.mode as keyof typeof t.modes] ?? m.mode}</td>
-                  <td>{m.label || `${m.on.command} ${String(m.on.args.id ?? "")}`}</td>
+                  <td>{m.label || `${m.on.command} ${plain(m.on.args.id)}`}</td>
                   <td>
                     <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m as unknown as MappingDraft)}>
                       ✎

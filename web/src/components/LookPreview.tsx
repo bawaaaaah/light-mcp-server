@@ -3,7 +3,7 @@
  * same generator as the show); the timing is replayed here: cadence at the current tempo, attack
  * as a cross-fade, loop / ping-pong / random order. The same frame can light the stage plan.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { Flashes } from "../preview-rate";
 import { blockEdges } from "../canvas-blocks";
 
@@ -91,7 +91,7 @@ const cellClass = (color: string | null | undefined, i: number, starts: Readonly
  * `starts`: places where a new fixture begins, a separator before); a grid canvas keeps its rows.
  * `plain`: on its own, as wide as its box (a button's menu on the Live), its `columns` given or one per cell.
  */
-export function LookPreview({ preview, frame, label, order, starts, plain = false, columns }: { preview: Preview; frame: (string | null)[]; label: string; order?: number[]; starts?: ReadonlySet<number>; plain?: boolean; columns?: string }) {
+export function LookPreview({ preview, frame, label, order, starts, plain = false, columns }: { preview: Preview; frame: (string | null)[]; label: string; order?: number[]; starts?: ReadonlySet<number>; plain?: boolean; columns?: string }): ReactElement {
   if (preview.topology === "grid" && preview.columns) {
     return (
       <div className="preview" style={{ gridTemplateColumns: `repeat(${preview.columns}, 1fr)` }} aria-label={label}>

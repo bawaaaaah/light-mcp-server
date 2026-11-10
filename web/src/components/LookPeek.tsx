@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
@@ -25,7 +25,7 @@ interface Shown {
 const peeks = new Map<string, Promise<Shown>>();
 
 /** Forgets the fetched peeks: a look, a palette or the venue changed. */
-export const clearPeeks = () => peeks.clear();
+export const clearPeeks = (): void => peeks.clear();
 
 /** Starts fetching a look's peek before it is asked for (a finger going down on its button): a failure is left for the peek itself to show. */
 export const warmPeek = (id: string): void => void fetchPeek(id).catch(() => undefined);
@@ -58,7 +58,7 @@ const shortName = (label: string) => label.split(" · ")[0]!.trim();
  * above its cells, a spot widened beside long bars; « Sur la scène » plays it on the stage plan.
  * `onStage` tells the menu to widen; `compact` (the hover tooltip) leaves the stage out.
  */
-export function LookPeek({ id, onStage, compact }: { id: string; onStage?: (on: boolean) => void; compact?: boolean }) {
+export function LookPeek({ id, onStage, compact }: { id: string; onStage?: (on: boolean) => void; compact?: boolean }): ReactElement {
   const t = useT();
   const tempo = useTopic<{ bpm: number } | null>("light:tempo", null);
   const [shown, setShown] = useState<Shown | null>(null);

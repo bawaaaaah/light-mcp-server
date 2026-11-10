@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { api, can, getToken, serverInfo, type Role } from "../api";
 import { useT } from "../App";
 import { CodeBlock, CopyButton } from "../components/Copy";
@@ -23,7 +23,7 @@ const CLIENTS: [Client, string][] = [
 ];
 
 /** How to plug an MCP client into this server, and how to publish it behind a reverse proxy. */
-export function ConnectPage({ role }: { role: Role }) {
+export function ConnectPage({ role }: { role: Role }): ReactElement {
   const t = useT();
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
   const [oauth, setOauth] = useState(false);

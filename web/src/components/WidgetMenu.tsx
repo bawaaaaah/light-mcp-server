@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
@@ -66,14 +66,14 @@ export interface ExclusiveSet {
 const NEW_SET = "+new";
 const MIXED = "+mixed";
 /** Puts looks in the set chosen in a SetSelect: none, one of the sets, or a new one (« Exclusif n »). */
-export const putInSet = (looks: string[], value: string) => cmd("look.exclusive", { looks, ...(value === NEW_SET ? { create: {} } : value ? { group: value } : {}) });
+export const putInSet = (looks: string[], value: string): Promise<unknown> => cmd("look.exclusive", { looks, ...(value === NEW_SET ? { create: {} } : value ? { group: value } : {}) });
 
 /**
  * Which exclusive set a look button belongs to (docs/specs/groups-masters.md, « Exclusif »): as
  * radio buttons, starting a look releases the others of its set only. `mixed`: several buttons
  * chosen, in different sets.
  */
-export function SetSelect({ value, sets, mixed = false, onPick }: { value: string; sets: ExclusiveSet[]; mixed?: boolean; onPick: (value: string) => void }) {
+export function SetSelect({ value, sets, mixed = false, onPick }: { value: string; sets: ExclusiveSet[]; mixed?: boolean; onPick: (value: string) => void }): ReactElement {
   const t = useT();
   return (
     <select aria-label={t.exclusiveSet} title={t.exclusiveSetHelp} value={mixed ? MIXED : value} onChange={(e) => e.target.value !== MIXED && onPick(e.target.value)}>
@@ -128,7 +128,7 @@ export function WidgetMenu({
   onClose: () => void;
   /** Opens the full editor of what the widget drives — a look, a DCA, a channel fader — over the dashboard. */
   onAdvanced?: (kind: AdvancedKind, id: string) => void;
-}) {
+}): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const [label, setLabel] = useState(widget.label ?? "");

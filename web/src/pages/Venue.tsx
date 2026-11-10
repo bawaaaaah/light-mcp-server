@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -58,7 +58,7 @@ interface ShowRow {
   active: boolean;
 }
 
-export function VenuePage() {
+export function VenuePage(): ReactElement {
   const t = useT();
   const [library, setLibrary] = useState<Def[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);

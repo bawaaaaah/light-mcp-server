@@ -3,10 +3,10 @@
  * metre, mood = guard rail, palette, start in the DAW), sections (look, cue, idea, length, optional
  * fixed position) with a proportional timeline, and « remplir la grille » (song.grid_fill).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { slug, splitList, uniqueId } from "../util";
+import { plain, slug, splitList, uniqueId } from "../util";
 import { TempoFromAudio } from "./TempoFromAudio";
 
 export interface SectionDraft {
@@ -77,7 +77,7 @@ function placed(sections: SectionDraft[]): { start: number; end: number }[] {
 
 const optNumber = (v: string) => (v === "" ? undefined : Number(v));
 
-export function SongEditor({ initial, existing, onClose }: { initial: SongDraft; existing: string[]; onClose: () => void }) {
+export function SongEditor({ initial, existing, onClose }: { initial: SongDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
   const [song, setSong] = useState<SongDraft>(initial);
   const [looks, setLooks] = useState<Named[]>([]);
@@ -317,7 +317,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
                   </td>
                   <td>
                     {kind?.target && (
-                      <select aria-label={`${t.target} ${i + 1}`} value={String(c.args.id ?? "")} onChange={(e) => setCue(i, { args: { ...c.args, id: e.target.value } })}>
+                      <select aria-label={`${t.target} ${i + 1}`} value={plain(c.args.id)} onChange={(e) => setCue(i, { args: { ...c.args, id: e.target.value } })}>
                         {(kind.target === "look" ? looks : groups).map((x) => (
                           <option key={x.id} value={x.id}>
                             {x.name}
@@ -330,7 +330,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
                   <td>
                     {kind?.value === "level" && <input type="number" min={0} max={100} step={5} aria-label={`${t.value} ${i + 1}`} value={Math.round(Number(c.args.level ?? 1) * 100)} onChange={(e) => setCue(i, { args: { ...c.args, level: Number(e.target.value) / 100 } })} />}
                     {(kind?.value === "on" || kind?.value === "mute") && (
-                      <select value={String(c.args[kind.value] ?? true)} onChange={(e) => setCue(i, { args: { ...c.args, [kind.value!]: e.target.value === "true" } })}>
+                      <select value={plain(c.args[kind.value], "true")} onChange={(e) => setCue(i, { args: { ...c.args, [kind.value!]: e.target.value === "true" } })}>
                         <option value="true">{kind.value === "mute" ? t.muteOn : t.on}</option>
                         <option value="false">{kind.value === "mute" ? t.muteOff : t.offAction}</option>
                       </select>
@@ -399,7 +399,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   );
 }
 
-export function SetlistEditor({ initial, songs, existing, onClose }: { initial: SetlistDraft; songs: { id: string; title: string }[]; existing: string[]; onClose: () => void }) {
+export function SetlistEditor({ initial, songs, existing, onClose }: { initial: SetlistDraft; songs: { id: string; title: string }[]; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
   const [list, setList] = useState<SetlistDraft>(initial);
   const [error, setError] = useState("");

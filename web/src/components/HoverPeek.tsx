@@ -3,7 +3,7 @@
  * the Live shows its preview in a tooltip — the fixtures' codes over their cells, as in its menu.
  * Mouse only: on a touch screen a long press already opens the menu with the same preview.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import { useCommandEvents } from "../hooks/useTopic";
 import { clearPeeks, LookPeek } from "./LookPeek";
 import { useFloatingMenu } from "./menu";
@@ -18,7 +18,19 @@ interface Peek {
   above: number;
 }
 
-export function useHoverPeek(enabled: boolean) {
+export interface HoverPeek {
+  /** Whether the tooltip shows this look (its button then drops its native title: one bubble only). */
+  shows: (id: string) => boolean;
+  /** The handlers for one look button. */
+  bind: (id: string, title: string) => {
+    onPointerEnter: (e: ReactPointerEvent<HTMLElement>) => void;
+    onPointerLeave: () => void;
+    onPointerDownCapture: () => void;
+  };
+  node: ReactElement | null;
+}
+
+export function useHoverPeek(enabled: boolean): HoverPeek {
   const [peek, setPeek] = useState<Peek | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const close = () => {

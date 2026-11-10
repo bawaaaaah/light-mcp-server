@@ -18,7 +18,7 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -132,7 +132,7 @@ export function StagePlan({
   collapsed?: boolean;
   /** A height chosen for the drawing (px), which fits inside; none: from its width. */
   height?: number;
-}) {
+}): ReactElement {
   const t = useT();
   const [liveColors, setColors] = useState<Record<string, string[]>>({});
   const [liveStrobe, setStrobe] = useState<Record<string, number | null>>({});
@@ -310,7 +310,7 @@ export function StagePlan({
   // room for the names past the edges of the stage
   const pad = { left: 0, right: 0, top: 0, bottom: 0 };
   for (const [id, y] of names) {
-    const f = fixtures.find((x) => x.id === id)!;
+    const f = fixtures.find((fx) => fx.id === id)!;
     const [x, half] = [sx(layout.pos.get(id)!.x), textWidth(f.name, nameSize) / 2 + 2];
     pad.left = Math.max(pad.left, half - x);
     pad.right = Math.max(pad.right, x + half - W);
@@ -373,8 +373,8 @@ export function StagePlan({
     setBand(null);
     // a click on the stage, not a frame: lets the chosen fixtures go
     if (Math.hypot(band.at.x - band.from.x, band.at.y - band.from.y) * pxPerMetre < 4) return band.add ? undefined : setChosen([]);
-    const inside = fixtures.filter((f) => inFrame(layout.pos.get(f.id)!, band.from, band.at)).map((f) => f.id);
-    setChosen(band.add ? [...new Set([...chosen, ...inside])] : inside);
+    const framed = fixtures.filter((f) => inFrame(layout.pos.get(f.id)!, band.from, band.at)).map((f) => f.id);
+    setChosen(band.add ? [...new Set([...chosen, ...framed])] : framed);
   };
   // keyboard, while placing: the arrows nudge the chosen fixtures by a grid step (×10 with Shift), Escape lets them go
   useEffect(() => {
@@ -417,6 +417,7 @@ export function StagePlan({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `select` is a new closure on every render: depending on it would re-bind the keydown listener each time
   }, [orienting, selectedFixture, onOrient]);
   const dropTurn = () => {
     if (turning === null || !selectedFixture) return;
@@ -430,9 +431,9 @@ export function StagePlan({
     const d = beams[f.id];
     if (!d || !f.position || (dragged && drag!.ids.includes(f.id))) return null;
     const end = d.to;
-    const view = (v: Vec) => [sx(v.x), sy(front ? v.z : v.y)] as const;
-    const [ox, oy] = view(f.position);
-    const [ex, ey] = view(end);
+    const project = (v: Vec) => [sx(v.x), sy(front ? v.z : v.y)] as const;
+    const [ox, oy] = project(f.position);
+    const [ex, ey] = project(end);
     const len = Math.hypot(ex - ox, ey - oy);
     if (len < 6) return null; // straight at the viewer: the halo says it
     // the opening from the definition's lens, kept readable: a 2° pin spot still shows as a line
@@ -665,8 +666,8 @@ export function StagePlan({
           const p = placeOf(f.id);
           const lit = (colors[f.id] ?? []).filter((c) => c !== "#000000");
           if (!lit.length) return null;
-          const beam = cone(f, lit[Math.floor(lit.length / 2)]!);
-          if (beam) return beam;
+          const lightCone = cone(f, lit[Math.floor(lit.length / 2)]!);
+          if (lightCone) return lightCone;
           const w = Math.min(1.2, Math.max(0.3, (colors[f.id]?.length ?? 1) * 0.2)) * scale;
           const h = Math.max(8, Math.min(28, 0.2 * scale));
           return <ellipse key={`halo-${f.id}`} cx={sx(p.x)} cy={sy(p.y)} rx={w * 0.75} ry={h * 1.5} fill={lit[Math.floor(lit.length / 2)]} opacity={0.22} />;
@@ -833,13 +834,13 @@ function AngleField({ label, value, min, max, onCommit }: { label: string; value
 }
 
 function inside(x: number, y: number, poly: [number, number][]): boolean {
-  let inside = false;
+  let odd = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!;
     const [xj, yj] = poly[j]!;
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
   }
-  return inside;
+  return odd;
 }
 
 /** Self-loading live preview, for a dashboard widget. */
@@ -861,7 +862,7 @@ export function LiveStage({
   controls?: ReactNode;
   collapsed?: boolean;
   height?: number;
-}) {
+}): ReactElement {
   const [fixtures, setFixtures] = useState<PlanFixture[]>([]);
   const [zones, setZones] = useState<PlanZone[]>([]);
   useEffect(() => {

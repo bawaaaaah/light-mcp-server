@@ -7,7 +7,7 @@
  * Stage frame (X cour, Y upstage, Z up) → three.js (x = X, y = Z, z = −Y): the default camera stands
  * in the audience, looking upstage.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PlanFixture, PlanZone } from "./StagePlan";
@@ -28,7 +28,7 @@ const ZONE_COLOR: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a",
 const toThree = (v: Vec) => new THREE.Vector3(v.x, v.z, -v.y);
 const lit = (cs?: string[]) => (cs ?? []).filter((c) => c !== "#000000");
 
-export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label, height: chosen }: Stage3DProps) {
+export default function Stage3D({ fixtures, zones, colors, beams, noWebgl, label, height: chosen }: Stage3DProps): ReactElement {
   const host = useRef<HTMLDivElement>(null);
   // the height chosen, read by the resize: a new one applies at once, without a new renderer
   const chosenHeight = useRef(chosen);

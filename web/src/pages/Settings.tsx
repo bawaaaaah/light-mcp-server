@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
 import { useT } from "../App";
 import { UsersPanel } from "../components/UsersPanel";
@@ -104,6 +104,7 @@ function RouteRow({ route, editable, ports, nodes, sending, onSave }: { route: R
   type State = ReturnType<typeof initial>;
   const [state, setState] = useState(initial);
   const key = JSON.stringify([route.artnet, route.sacn, route.usb]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `initial` is a new closure on every render; `key` (the route's content) is what says when to reset the form
   useEffect(() => setState(initial()), [key]);
   // what Save sends; also what tells a change
   const change = (s: State): RouteChange => ({
@@ -240,7 +241,7 @@ function RouteRow({ route, editable, ports, nodes, sending, onSave }: { route: R
   );
 }
 
-export function SettingsPage({ role }: { role: Role }) {
+export function SettingsPage({ role }: { role: Role }): ReactElement {
   const t = useT();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [output, setOutput] = useState<Output | null>(null);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useFloatingMenu } from "./menu";
@@ -10,7 +10,7 @@ import { folderLabel } from "../folder";
  * create a sub-folder into it, or disband it (its looks — the whole subtree — go back « sans
  * dossier », the looks themselves stay). Written through the folder commands.
  */
-export function FolderMenu({ folder, at, onChanged, onClose }: { folder: string; at: { x: number; y: number }; onChanged: () => void; onClose: () => void }) {
+export function FolderMenu({ folder, at, onChanged, onClose }: { folder: string; at: { x: number; y: number }; onChanged: () => void; onClose: () => void }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const [mode, setMode] = useState<"idle" | "rename" | "sub">("idle");

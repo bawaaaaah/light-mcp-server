@@ -3,7 +3,7 @@
  * channels to drive by name (Dimmer, Strobe, UV…) — one fader drives them on every ticked fixture
  * at once. Fixtures without a definition take a channel number by hand. Saved with `fader.put`.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
@@ -37,7 +37,7 @@ export interface FixtureChannels {
 
 export const newFader = (): FaderDraft => ({ id: "", name: "", channels: [], level: 0 });
 
-export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraft; existing: string[]; onClose: () => void }) {
+export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
   const [name, setName] = useState(initial.name);
   const [notes, setNotes] = useState(initial.notes);

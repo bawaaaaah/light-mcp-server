@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { downloadArchive, previewArchive, restoreArchive, type FixturePolicy, type FolderDiff, type FixtureSummary } from "../api";
 import { useT } from "../App";
 
@@ -5,7 +6,7 @@ import { useT } from "../App";
  * A .lightshow file of the open show (and its venue): download it, or restore one after seeing what
  * it would change (added, changed, removed files) — nothing is written before confirming.
  */
-export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string) => void; onRestored: () => void }) {
+export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string) => void; onRestored: () => void }): ReactElement {
   const t = useT();
   return (
     <div className="row">

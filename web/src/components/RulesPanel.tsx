@@ -3,7 +3,7 @@
  * forbidden modes, locked), the effective rule of each channel of a fixture with its provenance,
  * and the values the rules moved on the last frame. Values are shown in % of the DMX range.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { api, can, cmd } from "../api";
 import { useMe, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -78,7 +78,7 @@ const BUILT_IN_ROLES = [
 const pct = (v?: number) => (v === undefined ? "" : `${Math.round((v / 255) * 100)} %`);
 const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100) * 255));
 
-export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }) {
+export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }): ReactElement {
   const t = useT();
   const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
   const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [] as string[], onViolation: "clamp", forOrigins: [] as string[], forRoles: [] as string[], forbid: [] as string[], locked: false, program: "" });

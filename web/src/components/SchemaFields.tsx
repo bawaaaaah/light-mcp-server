@@ -3,7 +3,9 @@
  * colours, colour lists, numbers, booleans, enums, line lists (masks) and letter maps. The server
  * stays the single source of truth: a new technique parameter shows up without UI code.
  */
+import type { ReactElement } from "react";
 import { useT } from "../App";
+import { plain } from "../util";
 
 export interface JsonSchema {
   type?: string;
@@ -32,7 +34,7 @@ const splitColor = (v: string) => {
   return m ? { hex: m[1]!.toLowerCase(), suffix: m[2]! } : { hex: "#ffffff", suffix: "" };
 };
 
-export function ColorInput({ value, onChange, title }: { value: string; onChange: (v: string) => void; title?: string }) {
+export function ColorInput({ value, onChange, title }: { value: string; onChange: (v: string) => void; title?: string }): ReactElement {
   const { hex, suffix } = splitColor(value);
   return <input type="color" className="swatch" title={title ?? value} value={hex} onChange={(e) => onChange(e.target.value + suffix)} />;
 }
@@ -65,7 +67,7 @@ export function defaultsFor(schema: JsonSchema, previous: Values, cells: number)
   return out;
 }
 
-export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: JsonSchema; values: Values; onChange: (v: Values) => void; skip?: string[] }) {
+export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: JsonSchema; values: Values; onChange: (v: Values) => void; skip?: string[] }): ReactElement {
   const t = useT();
   const set = (key: string, v: unknown) => onChange({ ...values, [key]: v });
   const label = (key: string) => (t.fields as Record<string, string>)[key] ?? key;
@@ -76,7 +78,7 @@ export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: 
         if (s.const !== undefined || skip.includes(key)) return null;
         const v = values[key];
         let field: React.ReactNode;
-        if (COLOR_KEYS.has(key)) field = <ColorInput value={String(v ?? "#ffffff")} onChange={(x) => set(key, x)} />;
+        if (COLOR_KEYS.has(key)) field = <ColorInput value={plain(v, "#ffffff")} onChange={(x) => set(key, x)} />;
         else if (isColorList(key, s)) {
           const list = (v as string[] | undefined) ?? [];
           const max = s.maxItems ?? 20;
@@ -129,7 +131,7 @@ export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: 
           );
         } else if (s.enum)
           field = (
-            <select value={String(v ?? s.default ?? "")} onChange={(e) => set(key, e.target.value)}>
+            <select value={plain(v, plain(s.default))} onChange={(e) => set(key, e.target.value)}>
               {s.enum.map((o) => (
                 <option key={o}>{o}</option>
               ))}

@@ -1,4 +1,4 @@
-import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode, type ReactElement } from "react";
 import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, setApiLang, switchInProgress, unreachable, type Role } from "./api";
 import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
@@ -51,13 +51,13 @@ function keepChromeTop(app: HTMLDivElement | null): (() => void) | undefined {
 }
 
 export const I18n = createContext<Texts>(TEXTS.fr);
-export const useT = () => useContext(I18n);
+export const useT = (): Texts => useContext(I18n);
 /** Opens another page from inside one (the getting-started guide, links between pages). */
 export const Nav = createContext<(page: Page) => void>(() => undefined);
-export const useNav = () => useContext(Nav);
+export const useNav = (): ((page: Page) => void) => useContext(Nav);
 /** Who is signed in (role and rights), for a component that offers more to some. */
 export const Me = createContext<Role | null>(null);
-export const useMe = () => useContext(Me);
+export const useMe = (): Role | null => useContext(Me);
 
 export type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
 /** The pages by what one does there; the side bar (or the tab strip on a tablet) shows these groups. */
@@ -197,7 +197,7 @@ class PageGuard extends Component<{ children: ReactNode; failed: string; reload:
   }
 }
 
-export function App() {
+export function App(): ReactElement | null {
   const [lang, setLang] = useState<Lang>(initialLang());
   const [role, setRole] = useState<Role | null>(null);
   const [checked, setChecked] = useState(false);
@@ -272,6 +272,7 @@ export function App() {
       stop = true;
       window.clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is restored once, when the app opens; `lang` is only read to word a failure, and a language change must not restart the restore
   }, []);
   useEffect(() => {
     if (role) void lightState().then(setSeed, () => undefined);

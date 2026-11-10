@@ -4,7 +4,7 @@
  * field by field; someone who may write applies it all or nothing, takes it back, or applies it again.
  * Hidden while there is nothing to decide.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -36,7 +36,7 @@ const short = (v: unknown) => {
 };
 const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-export function Proposals({ onChanged }: { onChanged: () => void }) {
+export function Proposals({ onChanged }: { onChanged: () => void }): ReactElement | null {
   const t = useT();
   const [list, setList] = useState<Proposal[]>([]);
   const [error, setError] = useState("");

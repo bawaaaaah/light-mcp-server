@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useFloatingMenu } from "./menu";
@@ -12,7 +12,7 @@ import type { LookDraft } from "./LookEditor";
  * another folder or create one from here, duplicate or delete it, and its preview, as from its
  * button on the Live.
  */
-export function LookMenu({ look, folder, folders, at, onEdit, onChanged, onClose }: { look: { id: string; name: string; active: boolean }; folder?: string; folders: string[]; at: { x: number; y: number }; onEdit: (draft: LookDraft) => void; onChanged: () => void; onClose: () => void }) {
+export function LookMenu({ look, folder, folders, at, onEdit, onChanged, onClose }: { look: { id: string; name: string; active: boolean }; folder?: string; folders: string[]; at: { x: number; y: number }; onEdit: (draft: LookDraft) => void; onChanged: () => void; onClose: () => void }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const [wide, setWide] = useState(false);

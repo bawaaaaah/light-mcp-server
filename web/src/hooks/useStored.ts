@@ -10,8 +10,8 @@ const bus = createStoredBus();
 export function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(() => {
     // what was set in this page wins, even where the browser keeps nothing
-    const set = bus.get(key);
-    if (set !== undefined) return set as T;
+    const published = bus.get(key);
+    if (published !== undefined) return published as T;
     try {
       const kept = localStorage.getItem(key);
       return kept === null ? initial : (JSON.parse(kept) as T);

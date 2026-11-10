@@ -3,7 +3,7 @@
  * level asked at so many ms per step (1/255 of the travel), at a fixed speed or eased in and out.
  * Shared by the channel fader and group editors and the grand master's menu.
  */
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useT } from "../App";
 
 export interface Smoothing {
@@ -14,9 +14,9 @@ export interface Smoothing {
 const PRESETS = [1, 2, 5, 10];
 
 /** « 2,6 s »: a full travel (0 → 100 %) at this speed. */
-export const fullTravel = (s: Smoothing) => `${((s.msPerStep * 255) / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} s`;
+export const fullTravel = (s: Smoothing): string => `${((s.msPerStep * 255) / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} s`;
 
-export function SmoothingField({ value, onChange }: { value: Smoothing | undefined; onChange: (s: Smoothing | undefined) => void }) {
+export function SmoothingField({ value, onChange }: { value: Smoothing | undefined; onChange: (s: Smoothing | undefined) => void }): ReactElement {
   const t = useT();
   const [custom, setCustom] = useState(value !== undefined && !PRESETS.includes(value.msPerStep));
   const choice = !value ? "" : custom ? "custom" : String(value.msPerStep);

@@ -5,7 +5,7 @@
  * cut into functions (a bar's mode, its colour presets) also offers them by name, setting the value
  * to the start of the range.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import type { FixtureChannels } from "./FaderEditor";
@@ -15,7 +15,7 @@ export interface LookChannelsDraft {
   steps: number[][];
 }
 
-export function RawChannelsEditor({ value, onChange }: { value?: LookChannelsDraft; onChange: (v: LookChannelsDraft | undefined) => void }) {
+export function RawChannelsEditor({ value, onChange }: { value?: LookChannelsDraft; onChange: (v: LookChannelsDraft | undefined) => void }): ReactElement {
   const t = useT();
   const [all, setAll] = useState<FixtureChannels[]>([]);
   const [fixture, setFixture] = useState("");

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -13,7 +13,7 @@ interface Head {
  * `onPosition` says each read or sent position (a panel's feedback); bump `resync` to read again
  * what has moved from elsewhere (an aim, a Panic, a release by another screen).
  */
-export function XyPad({ group, fixture, label, onError, disabled = false, onPosition, resync }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void; disabled?: boolean; onPosition?: (p: { pan: number; tilt: number } | null) => void; resync?: unknown }) {
+export function XyPad({ group, fixture, label, onError, disabled = false, onPosition, resync }: { group?: string; fixture?: string; label?: string; onError: (msg: string) => void; disabled?: boolean; onPosition?: (p: { pan: number; tilt: number } | null) => void; resync?: unknown }): ReactElement {
   const t = useT();
   const [pos, setPos] = useState<{ pan: number; tilt: number } | null>(null);
   const pad = useRef<HTMLDivElement>(null);

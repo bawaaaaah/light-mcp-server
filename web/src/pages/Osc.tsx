@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -10,7 +10,7 @@ interface Route {
 }
 
 /** OSC explorer (docs/specs/midi.md): every address with its parameters, searchable, one-click copy. */
-export function OscPage() {
+export function OscPage(): ReactElement {
   const t = useT();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [query, setQuery] = useState("");

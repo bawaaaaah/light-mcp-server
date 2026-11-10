@@ -26,9 +26,9 @@ export function detectSections(samples: Float32Array, sampleRate: number, bpm: n
   // each feature on the same scale (z-scores), so neither drowns the other
   const norm = [0, 1].map((k) => {
     const v = features.map((f) => f[k]!);
-    const mean = v.reduce((a, x) => a + x, 0) / v.length;
-    const sd = Math.sqrt(v.reduce((a, x) => a + (x - mean) ** 2, 0) / v.length) || 1;
-    return v.map((x) => (x - mean) / sd);
+    const avg = v.reduce((a, x) => a + x, 0) / v.length;
+    const spread = Math.sqrt(v.reduce((a, x) => a + (x - avg) ** 2, 0) / v.length) || 1;
+    return v.map((x) => (x - avg) / spread);
   });
   const window = 4;
   const novelty = new Array<number>(bars).fill(0);

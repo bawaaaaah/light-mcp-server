@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -10,7 +10,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
  * opened. Restoring puts one back; the current version is kept in turn, so a restore is undone the
  * same way. A DCA or fader keeps its live level.
  */
-export function Versions({ collection, id, onRestored }: { collection: Versioned; id: string; onRestored: () => void }) {
+export function Versions({ collection, id, onRestored }: { collection: Versioned; id: string; onRestored: () => void }): ReactElement {
   const t = useT();
   const [list, setList] = useState<{ stamp: string; at: string }[] | null>(null);
   const [error, setError] = useState("");
@@ -55,7 +55,7 @@ interface Gone {
  * What was deleted and can come back (history.deleted), by kind, read when opened. Restoring puts
  * the last copy back through the usual checks.
  */
-export function RecentlyDeleted({ collections, onRestored }: { collections: Versioned[]; onRestored: () => void }) {
+export function RecentlyDeleted({ collections, onRestored }: { collections: Versioned[]; onRestored: () => void }): ReactElement {
   const t = useT();
   const [lists, setLists] = useState<Partial<Record<Versioned, Gone[]>> | null>(null);
   const [error, setError] = useState("");

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type ReactPortal } from "react";
 import { createPortal } from "react-dom";
 import { wrappedFocus } from "../focus-trap";
 import { guardPassed } from "../preview-first";
@@ -15,7 +15,7 @@ const FOCUSABLE = "input, select, textarea, button, [href], [tabindex]:not([tabi
  * backdrop call it, Tab stays inside, and the focus goes back to what opened it. Without it nothing
  * of that applies and an editor behaves as it always did.
  */
-export function Modal({ label, className, onClose, children }: { label: string; /** e.g. « narrow » for a short form */ className?: string; /** a way out that loses nothing */ onClose?: () => void; children: ReactNode }) {
+export function Modal({ label, className, onClose, children }: { label: string; /** e.g. « narrow » for a short form */ className?: string; /** a way out that loses nothing */ onClose?: () => void; children: ReactNode }): ReactPortal {
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;

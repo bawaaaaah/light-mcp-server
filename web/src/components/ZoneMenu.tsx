@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { labelOf } from "../util";
 import { useFloatingMenu } from "./menu";
@@ -9,7 +9,7 @@ import type { PlanZone } from "./StagePlan";
  * Right-click (or a long press) on a zone of the stage plan: its name, type, sizes (a rectangle as
  * the Lieu page draws it), floor, protected and no-aim; saved by « Enregistrer », or deleted.
  */
-export function ZoneMenu({ zone, at, onSave, onDelete, onClose }: { zone: PlanZone; at: { x: number; y: number }; onSave: (zone: PlanZone) => void; onDelete: () => void; onClose: () => void }) {
+export function ZoneMenu({ zone, at, onSave, onDelete, onClose }: { zone: PlanZone; at: { x: number; y: number }; onSave: (zone: PlanZone) => void; onDelete: () => void; onClose: () => void }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const rect = zoneRect(zone.polygon);

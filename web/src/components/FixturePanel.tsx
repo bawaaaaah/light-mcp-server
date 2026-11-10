@@ -8,7 +8,7 @@
  * with `show:write` and `commands:level` (else a line says what is missing). Lives on the Venue
  * page's plan only, where the selection is.
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
@@ -36,7 +36,7 @@ interface Glide {
   faders: Record<string, number>;
 }
 
-export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: string; name: string; absent?: boolean }; onError: (msg: string) => void; onClose: () => void }) {
+export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: string; name: string; absent?: boolean }; onError: (msg: string) => void; onClose: () => void }): ReactElement {
   const t = useT();
   const me = useMe() as Role | null;
   const [heads, setHeads] = useState<Head[]>([]);

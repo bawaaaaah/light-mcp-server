@@ -2,7 +2,7 @@
  * Guided calibration of a moving head (docs/specs/venue-fixtures-stage.md, « Lyres »): aim it by
  * hand at 2–3 known floor marks, record each one, then solve its yaw, tilt offset and inversions.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { XyPad } from "./XyPad";
@@ -21,7 +21,7 @@ interface Result {
   applied: boolean;
 }
 
-export function Calibration({ zones, placed, follow, onError, onApplied }: { zones: { id: string; name: string }[]; placed: Set<string>; /** The fixture held on the plan: this head opens, wherever it sits in the list. */ follow?: string; onError: (msg: string) => void; onApplied: () => void }) {
+export function Calibration({ zones, placed, follow, onError, onApplied }: { zones: { id: string; name: string }[]; placed: Set<string>; /** The fixture held on the plan: this head opens, wherever it sits in the list. */ follow?: string; onError: (msg: string) => void; onApplied: () => void }): ReactElement {
   const t = useT();
   const [heads, setHeads] = useState<Head[]>([]);
   const [head, setHead] = useState("");
@@ -41,7 +41,7 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
         return usable[0]?.id ?? "";
       });
     });
-    // the set is rebuilt on every render of the page: its content is the dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `placed` is a new Set on every render of the page: its content (`placedKey`) is the dependency
   }, [placedKey, follow]);
   useEffect(() => {
     if (head) void cmd<unknown[]>("calibration.list", { fixture: head }).then((l) => setMarks(l.length));

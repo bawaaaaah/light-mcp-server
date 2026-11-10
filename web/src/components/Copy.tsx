@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useT } from "../App";
 
 /** Copies `text`; when the clipboard is refused (plain HTTP, permissions) the text stays selectable. */
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text }: { text: string }): ReactElement {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = () =>
@@ -21,7 +21,7 @@ export function CopyButton({ text }: { text: string }) {
 }
 
 /** A snippet to paste; `display` is what is shown (a masked token), `code` what is copied. */
-export function CodeBlock({ code, display }: { code: string; display?: string }) {
+export function CodeBlock({ code, display }: { code: string; display?: string }): ReactElement {
   return (
     <div className="code-block">
       <pre>

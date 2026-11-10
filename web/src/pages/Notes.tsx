@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { labelOf } from "../util";
@@ -17,7 +17,7 @@ const OPEN_UP_TO = 20;
  * Notes everywhere (docs/specs/presets-songs-notes.md): global search and edit, grouped by kind
  * (looks, groups, fixtures…), one compact line each; a click edits it.
  */
-export function NotesPage() {
+export function NotesPage(): ReactElement {
   const t = useT();
   const [query, setQuery] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);

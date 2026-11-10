@@ -5,7 +5,7 @@
  * or too slow is the usual mistake — and the whole song a draft of its sections in bars
  * (audio/sections.ts). Nothing leaves the browser.
  */
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { detectTempo, type TempoEstimate } from "../audio/tempo";
 import { detectSections } from "../audio/sections";
@@ -13,7 +13,7 @@ import { detectSections } from "../audio/sections";
 const RATE = 22050;
 const MAX_SECONDS = 120;
 
-export function TempoFromAudio({ onBpm, onSections, beatsPerBar }: { onBpm: (bpm: number) => void; onSections: (bars: number[]) => void; beatsPerBar: number }) {
+export function TempoFromAudio({ onBpm, onSections, beatsPerBar }: { onBpm: (bpm: number) => void; onSections: (bars: number[]) => void; beatsPerBar: number }): ReactElement {
   const t = useT();
   const [state, setState] = useState<{ busy?: boolean; found?: TempoEstimate | null; sections?: number[] | null; error?: string }>({});
   const analyse = async (file: File) => {
@@ -26,10 +26,10 @@ export function TempoFromAudio({ onBpm, onSections, beatsPerBar }: { onBpm: (bpm
         const ch = audio.getChannelData(c);
         for (let i = 0; i < audio.length; i++) mono[i]! += ch[i]! / audio.numberOfChannels;
       }
-      const found = detectTempo(mono.subarray(0, Math.min(mono.length, MAX_SECONDS * audio.sampleRate)), audio.sampleRate);
+      const estimate = detectTempo(mono.subarray(0, Math.min(mono.length, MAX_SECONDS * audio.sampleRate)), audio.sampleRate);
       // the sections over the whole song, counted from its first beat
-      const sections = found ? detectSections(mono, audio.sampleRate, found.bpm, found.firstBeat ?? 0, beatsPerBar) : null;
-      setState({ found, sections });
+      const sections = estimate ? detectSections(mono, audio.sampleRate, estimate.bpm, estimate.firstBeat ?? 0, beatsPerBar) : null;
+      setState({ found: estimate, sections });
     } catch (err) {
       setState({ error: (err as Error).message });
     }

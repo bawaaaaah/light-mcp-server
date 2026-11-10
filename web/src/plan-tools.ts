@@ -45,7 +45,7 @@ export type Arrange = "row" | "column" | "spreadX" | "spreadY";
  */
 export function arrange<T extends P & { id: string }>(points: readonly T[], how: Arrange): T[] {
   if (points.length < 2) return [...points];
-  const mean = (k: "x" | "y") => cm(points.reduce((a, p) => a + p[k], 0) / points.length);
+  const mean = (axis: "x" | "y") => cm(points.reduce((a, p) => a + p[axis], 0) / points.length);
   if (how === "row") return points.map((p) => ({ ...p, y: mean("y") }));
   if (how === "column") return points.map((p) => ({ ...p, x: mean("x") }));
   const k = how === "spreadX" ? "x" : "y";
@@ -61,7 +61,7 @@ export function inFrame(p: P, a: P, b: P): boolean {
 }
 
 /** A name's width in the drawing, from its length (an average letter: 0.58 of the font size). */
-export const textWidth = (text: string, fontSize: number) => text.length * fontSize * 0.58;
+export const textWidth = (text: string, fontSize: number): number => text.length * fontSize * 0.58;
 
 /**
  * Fixture names on the plan without overlap: each under its fixture (`below`, a baseline), else above

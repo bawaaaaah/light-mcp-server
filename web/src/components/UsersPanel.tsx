@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, shareLink, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
 import { CopyButton } from "./Copy";
@@ -16,7 +16,7 @@ const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—")
  * Users (administrator): each has a role (its rights), a PIN and/or hardware keys (YubiKey, passkeys).
  * Everyone signed in as a user manages their own keys here. Share links sign a user in with their PIN.
  */
-export function UsersPanel({ role }: { role: Role }) {
+export function UsersPanel({ role }: { role: Role }): ReactElement {
   const t = useT();
   const admin = can(role, "auth:admin");
   const [users, setUsers] = useState<UserRow[]>([]);

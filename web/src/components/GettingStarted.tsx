@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { can, cmd, lightState, type Role } from "../api";
 import { useNav, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -14,7 +14,7 @@ type Dash = { id: string; name: string; widgets: { kind: string }[] };
  * or hidden for this show by the user. « Générer » fills the dashboard on screen, which then holds
  * only the safety bar (no dashboard is filled yet). A role that cannot write the show only reads that it is empty.
  */
-export function GettingStarted({ role, looks, dashboards, current, onDashboard }: { role: Role; looks: number; dashboards: Dash[]; current?: Dash; onDashboard: () => void }) {
+export function GettingStarted({ role, looks, dashboards, current, onDashboard }: { role: Role; looks: number; dashboards: Dash[]; current?: Dash; onDashboard: () => void }): ReactElement | null {
   const t = useT();
   const nav = useNav();
   const [fixtures, setFixtures] = useState<string[] | null>(null);

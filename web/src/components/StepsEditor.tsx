@@ -4,13 +4,13 @@
  * shown in `order` (the stage's, from jardin to cour) on the look editor's grid, a separator where
  * a new fixture begins; painting one paints its own cell of the canvas.
  */
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { ColorInput } from "./SchemaFields";
 import type { Block } from "../canvas-blocks";
 
 /** The fixture behind each run of cells, on the same grid as the squares (the look editor's). */
-export function BlockNames({ blocks }: { blocks: Block[] }) {
+export function BlockNames({ blocks }: { blocks: Block[] }): ReactElement | null {
   const t = useT();
   if (!blocks.some((b) => b.label)) return null;
   return (
@@ -26,7 +26,7 @@ export function BlockNames({ blocks }: { blocks: Block[] }) {
   );
 }
 
-export function StepsEditor({ steps, cells, blocks = [], order, onChange }: { steps: string[][]; cells: number; blocks?: Block[]; order?: number[]; onChange: (s: string[][]) => void }) {
+export function StepsEditor({ steps, cells, blocks = [], order, onChange }: { steps: string[][]; cells: number; blocks?: Block[]; order?: number[]; onChange: (s: string[][]) => void }): ReactElement {
   const t = useT();
   const [brush, setBrush] = useState("#ff0000");
   const [mode, setMode] = useState<"color" | "off" | "free">("color");
