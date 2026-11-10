@@ -287,8 +287,8 @@ describe("server end to end", function () {
     const { ticket } = (await (await fetch(`${base}/api/auth/ws-ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })).json()) as { ticket: string };
     const ws = new WebSocket(`${base.replace("http", "ws")}/api/ws?ticket=${ticket}`, "light.stream.v1.json");
     const frame = await new Promise<{ topic: string; data: { universes: [number, { $b64: string }][] } }>((resolve, reject) => {
-      ws.on("message", (raw) => {
-        const msg = JSON.parse(String(raw)) as { t: string; topic: string; data: { universes: [number, { $b64: string }][] } };
+      ws.on("message", (raw: Buffer) => {
+        const msg = JSON.parse(raw.toString()) as { t: string; topic: string; data: { universes: [number, { $b64: string }][] } };
         if (msg.t === "hello") ws.send(JSON.stringify({ t: "sub", id: 1, topic: "light:dmx", params: { universes: [1] } }));
         if (msg.t === "evt") resolve(msg);
         if (msg.t === "err") reject(new Error(JSON.stringify(msg)));
@@ -307,7 +307,7 @@ describe("server end to end", function () {
     const sock = createSocket("udp4");
     await new Promise<void>((r) => sock.bind(0, "127.0.0.1", r));
     const help: string[] = [];
-    sock.on("message", (b) => help.push(String(decodeOsc(b)[0]!.args[0])));
+    sock.on("message", (b) => help.push(String(decodeOsc(b)[0]!.args[0] as string)));
     sock.send(encodeOsc({ address: "/light/help", args: [] }), port, "127.0.0.1");
     await new Promise((r) => setTimeout(r, 100));
     expect(help).to.include.members(["/light/panic", "/light/blackout", "/light/tempo/tap", "/light/dmx/set"]);

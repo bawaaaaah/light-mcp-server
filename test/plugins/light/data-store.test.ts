@@ -88,7 +88,7 @@ describe("live values (fader levels)", () => {
     const col = store.collection("groups", z.object({ id: z.string(), level: z.number() }));
     col.put({ id: "g", level: 1 });
     const backups = () => (existsSync(join(d, "backups")) ? readdirSync(join(d, "backups")).length : 0);
-    const onDisk = () => JSON.parse(readFileSync(join(d, "show", "groups", "g.json"), "utf8")).level as number;
+    const onDisk = () => (JSON.parse(readFileSync(join(d, "show", "groups", "g.json"), "utf8")) as { level: number }).level;
     return { store, col, backups, onDisk };
   };
 

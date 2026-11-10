@@ -13,7 +13,7 @@ describe("dmx.explain: why a channel has its value", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     await run("group.put", { group: { id: "face", name: "Face", members: { fixtures: ["bar-0"], looks: [], groups: [] }, master: { level: 0.5, mute: false } } });
     await run("fader.put", { fader: { id: "w", name: "Blanc", channels: [{ fixture: "bar-0", offset: 2 }], level: 0.4, dca: "face" } });
@@ -38,7 +38,7 @@ describe("dmx.explain: why a channel has its value", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string; ranges?: { min: number; max: number; name: string }[] }[] }[];
     const bar = channels.find((f) => f.id === "bar-0")!.channels;

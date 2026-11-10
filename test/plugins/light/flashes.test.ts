@@ -96,7 +96,7 @@ describe("flashes per second (photosensitive safety)", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
     const look = (id: string, seconds: number, attack: number) => ({ id, name: id, canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds }, attack, order: "loop", entryFade: 0 } });
@@ -114,7 +114,7 @@ describe("flashes per second (photosensitive safety)", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
     const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
@@ -135,8 +135,8 @@ describe("flashes per second (photosensitive safety)", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
-    const as = (origin: "ui" | "midi") => (name: string, args: unknown) => plugin.commands.invoke(name, args, { origin, can: () => true });
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
+    const as = (origin: "ui" | "midi") => (command: string, args: unknown) => plugin.commands.invoke(command, args, { origin, can: () => true });
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
     const channels = (await run("venue.fixture.channels")) as { id: string; channels: { offset: number; name: string }[] }[];
@@ -146,7 +146,7 @@ describe("flashes per second (photosensitive safety)", () => {
     await run("look.put", { look: machine("sage", 80) });
     await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100, onViolation: "reject" } });
     let refused: { message: string; detail?: { confirm?: boolean } } = { message: "" };
-    await as("ui")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    await as("ui")("look.go", { id: "fort" }).catch((e: typeof refused) => (refused = e));
     expect(refused.message).to.contain("look refusé").and.contain("Plafond");
     expect(plugin.runtime.activeLooks()).to.not.include("fort");
     await as("ui")("look.go", { id: "sage" }); // under the bound: launched
@@ -154,10 +154,10 @@ describe("flashes per second (photosensitive safety)", () => {
     await run("look.stopall");
     // a confirm rule: the interface is asked, MIDI cannot answer
     await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", target: { channel: name }, max: 100, onViolation: "confirm" } });
-    await as("ui")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    await as("ui")("look.go", { id: "fort" }).catch((e: typeof refused) => (refused = e));
     expect(refused.detail?.confirm).to.equal(true);
     expect(plugin.runtime.activeLooks()).to.not.include("fort");
-    await as("midi")("look.go", { id: "fort" }).catch((e) => (refused = e));
+    await as("midi")("look.go", { id: "fort" }).catch((e: typeof refused) => (refused = e));
     expect(refused.detail?.confirm).to.equal(false);
     await as("ui")("look.go", { id: "fort", confirm: true }); // on the user's yes: launched, and bounded
     expect(plugin.runtime.activeLooks()).to.include("fort");
@@ -165,9 +165,9 @@ describe("flashes per second (photosensitive safety)", () => {
     // for some callers only: AI clients and a volunteer may not launch it, the interface may, unbounded
     await run("rule.delete", { where: "show", id: "plafond" });
     await run("rule.put", { rule: { id: "ia", name: "Pas pour l'IA", level: "show", target: { channel: name }, max: 100, appliesTo: { origins: ["mcp"], roles: ["benevole"] } } });
-    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "mcp", can: () => true }).catch((e) => (refused = e));
+    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "mcp", can: () => true }).catch((e: typeof refused) => (refused = e));
     expect(refused.message).to.contain("Pas pour l'IA");
-    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "ui", role: "benevole", can: () => true }).catch((e) => (refused = e));
+    await plugin.commands.invoke("look.go", { id: "fort" }, { origin: "ui", role: "benevole", can: () => true }).catch((e: typeof refused) => (refused = e));
     expect(plugin.runtime.activeLooks()).to.not.include("fort");
     await as("ui")("look.go", { id: "fort" });
     expect(plugin.runtime.activeLooks()).to.include("fort");
@@ -182,7 +182,7 @@ describe("flashes per second (photosensitive safety)", () => {
       writeFileSync(join(dataRoot, "fixtures", "bar4.qxf"), qxf);
       const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
       const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-      const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+      const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
       await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
       await run("rule.put", { rule: { id: "photo", name: "Photosensibles", level: "venue", scope: {}, target: { attribute: "strobe" }, maxHz: 3 } });
       const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
@@ -200,7 +200,7 @@ describe("flashes per second (photosensitive safety)", () => {
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    const run = (command: string, args: unknown = {}) => plugin.commands.invoke(command, args, systemContext());
     await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
     const canvas = plugin.runtime.venue.canvases.list()[0]!.id;
     const look = (attack: number) => ({ id: `l-${attack}`, name: `l-${attack}`, canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds: 0.1 }, attack, order: "loop", entryFade: 0 } });

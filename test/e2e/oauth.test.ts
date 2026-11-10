@@ -57,7 +57,7 @@ describe("behind a reverse proxy: OAuth in front of /mcp (claude.ai connectors),
     const verifier = crypto.randomBytes(32).toString("base64url");
     const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
     const authorize = await fetch(
-      `${base}/authorize?${new URLSearchParams({ response_type: "code", client_id: registered.client_id, redirect_uri: "http://localhost/callback", code_challenge: challenge, code_challenge_method: "S256", state: "s1" })}`,
+      `${base}/authorize?${new URLSearchParams({ response_type: "code", client_id: registered.client_id, redirect_uri: "http://localhost/callback", code_challenge: challenge, code_challenge_method: "S256", state: "s1" }).toString()}`,
       { redirect: "manual" },
     );
     expect(authorize.status).to.equal(302);

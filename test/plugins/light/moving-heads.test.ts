@@ -127,7 +127,7 @@ describe("moving heads", () => {
       // gliding, never jumping
       for (let i = 1; i < path.length; i++) expect(Math.abs(path[i]!.pan - path[i - 1]!.pan)).to.be.below(0.04);
       // a different point every cycle, and for every head
-      const at = (c: number, i: number) => Object.values(movePosition(m, c, i, 4)).map((v) => v.toFixed(3)).join();
+      const at = (c: number, i: number) => { const p = movePosition(m, c, i, 4); return [p.pan, p.tilt].map((v) => v.toFixed(3)).join(); };
       expect(new Set([1, 2, 3, 4].map((c) => at(c, 0))).size).to.equal(4);
       expect(new Set([0, 1, 2, 3].map((i) => at(2, i))).size).to.equal(4);
       expect(movePosition(m, 2.3, 1, 4)).to.deep.equal(movePosition(m, 2.3, 1, 4));

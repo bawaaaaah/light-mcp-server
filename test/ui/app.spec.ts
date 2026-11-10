@@ -36,6 +36,9 @@ async function dmx(page: Page, universe = 1): Promise<number[]> {
  * Runs a command with the session token of the page. The app reloads itself when the open show
  * changes (a switch, a restore): a call caught by that reload waits for it and runs again.
  */
+/** A dashboard as dashboard.list returns it, with the widget fields the tests read or patch. */
+type TestDashboard = { id: string; widgets: { id: string; kind: string; x: number; y: number; w: number; h: number; target?: string; label?: string; mode?: string; color?: string }[] };
+
 async function api(page: Page, name: string, args: unknown = {}): Promise<unknown> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -985,10 +988,10 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   // the grid's own box scrolls sideways only: a vertical swipe always goes to the page
   expect(await page.evaluate<string>("getComputedStyle(document.querySelector('.dgrid-scroll')).overflowY")).toBe("hidden");
   const cdp = await ctx.newCDPSession(page);
-  const strip = (await gutter.boundingBox())!;
+  const gutterBox = (await gutter.boundingBox())!;
   // from just under what sticks to the top of the screen (the page tabs, the pinned edit tools)
-  const x = Math.round(strip.x + strip.width / 2);
-  const y = Math.round(Math.max(strip.y, await page.locator(".dash-top").evaluate((e) => e.getBoundingClientRect().bottom)) + 10);
+  const x = Math.round(gutterBox.x + gutterBox.width / 2);
+  const y = Math.round(Math.max(gutterBox.y, await page.locator(".dash-top").evaluate((e) => e.getBoundingClientRect().bottom)) + 10);
   expect(y + 120).toBeLessThan(480); // room left for the swipe
   expect(await page.evaluate<boolean>(`document.elementFromPoint(${x}, ${y})?.classList.contains("scroll-gutter") ?? false`)).toBe(true);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
@@ -1162,8 +1165,8 @@ test("exclusive groups as radio buttons: chosen from a button's menu, each relea
 test("layout editing: several widgets selected (Ctrl/⌘, Shift for a frame) get the same colour and mode at once", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  const [dash] = (await api(page, "dashboard.list")) as { widgets: { id: string; kind: string; x: number; y: number; w: number; h: number; color?: string; mode?: string }[] }[];
-  const looks = dash!.widgets.filter((w) => w.kind === "look").sort((a, b) => a.y - b.y || a.x - b.x);
+  const [dash] = (await api(page, "dashboard.list")) as TestDashboard[];
+  const looks = dash!.widgets.filter((w) => w.kind === "look").sort((p, q) => p.y - q.y || p.x - q.x);
   const [a, b] = [looks[0]!, looks[looks.length - 1]!];
   // what a frame from a to b takes: every widget whose centre lies in the rectangle they span
   const [x1, y1, x2, y2] = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x + a.w, b.x + b.w), Math.max(a.y + a.h, b.y + b.h)];
@@ -2723,7 +2726,7 @@ test("AbleSet answering: a song is sent there from the Chants page", async ({ pa
   let beat: NodeJS.Timeout | undefined;
   ableset.on("message", (buf, rinfo) => {
     for (const m of decodeOsc(buf)) {
-      if (m.address === "/setlist/jumpToSong") jumps.push(String(m.args[0]));
+      if (m.address === "/setlist/jumpToSong") jumps.push(String(m.args[0] as string | number));
       if (m.address !== "/subscribe" || beat) continue;
       const arg = m.args[1];
       const port = typeof arg === "number" ? arg : (arg as { value: number }).value;
@@ -3584,7 +3587,6 @@ test("song MIDI file downloaded from the songs page", async ({ page }) => {
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "MIDI Chant test" }).click()]);
   expect(download.suggestedFilename()).toBe("Chant test.mid");
   const path = await download.path();
-  const { readFileSync } = await import("node:fs");
   expect(readFileSync(path!).subarray(0, 4).toString()).toBe("MThd");
   expect(errors).toEqual([]);
 });
@@ -4087,14 +4089,14 @@ test("preview before launch: deleting the look while the sheet is open closes it
   const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
   const tempId = "preview-temp";
   await api(page, "look.put", { look: { id: tempId, name: "Temp", canvas, technique: { kind: "plat", color: "#00ff00" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } } });
-  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string }[] }[];
+  const dashboards = (await api(page, "dashboard.list")) as TestDashboard[];
   const dash = dashboards[0]!;
   const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
-  const backup = JSON.parse(JSON.stringify(dash));
-  const patched = JSON.parse(JSON.stringify(dash));
-  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
-  w.target = tempId;
-  w.label = "Temp";
+  const backup = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const patched = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const pw = patched.widgets.find((x) => x.id === widget.id)!;
+  pw.target = tempId;
+  pw.label = "Temp";
   try {
     await api(page, "dashboard.put", { dashboard: patched });
     await page.reload();
@@ -4122,14 +4124,14 @@ test("preview before launch: freezing a flashing look shows the frozen note", as
   const hole = (await api(page, "look.get", { id: "hole" })) as { canvas: string };
   const tempId = "preview-flash";
   await api(page, "look.put", { look: { id: tempId, name: "Flash", canvas: hole.canvas ?? canvas, technique: { kind: "pas", steps: [["#ffffff"], ["-"]] }, timing: { every: { seconds: 0.1 }, attack: 0, order: "loop", entryFade: 0 } } });
-  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string }[] }[];
+  const dashboards = (await api(page, "dashboard.list")) as TestDashboard[];
   const dash = dashboards[0]!;
   const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
-  const backup = JSON.parse(JSON.stringify(dash));
-  const patched = JSON.parse(JSON.stringify(dash));
-  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
-  w.target = tempId;
-  w.label = "Flash";
+  const backup = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const patched = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const pw = patched.widgets.find((x) => x.id === widget.id)!;
+  pw.target = tempId;
+  pw.label = "Flash";
   try {
     await api(page, "dashboard.put", { dashboard: patched });
     await page.reload();
@@ -4221,13 +4223,13 @@ test("preview before launch: a trigger-mode button that is already playing opens
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string; mode?: string }[] }[];
+  const dashboards = (await api(page, "dashboard.list")) as TestDashboard[];
   const dash = dashboards[0]!;
   const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
-  const backup = JSON.parse(JSON.stringify(dash));
-  const patched = JSON.parse(JSON.stringify(dash));
-  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
-  w.mode = "trigger";
+  const backup = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const patched = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const pw = patched.widgets.find((x) => x.id === widget.id)!;
+  pw.mode = "trigger";
   try {
     await api(page, "dashboard.put", { dashboard: patched });
     await page.reload();
@@ -4258,13 +4260,13 @@ test("preview before launch: a momentary button opens no sheet", async ({ page }
   const errors = watchErrors(page);
   await login(page);
   await api(page, "look.stopall");
-  const dashboards = (await api(page, "dashboard.list")) as { id: string; widgets: { id: string; kind: string; target?: string; mode?: string }[] }[];
+  const dashboards = (await api(page, "dashboard.list")) as TestDashboard[];
   const dash = dashboards[0]!;
   const widget = dash.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
-  const backup = JSON.parse(JSON.stringify(dash));
-  const patched = JSON.parse(JSON.stringify(dash));
-  const w = patched.widgets.find((x: { id: string }) => x.id === widget.id);
-  w.mode = "momentary";
+  const backup = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const patched = JSON.parse(JSON.stringify(dash)) as TestDashboard;
+  const pw = patched.widgets.find((x) => x.id === widget.id)!;
+  pw.mode = "momentary";
   try {
     await api(page, "dashboard.put", { dashboard: patched });
     await page.reload();

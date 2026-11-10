@@ -111,7 +111,7 @@ describe("songs", () => {
       const move = async (beats: number) => {
         songs.state.transport!.startBeats -= beats; // as if the engine had played `beats` more
         followPosition(songs);
-        await new Promise((r) => setImmediate(r));
+        await new Promise((done) => setImmediate(done));
       };
       for (let i = 0; i < 17; i++) await move(0.25); // playback through bar 5 (0-based: beat 20)
       expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5);
@@ -132,12 +132,12 @@ describe("songs", () => {
       followPosition(songs); // first position: nothing fired
       for (let i = 0; i < 12; i++) plugin.tempo.handleMidi({ type: "clock" }); // half a beat of playback
       followPosition(songs);
-      await new Promise((r) => setImmediate(r));
+      await new Promise((done) => setImmediate(done));
       expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5); // the action at beat 20 fired
       plugin.tempo.handleMidi({ type: "songposition", sixteenths: 41 * 4 }); // scrub past bar 10 (beat 40)
       for (let i = 0; i < 3; i++) plugin.tempo.handleMidi({ type: "clock" });
       followPosition(songs);
-      await new Promise((r) => setImmediate(r));
+      await new Promise((done) => setImmediate(done));
       expect(plugin.runtime.groups.get("public")!.master!.level).to.equal(0.5);
       plugin.tempo.handleMidi({ type: "stop" });
       await run("tempo.set", { source: "manual" });

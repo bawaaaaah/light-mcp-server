@@ -43,7 +43,7 @@ describe("activity log", () => {
     expect(log.takeChanges()).to.equal(undefined);
     log.record(event(1_000, "look.go", { id: "old" }), "Lancer un look");
     log.record(event(9 * 86_400_000, "look.go", { id: "recent" }, "Régie"), "Lancer un look");
-    const saved = JSON.parse(JSON.stringify(log.takeChanges()));
+    const saved = JSON.parse(JSON.stringify(log.takeChanges())) as NonNullable<ReturnType<ActivityLog["takeChanges"]>>;
     expect(log.takeChanges()).to.equal(undefined); // nothing new since
     const after = new ActivityLog();
     after.restore([...saved, { junk: true }], 10 * 86_400_000);
