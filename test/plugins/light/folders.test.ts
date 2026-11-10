@@ -74,6 +74,16 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     expect(((await run("show.settings")) as { folders: string[] }).folders).to.deep.equal([]);
   });
 
+  it("keeps the folders named ahead, and every other setting, when one setting changes alone", async () => {
+    const settings = async () => (await run("show.settings")) as { folders: string[]; name: string; grandMaster: number; liveAi: boolean };
+    const { name } = await settings();
+    await run("show.settings.set", { grandMaster: 0.4, folders: ["A/B", "C"], name: "Mon show" });
+    await run("show.settings.set", { liveAi: true });
+    const after = await settings();
+    expect([after.folders, after.name, after.grandMaster, after.liveAi]).to.deep.equal([["A/B", "C"], "Mon show", 0.4, true]);
+    await run("show.settings.set", { grandMaster: 1, folders: [], liveAi: false, name });
+  });
+
   it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {
     await run("show.folder.move", { ids: ["checker"], folder: "X/B" });
     await run("show.folder.move", { ids: ["palette"], folder: "B" });

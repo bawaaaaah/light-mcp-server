@@ -24,6 +24,7 @@ import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.
 import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
 import { say } from "../../../core/lang.js";
+import { patchSchema } from "../../../core/zod-patch.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -1187,7 +1188,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Updates show settings (safeSnapshot, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: ShowSettingsSchema.partial().omit({ schemaVersion: true, kind: true }).extend({ grandMasterSmoothing: FaderSmoothingSchema.nullable().optional() }),
+    // a patch: only the settings given change (partial() would reset the others to their defaults)
+    schema: patchSchema(ShowSettingsSchema).omit({ schemaVersion: true, kind: true }).extend({ grandMasterSmoothing: FaderSmoothingSchema.nullable().optional() }),
     run: ({ grandMasterSmoothing, ...patch }) => {
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
       if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(say(`instantané inconnu : ${patch.safeSnapshot}`, `unknown snapshot: ${patch.safeSnapshot}`));
