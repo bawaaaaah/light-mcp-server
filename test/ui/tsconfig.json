@@ -1,0 +1,9 @@
+{
+  // The UI tests run in Node but hand callbacks to the browser (page.evaluate, locator.evaluate):
+  // they need the DOM types the root config leaves out for the server code.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": ["**/*.ts"]
+}
