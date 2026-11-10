@@ -91,7 +91,7 @@ export function ShowPage() {
   const rowMenu = useContextMenu<string>((at, id) => setLookMenu({ id, ...at }));
   /** The folder header whose right-click menu is open (renamed or disbanded from there). */
   const [folderMenu, setFolderMenu] = useState<{ folder: string; x: number; y: number } | null>(null);
-  const folderRowMenu = useContextMenu<string>((at, folder) => setFolderMenu({ folder, ...at }));
+  const folderRowMenu = useContextMenu<string>((at, path) => setFolderMenu({ folder: path, ...at }));
   /** The looks picked to be moved together (⌘/Ctrl: one, Shift: framed from the anchor). */
   const [selection, setSelected] = useState<string[]>([]);
   const anchor = useRef<string | undefined>(undefined);
@@ -258,7 +258,6 @@ export function ShowPage() {
       window.removeEventListener("pointercancel", cancel);
       window.clearTimeout(release);
     };
-
   }, []);
   /** « Spot 3 · Dimmer/CW » per fixture, in the order of the fader's channels; ids for an unknown fixture. */
   const faderTargets = (f: ChannelFader) => {

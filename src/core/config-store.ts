@@ -159,7 +159,6 @@ export class ConfigStore {
   private async restrictExistingFileMode(): Promise<void> {
     try {
       const stats = await fs.promises.stat(this.filePath);
-
       if ((stats.mode & 0o777) !== SECRET_FILE_MODE) {
         await fs.promises.chmod(this.filePath, SECRET_FILE_MODE);
       }

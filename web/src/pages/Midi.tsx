@@ -80,7 +80,6 @@ function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }
     look();
     const timer = setInterval(look, 10_000);
     return () => clearInterval(timer);
-
   }, []);
   const act = (key: string, name: string, args: unknown) => {
     setBusy(key);

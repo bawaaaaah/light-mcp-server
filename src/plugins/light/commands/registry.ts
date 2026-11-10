@@ -8,8 +8,7 @@
  *
  * MCP tools and HTTP routes are generated from this registry: no business logic lives in adapters.
  */
-import type { z} from "zod";
-import type { ZodTypeAny } from "zod";
+import type { z, ZodTypeAny } from "zod";
 import { say } from "../../../core/lang.js";
 
 export type Origin = "ui" | "midi" | "osc" | "os2l" | "ableset" | "mcp" | "timeline" | "cli" | "system";
