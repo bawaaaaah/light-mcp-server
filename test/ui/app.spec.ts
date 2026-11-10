@@ -3825,6 +3825,37 @@ test("venue plan: the selected fixture's panel creates a channel fader at the fi
   expect(errors).toEqual([]);
 });
 
+test("venue patch: a moving head's pan and tilt are inverted from its menu, and the patch shows it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Fx = { id: string; orientation?: { invertPan?: boolean; invertTilt?: boolean } };
+  const spot = ((await api(page, "venue.fixture.list")) as Fx[]).find((f) => f.id === "spot")!;
+  const inverted = async () => {
+    const o = ((await api(page, "venue.fixture.list")) as Fx[]).find((f) => f.id === "spot")!.orientation;
+    return [Boolean(o?.invertPan), Boolean(o?.invertTilt)];
+  };
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    const row = page.locator("tr", { hasText: "Lyre" }).filter({ has: page.locator("td") }).first();
+    await row.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
+    const pan = menu.getByRole("button", { name: "Inverser X (pan)", exact: true });
+    await expect(pan).toHaveAttribute("aria-pressed", "false");
+    await pan.click();
+    await expect.poll(inverted).toEqual([true, false]);
+    await expect(pan).toHaveAttribute("aria-pressed", "true");
+    await menu.getByRole("button", { name: "Inverser Y (tilt)", exact: true }).click();
+    await expect.poll(inverted).toEqual([true, true]);
+    await expect(row.locator(".badge.invert")).toHaveText("⇄ X·Y");
+    await pan.click();
+    await expect.poll(inverted).toEqual([false, true]); // one axis at a time: the other one kept
+    await expect(row.locator(".badge.invert")).toHaveText("⇄ Y");
+  } finally {
+    await api(page, "venue.fixture.put", { fixture: spot });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: a rectangular zone made from its size, shown on the plan, then deleted", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
