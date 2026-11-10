@@ -21,7 +21,7 @@ interface Explain {
   fixture?: { id: string; name: string; offset: number; channel?: string; attribute?: string; definition: boolean };
   intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number };
   faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
-  rawLooks: { id: string; name: string }[];
+  rawLooks: { id: string; name: string; leaving?: true }[];
   clamps: { rule: string; from: number; to: number }[];
 }
 
@@ -67,7 +67,7 @@ function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
         ))}
         {why.rawLooks.map((l) => (
           <li key={l.id}>
-            {t.whyRawLook} « {l.name} »
+            {t.whyRawLook} « {l.name} »{l.leaving ? ` (${t.whyLeaving})` : ""}
           </li>
         ))}
         {why.clamps.map((c, i) => (

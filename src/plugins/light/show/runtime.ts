@@ -99,7 +99,8 @@ export interface ChannelExplanation {
     factor: number;
   };
   faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number }[];
-  rawLooks: { id: string; name: string }[];
+  /** Looks writing the channel as a raw channel; `leaving` for one fading out (an exit fade, or under a crossfade): it still counts. */
+  rawLooks: { id: string; name: string; leaving?: true }[];
   clamps: Pick<Clamp, "rule" | "from" | "to">[];
 }
 
@@ -630,7 +631,12 @@ export class ShowRuntime {
       .list()
       .filter((f) => f.channels.some((c) => c.fixture === fixture.id && c.offset === offset))
       .map((f) => ({ id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), dca: f.dca, effective: this.faderLevel(f) * (f.dca && this.groups.get(f.dca) ? this.effectiveLevel(f.dca) : 1) }));
-    const rawLooks = [...this.active.values()].filter(({ look }) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset)).map(({ look }) => ({ id: look.id, name: look.name }));
+    const writes = (look: Look) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset) ?? false;
+    const leaving = [...this.releasing.values(), ...[...this.crossfades.values()].flatMap((x) => x.outgoing)].map(({ look }) => look);
+    const rawLooks = [
+      ...[...this.active.values()].filter(({ look }) => writes(look)).map(({ look }) => ({ id: look.id, name: look.name })),
+      ...leaving.filter((look) => writes(look) && !this.active.has(look.id)).map((look) => ({ id: look.id, name: look.name, leaving: true as const })),
+    ].filter((l, i, all) => all.findIndex((x) => x.id === l.id) === i);
     const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to }));
     return {
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r) },

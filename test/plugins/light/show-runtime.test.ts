@@ -1105,6 +1105,17 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(levels.at(-1)).to.equal(200);
   });
 
+  it("names a look still fading out among the raw writers dmx.explain lists", () => {
+    const { show, advance } = setup();
+    show.looks.put(sceneLook("scene", { exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[255]]));
+    show.go("scene");
+    advance(4);
+    expect(show.explainChannel(1, 1).rawLooks).to.deep.equal([{ id: "scene", name: "scene" }]);
+    show.stop("scene");
+    advance(1);
+    expect(show.explainChannel(1, 1).rawLooks).to.deep.equal([{ id: "scene", name: "scene", leaving: true }]); // not active, still writing
+  });
+
   it("rises its raw dimmer along its colours through an entry fade longer than a second", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 4 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));
