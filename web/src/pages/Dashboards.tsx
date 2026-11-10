@@ -394,7 +394,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), setFaders);
     latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), setSnapshots);
     latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
-  }, [reads]);
+  }, []);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
@@ -409,7 +409,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     const now = Object.keys(glide.groups);
     if (glided.current.some((id) => !now.includes(id))) latestRead(reads.current, "groups", cmd<Group[]>("group.list"), setGroups);
     glided.current = now;
-  }, [glide.groups, reads]);
+  }, [glide.groups]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
