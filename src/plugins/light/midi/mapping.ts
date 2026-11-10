@@ -30,6 +30,9 @@ export const OS2L_PORT = "OS2L";
 export const CommandCallSchema = z.object({ command: z.string(), args: z.record(z.string(), z.unknown()).prefault({}) });
 export type CommandCall = z.infer<typeof CommandCallSchema>;
 
+/** A command argument read as an id: strings and numbers as text, anything else as "". */
+export const argText = (value: unknown): string => (typeof value === "string" || typeof value === "number" ? String(value) : "");
+
 export const MappingSchema = z.object({
   id: z.string(),
   label: z.string().default(""),

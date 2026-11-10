@@ -191,7 +191,7 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
       return Array.from({ length: t.steps }, (_, step) => {
         const phase = step / t.steps;
         return out(
-          Array.from({ length: span }, (_, k) => {
+          Array.from({ length: span }, (_cell, k) => {
             const c = cols[(k + step) % cols.length]!;
             const level = 1 - t.depth * (0.5 + 0.5 * Math.cos(2 * Math.PI * (phase + k / Math.max(1, span))));
             return scaleColor(c, level);
@@ -244,7 +244,7 @@ export function generateSteps(t: Technique, cells: number, mirror: boolean): Ste
       const ranks = Math.max(1, t.wings ? Math.ceil(groups / 2) : groups);
       const order = t.shuffle ? shuffled(ranks, seedOf(t.colors.join()) + ranks) : undefined;
       return Array.from({ length: t.resolution }, (_, frame) =>
-        Array.from({ length: cells }, (_, k) => {
+        Array.from({ length: cells }, (_cell, k) => {
           let g = Math.floor(k / t.blocks);
           if (t.wings) g = Math.min(g, groups - 1 - g);
           const offset = ((order ? order[g]! : g) / ranks) * t.spread;

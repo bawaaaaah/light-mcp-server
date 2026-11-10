@@ -35,7 +35,7 @@ import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore, ID_RE } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
-import { MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
+import { argText, MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import { Os2lServer } from "./os2l/server.js";
 import type { Os2lEvent } from "./os2l/codec.js";
@@ -551,7 +551,7 @@ export class LightPlugin implements McpPlugin {
     if (this.router.isStandby()) return;
     const out: number[][] = [];
     for (const m of this.mapper.list()) {
-      const target = String(m.on.args.id ?? "");
+      const target = argText(m.on.args.id);
       if (m.on.command === "look.go") out.push(...this.mapper.syncState(m.id, this.runtime.isActive(target)));
       else if (m.on.command === "group.level") {
         const g = this.runtime.groups.get(target);
@@ -582,7 +582,7 @@ export class LightPlugin implements McpPlugin {
     const out = this.mapper.handle(m.msg, m.port);
     if (!this.router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
     const calls = out.calls.map((call) => {
-      const target = String(call.args.id ?? call.args.section ?? "");
+      const target = argText(call.args.id ?? call.args.section);
       return this.commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).then(
         () => ({ command: call.command, target, ok: true }),
         (err: Error) => {

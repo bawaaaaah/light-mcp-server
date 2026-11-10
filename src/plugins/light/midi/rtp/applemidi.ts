@@ -25,21 +25,21 @@ export function isControlPacket(buf: Buffer): boolean {
 
 export function encodeControl(p: ControlPacket): Buffer {
   if (p.command === "CK") {
-    const buf = Buffer.alloc(36);
-    buf.writeUInt16BE(APPLEMIDI_SIGNATURE, 0);
-    buf.write("CK", 2, "ascii");
-    buf.writeUInt32BE(p.ssrc >>> 0, 4);
-    buf.writeUInt8(p.count, 8);
-    p.timestamps.forEach((t, i) => buf.writeBigUInt64BE(BigInt.asUintN(64, t), 12 + i * 8));
-    return buf;
+    const clock = Buffer.alloc(36);
+    clock.writeUInt16BE(APPLEMIDI_SIGNATURE, 0);
+    clock.write("CK", 2, "ascii");
+    clock.writeUInt32BE(p.ssrc >>> 0, 4);
+    clock.writeUInt8(p.count, 8);
+    p.timestamps.forEach((t, i) => clock.writeBigUInt64BE(BigInt.asUintN(64, t), 12 + i * 8));
+    return clock;
   }
   if (p.command === "RS") {
-    const buf = Buffer.alloc(12);
-    buf.writeUInt16BE(APPLEMIDI_SIGNATURE, 0);
-    buf.write("RS", 2, "ascii");
-    buf.writeUInt32BE(p.ssrc >>> 0, 4);
-    buf.writeUInt16BE(p.sequence & 0xffff, 8);
-    return buf;
+    const reset = Buffer.alloc(12);
+    reset.writeUInt16BE(APPLEMIDI_SIGNATURE, 0);
+    reset.write("RS", 2, "ascii");
+    reset.writeUInt32BE(p.ssrc >>> 0, 4);
+    reset.writeUInt16BE(p.sequence & 0xffff, 8);
+    return reset;
   }
   const name = Buffer.from(p.command === "BY" ? "" : `${p.name}\0`, "utf8");
   const buf = Buffer.alloc(16 + name.length);

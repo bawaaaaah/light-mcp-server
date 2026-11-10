@@ -17,7 +17,7 @@ export interface ProgramClip {
 const attr = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** The clip name Live users expect: the program's name and Live's own numbering (#PC + 1). */
-export const programClipName = (name: string, programChange: number) => `${name} #${programChange + 1}`;
+export const programClipName = (name: string, programChange: number): string => `${name} #${programChange + 1}`;
 
 export function cloneProgramClip(shellXml: string, clip: ProgramClip): string {
   const start = shellXml.indexOf("<MidiClip ");

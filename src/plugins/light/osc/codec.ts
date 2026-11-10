@@ -53,11 +53,11 @@ function readString(buf: Buffer, offset: number): [string, number] {
 export function decodeOsc(buf: Buffer): OscMessage[] {
   if (buf.length >= 8 && buf.toString("ascii", 0, 8) === "#bundle\0") {
     const out: OscMessage[] = [];
-    let i = 16; // "#bundle\0" + 8-byte time tag
-    while (i + 4 <= buf.length) {
-      const size = buf.readInt32BE(i);
-      out.push(...decodeOsc(buf.subarray(i + 4, i + 4 + size)));
-      i += 4 + size;
+    let at = 16; // "#bundle\0" + 8-byte time tag
+    while (at + 4 <= buf.length) {
+      const size = buf.readInt32BE(at);
+      out.push(...decodeOsc(buf.subarray(at + 4, at + 4 + size)));
+      at += 4 + size;
     }
     return out;
   }

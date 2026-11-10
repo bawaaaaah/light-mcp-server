@@ -17,8 +17,8 @@ export function langOf(header: string | string[] | undefined): Lang | undefined 
 }
 
 /** Runs `fn` answering in `lang` (French when absent), awaited work included. */
-export function inLang<T>(lang: Lang | undefined, fn: () => T): T {
-  return current.run(lang ?? "fr", fn);
+export function inLang<T>(language: Lang | undefined, fn: () => T): T {
+  return current.run(language ?? "fr", fn);
 }
 
 /** The language of the request being answered. */

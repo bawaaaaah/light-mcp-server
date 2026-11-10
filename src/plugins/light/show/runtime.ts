@@ -11,6 +11,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
+import type { FixtureChannel } from "../venue/qxf-import.js";
 import { addRaw, addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
@@ -86,6 +87,20 @@ function seedOf(s: string): number {
   let h = 2166136261;
   for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return h >>> 0;
+}
+
+/** What `ShowRuntime.explainChannel` answers: `intensity` is absent when no fixture owns the channel. */
+export interface ChannelExplanation {
+  fixture: { id: string; name: string; offset: number; channel: string | undefined; attribute: FixtureChannel["attribute"] | undefined; definition: boolean } | undefined;
+  intensity?: {
+    grandMaster: number;
+    grandMasterSent: number;
+    dcas: { id: string; name: string; own: number; effective: number }[];
+    factor: number;
+  };
+  faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number }[];
+  rawLooks: { id: string; name: string }[];
+  clamps: Pick<Clamp, "rule" | "from" | "to">[];
 }
 
 export class ShowRuntime {
@@ -595,12 +610,12 @@ export class ShowRuntime {
    * raw-channel looks writing it, and the rules that bounded it on the last frame. The caller adds
    * the output value and any forcing from the console, which live in the engine.
    */
-  explainChannel(universe: number, channel: number) {
+  explainChannel(universe: number, channel: number): ChannelExplanation {
     // an installed fixture first: an absent one on the same address sends nothing there
     const fixture = [...this.venue.installed(), ...this.venue.fixtures.list().filter((f) => this.venue.absent.has(f.id))].find((f) => {
       if (f.universe !== universe || channel < f.address) return false;
-      const r = this.venue.resolve(f.id);
-      return channel < f.address + ("error" in r ? 1 : r.mode.channels.length);
+      const resolved = this.venue.resolve(f.id);
+      return channel < f.address + ("error" in resolved ? 1 : resolved.mode.channels.length);
     });
     if (!fixture) return { fixture: undefined, faders: [], rawLooks: [], clamps: [] };
     const offset = channel - fixture.address;
@@ -861,7 +876,7 @@ export class ShowRuntime {
         rawOf(o.look, o.player, w * o.player.entryWeight(now));
         moveOf(o.look, o.player);
       }
-      const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? new Map());
+      const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? emptyFrame().colors);
       shared.set(x, inside);
       mergeColors(frame.colors, settle(outside), this.settings.looksMerge);
     }

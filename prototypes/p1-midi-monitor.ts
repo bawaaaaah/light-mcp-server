@@ -42,7 +42,7 @@ type MidiOutput = {
 const require = createRequire(import.meta.url);
 let midi: { Input: new () => MidiInput; Output: new () => MidiOutput };
 try {
-  midi = require("@julusian/midi");
+  midi = require("@julusian/midi") as typeof midi;
   new midi.Input().getPortCount();
 } catch (err) {
   console.error("MIDI local indisponible :", (err as Error).message);

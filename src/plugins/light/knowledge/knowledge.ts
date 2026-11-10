@@ -17,7 +17,7 @@ export const KnowledgeSchema = z.object({ version: z.number().default(1), source
 export type Knowledge = z.infer<typeof KnowledgeSchema>;
 export type Energy = "pose" | "dynamique" | "survolte";
 
-export const normalizeMood = (word: string) =>
+export const normalizeMood = (word: string): string =>
   word
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -41,9 +41,9 @@ export function deltaE(a: string, b: string): number {
     const [r, g, bl] = [lin(c.red ?? 0), lin(c.green ?? 0), lin(c.blue ?? 0)];
     const x = (r * 0.4124 + g * 0.3576 + bl * 0.1805) / 0.95047;
     const y = r * 0.2126 + g * 0.7152 + bl * 0.0722;
-    const z = (r * 0.0193 + g * 0.1192 + bl * 0.9505) / 1.08883;
+    const zc = (r * 0.0193 + g * 0.1192 + bl * 0.9505) / 1.08883;
     const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))] as const;
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(zc))] as const;
   };
   const [l1, a1, b1] = lab(a);
   const [l2, a2, b2] = lab(b);

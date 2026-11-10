@@ -19,7 +19,7 @@ import { signedInView, type AuthService, type UserSummary } from "./auth.js";
 import { createPasskeyRouter, type PasskeyService } from "./passkeys.js";
 import type { OAuthIntegration } from "./oauth.js";
 import type { EventBus } from "./event-bus.js";
-import { bodyString } from "./http-body.js";
+import { bodyField, bodyString } from "./http-body.js";
 import { errorHandler, HttpError } from "./http-errors.js";
 import { inLang, langOf } from "./lang.js";
 import { createMcpServer } from "./mcp-server-factory.js";
@@ -233,7 +233,7 @@ export class Gateway {
       admin,
       express.json(),
       wrap(async (req, res) => {
-        const disabled = req.body?.disabled;
+        const disabled = bodyField(req.body, "disabled");
         res.json(userJson(await auth.updateUser(String(req.params.id), { name: bodyString(req.body, "name"), role: bodyString(req.body, "role"), disabled: typeof disabled === "boolean" ? disabled : undefined })));
       }),
     );

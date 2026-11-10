@@ -124,4 +124,4 @@ export const PROMPTS: LightPrompt[] = [
 ];
 
 /** The zod shape the MCP SDK wants for a prompt's arguments. */
-export const promptArgs = (p: LightPrompt) => Object.fromEntries(Object.entries(p.args).map(([k, d]) => [k, z.string().optional().describe(d)]));
+export const promptArgs = (p: LightPrompt): Record<string, z.ZodOptional<z.ZodString>> => Object.fromEntries(Object.entries(p.args).map(([k, d]) => [k, z.string().optional().describe(d)]));

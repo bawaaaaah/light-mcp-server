@@ -160,8 +160,8 @@ export class AuthService implements AuthMiddleware {
     if (!admin.rights.includes("*")) admin.rights = ["*"];
     const stored = configStore?.getAuthSessions();
     for (const entry of Array.isArray(stored) ? stored : []) {
-      const parsed = SessionSchema.safeParse(entry);
-      if (parsed.success && parsed.data.expiresAt > this.now()) this.sessions.set(parsed.data.hash, { userId: parsed.data.userId, expiresAt: parsed.data.expiresAt });
+      const session = SessionSchema.safeParse(entry);
+      if (session.success && session.data.expiresAt > this.now()) this.sessions.set(session.data.hash, { userId: session.data.userId, expiresAt: session.data.expiresAt });
     }
     // per-role PINs (before users): one user per role, same id, name and PIN
     for (const role of this.state.roles) {

@@ -7,7 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
-import type { Mapping } from "../midi/mapping.js";
+import { argText, type Mapping } from "../midi/mapping.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { buildRackXml, readAdg, writeAdg } from "../ableton/midi-effect-rack.js";
 import { slugify } from "../data/store.js";
@@ -17,7 +17,7 @@ import { say } from "../../../core/lang.js";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 /** Live names note 60 "C3" (note 0 = C-2). */
-export const liveNoteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 2}`;
+export const liveNoteName = (n: number): string => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 2}`;
 
 export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntime, mappings: () => Mapping[], dataRoot: string): void {
   const inside = (base: string, file: string) => {
@@ -27,10 +27,10 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
   };
   const label = (m: Mapping) => {
     if (m.label) return m.label;
-    const id = String(m.on.args.id ?? "");
+    const id = argText(m.on.args.id);
     return runtime.looks.get(id)?.name ?? runtime.groups.get(id)?.name ?? `${m.on.command} ${id}`.trim();
   };
-  const isDanger = (m: Mapping) => m.danger || Boolean(runtime.looks.get(String(m.on.args.id ?? ""))?.danger) || Boolean(runtime.looks.get(String(m.on.args.id ?? ""))?.manualOnly);
+  const isDanger = (m: Mapping) => m.danger || Boolean(runtime.looks.get(argText(m.on.args.id))?.danger) || Boolean(runtime.looks.get(argText(m.on.args.id))?.manualOnly);
 
   reg.register({
     name: "export.notes",

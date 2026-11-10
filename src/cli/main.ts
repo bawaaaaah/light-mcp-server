@@ -285,10 +285,11 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         return 0;
       }
       case "call": {
-        const [command, args] = positionals;
-        if (!command) throw new CliError("usage : light call <commande> [json] [--check]");
+        const [commandName, args] = positionals;
+        if (!commandName) throw new CliError("usage : light call <commande> [json] [--check]");
+        const payload: unknown = args ? JSON.parse(args) : {};
         // --check: what the write would change (show.diff), nothing written
-        json(values.check ? await caller.call("show.diff", { command, args: args ? JSON.parse(args) : {} }) : await caller.call(command, args ? JSON.parse(args) : {}));
+        json(values.check ? await caller.call("show.diff", { command: commandName, args: payload }) : await caller.call(commandName, payload));
         return 0;
       }
       default:

@@ -12,7 +12,7 @@
  */
 import { parseArgs } from "node:util";
 import { formatMidi, parseMidi } from "../src/plugins/light/midi/parse.js";
-import { RtpMidiSession } from "../src/plugins/light/midi/rtp/session.js";
+import { RtpMidiSession, type Peer } from "../src/plugins/light/midi/rtp/session.js";
 import { MidiClockFollower } from "../src/plugins/light/timing/midi-clock.js";
 
 const { values } = parseArgs({
@@ -61,8 +61,8 @@ if (values.bench) {
   const session = new RtpMidiSession({ name: values.name!, port: Number(values.port) });
   await session.start();
   const clock = new MidiClockFollower();
-  session.on("peer", (p) => console.log(`+ session connectée : « ${p.name} » ${p.address}:${p.controlPort}`));
-  session.on("peerLeft", (p) => console.log(`− session partie : « ${p.name} »`));
+  session.on("peer", (p: Peer) => console.log(`+ session connectée : « ${p.name} » ${p.address}:${p.controlPort}`));
+  session.on("peerLeft", (p: Peer) => console.log(`− session partie : « ${p.name} »`));
   session.on("clockSync", (s: { latencyMs: number }) => console.log(`  synchro d'horloge : latence estimée ${s.latencyMs.toFixed(2)} ms`));
   session.on("midi", (bytes: number[]) => {
     const now = performance.now();

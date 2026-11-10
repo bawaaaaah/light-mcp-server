@@ -501,7 +501,7 @@ export class Venue {
       if (!color) return;
       for (const t of targets[i] ?? []) {
         let heads = frame.colors.get(t.fixture);
-        if (!heads) frame.colors.set(t.fixture, (heads = new Map()));
+        if (!heads) frame.colors.set(t.fixture, (heads = new Map<number, Color>()));
         heads.set(t.head, color);
       }
     });
@@ -530,13 +530,13 @@ export class Venue {
       const raws = frame.raw.get(patch.id);
       if ("error" in r) {
         // No definition: the looks' raw channels stay verbatim by address, never faded.
-        const buf = buffers[patch.universe - 1];
-        if (buf && raws)
+        const rawBuf = buffers[patch.universe - 1];
+        if (rawBuf && raws)
           rawPass.push(() => {
             const i = patch.address - 1;
             for (const [offset, { value }] of raws) {
               const j = i + offset;
-              if (j >= 0 && j < 512) buf[j] = value;
+              if (j >= 0 && j < 512) rawBuf[j] = value;
             }
           });
         if (frame.colors.has(patch.id)) errors.push(r.error); // raw channels need no definition: not an error
@@ -637,7 +637,7 @@ export class Venue {
       }
       out[patch.id] = [...r.heads.values()].map((comps) => {
         const c: Color = {};
-        for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) c[comp] = at(off) * dimmer;
+        for (const [comp, offset] of Object.entries(comps) as [ColorComponent, number][]) c[comp] = at(offset) * dimmer;
         return displayHex(c);
       });
     }

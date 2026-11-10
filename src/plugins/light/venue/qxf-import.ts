@@ -138,21 +138,21 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
 
 export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
-  const text = `${name} ${preset ?? ""}`;
-  if (/sound|music|audio/i.test(text)) tags.add("soundActive");
-  if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(text) && !/manual/i.test(text)) tags.add("autoProgram");
-  if (/macro|built-?in/i.test(text)) tags.add("builtinMacro");
-  if (/strobe/i.test(text) && !/off|open/i.test(name)) tags.add("strobe");
-  if (/reset/i.test(text)) tags.add("reset");
-  if (/\buv\b|ultra ?violet/i.test(text)) tags.add("uv");
+  const haystack = `${name} ${preset ?? ""}`;
+  if (/sound|music|audio/i.test(haystack)) tags.add("soundActive");
+  if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
+  if (/macro|built-?in/i.test(haystack)) tags.add("builtinMacro");
+  if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
+  if (/reset/i.test(haystack)) tags.add("reset");
+  if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");
   return [...tags];
 }
 
 function text(node: unknown): string {
   if (node === undefined || node === null) return "";
   if (typeof node === "string") return node.trim();
-  if (typeof node === "object" && "#text" in (node as Record<string, unknown>)) return String((node as Record<string, unknown>)["#text"]).trim();
-  return String(node).trim();
+  if (typeof node === "object") return "#text" in node ? text(node["#text"]) : "";
+  return typeof node === "number" || typeof node === "boolean" ? String(node) : "";
 }
 
 /**
@@ -251,7 +251,7 @@ function tagMachineOutputs(channels: Map<string, FixtureChannel>, kind: string):
 }
 
 export function parseQxf(xml: string): FixtureDefinition {
-  const root = parser.parse(xml).FixtureDefinition as Record<string, unknown>;
+  const root = (parser.parse(xml) as { FixtureDefinition?: Record<string, unknown> }).FixtureDefinition;
   if (!root) throw new Error("not a QLC+ fixture definition");
   const channels = new Map<string, FixtureChannel>();
   for (const ch of (root.Channel as Record<string, unknown>[]) ?? []) {
@@ -281,7 +281,7 @@ export function findMode(def: FixtureDefinition, name: string, channels?: number
   return sameCount.length === 1 ? sameCount[0] : undefined;
 }
 
-export const sameName = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+export const sameName = (a: string, b: string): boolean => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** Most channels a QLC+ generic dimmer pack can have (its editor allows up to 512; packs stay small). */
 const GENERIC_DIMMER_MAX = 64;
@@ -300,7 +300,7 @@ export const GENERIC_DIMMER: FixtureDefinition = {
       return [name, { name, attribute: "intensity", capabilities: [{ min: 0, max: 255, name: "Intensity", tags: [] }], tags: [] }];
     }),
   ),
-  modes: Array.from({ length: GENERIC_DIMMER_MAX }, (_, i) => ({ name: `${i + 1} Channel`, channels: Array.from({ length: i + 1 }, (_, c) => `Dimmer ${c + 1}`), heads: [] })),
+  modes: Array.from({ length: GENERIC_DIMMER_MAX }, (_, i) => ({ name: `${i + 1} Channel`, channels: Array.from({ length: i + 1 }, (_slot, c) => `Dimmer ${c + 1}`), heads: [] })),
 };
 
 /** The definition of a model: from the loaded .qxf files, else QLC+'s built-in generic dimmer. */

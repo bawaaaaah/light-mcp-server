@@ -129,7 +129,9 @@ const parser = new XMLParser({
 });
 
 type Node = Record<string, unknown>;
-const txt = (v: unknown): string => (v === undefined || v === null ? "" : typeof v === "object" ? String((v as Node)["#text"] ?? "") : String(v)).trim();
+/** A scalar read as text; anything else (a missing value, a nested node) is "". */
+const str = (v: unknown): string => (typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : "");
+const txt = (v: unknown): string => (typeof v === "object" && v !== null ? str((v as Node)["#text"]) : str(v)).trim();
 const num = (v: unknown, d = 0): number => {
   const n = Number(txt(v));
   return Number.isFinite(n) ? n : d;
@@ -168,8 +170,8 @@ function parseFunction(f: Node): QxwFunction {
   const fn: QxwFunction = {
     id: num(f["@_ID"]),
     type: String(f["@_Type"]),
-    name: String(f["@_Name"] ?? ""),
-    path: String(f["@_Path"] ?? ""),
+    name: str(f["@_Name"]),
+    path: str(f["@_Path"]),
     speed: { fadeIn: num(speed["@_FadeIn"]), fadeOut: num(speed["@_FadeOut"]), duration: num(speed["@_Duration"]) },
     runOrder: f.RunOrder !== undefined ? txt(f.RunOrder) : undefined,
     direction: f.Direction !== undefined ? txt(f.Direction) : undefined,
@@ -186,7 +188,7 @@ function parseFunction(f: Node): QxwFunction {
       fadeIn: num(s["@_FadeIn"]),
       hold: num(s["@_Hold"]),
       fadeOut: num(s["@_FadeOut"]),
-      values: isChaserStep ? new Map() : parseStepValues(body),
+      values: isChaserStep ? new Map<number, Map<number, number>>() : parseStepValues(body),
       functionId: isChaserStep ? Number(body) : undefined,
     });
   }
@@ -212,7 +214,7 @@ function parseFunction(f: Node): QxwFunction {
   }
   if (fn.type === "RGBMatrix") {
     const alg = f.Algorithm as Node | string | undefined;
-    const type = typeof alg === "object" ? String(alg["@_Type"] ?? "") : "";
+    const type = typeof alg === "object" ? str(alg["@_Type"]) : "";
     const colors: (number | undefined)[] = [];
     for (const c of list(f.Color)) colors[num(c["@_Index"])] = Number(txt(c)) & 0xffffff;
     fn.matrix = {
@@ -242,45 +244,45 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
   for (const b of (node.Button as Node[] | undefined) ?? []) {
     const fnRaw = b.Function as Node | Node[] | undefined;
     const fn = Array.isArray(fnRaw) ? fnRaw[0] : fnRaw;
-    out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b.Action), input: inputOf(b) });
+    out.push({ kind: "button", id: num(b["@_ID"]), caption: str(b["@_Caption"]), soloFrame: solo, frames, frameKey, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b.Action), input: inputOf(b) });
   }
   for (const s of (node.Slider as Node[] | undefined) ?? []) {
     const level = s.Level as Node | undefined;
     const chans = ((level?.Channel as unknown[]) ?? []).map((c) => ({ fixture: num((c as Node)["@_Fixture"]), channel: num(c) }));
     // Playback sliders play a function at their level (4294967295 = none)
     const playedRaw = (s.Playback as Node | undefined)?.Function;
-    const played = Array.isArray(playedRaw) ? playedRaw[0] : playedRaw;
+    const played: unknown = Array.isArray(playedRaw) ? (playedRaw as unknown[])[0] : playedRaw;
     const playedId = played !== undefined && txt(played) !== "" ? Number(txt(played)) : undefined;
     const limit = (k: string, fallback: number) => (level?.[k] === undefined ? fallback : Math.max(0, Math.min(255, num(level[k]))));
     const levelLimits = { low: limit("@_LowLimit", 0), high: limit("@_HighLimit", 255) };
-    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s.SliderMode), input: inputOf(s), levelChannels: chans, levelLimits, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
+    out.push({ kind: "slider", id: num(s["@_ID"]), caption: str(s["@_Caption"]), soloFrame: solo, frames, frameKey, sliderMode: txt(s.SliderMode), input: inputOf(s), levelChannels: chans, levelLimits, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
   }
   for (const d of (node.SpeedDial as Node[] | undefined) ?? []) {
     const fns = d.Function;
-    const list = (Array.isArray(fns) ? fns : fns ? [fns] : []) as Node[];
+    const dialFunctions = (Array.isArray(fns) ? fns : fns ? [fns] : []) as Node[];
     const tap = d.Tap as Node | undefined;
     out.push({
       kind: "speeddial",
       id: num(d["@_ID"]),
-      caption: String(d["@_Caption"] ?? ""),
+      caption: str(d["@_Caption"]),
       frames,
       frameKey,
       input: tap ? inputOf(tap) : undefined,
-      speedDialFunctions: list.map((f) => ({ id: num(f), fadeIn: num(f["@_FadeIn"]), fadeOut: num(f["@_FadeOut"]), duration: num(f["@_Duration"]) })),
+      speedDialFunctions: dialFunctions.map((f) => ({ id: num(f), fadeIn: num(f["@_FadeIn"]), fadeOut: num(f["@_FadeOut"]), duration: num(f["@_Duration"]) })),
     });
   }
-  for (const c of (node.CueList as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: String(c["@_Caption"] ?? ""), frames, frameKey, input: inputOf(c) });
-  for (const f of (node.Frame as Node[] | undefined) ?? []) walkVc(f, [...frames, String(f["@_Caption"] ?? "")], solo, out, soloFrames, `${frameKey}/${String(f["@_ID"] ?? f["@_Caption"] ?? "")}`);
+  for (const c of (node.CueList as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: str(c["@_Caption"]), frames, frameKey, input: inputOf(c) });
+  for (const f of (node.Frame as Node[] | undefined) ?? []) walkVc(f, [...frames, str(f["@_Caption"])], solo, out, soloFrames, `${frameKey}/${str(f["@_ID"] ?? f["@_Caption"])}`);
   for (const f of (node.SoloFrame as Node[] | undefined) ?? []) {
     const id = num(f["@_ID"]);
     const before = out.length;
-    walkVc(f, [...frames, String(f["@_Caption"] ?? "")], id, out, soloFrames, `${frameKey}/${id}`);
-    soloFrames.push({ id, caption: String(f["@_Caption"] ?? ""), members: out.slice(before).filter((w) => w.kind === "button" && w.soloFrame === id).map((w) => w.id) });
+    walkVc(f, [...frames, str(f["@_Caption"])], id, out, soloFrames, `${frameKey}/${id}`);
+    soloFrames.push({ id, caption: str(f["@_Caption"]), members: out.slice(before).filter((w) => w.kind === "button" && w.soloFrame === id).map((w) => w.id) });
   }
 }
 
 export function parseQxw(xml: string): QxwWorkspace {
-  const ws = parser.parse(xml).Workspace as Node;
+  const ws = (parser.parse(xml) as { Workspace?: Node }).Workspace;
   if (!ws) throw new Error("not a QLC+ workspace");
   const engine = ws.Engine as Node;
   const fixtures: QxwFixture[] = ((engine.Fixture as Node[]) ?? []).map((f) => ({

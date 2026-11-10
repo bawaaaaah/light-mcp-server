@@ -200,10 +200,10 @@ export function qxwToShow(ws: QxwWorkspace, defs: FixtureDefinition[]): ImportPr
         warnings.push(fn.steps.length ? say(`« ${fn.name} » : aucune valeur enregistrée (tout à 0 ?) — non importée`, `“${fn.name}”: no value recorded (all at 0?) — not imported`) : say(`« ${fn.name} » : séquence vide — non importée`, `“${fn.name}”: empty sequence — not imported`));
         continue;
       }
-      const id = uniqueId(fn.name || `seq-${fn.id}`, lookTaken);
-      lookIds.set(fn.id, id);
+      const lookId = uniqueId(fn.name || `seq-${fn.id}`, lookTaken);
+      lookIds.set(fn.id, lookId);
       looks.push({
-        id,
+        id: lookId,
         name: fn.name,
         canvas: "qlc",
         technique: { kind: "aucune" },

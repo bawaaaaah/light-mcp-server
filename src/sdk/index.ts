@@ -90,7 +90,7 @@ export class LightClient {
    */
   async restoreArchive(bytes: Uint8Array, opts: { fixtures?: "missing" | "replace" | "none"; dryRun?: boolean } = {}): Promise<unknown> {
     const query = new URLSearchParams({ fixtures: opts.fixtures ?? "missing", ...(opts.dryRun ? { dryRun: "1" } : {}) });
-    const res = await this.request(`/api/plugins/light/archive?${query}`, { method: "POST", headers: { "content-type": "application/zip" }, body: bytes });
+    const res = await this.request(`/api/plugins/light/archive?${query.toString()}`, { method: "POST", headers: { "content-type": "application/zip" }, body: bytes });
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) throw new LightError(res.status, body.error ?? res.statusText);
     return body;

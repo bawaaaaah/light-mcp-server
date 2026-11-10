@@ -48,7 +48,7 @@ type Vec = { x: number; y: number; z: number };
 export function landing(o: Vec, d: Vec, zones: Zone[]): Vec & { floor: boolean } {
   if (d.z < -0.05) {
     let t = -o.z / d.z;
-    const zone = zones.find((z) => pointInPolygon(o.x + t * d.x, o.y + t * d.y, z.polygon));
+    const zone = zones.find((candidate) => pointInPolygon(o.x + t * d.x, o.y + t * d.y, candidate.polygon));
     if (zone?.floorHeight) t = (zone.floorHeight - o.z) / d.z;
     if (t > 0 && t < 20) return { x: o.x + t * d.x, y: o.y + t * d.y, z: o.z + t * d.z, floor: true };
   }
@@ -58,16 +58,16 @@ export function landing(o: Vec, d: Vec, zones: Zone[]): Vec & { floor: boolean }
 /** Whether a beam crosses a zone up to `height` above its floor (head height and more), within 20 m. */
 export function beamCrosses(o: Vec, d: Vec, zone: Zone, height = 2.5): boolean {
   for (let t = 0.1; t <= 20; t += 0.1) {
-    const [x, y, z] = [o.x + t * d.x, o.y + t * d.y, o.z + t * d.z];
-    if (z < zone.floorHeight - 0.05) return false; // below its floor: the beam has hit the ground
-    if (z <= zone.floorHeight + height && pointInPolygon(x, y, zone.polygon)) return true;
+    const [x, y, zAt] = [o.x + t * d.x, o.y + t * d.y, o.z + t * d.z];
+    if (zAt < zone.floorHeight - 0.05) return false; // below its floor: the beam has hit the ground
+    if (zAt <= zone.floorHeight + height && pointInPolygon(x, y, zone.polygon)) return true;
   }
   return false;
 }
 
 export function zoneOf(f: PatchedFixture, zones: Zone[]): Zone | undefined {
   if (!f.position) return undefined;
-  return zones.find((z) => pointInPolygon(f.position!.x, f.position!.y, z.polygon));
+  return zones.find((zone) => pointInPolygon(f.position!.x, f.position!.y, zone.polygon));
 }
 
 export interface StageQuery {
@@ -114,11 +114,11 @@ export function queryStage(fixtures: PatchedFixture[], zones: Zone[], q: StageQu
 /** Plain-French description of the stage, for the AI (light://stage). */
 export function describeStage(fixtures: PatchedFixture[], zones: Zone[]): string {
   const lines: string[] = [];
-  for (const z of zones) {
-    const inside = fixtures.filter((f) => zoneOf(f, zones)?.id === z.id);
-    const aiming = fixtures.filter((f) => f.target === z.id);
+  for (const zone of zones) {
+    const inside = fixtures.filter((f) => zoneOf(f, zones)?.id === zone.id);
+    const aiming = fixtures.filter((f) => f.target === zone.id);
     lines.push(
-      `Zone « ${z.name} » (${z.type}${z.floorHeight ? `, plancher à ${z.floorHeight} m` : ""}${z.protected ? ", PROTÉGÉE" : ""}${z.tags.length ? `, ${z.tags.join(", ")}` : ""}) : ` +
+      `Zone « ${zone.name} » (${zone.type}${zone.floorHeight ? `, plancher à ${zone.floorHeight} m` : ""}${zone.protected ? ", PROTÉGÉE" : ""}${zone.tags.length ? `, ${zone.tags.join(", ")}` : ""}) : ` +
         `${inside.length ? `contient ${inside.map((f) => f.name).join(", ")}` : "aucun projecteur dedans"}; ` +
         `${aiming.length ? `éclairée par ${aiming.map((f) => `${f.name}${f.role ? ` (${f.role})` : ""}`).join(", ")}` : "aucun projecteur ne la vise"}.`,
     );

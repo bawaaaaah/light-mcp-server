@@ -57,23 +57,23 @@ export class DmxEngine {
     this.output.check(universe, channel);
     if (!Number.isInteger(value) || value < 0 || value > 255) throw new RangeError(`valeur ${value} hors de 0..255`);
     let u = this.programmer.get(universe);
-    if (!u) this.programmer.set(universe, (u = new Map()));
+    if (!u) this.programmer.set(universe, (u = new Map<number, number>()));
     u.set(channel, value);
   }
 
   release(universe?: number, channels?: number[]): number {
     if (universe === undefined) {
-      const n = [...this.programmer.values()].reduce((a, m) => a + m.size, 0);
+      const parked = [...this.programmer.values()].reduce((a, m) => a + m.size, 0);
       this.programmer.clear();
-      return n;
+      return parked;
     }
     this.output.check(universe);
     const u = this.programmer.get(universe);
     if (!u) return 0;
     if (!channels) {
-      const n = u.size;
+      const parked = u.size;
       this.programmer.delete(universe);
-      return n;
+      return parked;
     }
     let n = 0;
     for (const c of channels) if (u.delete(c)) n += 1;

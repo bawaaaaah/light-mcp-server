@@ -52,7 +52,7 @@ function mixStep(a: Step, b: Step, t: number): Step {
 }
 
 /** Smoothstep easing for fades. */
-export const ease = (t: number) => t * t * (3 - 2 * t);
+export const ease = (t: number): number => t * t * (3 - 2 * t);
 
 export class LookPlayer {
   private startBeats = 0;

@@ -122,17 +122,17 @@ export class TempoClock {
       if (s.bpm) this.lastMidiBpm = s.bpm;
       const bpm = s.bpm ?? this.lastMidiBpm ?? this.manualBpm;
       const freeRun = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * bpm;
-      let beats: number;
+      let followed: number;
       if (s.running) {
         // Follow the ticks played (SPP jumps do not move them); a start continues from the free-run.
-        beats = this.lastPlayed === undefined ? freeRun : this.anchor.beats + (s.played - this.lastPlayed);
+        followed = this.lastPlayed === undefined ? freeRun : this.anchor.beats + (s.played - this.lastPlayed);
         this.lastPlayed = s.played;
-        this.anchor = { atMs: t, beats };
+        this.anchor = { atMs: t, beats: followed };
       } else {
         this.lastPlayed = undefined; // stopped or missing: free-run from the last followed point
-        beats = freeRun;
+        followed = freeRun;
       }
-      return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats, position: s.running ? s.beats : null, clockMissing: !s.receiving, clock: s.receiving };
+      return { bpm, source: "midi", receiving: s.receiving, running: s.running, beats: followed, position: s.running ? s.beats : null, clockMissing: !s.receiving, clock: s.receiving };
     }
     let beats = this.anchor.beats + ((t - this.anchor.atMs) / 60000) * this.manualBpm;
     if (this.nudge) {

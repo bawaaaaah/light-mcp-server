@@ -195,7 +195,7 @@ export class ServiceTable {
       const until = nowMs + r.ttl * 1000;
       if (r.kind === "ptr" && r.name === service) this.ptr.set(r.instance, { label: r.label, until });
       else if (r.kind === "srv") this.srv.set(r.name, { host: r.host, port: r.port, until });
-      else if (r.kind === "a") this.a.set(r.name, (this.a.get(r.name) ?? new Map()).set(r.address, until));
+      else if (r.kind === "a") this.a.set(r.name, (this.a.get(r.name) ?? new Map<string, number>()).set(r.address, until));
     }
   }
 

@@ -44,7 +44,7 @@ const server = createSocket("udp4");
 server.on("message", (buf, rinfo) => {
   for (const msg of decodeOsc(buf)) {
     if (msg.address === "/light/help") {
-      for (const r of ROUTES) server.send(encodeOsc({ address: "/light/help/route", args: [r.pattern, r.args, r.description] }), rinfo.port, rinfo.address);
+      for (const entry of ROUTES) server.send(encodeOsc({ address: "/light/help/route", args: [entry.pattern, entry.args, entry.description] }), rinfo.port, rinfo.address);
       continue;
     }
     if (msg.address === "/bench/ping") {
@@ -80,7 +80,7 @@ if (values.bench) {
   // /light/help round trip
   const help: string[] = [];
   client.removeAllListeners("message");
-  client.on("message", (buf) => help.push(String(decodeOsc(buf)[0]!.args[0])));
+  client.on("message", (buf) => help.push(JSON.stringify(decodeOsc(buf)[0]!.args[0])));
   client.send(encodeOsc({ address: "/light/help", args: [] }), port, "127.0.0.1");
   await new Promise((res) => setTimeout(res, 100));
   rtts.sort((a, b) => a - b);

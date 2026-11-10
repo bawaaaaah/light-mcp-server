@@ -27,7 +27,7 @@ import { say } from "../../../core/lang.js";
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
-  const id = z.object({ id: z.string() });
+  const idSchema = z.object({ id: z.string() });
   /**
    * What uses a look, a group or a fader (show/references.ts). Songs and mappings are opened on
    * call: a store collection keeps the schema of its first opening, and the plugin opens those two
@@ -102,7 +102,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (unknown.length) throw new Error(say(`fixture inconnue : ${unknown.join(", ")}`, `unknown fixture: ${unknown.join(", ")}`));
       // ids this venue does not have are kept: they are another venue's, should the show go back to it (show.venue.set)
       const absent = new Set(show.settings.absentFixtures);
-      for (const i of ids) present ? absent.delete(i) : absent.add(i);
+      for (const i of ids) {
+        if (present) absent.delete(i);
+        else absent.add(i);
+      }
       show.saveSettings({ absentFixtures: [...absent].sort() });
       return { absent: [...absent].filter((i) => venue.fixtures.get(i)).sort(), changed: [...ids].sort() };
     },
@@ -216,9 +219,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return ids.map((i, k) => {
         const f = venue.fixtures.get(i)!;
         // hung fixtures hang from the rig whatever the floor; the others stand on the zone
-        const z = height !== undefined ? zone.floorHeight + height : mountHeight(f.mount) + (f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling" ? 0 : zone.floorHeight);
+        const zPos = height !== undefined ? zone.floorHeight + height : mountHeight(f.mount) + (f.mount === "hung" || f.mount === "truss" || f.mount === "ceiling" ? 0 : zone.floorHeight);
         const orientation = facing ? { invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...f.orientation, ...orientTo(f.orientation, facing) } : f.orientation;
-        const saved = venue.fixtures.put({ ...f, position: { ...points[k]!, z: Math.round(z * 10) / 10 }, ...(orientation ? { orientation } : {}) });
+        const saved = venue.fixtures.put({ ...f, position: { ...points[k]!, z: Math.round(zPos * 10) / 10 }, ...(orientation ? { orientation } : {}) });
         return { id: i, position: saved.position, ...(orientation ? { facing: facingOf(saved.orientation) } : {}) };
       });
     },
@@ -252,7 +255,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Removes a fixture from the patch. Returns what still refers to it (groups, channel faders, raw channels of looks, canvases), to fix by hand; `show.lint` reports them too.",
     right: "show:write",
     profiles: ["setup"],
-    schema: id,
+    schema: idSchema,
     run: ({ id: i }) => {
       const usedBy = [
         ...show.groups.list().filter((g) => g.members.fixtures.includes(i)).map((g) => `groupe ${g.name}`),
@@ -280,7 +283,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- stage
   reg.register({ name: "stage.zone.list", title: "Zones", description: "Stage zones (type, floor height, tags, protected).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => show.zones.list() });
   reg.register({ name: "stage.zone.put", title: "Zone", description: "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected.", right: "show:write", profiles: ["setup"], schema: z.object({ zone: ZoneSchema }), run: ({ zone }) => show.zones.put(zone) });
-  reg.register({ name: "stage.zone.delete", title: "Supprimer une zone", description: "Deletes a zone.", right: "show:write", profiles: ["setup"], schema: id, run: ({ id: i }) => ({ deleted: show.zones.delete(i) }) });
+  reg.register({ name: "stage.zone.delete", title: "Supprimer une zone", description: "Deletes a zone.", right: "show:write", profiles: ["setup"], schema: idSchema, run: ({ id: i }) => ({ deleted: show.zones.delete(i) }) });
   reg.register({
     name: "stage.query",
     title: "Interroger la scène",
@@ -347,7 +350,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
-    schema: id,
+    schema: idSchema,
     run: ({ id: i }) => {
       const l = show.looks.get(i);
       if (!l) throw new Error(say(`look inconnu : ${i}`, `unknown look: ${i}`));
@@ -557,7 +560,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp" || ctx.origin === "ableset");
     },
   });
-  reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: id, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
+  reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: idSchema, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
   reg.register({ name: "look.stopall", title: "Tout arrêter", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
 
   // ---- groups
@@ -737,9 +740,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
 
   // ---- rules
   const where = z.enum(["venue", "show"]).default("show");
-  const coll = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
+  const rulesOf = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
   reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
-  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => coll(w).put(rule) });
+  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => rulesOf(w).put(rule) });
   reg.register({
     name: "rule.effective",
     title: "Règles en vigueur",
@@ -797,7 +800,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Deletes a rule program (its rules stay, unused, until reassigned).",
     right: "show:write",
     profiles: ["setup"],
-    schema: id,
+    schema: idSchema,
     run: ({ id: i }) => {
       if (show.activeProgram === i) show.selectProgram(undefined);
       return { deleted: show.programs.delete(i) };
@@ -812,7 +815,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string().nullable() }),
     run: ({ id: i }) => ({ active: (show.selectProgram(i ?? undefined), show.activeProgram ?? null) }),
   });
-  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: coll(w).delete(i) }) });
+  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: rulesOf(w).delete(i) }) });
 
   // ---- dashboards
   const dashboards = show.store.collection("dashboards", DashboardSchema);
@@ -830,7 +833,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     },
   });
   reg.register({ name: "dashboard.put", title: "Dashboard", description: "Creates or updates a dashboard (columns, widgets with grid position, target, mode, roles allowed).", right: "show:write", profiles: ["design"], schema: z.object({ dashboard: DashboardSchema }), run: ({ dashboard }) => dashboards.put(dashboard) });
-  reg.register({ name: "dashboard.delete", title: "Supprimer un dashboard", description: "Deletes a dashboard.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => ({ deleted: dashboards.delete(i) }) });
+  reg.register({ name: "dashboard.delete", title: "Supprimer un dashboard", description: "Deletes a dashboard.", right: "show:write", profiles: ["design"], schema: idSchema, run: ({ id: i }) => ({ deleted: dashboards.delete(i) }) });
   reg.register({
     name: "dashboard.generate",
     title: "Générer un dashboard",
@@ -1203,7 +1206,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Puts a snapshot back at once: only its looks play, its DCA, faders, grand master, program and Blackout are set. Objects deleted since are skipped and listed.",
     right: "commands:snapshot",
     profiles: ["live", "design"],
-    schema: id,
+    schema: idSchema,
     run: ({ id: i }) => {
       const snap = show.snapshots.get(i);
       if (!snap) throw new Error(say(`instantané inconnu : ${i}`, `unknown snapshot: ${i}`));
@@ -1218,7 +1221,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Deletes a snapshot (and unsets it as the safe state).",
     right: "show:write",
     profiles: ["design"],
-    schema: id,
+    schema: idSchema,
     run: ({ id: i }) => {
       if (show.settings.safeSnapshot === i) show.saveSettings({ safeSnapshot: undefined });
       return { deleted: show.snapshots.delete(i) };

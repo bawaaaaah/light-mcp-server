@@ -114,10 +114,10 @@ export function calibrate(f: Pick<AimSetup, "position" | "hung" | "panMax" | "ti
       if (!raw) return null;
       const rec: [number, number] = [((invertPan ? 1 - s.pan : s.pan) - 0.5) * f.panMax, ((invertTilt ? 1 - s.tilt : s.tilt) - 0.5) * f.tiltMax];
       // the equivalent solution the operator actually used: the closest to what was recorded
-      const best = angleCandidates(raw)
+      const closest = angleCandidates(raw)
         .map(([p, t]) => [wrap(p - rec[0]), t - rec[1]] as [number, number])
         .sort((a, b) => Math.hypot(...a) - Math.hypot(...b))[0]!;
-      residuals.push(best);
+      residuals.push(closest);
     }
     const tiltOffset = residuals.reduce((a, r) => a + r[1], 0) / residuals.length;
     const errors = residuals.map(([p, t]) => Math.hypot(p, t - tiltOffset));

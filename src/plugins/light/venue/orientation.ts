@@ -18,7 +18,7 @@ export type Facing = keyof typeof FACINGS;
 export const FACING_NAMES = Object.keys(FACINGS) as [Facing, ...Facing[]];
 
 /** A heading in (−180, 180]. */
-export const wrapYaw = (d: number) => {
+export const wrapYaw = (d: number): number => {
   const w = ((((d + 180) % 360) + 360) % 360) - 180;
   return w === -180 ? 180 : w;
 };
