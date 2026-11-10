@@ -12,7 +12,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addRaw, addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -806,17 +806,25 @@ export class ShowRuntime {
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
-    /** Raw channels of the looks, by fixture then offset: every look's contribution summed with its weight (rawWrite settles them). */
-    const lookChannels = new Map<string, Map<number, RawWrite>>();
-    const rawOf = (look: Look, player: LookPlayer, weight: number): void => {
+    /**
+     * Raw channels of the looks, by fixture then offset: every look's write with its weight and its sheet — a
+     * crossfade and the looks it replaces share one (`x:<incoming>`), any other look has its own — so that
+     * venue.toDmx shares a channel inside a sheet and keeps the highest sheet (rawLevel).
+     */
+    const lookChannels = new Map<string, Map<number, RawWrite[]>>();
+    const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
       if (!look.channels) return;
       const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
       look.channels.targets.forEach((t, k) => {
-        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite>();
-        const value = row[k] ?? 0;
-        byOffset.set(t.offset, addRaw(byOffset.get(t.offset), value, weight));
+        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
+        byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet }]);
         lookChannels.set(t.fixture, byOffset);
       });
+    };
+    /** Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine fade). */
+    const paints = (colors: AttributeFrame["colors"], weight: number): AttributeFrame["colors"] => {
+      for (const f of colors.keys()) frame.painted.set(f, (frame.painted.get(f) ?? 0) + Math.max(0, weight));
+      return colors;
     };
     /** A look's colours on its own sheet, scaled by `fade` and the masters of its groups, its exclusions taken out. */
     const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
@@ -850,12 +858,13 @@ export class ShowRuntime {
     // Each look on its own sheet, then onto the others (show setting looksMerge), in this order so that a look just
     // started (or still playing) wins over the one leaving, in colours and in movement; their weight rides into the
     // looks' raw channels the same way. First the looks fading out on exit.
-    for (const r of this.releasing.values()) {
+    for (const [id, r] of this.releasing) {
       const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
       if (t >= 1) continue;
-      mergeColors(frame.colors, colorsOf(r.look, r.player, 1 - ease(t)), this.settings.looksMerge);
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
-      rawOf(r.look, r.player, (1 - ease(t)) * r.player.entryWeight(now));
+      const w = (1 - ease(t)) * r.player.entryWeight(now);
+      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w), this.settings.looksMerge);
+      rawOf(r.look, r.player, w, `exit:${id}`);
       moveOf(r.look, r.player);
     }
     // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
@@ -867,13 +876,13 @@ export class ShowRuntime {
       if (x) ownOf.set(x, colorsOf(look, player, this.inWeight(x, now)));
     }
     const shared = new Map<Crossfade, WeightedColors>();
-    for (const x of this.crossfades.values()) {
+    for (const [key, x] of this.crossfades) {
       let leaving: WeightedColors = new Map();
       for (const o of x.outgoing) {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
-        leaving = addWeighted(leaving, weighted(colorsOf(o.look, o.player, w), w));
-        rawOf(o.look, o.player, w * o.player.entryWeight(now));
+        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now)), w));
+        rawOf(o.look, o.player, w * o.player.entryWeight(now), `x:${key}`);
         moveOf(o.look, o.player);
       }
       const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? emptyFrame().colors);
@@ -884,8 +893,9 @@ export class ShowRuntime {
       const x = this.crossfades.get(look.id);
       // a look rising on its own rises with its entry fade, like its colours; one coming in over another
       // (a crossfade) carries the crossfade's weight
-      rawOf(look, player, x ? this.inWeight(x, now) : player.entryWeight(now));
-      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(ownOf.get(x)!, this.inWeight(x, now)))) : colorsOf(look, player, 1);
+      const w = x ? this.inWeight(x, now) : player.entryWeight(now);
+      rawOf(look, player, w, x ? `x:${look.id}` : `look:${look.id}`);
+      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w), w))) : paints(colorsOf(look, player, 1), w);
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);
     }

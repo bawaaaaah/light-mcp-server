@@ -1042,6 +1042,69 @@ describe("a look's raw channels ride its fade (T3)", () => {
     });
   }
 
+  it("doses the dimmer once per machine look, however many machine channels it holds", () => {
+    const sample = (offsets: number[]) => {
+      const { show, dmx, advance } = setup();
+      show.looks.put(sceneLook("machine", { entryFade: 2 }, offsets.map((offset) => ({ fixture: "bar-l", offset })), [offsets.map(() => 200)]));
+      show.go("machine");
+      const levels: number[] = [];
+      for (let i = 0; i <= 5; i++) {
+        levels.push(dmx()[0]!);
+        advance(1);
+      }
+      return levels;
+    };
+    expect(sample([1, 2])).to.deep.equal(sample([2])); // two machine channels: the same fade as one, not twice as fast
+  });
+
+  it("hands the dimmer from a painting look fading out to a machine look fading in, without a jump", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "paint", name: "Paint", canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, timing: { exitFade: 1 } });
+    show.looks.put(sceneLook("machine", { entryFade: 6 }, [{ fixture: "bar-l", offset: 2 }], [[200]]));
+    show.go("paint");
+    advance(4);
+    show.go("machine");
+    advance(4); // 2 s into its 6 s entry
+    show.stop("paint");
+    const levels: number[] = [];
+    for (let i = 0; i <= 30; i++) {
+      levels.push(dmx()[0]!);
+      advance(0.2);
+    }
+    // the paint's 1 s exit at most: smoothstep's steepest slope (1.5 / s) over the whole travel, per 100 ms — not the half drop in one frame there was
+    for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), `step at ${i * 100} ms: ${levels.join(",")}`).to.be.at.most(39);
+    expect(levels.at(-1)).to.be.above(levels[10]!); // then it rises with the machine look's entry
+  });
+
+  it("keeps a look that writes its own colours at full dimmer while it also holds a machine channel", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("scene", { entryFade: 2 }, [{ fixture: "bar-l", offset: 2 }, { fixture: "bar-l", offset: 3 }], [[200, 255]]));
+    show.go("scene");
+    advance(2); // half way in
+    const b = dmx();
+    expect(b[3]).to.equal(128); // its raw red rides its weight, once
+    expect(b[0]).to.equal(255); // and the dimmer does not dose it a second time
+  });
+
+  it("keeps a crossfade straight when an unrelated look writes 0 on the same channel", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("a", { exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[255]]));
+    show.looks.put(sceneLook("b", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[200]]));
+    show.looks.put(sceneLook("c", {}, [{ fixture: "bar-l", offset: 0 }], [[0]]));
+    show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+    show.go("c");
+    show.go("a");
+    advance(4);
+    show.go("b");
+    const levels: number[] = [];
+    for (let i = 0; i <= 24; i++) {
+      levels.push(dmx()[0]!);
+      advance(0.2);
+    }
+    for (const v of levels) expect(v, levels.join(",")).to.be.within(200, 255); // C does not cross them: the highest sheet wins
+    expect(levels.at(-1)).to.equal(200);
+  });
+
   it("rises its raw dimmer along its colours through an entry fade longer than a second", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 4 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));

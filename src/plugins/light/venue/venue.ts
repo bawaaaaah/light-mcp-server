@@ -76,42 +76,50 @@ export type Canvas = z.infer<typeof CanvasSchema>;
 export type Color = Partial<Record<ColorComponent, number>>; // components 0..1
 
 /**
- * The looks' writes on one raw channel, each with its look's fade weight, summed like the colours of a
- * cell (docs/specs/engine-effects-timing.md, « Fondu des canaux bruts d'un look »): `value` is the
- * strongest value (a machine channel holds it verbatim), `weight` the summed weights, `dosed` the sum of
- * value × weight and `peak` the strongest value × weight (the level of a dimmer or colour offset, see rawLevel).
+ * One look's write on a raw channel (docs/specs/engine-effects-timing.md, « Fondu des canaux bruts d'un
+ * look »): its DMX value, the fade weight of its look, the look, and the sheet it rides on — a crossfade
+ * and the looks it replaces share one sheet, every other look has its own.
  */
 export interface RawWrite {
   value: number;
   weight: number;
-  dosed: number;
-  peak: number;
-}
-
-/** Adds one look's write (its value, its weight) to what the other looks wrote on the channel. */
-export function addRaw(prev: RawWrite | undefined, value: number, weight: number): RawWrite {
-  const w = Math.max(0, weight);
-  if (!prev) return { value, weight: w, dosed: value * w, peak: value * w };
-  return { value: Math.max(prev.value, value), weight: prev.weight + w, dosed: prev.dosed + value * w, peak: Math.max(prev.peak, value * w) };
+  look: string;
+  sheet: string;
 }
 
 /**
- * The level a dosed raw channel (a dimmer or colour offset) is sent at, as a cell shares its colours:
- * weights summing to 1 or less add up (a crossfade goes from one value to the other without a dip or a
- * jump), beyond 1 the channel is shared (÷ the weights) but never under the strongest single dose, so
- * two looks at full keep the highest value (HTP).
+ * The level a dosed raw channel (a dimmer or colour offset) is sent at. On one sheet the writes share
+ * the channel as a cell shares its colours: weights summing to 1 or less add up (a crossfade goes from
+ * one value to the other without a dip or a jump), beyond 1 the channel is shared (÷ the weights).
+ * Between sheets — looks that do not cross — the highest wins (HTP): an unrelated look writing 0 there
+ * does not dig into a crossfade.
  */
-export function rawLevel(w: RawWrite): number {
-  return Math.max(w.peak, w.weight > 1 ? w.dosed / w.weight : w.dosed);
+export function rawLevel(writes: readonly RawWrite[]): number {
+  const sheets = new Map<string, { dosed: number; weight: number }>();
+  for (const x of writes) {
+    const w = Math.max(0, x.weight);
+    const sheet = sheets.get(x.sheet) ?? { dosed: 0, weight: 0 };
+    sheet.dosed += x.value * w;
+    sheet.weight += w;
+    sheets.set(x.sheet, sheet);
+  }
+  let level = 0;
+  for (const { dosed, weight } of sheets.values()) level = Math.max(level, weight > 1 ? dosed / weight : dosed);
+  return level;
 }
+
+/** The strongest value written on a raw channel: a machine channel holds it verbatim. */
+export const rawValue = (writes: readonly RawWrite[]): number => writes.reduce((top, x) => Math.max(top, x.value), 0);
 
 export interface AttributeFrame {
   /** fixtureId → head (-1 = whole fixture) → colour */
   colors: Map<string, Map<number, Color>>;
   /** fixtureId → intensity 0..1 (from groups/masters; default 1) */
   intensity: Map<string, number>;
-  /** fixtureId → channel offset (0-based in the mode) → raw DMX value with its look's fade weight */
-  raw: Map<string, Map<number, RawWrite>>;
+  /** fixtureId → channel offset (0-based in the mode) → every look's write there, with its fade weight */
+  raw: Map<string, Map<number, RawWrite[]>>;
+  /** fixtureId → summed fade weight of the looks painting it: colours that dose themselves (see `fade`). */
+  painted: Map<string, number>;
   /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
   positions: Map<string, Position>;
   /**
@@ -136,7 +144,7 @@ function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; op
   return offset < 0 ? undefined : { offset, opens: def.channels.get(mode.channels[offset]!)!.zoom === "opens" };
 }
 
-export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), positions: new Map(), fade: new Map() });
+export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), painted: new Map(), positions: new Map(), fade: new Map() });
 
 /** How the colours of several looks playing on the same fixture combine (show setting `looksMerge`). */
 export type LooksMerge = "last" | "highest";
@@ -534,9 +542,9 @@ export class Venue {
         if (rawBuf && raws)
           rawPass.push(() => {
             const i = patch.address - 1;
-            for (const [offset, { value }] of raws) {
+            for (const [offset, writes] of raws) {
               const j = i + offset;
-              if (j >= 0 && j < 512) rawBuf[j] = value;
+              if (j >= 0 && j < 512) rawBuf[j] = rawValue(writes);
             }
           });
         if (frame.colors.has(patch.id)) errors.push(r.error); // raw channels need no definition: not an error
@@ -552,15 +560,26 @@ export class Venue {
       const colorOffsets = new Set<number>();
       if (raws) for (const comps of r.heads.values()) for (const off of Object.values(comps)) colorOffsets.add(off);
       const painted = frame.colors.get(patch.id);
-      // The fade of this frame: the summed weight (at most 1) of the fixture's machine-channel writes (the
-      // contributions that cannot dose themselves), dosing the dimmer(s) no look wrote; 1 without one. A
-      // fixture a look paints is dosed by its colours already: the machine weight leaves its dimmer alone.
-      // So does a lamp-only fixture always: its dimmer is its painted level, which carries the painting
-      // looks' weights (dosing it again would fade it twice), and unpainted it stays dark anyway.
+      // The fade of this frame, look by look. A look that paints the fixture or writes one of its dimmer
+      // or colour offsets doses itself; one that only writes machine channels (a wheel, a macro, an
+      // effect) cannot, and its weight — once per look, however many channels it holds — doses the
+      // dimmer(s) no look wrote. The dimmer follows the machine weight plus the weight of what doses
+      // itself, at most 1: a fixture a look lights at full keeps its dimmer, and a painting look fading
+      // away under a machine look hands the dimmer over without a jump. 1 without a machine look. A
+      // lamp-only fixture never takes it: its dimmer is its painted level, which carries the painting
+      // looks' weights already (dosing it again would fade it twice), and unpainted it stays dark anyway.
+      const dosing = new Map<string, number>();
+      const machines = new Map<string, number>();
+      for (const [offset, writes] of raws ?? []) {
+        const own = r.dimmers.includes(offset) || colorOffsets.has(offset);
+        if (!own && offset >= r.mode.channels.length) continue; // off the definition: verbatim, no fade
+        for (const x of writes) (own ? dosing : machines).set(x.look, Math.max((own ? dosing : machines).get(x.look) ?? 0, x.weight));
+      }
       let machine: number | undefined;
-      for (const [offset, { weight }] of raws ?? []) if (!r.dimmers.includes(offset) && !colorOffsets.has(offset) && offset < r.mode.channels.length) machine = Math.min(1, (machine ?? 0) + weight);
+      for (const [look, w] of machines) if (!dosing.has(look)) machine = Math.min(1, (machine ?? 0) + w);
       if (machine !== undefined) frame.fade.set(patch.id, machine);
-      const fade = machine === undefined || painted || r.lampOnly ? 1 : machine;
+      const selfDosed = [...dosing.values()].reduce((sum, w) => sum + w, frame.painted.get(patch.id) ?? 0);
+      const fade = machine === undefined || r.lampOnly ? 1 : Math.min(1, machine + selfDosed);
       const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
       for (const [off, v] of r.shutterOpen) write(off, v);
@@ -582,10 +601,10 @@ export class Venue {
       }
       if (raws)
         rawPass.push(() => {
-          for (const [offset, w] of raws) {
-            if (r.dimmers.includes(offset)) write(offset, rawLevel(w)); // the looks own the dimmer: dosed once
-            else if (colorOffsets.has(offset)) write(offset, rawLevel(w)); // a colour offset scales with the looks
-            else write(offset, w.value); // a machine channel: verbatim, a machine never fades
+          for (const [offset, writes] of raws) {
+            if (r.dimmers.includes(offset)) write(offset, rawLevel(writes)); // the looks own the dimmer: dosed once
+            else if (colorOffsets.has(offset)) write(offset, rawLevel(writes)); // a colour offset scales with the looks
+            else write(offset, rawValue(writes)); // a machine channel: verbatim, a machine never fades
           }
         });
     }
