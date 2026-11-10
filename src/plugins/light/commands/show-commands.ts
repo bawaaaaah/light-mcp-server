@@ -14,7 +14,7 @@ import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, Pale
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
-import { folderOf, withFolder } from "../show/folders.js";
+import { folderOf, inTree, nestOf, renamedPath, withFolder } from "../show/folders.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -398,20 +398,35 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: () => TechniqueSchema.options.map((o) => ({ kind: o.shape.kind.value, schema: z.toJSONSchema(o, { io: "input", reused: "inline", unrepresentable: "any" }) })),
   });
 
-  // ---- folders: the looks' `dossier:` tag (show/folders.ts), not an object of its own — it exists
-  // only while some look carries it. Each look goes through look.put: its checks and history apply.
+  // ---- folders: the looks' `dossier:` tag (show/folders.ts), not an object of its own — a folder
+  // born from tags lives as long as its looks; one named ahead (show.folder.create) stays, stored
+  // with the show's settings. Every look goes through look.put: its checks and history apply.
   const folderName = z
     .string()
     .trim()
     .min(1)
     .max(100)
-    .describe("a folder name, free to create");
-  /** Every look of the show whose folder is `name` (an empty `dossier:` tag counts for nothing). */
-  const inFolder = (name: string) => show.looks.list().filter((l) => folderOf(l.tags) === name);
+    .refine((v) => !v.startsWith("/") && !v.endsWith("/") && !v.includes("//"), { message: "a folder may nest by path (« Famille/Sous-dossier »): no slash at the ends, no empty segment" })
+    .describe("a folder name or path (« Famille/Sous-dossier »), free to create");
+  /** Every look in the folder `name`, its whole sub-tree included. */
+  const underFolder = (name: string) => show.looks.list().filter((l) => inTree(l.tags, name));
+  const setNamedFolders = (next: string[]) => show.saveSettings({ folders: [...new Set(next)].sort((a, b) => a.localeCompare(b)) });
   const moveThroughLookPut = async (looks: { id: string; tags: string[]; [k: string]: unknown }[], folder: string | undefined, ctx: CommandContext) => {
     for (const l of looks) await reg.invoke("look.put", { look: { ...l, tags: withFolder(l.tags, folder) } }, ctx);
     return looks.length;
   };
+  reg.register({
+    name: "show.folder.create",
+    title: "Créer un dossier",
+    description: "Names a folder ahead: it exists empty until a look moves into it, and until show.folder.delete dissolves it (a folder only born from looks' tags lives as long as they do).",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ folder: folderName }),
+    run: ({ folder }) => {
+      setNamedFolders([...show.settings.folders, folder]);
+      return { created: folder };
+    },
+  });
   reg.register({
     name: "show.folder.move",
     title: "Déplacer des looks",
@@ -431,25 +446,49 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.folder.rename",
     title: "Renommer un dossier",
-    description: "Renames the `dossier:` tag of every look of the folder; renaming onto an existing folder merges the two. A look twice tagged counts under its first folder, and its extra tags are cleaned by the rewrite.",
+    description: "Renames the `dossier:` tag of every look of the folder, its sub-folders included (their path keeps its tail); renaming onto an existing folder merges the two. A look twice tagged counts under its first folder, and its extra tags are cleaned by the rewrite. Folders named ahead in the subtree move with it.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ from: folderName, to: folderName }),
     run: async ({ from, to }, ctx) => {
-      const count = from === to ? 0 : await moveThroughLookPut(inFolder(from), to, ctx);
-      return { renamed: count, from, to };
+      if (to.startsWith(from + "/")) throw new Error(say(`« ${to} » serait un sous-dossier de « ${from} »`, `“${to}” would become a sub-folder of “${from}”`));
+      if (from === to) return { renamed: 0, from, to };
+      const subtree = underFolder(from);
+      for (const l of subtree) await reg.invoke("look.put", { look: { ...l, tags: withFolder(l.tags, renamedPath(folderOf(l.tags)!, from, to)) } }, ctx);
+      const stored = show.settings.folders.map((f) => renamedPath(f, from, to));
+      if (stored.some((f, i) => f !== show.settings.folders[i])) setNamedFolders(stored);
+      return { renamed: subtree.length, from, to };
     },
   });
   reg.register({
     name: "show.folder.delete",
     title: "Dissoudre un dossier",
-    description: "Empties a folder: every look of it goes back « sans dossier » (the looks stay — the folder only ever was their `dossier:` tag).",
+    description: "Empties a folder, its sub-folders included: every look of them goes back « sans dossier » (the looks stay), and folders named ahead in the subtree stop existing.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ folder: folderName }),
-    run: async ({ folder }, ctx) => ({
-      disbanded: await moveThroughLookPut(inFolder(folder), undefined, ctx),
-    }),
+    run: async ({ folder }, ctx) => {
+      const disbanded = await moveThroughLookPut(underFolder(folder), undefined, ctx);
+      const left = show.settings.folders.filter((f) => f !== folder && !f.startsWith(folder + "/"));
+      if (left.length !== show.settings.folders.length) setNamedFolders(left);
+      return { disbanded };
+    },
+  });
+  reg.register({
+    name: "show.folder.nest",
+    title: "Nicher un dossier",
+    description: "Moves a folder — its looks and sub-folders along — under a parent folder (« B » under « A » becomes « A/B »), or back to the top level when `under` is absent.",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ src: folderName, under: folderName.optional() }),
+    run: async ({ src, under }, ctx) => {
+      const target = nestOf(src, under);
+      if (target === src) return { nested: 0, from: src, to: target };
+      const exists = underFolder(src).length > 0 || show.settings.folders.some((f) => f === src || f.startsWith(src + "/"));
+      if (!exists) throw new Error(say(`dossier inconnu : ${src}`, `unknown folder: ${src}`));
+      const out = (await reg.invoke("show.folder.rename", { from: src, to: target }, ctx)) as { renamed: number };
+      return { nested: out.renamed, from: src, to: target };
+    },
   });
   reg.register({
     name: "look.preview",

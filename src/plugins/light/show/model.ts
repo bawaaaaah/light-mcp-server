@@ -147,6 +147,8 @@ export const ShowSettingsSchema = z.object({
   venue: z.string().default("default"),
   /** Fixtures of the venue that are not installed for this show: kept in the patch, but dark, silent on DMX and ignored by the address check. */
   absentFixtures: z.array(z.string()).default([]),
+  /** Folders named ahead for this show: they exist even before a look carries them (the rest come from the looks' dossier: tags). */
+  folders: z.array(z.string()).default([]),
   /** Look recalled by « Panic neutre » when no safe snapshot is set; none → Blackout. */
   safeLook: z.string().optional(),
   /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */

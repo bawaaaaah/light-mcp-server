@@ -1678,10 +1678,14 @@ test("show page: the editor's folder field survives the tags field, and creates 
     await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
     await page.getByLabel("Modifier Soliste").click();
     const dialog = page.getByRole("dialog", { name: "Soliste" });
-    const folderField = dialog.getByLabel("Dossier");
+    const folderField = dialog.getByLabel("Dossier", { exact: true });
     await expect(folderField).toHaveValue("Machines");
     await expect(folderField).toHaveAttribute("list", "look-folder-suggestions");
+    // the folder can be picked from the known ones (nested paths included), and typing follows both ways
+    const chooser = dialog.getByLabel("Choisir un dossier");
+    await expect(chooser).toHaveValue("Machines");
     await folderField.fill("Rigging"); // a folder is created by typing it
+    await expect(chooser).toHaveValue("Rigging");
     // typing tags and blurring must not erase the folder typed just before
     await dialog.getByLabel("tags").fill("libre");
     await dialog.getByLabel("tags").press("Tab");
@@ -1762,6 +1766,8 @@ test("show page: picked looks drag together onto a folder header", async ({ page
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    // the ghost label follows the pointer: counted when several looks are carried
+    await expect(page.locator(".drag-ghost")).toContainText("2 looks");
     await expect(header).toHaveClass(/drop/);
     await page.mouse.up();
     await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "drag-a" })) as { tags: string[] }).tags)).toEqual([]);
@@ -1785,6 +1791,7 @@ test("show page: a look's menu creates a folder and goes straight into it", asyn
     await page.locator("button.look", { hasText: "Méca 0" }).click({ button: "right" });
     const menu = page.getByRole("dialog", { name: "Look", exact: true });
     await menu.getByRole("textbox", { name: "Nouveau dossier…" }).fill("Véranda");
+    await menu.screenshot({ path: "test-results/folder-menu.png" });
     await menu.getByRole("button", { name: "Nouveau dossier…" }).click();
     await expect(menu.getByRole("textbox", { name: "Nouveau dossier…" })).toHaveValue(""); // the field clears
     await expect.poll(async () => ((await api(page, "look.get", { id: "new-mc" })) as { tags: string[] }).tags).toEqual(["dossier:Véranda"]);
@@ -1792,6 +1799,134 @@ test("show page: a look's menu creates a folder and goes straight into it", asyn
     await page.keyboard.press("Escape");
   } finally {
     await api(page, "look.delete", { id: "new-mc", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: the looks bar creates a folder, empty or from the picked looks", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [folderLook("bar-a", "Trapeze 0", [], canvas), folderLook("bar-b", "Trapeze 1", [], canvas)];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // the ✔ stays disabled while the name is empty
+    await page.getByRole("button", { name: "📁 Nouveau dossier…" }).click();
+    const bar = page.locator(".folder-create");
+    await expect(bar.getByRole("button", { name: "Enregistrer", exact: true })).toBeDisabled();
+    // bare-handed, a validation names the folder: it is born empty and its header waits for drops
+    await bar.getByRole("combobox", { name: "Nouveau dossier…" }).fill("Génie");
+    await bar.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(bar).toBeHidden();
+    await expect(page.locator("tr.group-row button", { hasText: "Génie (0)" })).toBeVisible();
+    // picked looks follow: the hint counts them, one validation files them in
+    await page.getByRole("button", { name: "📁 Nouveau dossier…" }).click();
+    await expect(bar).toBeVisible();
+    await page.locator("button.look", { hasText: "Trapeze 0" }).click({ modifiers: ["ControlOrMeta"] });
+    await page.locator("button.look", { hasText: "Trapeze 1" }).click({ modifiers: ["ControlOrMeta"] });
+    await expect(bar).toContainText("2 look(s)");
+    await bar.getByRole("combobox", { name: "Nouveau dossier…" }).fill("Trappe");
+    await bar.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(bar).toBeHidden();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "bar-a" })) as { tags: string[] }).tags)).toEqual(["dossier:Trappe"]);
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "bar-b" })) as { tags: string[] }).tags)).toEqual(["dossier:Trappe"]);
+    await expect(page.locator("tr.group-row button", { hasText: "Trappe (2)" })).toBeVisible();
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+    await api(page, "show.folder.delete", { folder: "Génie", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: Ctrl+click on a mac selects instead of opening the menu", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "look.put", { look: folderLook("mctrl", "Orchidée", [], canvas) });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // Ctrl+click is a right-click for the browser: here it selects, like ⌘ does
+    await page.locator("button.look", { hasText: "Orchidée" }).click({ modifiers: ["Control"] });
+    await expect(page.getByRole("dialog")).toHaveCount(0); // no look menu opened
+    await expect(page.locator("tr", { hasText: "Orchidée" })).toHaveClass(/selected/);
+    // a true right-click still opens the look's menu
+    await page.locator("button.look", { hasText: "Orchidée" }).click({ button: "right" });
+    await expect(page.getByRole("dialog", { name: "Look", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await api(page, "look.delete", { id: "mctrl", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("show page: folders nest by path, from the menu and by dragging a header onto another", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  const extra = [folderLook("nest-a", "Trapeze 0", ["dossier:Nid"], canvas), folderLook("nest-b", "Mousse", [], canvas)];
+  for (const l of extra) await api(page, "look.put", { look: l });
+  await api(page, "show.folder.create", { folder: "Bois" });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    // a sub-folder is created from the header's menu, with the parent's name ready before the last segment
+    await page.locator("tr.group-row[data-folder=Nid]").click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Dossier", exact: true });
+    await menu.getByRole("button", { name: "➕ Sous-dossier" }).click();
+    const field = menu.getByRole("textbox", { name: "➕ Sous-dossier" });
+    await expect(field).toHaveValue("Nid/");
+    await field.fill("Nid/Oeuf");
+    await field.press("Enter");
+    await expect(menu).toBeHidden();
+    await expect.poll(async () => ((await api(page, "show.settings")) as { folders: string[] }).folders).toContain("Nid/Oeuf");
+    await expect(page.locator("tr.group-row button", { hasText: "Oeuf (0)" })).toBeVisible();
+    // a look dropped on the sub-header takes the whole path, and the parent counts its subtree
+    const source = page.locator("button.look", { hasText: "Trapeze 0" });
+    const target = page.locator('tr.group-row[data-folder="Nid/Oeuf"]');
+    const from = (await source.boundingBox())!;
+    const to = (await target.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    await expect(target).toHaveClass(/drop/);
+    await page.mouse.up();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "nest-a" })) as { tags: string[] }).tags)).toEqual(["dossier:Nid/Oeuf"]);
+    // the row says where it stands without a label: the member tint marks what the folder holds
+    await expect(page.locator("tr", { hasText: "Trapeze 0" })).toHaveClass(/member/);
+    await expect(page.locator("tr.group-row button", { hasText: "Nid (1)" })).toBeVisible();
+    await page.screenshot({ path: "test-results/folder-tree.png" }); // the tree look, to review
+    await expect(page.locator("tr.group-row button", { hasText: "Oeuf (1)" })).toBeVisible();
+    // folding the parent folds its whole branch
+    await page.locator("tr.group-row button", { hasText: "Nid (1)" }).click();
+    await expect(page.locator("button.look", { hasText: "Trapeze 0" })).toBeHidden();
+    await expect(page.locator("tr.group-row button", { hasText: "Oeuf (1)" })).toBeHidden();
+    await page.locator("tr.group-row button", { hasText: "Nid (1)" }).click();
+    // a folder header dragged onto another nests it, looks along
+    const carried = page.locator('tr.group-row[data-folder="Nid/Oeuf"]');
+    const home = page.locator("tr.group-row[data-folder=Bois]");
+    const from2 = (await carried.boundingBox())!;
+    const to2 = (await home.boundingBox())!;
+    await page.mouse.move(from2.x + from2.width / 2, from2.y + from2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to2.x + to2.width / 2, to2.y + to2.height / 2, { steps: 8 });
+    await expect(home).toHaveClass(/drop/);
+    await page.mouse.up();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "nest-a" })) as { tags: string[] }).tags)).toEqual(["dossier:Bois/Oeuf"]);
+    await expect(page.locator("tr.group-row button", { hasText: "Bois (1)" })).toBeVisible();
+    await expect(page.locator("tr.group-row[data-folder=Nid]")).toHaveCount(0); // the emptied parent was not named: it vanishes
+    // a look dropped on another look files into that look's folder, the row lighting as its target
+    // (hover() brings the pointer on each side itself: bounding boxes go stale under every scroll)
+    const bare = page.locator("button.look", { hasText: "Mousse" });
+    const member = page.locator("tr[data-look=nest-a]");
+    await bare.hover();
+    await page.mouse.down();
+    await member.hover();
+    await expect(member).toHaveClass(/drop-row/);
+    await page.mouse.up();
+    await expect.poll(async () => folderTags(((await api(page, "look.get", { id: "nest-b" })) as { tags: string[] }).tags)).toEqual(["dossier:Bois/Oeuf"]);
+  } finally {
+    for (const l of extra) await api(page, "look.delete", { id: l.id, force: true });
+    for (const f of ["Bois", "Nid"]) await api(page, "show.folder.delete", { folder: f, force: true });
   }
   expect(errors).toEqual([]);
 });

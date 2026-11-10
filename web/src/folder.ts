@@ -34,3 +34,15 @@ export function withFolder(tags: string[], folder?: string): string[] {
 export function withoutFolderTag(tags: string[]): string[] {
   return tags.filter((t) => !t.startsWith(FOLDER));
 }
+
+/** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
+export const SEPARATOR = "/";
+
+/** True when a look sits in the folder `node` itself or nested under it. */
+export function inTree(tags: string[], node: string): boolean {
+  const f = folderOf(tags);
+  return f === node || (f !== undefined && node !== "" && f.startsWith(node + SEPARATOR));
+}
+
+/** A path read as people read it: « Rigging/Trappe » shown « Rigging ▸ Trappe ». */
+export const folderLabel = (path: string) => path.split(SEPARATOR).join(" ▸ ");

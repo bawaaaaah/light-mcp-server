@@ -613,6 +613,11 @@ textarea {
 .field input[type="number"] {
   width: 6em;
 }
+/* a free input and its picker side by side (the folder of the look editor): the input takes the room */
+.field .row > input {
+  flex: 1;
+  min-width: 6em;
+}
 .field textarea {
   min-width: 12em;
   font-family: ui-monospace, monospace;
@@ -803,6 +808,7 @@ table.listing[hidden] {
 table.listing button.look {
   white-space: nowrap;
 }
+/* the folder reads on the members, not on each name: the member tint above and the branch rails say it */
 table.sections th {
   text-align: left;
   font-size: 0.75rem;
@@ -2240,7 +2246,8 @@ body.kiosk .app {
   border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
   vertical-align: baseline;
 }
-/* the looks, grouped by folder (a header as wide as the table, a button because it folds) */
+/* the looks, grouped by folder: an airy tree — switcher and grip in their columns, vertical guides
+  at every tab step (--step) of nesting, no line between the rows, a hover for the pointer */
 .group-row td {
   padding: 0;
 }
@@ -2250,21 +2257,178 @@ body.kiosk .app {
   background: none;
   border: none;
   border-radius: 4px;
-  padding: 0.3em 0.4em;
+  padding: 0.45em 0.5em;
+  padding-left: calc(0.4em + var(--depth, 0) * 1.4em);
+  position: relative;
   font-weight: 600;
+  transition: background 0.15s ease;
 }
 .group-row button:hover {
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
-/* the looks picked to move together (⌘/Ctrl or Maj), and the header a drag hovers */
+/* the guides of each ancestor level, drawn with a repeating gradient at every step */
+.group-row .rails {
+  position: absolute;
+  left: 0.55em;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--depth) * 1.4em);
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 calc(0.02em + 1px),
+    var(--line) calc(0.02em + 1px) calc(0.02em + 2px),
+    transparent calc(0.02em + 2px) 1.4em
+  );
+  pointer-events: none;
+}
+.group-row .fold {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.group-row button:hover .fold {
+  color: var(--text);
+}
+.group-row .count {
+  color: var(--muted);
+  font-weight: 400;
+}
+.group-row .grip::before,
+.folder-list td:first-child > .grip::before {
+  color: var(--muted);
+  font-size: 0.8rem;
+  opacity: 0;
+  pointer-events: none;
+}
+.group-row .grip::before,
+.folder-list td:first-child > .grip::before {
+  content: "⠿";
+}
+/* what a folder holds, without a label on every row: a whisper of accent behind the members, and
+  the branch of a nested look flowing through its rails, its own leg in accent */
+table.listing.folder-list tr.member td {
+  background: color-mix(in srgb, var(--accent) 3.5%, transparent);
+}
+.folder-list td:first-child > .spine {
+  position: absolute;
+  left: 0.55em;
+  top: -1px;
+  bottom: -1px;
+  width: calc(var(--depth) * 1.4em);
+  background-image:
+    linear-gradient(to right, transparent 0 calc(100% - 2px), color-mix(in srgb, var(--accent) 55%, transparent) calc(100% - 2px) 100%),
+    repeating-linear-gradient(to right, transparent 0 calc(0.02em + 1px), var(--line) calc(0.02em + 1px) calc(0.02em + 2px), transparent calc(0.02em + 2px) 1.4em);
+  pointer-events: none;
+}
+.group-row .grip {
+  position: absolute;
+  left: 0.2em;
+  top: 50%;
+  transform: translateY(-50%);
+  letter-spacing: -0.1em;
+}
+.folder-list td:first-child > .grip {
+  margin-right: 0.3em;
+}
+@media (hover: hover) and (pointer: fine) {
+  table.listing.folder-list tr:hover .grip {
+    opacity: 0.55;
+  }
+}
+/* the looks picked to move together (⌘/Ctrl or Maj), and the header a drag hovers; a rail marks the first picked cell, like a line chosen */
 table.listing tr.selected td {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+table.listing tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 table.listing tr.dragging td {
   opacity: 0.4;
 }
+/* the pointer of a drag: a poignée inside the list, and the ghost label of what is carried */
+table.listing.grabbing,
+table.listing.grabbing * {
+  cursor: grabbing !important;
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 60;
+  top: -10em;
+  left: -10em;
+  pointer-events: none;
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  padding: 0.3em 0.8em;
+  font-size: 0.9rem;
+  transform: rotate(-1.5deg) scale(1.03);
+}
 .group-row.drop td {
   box-shadow: inset 0 0 0 2px var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  transition: box-shadow 0.12s ease, background 0.12s ease;
+}
+/* a member row taking the drop: one outline for the whole row, not one box per cell — the sides only
+  on the first and last cell */
+tr.drop-row td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 2px 0 0 var(--accent), inset 0 -2px 0 0 var(--accent);
+  transition: box-shadow 0.12s ease, background 0.12s ease;
+}
+tr.drop-row td:first-child {
+  box-shadow: inset 2px 0 0 0 var(--accent), inset 0 2px 0 0 var(--accent), inset 0 -2px 0 0 var(--accent);
+}
+tr.drop-row td:last-child {
+  box-shadow: inset -2px 0 0 0 var(--accent), inset 0 2px 0 0 var(--accent), inset 0 -2px 0 0 var(--accent);
+}
+/* a row that would take the drop eases in as well, and the dragged lines dim gently */
+table.listing.folder-list td {
+  transition: background 0.15s ease, opacity 0.15s ease, box-shadow 0.12s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* no eased motion for the ones who ask for less */
+  table.listing.folder-list td,
+  .group-row button,
+  .group-row .fold,
+  .drag-ghost {
+    transition: none;
+  }
+}
+/* the tree breathes: no line between the rows, nested look rows indented as their header, the hover
+  shows where the hand stands (pointer only) */
+table.listing.folder-list td {
+  border-bottom-color: transparent;
+}
+table.listing.folder-list > tbody > tr:not(.group-row) > td:first-child {
+  position: relative;
+  padding-left: calc(0.4em + var(--depth, 0) * 1.4em);
+}
+@media (hover: hover) and (pointer: fine) {
+  table.listing.folder-list > tbody > tr:hover td {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+  /* the rows read as draggable, the buttons keep pointing at their own click */
+  table.listing.folder-list > tbody > tr {
+    cursor: grab;
+  }
+}
+/* the grouped list is a drag surface: the browser's own text selection would take the pointer over */
+table.listing.folder-list {
+  user-select: none;
+}
+/* « Nouveau dossier » of the look's menu: name and ✔ on one line (a .row of the menu wraps, and the ✔ carried to its own line under a full-width input) */
+.widget-menu .row.new-folder > input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.widget-menu .row.new-folder > button {
+  flex: none;
+  padding: 0.45em 0.7em;
 }
 
 /* M and F under a fader one column wide (56 px on a tablet): smaller, so neither is cut */

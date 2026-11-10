@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
-import { folderOf, foldersOf, withoutFolderTag } from "../folder";
+import { folderLabel, folderOf, foldersOf, inTree, withoutFolderTag } from "../folder";
 import { pick } from "../selection";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
@@ -51,12 +51,16 @@ interface Lint {
   ok: boolean;
   issues: { level: string; where: string; message: string }[];
 }
+/** What the pointer drags: picked looks, or a folder heading to nest elsewhere. */
+type Carry = { kind: "looks"; ids: string[] } | { kind: "folder"; path: string };
 interface Settings {
   safeLook?: string;
   safeSnapshot?: string;
   grandMaster: number;
   liveAi?: boolean;
   looksMerge?: "last" | "highest";
+  /** Folders named ahead for this show (show.folder.create), to group even before a look carries them. */
+  folders?: string[];
 }
 interface Snapshot {
   id: string;
@@ -94,13 +98,21 @@ export function ShowPage() {
   /** A looks list mirroring the latest render, for the pointer listeners that live for the page. */
   const looksRef = useRef(looks);
   looksRef.current = looks;
-  const pressed = useRef<{ ids: string[]; x: number; y: number } | null>(null);
+  const pressed = useRef<(Carry & { x: number; y: number }) | null>(null);
   const dragging = useRef(false);
-  const [dragged, setDragged] = useState<string[] | null>(null);
+  /** What the pointer carries once it moved enough: picked looks, or a folder to nest elsewhere. */
+  const [carried, setCarried] = useState<Carry | null>(null);
   /** The header hovered during a drag: undefined = none, "" = « sans dossier », or the folder name. */
   const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined);
+  /** The member look row hovered during a drag: dropping there files into that look's folder. */
+  const [dropRow, setDropRow] = useState<string | null>(null);
   /** The click that follows a real drag must not launch the look under it. */
   const afterDrag = useRef(false);
+  /** The ghost label that follows the pointer while the picked looks are dragged. */
+  const ghostEl = useRef<HTMLDivElement | null>(null);
+  /** A folder named here takes the looks picked in the list (a folder only exists through its looks). */
+  const [folderBar, setFolderBar] = useState(false);
+  const [folderDraft, setFolderDraft] = useState("");
   const [editingGroup, setEditingGroup] = useState<GroupDraft | null>(null);
   const [editingFader, setEditingFader] = useState<FaderDraft | null>(null);
   const [lookSearch, setLookSearch] = useState("");
@@ -125,7 +137,7 @@ export function ShowPage() {
       .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
+  useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const intentArgs = (save: boolean) => ({
@@ -138,8 +150,10 @@ export function ShowPage() {
     ...(intent.energy ? { energy: intent.energy } : {}),
     save,
   });
-  // the folders effectively in use (a look counts under its first named dossier: tag, an empty one counts for nothing)
-  const folders = foldersOf(looks);
+  // the folders in use — a look counts under its first named dossier: tag, an empty one counts for
+  // nothing — plus the ones named ahead (show.folder.create) which exist empty until dissolved
+  const savedFolders = new Set(settings?.folders ?? []);
+  const folders = [...new Set([...foldersOf(looks), ...(settings?.folders ?? [])])].sort((a, b) => a.localeCompare(b));
   const actifFolder = folders.includes(folder) ? folder : "";
   // a folder chosen for the filter and vanished since no longer filters, and does not silently come back when a later folder takes the same name
   useEffect(() => {
@@ -148,7 +162,8 @@ export function ShowPage() {
   const needle = lookSearch.trim().toLowerCase();
   const shownLooks = looks.filter(
     (l) =>
-      (!actifFolder || folderOf(l.tags) === actifFolder) &&
+      // the filter follows the tree: a folder shows its looks and the ones of its sub-folders
+      (!actifFolder || inTree(l.tags, actifFolder)) &&
       (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
   );
   const shownIds = useMemo(() => new Set(shownLooks.map((l) => l.id)), [shownLooks]);
@@ -168,24 +183,36 @@ export function ShowPage() {
   // the drag of picked looks onto a folder header (mouse or pen: a touch finger keeps scrolling, and
   // its menus move looks): one move command per drop, the looks read whole server-side
   useEffect(() => {
-    const headerAt = (x: number, y: number): string | undefined => {
-      const row = document.elementFromPoint(x, y)?.closest("tr.group-row") as HTMLTableRowElement | null;
-      return row?.dataset.folder;
-    };
     const move = (e: PointerEvent) => {
       const p = pressed.current;
       if (!p) return;
       if (!dragging.current) {
         if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
         dragging.current = true;
-        setDragged(p.ids);
+        setCarried(p.kind === "looks" ? { kind: "looks", ids: p.ids } : { kind: "folder", path: p.path });
       }
-      setDropTarget(headerAt(e.clientX, e.clientY));
+      // the ghost label is moved straight in the DOM: a state per pixel move would re-render the page
+      const at2 = ghostEl.current;
+      if (at2) {
+        at2.style.left = `${e.clientX + 14}px`;
+        at2.style.top = `${e.clientY + 14}px`;
+      }
+      // a header highlights itself, a member look row lights too: it is a drop target of its own now
+      const over = elementAt(e.clientX, e.clientY);
+      setDropTarget(over.rowId ? null : over.header);
+      setDropRow(over.rowId ?? null);
+    };
+    /** What the pointer stands on while dragging: a group header (its folder) or a member row (its look, whose folder answers). */
+    const elementAt = (x: number, y: number): { header?: string; rowId?: string } => {
+      const el = document.elementFromPoint(x, y)?.closest("tr") as HTMLTableRowElement | null;
+      const rowId = el?.getAttribute("data-look") ?? undefined;
+      return { rowId, header: rowId ? undefined : el?.classList.contains("group-row") ? el.dataset.folder ?? "" : undefined };
     };
     const settle = (start: boolean) => {
       dragging.current = false;
-      setDragged(null);
+      setCarried(null);
       setDropTarget(undefined);
+      setDropRow(null);
       if (start) {
         afterDrag.current = true;
         window.setTimeout(() => (afterDrag.current = false), 500);
@@ -196,9 +223,16 @@ export function ShowPage() {
       pressed.current = null;
       if (!p || !dragging.current) return;
       settle(true);
-      const at = headerAt(e.clientX, e.clientY);
-      if (at === undefined) return;
-      const target = at || undefined;
+      const { header, rowId } = elementAt(e.clientX, e.clientY);
+      // dropped on a member row: the look's own folder answers (a folder nests into it as well)
+      const target = rowId ? folderOf(looksRef.current.find((l) => l.id === rowId)?.tags ?? []) : header;
+      if (target === undefined) return;
+      if (p.kind === "folder") {
+        // a folder dropped on a header nests it there (or back to the top on « sans dossier »); its own header and its own subtree change nothing
+        if (target === p.path || target.startsWith(p.path + "/")) return;
+        void run("show.folder.nest", { src: p.path, ...(target ? { under: target } : {}) });
+        return;
+      }
       // dropping back in the folder the looks already sit in would only churn versions
       if (p.ids.every((id) => folderOf(looksRef.current.find((l) => l.id === id)?.tags ?? []) === target)) return;
       void run("show.folder.move", { ids: p.ids, ...(target ? { folder: target } : {}) });
@@ -248,6 +282,27 @@ export function ShowPage() {
     return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : ""].filter(Boolean).join(" · ");
   };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
+  /** The folder named in the bar takes the picked looks; bare-handed, it is born empty (show.folder.create). */
+  const createFolder = () => {
+    const name = folderDraft.trim();
+    if (!name) return;
+    if (selection.length) {
+      void run("show.folder.move", { ids: selection, folder: name });
+      setSelected([]);
+      anchor.current = undefined;
+    } else void run("show.folder.create", { folder: name });
+    setFolderBar(false);
+    setFolderDraft("");
+  };
+  /** The ghost label a drag carries: the look's name (or the count), or the folder's name. */
+  const carryLabel = carried
+    ? carried.kind === "folder"
+      ? carried.path.slice(carried.path.lastIndexOf("/") + 1)
+      : (() => {
+          const names = carried.ids.map((id) => looksRef.current.find((x) => x.id === id)?.name).filter(Boolean);
+          return names.length === 1 ? names[0] : `${names.length} looks · ${names.slice(0, 2).join(", ")}${names.length > 2 ? ", …" : ""}`;
+        })()
+    : "";
   /** ⌘/Ctrl or Shift on a look's click selects instead of launching (the picked ones drag together). */
   const pickClick = (l: Look, e: ReactMouseEvent) => {
     if (!e.metaKey && !e.ctrlKey && !e.shiftKey) return false;
@@ -261,19 +316,34 @@ export function ShowPage() {
     }
     return true;
   };
-  const lookRow = (l: Look) => (
+  const lookRow = (l: Look, depth = 0) => (
     <tr
       key={l.id}
-      className={`${selection.includes(l.id) ? "selected" : ""}${dragged?.includes(l.id) ? " dragging" : ""}`}
+      data-look={l.id}
+      className={`${folders.length > 0 && folderOf(l.tags) ? "member" : ""}${selection.includes(l.id) ? " selected" : ""}${carried?.kind === "looks" && carried.ids.includes(l.id) ? " dragging" : ""}${carried && dropRow === l.id ? " drop-row" : ""}`}
+      style={depth ? ({ "--depth": depth } as CSSProperties) : undefined}
       title={t.lookRowHint}
       {...rowMenu(l.id)}
+      onDragStart={(e) => e.preventDefault()} // the browser's own text drag would take the pointer over
+      onContextMenu={(e) => {
+        // Ctrl+click on a mac keyboard is a right-click for the browser: here it selects, like ⌘
+        if (e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          pickClick(l, e);
+          return;
+        }
+        rowMenu(l.id).onContextMenu(e); // the true right-click opens the look's menu
+      }}
       onPointerDown={(e) => {
         rowMenu(l.id).onPointerDown(e); // the long press of a touch keeps its menu
         if (e.pointerType === "touch" || e.button !== 0) return;
-        pressed.current = { ids: selection.includes(l.id) ? selection.filter((id) => shownIds.has(id)) : [l.id], x: e.clientX, y: e.clientY };
+        pressed.current = { kind: "looks", ids: selection.includes(l.id) ? selection.filter((id) => shownIds.has(id)) : [l.id], x: e.clientX, y: e.clientY };
       }}
     >
-      <td>
+      <td style={depth ? ({ "--depth": depth } as CSSProperties) : undefined}>
+        {folders.length > 0 && <span className="grip" aria-hidden />}
+        {/* the branch of the look flows through its members: the last leg, its folder's own, in accent */}
+        {depth > 0 && folderOf(l.tags) && <span className="spine" aria-hidden style={{ "--depth": depth } as CSSProperties} />}
         <button
           className={`look ${l.active ? "on" : ""}`}
           title={t.selectLooks}
@@ -311,8 +381,72 @@ export function ShowPage() {
       </td>
     </tr>
   );
-  /** One group per folder, « none » last; an empty group (search, folder filter) never renders. */
-  const rowsOfFolder = (f: string) => shownLooks.filter((l) => (folderOf(l.tags) ?? "") === f);
+  /** The folders as a tree: a look stands under the deepest header of its path, a header's count includes its subtree; « sans dossier » is the node of the looks without any folder. */
+  type FolderNode = { path: string; segment: string; rows: Look[]; children: FolderNode[]; total: number };
+  const tree = (() => {
+    const container: FolderNode = { path: "root", segment: "", rows: [], children: [], total: 0 };
+    const sans: FolderNode = { path: "", segment: "", rows: [], children: [], total: 0 };
+    const by = new Map<string, FolderNode>([["", sans]]);
+    const ensure = (path: string): FolderNode => {
+      const found = by.get(path);
+      if (found) return found;
+      const cut = path.lastIndexOf("/");
+      const node: FolderNode = { path, segment: path.slice(cut + 1), rows: [], children: [], total: 0 };
+      ensure(cut === -1 ? "" : path.slice(0, cut)); // the parents exist so a path finds its way down
+      const parent = cut === -1 ? container : by.get(path.slice(0, cut))!;
+      parent.children.push(node);
+      by.set(path, node);
+      return node;
+    };
+    for (const f of folders) ensure(f); // the ones named ahead, empty at best
+    for (const l of shownLooks) {
+      const p = folderOf(l.tags);
+      if (p) ensure(p).rows.push(l);
+      else sans.rows.push(l);
+    }
+    const settle = (n: FolderNode) => {
+      n.children.sort((a, b) => a.segment.localeCompare(b.segment));
+      n.total = n.rows.length + n.children.reduce((sum, c) => (settle(c), sum + c.total), 0);
+    };
+    settle(container);
+    settle(sans);
+    return { sans, container };
+  })();
+  const renderNode = (n: FolderNode, depth: number): ReactNode => {
+    const nested = n.children.flatMap((c) => renderNode(c, depth + 1));
+    // at rest a folder named ahead shows its empty header: there are looks to drop on it; a search or the filter shows only what matched
+    if (n.total === 0 && !(savedFolders.has(n.path) && !needle && !actifFolder) && nested.length === 0) return null;
+    const open = !folded.has(n.path);
+    return (
+      <Fragment key={`folder-${n.path}`}>
+        <tr
+          className={`group-row${dropTarget === n.path ? " drop" : ""}`}
+          data-folder={n.path}
+          onDragStart={(e) => e.preventDefault()}
+          {...(n.path !== "" ? folderRowMenu(n.path) : {})}
+          onPointerDown={(e) => {
+            if (n.path !== "") folderRowMenu(n.path).onPointerDown(e); // a touch long-press opens the header's menu
+            if (n.path === "" || e.pointerType === "touch" || e.button !== 0) return;
+            pressed.current = { kind: "folder", path: n.path, x: e.clientX, y: e.clientY };
+          }}
+        >
+          {/* as wide as the whole header (7 columns); a nested header is indented under its parent */}
+          <td colSpan={7}>
+            <button className={depth ? "nested" : undefined} style={depth ? ({ "--depth": depth } as CSSProperties) : undefined} aria-expanded={open} title={open ? t.collapse : t.expand} onClick={() => setFolded((s) => { const next = new Set(s); if (next.has(n.path)) next.delete(n.path); else next.add(n.path); return next; })}>
+              {depth > 0 && <span className="rails" aria-hidden />}
+              <span className="grip" aria-hidden />
+              <span className="fold" aria-hidden>{open ? "▾" : "▸"}</span>
+              {" "}
+              {n.path === "" ? t.noFolder : n.segment} (<span className="count">{n.total}</span>)
+
+            </button>
+          </td>
+        </tr>
+        {open && nested}
+        {open && n.rows.map((l) => lookRow(l, depth))}
+      </Fragment>
+    );
+  };
 
   return (
     <div className="show">
@@ -494,8 +628,30 @@ export function ShowPage() {
           {t.looks} ({shownLooks.length === looks.length ? looks.length : `${shownLooks.length} / ${looks.length}`}){" "}
           <button className="ghost" onClick={() => setEditing(newLook(canvases[0]?.id ?? ""))}>
             + {t.newLook}
+          </button>{" "}
+          <button className="ghost" title={t.folderCreateHelp} aria-pressed={folderBar} onClick={() => setFolderBar(!folderBar)}>
+            📁 {t.newFolder}
           </button>
         </h2>
+        {folderBar && (
+          <div className="editor folder-create">
+            <input value={folderDraft} list="show-folder-suggestions" placeholder={t.newFolder} aria-label={t.newFolder} autoFocus onChange={(e) => setFolderDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createFolder()} />
+            <datalist id="show-folder-suggestions">
+              {folders.map((f) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+            <button className="primary" disabled={!folderDraft.trim()} aria-label={t.save} title={t.save} onClick={createFolder}>
+              ✔
+            </button>
+            <button className="ghost" aria-label={t.close} onClick={() => setFolderBar(false)}>
+              ✕
+            </button>
+            <small className="hint">
+              {selection.length ? t.folderPicked.replace("{count}", String(selection.length)) : t.folderCreateEmpty}
+            </small>
+          </div>
+        )}
         {looks.length > 8 && (
           <div className="row look-filters">
             <input className="search" type="search" aria-label={t.searchLooks} placeholder={t.searchLooks} title={t.searchLooksHelp} value={lookSearch} onChange={(e) => setLookSearch(e.target.value)} />
@@ -504,7 +660,7 @@ export function ShowPage() {
                 <option value="">{t.allFolders}</option>
                 {folders.map((f) => (
                   <option key={f} value={f}>
-                    {f}
+                    {folderLabel(f)}
                   </option>
                 ))}
               </select>
@@ -512,29 +668,12 @@ export function ShowPage() {
           </div>
         )}
         {looks.length === 0 ? <p className="hint">{t.noLooks}</p> : shownLooks.length === 0 && <p className="hint">{t.noMatch}</p>}
-        <table className="listing" hidden={shownLooks.length === 0}>
+        <table className={`${folders.length ? "listing folder-list" : "listing"}${carried ? " grabbing" : ""}`} hidden={shownLooks.length === 0}>
           <thead><tr><th>{t.cols.look}</th><th>{t.technique}</th><th>{t.timing}</th><th>{t.attack}</th><th>{t.order}</th><th>{t.cols.tags}</th><th /></tr></thead>
           <tbody>
             {folders.length === 0
               ? shownLooks.map(lookRow)
-              : [...folders, ""].map((f) => {
-                  const rows = rowsOfFolder(f);
-                  if (rows.length === 0) return null;
-                  const open = !folded.has(f);
-                  return (
-                    <Fragment key={f}>
-                      <tr className={`group-row${dropTarget === f ? " drop" : ""}`} data-folder={f} {...(f !== "" ? folderRowMenu(f) : {})}>
-                        {/* as wide as the whole header (7 columns) */}
-                        <td colSpan={7}>
-                          <button aria-expanded={open} title={open ? t.collapse : t.expand} onClick={() => setFolded((s) => { const next = new Set(s); if (next.has(f)) next.delete(f); else next.add(f); return next; })}>
-                            {open ? "▾" : "▸"} {f || t.noFolder} ({rows.length})
-                          </button>
-                        </td>
-                      </tr>
-                      {open && rows.map(lookRow)}
-                    </Fragment>
-                  );
-                })}
+              : [...tree.container.children.map((c) => renderNode(c, 0)), renderNode(tree.sans, 0)]}
           </tbody>
         </table>
         {lookMenu &&
@@ -542,6 +681,11 @@ export function ShowPage() {
             const l = looks.find((x) => x.id === lookMenu.id);
             return l ? <LookMenu key={l.id} look={l} folder={folderOf(l.tags)} folders={folders} at={lookMenu} onEdit={setEditing} onChanged={refresh} onClose={() => setLookMenu(null)} /> : null;
           })()}
+        {carried && (
+          <div ref={ghostEl} className="drag-ghost" aria-hidden>
+            {carryLabel}
+          </div>
+        )}
         {folderMenu && folders.includes(folderMenu.folder) && <FolderMenu key={folderMenu.folder} folder={folderMenu.folder} at={folderMenu} onChanged={refresh} onClose={() => setFolderMenu(null)} />}
       </section>
 

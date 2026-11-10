@@ -16,7 +16,7 @@ import { LiveStage } from "./StagePlan";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
-import { folderOf, withFolder, withoutFolderTag } from "../folder";
+import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 
@@ -183,12 +183,24 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         </label>
         <label className="field" title={t.folderHelp}>
           <span>{t.folder}</span>
-          <input value={folderOf(look.tags) ?? ""} list="look-folder-suggestions" onChange={(e) => set({ tags: withFolder(look.tags, e.target.value) })} />
-          <datalist id="look-folder-suggestions">
-            {(folders ?? []).map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
+          <span className="row">
+            <input aria-label={t.folder} value={folderOf(look.tags) ?? ""} list="look-folder-suggestions" onChange={(e) => set({ tags: withFolder(look.tags, e.target.value) })} />
+            {/* typing names or creates one; the list picks one of the known folders, nested paths included */}
+            <select aria-label={t.folderChoose} value={folderOf(look.tags) ?? ""} onChange={(e) => set({ tags: withFolder(look.tags, e.target.value || undefined) })}>
+              <option value="">{t.noFolder}</option>
+              {(folders ?? []).map((f) => (
+                <option key={f} value={f}>
+                  {folderLabel(f)}
+                </option>
+              ))}
+              {folderOf(look.tags) && !(folders ?? []).includes(folderOf(look.tags)!) && <option value={folderOf(look.tags)!}>{folderLabel(folderOf(look.tags)!)}</option>}
+            </select>
+            <datalist id="look-folder-suggestions">
+              {(folders ?? []).map((f) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+          </span>
           <small className="hint">{t.folderHelp}</small>
         </label>
         <label className="field">

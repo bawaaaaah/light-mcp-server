@@ -3,6 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
+import { folderLabel } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import type { LookDraft } from "./LookEditor";
 
@@ -46,22 +47,19 @@ export function LookMenu({ look, folder, folders, at, onEdit, onChanged, onClose
           <option value="">{t.noFolder}</option>
           {folders.map((f) => (
             <option key={f} value={f}>
-              {f}
+              {folderLabel(f)}
             </option>
           ))}
           {/* the current folder may have vanished from the list while the menu is open */}
           {folder && !folders.includes(folder) && <option value={folder}>{folder}</option>}
         </select>
       </label>
-      <label className="field">
-        <span>{t.newFolder}</span>
-        <span className="row">
-          <input value={created} placeholder={t.name} onChange={(e) => setCreated(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create(created)} />
-          <button className="primary" disabled={!created.trim()} aria-label={t.newFolder} onClick={() => create(created)}>
-            ✔
-          </button>
-        </span>
-      </label>
+      <div className="row new-folder" role="group" aria-label={t.newFolder}>
+        <input value={created} placeholder={t.newFolder} aria-label={t.newFolder} onChange={(e) => setCreated(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create(created)} />
+        <button className="primary" disabled={!created.trim()} aria-label={t.newFolder} onClick={() => create(created)}>
+          ✔
+        </button>
+      </div>
       <LookPeek id={look.id} onStage={setWide} />
       {error && <p className="error">{error}</p>}
       <div className="row">

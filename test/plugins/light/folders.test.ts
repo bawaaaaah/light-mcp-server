@@ -59,4 +59,49 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     expect(folderTags(await tags("masks"))).to.deep.equal([]);
     expect(folderTags(await tags("breath"))).to.deep.equal([]);
   });
+
+  it("names folders ahead: they exist empty, rename and disband keep the list truthfully", async () => {
+    const named = async () => ((await run("show.settings")) as { folders: string[] }).folders;
+    await run("show.folder.create", { folder: "Vide" });
+    await run("show.folder.create", { folder: "Vide" });
+    expect(await named()).to.deep.equal(["Vide"]); // named twice, stored once
+    await run("show.folder.create", { folder: "Éclairage" });
+    expect(await named()).to.deep.equal(["Éclairage", "Vide"]);
+    await run("show.folder.rename", { from: "Éclairage", to: "Lumière" });
+    expect(await named()).to.deep.equal(["Lumière", "Vide"]); // an empty folder renames too
+    await run("show.folder.delete", { folder: "Vide" });
+    expect(await named()).to.deep.equal(["Lumière"]);
+    // a named folder with a look inside: the look is emptied and the folder stops existing
+    await run("show.folder.move", { ids: ["checker"], folder: "Lumière" });
+    await run("show.folder.delete", { folder: "Lumière" });
+    expect(folderTags(await tags("checker"))).to.deep.equal([]);
+    expect(await named()).to.deep.equal([]);
+  });
+
+  it("nests folders by path: a rename, a nesting or a disbanding carries the subtree along", async () => {
+    const named = async () => ((await run("show.settings")) as { folders: string[] }).folders;
+    await run("show.folder.create", { folder: "A/B" });
+    await run("show.folder.move", { ids: ["palette"], folder: "A" });
+    await run("show.folder.move", { ids: ["hole"], folder: "A/B" });
+    await run("show.folder.rename", { from: "A", to: "Rig" });
+    expect(folderTags(await tags("palette"))).to.deep.equal(["dossier:Rig"]);
+    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:Rig/B"]); // the sub keeps its tail
+    expect(await named()).to.deep.equal(["Rig/B"]); // the named list follows the path
+    await run("show.folder.create", { folder: "Famille" });
+    await run("show.folder.nest", { src: "Rig/B", under: "Famille" });
+    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:Famille/B"]);
+    expect(await named()).to.deep.equal(["Famille", "Famille/B"]);
+    // a folder cannot nest in its own branch: refused, and nothing written
+    let refused = "";
+    await run("show.folder.nest", { src: "Famille", under: "Famille/B" }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("Famille");
+    expect(await named()).to.deep.equal(["Famille", "Famille/B"]);
+    // disbanding the top takes the whole branch
+    await run("show.folder.delete", { folder: "Famille" });
+    expect(folderTags(await tags("hole"))).to.deep.equal([]);
+    expect(folderTags(await tags("palette"))).to.deep.equal(["dossier:Rig"]); // « Rig » stands out of the disbanded branch
+    expect(await named()).to.deep.equal([]);
+    await run("show.folder.delete", { folder: "Rig" });
+    expect(folderTags(await tags("palette"))).to.deep.equal([]);
+  });
 });
