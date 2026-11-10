@@ -951,17 +951,17 @@ describe("a look's raw channels ride its fade (T3)", () => {
     channels: { targets, steps },
   });
 
-  it("fades its raw channels in like its colours: the dimmer and a colour once each, the mode channel held", () => {
+  it("fades its raw channels in like its colours: a colour dosed once, the dimmer from what the show held, the mode channel held", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }, { fixture: "bar-l", offset: 3 }], [[255, 200, 128]]));
     show.go("scene");
     let b = dmx();
-    expect([b[0], b[2], b[3]]).to.deep.equal([0, 200, 0]); // mid-entry weight 0: the dimmer and R1 start from black, the Program channel is set all the same
+    expect([b[0], b[2], b[3]]).to.deep.equal([255, 200, 0]); // weight 0: R1 from black, the dimmer at what the show held, the Program channel set all the same
     advance(2); // 1 s of the 2 s entry: the weight is ease(0.5) = 0.5
     b = dmx();
     expect(b[2]).to.equal(200); // a machine channel holds verbatim: never faded
     expect(b[3]).to.equal(64); // 128 × 0.5
-    expect(b[0]).to.equal(128); // 255 × 0.5: dosed once, its own entry
+    expect(b[0]).to.equal(255); // from the held 255 to its own 255: the light fades once, by R1, not twice
     advance(2);
     b = dmx();
     expect([b[0], b[2], b[3]]).to.deep.equal([255, 200, 128]); // fully in
@@ -979,7 +979,7 @@ describe("a look's raw channels ride its fade (T3)", () => {
     let b = dmx();
     expect(b[2]).to.equal(200); // the machine channel holds during the whole descent
     expect(b[3]).to.equal(64);
-    expect(b[0]).to.equal(128);
+    expect(b[0]).to.equal(255); // its 255 back to the held 255
     advance(4); // past the end: the copy is let go
     b = dmx();
     expect([b[0], b[2], b[3]]).to.deep.equal([255, 0, 0]); // the raws are gone; the dimmer rests at the byte the show holds it at
@@ -1011,8 +1011,8 @@ describe("a look's raw channels ride its fade (T3)", () => {
     show.go("b"); // B comes in through a crossfade; A leaves under it over its own 2 s exit fade
     advance(2); // 1 s in: A at 0.5, B at ease(0.25) = 0.15625 — the weights sum under 1, so the doses add up
     const b = dmx();
-    expect(b[0]).to.equal(143); // 255 × 0.5 + 100 × 0.15625
-    expect(b[3]).to.equal(131); // 255 × 0.5 + 20 × 0.15625
+    expect(b[0]).to.equal(231); // 255 × 0.5 + 100 × 0.15625, plus the held 255 × the 0.34375 left
+    expect(b[3]).to.equal(131); // 255 × 0.5 + 20 × 0.15625 (nothing painted there: held 0)
     advance(8); // both fades over: B alone at full
     expect([dmx()[0], dmx()[3]]).to.deep.equal([100, 20]);
   });
@@ -1116,16 +1116,88 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(show.explainChannel(1, 1).rawLooks).to.deep.equal([{ id: "scene", name: "scene", leaving: true }]); // not active, still writing
   });
 
-  it("rises its raw dimmer along its colours through an entry fade longer than a second", () => {
+  it("rises its raw colour on the entry's ease through an entry fade longer than a second", () => {
     const { show, dmx, advance } = setup();
-    show.looks.put(sceneLook("scene", { entryFade: 4 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));
+    show.looks.put(sceneLook("scene", { entryFade: 4 }, [{ fixture: "bar-l", offset: 3 }], [[255]]));
     show.go("scene");
+    const smooth = (t: number) => t * t * (3 - 2 * t);
     for (let i = 0; i <= 8; i++) {
-      const b = dmx();
-      expect(Math.abs(b[0]! - b[3]!), `at ${i / 2} s`).to.be.at.most(1); // the raw dimmer rides the same weight as the head's colour
+      expect(dmx()[3], `at ${i / 2} s`).to.be.closeTo(255 * smooth(i / 8), 1); // the whole 4 s ease, not stalled at 1 s
       advance(1); // every 500 ms
     }
-    expect(dmx()[0]).to.equal(255);
+  });
+
+  it("crosses a raw dimmer from the level the show held to its own, both ways, never through black", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "colour", name: "Colour", canvas: "mur", technique: { kind: "plat", color: "#ffffff" } });
+    show.looks.put(sceneLook("dim", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[180]]));
+    show.go("colour");
+    advance(4);
+    show.go("dim");
+    const levels: number[] = [];
+    for (let i = 0; i <= 50; i++) {
+      if (i === 25) show.stop("dim"); // at 2.5 s, in; its 2 s exit is over at 4.5 s
+      levels.push(dmx()[0]!);
+      advance(0.2); // every 100 ms
+    }
+    for (const v of levels) expect(v, levels.join(",")).to.be.within(179, 255); // between the held 255 and its 180, never 0
+    for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), levels.join(",")).to.be.at.most(12);
+    expect(levels.at(-1)).to.equal(255); // gone: the held level again
+  });
+
+  it("keeps the dimmer of a look that paints a fixture and holds its mode channel: dosed once, by its colours", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 2 }], [[200]], { kind: "plat", color: "#ffffff" }));
+    show.go("scene");
+    const levels: number[] = [];
+    for (let i = 0; i <= 25; i++) {
+      if (i === 15) show.stop("scene");
+      levels.push(dmx()[0]!);
+      advance(0.2);
+    }
+    expect(levels.every((v) => v === 255), levels.join(",")).to.equal(true);
+  });
+
+  for (const [what, paint, machine, stopAt] of [
+    ["a machine look comes in while a painted look is still rising", { entryFade: 4 }, { entryFade: 2 }, undefined],
+    ["a machine look ends while a painted look is still fading out", { exitFade: 3 }, { exitFade: 1 }, 0],
+  ] as const) {
+    it(`moves the dimmer without a jump when ${what}`, () => {
+      const { show, dmx, advance } = setup();
+      show.looks.put({ id: "paint", name: "Paint", canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, timing: paint });
+      show.looks.put(sceneLook("machine", machine, [{ fixture: "bar-l", offset: 2 }], [[200]]));
+      show.go("paint");
+      if (stopAt === undefined) advance(4); // 2 s into the paint's 4 s entry
+      else {
+        show.go("machine");
+        advance(8);
+      }
+      if (stopAt === undefined) show.go("machine");
+      else {
+        show.stop("paint");
+        show.stop("machine"); // both buttons let go together
+      }
+      const levels: number[] = [];
+      for (let i = 0; i <= 40; i++) {
+        levels.push(dmx()[0]!);
+        advance(0.2);
+      }
+      for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), `step at ${i * 100} ms: ${levels.join(",")}`).to.be.at.most(20);
+    });
+  }
+
+  it("resumes a look's raw colour from where it was when relaunched mid-rise", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("scene", { entryFade: 4, exitFade: 4 }, [{ fixture: "bar-l", offset: 3 }], [[255]]));
+    show.go("scene");
+    const levels: number[] = [];
+    for (let i = 0; i <= 30; i++) {
+      if (i === 10) show.stop("scene"); // at 1 s, mid-rise
+      if (i === 15) show.go("scene"); // relaunched at 1.5 s, while it fades out
+      levels.push(dmx()[3]!);
+      advance(0.2);
+    }
+    for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), `step at ${i * 100} ms: ${levels.join(",")}`).to.be.at.most(20);
   });
 
   it("leaves the dimmer of a fixture another look paints alone while a machine-only look fades in and out", () => {
@@ -1162,7 +1234,7 @@ describe("a look's raw channels ride its fade (T3)", () => {
     advance(1);
     expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]);
     show.looks.put({ ...look, channels: { targets: [{ fixture: "bar-l", offset: 0 }], steps: [[200]] } }); // what it plays changed: it restarts
-    expect(dmx()[0]).to.be.below(200);
+    expect(dmx()[3]).to.be.below(255); // its colour rises again from its entry
   });
 
   it("fades nothing on a fixture with machine channels only: the channels hold their value to the end", () => {
@@ -1181,16 +1253,17 @@ describe("a look's raw channels ride its fade (T3)", () => {
 
   it("composes the exit fade with an entry still running on its raws, like its colours", () => {
     const { show, dmx, advance } = setup();
-    show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));
+    show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 3 }], [[255]]));
     show.go("scene");
-    advance(2); // mid-entry: the raw dimmer and the head colour at the same weight
-    expect(dmx()[0]).to.equal(dmx()[3]);
+    advance(2); // 1 s: mid-entry, weight 0.5
+    expect(dmx()[3]).to.equal(128);
     show.stop("scene"); // stopped mid-entry, with an exit fade: the entry keeps its course inside it
-    advance(2); // 1 s into the fade: both at the composed weight (the exit has only started, the entry keeps rising)
-    expect(dmx()[0]).to.equal(dmx()[3]);
-    expect(dmx()[0]).to.be.below(255); // there is still light, and it never jumped past the entry's course
-    advance(2); // 2 s: the fade is over
-    expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 0]); // everything dropped, the dimmer at its resting byte
+    advance(1); // 1.5 s: entry ease(0.75) × exit 1 − ease(0.25)
+    expect(dmx()[3]).to.equal(Math.round(255 * 0.84375 * 0.84375));
+    advance(1); // 2 s: the entry is done, the exit half way
+    expect(dmx()[3]).to.equal(128);
+    advance(2); // 3 s: the fade is over
+    expect(dmx()[3]).to.equal(0); // everything dropped
   });
 
   it("cuts a fading look's raw channels at once with stopAll, and leaves no state behind", () => {
@@ -1200,7 +1273,7 @@ describe("a look's raw channels ride its fade (T3)", () => {
     advance(4);
     show.stop("scene");
     advance(2); // half way through the fade
-    expect(dmx()[0]).to.equal(128);
+    expect(dmx()[3]).to.equal(64);
     show.stopAll(); // the Panic's path: nothing fades out
     const b = dmx();
     expect([b[0], b[2], b[3]]).to.deep.equal([255, 0, 0]); // no intermediate state left behind
@@ -1210,18 +1283,18 @@ describe("a look's raw channels ride its fade (T3)", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));
     show.go("scene");
-    expect([dmx()[0], dmx()[3]]).to.deep.equal([0, 0]); // from black, like the colour tests above
+    expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 0]); // the colour from black; its raw dimmer 255 over the held 255
     advance(2); // 1 s of the 2 s entry
     let b = dmx();
     expect(b[3]).to.be.within(100, 155); // the head colour, at the same mid-point as ever
-    expect(b[0]).to.be.within(100, 155); // the raw dimmer: the same entry, one dose
+    expect(b[0]).to.equal(255); // one dose, by the colour: the dimmer does not fade it a second time
     advance(2);
     expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]);
     show.stop("scene");
     advance(2); // 1 s of the exit
     b = dmx();
     expect(b[3]).to.be.within(100, 155);
-    expect(b[0]).to.be.within(100, 155);
+    expect(b[0]).to.equal(255);
     advance(4);
     b = dmx();
     expect([b[0], b[3]]).to.deep.equal([255, 0]); // colours at rest; the dimmer at the byte the show holds it at

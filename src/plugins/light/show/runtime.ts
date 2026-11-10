@@ -828,8 +828,11 @@ export class ShowRuntime {
       });
     };
     /** Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine fade). */
-    const paints = (colors: AttributeFrame["colors"], weight: number): AttributeFrame["colors"] => {
-      for (const f of colors.keys()) frame.painted.set(f, (frame.painted.get(f) ?? 0) + Math.max(0, weight));
+    const paints = (colors: AttributeFrame["colors"], weight: number, look: Look): AttributeFrame["colors"] => {
+      for (const f of colors.keys()) {
+        const byLook = frame.painted.get(f) ?? new Map<string, number>();
+        frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
+      }
       return colors;
     };
     /** A look's colours on its own sheet, scaled by `fade` and the masters of its groups, its exclusions taken out. */
@@ -869,7 +872,7 @@ export class ShowRuntime {
       if (t >= 1) continue;
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
-      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w), this.settings.looksMerge);
+      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look), this.settings.looksMerge);
       rawOf(r.look, r.player, w, `exit:${id}`);
       moveOf(r.look, r.player);
     }
@@ -887,7 +890,7 @@ export class ShowRuntime {
       for (const o of x.outgoing) {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
-        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now)), w));
+        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look), w));
         rawOf(o.look, o.player, w * o.player.entryWeight(now), `x:${key}`);
         moveOf(o.look, o.player);
       }
@@ -899,9 +902,11 @@ export class ShowRuntime {
       const x = this.crossfades.get(look.id);
       // a look rising on its own rises with its entry fade, like its colours; one coming in over another
       // (a crossfade) carries the crossfade's weight
-      const w = x ? this.inWeight(x, now) : player.entryWeight(now);
+      // a look resumed mid-rise under a crossfade keeps rising: its own entry composes with the crossfade's weight
+      const inW = x ? this.inWeight(x, now) : 1;
+      const w = inW * player.entryWeight(now);
       rawOf(look, player, w, x ? `x:${look.id}` : `look:${look.id}`);
-      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w), w))) : paints(colorsOf(look, player, 1), w);
+      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w, look), inW))) : paints(colorsOf(look, player, 1), w, look);
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);
     }
