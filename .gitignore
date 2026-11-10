@@ -27,3 +27,7 @@ windows/build/
 # (n'importe où, docs/ et sous-dossiers compris) ne part jamais dans git : mémoire locale de
 # l'IA, transcripts, revues brutes, brouillons privés. Voir CLAUDE.md.
 __NO_COMMIT__*
+
+# Claude Code local state: agent worktrees (whole copies of the repo) and personal settings
+.claude/worktrees/
+.claude/settings.local.json

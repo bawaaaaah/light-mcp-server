@@ -26,6 +26,10 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
+    // a disable comment must name a rule ESLint really reports on that line: a stale one is an error
+    linterOptions: { reportUnusedDisableDirectives: "error" },
+  },
+  {
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
@@ -36,6 +40,8 @@ export default tseslint.config(
       "playwright-report/**",
       "test-results/**",
       "data/**",
+      // Claude Code's local state, agent worktrees included (whole copies of the repo)
+      ".claude/**",
       "**/__NO_COMMIT__/**",
       "**/__NO_COMMIT__*",
       "**/*.js",
