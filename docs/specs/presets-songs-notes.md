@@ -95,6 +95,7 @@ Chant {
    - un mapping importé n'est jamais posé sur une entrée MIDI déjà tenue par un mapping fait à la main : celui de l'utilisateur reste, l'autre est signalé (« Entrées MIDI en conflit ») ;
    - un **autre workspace** (moins de la moitié des projecteurs du show en commun) est refusé : ses canevas et looks de même nom remplaceraient ceux du show. Il va dans un show à lui ; `force` (CLI `--force`) l'importe quand même ;
    - les définitions `.qxf` déposées dans `data/fixtures/` (ou ajoutées depuis la page Import, `fixture.definition.add`) pendant que le serveur tourne sont relues à l'import, sans redémarrage ;
+   - un fichier de même nom au contenu différent est refusé (`CommandError` avec `detail { exists, file }`) ; la page Import propose alors **Remplacer** (confirmation, puis `replace: true`) ; un contenu identique est accepté, `replace: true` sur un fichier absent le crée (T34) ;
    - un workspace s'importe aussi **dans un nouveau show** (`show.create` avec `qxw`), avec son propre lieu : c'est le chemin d'un autre workspace.
 
 ## Tests

@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import type { CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection, FolderStore } from "../data/store.js";
 import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.js";
@@ -46,7 +46,8 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       const def = parseQxf(xml); // throws on anything that is not a definition
       const file = definitionFileName(name);
       const target = path.join(s.fixturesDir, file);
-      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace) throw new Error(say(`${file} existe déjà (replace pour le remplacer)`, `${file} already exists (replace to replace it)`));
+      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace)
+        throw new CommandError("failed", say(`${file} existe déjà (replace pour le remplacer)`, `${file} already exists (replace to replace it)`), { exists: true, file }); // detail: the UI offers « Remplacer »
       mkdirSync(s.fixturesDir, { recursive: true });
       writeFileSync(target, xml);
       s.runtime.venue.refreshDefinitions();

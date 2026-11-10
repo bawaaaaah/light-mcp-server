@@ -249,6 +249,13 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
   await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: fixture("spot.qxf") });
   await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
+  // the same file name with another content is refused, and « Remplacer » overwrites it after a confirmation
+  const changed = Buffer.from(fixture("spot.qxf").toString().replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>"));
+  await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: changed });
+  await expect(page.locator(".added-definitions")).toContainText("✖ test-spot.qxf");
+  page.once("dialog", (d) => void d.accept());
+  await page.locator(".added-definitions").getByRole("button", { name: "Remplacer" }).click();
+  await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
   await page.locator('input[type=file][accept=".qxw"]').setInputFiles({ name: "Autre salle.qxw", mimeType: "text/xml", buffer: fixture("efx.qxw") });
   await expect(page.locator(".report")).toBeVisible();
   await page.getByLabel("un nouveau show").check();
@@ -261,7 +268,8 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   await api(page, "show.open", { id: "default" });
   await expect(page.locator("header .show-name")).toHaveText("Show");
   await api(page, "show.delete", { id: "autre-salle" });
-  expect(errors).toEqual([]);
+  const refused = errors.findIndex((e) => e.includes("422")); // the refused duplicate is one 422 on purpose
+  expect(errors.filter((_, i) => i !== refused)).toEqual([]);
 });
 
 test("grand master widget: dragged on the live, kept in the show, also playable from MIDI", async ({ page }) => {

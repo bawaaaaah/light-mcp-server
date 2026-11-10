@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { systemContext } from "../../../src/plugins/light/commands/registry.js";
+import { CommandError, systemContext } from "../../../src/plugins/light/commands/registry.js";
 
 type ShowRow = { id: string; name: string; venue: string; active: boolean };
 
@@ -117,6 +117,17 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(((await run("venue.library", { search: added.model })) as unknown[]).length).to.be.greaterThan(0);
     const again = await run("fixture.definition.add", { name: "Mon spot.qxf", xml: xml.replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>") }).then(() => "added", (e: Error) => e.message);
     expect(again).to.match(/existe déjà/);
+    // the refusal carries a detail the interface reads to offer « Remplacer »
+    const v2 = xml.replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>");
+    const refused = await run("fixture.definition.add", { name: "Mon spot.qxf", xml: v2 }).catch((e: unknown) => e);
+    expect(refused).to.be.instanceOf(CommandError);
+    expect((refused as CommandError).detail).to.deep.equal({ exists: true, file: "Mon-spot.qxf" });
+    // an identical file is accepted, replace: true overwrites a different one and creates a missing one
+    await run("fixture.definition.add", { name: "Mon spot.qxf", xml });
+    await run("fixture.definition.add", { name: "Mon spot.qxf", xml: v2, replace: true });
+    expect(readFileSync(join(dataRoot, "fixtures", "Mon-spot.qxf"), "utf8")).to.equal(v2);
+    await run("fixture.definition.add", { name: "Neuf.qxf", xml, replace: true });
+    expect(existsSync(join(dataRoot, "fixtures", "Neuf.qxf"))).to.equal(true);
   });
 
   it("lists venues with their shows, detaches a shared one, and attaches a show to another", async () => {

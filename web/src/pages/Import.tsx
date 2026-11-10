@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { cmd, switchingShow } from "../api";
+import { ApiError, cmd, switchingShow } from "../api";
 import { useT } from "../App";
 
 interface Proposal {
@@ -31,6 +31,8 @@ interface DefinitionResult {
   file: string;
   ok: boolean;
   detail: string;
+  /** A definition refused because another file of that name differs: kept so « Remplacer » can send it again. */
+  retry?: File;
 }
 /** The result of an import into a new show, kept across the reload that opening it causes. */
 const LAST_IMPORT = "lastImport";
@@ -102,12 +104,23 @@ export function ImportPage() {
         const r = await cmd<{ file: string; manufacturer: string; model: string }>("fixture.definition.add", { name: f.name, xml: await f.text() });
         results.push({ file: r.file, ok: true, detail: `${r.manufacturer} ${r.model}` });
       } catch (e) {
-        results.push({ file: f.name, ok: false, detail: (e as Error).message });
+        results.push({ file: f.name, ok: false, detail: (e as Error).message, retry: e instanceof ApiError && e.detail?.exists ? f : undefined });
       }
     }
     setAdded(results);
     loadLibrary();
     if (xml) await propose(xml); // the proposal now sees them
+  };
+  const replaceDefinition = async (f: File) => {
+    if (!confirm(`${t.replaceDefinitionAsk} ${f.name}`)) return;
+    try {
+      const r = await cmd<{ file: string; manufacturer: string; model: string }>("fixture.definition.add", { name: f.name, xml: await f.text(), replace: true });
+      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: r.file, ok: true, detail: `${r.manufacturer} ${r.model}` } : a)));
+      loadLibrary();
+      if (xml) await propose(xml);
+    } catch (e) {
+      setAdded((rows) => rows.map((a) => (a.retry === f ? { ...a, detail: (e as Error).message } : a)));
+    }
   };
   const apply = () => {
     if (!xml) return;
@@ -150,6 +163,11 @@ export function ImportPage() {
             {added.map((a) => (
               <li key={a.file} className={a.ok ? "" : "error"}>
                 {a.ok ? "✔" : "✖"} {a.file} : {a.detail}
+                {a.retry && (
+                  <button type="button" onClick={() => void replaceDefinition(a.retry!)}>
+                    {t.replaceDefinition}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
