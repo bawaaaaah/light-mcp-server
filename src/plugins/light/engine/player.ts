@@ -133,7 +133,7 @@ export class LookPlayer {
   entryWeight(nowMs: number): number {
     const elapsedS = (nowMs - this.startMs) / 1000;
     if (!this.entry || this.timing.entryFade <= 0 || elapsedS >= this.timing.entryFade) return 1;
-    return ease(Math.min(1, Math.max(0, elapsedS)) / this.timing.entryFade);
+    return ease(Math.min(1, Math.max(0, elapsedS / this.timing.entryFade)));
   }
 
   render(nowMs: number, beats: number): Step {

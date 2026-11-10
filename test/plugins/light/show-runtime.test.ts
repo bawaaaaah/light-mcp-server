@@ -1000,7 +1000,7 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(dmx()[0]).to.equal(255); // and the fade leaves nothing behind
   });
 
-  it("fades two crossed looks by the strongest value per offset, dosed by the winning look's weight", () => {
+  it("crosses two looks' raw channels like a cell's colours: the doses add up, no dip and no jump", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("a", { exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 3 }], [[255, 255]]));
     show.looks.put(sceneLook("b", { entryFade: 4 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 3 }], [[100, 20]]));
@@ -1009,12 +1009,71 @@ describe("a look's raw channels ride its fade (T3)", () => {
     advance(4);
     expect([dmx()[0], dmx()[3]]).to.deep.equal([255, 255]);
     show.go("b"); // B comes in through a crossfade; A leaves under it over its own 2 s exit fade
-    advance(2); // 1 s in: A at 0.5, B at ease(0.25) ≈ 0.16 — A's values win and are dosed by A's weight
+    advance(2); // 1 s in: A at 0.5, B at ease(0.25) = 0.15625 — the weights sum under 1, so the doses add up
     const b = dmx();
-    expect(b[0]).to.equal(128); // 255 × A's 0.5, not 15.6 (B's values) nor the mix of the two weights
-    expect(b[3]).to.equal(128);
+    expect(b[0]).to.equal(143); // 255 × 0.5 + 100 × 0.15625
+    expect(b[3]).to.equal(131); // 255 × 0.5 + 20 × 0.15625
     advance(8); // both fades over: B alone at full
     expect([dmx()[0], dmx()[3]]).to.deep.equal([100, 20]);
+  });
+
+  for (const [from, to] of [
+    [255, 200],
+    [255, 255],
+  ] as const) {
+    it(`crosses a raw dimmer from ${from} to ${to} over equal fades without dipping or jumping`, () => {
+      const { show, dmx, advance } = setup();
+      show.looks.put(sceneLook("a", { exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[from]]));
+      show.looks.put(sceneLook("b", { entryFade: 2 }, [{ fixture: "bar-l", offset: 0 }], [[to]]));
+      show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+      show.go("a");
+      advance(4);
+      show.go("b");
+      const levels: number[] = [];
+      for (let i = 0; i <= 24; i++) {
+        levels.push(dmx()[0]!);
+        advance(0.2); // every 100 ms, past the end of both fades
+      }
+      for (const [i, v] of levels.entries()) {
+        expect(v, `at ${i * 100} ms`).to.be.within(to, from); // a straight crossfade: never under the lower value
+        if (i > 0) expect(Math.abs(v - levels[i - 1]!), `step at ${i * 100} ms`).to.be.at.most(10);
+      }
+      expect(levels.at(-1)).to.equal(to);
+    });
+  }
+
+  it("rises its raw dimmer along its colours through an entry fade longer than a second", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put(sceneLook("scene", { entryFade: 4 }, [{ fixture: "bar-l", offset: 0 }], [[255]], { kind: "plat", color: "#ffffff" }));
+    show.go("scene");
+    for (let i = 0; i <= 8; i++) {
+      const b = dmx();
+      expect(Math.abs(b[0]! - b[3]!), `at ${i / 2} s`).to.be.at.most(1); // the raw dimmer rides the same weight as the head's colour
+      advance(1); // every 500 ms
+    }
+    expect(dmx()[0]).to.equal(255);
+  });
+
+  it("leaves the dimmer of a fixture another look paints alone while a machine-only look fades in and out", () => {
+    const { show, dmx, advance } = setup();
+    show.looks.put({ id: "colour", name: "Colour", canvas: "mur", technique: { kind: "plat", color: "#ffffff" } });
+    show.looks.put(sceneLook("machine", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 2 }], [[200]]));
+    show.go("colour");
+    advance(4);
+    expect(dmx()[0]).to.equal(255);
+    show.go("machine");
+    const levels: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      levels.push(dmx()[0]!);
+      advance(1);
+    }
+    show.stop("machine");
+    for (let i = 0; i < 10; i++) {
+      levels.push(dmx()[0]!);
+      advance(1);
+    }
+    expect(levels.every((v) => v === 255), levels.join(",")).to.equal(true); // the colours dose this fixture: the machine weight does not reach its dimmer
+    expect(dmx()[2]).to.equal(0); // and the machine channel is gone with its look
   });
 
   it("fades nothing on a fixture with machine channels only: the channels hold their value to the end", () => {

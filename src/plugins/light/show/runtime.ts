@@ -11,7 +11,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
+import { addRaw, addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
@@ -779,7 +779,7 @@ export class ShowRuntime {
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
-    /** Raw channels of the looks, by fixture then offset: the strongest value, with the weight of the look that wrote it. */
+    /** Raw channels of the looks, by fixture then offset: every look's contribution summed with its weight (rawWrite settles them). */
     const lookChannels = new Map<string, Map<number, RawWrite>>();
     const rawOf = (look: Look, player: LookPlayer, weight: number): void => {
       if (!look.channels) return;
@@ -787,9 +787,7 @@ export class ShowRuntime {
       look.channels.targets.forEach((t, k) => {
         const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite>();
         const value = row[k] ?? 0;
-        const prev = byOffset.get(t.offset);
-        // the strongest value wins, with the weight of its look: the most visible on stage, coming in or going out
-        if (!prev || value > prev.value) byOffset.set(t.offset, { value, weight });
+        byOffset.set(t.offset, addRaw(byOffset.get(t.offset), value, weight));
         lookChannels.set(t.fixture, byOffset);
       });
     };
