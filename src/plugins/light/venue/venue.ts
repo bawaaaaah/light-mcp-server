@@ -554,20 +554,21 @@ export class Venue {
       const painted = frame.colors.get(patch.id);
       // The fade of this frame: the summed weight (at most 1) of the fixture's machine-channel writes (the
       // contributions that cannot dose themselves), dosing the dimmer(s) no look wrote; 1 without one. A
-      // fixture a look paints is dosed by its colours already: the machine weight leaves its dimmer alone
-      // (lamp-only fixtures excepted, whose colour only speaks through the dimmer).
+      // fixture a look paints is dosed by its colours already: the machine weight leaves its dimmer alone.
+      // So does a lamp-only fixture always: its dimmer is its painted level, which carries the painting
+      // looks' weights (dosing it again would fade it twice), and unpainted it stays dark anyway.
       let machine: number | undefined;
       for (const [offset, { weight }] of raws ?? []) if (!r.dimmers.includes(offset) && !colorOffsets.has(offset) && offset < r.mode.channels.length) machine = Math.min(1, (machine ?? 0) + weight);
       if (machine !== undefined) frame.fade.set(patch.id, machine);
-      const fade = machine === undefined || (painted && !r.lampOnly) ? 1 : machine;
+      const fade = machine === undefined || painted || r.lampOnly ? 1 : machine;
       const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
       for (const [off, v] of r.shutterOpen) write(off, v);
       if (r.lampOnly) {
-        // Lamp-only fixtures are lit by what the looks paint on them, at its level; a look driving
-        // them by machine channels fades the dimmer with its weight (frame.fade).
+        // Lamp-only fixtures are lit by what the looks paint on them, at its level (already dosed by
+        // the painting looks' weights): a machine channel's weight does not reach their dimmer.
         const color = painted?.get(-1) ?? painted?.values().next().value;
-        for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * fade * 255 : 0);
+        for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * 255 : 0);
         if (r.wheel && color) write(r.wheel.offset, nearestSlot(r.wheel.slots, color));
       } else for (const d of r.dimmers) write(d, intensity * fade * 255);
       const colorScale = hasDimmer ? 1 : intensity;

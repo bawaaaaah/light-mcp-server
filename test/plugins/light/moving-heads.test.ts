@@ -237,6 +237,39 @@ describe("moving heads", () => {
       expect(pos(b, 11)[0]).to.equal(Math.round(0.75 * 65535)); // spot-r: pan inverted
     });
 
+    it("keeps a lamp's dimmer up while another look's wheel channel fades in and out", () => {
+      const { show, dmx, advance } = setup();
+      show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });
+      show.looks.put({ id: "ambre", name: "Ambre", canvas: "lyres", technique: { kind: "aucune" }, timing: { entryFade: 2, exitFade: 2 }, channels: { targets: [{ fixture: "spot-l", offset: 4 }], steps: [[64]] } });
+      show.go("rouge");
+      advance(4);
+      expect(dmx()[5]).to.equal(255);
+      show.go("ambre");
+      const levels: number[] = [];
+      for (let i = 0; i < 10; i++) {
+        levels.push(dmx()[5]!);
+        advance(1);
+      }
+      show.stop("ambre");
+      for (let i = 0; i < 10; i++) {
+        levels.push(dmx()[5]!);
+        advance(1);
+      }
+      expect(levels.every((v) => v === 255), levels.join(",")).to.equal(true); // the painting look doses this lamp, at full: the wheel look's weight leaves it alone
+    });
+
+    it("fades a lamp once when the look that paints it also holds its wheel", () => {
+      const { show, dmx, advance } = setup();
+      show.looks.put({ id: "blanc", name: "Blanc", canvas: "lyres", technique: { kind: "plat", color: "#ffffff" }, timing: { exitFade: 2 }, channels: { targets: [{ fixture: "spot-l", offset: 4 }], steps: [[64]] } });
+      show.go("blanc");
+      advance(4);
+      expect([dmx()[4], dmx()[5]]).to.deep.equal([64, 255]);
+      show.stop("blanc");
+      advance(2); // 1 s of the 2 s fade: weight 0.5
+      expect(dmx()[4]).to.equal(64); // the wheel holds its slot
+      expect(dmx()[5]).to.equal(128); // the painted level carries the look's weight once, not twice (64)
+    });
+
     it("reads back where each head points from the output, for the 2D preview (inversions undone)", () => {
       const { venue, show, dmx } = setup();
       const target = { x: 0.5, y: 0, z: 0 };
