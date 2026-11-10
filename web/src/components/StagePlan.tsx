@@ -161,7 +161,7 @@ export function StagePlan({
   const [orienting, setOrienting] = useState(false);
   /**
    * The selected fixture, held outside the modes: a click on a fixture selects it (in « Orienter » it
-   * starts a turn too), the control panel below the plan (or Escape) lets it go. Survives leaving a mode.
+   * starts a turn too), the control panel below the plan lets it go (Escape too, while orienting). Survives leaving a mode.
    */
   const [selected, setSelected] = useState<string | null>(null);
   /** A held fixture, echoed to the page (the calibration box follows it). */
@@ -812,7 +812,7 @@ export function StagePlan({
         </div>
       )}
       {/* A fixture held on the plan (any mode or none) is controlled in full below: it moves, and the channels of its light are faders. */}
-      {selectedFixture && onOrient && !compact && <FixturePanel fixture={selectedFixture} onError={onError} onClose={() => select(null)} />}
+      {selectedFixture && onOrient && !compact && <FixturePanel key={selectedFixture.id} fixture={selectedFixture} onError={onError} onClose={() => select(null)} />}
     </div>
   );
 }

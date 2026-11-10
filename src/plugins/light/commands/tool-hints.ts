@@ -48,6 +48,7 @@ export const HINTS: Record<string, string> = {
   "export.ableton.rack": "I",
   "export.liveset": "I",
   "export.mid": "I",
+  "fader.channel": "I",
   "fader.delete": "DI",
   "fader.level": "I",
   "fader.put": "I",

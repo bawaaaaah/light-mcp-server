@@ -3786,6 +3786,45 @@ test("live stage in 3D: zones, fixtures and beams drawn, loaded on demand", asyn
   expect(errors).toEqual([]);
 });
 
+test("venue plan: the selected fixture's panel creates a channel fader at the first touch and sends the last value", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Fx = { id: string; position?: { x: number; y: number; z: number } };
+  type Fader = { id: string; name: string; channels: { fixture: string; offset: number }[]; level: number };
+  const spot = ((await api(page, "venue.fixture.list")) as Fx[]).find((f) => f.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 4 } } }); // mid-stage: clear of the sticky header once scrolled to
+  const ours = async () => ((await api(page, "fader.list")) as Fader[]).filter((f) => f.id.startsWith("panel-spot-"));
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    const body = page.locator('.stage-plan g.fixture[data-fixture="spot"] > g').first();
+    await body.scrollIntoViewIfNeeded();
+    const box = (await body.boundingBox())!;
+    // inside the body but off its centre: the beam arrow an earlier test's orientation left starts there
+    const spots = [[0.85, 0.85], [0.15, 0.85], [0.85, 0.15], [0.15, 0.15]].map(([fx, fy]) => ({ x: box.width * fx!, y: box.height * fy! }));
+    for (const position of spots) {
+      await body.click({ position, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const panel = page.locator(".fixture-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole("slider", { name: "Fader de canaux Pan", exact: true })).toHaveCount(0); // pan and tilt move by the pad
+    const dimmer = panel.getByRole("slider", { name: "Fader de canaux Dimmer", exact: true });
+    await dimmer.fill("500");
+    await dimmer.press("ArrowUp");
+    await dimmer.press("ArrowUp");
+    // one fader of exactly this channel, at the last value of the gesture
+    await expect.poll(async () => (await ours()).map((f) => [f.channels.length, f.name, f.level])).toEqual([[1, "Panneau Lyre · Dimmer", 0.502]]);
+    await dimmer.press("ArrowDown");
+    await expect.poll(async () => (await ours()).map((f) => f.level)).toEqual([0.501]); // the same fader follows
+    await panel.getByRole("button", { name: /Ranger le panneau/ }).click();
+    await expect(panel).toBeHidden();
+  } finally {
+    for (const f of await ours()) await api(page, "fader.delete", { id: f.id, force: true });
+    await api(page, "venue.fixture.put", { fixture: spot });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: a rectangular zone made from its size, shown on the plan, then deleted", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

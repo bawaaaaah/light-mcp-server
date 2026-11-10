@@ -398,6 +398,25 @@ describe("a head driven by the command layer (the pad's path)", () => {
     await run("venue.fixture.put", { fixture: { id: "cheap", name: "Lyre à pas cher", manufacturer: "Test", model: "Cheap Head", mode: "Standard", universe: 1, address: 40 } });
   });
 
+  it("finds or creates the fader of one channel at its first touch (the fixture panel's path)", async () => {
+    render();
+    const now = (plugin.engine.output.get(1)[41] ?? 0) / 255; // the cheap head's dimmer as it goes out
+    await run("fader.put", { fader: { id: "panel-cheap-2", name: "Deux canaux", channels: [{ fixture: "cheap", offset: 2 }, { fixture: "bar", offset: 0 }], level: 0 } });
+    const made = (await run("fader.channel", { fixture: "cheap", offset: 2 })) as { id: string; level: number; created: boolean; channels: unknown[] };
+    expect(made.created).to.equal(true);
+    expect(made.id).to.equal("panel-cheap-2-2"); // the id in the way is not this one channel's: another one
+    expect(made.channels).to.deep.equal([{ fixture: "cheap", offset: 2 }]);
+    expect(made.level).to.be.closeTo(now, 0.001); // created at what the channel has now: nothing switches off
+    const again = (await run("fader.channel", { fixture: "cheap", offset: 2, level: 0.2 })) as { id: string; level: number; created: boolean };
+    expect([again.id, again.created, again.level]).to.deep.equal([made.id, false, made.level]); // found, left as it is
+    const asked = (await run("fader.channel", { fixture: "cheap", offset: 1, level: 0.4 })) as { level: number };
+    expect(asked.level).to.equal(0.4);
+    let refused = "";
+    await run("fader.channel", { fixture: "nope", offset: 0 }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("nope");
+    for (const id of [made.id, "panel-cheap-1", "panel-cheap-2"]) await run("fader.delete", { id, force: true });
+  });
+
   it("inverts the DMX it sends per axis through venue.fixture.orient, and points the same read back both ways", async () => {
     const pointed = () => plugin.venue.pointingOf(plugin.venue.resolve("spot") as ResolvedFixture, render());
     await run("position.set", { fixtures: ["spot"], pan: 0.25, tilt: 0.75 });

@@ -692,6 +692,27 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     },
   });
   reg.register({
+    name: "fader.channel",
+    title: "Fader d'un canal",
+    description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else, or creates one (id panel-<fixture>-<offset>, at `level`, else at the value the channel has on the output now, so creating it switches nothing off). An existing one is left as it is: move it with fader.level.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
+    run: ({ fixture, offset, name, level }) => {
+      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset);
+      if (own) return { ...own, created: false };
+      checkChannels([{ fixture, offset }]);
+      const patch = venue.fixtures.get(fixture)!;
+      const now = engine.output.get(patch.universe)[patch.address - 1 + offset] ?? 0;
+      const taken = new Set(show.faders.list().map((f) => f.id));
+      const base = `panel-${fixture}-${offset}`;
+      let id = base;
+      for (let k = 2; taken.has(id); k++) id = `${base}-${k}`;
+      const fader = show.faders.put({ id, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? Math.round((now / 255) * 1000) / 1000 });
+      return { ...fader, created: true };
+    },
+  });
+  reg.register({
     name: "fader.delete",
     title: "Supprimer un fader de canaux",
     description: "Deletes a channel fader. Refused while something uses it (mapping, dashboard, snapshot, song), unless force.",

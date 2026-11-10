@@ -1,9 +1,9 @@
 /**
  * Control panel of a fixture held on the stage plan (docs/specs/venue-fixtures-stage.md, « Lyres »):
  * it moves its head with the XY pad (`position.set`, a manual position that wins over the looks), and
- * drives its light's channels as channel faders — at the first touch of a channel, `fader.put`
- * creates a fader for this one channel (started at the level the fixture really has now, dosed by the
- * DCAs like any other fader), then `fader.level` follows the gesture. The sections close themselves
+ * drives its light's channels as channel faders — at the first touch of a channel, `fader.channel`
+ * creates a fader for this one channel (at the gesture's level, dosed by the DCAs like any other
+ * fader), then `fader.level` follows the gesture. Mounted per fixture (keyed by its id). The sections close themselves
  * by right: « Mouvement » only shows itself with `commands:position` (and a head to move), « Lumière »
  * with `show:write` and `commands:level` (else a line says what is missing). Lives on the Venue
  * page's plan only, where the selection is.
@@ -54,12 +54,6 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   /** Channel values read once (a channel shown before its fader exists starts at what the fixture has). */
   const explained = useRef(new Set<string>());
 
-  useEffect(() => {
-    setLevels({});
-    explained.current.clear();
-    working.current.clear();
-  }, [fixture.id]);
-
   const read = useCallback(() => {
     void cmd<FaderRow[]>("fader.list").then(setFaders).catch(() => undefined);
     void cmd<Head[]>("position.list").then(setHeads).catch(() => undefined);
@@ -104,6 +98,8 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   const setChannelLevel = (c: ChannelRow, level: number) => {
     if (fixture.absent || !patch) return;
     setLevels((l) => ({ ...l, [c.offset]: level }));
+    // the gesture shows at once on this channel's fader, like the dashboards
+    setFaders((fs) => fs.map((x) => (x.channels.length === 1 && x.channels[0]!.fixture === fixture.id && x.channels[0]!.offset === c.offset ? { ...x, level } : x)));
     const created = working.current.get(c.offset);
     if (created) {
       created.pending = level;
@@ -111,29 +107,22 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
     }
     const existing = byOffset.get(c.offset);
     if (existing) {
-      setFaders((fs) => fs.map((x) => (x.id === existing.id ? { ...x, level } : x))); // the gesture shows at once, like the dashboards
       void cmd("fader.level", { id: existing.id, level }).catch((e: Error) => onError(e.message));
       return;
     }
     const wait: { pending?: number } = { pending: level };
     working.current.set(c.offset, wait);
     void (async () => {
-      // the level the channel really has now: creating a fader must not switch a dimmer off (its
-      // default would be 0), and the DCAs dose the created fader like any other
-      const e = await cmd<{ value: number }>("dmx.explain", { universe: patch.universe, channel: patch.address + c.offset });
-      const initial = Math.round(((e.value ?? 0) / 255) * 1000) / 1000;
-      // a deterministic id, ours alone to re-find; a fader already in the way is not reused unless it
-      // is strictly this one channel (byOffset holds every one that is)
-      const base = `panel-${fixture.id}-${c.offset}`;
-      const ours = byOffset.get(c.offset);
-      const taken = new Set(faders.filter((f) => f !== ours).map((f) => f.id));
-      let id = base;
-      for (let k = 2; taken.has(id) && k < 100; k++) id = `${base}-${k}`;
+      // the server finds or creates the fader of exactly this channel (docs/specs/venue-fixtures-stage.md, « Lyres »)
       const name = `${t.panelFaderPrefix} ${fixture.name} · ${c.name}`;
-      const saved = await cmd<{ id: string }>("fader.put", { fader: { id, name, channels: [{ fixture: fixture.id, offset: c.offset }], level: initial } });
-      setFaders((fs) => [...fs.filter((f) => f.id !== saved.id), { id: saved.id, name, channels: [{ fixture: fixture.id, offset: c.offset }], level: initial }]);
-      setLevels((l) => ({ ...l, [c.offset]: wait.pending ?? initial }));
-      if (wait.pending !== undefined && wait.pending !== initial) await cmd("fader.level", { id: saved.id, level: wait.pending });
+      const saved = await cmd<FaderRow & { created: boolean }>("fader.channel", { fixture: fixture.id, offset: c.offset, name, level });
+      let sent = saved.created ? level : saved.level;
+      setFaders((fs) => [...fs.filter((f) => f.id !== saved.id), { ...saved, level: wait.pending ?? sent }]);
+      // what the gesture asked while a request was out goes too, until the last value has been sent
+      while (wait.pending !== undefined && wait.pending !== sent) {
+        sent = wait.pending;
+        await cmd("fader.level", { id: saved.id, level: sent });
+      }
     })()
       .catch((e: Error) => onError(e.message))
       .finally(() => void working.current.delete(c.offset));
