@@ -432,6 +432,15 @@ describe("a head driven by the command layer (the pad's path)", () => {
   });
 
   it("finds or creates the fader of one channel at its first touch (the fixture panel's path)", async () => {
+    // on a colour fixture's master dimmer the fader doses what the show holds: created at 1, it changes
+    // nothing — even with the dimmer at half by the grand master (a fader at 0.5 would halve it again)
+    await run("grandmaster.set", { level: 0.5 });
+    const before = render()[29];
+    expect(before).to.be.within(120, 135);
+    const master = (await run("fader.channel", { fixture: "bar", offset: 0 })) as { id: string; level: number };
+    expect(master.level).to.equal(1);
+    expect(render()[29]).to.equal(before);
+    await run("grandmaster.set", { level: 1 });
     render();
     const now = (plugin.engine.output.get(1)[41] ?? 0) / 255; // the cheap head's dimmer as it goes out
     await run("fader.put", { fader: { id: "panel-cheap-2", name: "Deux canaux", channels: [{ fixture: "cheap", offset: 2 }, { fixture: "bar", offset: 0 }], level: 0 } });
@@ -447,7 +456,7 @@ describe("a head driven by the command layer (the pad's path)", () => {
     let refused = "";
     await run("fader.channel", { fixture: "nope", offset: 0 }).catch((e: Error) => (refused = e.message));
     expect(refused).to.contain("nope");
-    for (const id of [made.id, "panel-cheap-1", "panel-cheap-2"]) await run("fader.delete", { id, force: true });
+    for (const id of [made.id, master.id, "panel-cheap-1", "panel-cheap-2"]) await run("fader.delete", { id, force: true });
   });
 
   it("inverts the DMX it sends per axis through venue.fixture.orient, and points the same read back both ways", async () => {

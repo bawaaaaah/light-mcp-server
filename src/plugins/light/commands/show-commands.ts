@@ -697,7 +697,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
-    description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else, or creates one (id panel-<fixture>-<offset>, at `level`, else at the value the channel has on the output now, so creating it switches nothing off). An existing one is left as it is: move it with fader.level.",
+    description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else, or creates one (id panel-<fixture>-<offset>, at `level`; without one, so that creating it switches nothing off: at 1 on the master dimmer of a colour fixture, which such a fader doses, else at the value the channel has on the output now). An existing one is left as it is: move it with fader.level.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
@@ -711,7 +711,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const base = `panel-${fixture}-${offset}`;
       let faderId = base;
       for (let k = 2; taken.has(faderId); k++) faderId = `${base}-${k}`;
-      const fader = show.faders.put({ id: faderId, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? Math.round((now / 255) * 1000) / 1000 });
+      // a fader on a colour fixture's master dimmer doses it (runtime.compose): at 1 it changes nothing
+      const unchanged = show.dosesDimmer(fixture, offset) ? 1 : Math.round((now / 255) * 1000) / 1000;
+      const fader = show.faders.put({ id: faderId, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? unchanged });
       return { ...fader, created: true };
     },
   });
