@@ -61,7 +61,8 @@ export function decodeOsc(buf: Buffer): OscMessage[] {
     }
     return out;
   }
-  let [address, i] = readString(buf, 0);
+  const [address, start] = readString(buf, 0);
+  let i = start;
   if (!address.startsWith("/")) throw new Error("OSC: address must start with /");
   let tags = ",";
   if (i < buf.length) [tags, i] = readString(buf, i);

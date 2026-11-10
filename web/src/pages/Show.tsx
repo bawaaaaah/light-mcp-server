@@ -250,7 +250,7 @@ export function ShowPage() {
       window.removeEventListener("pointerup", drop);
       window.removeEventListener("pointercancel", cancel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
   /** « Spot 3 · Dimmer/CW » per fixture, in the order of the fader's channels; ids for an unknown fixture. */
   const faderTargets = (f: ChannelFader) => {

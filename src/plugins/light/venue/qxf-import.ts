@@ -179,9 +179,9 @@ const isLevel = (caps: { name: string; preset?: string }[]) =>
 function channelFrom(node: Record<string, unknown>): FixtureChannel {
   const name = String(node["@_Name"]);
   const preset = node["@_Preset"] as string | undefined;
-  const group = text(node["Group"]);
-  const colourNode = text(node["Colour"]);
-  const capabilities: FixtureCapability[] = ((node["Capability"] as Record<string, unknown>[] | undefined) ?? []).map((c) => {
+  const group = text(node.Group);
+  const colourNode = text(node.Colour);
+  const capabilities: FixtureCapability[] = ((node.Capability as Record<string, unknown>[] | undefined) ?? []).map((c) => {
     const capName = text(c);
     const capPreset = c["@_Preset"] as string | undefined;
     const hex = [c["@_Res1"], c["@_Res"], c["@_Color"]].find((v): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
@@ -225,10 +225,10 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
 function physicalOf(node: unknown): { panMax?: number; tiltMax?: number; beamAngle?: number; beamAngleMin?: number } {
   const physical = node as Record<string, Record<string, unknown>> | undefined;
   const num = (v: unknown) => (v !== undefined && Number(v) > 0 ? Number(v) : undefined);
-  const panMax = num(physical?.["Focus"]?.["@_PanMax"]);
-  const tiltMax = num(physical?.["Focus"]?.["@_TiltMax"]);
-  const beamAngle = num(physical?.["Lens"]?.["@_DegreesMax"]) ?? num(physical?.["Lens"]?.["@_DegreesMin"]);
-  const narrowest = num(physical?.["Lens"]?.["@_DegreesMin"]);
+  const panMax = num(physical?.Focus?.["@_PanMax"]);
+  const tiltMax = num(physical?.Focus?.["@_TiltMax"]);
+  const beamAngle = num(physical?.Lens?.["@_DegreesMax"]) ?? num(physical?.Lens?.["@_DegreesMin"]);
+  const narrowest = num(physical?.Lens?.["@_DegreesMin"]);
   const beamAngleMin = beamAngle && narrowest && narrowest < beamAngle ? narrowest : undefined;
   return { ...(panMax ? { panMax } : {}), ...(tiltMax ? { tiltMax } : {}), ...(beamAngle ? { beamAngle } : {}), ...(beamAngleMin ? { beamAngleMin } : {}) };
 }
@@ -254,18 +254,18 @@ export function parseQxf(xml: string): FixtureDefinition {
   const root = parser.parse(xml).FixtureDefinition as Record<string, unknown>;
   if (!root) throw new Error("not a QLC+ fixture definition");
   const channels = new Map<string, FixtureChannel>();
-  for (const ch of (root["Channel"] as Record<string, unknown>[]) ?? []) {
+  for (const ch of (root.Channel as Record<string, unknown>[]) ?? []) {
     const c = channelFrom(ch);
     channels.set(c.name, c);
   }
-  tagMachineOutputs(channels, `${text(root["Type"])} ${text(root["Model"])}`);
-  const modes: FixtureMode[] = ((root["Mode"] as Record<string, unknown>[]) ?? []).map((m) => {
-    const chans = ((m["Channel"] as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
+  tagMachineOutputs(channels, `${text(root.Type)} ${text(root.Model)}`);
+  const modes: FixtureMode[] = ((root.Mode as Record<string, unknown>[]) ?? []).map((m) => {
+    const chans = ((m.Channel as unknown[]) ?? []).map((c) => ({ n: Number((c as Record<string, unknown>)["@_Number"]), name: text(c) }));
     chans.sort((a, b) => a.n - b.n);
-    const heads = ((m["Head"] as Record<string, unknown>[]) ?? []).map((h) => ((h["Channel"] as unknown[]) ?? []).map((x) => Number(text(x))));
-    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads, ...physicalOf(m["Physical"]) };
+    const heads = ((m.Head as Record<string, unknown>[]) ?? []).map((h) => ((h.Channel as unknown[]) ?? []).map((x) => Number(text(x))));
+    return { name: String(m["@_Name"]), channels: chans.map((c) => c.name), heads, ...physicalOf(m.Physical) };
   });
-  return { manufacturer: text(root["Manufacturer"]), model: text(root["Model"]), type: text(root["Type"]), channels, modes, ...physicalOf(root["Physical"]) };
+  return { manufacturer: text(root.Manufacturer), model: text(root.Model), type: text(root.Type), channels, modes, ...physicalOf(root.Physical) };
 }
 
 /**

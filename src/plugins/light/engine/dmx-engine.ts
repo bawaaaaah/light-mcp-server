@@ -6,9 +6,7 @@
 import { Ticker, type TickerOptions } from "./ticker.js";
 import { UniverseStore } from "../output/universes.js";
 
-export interface EngineFrameListener {
-  (buffers: readonly Uint8Array[], nowMs: number): void;
-}
+export type EngineFrameListener = (buffers: readonly Uint8Array[], nowMs: number) => void;
 
 export class DmxEngine {
   readonly output: UniverseStore;

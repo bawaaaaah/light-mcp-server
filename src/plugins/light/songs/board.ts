@@ -64,9 +64,9 @@ export function songBoard(song: Song, lookOf: (id: string) => BoardLook | undefi
       const label = c.label ?? c.command;
       out.push(`<text x="${LABEL}" y="${y + 72 + k * 13}" font-size="10" fill="#1a56c4">◆ mesure ${c.atBar + 1}.${c.beat + 1} : ${esc(label)}</text>`);
     });
-    out.push(`</g>`);
+    out.push("</g>");
     y += h;
   });
-  out.push(`</svg>`);
+  out.push("</svg>");
   return out.join("\n");
 }

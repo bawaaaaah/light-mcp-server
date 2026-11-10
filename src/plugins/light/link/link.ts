@@ -371,6 +371,6 @@ export class LinkListener {
     this.synced = undefined;
     this.clock = undefined;
     this.lastAttempt = undefined;
-    await Promise.all(sockets.map((s) => s && new Promise<void>((resolve) => s.close(() => resolve()))));
+    await Promise.all(sockets.map((s) => (s ? new Promise<void>((resolve) => s.close(() => resolve())) : Promise.resolve())));
   }
 }

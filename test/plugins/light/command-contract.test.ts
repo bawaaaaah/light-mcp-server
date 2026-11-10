@@ -79,8 +79,8 @@ describe("command contract", () => {
       plugin.registerTools(server as never);
       expect(Object.keys(tools)).to.have.length(commands.length);
       for (const [name, def] of Object.entries(tools)) expect(Object.keys(def.annotations ?? {}).sort(), name).to.deep.equal(["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"]);
-      expect(tools["light_look_delete"]!.annotations).to.deep.equal({ readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
-      expect(tools["light_nodes_discover"]!.annotations).to.deep.equal({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+      expect(tools.light_look_delete!.annotations).to.deep.equal({ readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
+      expect(tools.light_nodes_discover!.annotations).to.deep.equal({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
     });
   });
 });

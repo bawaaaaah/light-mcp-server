@@ -163,23 +163,23 @@ export function parseStepValues(raw: string): Map<number, Map<number, number>> {
 }
 
 function parseFunction(f: Node): QxwFunction {
-  const speed = (f["Speed"] as Node | undefined) ?? {};
-  const sm = f["SpeedModes"] as Node | undefined;
+  const speed = (f.Speed as Node | undefined) ?? {};
+  const sm = f.SpeedModes as Node | undefined;
   const fn: QxwFunction = {
     id: num(f["@_ID"]),
     type: String(f["@_Type"]),
     name: String(f["@_Name"] ?? ""),
     path: String(f["@_Path"] ?? ""),
     speed: { fadeIn: num(speed["@_FadeIn"]), fadeOut: num(speed["@_FadeOut"]), duration: num(speed["@_Duration"]) },
-    runOrder: f["RunOrder"] !== undefined ? txt(f["RunOrder"]) : undefined,
-    direction: f["Direction"] !== undefined ? txt(f["Direction"]) : undefined,
+    runOrder: f.RunOrder !== undefined ? txt(f.RunOrder) : undefined,
+    direction: f.Direction !== undefined ? txt(f.Direction) : undefined,
     speedModes: sm ? { fadeIn: String(sm["@_FadeIn"]), fadeOut: String(sm["@_FadeOut"]), duration: String(sm["@_Duration"]) } : undefined,
     boundScene: f["@_BoundScene"] !== undefined ? num(f["@_BoundScene"]) : undefined,
     steps: [],
     values: new Map(),
     members: [],
   };
-  for (const s of (f["Step"] as Node[] | undefined) ?? []) {
+  for (const s of (f.Step as Node[] | undefined) ?? []) {
     const body = txt(s);
     const isChaserStep = fn.type === "Chaser" || (!body.includes(":") && /^\d+$/.test(body));
     fn.steps.push({
@@ -190,39 +190,39 @@ function parseFunction(f: Node): QxwFunction {
       functionId: isChaserStep ? Number(body) : undefined,
     });
   }
-  for (const fv of (f["FixtureVal"] as Node[] | undefined) ?? []) {
+  for (const fv of (f.FixtureVal as Node[] | undefined) ?? []) {
     const nums = txt(fv).split(",").filter(Boolean).map(Number);
     const map = new Map<number, number>();
     for (let k = 0; k + 1 < nums.length; k += 2) map.set(nums[k]!, nums[k + 1]!);
     fn.values.set(num(fv["@_ID"]), map);
   }
   if (fn.type === "EFX") {
-    const axes = ([] as Node[]).concat((f["Axis"] as Node | Node[] | undefined) ?? []);
+    const axes = ([] as Node[]).concat((f.Axis as Node | Node[] | undefined) ?? []);
     const axis = (name: string) => axes.find((a) => String(a["@_Name"]) === name);
     fn.efx = {
-      algorithm: txt(f["Algorithm"]) || "Circle",
-      width: f["Width"] !== undefined ? num(f["Width"]) : 127,
-      height: f["Height"] !== undefined ? num(f["Height"]) : 127,
-      rotation: num(f["Rotation"]),
-      propagation: txt(f["PropagationMode"]) || "Parallel",
-      xOffset: axis("X")?.["Offset"] !== undefined ? num(axis("X")!["Offset"]) : 127,
-      yOffset: axis("Y")?.["Offset"] !== undefined ? num(axis("Y")!["Offset"]) : 127,
-      fixtures: ((f["Fixture"] as Node[] | undefined) ?? []).map((x) => ({ id: num(x["ID"]), head: num(x["Head"]), mode: num(x["Mode"]), direction: x["Direction"] !== undefined ? txt(x["Direction"]) : undefined })),
+      algorithm: txt(f.Algorithm) || "Circle",
+      width: f.Width !== undefined ? num(f.Width) : 127,
+      height: f.Height !== undefined ? num(f.Height) : 127,
+      rotation: num(f.Rotation),
+      propagation: txt(f.PropagationMode) || "Parallel",
+      xOffset: axis("X")?.Offset !== undefined ? num(axis("X")!.Offset) : 127,
+      yOffset: axis("Y")?.Offset !== undefined ? num(axis("Y")!.Offset) : 127,
+      fixtures: ((f.Fixture as Node[] | undefined) ?? []).map((x) => ({ id: num(x.ID), head: num(x.Head), mode: num(x.Mode), direction: x.Direction !== undefined ? txt(x.Direction) : undefined })),
     };
   }
   if (fn.type === "RGBMatrix") {
-    const alg = f["Algorithm"] as Node | string | undefined;
+    const alg = f.Algorithm as Node | string | undefined;
     const type = typeof alg === "object" ? String(alg["@_Type"] ?? "") : "";
     const colors: (number | undefined)[] = [];
-    for (const c of list(f["Color"])) colors[num(c["@_Index"])] = Number(txt(c)) & 0xffffff;
+    for (const c of list(f.Color)) colors[num(c["@_Index"])] = Number(txt(c)) & 0xffffff;
     fn.matrix = {
       algorithm: type === "Script" ? txt(alg) : type || txt(alg) || "Plain",
       colors,
-      fixtureGroup: num(f["FixtureGroup"]),
-      properties: Object.fromEntries(list(f["Property"]).map((p) => [String(p["@_Name"]), String(p["@_Value"])])),
+      fixtureGroup: num(f.FixtureGroup),
+      properties: Object.fromEntries(list(f.Property).map((p) => [String(p["@_Name"]), String(p["@_Value"])])),
     };
   }
-  const fns = f["Function"];
+  const fns = f.Function;
   if (fn.type === "Collection" && fns) fn.members = (Array.isArray(fns) ? fns : [fns]).map((x) => num(x));
   return fn;
 }
@@ -231,7 +231,7 @@ function parseFunction(f: Node): QxwFunction {
 const list = (v: unknown): Node[] => (v === undefined ? [] : ([] as Node[]).concat(v as Node | Node[]));
 
 function inputOf(w: Node): QxwWidget["input"] {
-  const inputs = w["Input"] as Node[] | undefined;
+  const inputs = w.Input as Node[] | undefined;
   const input = inputs?.[0];
   if (!input) return undefined;
   const channel = num(input["@_Channel"]);
@@ -239,26 +239,26 @@ function inputOf(w: Node): QxwWidget["input"] {
 }
 
 function walkVc(node: Node, frames: string[], solo: number | undefined, out: QxwWidget[], soloFrames: QxwWorkspace["soloFrames"], frameKey = ""): void {
-  for (const b of (node["Button"] as Node[] | undefined) ?? []) {
-    const fnRaw = b["Function"] as Node | Node[] | undefined;
+  for (const b of (node.Button as Node[] | undefined) ?? []) {
+    const fnRaw = b.Function as Node | Node[] | undefined;
     const fn = Array.isArray(fnRaw) ? fnRaw[0] : fnRaw;
-    out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b["Action"]), input: inputOf(b) });
+    out.push({ kind: "button", id: num(b["@_ID"]), caption: String(b["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, functionId: fn ? num(fn["@_ID"]) : undefined, action: txt(b.Action), input: inputOf(b) });
   }
-  for (const s of (node["Slider"] as Node[] | undefined) ?? []) {
-    const level = s["Level"] as Node | undefined;
-    const chans = ((level?.["Channel"] as unknown[]) ?? []).map((c) => ({ fixture: num((c as Node)["@_Fixture"]), channel: num(c) }));
+  for (const s of (node.Slider as Node[] | undefined) ?? []) {
+    const level = s.Level as Node | undefined;
+    const chans = ((level?.Channel as unknown[]) ?? []).map((c) => ({ fixture: num((c as Node)["@_Fixture"]), channel: num(c) }));
     // Playback sliders play a function at their level (4294967295 = none)
-    const playedRaw = (s["Playback"] as Node | undefined)?.["Function"];
+    const playedRaw = (s.Playback as Node | undefined)?.Function;
     const played = Array.isArray(playedRaw) ? playedRaw[0] : playedRaw;
     const playedId = played !== undefined && txt(played) !== "" ? Number(txt(played)) : undefined;
     const limit = (k: string, fallback: number) => (level?.[k] === undefined ? fallback : Math.max(0, Math.min(255, num(level[k]))));
     const levelLimits = { low: limit("@_LowLimit", 0), high: limit("@_HighLimit", 255) };
-    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s["SliderMode"]), input: inputOf(s), levelChannels: chans, levelLimits, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
+    out.push({ kind: "slider", id: num(s["@_ID"]), caption: String(s["@_Caption"] ?? ""), soloFrame: solo, frames, frameKey, sliderMode: txt(s.SliderMode), input: inputOf(s), levelChannels: chans, levelLimits, functionId: playedId !== undefined && playedId !== 4294967295 ? playedId : undefined });
   }
-  for (const d of (node["SpeedDial"] as Node[] | undefined) ?? []) {
-    const fns = d["Function"];
+  for (const d of (node.SpeedDial as Node[] | undefined) ?? []) {
+    const fns = d.Function;
     const list = (Array.isArray(fns) ? fns : fns ? [fns] : []) as Node[];
-    const tap = d["Tap"] as Node | undefined;
+    const tap = d.Tap as Node | undefined;
     out.push({
       kind: "speeddial",
       id: num(d["@_ID"]),
@@ -269,9 +269,9 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
       speedDialFunctions: list.map((f) => ({ id: num(f), fadeIn: num(f["@_FadeIn"]), fadeOut: num(f["@_FadeOut"]), duration: num(f["@_Duration"]) })),
     });
   }
-  for (const c of (node["CueList"] as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: String(c["@_Caption"] ?? ""), frames, frameKey, input: inputOf(c) });
-  for (const f of (node["Frame"] as Node[] | undefined) ?? []) walkVc(f, [...frames, String(f["@_Caption"] ?? "")], solo, out, soloFrames, `${frameKey}/${String(f["@_ID"] ?? f["@_Caption"] ?? "")}`);
-  for (const f of (node["SoloFrame"] as Node[] | undefined) ?? []) {
+  for (const c of (node.CueList as Node[] | undefined) ?? []) out.push({ kind: "cuelist", id: num(c["@_ID"]), caption: String(c["@_Caption"] ?? ""), frames, frameKey, input: inputOf(c) });
+  for (const f of (node.Frame as Node[] | undefined) ?? []) walkVc(f, [...frames, String(f["@_Caption"] ?? "")], solo, out, soloFrames, `${frameKey}/${String(f["@_ID"] ?? f["@_Caption"] ?? "")}`);
+  for (const f of (node.SoloFrame as Node[] | undefined) ?? []) {
     const id = num(f["@_ID"]);
     const before = out.length;
     walkVc(f, [...frames, String(f["@_Caption"] ?? "")], id, out, soloFrames, `${frameKey}/${id}`);
@@ -282,35 +282,35 @@ function walkVc(node: Node, frames: string[], solo: number | undefined, out: Qxw
 export function parseQxw(xml: string): QxwWorkspace {
   const ws = parser.parse(xml).Workspace as Node;
   if (!ws) throw new Error("not a QLC+ workspace");
-  const engine = ws["Engine"] as Node;
-  const fixtures: QxwFixture[] = ((engine["Fixture"] as Node[]) ?? []).map((f) => ({
-    id: num(f["ID"]),
-    name: txt(f["Name"]),
-    manufacturer: txt(f["Manufacturer"]),
-    model: txt(f["Model"]),
-    mode: txt(f["Mode"]),
-    universe: num(f["Universe"]),
-    address: num(f["Address"]),
-    channels: num(f["Channels"]),
+  const engine = ws.Engine as Node;
+  const fixtures: QxwFixture[] = ((engine.Fixture as Node[]) ?? []).map((f) => ({
+    id: num(f.ID),
+    name: txt(f.Name),
+    manufacturer: txt(f.Manufacturer),
+    model: txt(f.Model),
+    mode: txt(f.Mode),
+    universe: num(f.Universe),
+    address: num(f.Address),
+    channels: num(f.Channels),
   }));
   const functions = new Map<number, QxwFunction>();
-  for (const f of (engine["Function"] as Node[]) ?? []) {
+  for (const f of (engine.Function as Node[]) ?? []) {
     const fn = parseFunction(f);
     functions.set(fn.id, fn);
   }
   const widgets: QxwWidget[] = [];
   const soloFrames: QxwWorkspace["soloFrames"] = [];
-  const vc = ws["VirtualConsole"] as Node | undefined;
-  if (vc) for (const frame of (vc["Frame"] as Node[] | undefined) ?? []) walkVc(frame, [], undefined, widgets, soloFrames);
-  const fixtureGroups: QxwFixtureGroup[] = list(engine["FixtureGroup"]).map((g) => {
-    const size = g["Size"] as Node | undefined;
+  const vc = ws.VirtualConsole as Node | undefined;
+  if (vc) for (const frame of (vc.Frame as Node[] | undefined) ?? []) walkVc(frame, [], undefined, widgets, soloFrames);
+  const fixtureGroups: QxwFixtureGroup[] = list(engine.FixtureGroup).map((g) => {
+    const size = g.Size as Node | undefined;
     return {
       id: num(g["@_ID"]),
-      name: txt(g["Name"]),
+      name: txt(g.Name),
       width: num(size?.["@_X"]),
       height: num(size?.["@_Y"]),
-      heads: list(g["Head"]).map((h) => ({ x: num(h["@_X"]), y: num(h["@_Y"]), fixture: num(h["@_Fixture"]), head: num(txt(h)) })),
+      heads: list(g.Head).map((h) => ({ x: num(h["@_X"]), y: num(h["@_Y"]), fixture: num(h["@_Fixture"]), head: num(txt(h)) })),
     };
   });
-  return { qlcVersion: txt((ws["Creator"] as Node | undefined)?.["Version"]), fixtures, functions, widgets, soloFrames, fixtureGroups };
+  return { qlcVersion: txt((ws.Creator as Node | undefined)?.Version), fixtures, functions, widgets, soloFrames, fixtureGroups };
 }

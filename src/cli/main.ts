@@ -91,12 +91,12 @@ switch (command) {
       await running.stop();
       process.exit(0);
     };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", () => void shutdown());
+    process.on("SIGTERM", () => void shutdown());
     // Windows has no SIGTERM: its tray app (windows/) asks for a clean stop by closing our stdin, which
     // also happens when the app dies. Not with --stdio, whose stdin carries MCP.
     if (getEnvBool("LIGHT_STOP_ON_STDIN_CLOSE", false) && !values.stdio) {
-      process.stdin.on("end", shutdown).on("close", shutdown).on("error", shutdown).resume();
+      process.stdin.on("end", () => void shutdown()).on("close", () => void shutdown()).on("error", () => void shutdown()).resume();
     }
     break;
   }

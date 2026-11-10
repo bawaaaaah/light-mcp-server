@@ -79,7 +79,7 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
       const ccs = mappings().filter((m) => m.input.type === "cc");
       const xml = buildRackXml(readAdg(readFileSync(shellPath)), {
         userName: `${runtime.settings.name} · ch ${channel ?? "tous"}`,
-        annotation: [`Généré par light-mcp-server. Un rack = une piste : ne pas empiler.`, ccs.length ? `Faders en CC : ${ccs.map((m) => `${label(m)} = CC ${m.input.number}`).join(", ")}.` : ""].join(" ").trim(),
+        annotation: ["Généré par light-mcp-server. Un rack = une piste : ne pas empiler.", ccs.length ? `Faders en CC : ${ccs.map((m) => `${label(m)} = CC ${m.input.number}`).join(", ")}.` : ""].join(" ").trim(),
         chains: [...byNote.entries()].sort((a, b) => a[0] - b[0]).map(([note, m]) => ({ name: `${isDanger(m) ? "❌ " : ""}${label(m)}`, note, color: isDanger(m) ? 0 : color })),
       });
       const outDir = path.join(dataRoot, "exports");

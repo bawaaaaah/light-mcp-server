@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigStore } from "../src/core/config-store.js";
 import { AuthService } from "../src/core/auth.js";
-import { HttpError } from "../src/core/http-errors.js";
+import type { HttpError } from "../src/core/http-errors.js";
 import { localBaseUrl, resolveListen } from "../src/core/env.js";
 import { hashPin } from "../src/core/auth.js";
 import { PasskeyService } from "../src/core/passkeys.js";

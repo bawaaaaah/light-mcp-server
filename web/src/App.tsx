@@ -135,7 +135,7 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
   return (
     <div className="login">
       <h1>{t.appName}</h1>
-      <form className="token-login" onSubmit={submitToken}>
+      <form className="token-login" onSubmit={(e) => void submitToken(e)}>
         <input autoFocus type="password" autoComplete="off" placeholder={t.token} value={token} onChange={(e) => setToken(e.target.value)} />
         <button type="submit" disabled={!token.trim()}>
           {t.login}
@@ -150,7 +150,7 @@ function Login({ onLogin, t, initialError = "" }: { onLogin: (r: Role) => void; 
       {users.length === 0 ? (
         <p className="hint">{t.noPins}</p>
       ) : (
-        <form className="pin-login" onSubmit={submitPin}>
+        <form className="pin-login" onSubmit={(e) => void submitPin(e)}>
           <select aria-label={t.user} value={user} onChange={(e) => setUser(e.target.value)}>
             {users.map((u) => (
               <option key={u.id} value={u.id}>

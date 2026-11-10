@@ -119,7 +119,9 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
 const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
-const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
 const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
 
 export function DashboardsPage({ role }: { role: Role }) {
