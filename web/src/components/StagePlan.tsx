@@ -417,8 +417,7 @@ export function StagePlan({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `select` is a new closure on every render: depending on it would re-bind the keydown listener each time
-  }, [orienting, selectedFixture, onOrient]);
+  }, [orienting, selectedFixture, onOrient, select]);
   const dropTurn = () => {
     if (turning === null || !selectedFixture) return;
     const was = selectedFixture.orientation?.yaw ?? 0;
