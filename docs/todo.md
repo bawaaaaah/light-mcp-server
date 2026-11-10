@@ -271,7 +271,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 
 T1 est en dernier pour la difficulté, mais **mis en attente** : l'utilisateur joue en Art-Net. À reprendre plus tard, en mesurant avant de corriger.
 
-Fait depuis ce relevé (2026-11-09) : **T7** (« rang » 1) et **T31** (composé d'outils existants — le pad XY et les faders de canaux — d'où la place modeste qu'il occupe dans la liste ci-dessus).
+Fait depuis ce relevé (2026-11-09) : **T7** (« rang » 1), **T17** (« rang » 2), **T31** (composé d'outils existants — le pad XY et les faders de canaux — d'où la place modeste qu'il occupe dans la liste ci-dessus) et **T33** (gestion des dossiers, née à la suite du T17).
 
 ## Plan d'action (mis à jour le 2026-11-07)
 Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les définitions saines (elles conditionnent le reste), puis le réglage des lyres, enfin le confort, le visuel et la manette. T1 (DMX USB) est en attente : l'utilisateur joue en Art-Net.
