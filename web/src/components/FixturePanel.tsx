@@ -38,6 +38,9 @@ interface Glide {
   faders: Record<string, number>;
 }
 
+/** Whether a fader's range leaves part of the travel out (an explicit 0..255 is the whole travel): such a fader is not the panel's. */
+const narrowed = (range: { min: number; max: number } | undefined) => range !== undefined && (range.min > 0 || range.max < 255);
+
 export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: string; name: string; absent?: boolean }; onError: (msg: string) => void; onClose: () => void }): ReactElement {
   const t = useT();
   const me = useMe() as Role | null;
@@ -78,7 +81,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   const glide = useTopic<Glide>("light:glide", { faders: {} });
 
   /** The channel faders that drive one channel of this fixture over its whole travel, by channel offset (as fader.channel finds them). */
-  const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !f.range).map((f) => [f.channels[0]!.offset, f]));
+  const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !narrowed(f.range)).map((f) => [f.channels[0]!.offset, f]));
   const head = heads.find((h) => h.id === fixture.id);
   const may = (right: string) => (me ? can(me, right) : false);
 
@@ -101,7 +104,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
     if (fixture.absent || !patch) return;
     setLevels((l) => ({ ...l, [c.offset]: level }));
     // the gesture shows at once on this channel's fader, like the dashboards
-    setFaders((fs) => fs.map((x) => (x.channels.length === 1 && x.channels[0]!.fixture === fixture.id && x.channels[0]!.offset === c.offset && !x.range ? { ...x, level } : x)));
+    setFaders((fs) => fs.map((x) => (x.channels.length === 1 && x.channels[0]!.fixture === fixture.id && x.channels[0]!.offset === c.offset && !narrowed(x.range) ? { ...x, level } : x)));
     const created = working.current.get(c.offset);
     if (created) {
       created.pending = level;

@@ -20,11 +20,12 @@ export interface FixtureFunctions {
   channels: readonly ChannelFunctions[];
 }
 
-/** One function to offer: what the list shows, and the range it sets. */
+/** One function to offer: what the list shows, the range it sets, and a key that stays the same when the label gains a prefix (a second model or channel ticked). */
 export interface FaderFunction {
   label: string;
   min: number;
   max: number;
+  key: string;
 }
 
 const channelOf = (fixtures: readonly FixtureFunctions[], p: { fixture: string; offset: number }) => {
@@ -54,7 +55,7 @@ export function faderFunctions(fixtures: readonly FixtureFunctions[], picked: re
       const label = `${prefix ? `${prefix} · ` : ""}${name ? `${name} (${values})` : values}`;
       if (seen.has(label)) continue;
       seen.add(label);
-      out.push({ label, min: r.min, max: r.max });
+      out.push({ label, min: r.min, max: r.max, key: [fixture.model ?? fixture.id, channel.name, name, r.min, r.max].join("|") });
     }
   }
   return out;

@@ -11,7 +11,7 @@ import { ChannelTree, type PickedChannel } from "./ChannelTree";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
-import { faderFunctions, unfitted } from "../fader-functions";
+import { faderFunctions, functionsOf, unfitted } from "../fader-functions";
 import { FunctionPicker } from "./FunctionPicker";
 
 export interface FaderDraft {
@@ -61,25 +61,38 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   // the named functions of the ticked channels (a gobo wheel, a preset, a macro): one picked by name
   // narrows the fader's travel to it, so the fader still moves inside it (a speed, often)
   const functions = faderFunctions(all, channels);
-  /** A limit being typed: kept as text until it is a number (an emptied field must not read 0, nor « 40 » become « 040 »). */
+  /** A limit being typed: kept as text, applied when the field is left or the fader saved (an emptied field must not read 0, nor « 40 » become « 040 », nor « 300 » stop at its « 30 »). */
   const [typing, setTyping] = useState<{ min?: string; max?: string }>({});
+  /** The range with what is being typed applied: a number is brought into 0..255, anything else keeps the limit as it was. */
+  const settled = (): typeof range => {
+    const read = (key: "min" | "max") => {
+      const text = typing[key];
+      const n = Math.round(Number(text));
+      return text === undefined || text.trim() === "" || !Number.isFinite(n) ? range[key] : Math.max(0, Math.min(255, n));
+    };
+    return { min: read("min"), max: read("max") };
+  };
   const limit = (key: "min" | "max") => ({
     value: typing[key] ?? String(range[key]),
     onChange: (e: { target: { value: string } }) => {
       const text = e.target.value;
       setTyping((d) => ({ ...d, [key]: text }));
-      const n = Number(text);
-      if (text.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 255) setRange((r) => ({ ...r, [key]: n }));
     },
-    onBlur: () => setTyping((d) => ({ ...d, [key]: undefined })),
+    onBlur: () => {
+      setRange(settled());
+      setTyping((d) => ({ ...d, [key]: undefined }));
+    },
   });
 
   const save = () => {
+    const r = settled();
+    setRange(r);
+    setTyping({});
     if (!name.trim()) return setError(t.nameRequired);
     if (!channels.length) return setError(t.faderNoChannel);
-    if (range.min > range.max) return setError(t.rangeOrder);
-    const ranged = range.min > 0 || range.max < 255;
-    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, ...(ranged ? { range } : {}), dca: dca || undefined, smoothing, notes } })
+    if (r.min > r.max) return setError(t.rangeOrder);
+    const ranged = r.min > 0 || r.max < 255;
+    void cmd("fader.put", { fader: { id, name, channels, level: initial.level, ...(ranged ? { range: r } : {}), dca: dca || undefined, smoothing, notes } })
       .then(onClose)
       .catch((e: Error) => setError(e.message));
   };
@@ -115,9 +128,14 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
         </label>
         <SmoothingField value={smoothing} onChange={setSmoothing} />
       </div>
+      {range.min > range.max && (
+        <p className="warn" role="alert">
+          {t.rangeOrder}
+        </p>
+      )}
       <p className="hint">{t.faderHelp}</p>
       <ChannelTree fixtures={all} groups={groups} selected={channels} onChange={setChannels} />
-      {channels.length > 0 && <FunctionPicker functions={functions} range={range} unfitted={unfitted(all, channels, range)} onPick={setRange} />}
+      {channels.length > 0 && <FunctionPicker functions={functions} range={range} unfitted={functionsOf(functions, range).length ? unfitted(all, channels, range) : []} onPick={setRange} />}
       <p className="hint">
         {channels.length} {t.faderChannelCount}
       </p>

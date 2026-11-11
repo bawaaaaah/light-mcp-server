@@ -12,7 +12,7 @@ describe("fader functions (T12): a channel fader narrowed to a named function", 
   ];
 
   it("lists one channel's functions with their values, once for every fixture of the model", () => {
-    expect(faderFunctions(fixtures, [{ fixture: "spot-1", offset: 7 }, { fixture: "spot-2", offset: 7 }])).to.deep.equal([
+    expect(faderFunctions(fixtures, [{ fixture: "spot-1", offset: 7 }, { fixture: "spot-2", offset: 7 }]).map(({ label, min, max }) => ({ label, min, max }))).to.deep.equal([
       { label: "White (0–15)", min: 0, max: 15 },
       { label: "Red (16–31)", min: 16, max: 31 },
     ]);
@@ -39,9 +39,15 @@ describe("fader functions (T12): a channel fader narrowed to a named function", 
     const list = faderFunctions(fixtures, [{ fixture: "spot-1", offset: 7 }, { fixture: "spot-1", offset: 8 }]);
     expect(searchFunctions(list, "gobo 3").map((f) => f.label)).to.deep.equal(["Gobo · Gobo 3 (64–71)"]);
     expect(searchFunctions(list, "red (16-31)").map((f) => f.label)).to.deep.equal(["Color Wheel · Red (16–31)"]);
-    expect(searchFunctions([{ label: "Rouge clair (0–9)", min: 0, max: 9 }], "rouge CLAIR")).to.have.length(1);
-    expect(searchFunctions([{ label: "Éclair (0–9)", min: 0, max: 9 }], "eclair")).to.have.length(1);
+    expect(searchFunctions([{ label: "Rouge clair (0–9)", min: 0, max: 9, key: "a" }], "rouge CLAIR")).to.have.length(1);
+    expect(searchFunctions([{ label: "Éclair (0–9)", min: 0, max: 9, key: "b" }], "eclair")).to.have.length(1);
     expect(searchFunctions(list, "")).to.have.length(list.length);
+  });
+
+  it("keeps a function's key when its label gains a prefix (a second channel or model ticked)", () => {
+    const alone = faderFunctions(fixtures, [{ fixture: "spot-1", offset: 8 }]).find((f) => f.label === "Gobo 1 (16–31)")!;
+    const both = faderFunctions(fixtures, [{ fixture: "spot-1", offset: 8 }, { fixture: "other", offset: 2 }]).find((f) => f.key === alone.key)!;
+    expect(both.label).to.equal("Maker Spot · Gobo 1 (16–31)");
   });
 
   it("names the ticked channels a narrowed range does not fit, and none for the whole travel", () => {

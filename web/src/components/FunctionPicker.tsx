@@ -18,16 +18,16 @@ export function FunctionPicker({ functions, range, unfitted, onPick }: { functio
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
-  /** The label picked here: shown as long as the range is still its own (two functions may share one). */
+  /** The function picked here, by its key: shown as long as the range is still its own (two functions may share one), whatever prefix its label gains. */
   const [picked, setPicked] = useState<string | null>(null);
   const whole = range.min <= 0 && range.max >= 255;
   const covering = functionsOf(functions, range);
-  const chosen = covering.find((f) => f.label === picked) ?? covering[0];
+  const chosen = covering.find((f) => f.key === picked) ?? covering[0];
   const shown = searchFunctions(functions, query);
   const status = whole ? t.faderFunctionWhole : chosen ? `${chosen.label} — ${t.faderFunctionTravel}` : t.faderFunctionCustom;
 
   const pick = (f: FaderFunction | null) => {
-    setPicked(f?.label ?? null);
+    setPicked(f?.key ?? null);
     setQuery("");
     onPick(f ? { min: f.min, max: f.max } : { min: 0, max: 255 });
   };
@@ -43,7 +43,20 @@ export function FunctionPicker({ functions, range, unfitted, onPick }: { functio
           <p className="status" role="status" aria-live="polite">
             {status}
           </p>
-          <input type="search" aria-label={t.faderFunctionSearch} placeholder={t.faderFunctionSearch} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input
+            type="search"
+            aria-label={t.faderFunctionSearch}
+            placeholder={t.faderFunctionSearch}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter takes the only function left by the search
+              if (e.key === "Enter" && query.trim() && shown.length === 1) {
+                e.preventDefault();
+                pick(shown[0]!);
+              }
+            }}
+          />
           <ul className="function-list" aria-label={t.faderFunction}>
             <li>
               <button type="button" className={whole ? "chosen" : ""} aria-pressed={whole} onClick={() => pick(null)}>
@@ -51,9 +64,9 @@ export function FunctionPicker({ functions, range, unfitted, onPick }: { functio
               </button>
             </li>
             {shown.map((f) => {
-              const on = !whole && chosen?.label === f.label;
+              const on = !whole && chosen?.key === f.key;
               return (
-                <li key={f.label}>
+                <li key={f.key}>
                   <button type="button" className={on ? "chosen" : ""} aria-pressed={on} onClick={() => pick(f)}>
                     {f.label}
                   </button>

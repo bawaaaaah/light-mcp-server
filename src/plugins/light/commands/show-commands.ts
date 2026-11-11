@@ -712,6 +712,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return show.faders.put(fader);
     },
   });
+  /** Whether a fader's range leaves part of the travel out (an explicit 0..255 is the whole travel). */
+  const narrowed = (range: { min: number; max: number } | undefined) => range !== undefined && (range.min > 0 || range.max < 255);
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
@@ -721,7 +723,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
     run: ({ fixture, offset, name, level }) => {
       // only a fader over the whole travel is this channel's: one narrowed to a function (T12) is something else
-      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset && !f.range);
+      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset && !narrowed(f.range));
       if (own) return { ...own, created: false };
       checkChannels([{ fixture, offset }]);
       const patch = venue.fixtures.get(fixture)!;

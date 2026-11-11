@@ -3490,13 +3490,19 @@ test("channel fader editor: a function picked by name narrows the fader to it (T
   await expect(editor.getByLabel("Borne supérieure")).toHaveValue("31");
   await expect(picker.getByRole("status")).toHaveText("Red (16–31) — le fader parcourt cette fonction seulement");
   await expect(picker.getByRole("button", { name: "Red (16–31)" })).toHaveAttribute("aria-pressed", "true");
-  // a limit typed by hand: an emptied field stays empty, « 20 » is not « 020 », the range becomes custom
+  // a limit typed by hand: an emptied field stays empty while typing, « 20 » is not « 020 », and it applies
+  // when the field is left — the range becomes custom; « 300 » is brought to 255, not cut to its « 30 »
   const low = editor.getByLabel("Borne inférieure");
   await low.fill("");
   await expect(low).toHaveValue("");
   await low.fill("20");
   await expect(low).toHaveValue("20");
+  await low.blur();
   await expect(picker.getByRole("status")).toHaveText("intervalle sur mesure");
+  const high = editor.getByLabel("Borne supérieure");
+  await high.fill("300");
+  await high.blur();
+  await expect(high).toHaveValue("255");
   await picker.getByRole("button", { name: "Red (16–31)" }).click();
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
