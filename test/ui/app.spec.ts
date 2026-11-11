@@ -3270,7 +3270,7 @@ test("DCA: a raw scene follows its DCA once, a fader's DCA and the grand master,
     // a machine channel (a bar's Program) says it is not dosed, instead of an intensity it does not follow
     await page.getByRole("region", { name: "Bar 0" }).getByRole("button", { name: "Pourquoi ce canal 3" }).click();
     const program = page.getByRole("region", { name: "Pourquoi ce canal 3" });
-    await expect(program).toContainText("Canal de machine : non dosé (ni grand master ni DCA)");
+    await expect(program).toContainText("Canal hors lumière : non dosé (ni grand master ni DCA)");
     await expect(program).not.toContainText("Intensité");
   } finally {
     await api(page, "grandmaster.set", { level: 1 });
@@ -3291,7 +3291,8 @@ test("DCA: the group editor, the fader editor and the raw channels say what a DC
   await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
   const editor = page.locator(".group-editor");
   await editor.getByLabel("DCA", { exact: true }).check();
-  await expect(editor.locator(".dca-doses li")).toHaveCount(3);
+  await expect(editor.locator(".dca-doses li")).toHaveCount(4);
+  await expect(editor.locator(".dca-doses")).toContainText("sur les projecteurs que ce groupe ne contient pas déjà");
   await expect(editor.locator(".dca-doses")).toContainText("Il compte une seule fois");
   await expect(editor.getByLabel("DCA", { exact: true })).toHaveAttribute("aria-describedby", /.+/);
   await editor.screenshot({ path: "test-results/t35-group-editor.png" });

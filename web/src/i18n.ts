@@ -233,6 +233,7 @@ const fr = {
   dcaDosesHelp: [
     "Il dose la lumière de ses projecteurs, sous-groupes compris, peinte ou en canaux bruts.",
     "Il dose les faders cochés, et les looks qui écrivent leurs canaux de lumière.",
+    "Il dose les looks dosés, sur les projecteurs que ce groupe ne contient pas déjà.",
     "Il compte une seule fois ; fumée, roue et mode ne sont jamais dosés.",
   ],
   fixturesMembers: "Projecteurs",
@@ -1058,7 +1059,7 @@ const fr = {
   whyPainting: "Couleur peinte par",
   whyLeaving: "en train de sortir",
   whyRawDosed: "Gradateur ou couleur bruts : le look qui l'écrit est dosé par cette intensité",
-  whyUndosed: "Canal de machine : non dosé (ni grand master ni DCA)",
+  whyUndosed: "Canal hors lumière : non dosé (ni grand master ni DCA)",
   whyFaderDcas: "Looks sur ce canal, dosés aussi par le DCA lié à son fader",
   whyFaderDcasMany: "Looks sur ce canal, dosés aussi par les DCA liés à ses faders",
   whyFaderDoses: "dose le gradateur",
@@ -1510,6 +1511,7 @@ const en: typeof fr = {
   dcaDosesHelp: [
     "It doses the light of its fixtures, sub-groups included, painted or on raw channels.",
     "It doses the faders ticked, and the looks writing their light channels.",
+    "It doses the looks dosed, on the fixtures this group does not already hold.",
     "It counts once; smoke, wheel and mode are never dosed.",
   ],
   fixturesMembers: "Fixtures",
@@ -2335,7 +2337,7 @@ const en: typeof fr = {
   whyPainting: "Colour painted by",
   whyLeaving: "fading out",
   whyRawDosed: "Raw dimmer or colour: the look writing it is dosed by this intensity",
-  whyUndosed: "Machine channel: not dosed (neither grand master nor DCA)",
+  whyUndosed: "Not a light channel: not dosed (neither grand master nor DCA)",
   whyFaderDcas: "Looks on this channel, also dosed by the DCA linked to its fader",
   whyFaderDcasMany: "Looks on this channel, also dosed by the DCAs linked to its faders",
   whyFaderDoses: "doses the dimmer",

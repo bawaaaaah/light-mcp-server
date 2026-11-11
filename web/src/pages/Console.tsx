@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -30,7 +30,7 @@ interface Explain {
   /** The DCAs channel faders link to this light channel: they dose the looks writing it too. */
   faderDcas?: { dcas: { id: string; name: string; own: number }[]; factor: number };
   /** `effective`: the fader's own value here, its DCAs (`dcas`) and the grand master when it reaches it; `doses` on a colour fixture's dimmer. */
-  faders: { id: string; name: string; level: number; dca?: string; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
+  faders: { id: string; name: string; level: number; travel: number; dca?: string; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
   /** `level`: what the groups including the look give it on this fixture, when below 100 %. */
   rawLooks: { id: string; name: string; leaving?: true; level?: number }[];
   clamps: { rule: string; name?: string; from: number; to: number }[];
@@ -145,7 +145,8 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         )}
         {why.faders.map((x) => (
           <li key={x.id}>
-            {t.whyFader} {quoted(t, x.name)} {pct(x.level)}
+            {/* its travel within its range: the first factor of the product shown */}
+            {t.whyFader} {quoted(t, x.name)} {pct(x.travel)}
             {x.dcas.map((d) => ` × ${d.name} ${pct(d.own)}`).join("")}
             {x.grandMaster !== undefined ? ` × ${t.grandMasterShort} ${pct(x.grandMaster)}` : ""}
             {x.dcas.length || x.grandMaster !== undefined ? ` → ${pct(x.effective)}` : ""}
@@ -209,6 +210,8 @@ export function ConsolePage(): ReactElement {
   const [error, setError] = useState("");
   /** The channel whose value is explained (dmx.explain), read again every second while open. */
   const [explained, setExplained] = useState<number | null>(null);
+  /** Stable: the panel's Escape listener is added once, not at every render. */
+  const closeWhy = useCallback(() => setExplained(null), []);
   const [why, setWhy] = useState<Explain | null>(null);
   useEffect(() => {
     if (explained === null) return setWhy(null);
@@ -358,7 +361,7 @@ export function ConsolePage(): ReactElement {
         )}
       </section>
       {patch !== null && fixtures.length === 0 && <p className="hint">{t.noPatchHere}</p>}
-      {why && <WhyPanel key={`${why.universe}.${why.channel}`} why={why} onClose={() => setExplained(null)} onError={setError} />}
+      {why && <WhyPanel key={`${why.universe}.${why.channel}`} why={why} onClose={closeWhy} onError={setError} />}
       {!why && <p className="hint">{t.whyChannelHelp}</p>}
       {byFixture ? (
         <div className="channels by-fixture">
