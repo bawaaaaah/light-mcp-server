@@ -333,6 +333,26 @@ describe("intentions (T15)", () => {
       expect(existsSync(join(dataRoot, "shows", "default", "intentions", "douceur.json"))).to.equal(false);
     });
 
+    it("lists the personal library whatever show is open, with the shows naming each, and deletes the library's own", async () => {
+      await run("show.rename", { name: "Premier" });
+      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur"], sections: [] } });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur du show", colors: ["#000000"] } }); // its own copy
+      await run("show.create", { name: "Second" });
+      await run("song.put", { song: { id: "t", title: "Autre", mood: ["douceur"], sections: [] } });
+      await run("show.open", { id: "default" });
+      const lib = (await run("intention.library")) as { id: string; label: string; origin: string; shows: string[] }[];
+      expect(lib.map((x) => [x.id, x.label, x.origin])).to.deep.equal([["douceur", "Douceur", "personal"]]); // the library's, not the show's copy
+      expect(lib[0]!.shows).to.deep.equal(["Second"]); // the first has its own
+      // from the library: the library's goes, the open show keeps its copy (it loses nothing: not asked)
+      const refused = (await refusal(run("intention.delete", { id: "douceur", scope: "personal" }))) as CommandError;
+      expect(refused.detail).to.deep.equal({ uses: [], otherShows: ["Second"] });
+      expect(await run("intention.delete", { id: "douceur", scope: "personal", force: true })).to.deep.include({ action: "deleted" });
+      expect(await run("intention.library")).to.deep.equal([]);
+      expect((await kb()).moods.douceur).to.include({ origin: "show", label: "Douceur du show" });
+      expect((await refusal(run("intention.delete", { id: "joie", scope: "personal" })))?.message).to.match(/inconnue/);
+    });
+
     it("puts a mask back as a mask (versions, proposals), and keys proposals as the command does", async () => {
       await run("intention.delete", { id: "paix" }); // a mask
       await run("intention.delete", { id: "paix" }); // shown again: the mask is in the history

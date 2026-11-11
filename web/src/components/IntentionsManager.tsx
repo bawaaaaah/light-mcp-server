@@ -5,9 +5,11 @@
  * personal library, chosen in the editor; a shipped one is touched up or hidden for the show, a
  * personal one copied into the show. Everything goes through the commands (`intention.put`,
  * `intention.delete`, `intention.preview`); the list is the one the page reads (`knowledge.get`), read
- * again by the page when a command changes it.
+ * again by the page when a command changes it. `library`: the personal library alone, whatever show is
+ * open (`intention.library`, read here), each row with the shows that name it (page Fichiers).
  */
-import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
+import { useCommandEvents } from "../hooks/useTopic";
 import { cmd } from "../api";
 import { useT } from "../App";
 import type { Texts } from "../i18n";
@@ -23,6 +25,7 @@ import {
   fill,
   intentionKey,
   intentionsOf,
+  libraryRows,
   MAX_COLORS,
   moveColor,
   newDraft,
@@ -37,22 +40,45 @@ import {
   type IntentionOrigin,
   type IntentionRow,
   type KnowledgeIntentions,
+  type KnowledgeMood,
   type RowAction,
+  type Scope,
 } from "../intentions";
 
-export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | null; onError: (message: string) => void }): ReactElement {
+export function IntentionsManager({ kb, onError, library = false }: { kb?: KnowledgeIntentions | null; onError: (message: string) => void; library?: boolean }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<IntentionDraft | null>(null);
-  const list = useMemo(() => intentionsOf(kb), [kb]);
+  // the library section reads its own list, and again when an intention changes
+  const [own, setOwn] = useState<IntentionRow[] | null>(null);
+  const readLibrary = useCallback(() => {
+    if (library) void cmd<(KnowledgeMood & { id: string; shows?: string[] })[]>("intention.library").then((l) => setOwn(libraryRows(l))).catch((e: Error) => onError(e.message));
+  }, [library, onError]);
+  useEffect(readLibrary, [readLibrary]);
+  useCommandEvents(["intention.put", "intention.delete"], readLibrary);
+  const list = useMemo(() => (library ? (own ?? []) : intentionsOf(kb)), [library, own, kb]);
+  const loaded = library ? own !== null : Boolean(kb);
+  const scope: Scope = library ? "personal" : "show";
   const origin = (o: IntentionOrigin) => t.intentionOrigins[o];
   const shown = searchIntentions(list, query, origin);
   const fail = (e: Error) => onError(e.message);
 
   const act = (row: IntentionRow, action: RowAction) => {
     const name = row.label;
-    if (action === "edit" || action === "touchUp") return setDraft(draftOf(row));
+    if (action === "edit" || action === "touchUp") return setDraft({ ...draftOf(row), ...(library ? { scope: "personal" as const } : {}) });
+    if (library) {
+      // the library's own: the shows still naming it are said first, and lose it on the yes
+      const question = row.usedBy.length ? `${fill(t.intentionLibraryDeleteUsed, { name })}\n\n• ${row.usedBy.join("\n• ")}\n\n${t.intentionDeleteAnyway}` : fill(t.intentionLibraryDelete, { name });
+      return confirm(question) && void cmd("intention.delete", { id: row.key, scope: "personal", force: true }).catch(fail);
+    }
+    if (action === "toLibrary") {
+      // copied into the library; then, on a yes, the show's copy goes and the show uses the library's
+      if (!confirm(fill(row.over === "personal" ? t.intentionToLibraryReplace : t.intentionToLibraryAsk, { name }))) return;
+      return void cmd("intention.put", putArgs({ ...draftOf(row), scope: "personal" }))
+        .then(() => confirm(fill(t.intentionToLibraryUnhook, { name })) && cmd("intention.delete", { id: row.key }))
+        .catch(fail);
+    }
     if (action === "copyToShow") return void cmd("intention.put", putArgs({ ...draftOf(row), scope: "show" })).catch(fail);
     if (action === "restore") return void cmd("intention.delete", { id: row.key }).catch(fail);
     if (action === "revert") return confirm(fill(t.intentionRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void cmd("intention.delete", { id: row.key }).catch(fail);
@@ -65,20 +91,20 @@ export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | n
   };
 
   const label = (action: RowAction): string =>
-    ({ edit: t.edit, touchUp: t.intentionTouchUp, copyToShow: t.intentionCopyToShow, revert: t.intentionRevert, delete: t.delete, hide: t.intentionHide, restore: t.intentionRestore })[action];
+    ({ edit: t.edit, touchUp: t.intentionTouchUp, copyToShow: t.intentionCopyToShow, toLibrary: t.intentionToLibrary, revert: t.intentionRevert, delete: t.delete, hide: t.intentionHide, restore: t.intentionRestore })[action];
 
   return (
     <section className="intentions" aria-labelledby={`${id}-title`}>
-      <h2 id={`${id}-title`}>{t.intentions}</h2>
-      <p className="hint">{t.intentionsHelp}</p>
+      <h2 id={`${id}-title`}>{library ? t.intentionLibrary : t.intentions}</h2>
+      <p className="hint">{library ? t.intentionLibraryHelp : t.intentionsHelp}</p>
       <div className="row intentions-bar">
         <input type="search" aria-label={t.intentionSearch} placeholder={t.intentionSearch} value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button className="primary" onClick={() => setDraft(newDraft())}>
+        <button className="primary" onClick={() => setDraft(newDraft(scope))}>
           {t.intentionNew}
         </button>
       </div>
       {/* nothing said while the list is not there yet (loading, or the read failed: the page says why) */}
-      {kb && list.length > 0 && shown.length === 0 && <p className="hint">{t.noMatch}</p>}
+      {loaded && list.length > 0 && shown.length === 0 && <p className="hint">{t.noMatch}</p>}
       {shown.length > 0 && (
         <ul className="intention-list" aria-label={t.intentionList}>
           {shown.map((row) => (
@@ -101,7 +127,7 @@ export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | n
               {row.hidden && <small className="warn">{t.intentionHidden}</small>}
               {row.usedBy.length ? (
                 <details className="intention-uses">
-                  <summary>{plural(row.usedBy.length, t.intentionUse, t.intentionUses)}</summary>
+                  <summary>{library ? plural(row.usedBy.length, t.intentionShow, t.intentionShows) : plural(row.usedBy.length, t.intentionUse, t.intentionUses)}</summary>
                   <ul>
                     {row.usedBy.map((u) => (
                       <li key={u}>{u}</li>
@@ -112,14 +138,14 @@ export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | n
                 <small className="hint">{t.intentionNotUsed}</small>
               )}
               <span className="row intention-actions">
-                {actionsOf(row).map((a) => (
+                {actionsOf(row, library).map((a) => (
                   <button key={a} className={a === "delete" || a === "hide" ? "ghost" : ""} aria-label={`${label(a)} · ${row.label}`} aria-describedby={a === "copyToShow" ? `${id}-copy-${row.key}` : undefined} onClick={() => act(row, a)}>
                     {label(a)}
                   </button>
                 ))}
               </span>
               {/* said on screen, for a finger as for a mouse: what copying into the show is for */}
-              {actionsOf(row).includes("copyToShow") && (
+              {actionsOf(row, library).includes("copyToShow") && (
                 <small className="hint intention-copy-help" id={`${id}-copy-${row.key}`}>
                   {t.intentionCopyHelp}
                 </small>
@@ -128,7 +154,7 @@ export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | n
           ))}
         </ul>
       )}
-      {draft && <IntentionEditor initial={draft} list={list} t={t} onClose={() => setDraft(null)} />}
+      {draft && <IntentionEditor initial={draft} list={list} t={t} scopeChoice={!library} onClose={() => setDraft(null)} />}
     </section>
   );
 }
@@ -147,7 +173,7 @@ interface Swatch {
   text: string;
 }
 
-function IntentionEditor({ initial, list, t, onClose }: { initial: IntentionDraft; list: IntentionRow[]; t: Texts; onClose: () => void }): ReactElement {
+function IntentionEditor({ initial, list, t, onClose, scopeChoice }: { initial: IntentionDraft; list: IntentionRow[]; t: Texts; onClose: () => void; /** where a new one goes, offered (the show's section) or fixed (the library) */ scopeChoice: boolean }): ReactElement {
   const id = useId();
   const next = useRef(0);
   const swatch = (color: string): Swatch => ({ id: next.current++, color, text: color });
@@ -285,7 +311,7 @@ function IntentionEditor({ initial, list, t, onClose }: { initial: IntentionDraf
           {t.notes}
           <textarea rows={2} value={d.notes} maxLength={2000} onChange={(e) => set({ notes: e.target.value })} />
         </label>
-        {creating && (
+        {creating && scopeChoice && (
           <fieldset className="intention-scope">
             <legend>{t.intentionScope}</legend>
             <label>

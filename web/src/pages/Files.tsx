@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { can, cmd, downloadBackup, type Role } from "../api";
 import { useT } from "../App";
 import { ArchiveButtons } from "../components/ArchiveButtons";
+import { IntentionsManager } from "../components/IntentionsManager";
 import { quoted } from "../typography";
 
 interface ShowRow {
@@ -144,6 +145,9 @@ export function FilesPage({ role }: { role: Role }): ReactElement {
           <p className="hint">{t.newShowHelp}</p>
         </section>
       )}
+
+      {/* the personal intention library: this machine's, whatever show is open (T15) */}
+      {write && <IntentionsManager library onError={setError} />}
 
       <section>
         <h2>{t.backups}</h2>

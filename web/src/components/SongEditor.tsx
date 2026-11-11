@@ -4,6 +4,7 @@
  * fixed position) with a proportional timeline, and « remplir la grille » (song.grid_fill).
  */
 import { useEffect, useState, type ReactElement } from "react";
+import { IntentionOrigins } from "./IntentionOrigins";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { plain, slug, splitList, uniqueId } from "../util";
@@ -177,6 +178,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <span>{t.moods}</span>
           <input defaultValue={song.mood.join(", ")} onBlur={(e) => set({ mood: splitList(e.target.value) })} />
         </label>
+        <IntentionOrigins words={song.mood} />
         <label className="field">
           <span>{t.palette}</span>
           <select value={song.palette ?? ""} onChange={(e) => set({ palette: e.target.value || undefined })}>

@@ -54,6 +54,7 @@ export const TITLES_EN: Record<string, string> = {
   "history.undo": "Undo a change",
   "import.qxw": "Import a QLC+ workspace",
   "intention.delete": "Delete an intention",
+  "intention.library": "Intention library",
   "intention.preview": "Intention preview",
   "intention.put": "Intention",
   "knowledge.get": "Colour knowledge base",

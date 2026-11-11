@@ -57,6 +57,8 @@ export interface IntentionStores {
   show: Collection<Intention>;
   /** The other shows of this machine whose songs or looks name a key (deleting a personal one). */
   otherShows?: (key: string) => string[];
+  /** Every show of this machine (the open one included) naming a key without its own intention of it: the library section. */
+  showsUsing?: (key: string) => string[];
   /** Files of the two collections their schema refused (left out): said by show.lint. */
   loadErrors?: () => string[];
 }
@@ -157,19 +159,22 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "intention.delete",
     title: "Supprimer une intention",
     description:
-      "Removes an intention, by key. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
+      "Removes an intention, by key (scope \"personal\": the personal library's, whatever the open show has of that key). One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ id: z.string(), force: z.boolean().default(false) }),
-    run: ({ id: word, force }) => {
+    schema: z.object({ id: z.string(), force: z.boolean().default(false), scope: z.literal("personal").optional() }),
+    run: ({ id: word, force, scope }) => {
       const key = normalizeMood(word);
-      const entry = key ? stack().get(key) : undefined;
-      if (!entry) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
+      // scope "personal": the library's own, whatever the open show has of that key (the library section)
+      const entry = !key ? undefined : scope === "personal" ? stackIntentions(intentions.base(), intentions.personal.list(), []).get(key) : stack().get(key);
+      if (!entry || (scope === "personal" && entry.origin !== "personal")) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
       const name = entry.label || key;
       // only what would become unknown is guarded: a touch-up removed leaves the one below. A personal
       // one with nothing below serves the other shows of the machine too: named in the same question
       const guard = (): string[] => {
-        const uses = usesOfIntention(key);
+        // the open show loses nothing when it has its own of that key
+        const own = scope === "personal" && stack().get(key)?.origin === "show";
+        const uses = own ? [] : usesOfIntention(key);
         const others = entry.origin === "personal" && !entry.over ? (intentions.otherShows?.(key) ?? []) : [];
         const all = [...uses, ...others.map(otherShowLine)];
         if (all.length && !force) throw new CommandError("invalid", inUseMessage(name, all), { uses, ...(others.length ? { otherShows: others } : {}) });
@@ -191,6 +196,20 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const usedBy = guard();
       intentions.show.put({ id: key, label: entry.label ?? key, colors: entry.colors, energy: entry.energy, family: entry.family, hidden: true });
       return { id: key, action: "hidden" as const, origin: entry.origin, usedBy };
+    },
+  });
+
+  reg.register({
+    name: "intention.library",
+    title: "Bibliothèque d'intentions",
+    description: "The intentions of the personal library of this machine (every show sees them), whatever show is open: each with what it replaces below (over: generic or private) and the shows of this machine naming it without an intention of their own of that key (shows).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({}),
+    run: () => {
+      const machine = stackIntentions(intentions.base(), intentions.personal.list(), []);
+      return [...machine.values()].filter((e) => e.origin === "personal").map((e) => ({ ...e, shows: intentions.showsUsing?.(e.id) ?? [] }));
     },
   });
 

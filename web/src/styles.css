@@ -3472,3 +3472,23 @@ fieldset.checklist .checklist-search {
     min-height: 44px;
   }
 }
+.intention-origins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin: 0.2em 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85em;
+}
+.intention-origins .chip {
+  padding: 0.05em 0.5em;
+  border: 1px solid rgb(128 128 128 / 0.5);
+  border-radius: 1em;
+}
+.intention-origins .chip.origin-show {
+  border-color: var(--accent);
+}
+.intention-origins .chip.origin-unknown {
+  border-style: dashed;
+}

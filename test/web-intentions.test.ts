@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { originsOf } from "../web/src/intentions.js";
 import { actionsOf, addColor, draftOf, draftProblems, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, removeColor, replacedBy, searchIntentions, takenIn, type KnowledgeIntentions } from "../web/src/intentions.js";
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge } from "../src/plugins/light/knowledge/intentions.js";
@@ -46,8 +47,9 @@ describe("intentions (T15): the Show page's list and editor", () => {
 
   it("offers per origin: edit in place, touch up the shipped, copy a personal one into the show, revert, hide, restore", () => {
     const of = (k: string) => actionsOf(list.find((r) => r.key === k)!);
-    expect(of("lever-de-rideau")).to.deep.equal(["edit", "delete"]);
-    expect(of("calme")).to.deep.equal(["edit", "revert"]);
+    expect(of("lever-de-rideau")).to.deep.equal(["edit", "toLibrary", "delete"]);
+    expect(of("calme")).to.deep.equal(["edit", "toLibrary", "revert"]);
+    expect(actionsOf(list.find((r) => r.key === "lever-de-rideau")!, true)).to.deep.equal(["edit", "delete"]); // the library section
     expect(of("douceur")).to.deep.equal(["edit", "copyToShow", "delete"]);
     expect(of("brume")).to.deep.equal(["touchUp", "copyToShow", "hide"]);
     expect(of("joie")).to.deep.equal(["touchUp", "hide"]);
@@ -123,6 +125,17 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(replacedBy({ ...newDraft(), label: "Paix" }, list)?.hidden).to.equal(true);
     expect(replacedBy({ ...newDraft(), label: "Douceur" }, list)).to.equal(undefined); // a personal one: « taken » in its place, or shadowed
     expect(replacedBy({ ...newDraft(), id: "joie", label: "Joie" }, list)).to.equal(undefined); // an edit replaces nothing
+  });
+
+  it("says where each word a song or a look names comes from, or that it is unknown here", () => {
+    expect(originsOf(kb, ["Joie", "lever de rideau", "douceur", "paix", "brouillard", "joie"])).to.deep.equal([
+      { word: "Joie", label: "Joie", origin: "generic", hidden: false },
+      { word: "lever de rideau", label: "Lever de rideau", origin: "show", hidden: false },
+      { word: "douceur", label: "Douceur", origin: "personal", hidden: false },
+      { word: "paix", label: "Paix", origin: "generic", hidden: true },
+      { word: "brouillard", label: "brouillard", origin: "unknown", hidden: false },
+      { word: "joie", label: "Joie", origin: "generic", hidden: false },
+    ]);
   });
 
   it("names the energies in English as the server's proposals do (« high-energy » for « high energy »)", async () => {

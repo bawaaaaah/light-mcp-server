@@ -5786,3 +5786,44 @@ test("intentions on a phone: the list grows with the page, finger-sized controls
   await editor.getByRole("button", { name: "Annuler" }).click();
   expect(errors).toEqual([]);
 });
+
+test("intentions: a show's one goes to the library, the library is managed from Fichiers, a song says where its intentions come from (T15)", async ({ page }) => {
+  const errors = watchErrors(page);
+  const asked: string[] = [];
+  page.on("dialog", (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
+  await login(page);
+  await api(page, "intention.put", { intention: { label: "Brume du soir", colors: ["#445566"], energy: "pose" } });
+  try {
+    // the song editor names its intentions with where each comes from
+    await page.locator("nav.pages button", { hasText: "Chants" }).click();
+    await page.getByRole("button", { name: "Modifier Chant test" }).click();
+    await expect(page.locator(".song-editor").getByRole("list", { name: "Intentions" })).toContainText("Joie · livrée");
+    await page.locator(".song-editor").getByRole("button", { name: "Fermer" }).first().click();
+    // a show's intention added to the library: the show's copy goes on the second yes, the show now uses the library's
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const section = page.locator("section.intentions");
+    await section.getByRole("searchbox").fill("brume du soir");
+    const row = section.locator("li", { hasText: "Brume du soir" });
+    await row.getByRole("button", { name: "Ajouter à ma bibliothèque · Brume du soir" }).click();
+    await expect(row.locator(".badge")).toHaveText("personnelle");
+    expect(asked).toEqual([expect.stringContaining("Ajouter « Brume du soir » à ta bibliothèque personnelle"), expect.stringContaining("Retirer la copie de ce show")]);
+    // the library, whatever show is open: listed in Fichiers, deleted from there
+    await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
+    const library = page.locator("section.intentions", { has: page.getByRole("heading", { name: "Ma bibliothèque d'intentions" }) });
+    const own = library.locator("li", { hasText: "Brume du soir" });
+    await expect(own.locator(".badge")).toHaveText("personnelle");
+    await expect(library.getByRole("radio")).toHaveCount(0);
+    await own.getByRole("button", { name: "Supprimer · Brume du soir" }).click();
+    await expect(own).toHaveCount(0);
+    expect(asked.at(-1)).toContain("Supprimer « Brume du soir » de ta bibliothèque");
+  } finally {
+    // what a failed run left behind only: a delete of nothing would be a 404 in the console
+    const kb = (await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }> };
+    if (kb.moods["brume-du-soir"]?.origin === "show") await api(page, "intention.delete", { id: "brume-du-soir", force: true });
+    if (((await api(page, "intention.library")) as { id: string }[]).some((x) => x.id === "brume-du-soir")) await api(page, "intention.delete", { id: "brume-du-soir", scope: "personal", force: true });
+  }
+  expect(errors).toEqual([]);
+});

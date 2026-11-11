@@ -14,10 +14,10 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
 const text = (v: unknown, fallback: string): string => (typeof v === "string" && v ? v : fallback);
 
 /**
- * The other shows whose songs (mood) or looks (ambiance: tag) name this intention, by name. A show
+ * The other shows (but `current`; every one when undefined) whose songs (mood) or looks (ambiance: tag) name this intention, by name. A show
  * with its own visible intention of that key does not lose anything when the library's goes: left out.
  */
-export function otherShowsUsingIntention(dataRoot: string, current: string, key: string): string[] {
+export function otherShowsUsingIntention(dataRoot: string, current: string | undefined, key: string): string[] {
   return showIdsIn(dataRoot).flatMap((id) => {
     if (id === current) return [];
     const dir = path.join(dataRoot, "shows", id);

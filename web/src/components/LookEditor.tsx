@@ -5,6 +5,7 @@
  * with an animated preview computed by the server. Everything is saved with `look.put`.
  */
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
+import { IntentionOrigins } from "./IntentionOrigins";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -416,6 +417,8 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
           {/* the folder has its own field above: a folder tag typed here is dropped on blur, the dedicated field keeps its folder */}
           <input defaultValue={withoutFolderTag(look.tags).join(", ")} onBlur={(e) => set({ tags: withFolder(splitList(e.target.value), folderOf(look.tags)) })} />
         </label>
+        {/* the intentions its ambiance: tags name, and where each comes from (T15) */}
+        <IntentionOrigins words={look.tags.filter((x) => x.startsWith("ambiance:")).map((x) => x.slice("ambiance:".length))} />
       </div>
       <textarea placeholder={t.notes} value={look.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />
 

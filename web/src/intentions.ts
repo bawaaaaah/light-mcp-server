@@ -74,6 +74,11 @@ const rowOf = (key: string, m: KnowledgeMood, hidden: boolean): IntentionRow => 
 
 const byLabel = (a: IntentionRow, b: IntentionRow) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" });
 
+/** The personal library as `intention.library` sends it: its rows, `usedBy` holding the shows that name each. */
+export function libraryRows(entries: readonly (KnowledgeMood & { id: string; shows?: string[] })[]): IntentionRow[] {
+  return entries.map((e) => ({ ...rowOf(e.id, { ...e, origin: "personal" }, false), usedBy: e.shows ?? [] })).sort(byLabel);
+}
+
 /** Every intention, the show's masks included (to be shown back), by label. */
 export function intentionsOf(kb: KnowledgeIntentions | null | undefined): IntentionRow[] {
   if (!kb) return [];
@@ -186,19 +191,32 @@ export const removeColor = <T>(colors: readonly T[], index: number): T[] => (col
 /** A new colour after the others (white, or the last one again would be invisible): up to six. */
 export const addColor = (colors: readonly string[]): string[] => (colors.length >= MAX_COLORS ? [...colors] : [...colors, colors.includes("#ffffff") ? "#000000" : "#ffffff"]);
 
-export type RowAction = "edit" | "touchUp" | "copyToShow" | "revert" | "delete" | "hide" | "restore";
+export type RowAction = "edit" | "touchUp" | "copyToShow" | "toLibrary" | "revert" | "delete" | "hide" | "restore";
 
 /**
  * What a row offers. A show or personal intention is edited in its place; a shipped or private one
  * is touched up for the show (the shipped base is not the user's to change). A personal or private
  * one can be copied into the show, so that it travels with its archives. Removing a touch-up gives
  * the one below back (revert), removing a shipped or private one masks it for the show (hide), a
- * mask is taken back (restore).
+ * mask is taken back (restore). One of the show can go to the personal library (toLibrary), for every
+ * show of the machine. In the library section (`library`), a row is the library's own: edited or deleted.
  */
-export function actionsOf(row: IntentionRow): RowAction[] {
+export function actionsOf(row: IntentionRow, library = false): RowAction[] {
+  if (library) return ["edit", "delete"];
   if (row.hidden) return ["restore"];
-  if (row.origin === "show") return ["edit", row.over ? "revert" : "delete"];
+  if (row.origin === "show") return ["edit", "toLibrary", row.over ? "revert" : "delete"];
   if (row.origin === "personal") return ["edit", "copyToShow", row.over ? "revert" : "delete"];
   if (row.origin === "private") return ["touchUp", "copyToShow", "hide"];
   return ["touchUp", "hide"];
+}
+
+/** What each word (a song's mood, a look's `ambiance:` tag) names here: its label and where it comes from, or unknown. */
+export function originsOf(kb: KnowledgeIntentions, words: readonly string[]): { word: string; label: string; origin: IntentionOrigin | "unknown"; hidden: boolean }[] {
+  return [...new Set(words)].map((word) => {
+    const key = intentionKey(word);
+    const m = key ? kb.moods[key] : undefined;
+    if (m) return { word, label: m.label || key, origin: m.origin ?? "generic", hidden: false };
+    const masked = key ? kb.hidden?.find((h) => h.id === key) : undefined;
+    return masked ? { word, label: masked.label || key, origin: masked.over ?? "generic", hidden: true } : { word, label: word, origin: "unknown", hidden: false };
+  });
 }

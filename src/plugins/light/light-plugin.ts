@@ -290,6 +290,7 @@ export class LightPlugin implements McpPlugin {
       personal: personal.collection("intentions", IntentionSchema),
       show: showIntentions,
       otherShows: (key) => otherShowsUsingIntention(dataRoot, this.config.show, key),
+      showsUsing: (key) => otherShowsUsingIntention(dataRoot, undefined, key),
       loadErrors: () => [...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)), ...this.show.loadErrors.filter((e) => e.startsWith("intentions/"))],
     };
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
