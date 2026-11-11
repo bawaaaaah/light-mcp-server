@@ -38,7 +38,7 @@ function setup() {
   };
   /** pan, tilt (16-bit) of the fixture at `address`. */
   const pos = (b: Uint8Array, address: number) => [(b[address - 1]! << 8) | b[address]!, (b[address + 1]! << 8) | b[address + 2]!];
-  return { venue, show, dmx, advance, pos };
+  return { venue, show, dmx, advance, pos, defs };
 }
 
 describe("moving heads", () => {
@@ -232,7 +232,7 @@ describe("moving heads", () => {
       show.go("rouge");
       const b = dmx();
       expect(pos(b, 1)).to.deep.equal([16384, 49151]);
-      expect(b[4]).to.equal(16); // red slot of the wheel
+      expect(b[4]).to.equal(24); // red slot of the wheel (16..31), at its middle: it holds when the DMX drifts
       expect(b[5]).to.equal(255); // dimmer
       expect(pos(b, 11)[0]).to.equal(Math.round(0.75 * 65535)); // spot-r: pan inverted
     });
@@ -268,6 +268,47 @@ describe("moving heads", () => {
       advance(2); // 1 s of the 2 s fade: weight 0.5
       expect(dmx()[4]).to.equal(64); // the wheel holds its slot
       expect(dmx()[5]).to.equal(128); // the painted level carries the look's weight once, not twice (64)
+    });
+
+    describe("a colour wheel in a crossfade (T18)", () => {
+      /** A lamp with a ten-colour wheel (test/fixtures/wheel-spot.qxf: wheel offset 2, dimmer 3), looks A red and B blue in one exclusive group, B coming in over 2 s. */
+      function crossfade(wheel?: object) {
+        const t = setup();
+        copyFileSync(new URL("../../fixtures/wheel-spot.qxf", import.meta.url), join(t.defs, "wheel-spot.qxf"));
+        t.venue.refreshDefinitions();
+        t.venue.fixtures.put({ id: "roue", name: "Roue", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 30, ...(wheel ? { overrides: { wheel } } : {}) });
+        t.venue.canvases.put({ id: "seule", name: "Seule", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "roue", head: -1 }] }] });
+        t.show.looks.put({ id: "a", name: "A", canvas: "seule", technique: { kind: "plat", color: "#ff0000" } });
+        t.show.looks.put({ id: "b", name: "B", canvas: "seule", technique: { kind: "plat", color: "#0000ff" }, timing: { entryFade: 2 } });
+        t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+        t.show.go("a");
+        t.advance(4);
+        t.show.go("b");
+        const frames: { wheel: number; dimmer: number }[] = [];
+        for (let i = 0; i <= 20; i++) {
+          const b = t.dmx();
+          frames.push({ wheel: b[29 + 2]!, dimmer: b[29 + 3]! });
+          t.advance(0.2); // 100 ms
+        }
+        return frames;
+      }
+
+      it("turns the wheel once, at mid-fade, never through the colours between (magenta)", () => {
+        const frames = crossfade();
+        expect([...new Set(frames.map((f) => f.wheel))]).to.deep.equal([15, 65]); // red, then blue: the middles of their slots
+        const turn = frames.findIndex((f) => f.wheel === 65);
+        expect(turn).to.equal(10); // 1 s of the 2 s fade: B weighs as much as A
+        expect(frames[turn - 1]!.dimmer).to.be.above(120); // the lamp dips to half, never to black
+      });
+
+      it("« au noir »: the dimmer goes through black where the slot turns", () => {
+        const frames = crossfade({ change: "black" });
+        expect([...new Set(frames.map((f) => f.wheel))]).to.deep.equal([15, 65]);
+        expect(frames[10]!.dimmer).to.equal(0);
+        expect(frames[0]!.dimmer).to.equal(255);
+        expect(frames[20]!.dimmer).to.equal(255);
+        expect(frames.slice(0, 11).every((f, i, all) => i === 0 || f.dimmer <= all[i - 1]!.dimmer)).to.equal(true); // down to black, then back up
+      });
     });
 
     it("reads back where each head points from the output, for the 2D preview (inversions undone)", () => {
@@ -328,6 +369,12 @@ describe("moving heads", () => {
       show.looks.put({ id: "rouge", name: "Rouge", canvas: "lyres", technique: { kind: "plat", color: "#ff0000" } });
       show.go("rouge");
       expect(venue.displayColors([dmx()])["spot-l"]).to.deep.equal(["#ff0000"]);
+      // the slot is found by its range: a raw look writing its first or last value shows it too
+      for (const v of [16, 31]) {
+        const b = dmx();
+        b[4] = v;
+        expect(venue.displayColors([b])["spot-l"], String(v)).to.deep.equal(["#ff0000"]);
+      }
       show.stop("rouge");
       expect(venue.displayColors([dmx()])["spot-l"]).to.deep.equal(["#000000"]); // dimmer at 0
     });
@@ -406,6 +453,7 @@ describe("a head driven by the command layer (the pad's path)", () => {
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
     copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+    copyFileSync(new URL("../../fixtures/wheel-spot.qxf", import.meta.url), join(dataRoot, "fixtures", "wheel-spot.qxf"));
     writeFileSync(
       join(dataRoot, "fixtures", "cheap-head.qxf"),
       `<?xml version="1.0" encoding="UTF-8"?>
@@ -429,6 +477,7 @@ describe("a head driven by the command layer (the pad's path)", () => {
     await run("venue.fixture.put", { fixture: { id: "spot", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 0, y: 2, z: 5 }, mount: "hung" } });
     await run("venue.fixture.put", { fixture: { id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 30 } });
     await run("venue.fixture.put", { fixture: { id: "cheap", name: "Lyre à pas cher", manufacturer: "Test", model: "Cheap Head", mode: "Standard", universe: 1, address: 40 } });
+    await run("venue.fixture.put", { fixture: { id: "roue", name: "Lyre à roue", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 60 } });
   });
 
   it("finds or creates the fader of one channel at its first touch (the fixture panel's path)", async () => {
@@ -489,6 +538,45 @@ describe("a head driven by the command layer (the pad's path)", () => {
     expect(render()[29]).to.equal(Math.round(0.4 * 255)); // the Bar's dimmer (channel 30): the fader doses it
     await run("fader.level", { id: "panel-bar-0", level: 0.8 });
     expect(render()[29]).to.equal(Math.round(0.8 * 255));
+  });
+
+  it("sets a wheel's colour → slot correspondence per model, overridable per fixture (venue.wheel.*)", async () => {
+    const venue = plugin.runtime.venue;
+    venue.canvases.put({ id: "roue", name: "Roue", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "roue", head: -1 }] }] });
+    plugin.runtime.looks.put({ id: "roue-rouge", name: "Roue rouge", canvas: "roue", technique: { kind: "plat", color: "#ff0000" } });
+    plugin.runtime.go("roue-rouge");
+    const wheel = () => render()[60 - 1 + 2];
+    try {
+      expect(wheel()).to.equal(15); // the red slot (10..19), at its middle
+      await run("venue.wheel.put", { id: "roue", scope: "model", wheel: { slots: { "20": { answers: ["#FF0000"] } } } });
+      expect(wheel()).to.equal(25); // red answered by the orange slot, for every fixture of the model, at once
+      await run("venue.wheel.put", { id: "roue", scope: "fixture", wheel: { slots: { "70": { answers: ["#ff0000"] } } } });
+      expect(wheel()).to.equal(75); // this fixture's own settings replace the model's
+      const got = (await run("venue.wheel.get", { id: "roue" })) as { applies: string; model: unknown; own: unknown; slots: { min: number; value: number; color: string; color2?: string; open?: boolean }[] };
+      expect(got.applies).to.equal("fixture");
+      expect(got.model).to.deep.equal({ slots: { "20": { answers: ["#ff0000"] } } });
+      expect(got.slots[0]).to.deep.include({ min: 0, value: 5, color: "#ffffff", open: true });
+      expect(got.slots.find((s) => s.min === 100)).to.deep.include({ color: "#ff0000", color2: "#00ff00" });
+      const explained = (await run("dmx.explain", { universe: 1, channel: 62 })) as { wheel?: { slot: string; asked?: string; gap: number } };
+      expect(explained.wheel).to.deep.include({ slot: "Magenta", asked: "#ff0000" });
+      expect(explained.wheel!.gap).to.be.above(0.1); // what the stage shows (magenta) is far from what was asked
+      await run("venue.wheel.clear", { id: "roue", scope: "fixture" });
+      expect(wheel()).to.equal(25);
+      await run("venue.wheel.clear", { id: "roue", scope: "model" });
+      expect(wheel()).to.equal(15);
+      expect(venue.models.list()).to.deep.equal([]); // nothing left of the model's overrides
+      await run("venue.wheel.put", { id: "roue", scope: "model", wheel: { slots: { "21": { off: true } } } }).then(
+        () => expect.fail("an unknown slot is refused"),
+        (e: Error) => expect(e.message).to.match(/21/),
+      );
+      expect(await run("venue.wheel.get", { id: "bar" })).to.equal(null); // a bar has no wheel: nothing to set (the menu shows no entry)
+      await run("venue.wheel.clear", { id: "bar", scope: "model" }).then(
+        () => expect.fail("a bar has no wheel"),
+        (e: Error) => expect(e.message).to.match(/roue|wheel/),
+      );
+    } finally {
+      plugin.runtime.stop("roue-rouge");
+    }
   });
 
   it("says which fixtures carry pan or tilt: the invert switches live on these only", async () => {

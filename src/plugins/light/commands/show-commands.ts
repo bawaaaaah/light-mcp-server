@@ -9,8 +9,9 @@ import { CommandError, type CommandContext, type CommandRegistry } from "./regis
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema, type ResolvedFixture } from "../venue/venue.js";
-import { modelKey, type HeadOverrides } from "../venue/overrides.js";
+import { modelKey, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
+import { slotValue, wheelSlots } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify } from "../data/store.js";
@@ -309,6 +310,100 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       headsOfFixture(fixture); // an unknown fixture is an error
       putHeads(fixture, scope, undefined);
       return headsOfFixture(fixture);
+    },
+  });
+  // ---- colour wheel (T18): the colour → slot correspondence, per model, overridable per fixture (venue/color-wheel.ts)
+  /**
+   * A fixture's colour wheel as its definition gives it, and where its overrides live; undefined when it has
+   * none that answers painted colours (no wheel, no definition, or colour mixing: an RGB fixture's wheel is
+   * left to raw channels).
+   */
+  const wheelOrNone = (fixtureId: string) => {
+    const f = venue.fixtures.get(fixtureId);
+    if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
+    const r = venue.resolve(fixtureId);
+    if ("error" in r || !r.wheel || !r.lampOnly) return undefined;
+    const caps = r.def.channels.get(r.mode.channels[r.wheel.offset] ?? "")?.capabilities ?? [];
+    return { f, wheel: r.wheel, slots: wheelSlots(caps), key: modelKey(f.manufacturer, f.model) };
+  };
+  const wheelOfFixture = (fixtureId: string) => {
+    const found = wheelOrNone(fixtureId);
+    if (!found) throw new Error(say(`${venue.fixtures.get(fixtureId)?.name ?? fixtureId} n'a pas de roue de couleurs choisie par la couleur peinte (lampe et roue)`, `${venue.fixtures.get(fixtureId)?.name ?? fixtureId} has no colour wheel chosen by the painted colour (a lamp and a wheel)`));
+    return found;
+  };
+  const wheelScope = z.enum(["model", "fixture"]).describe("model: every fixture of this manufacturer and model; fixture: this one only, replacing the model's settings as a whole");
+  reg.register({
+    name: "venue.wheel.get",
+    title: "Roue de couleurs",
+    description:
+      "A lamp fixture's colour wheel (docs/specs/venue-fixtures-stage.md, « Roue de couleurs »): its slots as the definition gives them (DMX range, value sent = the middle, name, colour; a split slot has two; « open » = no filter, white), the overrides of its model and of this fixture (a slot's real colour, the colours it answers to, slots left out, split slots allowed, slot change at mid-fade or through black), and which applies. null when the fixture has no such wheel (none, no definition, or colour mixing).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: idSchema,
+    run: ({ id: fixtureId }) => {
+      const found = wheelOrNone(fixtureId);
+      if (!found) return null;
+      const { f, wheel, slots, key } = found;
+      return {
+        fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model },
+        offset: wheel.offset + 1,
+        slots: slots.map((s) => ({ min: s.min, max: s.max, value: slotValue(s), name: s.name, color: displayHex(s.color), ...(s.color2 ? { color2: displayHex(s.color2) } : {}), ...(s.open ? { open: true } : {}) })),
+        model: venue.models.get(key)?.overrides.wheel ?? null,
+        own: f.overrides?.wheel ?? null,
+        applies: f.overrides?.wheel ? "fixture" : venue.models.get(key)?.overrides.wheel ? "model" : "definition",
+        doubles: wheel.doubles,
+        change: wheel.change,
+      };
+    },
+  });
+  reg.register({
+    name: "venue.wheel.put",
+    title: "Régler la roue de couleurs",
+    description:
+      "Sets the colour → slot correspondence of a lamp fixture's colour wheel, for its whole model (scope model) or for this fixture only (scope fixture, which then replaces the model's settings as a whole). slots, keyed by a slot's first DMX value (\"16\"): color (#rrggbb) its real colour when the definition is wrong, answers the colours it answers to beside its own (an asked colour nearest one of them lands on it), off never chosen from a painted colour. doubles: split slots may be chosen when a look asks their two colours of the fixture (default true). change: \"mid\" the slot changes at mid-fade in a crossfade (default), \"black\" the dimmer goes through black there. Replaces the wheel settings of that scope.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ id: z.string(), scope: wheelScope, wheel: WheelOverridesSchema }),
+    run: ({ id: fixtureId, scope, wheel: settings }) => {
+      const { f, slots, key } = wheelOfFixture(fixtureId);
+      const unknown = Object.keys(settings.slots ?? {}).filter((k) => !slots.some((s) => String(s.min) === k));
+      if (unknown.length) throw new Error(say(`case inconnue sur cette roue : ${unknown.join(", ")} (une case se nomme par la première valeur de sa plage)`, `no such slot on this wheel: ${unknown.join(", ")} (a slot is named by the first value of its range)`));
+      const lower = (hex: string) => hex.toLowerCase();
+      const clean = {
+        ...settings,
+        ...(settings.slots ? { slots: Object.fromEntries(Object.entries(settings.slots).map(([k, s]) => [k, { ...s, ...(s.color ? { color: lower(s.color) } : {}), ...(s.answers ? { answers: s.answers.map(lower) } : {}) }])) } : {}),
+      };
+      if (scope === "fixture") venue.fixtures.put({ ...f, overrides: { ...f.overrides, wheel: clean } });
+      else {
+        const m = venue.models.get(key);
+        venue.models.put({ id: key, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides: { ...m?.overrides, wheel: clean } });
+      }
+      return { scope, wheel: clean };
+    },
+  });
+  reg.register({
+    name: "venue.wheel.clear",
+    title: "Effacer les réglages de la roue",
+    description: "Removes the colour wheel settings of a fixture's model (scope model) or of this fixture (scope fixture): the model's settings, or the definition, apply again.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ id: z.string(), scope: wheelScope }),
+    run: ({ id: fixtureId, scope }) => {
+      const { f, key } = wheelOfFixture(fixtureId);
+      if (scope === "fixture") {
+        if (!f.overrides?.wheel) return { cleared: false };
+        const { wheel: _w, ...others } = f.overrides;
+        const { overrides: _o, ...plain } = f;
+        venue.fixtures.put(Object.keys(others).length ? { ...plain, overrides: others } : plain);
+        return { cleared: true };
+      }
+      const m = venue.models.get(key);
+      if (!m?.overrides.wheel) return { cleared: false };
+      const { wheel: _, ...rest } = m.overrides;
+      if (Object.keys(rest).length) venue.models.put({ ...m, overrides: rest });
+      else venue.models.delete(key);
+      return { cleared: true };
     },
   });
   reg.register({

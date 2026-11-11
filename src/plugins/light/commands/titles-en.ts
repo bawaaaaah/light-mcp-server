@@ -182,6 +182,9 @@ export const TITLES_EN: Record<string, string> = {
   "venue.list": "Venues",
   "venue.patch.check": "Check the patch",
   "venue.positions.import": "Take positions from another venue",
+  "venue.wheel.clear": "Clear the colour wheel settings",
+  "venue.wheel.get": "Colour wheel",
+  "venue.wheel.put": "Set the colour wheel",
 };
 
 /** The command's title in the language of the request being answered (French when absent from the table). */

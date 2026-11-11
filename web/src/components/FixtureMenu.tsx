@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { FixtureHeads } from "./FixtureHeads";
+import { WheelEntry } from "./WheelEditor";
 
 export interface MarkedFixture {
   id: string;
@@ -120,6 +121,7 @@ export function FixtureMenu({ fixture, overlaps, at, onSaved, onDelete, onClose 
         </>
       )}
       <FixtureHeads fixture={fixture.id} onSaved={onSaved} />
+      <WheelEntry fixtureId={fixture.id} />
       <small className="hint">{t.fixtureColorHelp}</small>
       <div className="field">
         <span>{t.fixtureMove}</span>

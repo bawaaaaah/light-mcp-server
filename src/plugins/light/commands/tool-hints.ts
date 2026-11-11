@@ -147,6 +147,8 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.put": "DI",
   "venue.grouping.apply": "I",
   "venue.positions.import": "DI",
+  "venue.wheel.clear": "DI",
+  "venue.wheel.put": "DI",
   // read-only commands that look at the network, the hardware or another program
   "ableset.status": "O",
   "link.status": "O",

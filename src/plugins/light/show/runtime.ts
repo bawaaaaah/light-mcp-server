@@ -12,7 +12,8 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule } from "../rules/reset-protection.js";
 import { proposeTypeGrouping, type TypeGrouping } from "../venue/grouping.js";
@@ -108,6 +109,8 @@ export interface ChannelExplanation {
   clamps: (Pick<Clamp, "rule" | "from" | "to"> & { name?: string })[];
   /** The fixture has Reset channels, held at rest by the built-in rule: `fixture.reset` resets it on purpose. */
   resettable?: true;
+  /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour), the colour asked and the gap between them (OKLab, 0 = the same). */
+  wheel?: { slot: string; color: string; asked?: string; gap: number };
 }
 
 export class ShowRuntime {
@@ -140,6 +143,8 @@ export class ShowRuntime {
   private readonly flashes = new Set<string>();
   /** Manual positions (XY pad, aiming): override the looks' moves until released. */
   private readonly manualPositions = new Map<string, Position>();
+  /** The slot each colour wheel holds (venue.toDmx): kept from frame to frame, a slot changes only for one clearly closer (color-wheel.ts). */
+  private readonly wheels = new Map<string, WheelChoice>();
   lastErrors: string[] = [];
 
   constructor(
@@ -652,7 +657,12 @@ export class ShowRuntime {
     ].filter((l, i, all) => all.findIndex((x) => x.id === l.id) === i);
     const ruleNames = new Map(this.rulesInForce().map((x) => [x.id, x.name]));
     const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to, ...(ruleNames.get(rule) ? { name: ruleNames.get(rule)! } : {}) }));
+    // a lamp's colour wheel: the slot held, its real colour, and how far it is from the colour asked
+    const held = !("error" in r) && r.lampOnly && r.wheel?.offset === offset ? this.wheels.get(fixture.id) : undefined;
+    const slot = held && !("error" in r) ? r.wheel?.slots.find((s) => s.min === held.slot) : undefined;
+    const wheel = held && slot ? { slot: slot.name, color: slotHex(slot), ...(held.asked ? { asked: held.asked } : {}), gap: held.gap } : undefined;
     return {
+      ...(wheel ? { wheel } : {}),
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r), ...(head ? { head: head.head, ...(head.accent ? { accent: true as const } : {}) } : {}) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id) },
       faders,
@@ -804,7 +814,7 @@ export class ShowRuntime {
 
   /** Renders the playing looks into DMX buffers. */
   render(buffers: Uint8Array[]): void {
-    const errors = this.compose(buffers, this.now(), this.tempo.state().beats);
+    const errors = this.compose(buffers, this.now(), this.tempo.state().beats, this.wheels);
     // Rules mask: last stage of the show's output.
     this.lastClamps = this.mask(buffers, this.rulesInForce());
     this.lastErrors = errors;
@@ -827,9 +837,10 @@ export class ShowRuntime {
     const { beats: b0, bpm } = { bpm: 120, ...this.tempo.state() } as { beats: number; bpm?: number };
     const sample = (): Set<string> => {
       const seen = new Set<string>();
+      const wheels = new Map(this.wheels); // played in memory: the wheels held on the output stay as they are
       for (let k = 0; k < 20; k++) {
         const buffers = Array.from({ length: universes }, () => new Uint8Array(512));
-        this.compose(buffers, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60);
+        this.compose(buffers, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60, wheels);
         for (const f of this.venue.installed()) {
           const r = this.venue.resolve(f.id);
           const buf = buffers[f.universe - 1];
@@ -868,7 +879,7 @@ export class ShowRuntime {
   }
 
   /** The show's output before the rules: looks, positions, levels, raw channels, channel faders. */
-  private compose(buffers: Uint8Array[], now: number, beats: number): string[] {
+  private compose(buffers: Uint8Array[], now: number, beats: number, wheels: Map<string, WheelChoice>): string[] {
     const frame = emptyFrame();
     const errors: string[] = [];
     // Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing).
@@ -899,6 +910,7 @@ export class ShowRuntime {
         if (!this.venue.lightsBody(f, heads.keys())) continue;
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
+        frame.paintedBy.set(f, (frame.paintedBy.get(f) ?? new Map<string, Map<number, Color>>()).set(look.id, heads));
       }
       return colors;
     };
@@ -982,7 +994,7 @@ export class ShowRuntime {
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
     frame.raw = lookChannels;
-    errors.push(...this.venue.toDmx(frame, buffers));
+    errors.push(...this.venue.toDmx(frame, buffers, wheels));
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
     // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/
     // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on

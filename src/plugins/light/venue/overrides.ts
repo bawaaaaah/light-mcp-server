@@ -8,8 +8,29 @@
  */
 import { z } from "zod";
 
-/** T18 — the colour wheel (owned by the T18 work: replace this placeholder with its schema). */
-export const WheelOverridesSchema = z.record(z.string(), z.unknown());
+const HexSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+/** T18 — one slot of the colour wheel, named by the first DMX value of its range (its `min`). */
+export const WheelSlotOverrideSchema = z.object({
+  /** The slot's real colour, when the definition gives a wrong one (or none): chosen and shown by it. */
+  color: HexSchema.optional(),
+  /** Colours this slot answers to, beside its own: an asked colour nearest one of these lands on it (« this red goes to the orange slot »). */
+  answers: z.array(HexSchema).max(16).optional(),
+  /** Never chosen from a painted colour (a damaged filter, a slot to keep for raw channels). */
+  off: z.boolean().optional(),
+});
+export type WheelSlotOverride = z.infer<typeof WheelSlotOverrideSchema>;
+
+/** T18 — the colour wheel's colour → slot correspondence (venue/color-wheel.ts). Each field missing: the default. */
+export const WheelOverridesSchema = z.object({
+  /** Per slot, keyed by its range's first value ("16"). */
+  slots: z.record(z.string().regex(/^\d{1,3}$/), WheelSlotOverrideSchema).optional(),
+  /** Split slots (two colours) may be chosen when a look asks those two colours of the fixture (default true). */
+  doubles: z.boolean().optional(),
+  /** When the slot changes during a crossfade: « mid » at mid-fade (default), « black » with the dimmer through black at that moment. */
+  change: z.enum(["mid", "black"]).optional(),
+});
+export type WheelOverrides = z.infer<typeof WheelOverridesSchema>;
 /**
  * T21 — the accent heads of a fixture (venue/heads.ts): a halo, a ring, a back light, found by their channel names
  * unless `accent` lists them (channel names of the definition; [] = no accent, every head is a full one). `follow`

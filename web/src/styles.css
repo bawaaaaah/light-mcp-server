@@ -1577,6 +1577,44 @@ table.rules td {
 .widget-menu .invert-row > button {
   min-width: 2.2em;
 }
+/* Colour wheel editor (WheelEditor.tsx): one row per slot, its colour, its name, what it answers to */
+.widget-menu .wheel-editor {
+  display: grid;
+  gap: 0.4em;
+}
+.widget-menu .wheel-slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25em;
+}
+.widget-menu .wheel-slots li {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  flex-wrap: wrap;
+}
+.widget-menu .wheel-slots li.off .wheel-slot-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.widget-menu .wheel-slot-swatch {
+  width: 1.4em;
+  height: 1.4em;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  flex: none;
+}
+.widget-menu .wheel-slot-name {
+  flex: 1;
+  min-width: 6em;
+}
+.widget-menu .wheel-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1em;
+}
 /* MIDI of a widget: one card per note or CC, its mode and threshold on one line */
 .widget-menu .midi ul {
   list-style: none;

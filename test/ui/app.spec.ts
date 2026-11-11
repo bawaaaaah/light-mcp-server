@@ -4208,6 +4208,38 @@ test("venue patch: a moving head's pan and tilt are inverted from its menu, and 
   expect(errors).toEqual([]);
 });
 
+test("venue patch: a lamp's colour wheel is corrected from its menu, for the model then for this fixture", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Wheel = { applies: string; model: { slots?: Record<string, { answers?: string[]; off?: boolean }> } | null; own: { slots?: Record<string, { answers?: string[]; off?: boolean }> } | null };
+  const wheel = async () => (await api(page, "venue.wheel.get", { id: "spot" })) as Wheel;
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.locator("tr", { hasText: "Lyre" }).filter({ has: page.locator("td") }).first().click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
+    await menu.getByRole("button", { name: "Roue de couleurs…" }).click();
+    const editor = menu.getByRole("group", { name: "Roue de couleurs…" });
+    await expect(editor.locator(".wheel-slots li")).toHaveCount(5); // white, red, green, blue, amber (the rainbow has no colour)
+    await expect(editor.getByRole("radio", { name: "Tout le modèle" })).toHaveAttribute("aria-checked", "true");
+    // red answered by the amber slot, for every fixture of the model
+    await editor.getByLabel("Ajouter une couleur à laquelle cette case répond · Amber").fill("#ff0000");
+    await expect.poll(async () => (await wheel()).model?.slots?.["64"]?.answers).toEqual(["#ff0000"]);
+    await expect(editor).toContainText("S'applique : les réglages du modèle");
+    // this fixture only: it starts from the model's settings, and its own replace them
+    await editor.getByRole("radio", { name: "Cet appareil seulement" }).click();
+    await editor.getByRole("button", { name: "Jamais choisie depuis une couleur peinte · White" }).click();
+    await expect.poll(async () => (await wheel()).own?.slots).toEqual({ "0": { off: true }, "64": { answers: ["#ff0000"] } });
+    await expect(editor).toContainText("S'applique : les réglages de cet appareil");
+    await page.screenshot({ path: "test-results/venue-wheel-editor.png" });
+    await editor.getByRole("button", { name: "Effacer ces réglages" }).click();
+    await expect.poll(async () => (await wheel()).applies).toBe("model");
+  } finally {
+    await api(page, "venue.wheel.clear", { id: "spot", scope: "fixture" });
+    await api(page, "venue.wheel.clear", { id: "spot", scope: "model" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: a rectangular zone made from its size, shown on the plan, then deleted", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
