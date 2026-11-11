@@ -33,7 +33,7 @@ import { intentionReferences, registerDesignCommands, type IntentionStores } fro
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
 import { embeddedIntentions, IntentionSchema, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
-import { otherShowsUsingIntention } from "./show/other-shows.js";
+import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
@@ -157,7 +157,6 @@ export class LightPlugin implements McpPlugin {
   readonly show: FolderStore;
   /** The layers of the colour knowledge base and the intentions of this machine and of the show (T15). */
   readonly intentions: IntentionStores;
-  private readonly personalIntentions: FolderStore;
   readonly venue: Venue;
   readonly runtime: ShowRuntime;
   readonly hub: MidiHub;
@@ -235,7 +234,11 @@ export class LightPlugin implements McpPlugin {
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
-    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }), () => this.router.isStandby(), (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id));
+    registerShowCommands(this.commands, this.engine, this.runtime, {
+      sharedWith: () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }),
+      standby: () => this.router.isStandby(),
+      intentionReferences: (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id),
+    });
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());
@@ -283,14 +286,13 @@ export class LightPlugin implements McpPlugin {
     // the intentions (T15): the files read once, the personal library (every show of this machine; its
     // history pruned with the shows', backups/private/library) and the show's own (in its folder), read at every call
     const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private", "library"));
-    this.personalIntentions = personal;
     const showIntentions = this.show.collection("intentions", IntentionSchema);
     this.intentions = {
       base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
       personal: personal.collection("intentions", IntentionSchema),
       show: showIntentions,
-      otherShows: (key) => otherShowsUsingIntention(dataRoot, this.config.show, key),
-      showsUsing: (key) => otherShowsUsingIntention(dataRoot, undefined, key),
+      machineUsers: () => machineIntentionUsers(dataRoot),
+      current: () => this.config.show,
       loadErrors: () => [...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)), ...this.show.loadErrors.filter((e) => e.startsWith("intentions/"))],
     };
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
@@ -343,7 +345,7 @@ export class LightPlugin implements McpPlugin {
     // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
     this.show.onChange(() => (this.changedSinceAutoBackup = true));
     // the personal intentions a show uses go into its backups (T15): a change there is a change of the backup
-    this.personalIntentions.onChange(() => (this.changedSinceAutoBackup = true));
+    personal.onChange(() => (this.changedSinceAutoBackup = true));
     this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
     this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));

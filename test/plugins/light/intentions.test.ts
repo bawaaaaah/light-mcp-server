@@ -8,7 +8,7 @@ import { CommandError, systemContext } from "../../../src/plugins/light/commands
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge, namesIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
 import { intentionUses } from "../../../src/plugins/light/show/references.js";
-import { readArchive } from "../../../src/plugins/light/data/archive.js";
+import { readArchive, showToRestore } from "../../../src/plugins/light/data/archive.js";
 
 const intention = (id: string, colors: string[], more: Partial<Intention> = {}): Intention => ({ id, label: id, colors, energy: "pose", family: "", ...more });
 
@@ -297,9 +297,9 @@ describe("intentions (T15)", () => {
       await run("show.create", { name: "Ailleurs" });
       await run("intention.delete", { id: "douceur", force: true });
       // the private one is still here as packed: it stays in the library; the personal one is gone: it comes as the show's
-      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentions: { added: number; changed: number; removed: number }; intentionsKnown: string[]; show: { added: string[] } };
+      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentions: { added: number; changed: number; removed: number }; intentionsKnown: { id: string; label: string }[]; show: { added: string[] } };
       expect(preview.intentions).to.deep.equal({ added: 1, changed: 0, removed: 0 });
-      expect(preview.intentionsKnown).to.deep.equal(["brume-du-matin"]);
+      expect(preview.intentionsKnown).to.deep.equal([{ id: "brume-du-matin", label: "Brume du matin" }]);
       expect(preview.show.added).to.include("intentions/douceur.json").and.not.to.include("intentions/brume-du-matin.json");
       await run("backup.restore", { file });
       const back = await kb();
@@ -322,8 +322,8 @@ describe("intentions (T15)", () => {
       // on this machine: one as packed, one changed since, one gone
       await run("intention.put", { intention: { id: "brume", label: "Brume", colors: ["#000000"] }, scope: "personal" });
       await run("intention.delete", { id: "aube", force: true });
-      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentions: { added: number }; intentionsKnown: string[] };
-      expect(preview.intentionsKnown).to.deep.equal(["douceur"]);
+      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentions: { added: number }; intentionsKnown: { id: string; label: string }[] };
+      expect(preview.intentionsKnown).to.deep.equal([{ id: "douceur", label: "Douceur" }]);
       expect(preview.intentions.added).to.equal(2);
       await run("backup.restore", { file });
       const back = await kb();
@@ -351,6 +351,34 @@ describe("intentions (T15)", () => {
       expect(await run("intention.library")).to.deep.equal([]);
       expect((await kb()).moods.douceur).to.include({ origin: "show", label: "Douceur du show" });
       expect((await refusal(run("intention.delete", { id: "joie", scope: "personal" })))?.message).to.match(/inconnue/);
+    });
+
+    it("reads every show once for the library, leaves out a show that masks or copies the key, and deletes by scope", async () => {
+      await run("show.rename", { name: "Premier" });
+      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur"], sections: [] } });
+      await run("show.create", { name: "Masque" });
+      await run("song.put", { song: { id: "t", title: "Autre", mood: ["douceur"], sections: [] } });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"], hidden: true } }); // it masks it: it does not take it
+      expect(((await run("intention.library")) as { shows: string[] }[])[0]!.shows).to.deep.equal(["Premier"]);
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur à moi", colors: ["#111111"] } }); // its own copy: neither
+      expect(((await run("intention.library")) as { shows: string[] }[])[0]!.shows).to.deep.equal(["Premier"]);
+      // scope "show": the show's own only; scope "personal": the library's
+      expect((await refusal(run("intention.delete", { id: "joie", scope: "show" })))?.message).to.match(/inconnue/);
+      expect(await run("intention.delete", { id: "douceur", scope: "show" })).to.deep.include({ action: "reverted", origin: "personal" });
+    });
+
+    it("restores the same archive twice without announcing show.json removed, and reads a damaged manifest list", async () => {
+      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] } });
+      const file = ((await run("backup.create", { label: "deux" })) as { file: string }).file;
+      await run("backup.restore", { file });
+      const again = (await run("backup.restore", { file, dryRun: true })) as { show: { removed: string[]; added: string[]; changed: string[] } };
+      expect(again.show.removed).to.deep.equal([]);
+      const content = readArchive(new Uint8Array(readFileSync(join(dataRoot, "backups", file))));
+      const damaged = { ...content, manifest: { ...content.manifest, intentions: "douceur" as unknown as string[] } };
+      expect(showToRestore(damaged, plugin.restoreTargets()).known).to.deep.equal([]);
+      const mixed = { ...content, manifest: { ...content.manifest, intentions: [3, "absente"] as unknown as string[] } };
+      expect(showToRestore(mixed, plugin.restoreTargets()).known).to.deep.equal([]);
     });
 
     it("puts a mask back as a mask (versions, proposals), and keys proposals as the command does", async () => {

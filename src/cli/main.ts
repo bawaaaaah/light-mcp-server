@@ -13,6 +13,7 @@ import { getEnvBool } from "../core/env.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
 import { applyRestore, packArchive, readArchive, restoreBackupDir, type FolderDiff, type RestorePreview } from "../plugins/light/data/archive.js";
+import { say } from "../core/lang.js";
 import { definitionDirsFor, FixturePolicySchema, type FixturePolicy, type FixtureSummary } from "../plugins/light/data/archive-fixtures.js";
 
 const USAGE = `light <commande>
@@ -357,9 +358,9 @@ async function unpack(caller: Caller, file: string, check = false, fixtures = "m
     }
     printDiff("Show", diff.show);
     const i = diff.intentions; // an older server's preview has none
-    if (i && i.added + i.changed + i.removed) console.log(`Intentions du show : ${i.added} ajoutée(s), ${i.changed} modifiée(s), ${i.removed} supprimée(s)`);
+    if (i && i.added + i.changed + i.removed) console.log(say(`Intentions du show : ${i.added} ajoutée(s), ${i.changed} modifiée(s), ${i.removed} supprimée(s)`, `Show intentions: ${i.added} added, ${i.changed} changed, ${i.removed} removed`));
     const known = diff.intentionsKnown ?? []; // an older server's preview has none
-    if (known.length) console.log(`Intentions déjà dans la bibliothèque de cette machine, non recopiées dans le show : ${known.join(", ")}`);
+    if (known.length) console.log(say(`Intentions déjà dans la bibliothèque de cette machine, non recopiées dans le show : ${known.map((k) => k.label).join(", ")}`, `Intentions already in this machine's library, not copied into the show: ${known.map((k) => k.label).join(", ")}`));
     printDiff("Lieu", diff.venue);
     printFixtures(diff.fixtures);
     console.error("(rien n'a été écrit : relancer sans --check pour restaurer)");

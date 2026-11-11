@@ -248,15 +248,19 @@ export interface RestoreTargets {
  * `intentions`) that this machine has as they are: they stay in its library, not copied into the show
  * (decision of 2026-11-11). Another machine, or one whose version differs, gets them as the show's.
  */
-export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: string[] } {
+export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: { id: string; label: string }[] } {
   const show = { ...content.show };
-  const known: string[] = [];
-  for (const key of content.manifest.intentions ?? []) {
+  const known: { id: string; label: string }[] = [];
+  // a hand-made or damaged manifest: only its strings count
+  const listed = Array.isArray(content.manifest.intentions) ? content.manifest.intentions.filter((k): k is string => typeof k === "string") : [];
+  for (const key of listed) {
     const path_ = `intentions/${key}.json`;
     const ours = t.machineIntention?.(key);
-    if (show[path_] !== undefined && ours !== undefined && canonical(ours) === canonical(show[path_]!)) {
+    const text = show[path_];
+    if (text !== undefined && ours !== undefined && canonical(ours) === canonical(text)) {
       delete show[path_];
-      known.push(key);
+      const label = (JSON.parse(text) as { label?: unknown }).label;
+      known.push({ id: key, label: typeof label === "string" && label ? label : key });
     }
   }
   return { show, known };
@@ -274,7 +278,7 @@ export interface RestorePreview {
    */
   intentions: CollectionCount | null;
   /** Intentions of the packing machine this one has as they are: left in its library, not copied into the show. */
-  intentionsKnown: string[];
+  intentionsKnown: { id: string; label: string }[];
 }
 
 export interface CollectionCount {
@@ -289,11 +293,19 @@ export function countCollection(diff: FolderDiff, name: string): CollectionCount
   return { added: of(diff.added), changed: of(diff.changed), removed: of(diff.removed) };
 }
 
+/**
+ * A show.json the archive lacks is not removed by a restore: pinShowVenue writes it again (the show
+ * stays on the venue in place). Without this, restoring the same archive twice announced « -1 show.json ».
+ */
+function withoutPinnedSettings(diff: FolderDiff, files: Record<string, string>): FolderDiff {
+  return "show.json" in files ? diff : { ...diff, removed: diff.removed.filter((p) => p !== "show.json") };
+}
+
 /** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
 export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
   const { show: files, known } = showToRestore(content, t);
-  const show = Object.keys(content.show).length ? diffFolder(t.showDir, files) : null;
+  const show = Object.keys(content.show).length ? withoutPinnedSettings(diffFolder(t.showDir, files), files) : null;
   return {
     dryRun: true,
     manifest: content.manifest,
