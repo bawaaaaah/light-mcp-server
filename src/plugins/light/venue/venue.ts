@@ -14,6 +14,7 @@ import { listQxfFiles } from "./definition-files.js";
 import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
+import { findDuplicateDefinitions, type DuplicateReport } from "./definition-duplicates.js";
 import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
 import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
@@ -351,6 +352,8 @@ function nearestSlot(slots: { value: number; color: Color }[], c: Color): number
 
 export class Venue {
   readonly definitions: FixtureDefinition[] = [];
+  /** The file name of each definition, in the order of `definitions`. */
+  private definitionSources: string[] = [];
   readonly fixtures: Collection<PatchedFixture>;
   readonly canvases: Collection<Canvas>;
   private resolved = new Map<string, ResolvedFixture | { error: string }>();
@@ -404,11 +407,13 @@ export class Venue {
     if (stamp === this.definitionStamp) return;
     this.definitionStamp = stamp;
     this.definitions.length = 0;
+    this.definitionSources = [];
     this.store.loadErrors.splice(0, this.store.loadErrors.length, ...this.store.loadErrors.filter((e) => !this.definitionErrors.includes(e)));
     this.definitionErrors = [];
     for (const f of files) {
       try {
         this.definitions.push(parseQxf(readFileSync(f, "utf8")));
+        this.definitionSources.push(path.basename(f));
       } catch (err) {
         this.definitionErrors.push(`définition ${path.basename(f)} : ${(err as Error).message}`);
       }
@@ -446,6 +451,11 @@ export class Venue {
     return patchOverlaps(this.patchRanges())
       .filter((o) => !onlyFor || o.a === onlyFor || o.b === onlyFor)
       .map((o) => ({ ...o, message: overlapMessage(o, name) }));
+  }
+
+  /** Duplicate definitions of the library: one model in several files, one structure under two names. */
+  duplicateDefinitions(): DuplicateReport {
+    return findDuplicateDefinitions(this.definitions.map((def, i) => ({ def, source: this.definitionSources[i] ?? "?" })));
   }
 
   /** Patched fixtures whose definition (.qxf) is not in the library: their channels are not decoded. */

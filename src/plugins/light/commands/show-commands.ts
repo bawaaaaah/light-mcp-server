@@ -10,6 +10,7 @@ import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
+import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
@@ -245,12 +246,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
-    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, and fixtures without a definition in the library (their channels are not decoded: add the .qxf).",
+    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => ({ overlaps: venue.patchProblems(), missingDefinitions: venue.missingDefinitions() }),
+    run: () => {
+      const dup = venue.duplicateDefinitions();
+      return {
+        overlaps: venue.patchProblems(),
+        missingDefinitions: venue.missingDefinitions(),
+        duplicateDefinitions: { sameName: dup.sameName.map((g) => ({ ...g, message: sameNameMessage(g) })), sameSignature: dup.sameSignature.map((g) => ({ ...g, message: sameSignatureMessage(g) })) },
+      };
+    },
   });
   reg.register({
     name: "venue.fixture.delete",

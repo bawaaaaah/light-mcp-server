@@ -116,7 +116,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ### T34 — Doublon de définition : « Remplacer » à l'import (signalé et fait le 2026-11-10)
 - **Symptôme** : ajouter un `.qxf` dont le nom existe déjà avec un autre contenu est refusé, mais la page Import n'offrait aucun bouton pour remplacer (le texte du refus disait « replace pour le remplacer » sans rien de cliquable) et n'envoyait jamais `replace`.
 - **Fait (2026-11-10)** : le refus de `fixture.definition.add` est une `CommandError` portant `detail { exists, file }` (relayé jusqu'à l'interface par `ApiError.detail`) ; la page Import garde le fichier refusé et affiche **« Remplacer »**, après une confirmation qui nomme le fichier écrasé. Tests : commande (détail, contenu identique accepté, `replace: true` écrase ou crée), parcours UI refus → Remplacer → ✔ (le 422 attendu est filtré). Plan relu en amont par deux modèles locaux (qwen3.8, bonsai-2) ; le code a été écrit par Claude (flint, délégué d'abord, a dépassé le délai sans rien écrire). La question « définition ou appareil du patch » est tranchée : **définition** ; rien n'a été trouvé pour le doublon d'un appareil (`venue.fixture.put` est un upsert, voir T22).
-- **Reste** : la détection porte sur le **nom de fichier** seulement : un même modèle sous un autre nom entre sans avertissement (T20).
+- **Reste** : la détection porte sur le **nom de fichier** seulement : un même modèle sous un autre nom entre sans avertissement (T20b).
 
 ### T35 — Les boutons de look doivent tenir compte des DCA en place sur leurs pistes (demandé le 2026-11-10)
 - **Besoin** : quand un look est lancé par un bouton, il doit **prendre en compte les DCA déjà en place** sur la piste (le projecteur ou le canal) qu'il touche : le niveau final suit le dosage du DCA, au lieu de l'ignorer.
@@ -165,7 +165,7 @@ Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts)
 - À trancher : format des images (PNG/SVG, taille max), et où se téléverse l'image (page Bibliothèque, T20).
 
 ### T20 — Bibliothèque des projecteurs : gestion complète
-- **Découpée** : **T20a** (phase 2) = détection des doublons et avertissement dans « Vérifier le show » ; **T20b** (phase 4) = tout le reste (page, fusion, duplication, éditeur, suppression).
+- **Découpée** : **T20a — fait (2026-11-11)** (phase 2) = détection des doublons et avertissement dans « Vérifier le show » ; **T20b** (phase 4) = tout le reste (page, fusion, duplication, éditeur, suppression).
 - **Nouvelle page « Bibliothèque »** (ou section de la page Lieu) listant les 600+ définitions : recherche, fabricant, type, nombre de modes, **projecteurs patchés qui l'utilisent** (via `show.references`).
 - **Détecter les doublons** : même fabricant+modèle après normalisation, ou même signature (canaux, plages, modes) sous deux noms ; montrer la différence champ par champ avant de décider.
 - **Fusionner** : garder une définition, rediriger l'autre vers elle (alias) pour que les appareils déjà patchés suivent sans changer d'adresse ni de mode ; refuser si un mode utilisé disparaît, ou proposer la correspondance de modes.

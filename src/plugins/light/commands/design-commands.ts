@@ -17,6 +17,7 @@ import type { Timing } from "../engine/player.js";
 import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
+import { duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { say } from "../../../core/lang.js";
 
 /**
@@ -217,6 +218,11 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const missing = new Map<string, string[]>();
       for (const m of runtime.venue.missingDefinitions()) missing.set(m.model, [...(missing.get(m.model) ?? []), m.name]);
       for (const [model, names] of missing) warn(say(`projecteur ${names.join(", ")}`, `fixture ${names.join(", ")}`), say(`définition manquante : ${model} — canaux non décodés, ajouter son .qxf (page Import)`, `missing definition: ${model} — channels not decoded, add its .qxf (Import page)`));
+      // duplicate definitions: only those of a model the venue patches, and only when they change what it gets
+      // (identical copies are harmless; an unused duplicate in the library is not this show's business)
+      const dups = duplicatesUsedBy(runtime.venue.duplicateDefinitions(), runtime.venue.fixtures.list());
+      for (const g of dups.sameName.filter((x) => x.others.some((o) => !o.identical))) warn(say(`définition ${g.manufacturer} ${g.model}`, `definition ${g.manufacturer} ${g.model}`), sameNameMessage(g));
+      for (const g of dups.sameSignature) warn(say("définitions", "definitions"), sameSignatureMessage(g));
       sameName("look", runtime.looks.list());
       sameName(say("groupe", "group"), runtime.groups.list());
       sameName("fader", runtime.faders.list());
