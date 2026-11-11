@@ -5,7 +5,7 @@
  * Hidden while there is nothing to decide.
  */
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { cmd } from "../api";
+import { ApiError, cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
@@ -42,14 +42,25 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
   const t = useT();
   const [list, setList] = useState<Proposal[]>([]);
   const [error, setError] = useState("");
+  /** What a revert left as it was (objects of another show edited since), said after it. */
+  const [notice, setNotice] = useState("");
   const load = useCallback(() => void cmd<Proposal[]>("show.proposals").then(setList, () => setList([])), []);
   useEffect(load, [load]);
   useCommandEvents(["show.propose", "show.apply", "show.revert", "show.discard"], load);
-  const act = (name: string, id: string) => {
+  const act = (name: string, id: string, force = false) => {
     setError("");
-    void cmd(name, { id }).then(
-      () => (load(), onChanged()),
-      (e: Error) => setError(e.message),
+    setNotice("");
+    void cmd<{ warnings?: string[] }>(name, { id, ...(force ? { force } : {}) }).then(
+      (r) => {
+        if (r?.warnings?.length) setNotice(t.fixtureMode.undoWarnings.replace("{list}", r.warnings.join(" ; ")));
+        load();
+        onChanged();
+      },
+      (e: Error) => {
+        // a mode change edited since: taken back only on a yes that names what would be lost
+        if (name === "show.revert" && !force && e instanceof ApiError && Array.isArray(e.detail?.changed) && confirm(t.fixtureMode.revertChanged.replace("{list}", (e.detail.changed as string[]).join(", ")))) return act(name, id, true);
+        setError(e.message);
+      },
     );
   };
   const shown = list.filter((p) => p.status !== "discarded").slice(0, 5);
@@ -59,6 +70,11 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
       <h2>{t.proposals}</h2>
       <p className="hint">{t.proposalsHelp}</p>
       {error && <p className="error">{error}</p>}
+      {notice && (
+        <p className="warn" role="status">
+          {notice}
+        </p>
+      )}
       {shown.map((p) => (
         <div key={p.id} className={`proposal ${p.status}`}>
           <div className="row">

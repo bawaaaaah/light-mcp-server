@@ -43,7 +43,10 @@ interface ChannelRow {
 /** What fixture.channel.mode answers: the look or faders holding the channel higher, when they do. */
 interface ModeSet {
   heldBy?: { looks: { name: string }[]; faders: { name: string }[] };
+  below?: true;
   blackout?: true;
+  clamps?: { rule: string; name?: string }[];
+  dca?: string;
 }
 
 /**
@@ -104,7 +107,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
     back?.focus();
   };
   /** By offset: the range last asked from the panel, and who held the channel higher then (or the blackout). */
-  const [asked, setAsked] = useState<Record<number, { min: number; max: number; heldBy: string; blackout: boolean }>>({});
+  const [asked, setAsked] = useState<Record<number, { min: number; max: number; above: string; below: string }>>({});
 
   const read = useCallback(() => {
     void cmd<FaderRow[]>("fader.list").then(setFaders).catch(() => undefined);
@@ -129,17 +132,27 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   // one universe followed, only while a channel has modes to show; left when the panel goes (a tablet keeps no stream)
   const followsModes = channels.some((c) => c.modes?.length);
   const universe = patch?.universe;
+  /** The DMX slots of the channels with modes: the panel renders again only when one of them changes (not 25 times a second). */
+  const watched = patch ? channels.filter((c) => c.modes?.length).map((c) => patch.address - 1 + c.offset) : [];
+  const watchedKey = watched.join(",");
+  const lastSeen = useRef("");
   useEffect(() => {
     if (!followsModes || universe === undefined) return;
+    const slots = watchedKey.split(",").map(Number);
+    lastSeen.current = "";
     return stream.subscribe(
       "light:dmx",
       (d) => {
         const mine = (d as { universes: [number, Uint8Array][] }).universes.find(([u]) => u === universe);
-        if (mine) setOut(new Uint8Array(mine[1]));
+        if (!mine) return;
+        const seen = slots.map((i) => mine[1][i] ?? 0).join(",");
+        if (seen === lastSeen.current) return;
+        lastSeen.current = seen;
+        setOut(new Uint8Array(mine[1]));
       },
       { universes: [universe] },
     );
-  }, [followsModes, universe]);
+  }, [followsModes, universe, watchedKey]);
 
   /** The channel faders that drive one channel of this fixture over its whole travel, by channel offset (as fader.channel finds them). */
   const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !narrowed(f.range)).map((f) => [f.channels[0]!.offset, f]));
@@ -215,11 +228,15 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   const pickMode = (c: ChannelRow, mode: ChannelMode, variant?: NamedRange) => {
     closePicker();
     // `min` tells two modes of one name apart (« No function » at both ends of a channel)
-    void cmd<ModeSet>("fixture.channel.mode", { fixture: fixture.id, offset: c.offset, mode: mode.name, min: mode.min, ...(variant ? { variant: variant.name } : {}) })
+    void cmd<ModeSet>("fixture.channel.mode", { fixture: fixture.id, offset: c.offset, mode: mode.name, min: mode.min, ...(variant ? { variant: variant.name, variantMin: variant.min } : {}) })
       .then((r) => {
         const v = variant ?? mode.variants[0]!;
-        const heldBy = r.blackout ? t.fixtureMode.blackout : [...(r.heldBy?.looks ?? []), ...(r.heldBy?.faders ?? [])].map((x) => quoted(t, x.name)).join(", ");
-        setAsked((a) => ({ ...a, [c.offset]: { min: v.min, max: v.max, heldBy, blackout: Boolean(r.blackout) } }));
+        const heldBy = [...(r.heldBy?.looks ?? []), ...(r.heldBy?.faders ?? [])].map((x) => quoted(t, x.name)).join(", ");
+        // below the range: a blackout, the DCA dosing this fader, or a rule bounding the channel says why
+        const below = r.blackout
+          ? t.fixtureMode.blackout
+          : [r.dca ? t.fixtureMode.dosedBy.replace("{dca}", r.dca) : "", r.clamps?.length ? t.fixtureMode.boundBy.replace("{rules}", r.clamps.map((x) => quoted(t, x.name ?? x.rule)).join(", ")) : ""].filter(Boolean).join(" ");
+        setAsked((a) => ({ ...a, [c.offset]: { min: v.min, max: v.max, above: heldBy ? t.fixtureMode.heldBy.replace("{who}", heldBy) : "", below } }));
       })
       .catch((e: Error) => onError(e.message));
   };
@@ -288,8 +305,9 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   const held = channels.flatMap((c) => {
     const a = asked[c.offset];
     const v = outOf(c);
-    // HTP: held above the range by a look or a fader; a blackout holds it at 0
-    return a && a.heldBy && v !== undefined && (a.blackout ? v < a.min : v > a.max) ? [{ c, who: a.heldBy, blackout: a.blackout }] : [];
+    // HTP: held above the range by a look or a fader; below it, a blackout, a DCA or a rule
+    const say = v === undefined || !a ? "" : v > a.max ? a.above : v < a.min ? a.below : "";
+    return say ? [{ c, say }] : [];
   });
   const open = channels.find((c) => c.offset === picking?.offset);
 
@@ -324,10 +342,10 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
                 <>
                   <div className="panel-channels">{channels.map(faderRow)}</div>
                   {open?.modes && picking && <ChannelModeMenu anchor={picking.anchor} title={`${open.name} — ${t.fixtureMode.pickHelp}`} items={modeItems(open)} onPick={(i) => onModePick(open, i)} onClose={closePicker} />}
-                  {held.map(({ c, who, blackout }) => (
+                  {held.map(({ c, say }) => (
                     <p key={c.offset} className="warn" role="status">
                       {c.name}
-                      {t.colon} {blackout ? who : t.fixtureMode.heldBy.replace("{who}", who)}
+                      {t.colon} {say}
                     </p>
                   ))}
                 </>

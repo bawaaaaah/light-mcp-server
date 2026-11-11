@@ -9,8 +9,9 @@
  * (show.revert) — not the venue copy, which stays, and says so.
  */
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { cmd } from "../api";
+import { ApiError, cmd } from "../api";
 import { useT } from "../App";
+import { useCommandEvents } from "../hooks/useTopic";
 import { quoted } from "../typography";
 import { ModePicker, type ModeItem } from "./ModePicker";
 
@@ -24,6 +25,7 @@ interface Plan {
   lost: { message: string; show?: string }[];
   emptied: { name: string; show?: string; usedBy: string[] }[];
   unreadable: { show: string; errors: string[] }[];
+  othersUnreadable?: string;
   overlaps: string[];
   freeAddress?: number;
   cellsWithoutRender: { name: string; cells: number[] }[];
@@ -66,6 +68,11 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
   const status = useRef<HTMLParagraphElement>(null);
   /** Where the focus goes once the next render is on screen (the triggering control is gone by then). */
   const focusNext = useRef<"status" | "current" | null>(null);
+  // another show opened, or this one put on another venue: the changes remembered here are no longer to undo
+  useCommandEvents(["show.open", "show.venue.set"], () => {
+    lastChange.clear();
+    setDone(null);
+  });
   // a plan shown below the list is brought into the menu's view once, when it comes
   const planBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -86,6 +93,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
       .catch(() => setModes([]));
   }, [fixture.manufacturer, fixture.model]);
   if (!fixture.model || modes === null) return null;
+  const undoable = done && done.mode === fixture.mode ? done : null;
 
   const preview = (mode: string, shared?: Shared) => {
     setError("");
@@ -98,6 +106,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     ...p.lost.map((l) => `${l.show ? `${l.show} · ` : ""}${l.message}`),
     ...p.emptied.map((e) => `${e.show ? `${e.show} · ` : ""}${tm.emptied.replace("{name}", e.name)}${e.usedBy.length ? ` (${tm.usedBy.replace("{list}", e.usedBy.join(", "))})` : ""}`),
     ...p.unreadable.map((u) => tm.unreadable.replace("{show}", u.show).replace("{errors}", u.errors.join(" ; "))),
+    ...(p.othersUnreadable ? [tm.othersUnreadable.replace("{reason}", p.othersUnreadable)] : []),
   ];
   const apply = async () => {
     if (!plan) return;
@@ -129,17 +138,19 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     setPlan(null);
     setChoice(undefined);
   };
-  const undo = async () => {
+  const undo = async (force = false): Promise<void> => {
     if (!done?.proposal) return;
     setError("");
     try {
-      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal });
+      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal, ...(force ? { force } : {}) });
       lastChange.delete(fixture.id);
       focusNext.current = "status";
       setNote([done.detached ? tm.undoneCopy : tm.undone, r.warnings?.length ? tm.undoWarnings.replace("{list}", r.warnings.join(" ; ")) : ""].filter(Boolean).join(" "));
       setDone(null);
       onSaved();
     } catch (e) {
+      // edited since the change: taken back only on a yes that names what would be lost
+      if (!force && e instanceof ApiError && Array.isArray(e.detail?.changed) && confirm(tm.revertChanged.replace("{list}", (e.detail.changed as string[]).join(", ")))) return undo(true);
       setError((e as Error).message);
     }
   };
@@ -244,15 +255,15 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
           </div>
         </div>
       )}
-      {(done || note) && (
+      {(undoable || note) && (
         <p
           className="mode-done"
           role="status"
           tabIndex={-1}
           ref={status}
         >
-          {done ? `${tm.done.replace("{mode}", done.mode)}${done.detached ? ` ${tm.doneCopy}` : ""} ` : note}
-          {done?.proposal && (
+          {undoable ? `${tm.done.replace("{mode}", undoable.mode)}${undoable.detached ? ` ${tm.doneCopy}` : ""} ` : note}
+          {undoable?.proposal && (
             <button className="ghost" onClick={() => void undo()}>
               {tm.undo}
             </button>

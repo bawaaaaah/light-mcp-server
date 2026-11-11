@@ -2990,8 +2990,12 @@ test("venue: the fixture menu changes the DMX mode with its plan, carries channe
     await expect(section.getByRole("status")).toBeFocused(); // the focus is not lost with the plan gone
     await expect.poll(async () => (await fader())?.channels[0]!.offset).toBe(6);
     expect(await mode()).toBe("8 Channel");
-    // one undo takes the whole change back, and says so
+    // renamed since: the undo names it and asks before putting the old state back; then one undo takes the whole change back, and says so
+    await api(page, "venue.fixture.mark", { id: "mode-par", name: "Par renommé" });
+    let changed = "";
+    page.once("dialog", (d) => ((changed = d.message()), void d.accept()));
     await section.getByRole("button", { name: "↶ Défaire" }).click();
+    await expect.poll(() => changed).toContain("Par renommé");
     await expect.poll(mode).toBe("6 Channel");
     await expect(section.getByRole("status")).toContainText("Changement de mode défait");
     await expect(section.getByRole("status")).toBeFocused();
@@ -3021,7 +3025,7 @@ test("venue: the fixture menu changes the DMX mode with its plan, carries channe
     await api(page, "fader.delete", { id: "mode-prog", force: true });
     await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
   }
-  expect(errors).toEqual([]);
+  expect(errors.filter((e) => !e.includes("commands/show.revert"))).toEqual([]); // the first undo is refused on purpose (renamed since)
 });
 
 test("venue: on a shared venue the DMX mode change offers a venue of this show's own, or the change for every show", async ({ page, request }) => {
