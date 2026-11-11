@@ -860,7 +860,13 @@ export class Venue {
       const at = (o: number) => (off ? 0 : (buf[patch.address - 1 + o] ?? 0) / 255);
       const dimmer = r.dimmers.length ? Math.max(...r.dimmers.map(at)) : 1;
       if (r.levelDimmer && r.dimmers.length) {
-        let color: Color = { white: 1 };
+        // white only where 0 means open white (a lamp, or CMY channels); a fixture with additive colour channels
+        // (RGB split into functions, a laser wheel) is dark when they sit at 0
+        const subtractive = r.mode.channels.every((n) => {
+          const c = r.def.channels.get(n)?.color;
+          return !c || c === "cyan" || c === "magenta" || c === "yellow";
+        });
+        let color: Color = subtractive ? { white: 1 } : {};
         if (r.lampOnly && r.wheel) {
           // found by range: the value sent is the slot's middle, a raw look may write its edge
           const slot = slotAt(r.wheel.slots, off ? 0 : (buf[patch.address - 1 + r.wheel.offset] ?? 0));

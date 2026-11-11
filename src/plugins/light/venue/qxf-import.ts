@@ -162,7 +162,7 @@ function isResetCapability(name: string, preset?: string, channel?: string): boo
   if (!/^Reset/.test(p)) return false;
   const n = name.trim();
   if (/\breset|\bres+e?s?t\b|\bhome\b|\brestor|\binit/i.test(n) || /^(all|pan|tilt|motors?|all motors|pan\s*[/&,]?\s*tilt|p\s*\/\s*t)$/i.test(n)) return true;
-  return channel !== undefined && /\breset/i.test(channel) && n !== "" && !isNeutral(n, p) && !/\b(speed|unused|not used|reserved|no effect|lamp|sound|auto|fan)\b/i.test(n);
+  return channel !== undefined && /\breset/i.test(channel) && n !== "" && !isNeutral(n, p) && !/speed|\b(unused|not used|reserved|no effect|sounds?|lamps?|fans?)\b|\bauto(matic)?\b/i.test(n);
 }
 
 /**

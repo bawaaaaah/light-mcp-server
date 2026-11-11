@@ -87,6 +87,9 @@ describe("QLC+ fixture definition import", () => {
   it("tags capabilities from their names", () => {
     expect(capabilityTags("Sound Control")).to.include("soundActive");
     expect(capabilityTags("Strobe Off")).to.not.include("strobe");
+    // reset on a Reset* preset: plurals, compounds and « automatic » in the channel's range names are no reset
+    for (const n of ["Fan speeds", "Fanspeed", "Lamps off", "Fans", "Automatic", "Auto programs", "Pan speed"]) expect(capabilityTags(n, "ResetAll", "Reset"), n).to.not.include("reset");
+    expect(capabilityTags("Pan/Tilt", "ResetAll", "Reset")).to.include("reset");
   });
 
   it("tags a Reset range by the whole word or the QLC+ preset, never a « preset » nor « no reset »", () => {

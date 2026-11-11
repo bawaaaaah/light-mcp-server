@@ -452,6 +452,35 @@ describe("heads: a cautious deduction", () => {
     expect(out()).to.deep.equal({ dmx: [0, 0, 0, 0, 0], display: ["#000000"] });
   });
 
+  it("joins a qualified lone channel to the part sharing the most words (« Spot » and « Spot Inner » both prefix it)", () => {
+    const rgb = (part: string): [string, string][] => [[`${part} - Red`, "Red"], [`${part} - Green`, "Green"], [`${part} - Blue`, "Blue"]];
+    const xml = qxf("Spots", [...rgb("Spot"), ...rgb("Spot Inner"), ["Spot Inner - White - all pixels", "White"]]);
+    const names = headNames(xml);
+    expect(names).to.have.length(2);
+    expect(names.some((n) => n.endsWith("Spot Inner - Blue/Spot Inner - White - all pixels"))).to.equal(true);
+    expect(names.some((n) => n.includes("White") && n.startsWith("0:Spot - Red"))).to.equal(false);
+  });
+
+  it("shows white x dimmer only for subtractive colour channels: an RGB split into functions stays dark at 0", () => {
+    const fn = (name: string) => `<Channel Name="${name}"><Group Byte="0">Intensity</Group><Colour>${name}</Colour><Capability Min="0" Max="0">Open white</Capability><Capability Min="1" Max="128">${name} (0% to 100%)</Capability><Capability Min="129" Max="255">Forward spin (slow to fast)</Capability></Channel>`;
+    const defn = (model: string, colours: string[]) => `<?xml version="1.0"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>${model}</Model><Type>Moving Head</Type><Channel Name="Dim" Preset="IntensityDimmer"/>${colours.map(fn).join("")}
+<Mode Name="M">${["Dim", ...colours].map((n, i) => `<Channel Number="${i}">${n}</Channel>`).join("")}</Mode></FixtureDefinition>`;
+    const dir = mkdtempSync(join(tmpdir(), "light-heads-eclipse-"));
+    mkdirSync(join(dir, "fixtures"));
+    writeFileSync(join(dir, "fixtures", "eclipse.qxf"), defn("Eclipse", ["Red", "Green", "Blue"]));
+    writeFileSync(join(dir, "fixtures", "cmy.qxf"), defn("CMY", ["Cyan", "Magenta", "Yellow"]));
+    const venue = new Venue(new FolderStore(join(dir, "venue")), [join(dir, "fixtures")]);
+    venue.fixtures.put({ id: "ecl", name: "E", manufacturer: "Test", model: "Eclipse", mode: "M", universe: 1, address: 1 });
+    venue.fixtures.put({ id: "cmy", name: "C", manufacturer: "Test", model: "CMY", mode: "M", universe: 1, address: 11 });
+    expect(resolved(venue, "ecl").levelDimmer).to.equal(true);
+    const buf = new Uint8Array(512);
+    buf[0] = 255; // Eclipse dimmer full, its colour channels at 0: dark
+    buf[10] = 255; // CMY dimmer full, 0 = open white
+    const shown = venue.displayColors([buf]);
+    expect(shown.ecl).to.deep.equal(["#000000"]);
+    expect(shown.cmy).to.deep.equal(["#ffffff"]);
+  });
+
   it("never takes a resolution for a part number: « Flower Effect 1 - Red (8bit) » is part 1, « Background - Red (8bit) » no number", () => {
     expect(partOf("Flower Effect 1 - Red (8bit)")).to.deep.equal({ words: "flower effect", number: 1 });
     expect(partOf("Background - Red (8bit)")).to.deep.equal({ words: "background" });

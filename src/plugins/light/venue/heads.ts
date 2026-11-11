@@ -161,7 +161,10 @@ function joinQualified(parts: Part[], colourAt: (offset: number) => Component): 
   for (const p of [...out]) {
     if (p.offsets.length !== 1 || p.number !== undefined) continue;
     const c = colourAt(p.offsets[0]!);
-    const into = out.find((q) => q !== p && q.number === undefined && q.words !== "" && p.words.startsWith(`${q.words} `) && !q.comps.split("+").includes(c));
+    // the part sharing the most words wins (« spot » and « spot inner » both prefix « spot inner white »)
+    const into = out
+      .filter((q) => q !== p && q.number === undefined && q.words !== "" && p.words.startsWith(`${q.words} `) && !q.comps.split("+").includes(c))
+      .sort((a, b) => b.words.length - a.words.length)[0];
     if (!into) continue;
     into.offsets.push(...p.offsets);
     into.offsets.sort((x, y) => x - y);

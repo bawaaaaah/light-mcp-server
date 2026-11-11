@@ -2502,9 +2502,8 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
     await expect(modelRadio).toHaveAttribute("aria-checked", "true");
     await expect(modelRadio).toBeFocused();
     // the menu grew with the heads: it stays inside the window, its last button reachable
-    const box = (await menu.boundingBox())!;
-    expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.y + box.height).toBeLessThanOrEqual(800);
+    // the ResizeObserver re-places it on the next frame: poll rather than read once
+    await expect.poll(async () => { const b = (await menu.boundingBox())!; return b.y >= 0 && b.y + b.height <= 800; }).toBe(true);
     await menu.getByRole("button", { name: "Supprimer" }).scrollIntoViewIfNeeded();
     await expect(menu.getByRole("button", { name: "Supprimer" })).toBeInViewport();
     // this fixture only: its halo becomes a fourth zone, the focus stays on that head
