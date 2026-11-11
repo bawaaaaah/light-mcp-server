@@ -192,6 +192,10 @@ const MACHINE_PART = /\b(fan|pump|blower|heater|valve|fluid|mist|output|jet|shot
  * A level: one range, or ranges that are all intensity (« dimmer 0-100 % », « off »). An Intensity
  * channel cut into functions (« 0-63 RGBW chase, 64-127 colour presets… », « stop / trigger / loop »)
  * selects a mode: at full it would put a bar in its sound mode.
+ *
+ * Its counterpart for colour channels is `plainColour` (heads.ts): a laser, or a colour channel one of whose ranges
+ * starts a function, is no colour. Two rules on purpose: this one, applied to a colour channel, would reject valid
+ * colours cut into several plain ranges.
  */
 const isLevel = (caps: { name: string; preset?: string }[]) =>
   caps.length <= 1 || caps.every((c) => /^Intensity/.test(c.preset ?? "") || /intensit|dimm|level|bright|fade|0\s*[-–]\s*100|%|^(off|blackout|closed?|no function|transparent|0)$/i.test(c.name.trim()));

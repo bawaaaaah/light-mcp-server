@@ -24,6 +24,11 @@ export interface FixtureHeads {
   deduced: boolean;
   /** Colour channels (offsets, coarse) that reach no head although their component is in one: the definition repeats it out of any head. */
   escaped: number[];
+  /**
+   * Whether the heads hold a colour channel as the definition reads it, a plain intensity or not (a laser, a colour
+   * channel cut into functions): such a fixture mixes its colour, a painted colour never drives its wheel.
+   */
+  mixes: boolean;
 }
 
 /**
@@ -56,21 +61,27 @@ const plain = (name: string) =>
 
 /**
  * A colour channel's part: the words left once the colour words are taken out, and the number left among them
- * (« Red 2 » → "", 2; « Rouge 2 » → "", 2; « LED 1 Red » → "", 1; « Spot 1 Red » → "spot", 1; « Halo Red » → "halo").
+ * (« Red 2 » → "", 2; « Rouge 2 » → "", 2; « LED 1 Red » → "", 1; « Spot 1 Red » → "spot", 1; « Halo Red » → "halo";
+ * « Spots 2+3 Red » → "spots", 2: the first number).
  */
 export function partOf(channelName: string): { words: string; number?: number } {
   const rest = plain(channelName)
     .replace(/(\d+)/g, " $1 ")
     .replace(COLOUR_WORDS, " ");
-  const numbers = rest.match(/\d+/g);
+  // the first number names the part: « Spots 2+3 » is part 2, after « Spots 1+4 »
+  const first = /\d+/.exec(rest)?.[0];
   const words = rest.replace(/\d+/g, " ").replace(/[^a-z]+/g, " ").trim();
-  return { words, ...(numbers ? { number: Number(numbers[numbers.length - 1]) } : {}) };
+  return { words, ...(first ? { number: Number(first) } : {}) };
 }
 
 /**
  * A channel's colour component when it is a plain intensity of that colour; undefined for a laser (« Red Laser »:
  * Blackout / On / Strobe slow-fast) or a colour channel cut into functions (a strobe, a sound mode, a fade program):
  * at full, such a channel would run its function. It is then no zone and no colour writes it, a whole-fixture one included.
+ *
+ * The same idea as `isLevel` (qxf-import.ts), which demotes an Intensity channel cut into functions to an effect, but
+ * not the same rule: `isLevel` wants every range to be a level, and would reject a colour channel whose ranges are
+ * named otherwise (« Red 0-100 » beside « Full red »); here only a range that starts a function disqualifies.
  */
 export function plainColour(ch: FixtureChannel | undefined): ColorComponent | undefined {
   if (!ch?.color || /\blaser/.test(plain(ch.name))) return undefined;
@@ -88,7 +99,7 @@ function componentsOf(offsets: readonly number[], colourAt: (offset: number) => 
 }
 
 /** A colour channel's component for the deduction: its colour, or « white-warm », « white-cool »… for a white told apart by its temperature. */
-type Component = string;
+type Component = ColorComponent | `white-${string}`;
 
 /** A group of colour channels that may be one zone. */
 interface Part {
@@ -149,11 +160,15 @@ function accentFor(mode: FixtureMode, overrides: HeadOverrides | undefined): rea
 /** The heads a mode has before any accent: declared, deduced from the names, or one for the whole fixture. */
 function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: { offsets: number[] }[]; deduced: boolean } {
   if (mode.heads.length) return { parts: mode.heads.map((offsets) => ({ offsets: [...offsets] })), deduced: false };
-  const channel = (off: number) => def.channels.get(mode.channels[off] ?? "");
-  const coarse = mode.channels.flatMap((name, off) => (plainColour(channel(off)) && !channel(off)!.fine && !TUNING.test(plain(name)) ? [off] : []));
+  // each channel's plain colour, read once
+  const colours = mode.channels.map((name) => {
+    const ch = def.channels.get(name);
+    return { colour: plainColour(ch), fine: ch?.fine ?? false };
+  });
+  const coarse = mode.channels.flatMap((name, off) => (colours[off]!.colour && !colours[off]!.fine && !TUNING.test(plain(name)) ? [off] : []));
   // a white told apart by its temperature is its own component here: « Warm White / Cool White » are one zone
   const colourAt = (off: number): Component => {
-    const c = plainColour(channel(off))!;
+    const c = colours[off]!.colour!;
     const t = c === "white" ? TEMPERATURE.exec(plain(mode.channels[off]!)) : null;
     return t ? `white-${t[0]}` : c;
   };
@@ -186,6 +201,10 @@ export function headsOf(def: FixtureDefinition, mode: FixtureMode, overrides?: H
   const colourAt = (off: number) => plainColour(def.channels.get(mode.channels[off] ?? ""));
   const names = (offsets: readonly number[]) => offsets.filter((o) => colourAt(o)).map((o) => mode.channels[o]!);
   const { parts, deduced } = partsOf(def, mode);
+  // read on the definition's own colour channels, not on the plain ones: a fixture whose only colour channels are a
+  // laser or cut into functions has empty heads, and is still no lamp (its wheel is left to raw channels)
+  const headOffsets = parts.length ? parts.flatMap((p) => p.offsets) : mode.channels.map((_, off) => off);
+  const mixes = headOffsets.some((off) => def.channels.get(mode.channels[off] ?? "")?.color !== undefined);
   const heads = new Map<number, HeadComponents>();
   const accent = new Set<number>();
   if (!parts.length) {
@@ -217,7 +236,7 @@ export function headsOf(def: FixtureDefinition, mode: FixtureMode, overrides?: H
       if (c && !ch!.fine && !reached.has(off) && inHeads.has(c) && !TEMPERATURE.test(plain(name)) && !TUNING.test(plain(name))) escaped.push(off);
     });
   }
-  return { heads, accent, deduced, escaped };
+  return { heads, accent, deduced, escaped, mixes };
 }
 
 /**

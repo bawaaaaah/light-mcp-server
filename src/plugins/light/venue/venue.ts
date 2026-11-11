@@ -651,7 +651,9 @@ export class Venue {
         const corrected = this.overridesOf(patch).heads;
         const found = headsOf(def, mode, corrected);
         const heads = found.heads;
-        const lampOnly = [...heads.values()].every((c) => Object.keys(c).length === 0);
+        // a lamp has no colour channel at all in its heads: one whose colour channels are no plain intensity (a laser, a
+        // channel cut into functions) is a colour fixture no colour paints, and its wheel stays untouched
+        const lampOnly = !found.mixes;
         result = { patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly };
       }
     }

@@ -1916,6 +1916,7 @@ header.top .role {
   white-space: nowrap;
 }
 button:disabled,
+button[aria-disabled="true"],
 .pad[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;

@@ -2494,6 +2494,13 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
     await page.keyboard.press("ArrowLeft");
     await expect(modelRadio).toHaveAttribute("aria-checked", "true");
     await expect(modelRadio).toBeFocused();
+    // End and Home go to the last and the first choice, as in any radio group
+    await page.keyboard.press("End");
+    await expect(fixtureRadio).toHaveAttribute("aria-checked", "true");
+    await expect(fixtureRadio).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(modelRadio).toHaveAttribute("aria-checked", "true");
+    await expect(modelRadio).toBeFocused();
     // the menu grew with the heads: it stays inside the window, its last button reachable
     const box = (await menu.boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(0);
@@ -2509,6 +2516,19 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
     await expect(menu).toContainText("Corrigé pour cet appareil.");
     expect(await api(page, "venue.fixture.heads", { fixture: "wash-ui" })).toMatchObject({ overrides: { fixture: { accent: [] } } });
     await page.screenshot({ path: "test-results/venue-fixture-heads.png" });
+    // the last full zone cannot become the halo: its button says why instead of sending what the server refuses
+    for (const n of [1, 2, 3]) await menu.getByRole("button", { name: new RegExp(`^C'est le halo · Red ${n},`) }).click();
+    await expect(rows).toHaveText([/^Halo/, /^Halo/, /^Halo/, /^Zone 4Halo Red.*Dernière zone pleine : un halo a besoin d'une zone à côté de lui\.$/, "Le halo suit le look"]);
+    await expect(haloToggle).toHaveAttribute("aria-disabled", "true");
+    await expect(haloToggle).toHaveAccessibleDescription("Dernière zone pleine : un halo a besoin d'une zone à côté de lui.");
+    await haloToggle.focus(); // still reachable, so that its reason is read
+    await expect(haloToggle).toBeFocused();
+    await haloToggle.click({ force: true });
+    await expect(haloToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(menu.getByRole("alert")).toHaveCount(0);
+    // a zone given back: the lock goes
+    await menu.getByRole("button", { name: /^C'est le halo · Red 1,/ }).click();
+    await expect(haloToggle).not.toHaveAttribute("aria-disabled", "true");
     // « this model » shows the model's own list, not the fixture's
     await menu.getByRole("radio", { name: "Ce modèle" }).click();
     await expect(rows).toHaveText([/^Zone 1/, /^Zone 2/, /^Zone 3/, /^Halo/, "Le halo suit le look"]);

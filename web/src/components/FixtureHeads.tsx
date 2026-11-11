@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -70,13 +70,13 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
       },
     );
   };
-  /** Arrows move the scope as in any radio group: one tab stop, on the checked radio. */
+  /** Arrows, Home and End move the scope as in any radio group: one tab stop, on the checked radio. */
   const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
-    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Partial<Record<string, number>>)[e.key];
-    if (!step) return;
-    e.preventDefault();
     const order: Scope[] = ["model", "fixture"];
-    const next = order[(order.indexOf(from) + step + order.length) % order.length]!;
+    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Partial<Record<string, number>>)[e.key];
+    const next = e.key === "Home" ? order[0]! : e.key === "End" ? order[order.length - 1]! : step ? order[(order.indexOf(from) + step + order.length) % order.length]! : undefined;
+    if (!next) return;
+    e.preventDefault();
     setScope(next);
     scopeButtons.current[next]?.focus();
   };
@@ -86,6 +86,9 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
     const accent = shown!.rows.filter((h) => (h.head === head ? !h.accent : h.accent)).flatMap((h) => h.channels.map((c) => c.name));
     save("venue.fixture.heads.set", { accent });
   };
+  /** The last full head cannot become the halo: an accent needs a full head beside it (the server refuses it too). */
+  const lastFull = shown && shown.rows.filter((h) => !h.accent).length === 1 ? shown.rows.find((h) => !h.accent)!.head : undefined;
+  const lastFullHint = useId();
   const whole = heads !== null && heads.heads.length === 1 && heads.heads[0]!.head < 0;
   const corrected = heads && (scope === "model" ? heads.overrides.model : heads.overrides.fixture) !== undefined;
   /** How many fixtures « this model » reaches, and which correction applies; nothing to say, no line. */
@@ -130,6 +133,7 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
               {note && <small className="hint">{note}</small>}
               {shown.rows.map((h) => {
                 const names = h.channels.map((c) => c.name).join(", ");
+                const locked = h.head === lastFull;
                 return (
                   // keyed by the head's number, which the accent never moves: the focus stays on the head toggled
                   <div key={h.head} className="invert-row">
@@ -137,8 +141,24 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
                       {h.accent ? t.headAccent : `${t.headZone} ${h.head + 1}`}
                       <br />
                       <small className="hint">{names}</small>
+                      {locked && (
+                        <>
+                          <br />
+                          <small className="hint" id={lastFullHint}>
+                            {t.headLastFull}
+                          </small>
+                        </>
+                      )}
                     </span>
-                    <button className={`ghost${h.accent ? " on" : ""}`} aria-pressed={h.accent} aria-label={`${t.headAccentToggle} · ${names}`} onClick={() => toggle(h.head)}>
+                    {/* aria-disabled, not disabled: the button stays reachable, so its reason is read */}
+                    <button
+                      className={`ghost${h.accent ? " on" : ""}`}
+                      aria-pressed={h.accent}
+                      aria-disabled={locked || undefined}
+                      aria-describedby={locked ? lastFullHint : undefined}
+                      aria-label={`${t.headAccentToggle} · ${names}`}
+                      onClick={() => !locked && toggle(h.head)}
+                    >
                       {h.accent ? "◉" : "○"} {t.headAccentToggle}
                     </button>
                   </div>

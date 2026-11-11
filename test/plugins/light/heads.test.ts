@@ -281,6 +281,23 @@ describe("heads: commands, canvas, show check and QLC+ import", () => {
     expect(await why(ZONE(2).red)).to.deep.equal([{ id: "bleu", name: "Bleu", leaving: true }, { id: "rouge", name: "Rouge" }]);
   });
 
+  it("names in dmx.explain only the looks that paint the head now: not a look of raw channels, nor a step's empty cells", async () => {
+    const { run, render } = plugin();
+    await run("venue.fixture.put", { fixture: { id: "wash", name: "Wash", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 1, address: 1 } });
+    await run("venue.canvas.put", { canvas: { id: "zones", name: "Zones", cells: 3, render: [0, 1, 2].map((i) => ({ from: i, to: i, targets: [{ fixture: "wash", head: i }] })) } });
+    await run("look.put", { look: { id: "rouge", name: "Rouge", canvas: "zones", technique: { kind: "plat", color: "#ff0000" } } });
+    // on the same canvas, later: a look that only holds a raw channel, and steps painting zone 1 alone (zone 2 dark, zone 3 left empty)
+    await run("look.put", { look: { id: "brut", name: "Brut", canvas: "zones", technique: { kind: "aucune" }, channels: { targets: [{ fixture: "wash", offset: 17 }], steps: [[200]] } } });
+    await run("look.put", { look: { id: "pas", name: "Pas", canvas: "zones", technique: { kind: "pas", steps: [["#00ff00", "-", ""]] } } });
+    for (const id of ["rouge", "brut", "pas"]) await run("look.go", { id });
+    render();
+    type Painting = { paintingLooks?: { name: string; covered?: true }[] };
+    const why = async (offset: number) => (((await run("dmx.explain", { universe: 1, channel: 1 + offset })) as Painting).paintingLooks ?? []).map((l) => `${l.name}${l.covered ? " (covered)" : ""}`);
+    expect(await why(ZONE(1).red)).to.deep.equal(["Rouge (covered)", "Pas"]);
+    expect(await why(ZONE(2).red)).to.deep.equal(["Rouge (covered)", "Pas"]); // « - » paints black: it covers
+    expect(await why(ZONE(3).red)).to.deep.equal(["Rouge"]); // before: « Rouge (covered) », « Brut (covered) », « Pas »
+  });
+
   it("keeps a QLC+ workspace fixture without <Head> aimed whole (-1)", () => {
     const ws: QxwWorkspace = {
       qlcVersion: "4",
@@ -373,6 +390,44 @@ describe("heads: a cautious deduction", () => {
     expect([...h.heads.entries()]).to.deep.equal([[-1, { red: 3, green: 4, blue: 5, amber: 6 }]]);
     expect(h.escaped).to.deep.equal([]);
     expect(accentProblems(def, ["Red Laser"]).unknown).to.deep.equal(["Red Laser"]);
+  });
+
+  it("keeps a fixture whose colour channels are all cut into functions a colour fixture: not painted, its wheel untouched", () => {
+    // a laser effect with RGB LEDs: each colour channel fades by itself above 127, and a « Color » channel picks the laser's colour
+    const cut = (name: string) =>
+      `<Channel Name="${name}"><Group Byte="0">Intensity</Group><Colour>${name}</Colour><Capability Min="0" Max="127">${name}</Capability><Capability Min="128" Max="169">Fade in (0~100%)</Capability><Capability Min="170" Max="209">Fade out (100%~0)</Capability><Capability Min="210" Max="255">Alternating fade</Capability></Channel>`;
+    const wheel = `<Channel Name="Color"><Group Byte="0">Colour</Group><Capability Min="0" Max="4" Preset="ColorMacro" Res1="#000000">Blackout</Capability><Capability Min="5" Max="28" Preset="ColorMacro" Res1="#ff0000">Red</Capability><Capability Min="29" Max="56" Preset="ColorMacro" Res1="#00ff00">Green</Capability></Channel>`;
+    const xml = (names: string[]) => `<?xml version="1.0"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Laser Wash</Model><Type>Effect</Type>${wheel}${cut("Red")}${cut("Green")}${cut("Blue")}<Channel Name="Dimmer" Preset="IntensityDimmer"/>
+<Mode Name="M">${names.map((n, i) => `<Channel Number="${i}">${n}</Channel>`).join("")}</Mode></FixtureDefinition>`;
+    const full = xml(["Color", "Red", "Green", "Blue", "Dimmer"]);
+    const def = parseQxf(full);
+    const h = headsOf(def, def.modes[0]!);
+    expect([...h.heads.entries()]).to.deep.equal([[-1, {}]]); // no plain colour
+    expect(h.mixes).to.equal(true); // and still colour channels: no lamp
+    const dir = mkdtempSync(join(tmpdir(), "light-heads-laser-"));
+    mkdirSync(join(dir, "fixtures"));
+    writeFileSync(join(dir, "fixtures", "laser-wash.qxf"), full);
+    const venue = new Venue(new FolderStore(join(dir, "venue")), [join(dir, "fixtures")]);
+    venue.fixtures.put({ id: "lw", name: "LW", manufacturer: "Test", model: "Laser Wash", mode: "M", universe: 1, address: 1 });
+    expect(resolved(venue, "lw").lampOnly).to.equal(false);
+    expect(venue.hasWheel("lw")).to.equal(false);
+    // before: taken for a lamp, a red look turned the « Color » channel to its red slot (17: the laser, red) and left the LEDs dark
+    const frame = emptyFrame();
+    frame.colors.set("lw", new Map([[-1, { red: 1 }]]));
+    const buf = new Uint8Array(512);
+    venue.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" });
+    expect([...buf.slice(0, 5)]).to.deep.equal([0, 0, 0, 0, 255]); // the wheel and the three colours: left to raw channels
+    // the same mode without its colour channels is a lamp, and its wheel answers the painted colour
+    const lamp = parseQxf(xml(["Color", "Dimmer"]));
+    expect(headsOf(lamp, lamp.modes[0]!).mixes).to.equal(false);
+  });
+
+  it("names a part by its first number: « Spots 1+4 » comes before « Spots 2+3 »", () => {
+    expect(partOf("Spots 2+3 Red")).to.deep.equal({ words: "spots", number: 2 });
+    expect(partOf("Spots 1+4 Red")).to.deep.equal({ words: "spots", number: 1 });
+    const pair = (n: string): [string, string][] => [[`Spots ${n} Red`, "Red"], [`Spots ${n} Green`, "Green"], [`Spots ${n} Blue`, "Blue"]];
+    // before: the last number won (4 and 3), and « Spots 2+3 » became the first head
+    expect(headNames(qxf("Pairs", [...pair("1+4"), ...pair("2+3")]))).to.deep.equal(["0:Spots 1+4 Red/Spots 1+4 Green/Spots 1+4 Blue", "1:Spots 2+3 Red/Spots 2+3 Green/Spots 2+3 Blue"]);
   });
 
   it("finds the zones by the number left once the colour words are out, in French or English, wherever it stands", () => {

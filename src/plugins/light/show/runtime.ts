@@ -12,7 +12,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
@@ -675,7 +675,7 @@ export class ShowRuntime {
     const held = !("error" in r) && r.lampOnly && r.wheel?.offset === offset ? this.wheels.get(fixture.id) : undefined;
     const slot = held && !("error" in r) ? r.wheel?.slots.find((s) => s.min === held.slot) : undefined;
     const wheel = held && slot ? { slot: slot.name, color: slotHex(slot), ...(held.asked ? { asked: held.asked } : {}), gap: held.gap } : undefined;
-    // the looks painting this colour channel's head (or the whole fixture), read from their canvases only when asked;
+    // the looks painting this colour channel's head (or the whole fixture) at their current step, read only when asked;
     // on a lamp's wheel, those lighting its body (a halo alone turns no wheel)
     const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
@@ -703,30 +703,32 @@ export class ShowRuntime {
   }
 
   /**
-   * The looks whose canvas reaches a fixture's heads that `here` accepts (dmx.explain), read from their canvases only
-   * when asked, never per frame: the heads a look's cells target, its halo spelt out as the frame does
-   * (Venue.followAccents), in the order the looks compose — the ones leaving (an exit fade, under a crossfade), then
-   * the ones playing. Under `looksMerge: "last"`, a playing look a later playing look also reaches there is covered.
+   * The looks painting a fixture's heads that `here` accepts (dmx.explain), read only when asked, never per frame:
+   * the heads the cells of a look's current step paint — the cells it leaves empty paint nothing, nor does a look
+   * that only holds raw channels — through the frame's own path (Venue.paintCanvas, then its halo spelt out by
+   * Venue.followAccents), in the order the looks compose: the ones leaving (an exit fade, under a crossfade), then
+   * the ones playing. Under `looksMerge: "last"`, a playing look a later playing look also paints there is covered.
    */
   private paintingLooks(fixtureId: string, here: (heads: Set<number>) => boolean): NonNullable<ChannelExplanation["paintingLooks"]> {
-    const reaches = (look: Look): boolean => {
+    const now = this.now();
+    const beats = this.tempo.state().beats;
+    const paints = ({ look, player }: { look: Look; player: LookPlayer }): boolean => {
       if (this.excludedFrom(look).has(fixtureId)) return false;
-      let cells: { fixture: string; head: number }[][];
+      const own = emptyFrame();
       try {
-        cells = this.venue.cellTargets(look.canvas);
+        this.venue.paintCanvas(own, look.canvas, player.render(now, beats));
       } catch {
         return false; // an unknown canvas paints nothing
       }
-      const sheet = new Map<number, Color>(cells.flat().flatMap((t) => (t.fixture === fixtureId ? [[t.head, {}] as const] : [])));
-      if (!sheet.size) return false;
+      const sheet = own.colors.get(fixtureId);
+      if (!sheet?.size) return false;
       this.venue.followAccents(new Map([[fixtureId, sheet]]));
       return here(new Set(sheet.keys()));
     };
     const leaving = [...this.releasing.values(), ...[...this.crossfades.values()].flatMap((x) => x.outgoing)]
-      .map(({ look }) => look)
-      .filter((look, i, all) => !this.active.has(look.id) && all.findIndex((l) => l.id === look.id) === i && reaches(look))
-      .map((look) => ({ id: look.id, name: look.name, leaving: true as const }));
-    const playing = [...this.active.values()].filter(({ look }) => reaches(look)).map(({ look }) => ({ id: look.id, name: look.name }));
+      .filter((l, i, all) => !this.active.has(l.look.id) && all.findIndex((x) => x.look.id === l.look.id) === i && paints(l))
+      .map(({ look }) => ({ id: look.id, name: look.name, leaving: true as const }));
+    const playing = [...this.active.values()].filter(paints).map(({ look }) => ({ id: look.id, name: look.name }));
     const last = this.settings.looksMerge === "last";
     return [...leaving, ...playing.map((l, i) => (last && i < playing.length - 1 ? { ...l, covered: true as const } : l))];
   }
