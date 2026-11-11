@@ -125,7 +125,8 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T20a (2026-11-11) | **fait** (tests verts) | doublons de définitions détectés ([definition-duplicates.ts](../src/plugins/light/venue/definition-duplicates.ts)), avertissement dans « Vérifier le show » pour les modèles patchés dont les copies diffèrent, bibliothèque entière dans `venue.patch.check` |
 | T35 (2026-11-11) | **codé** (tests verts, commité sur `feat/t35-buttons-dca`, pas fusionné) | un DCA dose la lumière de ses projecteurs quoi qu'il l'écrive (scènes brutes comprises), par ses sous-groupes, chaque DCA une fois ; un look sur le canal d'un fader lié suit son DCA ; le grand master baisse tout ; voir [todo.md](todo.md) T35 et [decisions.md](decisions.md). **Essai sur un show réel par l'utilisateur avant fusion** ; ordre imposé ensuite : T5 puis T25 |
 | T21, T22, T18 | à faire | |
-| T5, T11, T6, T9 | à faire | |
+| T6 (2026-11-11) | **fait** (tests verts, commité sur `feat/t6-fixture-mode`) | mode DMX par le menu de l'appareil (`venue.fixture.mode`, `venue/mode-change.ts` : report par nom, lot annulable, lieu partagé : copie ou pour tous) ; mode de fonctionnement d'un canal (`fixture.channel.mode`, `venue/channel-modes.ts`, panneau, HTP) ; plages voisines du fader ; décisions T6 dans [decisions.md](decisions.md) ; **pas encore essayé sur les vraies lyres** |
+| T5, T11, T9 | à faire | T11 : le changement de mode est fait par T6 |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |
 | T13 (2026-11-11) | **fait** (tests verts, commité) | édition des canevas : `venue.canvas.edit`, refus ou adaptation des looks de pas, même contrôle pour put / versions, éditeur en fenêtre de la page Lieu ; voir [todo.md](todo.md) T13 et [decisions.md](decisions.md) |
 | T20b, T8 | à faire | |

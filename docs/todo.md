@@ -62,6 +62,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - Un mode peut s'étendre sur **plusieurs valeurs DMX** qui en changent légèrement le comportement : le menu choisit le mode, et au besoin la variante.
 - Option : **recherche** dans le menu.
 - Fader de canal : afficher à gauche la valeur en cours en surbrillance, avec au-dessus et en dessous les plages voisines (avec leurs valeurs d'activation) selon qu'on monte ou descend.
+- **Fait (2026-11-11, branche `feat/t6-fixture-mode`)** : **mode DMX** de l'appareil depuis son menu (`venue.fixture.mode` : plan avant d'écrire, report par nom de canal des looks, faders et têtes de canevas, refus sans `force` d'une perte ou d'un chevauchement, un lot que `show.revert` défait ; sur un lieu partagé, « créer un lieu pour ce show » ou « modifier pour tous les shows ») ; **mode de fonctionnement** d'un canal par son nom dans le panneau de l'appareil (`fixture.channel.mode`, modes et variantes en retrait, recherche, mode en cours lu sur la sortie, look qui l'emporte nommé, valeur au milieu de la plage) ; **plages voisines** à gauche du fader (panneau et widget du Live). Décisions : [decisions.md](decisions.md) (T6, questions 1 à 5). **Reste** : le déplacement d'un appareil sur un lieu partagé n'offre pas encore les deux choix (00-Q1) ; miniatures (T19)
 
 ### T7 — Inverser pan et tilt, par lyre
 - Case « inverser X » et « inverser Y » sélectionnables par lyre (patch), appliquées avant la sortie, aussi dans l'aperçu de scène et « viser une zone ».
@@ -83,7 +84,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ## 🟠 Patch et lieu
 
 ### T11 — Menu d'un appareil (clic droit) : gestion complète
-- **Fait et revu (2026-11-11, menu complet, suppression forcée, clé de modèle migrée)** : déplacer dans le patch depuis le menu (univers et adresse ; l'appareil est relu entier puis écrit par `venue.fixture.put`, les chevauchements s'affichent dans le menu en nommant l'autre appareil) ; supprimer depuis le menu et depuis le ✕ de la liste par la même confirmation (`confirmDelete`, qui dit où l'appareil sert et avertit d'un lieu partagé) ; `venue.fixture.delete` refuse sans `force` tant que l'appareil sert ou que le lieu est partagé ; genre `fixture` dans `show.references`. **Reste** : changer le mode (T6). Piège : un appareil importé d'un `.qxw` sert au canevas d'import, donc sa suppression demande confirmation (et `force` par MCP/CLI).
+- **Fait et revu (2026-11-11, menu complet, suppression forcée, clé de modèle migrée)** : déplacer dans le patch depuis le menu (univers et adresse ; l'appareil est relu entier puis écrit par `venue.fixture.put`, les chevauchements s'affichent dans le menu en nommant l'autre appareil) ; supprimer depuis le menu et depuis le ✕ de la liste par la même confirmation (`confirmDelete`, qui dit où l'appareil sert et avertit d'un lieu partagé) ; `venue.fixture.delete` refuse sans `force` tant que l'appareil sert ou que le lieu est partagé ; genre `fixture` dans `show.references`. **Reste** : ~~changer le mode (T6)~~ fait avec T6 (section « Mode DMX » du menu). Piège : un appareil importé d'un `.qxw` sert au canevas d'import, donc sa suppression demande confirmation (et `force` par MCP/CLI).
 - ◐ Le clic droit renomme et colore déjà. Ajouter : **déplacer dans le patch** (adresse/univers), **changer le mode** (T6), supprimer.
 - ◐ Les chevauchements d'adresses sont déjà signalés au patch et dans « Vérifier le show » : afficher aussi un **avertissement visible sur les deux appareils** dès qu'ils se recouvrent, dans le menu et la liste du patch.
 
@@ -373,7 +374,7 @@ Après chaque phase : lancer `npm test`, `npm run typecheck` et `npm run test:ui
 Ouvertes :
 - Quelle interface DMX USB exacte (Open DMX FTDI ou USB Pro) et quels univers y sont routés ? (T1 : Open DMX FTDI, réponse du 2026-11-11)
 - ~~T16 : l'instantané de démarrage passe-t-il outre la veille ?~~ tranché le 2026-11-11 : non, la veille tient.
-- T6 : une variante de mode (plusieurs valeurs voisines) se présente en sous-menu ou dans le même menu ?
+- ~~T6 : une variante de mode se présente en sous-menu ou dans le même menu ?~~ tranché le 2026-11-11 : dans le même menu, en retrait sous son mode.
 - T27 : formes de zones voulues (rectangle seulement, ou aussi ellipse et polygone) ?
 - **T25 : priorité entre position manuelle, cible et mouvement du look** : reportée par l'utilisateur, à trancher à l'attaque de T25 (proposition de départ : manuelle > cible > look).
 - **T32 : une position nommée porte une lyre, un groupe ou toutes** ; et ce que fait le rappel pendant qu'un look tourne (proposition de départ : la position manuelle l'emporte jusqu'à relâchement, comme aujourd'hui). Reportée, à trancher à l'attaque de T32.
