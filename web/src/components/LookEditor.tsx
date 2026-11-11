@@ -93,11 +93,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   const [fixtures, setFixtures] = useState<Named[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
+  /** The live preview's own error: kept apart so a preview that succeeds never wipes a refused save. */
+  const [previewError, setPreviewError] = useState("");
   /** The error line, brought into view when it appears: the editor is long, and a refused save must not look silent. */
   const errorEl = useRef<HTMLSpanElement | null>(null);
   useEffect(() => {
-    if (error) errorEl.current?.scrollIntoView({ block: "nearest" });
-  }, [error]);
+    if (error || previewError) errorEl.current?.scrollIntoView({ block: "nearest" });
+  }, [error, previewError]);
   /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
@@ -137,8 +139,8 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     if (!look.canvas) return;
     const timer = window.setTimeout(() => {
       void cmd<Preview>("look.preview", { look: draft })
-        .then((p) => (setPreview(p), setError("")))
-        .catch((e: Error) => setError(e.message));
+        .then((p) => (setPreview(p), setPreviewError("")))
+        .catch((e: Error) => setPreviewError(e.message));
     }, 250);
     return () => window.clearTimeout(timer);
   }, [draft, look.canvas]);
@@ -186,7 +188,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         <label className="field">
           <span>{t.name}</span>
           <input value={look.name} onChange={(e) => set({ name: e.target.value })} />
-          {isNew && look.name && <small>id : {id}</small>}
+          {isNew && look.name && <small>id{t.colon} {id}</small>}
         </label>
         <label className="field" title={t.folderHelp}>
           <span>{t.folder}</span>
@@ -436,9 +438,9 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
             {t.delete}
           </button>
         )}
-        {error && (
-          <span ref={errorEl} className="error" role="alert" onClick={() => setError("")}>
-            {error}
+        {(error || previewError) && (
+          <span ref={errorEl} className="error" role="alert" onClick={() => (setError(""), setPreviewError(""))}>
+            {error || previewError}
           </span>
         )}
       </div>

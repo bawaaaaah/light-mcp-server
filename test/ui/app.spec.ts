@@ -4548,3 +4548,91 @@ test("create by intention: search themes, pick two, add a free one, dry run, rem
   await expect(picker.getByRole("button", { name: /^Fête/ })).toHaveAttribute("aria-pressed", "false");
   expect(errors).toEqual([]);
 });
+
+test("a pad's arrow moves the head, not the fixture the plan is turning (Orienter)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Fx = { id: string; position?: { x: number; y: number; z: number }; orientation?: { yaw?: number } };
+  const list = async () => (await api(page, "venue.fixture.list")) as Fx[];
+  const spot = (await list()).find((f) => f.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 4 } } });
+  const yaw = async () => (await list()).find((f) => f.id === "spot")?.orientation?.yaw ?? 0;
+  const manual = async () => ((await api(page, "position.list")) as { id: string; manual: { pan: number; tilt: number } | null }[]).find((h) => h.id === "spot")?.manual;
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.getByLabel("Orienter").check();
+    const body = page.locator('.stage-plan g.fixture[data-fixture="spot"] > g').first();
+    await body.scrollIntoViewIfNeeded();
+    const box = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.85, 0.85], [0.15, 0.85], [0.85, 0.15], [0.15, 0.15]]) {
+      await body.click({ position: { x: box.width * fx!, y: box.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const pad = page.locator(".fixture-panel .xy .pad");
+    await expect(pad).toBeVisible();
+    const before = await yaw();
+    await pad.focus();
+    await expect(pad).toHaveAttribute("aria-valuemin", "0");
+    await expect(pad).toHaveAttribute("aria-valuemax", "100");
+    await expect(pad).toHaveAttribute("aria-describedby", /.+/);
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await manual())?.pan).toBe(0.49); // the pad moved the head by 1 %
+    await expect(pad).toHaveAttribute("aria-valuenow", "49");
+    await page.waitForTimeout(300);
+    expect(await yaw()).toBe(before); // the plan did not turn the fixture
+  } finally {
+    await api(page, "position.release", { fixtures: ["spot"] });
+    await api(page, "venue.fixture.put", { fixture: spot });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("a refused look save stays on screen while the preview keeps refreshing", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click({ button: "right" });
+  await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("button", { name: "✎ Avancé" }).click();
+  const editor = page.getByRole("dialog", { name: "hole" });
+  await expect(editor.locator(".look-editor")).toBeVisible();
+  await page.route("**/api/plugins/light/commands/look.put", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ ok: false, error: "refus du test" }) }));
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  const alert = editor.getByRole("alert");
+  await expect(alert).toHaveText("refus du test");
+  // a change of the draft re-runs the preview (debounced, 250 ms): its success must not wipe the save error
+  await editor.getByLabel("Nom", { exact: true }).fill("hole bis");
+  await page.waitForTimeout(900);
+  await expect(alert).toHaveText("refus du test");
+  expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
+});
+
+test("theme picker: a word inside a theme is still addable, Enter only adds, × is a touch target (T14)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  const picker = page.locator("section", { has: page.getByRole("heading", { name: "Créer un look par intention" }) }).locator(".theme-picker");
+  const search = picker.getByRole("searchbox");
+  const chips = picker.locator(".theme-chips .chip");
+  await expect(picker.getByRole("list", { name: "Thématiques connues" })).toBeVisible();
+  // « inti » is the start of a theme: Enter picks it; typed again, Enter does not remove it
+  await search.fill("inti");
+  await search.press("Enter");
+  await expect(chips).toHaveText(["Intimité×"]);
+  await search.fill("intimite");
+  await search.press("Enter");
+  await expect(chips).toHaveText(["Intimité×"]);
+  // a word only contained in a label (« ange » in « Louange ») is offered as a free word
+  await search.fill("ange");
+  await expect(picker.getByRole("button", { name: "Ajouter « ange »" })).toBeVisible();
+  await expect(picker.getByRole("button", { name: /^Louange/ })).toBeVisible();
+  await search.press("Enter");
+  await expect(chips).toHaveText(["Intimité×", "ange×"]);
+  // the cross is at least 32 px square, and gives the focus back to the search field
+  const cross = picker.getByRole("button", { name: "Retirer ange" });
+  const b = (await cross.boundingBox())!;
+  expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(32);
+  await cross.click();
+  await expect(chips).toHaveText(["Intimité×"]);
+  await expect(search).toBeFocused();
+  await expect(picker.getByRole("status")).toContainText("Intimité");
+  expect(errors).toEqual([]);
+});

@@ -206,7 +206,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           className="ghost"
           onClick={() =>
             void cmd<{ written: { clip: string; file: string }[]; skipped: string[] }>("export.ableton.programs")
-              .then((r) => onError(`${t.clipsWritten} : ${r.written.map((w) => w.file).join(", ") || "—"}${r.skipped.length ? ` · ${r.skipped.join(" · ")}` : ""}`))
+              .then((r) => onError(`${t.clipsWritten}${t.colon} ${r.written.map((w) => w.file).join(", ") || "—"}${r.skipped.length ? ` · ${r.skipped.join(" · ")}` : ""}`))
               .catch((e: Error) => onError(e.message))
           }
         >
@@ -241,7 +241,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                     {t.forCallers} {[...(r.appliesTo.origins ?? []).map((o) => t.origins[o as keyof typeof t.origins] ?? o), ...(r.appliesTo.roles ?? []).map((id) => roleLabel(t, id, roles.find((x) => x.id === id)?.name))].join(", ")}
                   </span>
                 )}
-                {r.forbidTags?.length ? `${t.forbidden} : ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
+                {r.forbidTags?.length ? `${t.forbidden}${t.colon} ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
                 <button className="ghost" aria-label={`${t.delete} ${r.name || r.id}`} onClick={() => void cmd("rule.delete", { where: r.where, id: r.id }).catch((e: Error) => onError(e.message))}>
@@ -430,7 +430,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                   {e.min !== undefined && `min ${pct(e.min)} `}
                   {e.max !== undefined && `max ${pct(e.max)} `}
                   {e.maxHz !== undefined && `≤ ${e.maxHz} Hz `}
-                  {e.forbidTags?.length ? `${t.forbidden} : ${e.forbidTags.join(", ")}` : ""}
+                  {e.forbidTags?.length ? `${t.forbidden}${t.colon} ${e.forbidTags.join(", ")}` : ""}
                 </td>
                 <td>
                   <small>

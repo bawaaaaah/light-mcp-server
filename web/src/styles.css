@@ -2940,6 +2940,16 @@ fieldset.checklist .checklist-search {
 .theme-picker .chip button {
   border: 0;
   background: none;
-  padding: 0 0.4em;
+  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
   cursor: pointer;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

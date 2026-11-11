@@ -5,20 +5,27 @@
  * and « add "<text>" » for a word no known theme matches (a free theme, still accepted). The list
  * is a prop, so it may change later (custom intentions, T15).
  */
-import { useId, useState, type ReactElement } from "react";
+import { useId, useRef, useState, type ReactElement } from "react";
 import { useT } from "../App";
-import { addTheme, canAddFree, searchThemes, themeLabel, themeOf, toggleTheme, type Theme } from "../themes";
+import { quoted } from "../typography";
+import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, toggleTheme, type Theme } from "../themes";
 
 export function ThemePicker({ themes, chosen, onChange }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
   const shown = searchThemes(themes, query);
+  const search = useRef<HTMLInputElement>(null);
   const free = canAddFree(themes, chosen, query);
   const isOn = (theme: Theme) => chosen.some((c) => themeOf(themes, c)?.key === theme.key);
   const addFree = () => {
     onChange(addTheme(themes, chosen, query));
     setQuery("");
+  };
+
+  const removeChip = (c: string) => {
+    onChange(toggleTheme(themes, chosen, c));
+    search.current?.focus(); // the chip is gone: keep the keyboard where it can go on
   };
 
   return (
@@ -30,13 +37,17 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
         {chosen.map((c) => (
           <li key={c} className={themeOf(themes, c) ? "chip" : "chip free"}>
             <span>{themeLabel(themes, c)}</span>
-            <button type="button" aria-label={t.themeRemove.replace("{name}", themeLabel(themes, c))} onClick={() => onChange(toggleTheme(themes, chosen, c))}>
+            <button type="button" aria-label={t.themeRemove.replace("{name}", themeLabel(themes, c))} onClick={() => removeChip(c)}>
               ×
             </button>
           </li>
         ))}
       </ul>
+      <p className="sr-only" role="status">
+        {t.themeChosen}{t.colon} {chosen.length ? chosen.map((c) => themeLabel(themes, c)).join(", ") : t.themeNone}
+      </p>
       <input
+        ref={search}
         type="search"
         aria-label={t.themeSearch}
         placeholder={t.themeSearch}
@@ -45,14 +56,16 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
         onKeyDown={(e) => {
           if (e.key !== "Enter") return;
           e.preventDefault();
-          if (free) addFree();
-          else if (shown.length === 1) {
-            onChange(toggleTheme(themes, chosen, shown[0]!.key));
+          // Enter only ever adds (removing a theme is the chip's ×): the theme typed, the one the text
+          // starts, else the free word
+          const pick = enterPick(themes, query);
+          if (pick) {
+            onChange(addTheme(themes, chosen, pick));
             setQuery("");
-          }
+          } else if (free) addFree();
         }}
       />
-      <ul className="theme-list" aria-label={t.themes}>
+      <ul className="theme-list" aria-label={t.themeList}>
         {shown.map((theme) => {
           const on = isOn(theme);
           return (
@@ -60,8 +73,8 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
               <button type="button" className={on ? "chosen" : ""} aria-pressed={on} onClick={() => onChange(toggleTheme(themes, chosen, theme.key))}>
                 <span className="theme-name">{theme.label}</span>
                 <span className="theme-swatches" aria-hidden="true">
-                  {theme.colors.map((c) => (
-                    <i key={c} style={{ background: c }} />
+                  {theme.colors.map((c, k) => (
+                    <i key={k} style={{ background: c }} />
                   ))}
                 </span>
                 {theme.family && <small className="theme-family">{theme.family}</small>}
@@ -72,7 +85,7 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
       </ul>
       {free && (
         <button type="button" className="theme-add" onClick={addFree}>
-          {t.themeAdd.replace("{text}", query.trim())}
+          {t.themeAdd.replace("{text}", quoted(t, query.trim()))}
         </button>
       )}
       {shown.length === 0 && !free && query.trim() !== "" && <p className="hint">{t.noMatch}</p>}

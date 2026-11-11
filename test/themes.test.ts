@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { addTheme, canAddFree, searchThemes, themeLabel, themesOf, toggleTheme } from "../web/src/themes.js";
+import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themesOf, toggleTheme } from "../web/src/themes.js";
 import { searchBy } from "../web/src/search-text.js";
 
 describe("themes (T14): searching and picking moods for a look by intention", () => {
@@ -47,9 +47,23 @@ describe("themes (T14): searching and picking moods for a look by intention", ()
 
   it("offers the free word only when nothing known matches and it is not chosen yet", () => {
     expect(canAddFree(themes, [], "brume")).to.equal(true);
-    expect(canAddFree(themes, [], "inti")).to.equal(false);
+    expect(canAddFree(themes, [], "intimite")).to.equal(false); // exactly a known theme
+    expect(canAddFree(themes, [], "Fête")).to.equal(false);
+    expect(canAddFree(themes, [], "inti")).to.equal(true); // only contained in a known theme: still a possible free word
     expect(canAddFree(themes, [], "")).to.equal(false);
     expect(canAddFree(themes, ["brume"], "Brume")).to.equal(false);
+  });
+
+  it("picks on Enter the exact theme or the only one the text starts, never one that merely contains it", () => {
+    expect(enterPick(themes, "Fête")).to.equal("fete");
+    expect(enterPick(themes, "inti")).to.equal("intimite");
+    expect(enterPick(themes, "ajest")).to.equal(undefined); // inside « Majesté », not its start
+    expect(enterPick(themes, "brume")).to.equal(undefined);
+    expect(enterPick(themes, "  ")).to.equal(undefined);
+  });
+
+  it("only adds a theme already chosen once (no removal by typing it again)", () => {
+    expect(addTheme(themes, ["intimite"], "intimite")).to.deep.equal(["intimite"]);
   });
 
   it("shows a known theme by label and a free word as typed", () => {

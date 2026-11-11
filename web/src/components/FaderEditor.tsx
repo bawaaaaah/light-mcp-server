@@ -104,7 +104,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
         <label className="field">
           <span>{t.name}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} />
-          {isNew && name && <small>id : {id}</small>}
+          {isNew && name && <small>id{t.colon} {id}</small>}
         </label>
         {/* as QLC+'s value range: the fader's whole travel covers low..high only */}
         <label className="field" title={t.rangeHelp}>

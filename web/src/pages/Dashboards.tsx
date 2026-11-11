@@ -564,7 +564,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
   // a look's colours in a tooltip, under the mouse; not while arranging the widgets
   const hoverPeek = useHoverPeek(!edit && hoverPeekOn);
-  const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet} : ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ");
+  const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet}${t.colon} ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ");
 
   const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void, confirm?: string) =>
     mode === "momentary"

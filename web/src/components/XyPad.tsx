@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -19,7 +19,11 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
   const pad = useRef<HTMLDivElement>(null);
   const pending = useRef<{ pan: number; tilt: number } | null>(null);
   const timer = useRef<number | undefined>(undefined);
+  const hintId = useId();
   const target = fixture ? { fixtures: [fixture] } : group ? { group } : {};
+  // The unmount flush runs the first render's closure: it reads the *current* target from here.
+  const targetRef = useRef(target);
+  targetRef.current = target;
 
   // Read the head's position on mount and on every resync (a panel bumps it on position.* events,
   // its own sends included). The read leaves the send loop alone — its 40 ms cadence holds — and
@@ -51,7 +55,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
     const p = pending.current;
     if (!p) return;
     pending.current = null;
-    void cmd("position.set", { ...target, ...p }).catch((e: Error) => onError(e.message));
+    void cmd("position.set", { ...targetRef.current, ...p }).catch((e: Error) => onError(e.message));
     timer.current = window.setTimeout(flush, 40);
   };
   const send = (p: { pan: number; tilt: number }) => {
@@ -73,6 +77,10 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
         className="pad"
         role="slider"
         aria-label={label ?? t.heads}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round((pos?.pan ?? 0.5) * 100)}
+        aria-describedby={hintId}
         aria-valuetext={pos ? `pan ${Math.round(pos.pan * 100)} %, tilt ${Math.round(pos.tilt * 100)} %` : "—"}
         aria-disabled={disabled || undefined}
         tabIndex={disabled ? -1 : 0}
@@ -80,6 +88,8 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
           // the keyboard moves the head too: arrows by 1 % (Shift: 10 %), Home back to the centre
           if (disabled) return;
           const step = e.shiftKey ? 0.1 : 0.01;
+          // while the heads follow the looks (no manual position) the server does not say where they
+          // are: the first key starts from the centre, then the position is manual
           const at = pos ?? { pan: 0.5, tilt: 0.5 };
           const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 1000) / 1000));
           const next =
@@ -91,6 +101,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
             : undefined;
           if (!next) return;
           e.preventDefault();
+          e.stopPropagation(); // the stage plan's arrows (turn, nudge) are not for the pad
           send(next);
         }}
         onPointerDown={(e) => {
@@ -105,6 +116,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
         <span className="cross" />
         {pos && <span className="dot" style={{ left: `${pos.pan * 100}%`, top: `${(1 - pos.tilt) * 100}%` }} />}
       </div>
+      <small id={hintId} className="sr-only">{t.padKeysHelp}</small>
       <div className="row">
         <label>{label ?? t.heads}</label>
         <small>{pos ? `${Math.round(pos.pan * 100)} / ${Math.round(pos.tilt * 100)}` : t.followsLooks}</small>

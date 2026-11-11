@@ -171,7 +171,7 @@ export function FilesPage({ role }: { role: Role }): ReactElement {
                   {write && (
                     <button onClick={() => confirm(`${t.restoreBackupConfirm}\n\n${b.file}`) && act(cmd("backup.restore", { file: b.file }), t.restored)}>{t.restore}</button>
                   )}
-                  <button className="ghost" aria-label={t.download} title={t.download} onClick={() => void downloadBackup(b.file).catch((e: Error) => setError(e.message))}>
+                  <button className="ghost" aria-label={`${t.download} ${b.file}`} title={t.download} onClick={() => void downloadBackup(b.file).catch((e: Error) => setError(e.message))}>
                     ⤓
                   </button>
                 </td>

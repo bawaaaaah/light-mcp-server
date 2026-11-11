@@ -2,8 +2,8 @@
 export const fold = (s: string): string =>
   s
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[‐-―]/g, "-")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2010-\u2015]/g, "-")
     .toLowerCase();
 
 /** A search text folded, trimmed and with its blanks collapsed (empty when nothing was typed). */

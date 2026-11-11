@@ -381,6 +381,7 @@ export function StagePlan({
     if (!placing || !chosen.length || !onMove) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
+      if (e.defaultPrevented || el?.getAttribute("role") === "slider") return; // a pad or a fader already took the key
       if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       if (e.key === "Escape") return setChosen([]);
       const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
@@ -409,6 +410,7 @@ export function StagePlan({
     if (!orienting || !selectedFixture || !onOrient) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
+      if (e.defaultPrevented || el?.getAttribute("role") === "slider") return; // a pad or a fader already took the key
       if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();

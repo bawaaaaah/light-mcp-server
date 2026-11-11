@@ -583,8 +583,8 @@ export function ShowPage(): ReactElement {
               <tr key={s.id}>
                 <td>
                   {s.name}
-                  {settings?.safeSnapshot === s.id && <span className="badge standby"> {t.safeBadge}</span>}
-                  {settings?.startupSnapshot === s.id && <span className="badge standby"> {t.startupBadge}</span>}
+                  {settings?.safeSnapshot === s.id && <>{" "}<span className="badge standby">{t.safeBadge}</span></>}
+                  {settings?.startupSnapshot === s.id && <>{" "}<span className="badge standby">{t.startupBadge}</span></>}
                 </td>
                 <td className="hint">
                   {s.looks.length} look(s) · {Object.keys(s.groups).length} DCA · {Object.keys(s.faders).length} fader(s){s.blackout ? " · Blackout" : ""}

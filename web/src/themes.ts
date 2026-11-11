@@ -50,6 +50,22 @@ export function toggleTheme(list: readonly Theme[], chosen: readonly string[], v
 export const addTheme = (list: readonly Theme[], chosen: readonly string[], value: string): string[] =>
   !value.trim() || chosen.some((c) => same(list, c, value)) ? [...chosen] : toggleTheme(list, chosen, value);
 
-/** Whether the « add this word » button shows: something typed, no known theme matches it, not chosen yet. */
+/**
+ * Whether the « add this word » button shows: something typed, no known theme is exactly it (a word
+ * contained in a known theme, « ange » in « Louange », is still a possible free word), not chosen yet.
+ */
 export const canAddFree = (list: readonly Theme[], chosen: readonly string[], query: string): boolean =>
-  searchPhrase(query) !== "" && searchThemes(list, query).length === 0 && !chosen.some((c) => same(list, c, query));
+  searchPhrase(query) !== "" && !themeOf(list, query) && !chosen.some((c) => same(list, c, query));
+
+/**
+ * What Enter in the search field adds: the theme typed exactly, else the only theme whose label or key
+ * *starts* with the text (« inti » → Intimité), else nothing (the caller then adds the free word).
+ * A word merely contained in a label (« ange » in « Louange ») is never picked for the user.
+ */
+export function enterPick(list: readonly Theme[], query: string): string | undefined {
+  const exact = themeOf(list, query);
+  if (exact) return exact.key;
+  const phrase = searchPhrase(query);
+  const starts = phrase ? list.filter((t) => fold(t.label).startsWith(phrase) || fold(t.key).startsWith(phrase)) : [];
+  return starts.length === 1 ? starts[0]!.key : undefined;
+}
