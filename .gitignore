@@ -31,3 +31,7 @@ __NO_COMMIT__*
 # Claude Code local state: agent worktrees (whole copies of the repo) and personal settings
 .claude/worktrees/
 .claude/settings.local.json
+
+# editor swap files (vim) next to a file being edited
+*.swp
+*.swo

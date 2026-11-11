@@ -6,9 +6,9 @@
  * Handled: a default (or prefault) at the top of a field, under `.optional()`, `.nullable()` or
  * `.readonly()`, and under a transform (`.default().transform()`, which still runs on a given value).
  * Not handled, so not to be used on such a schema without extending this: a `.refine()` or a
- * `.describe()` placed after the default (they are dropped with it), and the defaults of a nested
- * object (applied when the nested object is given). test/core-zod-patch.test.ts checks that the
- * schemas patched today produce nothing for an empty patch.
+ * `.describe()` placed after the default (they are dropped with it), a default under `z.lazy()` or
+ * in a branch of a `z.union()`, and the defaults of a nested object (applied when it is given).
+ * test/core-zod-patch.test.ts checks that the schemas patched today produce nothing for an empty patch.
  */
 import { z } from "zod";
 
