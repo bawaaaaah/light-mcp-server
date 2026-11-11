@@ -4539,8 +4539,8 @@ test("create by intention: search themes, pick two, add a free one, dry run, rem
   // the dry run sends the keys and reports the unknown word
   await section.getByRole("button", { name: "Proposition" }).click();
   const result = section.locator("ul.hint").last();
-  await expect(result).toContainText("« intimite »");
-  await expect(result).toContainText("« fete »");
+  await expect(result).toContainText("« Intimité »");
+  await expect(result).toContainText("« Fête »");
   await expect(result.locator("li.warn")).toHaveText("? brume");
   // a chip is removed by its cross
   await picker.getByRole("button", { name: "Retirer Fête" }).click();

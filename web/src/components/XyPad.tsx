@@ -116,7 +116,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
         <span className="cross" />
         {pos && <span className="dot" style={{ left: `${pos.pan * 100}%`, top: `${(1 - pos.tilt) * 100}%` }} />}
       </div>
-      <small id={hintId} className="sr-only">{t.padKeysHelp}</small>
+      <span id={hintId} className="sr-only">{t.padKeysHelp}</span>
       <div className="row">
         <label>{label ?? t.heads}</label>
         <small>{pos ? `${Math.round(pos.pan * 100)} / ${Math.round(pos.tilt * 100)}` : t.followsLooks}</small>
