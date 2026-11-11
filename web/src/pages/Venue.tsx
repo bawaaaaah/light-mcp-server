@@ -9,6 +9,8 @@ import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
 import { ZoneMenu } from "../components/ZoneMenu";
 import { confirmDelete } from "../components/confirmDelete";
+import { CanvasEditor } from "../components/CanvasEditor";
+import { RecentlyDeleted } from "../components/Versions";
 import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
 import { quoted, beforeMark } from "../typography";
@@ -73,6 +75,8 @@ export function VenuePage(): ReactElement {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
+  /** The canvas open in its editor (T13). */
+  const [editingCanvas, setEditingCanvas] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   /** The zone whose right-click menu is open, and where. */
   const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -342,12 +346,26 @@ export function VenuePage(): ReactElement {
             {canvases.map((c) => (
               <li key={c.id}>
                 {c.name} <small>({labelOf(t.topologies, c.topology)}, {c.cells})</small>{" "}
+                <button className="ghost" aria-label={`${t.canvasEditor.open} ${c.name}`} onClick={() => setEditingCanvas(c.id)}>
+                  ✎ {t.canvasEditor.open}
+                </button>
                 <button className="ghost" title={`${t.delete} ${c.name}`} aria-label={`${t.delete} ${c.name}`} onClick={() => void confirmDelete("canvas", c.id, c.name, t).then((done) => done && refresh(), (e: Error) => setError(e.message))}>
                   ✕
                 </button>
               </li>
             ))}
           </ul>
+          <RecentlyDeleted collections={["canvases"]} onRestored={refresh} />
+          {editingCanvas && (
+            <CanvasEditor
+              id={editingCanvas}
+              fixtures={fixtures}
+              onClose={() => {
+                setEditingCanvas(null);
+                refresh();
+              }}
+            />
+          )}
           <h2>{t.zones}</h2>
           <ul>
             {zones.map((z) => (

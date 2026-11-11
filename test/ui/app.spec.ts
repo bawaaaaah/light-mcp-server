@@ -1600,6 +1600,131 @@ test("venue: a canvas is deleted from its list after asking, and gone from venue
   expect(errors).toEqual([]);
 });
 
+/** A canvas of bar-0's four heads, one cell each, for the canvas editor's tests. */
+const editableCanvas = { id: "test-edit", name: "Canevas éditable", cells: 4, render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: [{ fixture: "bar-0", head: h }] })) };
+async function openCanvasEditor(page: Page): Promise<Locator> {
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  await page.getByRole("button", { name: "Éditer Canevas éditable" }).click();
+  const dialog = page.getByRole("dialog", { name: /Éditer le canevas · Canevas éditable/ });
+  await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(4);
+  return dialog;
+}
+const canvasHeads = async (page: Page) => {
+  const c = ((await api(page, "venue.canvas.list")) as { id: string; cells: number; render: { from: number; to: number; targets: { fixture: string; head: number }[] }[] }[]).find((x) => x.id === "test-edit")!;
+  const out: string[] = [];
+  for (const r of c.render) for (let i = r.from; i <= r.to; i++) out[i] = r.targets.map((t) => `${t.fixture}:${t.head}`).join("+");
+  return Array.from({ length: c.cells }, (_, i) => out[i] ?? "");
+};
+
+test("canvas editor: pick with click, Ctrl and Shift or a frame, remove at once, undo and redo, add a fixture", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  try {
+    const dialog = await openCanvasEditor(page);
+    const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    // click, Ctrl/⌘, Shift
+    await cell(0).click();
+    await cell(2).click({ modifiers: ["ControlOrMeta"] });
+    await expect(dialog.locator("[aria-selected=true]")).toHaveCount(2);
+    await cell(3).click({ modifiers: ["Shift"] });
+    await expect(dialog.locator("[aria-selected=true]")).toHaveCount(2); // from 2 (the last clicked) to 3
+    await expect(cell(2)).toHaveAttribute("aria-selected", "true");
+    // a frame drawn from the strip's corner over the first two squares
+    const cellStrip = dialog.getByRole("listbox");
+    const box = (await cellStrip.boundingBox())!;
+    const second = (await cell(1).boundingBox())!;
+    await page.mouse.move(box.x + 6, box.y + 12); // inside the rounded corner
+    await page.mouse.down();
+    await page.mouse.move(second.x + second.width - 2, second.y + second.height - 2, { steps: 4 });
+    await page.mouse.up();
+    await expect(dialog.locator("[aria-selected=true]")).toHaveCount(2);
+    await expect(cell(0)).toHaveAttribute("aria-selected", "true");
+    await expect(cell(1)).toHaveAttribute("aria-selected", "true");
+    // removed at once (no question: no look on it)
+    await page.keyboard.press("Delete");
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(2);
+    expect(await canvasHeads(page)).toEqual(["bar-0:2", "bar-0:3"]);
+    // ⌘Z puts it back, ⇧⌘Z takes it away again
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(4);
+    expect(await canvasHeads(page)).toEqual(["bar-0:0", "bar-0:1", "bar-0:2", "bar-0:3"]);
+    await dialog.getByRole("button", { name: "Rétablir" }).click();
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(2);
+    await dialog.getByRole("button", { name: "Annuler" }).first().click();
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(4);
+    // add bar-1 at the end: one square per head
+    await dialog.getByText("Ajouter des projecteurs").click();
+    const secondBar = ((await api(page, "venue.fixture.list")) as { id: string; name: string }[]).find((f) => f.id === "bar-1")!.name;
+    await dialog.locator(".canvas-add-list").getByLabel(secondBar, { exact: true }).check();
+    await dialog.getByRole("button", { name: /^Ajouter \(1\)/ }).click();
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(8);
+    expect((await canvasHeads(page)).slice(4)).toEqual(["bar-1:0", "bar-1:1", "bar-1:2", "bar-1:3"]);
+    await page.screenshot({ path: "test-results/canvas-editor.png", fullPage: true });
+    await dialog.getByRole("button", { name: "Fermer" }).click(); // closed before the canvas goes
+  } finally {
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("canvas editor: keyboard alone picks and moves; a drag moves; a look of exact steps is asked about, adapted, and undone with its steps", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  const steps = [["#ff0000", "#00ff00", "#0000ff", "#ffffff"]];
+  await api(page, "look.put", { look: { id: "test-edit-look", name: "Pas exacts", canvas: "test-edit", technique: { kind: "pas", steps } } });
+  const rows = async () => (((await api(page, "look.get", { id: "test-edit-look" })) as { technique: { steps: string[][] } }).technique.steps);
+  try {
+    const dialog = await openCanvasEditor(page);
+    const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    // keyboard: focus the first square, go right, pick it, move it one later
+    await cell(0).focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Space");
+    await expect(cell(1)).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Alt+ArrowRight");
+    // the look would be shifted: the question names it, with its steps before and after
+    const impact = dialog.getByRole("alertdialog", { name: "Des looks sont touchés" });
+    await expect(impact).toContainText("Pas exacts");
+    await expect(impact.locator(".mini-row")).toHaveCount(2);
+    await impact.getByRole("button", { name: "Adapter les pas" }).click();
+    await expect(impact).toHaveCount(0);
+    expect(await canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:1", "bar-0:3"]);
+    expect(await rows()).toEqual([["#ff0000", "#0000ff", "#00ff00", "#ffffff"]]); // each column followed its cell
+    await expect(cell(2)).toHaveAttribute("aria-selected", "true"); // still picked where it went
+    // undo: the canvas and the look's steps come back together
+    await dialog.getByRole("button", { name: "Annuler" }).first().click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:1", "bar-0:2", "bar-0:3"]);
+    expect(await rows()).toEqual(steps);
+    // a drag of the last square before the first (mouse, past 8 px): asked, then done anyway
+    const from = (await cell(3).boundingBox())!;
+    const to = (await cell(0).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 4, to.y + to.height / 2, { steps: 8 });
+    await expect(dialog.locator(".canvas-gap")).toHaveCount(1);
+    await page.mouse.up();
+    await expect(impact).toBeVisible();
+    await page.screenshot({ path: "test-results/canvas-editor-question.png", fullPage: true });
+    await impact.getByRole("button", { name: "Le faire quand même" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:3", "bar-0:0", "bar-0:1", "bar-0:2"]);
+    expect(await rows()).toEqual(steps); // forced: the steps stay as they were
+    // cancelled: nothing moves
+    await cell(0).click();
+    await expect(dialog.getByRole("button", { name: "Avancer d'une case" })).toBeDisabled(); // already the first
+    await dialog.getByRole("button", { name: "Reculer d'une case" }).click();
+    await impact.getByRole("button", { name: "Annuler" }).click();
+    expect(await canvasHeads(page)).toEqual(["bar-0:3", "bar-0:0", "bar-0:1", "bar-0:2"]);
+    await page.screenshot({ path: "test-results/canvas-editor-impact.png", fullPage: true });
+    await dialog.getByRole("button", { name: "Fermer" }).click(); // closed before the canvas goes
+  } finally {
+    await api(page, "look.delete", { id: "test-edit-look", force: true });
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("400"))).toEqual([]); // the refusals that ask about the look come as a 400: the browser logs them
+});
+
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

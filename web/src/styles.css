@@ -3128,3 +3128,156 @@ fieldset.checklist .checklist-search {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* the canvas editor (components/CanvasEditor.tsx, T13): one square per cell, grouped by fixture, wrapping */
+.canvas-editor-head h2 {
+  margin: 0.3em 0;
+}
+.canvas-editor .spacer {
+  flex: 1;
+}
+.canvas-meta {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.canvas-tools {
+  flex-wrap: wrap;
+  margin: 0.4em 0;
+}
+.canvas-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em 0.5em;
+  padding: 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  min-height: 4em;
+  max-height: 55vh;
+  overflow-y: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.canvas-block {
+  border-top: 3px solid var(--line);
+  padding-top: 0.15em;
+  min-width: 0;
+}
+.canvas-block-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  max-width: 24em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-block-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.canvas-cell-slot {
+  display: inline-flex;
+  align-items: stretch;
+}
+.canvas-cell {
+  width: 2.6em;
+  height: 2.6em;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  background: #2a3040;
+  color: var(--text);
+  text-shadow: 0 0 3px #000, 0 0 2px #000;
+  touch-action: manipulation;
+}
+.canvas-cell.empty {
+  background: repeating-linear-gradient(45deg, transparent 0 4px, var(--line) 4px 6px);
+}
+.canvas-cell.picked {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+.canvas-cell.carried {
+  opacity: 0.35;
+}
+.canvas-gap {
+  width: 4px;
+  margin: 0 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.canvas-frame {
+  position: fixed;
+  z-index: 70;
+  border: 1px dashed var(--accent);
+  background: rgba(255, 180, 84, 0.12);
+  pointer-events: none;
+}
+.canvas-impact {
+  margin: 0.8em 0;
+  padding: 0.6em 0.9em;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.canvas-impact h3 {
+  margin: 0.2em 0 0.4em;
+}
+.canvas-impact ul {
+  padding-left: 1.1em;
+}
+.steps-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+  margin: 0.3em 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.mini-steps {
+  display: grid;
+  gap: 1px;
+}
+.mini-row {
+  display: flex;
+  gap: 1px;
+}
+.mini-row span {
+  width: 9px;
+  height: 9px;
+  background: #000;
+  border-radius: 1px;
+}
+.mini-row span.untouched {
+  background: transparent;
+  outline: 1px solid var(--line);
+}
+.canvas-add-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5em;
+}
+.canvas-add-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.3em 0;
+  max-height: 14em;
+  overflow-y: auto;
+  min-width: 14em;
+}
+.canvas-add-order {
+  margin: 0.3em 0;
+}
+.canvas-editor details {
+  margin: 0.6em 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-gap {
+    box-shadow: none;
+  }
+}

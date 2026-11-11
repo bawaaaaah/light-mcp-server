@@ -1,10 +1,25 @@
 import { useState, type ReactElement } from "react";
-import { cmd } from "../api";
+import { ApiError, cmd } from "../api";
 import { useT } from "../App";
 import { quoted, beforeMark } from "../typography";
 
-type Versioned = "looks" | "groups" | "faders" | "dashboards";
+type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases";
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
+
+/**
+ * Puts a version back (history.restore). A canvas put back is checked as any canvas put (looks of exact
+ * steps that would no longer line up, a shared venue): the refusal is said and forced on a yes.
+ */
+export async function restoreVersion(args: { collection: Versioned; id: string; stamp: string }, forceQuestion: string): Promise<boolean> {
+  try {
+    await cmd("history.restore", args);
+  } catch (e) {
+    if (!(e instanceof ApiError && e.detail?.impact)) throw e;
+    if (!confirm(`${e.message}\n\n${forceQuestion}`)) return false;
+    await cmd("history.restore", { ...args, force: true });
+  }
+  return true;
+}
 
 /**
  * Earlier versions of an object (the copy the server keeps at each change: history.list), read when
@@ -19,7 +34,7 @@ export function Versions({ collection, id, onRestored }: { collection: Versioned
     void cmd<{ stamp: string; at: string }[]>("history.list", { collection, id }).then(setList, (e: Error) => setError(e.message));
   const restore = (v: { stamp: string; at: string }) => {
     if (!confirm(`${t.restoreVersionConfirm}\n\n${t.replacedOn} ${when(v.at)}`)) return;
-    void cmd("history.restore", { collection, id, stamp: v.stamp }).then(onRestored, (e: Error) => setError(e.message));
+    void restoreVersion({ collection, id, stamp: v.stamp }, t.canvasEditor.force).then((done) => done && onRestored(), (e: Error) => setError(e.message));
   };
   return (
     <details className="versions" onToggle={(e) => e.currentTarget.open && list === null && load()}>
@@ -66,8 +81,9 @@ export function RecentlyDeleted({ collections, onRestored }: { collections: Vers
       .catch((e: Error) => setError(e.message));
   const restore = (collection: Versioned, g: Gone) => {
     if (!confirm(`${t.restoreDeletedConfirm} ${quoted(t, g.name ?? g.id)}${beforeMark(t)}?`)) return;
-    void cmd("history.restore", { collection, id: g.id, stamp: g.stamp })
-      .then(() => {
+    void restoreVersion({ collection, id: g.id, stamp: g.stamp }, t.canvasEditor.force)
+      .then((done) => {
+        if (!done) return;
         load();
         onRestored();
       })
