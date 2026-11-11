@@ -1,5 +1,5 @@
 /**
- * Server for the browser tests: temporary data (Test Bar 4 fixtures, synthetic QLC+ workspace
+ * Server for the browser tests: temporary data (Test Bar 4 fixtures, a synthetic wash with zones, synthetic QLC+ workspace
  * imported, one moving head on universe 2), PINs set (régisseur 1234, admin 9999, bénévole 5678, lecture 1357), auth token
  * "ui-test-token", built UI served on PORT. The output is bound to loopback (a broadcast or a multicast
  * never leaves the machine) on an Art-Net port of its own (the stage server never hears it), and DMX
@@ -19,6 +19,7 @@ const dataRoot = join(dir, "data");
 mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
 copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
 copyFileSync(new URL("../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+copyFileSync(new URL("../fixtures/wash-zones.qxf", import.meta.url), join(dataRoot, "fixtures", "wash-zones.qxf"));
 writeFileSync(
   join(dir, "config.json"),
   JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, ableset: { port: 39999 }, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),

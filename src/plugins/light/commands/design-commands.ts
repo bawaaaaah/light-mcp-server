@@ -109,7 +109,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, definitions repeating a colour component out of any head (only one zone gets the colour), looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -228,6 +228,15 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const missing = new Map<string, string[]>();
       for (const m of runtime.venue.missingDefinitions()) missing.set(m.model, [...(missing.get(m.model) ?? []), m.name]);
       for (const [model, names] of missing) warn(say(`projecteur ${names.join(", ")}`, `fixture ${names.join(", ")}`), say(`définition manquante : ${model} — canaux non décodés, ajouter son .qxf (page Import)`, `missing definition: ${model} — channels not decoded, add its .qxf (Import page)`));
+      // colour components the definition repeats out of any head (no <Head>, names the deduction cannot split): only one zone gets the colour
+      const escaping = new Map<string, { names: string[]; channels: string[] }>();
+      for (const f of runtime.venue.installed()) {
+        const r = runtime.venue.resolve(f.id);
+        if ("error" in r || !r.escapedColours.length) continue;
+        const key = `${f.manufacturer} ${f.model} (${f.mode})`;
+        escaping.set(key, { names: [...(escaping.get(key)?.names ?? []), f.name], channels: r.escapedColours.map((o) => r.mode.channels[o]!) });
+      }
+      for (const [model, { names, channels }] of escaping) warn(say(`projecteur ${names.join(", ")}`, `fixture ${names.join(", ")}`), say(`${model} : les canaux ${channels.join(", ")} répètent une couleur hors de toute tête, ils ne reçoivent jamais la couleur peinte ; déclarer ses têtes (<Head>) dans la définition ou nommer ses zones « Rouge 1, Rouge 2… »`, `${model}: channels ${channels.join(", ")} repeat a colour out of any head and never get the painted colour; declare its heads (<Head>) in the definition or name its zones “Red 1, Red 2…”`));
       // duplicate definitions: only those of a model the venue patches, and only when they change what it gets
       // (identical copies are harmless; an unused duplicate in the library is not this show's business)
       const dups = duplicatesUsedBy(runtime.venue.duplicateDefinitions(), runtime.venue.fixtures.list());

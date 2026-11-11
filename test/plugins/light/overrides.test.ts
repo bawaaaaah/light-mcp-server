@@ -7,8 +7,8 @@ describe("fixture overrides: a model's corrections, overridden by a fixture's ow
   });
 
   it("replaces each part as a whole by the fixture's own, and keeps the model's other parts", () => {
-    const merged = mergeOverrides({ wheel: { a: 1 }, heads: { b: 2 } }, { wheel: { c: 3 } });
-    expect(merged).to.deep.equal({ wheel: { c: 3 }, heads: { b: 2 } });
+    const merged = mergeOverrides({ wheel: { a: 1 }, heads: { accent: [] } }, { wheel: { c: 3 } });
+    expect(merged).to.deep.equal({ wheel: { c: 3 }, heads: { accent: [] } });
     expect(mergeOverrides(undefined, undefined)).to.deep.equal({});
   });
 });

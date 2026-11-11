@@ -2360,6 +2360,31 @@ test("venue: a fixture is deleted from its menu or the ✕ through the same conf
   expect(errors).toEqual([]);
 });
 
+test("venue: the fixture menu shows the zones deduced for a wash and corrects its halo", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "wash-ui", name: "Wash zones", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 2, address: 200 } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    await page.locator("tr", { hasText: "Wash zones" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    await menu.getByRole("button", { name: "Têtes et halo…" }).click();
+    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Halo", "Le halo suit le look"]);
+    await expect(menu).toContainText("zones déduites des noms des canaux");
+    // this fixture only: its halo becomes a fourth zone
+    await menu.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await menu.getByRole("button", { name: /^Halo · Halo Red/ }).click();
+    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Zone 4"]);
+    expect(await api(page, "venue.fixture.heads", { fixture: "wash-ui" })).toMatchObject({ overrides: { fixture: { accent: [] } } });
+    await page.screenshot({ path: "test-results/venue-fixture-heads.png" });
+    await menu.getByRole("button", { name: "Retrouver le halo par son nom" }).click();
+    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Halo", "Le halo suit le look"]);
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "wash-ui" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: the patch table names its columns", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

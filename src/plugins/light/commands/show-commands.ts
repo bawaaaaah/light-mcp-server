@@ -8,7 +8,8 @@ import { displayHex } from "../engine/display.js";
 import { CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
+import { CanvasSchema, PatchedFixtureSchema, type ResolvedFixture } from "../venue/venue.js";
+import { modelKey, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
@@ -232,6 +233,84 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { fixture: venue.fixtures.put(next) };
     },
   });
+  // ---- heads and accent heads (venue/heads.ts): corrected per model, overridden per fixture (venue/overrides.ts)
+  const headsScope = z.enum(["model", "fixture"]).default("model").describe("model: every fixture of its manufacturer and model follows; fixture: this one only, over its model's");
+  const headsOfFixture = (fixtureId: string) => {
+    const f = venue.fixtures.get(fixtureId);
+    if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
+    const r = venue.resolve(fixtureId);
+    if ("error" in r) throw new Error(r.error);
+    const model = venue.models.get(modelKey(f.manufacturer, f.model))?.overrides.heads;
+    const channel = (offset: number) => ({ offset, name: r.mode.channels[offset]!, color: r.def.channels.get(r.mode.channels[offset]!)?.color });
+    return {
+      fixture: f.id,
+      deduced: r.deducedHeads,
+      heads: [...r.heads].map(([head, comps]) => ({ head, accent: r.accent.has(head), channels: Object.values(comps).sort((a, b) => a - b).map(channel) })),
+      follow: r.follow,
+      escaped: r.escapedColours.map(channel),
+      overrides: { ...(model ? { model } : {}), ...(f.overrides?.heads ? { fixture: f.overrides.heads } : {}) },
+    };
+  };
+  /** Writes (or, with undefined, removes) the heads part of a fixture's or its model's overrides. */
+  const putHeads = (fixtureId: string, scope: "model" | "fixture", heads: HeadOverrides | undefined) => {
+    const f = venue.fixtures.get(fixtureId)!;
+    const id = modelKey(f.manufacturer, f.model);
+    // the other parts (the wheel, the tracks) stay as they are
+    const { heads: _old, ...rest } = (scope === "fixture" ? f.overrides : venue.models.get(id)?.overrides) ?? {};
+    const overrides = { ...rest, ...(heads ? { heads } : {}) };
+    const kept = Object.keys(overrides).length > 0;
+    if (scope === "fixture") {
+      const { overrides: _o, ...bare } = f;
+      venue.fixtures.put(kept ? { ...bare, overrides } : bare);
+    } else if (kept) venue.models.put({ id, manufacturer: f.manufacturer, model: f.model, overrides });
+    else venue.models.delete(id);
+  };
+  reg.register({
+    name: "venue.fixture.heads",
+    title: "Têtes d'une fixture",
+    description:
+      "A fixture's colour heads: those its definition declares, or, when it declares none but repeats its colour components (« Red 1 / Green 1 … Red 2 … », « Halo Red »), those deduced from its channel names (deduced: true). Each head lists its channels; accent marks a halo, ring or back light: it follows the look (follow) but is no full colour of the fixture (left out of the preview, of what a look lights and of venue.canvas.auto). escaped: colour channels no head reaches although their component is in one. overrides: the corrections of its model and its own.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({ fixture: z.string() }),
+    run: ({ fixture }) => headsOfFixture(fixture),
+  });
+  reg.register({
+    name: "venue.fixture.heads.set",
+    title: "Régler le halo d'une fixture",
+    description:
+      "Corrects a fixture's accent heads (a halo, a ring, a back light), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent part; [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head no look paints stays dark instead of taking the colour of the others. What is not given stays as set.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ fixture: z.string(), scope: headsScope, accent: z.array(z.string()).nullable().optional(), follow: z.boolean().optional() }),
+    run: ({ fixture, scope, accent, follow }) => {
+      const before = headsOfFixture(fixture);
+      const r = venue.resolve(fixture) as ResolvedFixture;
+      const unknown = (accent ?? []).filter((n) => !r.mode.channels.includes(n) || !r.def.channels.get(n)?.color);
+      if (unknown.length) throw new Error(say(`pas un canal de couleur de ce mode : ${unknown.join(", ")}`, `not a colour channel of this mode: ${unknown.join(", ")}`));
+      const current = (scope === "model" ? before.overrides.model : before.overrides.fixture) ?? {};
+      const { accent: oldAccent, follow: oldFollow, ...rest } = current;
+      const nextAccent = accent === null ? undefined : (accent ?? oldAccent);
+      const nextFollow = follow ?? oldFollow;
+      const next: HeadOverrides = { ...rest, ...(nextAccent ? { accent: nextAccent } : {}), ...(nextFollow !== undefined ? { follow: nextFollow } : {}) };
+      putHeads(fixture, scope, Object.keys(next).length ? next : undefined);
+      return headsOfFixture(fixture);
+    },
+  });
+  reg.register({
+    name: "venue.fixture.heads.clear",
+    title: "Halo détecté par son nom",
+    description: "Removes the correction of a fixture's accent heads for its model (default) or this fixture only: the halo is found by its channel names again (or the model's correction applies again).",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ fixture: z.string(), scope: headsScope }),
+    run: ({ fixture, scope }) => {
+      headsOfFixture(fixture); // an unknown fixture is an error
+      putHeads(fixture, scope, undefined);
+      return headsOfFixture(fixture);
+    },
+  });
   reg.register({
     name: "venue.fixture.arrange",
     title: "Placer des fixtures",
@@ -412,7 +491,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.canvas.auto",
     title: "Canevas automatique",
-    description: "Builds a canvas from fixtures in the given order: one cell per head (or per fixture without heads). Topology line, line-mirror or ring.",
+    description: "Builds a canvas from fixtures in the given order: one cell per full head, declared or deduced from the channel names (or per fixture without heads); an accent head (a halo) gets none, a whole-fixture colour reaches it. Topology line, line-mirror or ring.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ id: z.string(), name: z.string(), fixtures: z.array(z.string()).min(1), topology: z.enum(["line", "line-mirror", "ring"]).default("line") }),
@@ -422,7 +501,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       for (const fid of fixtures) {
         const r = venue.resolve(fid);
         if ("error" in r) throw new Error(r.error);
-        const heads = r.mode.heads.length ? r.mode.heads.map((_, h) => h) : [-1];
+        // its full heads, declared or deduced (an accent head, a halo, gets no cell: a colour for the whole fixture reaches it)
+        const heads = [...r.heads.keys()].filter((h) => !r.accent.has(h));
         for (const h of heads) render.push({ from: cell, to: cell++, targets: [{ fixture: fid, head: h }] });
       }
       return venue.canvases.put({ id: cid, name, topology, cells: cell, render });

@@ -10,8 +10,16 @@ import { z } from "zod";
 
 /** T18 — the colour wheel (owned by the T18 work: replace this placeholder with its schema). */
 export const WheelOverridesSchema = z.record(z.string(), z.unknown());
-/** T21 — the heads and the accent head (owned by the T21 work: replace this placeholder with its schema). */
-export const HeadOverridesSchema = z.record(z.string(), z.unknown());
+/**
+ * T21 — the accent heads of a fixture (venue/heads.ts): a halo, a ring, a back light, found by their channel names
+ * unless `accent` lists them (channel names of the definition; [] = no accent, every head is a full one). `follow`
+ * false: an accent head the looks do not paint stays dark instead of taking the colour of the others.
+ */
+export const HeadOverridesSchema = z.object({
+  accent: z.array(z.string()).optional(),
+  follow: z.boolean().optional(),
+});
+export type HeadOverrides = z.infer<typeof HeadOverridesSchema>;
 /** T5 — the channels that follow transitions (owned by the T5 work, later). */
 export const TrackOverridesSchema = z.record(z.string(), z.unknown());
 

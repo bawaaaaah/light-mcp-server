@@ -3,6 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
+import { FixtureHeads } from "./FixtureHeads";
 
 export interface MarkedFixture {
   id: string;
@@ -118,6 +119,7 @@ export function FixtureMenu({ fixture, overlaps, at, onSaved, onDelete, onClose 
           <small className="hint">{t.invertAxisHelp}</small>
         </>
       )}
+      <FixtureHeads fixture={fixture.id} onSaved={onSaved} />
       <small className="hint">{t.fixtureColorHelp}</small>
       <div className="field">
         <span>{t.fixtureMove}</span>

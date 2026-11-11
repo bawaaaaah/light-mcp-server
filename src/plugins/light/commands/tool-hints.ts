@@ -139,6 +139,8 @@ export const HINTS: Record<string, string> = {
   "venue.canvas.put": "DI",
   "venue.fixture.arrange": "I",
   "venue.fixture.delete": "DI",
+  "venue.fixture.heads.clear": "DI",
+  "venue.fixture.heads.set": "I",
   "venue.fixture.mark": "I",
   "venue.fixture.orient": "",
   "venue.fixture.presence": "I",

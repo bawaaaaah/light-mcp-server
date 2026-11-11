@@ -93,7 +93,8 @@ function seedOf(s: string): number {
 
 /** What `ShowRuntime.explainChannel` answers: `intensity` is absent when no fixture owns the channel. */
 export interface ChannelExplanation {
-  fixture: { id: string; name: string; offset: number; channel: string | undefined; attribute: FixtureChannel["attribute"] | undefined; definition: boolean } | undefined;
+  /** `head`: the colour head (0-based) the channel drives on a fixture with several; `accent` when that head is an accent one (a halo). */
+  fixture: { id: string; name: string; offset: number; channel: string | undefined; attribute: FixtureChannel["attribute"] | undefined; definition: boolean; head?: number; accent?: true } | undefined;
   intensity?: {
     grandMaster: number;
     grandMasterSent: number;
@@ -633,6 +634,8 @@ export class ShowRuntime {
     const r = this.venue.resolve(fixture.id);
     const name = "error" in r ? undefined : r.mode.channels[offset];
     const attribute = name && !("error" in r) ? r.def.channels.get(name)?.attribute : undefined;
+    // the colour head the channel drives, when the fixture has several (declared or deduced), and whether it is an accent one
+    const head = "error" in r || r.heads.has(-1) ? undefined : this.venue.headOf(r, offset);
     const dcas = this.groups
       .list()
       .filter((g) => (g.master || this.flashes.has(g.id)) && (g.members.fixtures.includes(fixture.id) || (g.selector && this.fixturesOf(g.id).has(fixture.id) && !g.members.groups.length)))
@@ -650,7 +653,7 @@ export class ShowRuntime {
     const ruleNames = new Map(this.rulesInForce().map((x) => [x.id, x.name]));
     const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to, ...(ruleNames.get(rule) ? { name: ruleNames.get(rule)! } : {}) }));
     return {
-      fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r) },
+      fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r), ...(head ? { head: head.head, ...(head.accent ? { accent: true as const } : {}) } : {}) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id) },
       faders,
       rawLooks,
@@ -887,9 +890,13 @@ export class ShowRuntime {
         lookChannels.set(t.fixture, byOffset);
       });
     };
-    /** Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine fade). */
+    /**
+     * Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine
+     * fade). Not those it paints on their accent heads only (a halo): that is no full colour of the fixture.
+     */
     const paints = (colors: AttributeFrame["colors"], weight: number, look: Look): AttributeFrame["colors"] => {
-      for (const f of colors.keys()) {
+      for (const [f, heads] of colors) {
+        if (!this.venue.lightsBody(f, heads.keys())) continue;
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
       }

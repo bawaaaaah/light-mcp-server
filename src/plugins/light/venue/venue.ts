@@ -15,6 +15,7 @@ import { listQxfFiles } from "./definition-files.js";
 import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
+import { headsOf } from "./heads.js";
 import { findDuplicateDefinitions, type DuplicateReport } from "./definition-duplicates.js";
 import {
   beyondMessage,
@@ -327,8 +328,16 @@ export interface ResolvedFixture {
   patch: PatchedFixture;
   def: FixtureDefinition;
   mode: FixtureMode;
-  /** Head index → component → channel offset. Index -1 holds the components of a head-less fixture. */
+  /** Head index → component → channel offset (venue/heads.ts: declared, or deduced from the channel names). Index -1 holds the components of a head-less fixture. */
   heads: Map<number, Partial<Record<ColorComponent, number>>>;
+  /** Accent heads (a halo, a ring): they follow the look but are no full visible colour (not in `painted`, the preview, canvas.auto). */
+  accent: ReadonlySet<number>;
+  /** An accent head no look paints takes the brightest of what the looks paint on the full heads (false: it stays dark). */
+  follow: boolean;
+  /** Whether the heads were deduced from channel names (the definition declares none). */
+  deducedHeads: boolean;
+  /** Colour channels the heads leave out although their component is in one (show.lint warns). */
+  escapedColours: number[];
   dimmers: number[];
   strobes: number[];
   /** Moving heads: pan/tilt channels and travel in degrees (540/270 when the definition is silent). */
@@ -512,6 +521,23 @@ export class Venue {
     };
   }
 
+  /**
+   * Whether colours on these heads of a fixture light it (frame.painted): any but its accent heads (a halo alone
+   * is no full colour of the fixture). A fixture that does not resolve is lit by whatever paints it.
+   */
+  lightsBody(fixtureId: string, heads: Iterable<number>): boolean {
+    const r = this.resolve(fixtureId);
+    if ("error" in r) return true;
+    for (const h of heads) if (!r.accent.has(h)) return true;
+    return false;
+  }
+
+  /** The colour head a channel of a resolved fixture belongs to, and whether it is an accent one (dmx.explain). */
+  headOf(r: ResolvedFixture, offset: number): { head: number; accent: boolean } | undefined {
+    for (const [head, comps] of r.heads) if (Object.values(comps).includes(offset)) return { head, accent: r.accent.has(head) };
+    return undefined;
+  }
+
   /** Duplicate definitions of the library: one model in several files, one structure under two names. */
   duplicateDefinitions(): DuplicateReport {
     return findDuplicateDefinitions(this.definitions.map((def, i) => ({ def, source: this.definitionSources[i] ?? "?" })));
@@ -537,7 +563,6 @@ export class Venue {
       const mode = def ? findMode(def, patch.mode) : undefined;
       if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})`); } };
       else {
-        const heads = new Map<number, Partial<Record<ColorComponent, number>>>();
         const dimmers: number[] = [];
         const strobes: number[] = [];
         const shutterOpen = new Map<number, number>();
@@ -564,25 +589,12 @@ export class Venue {
         });
         if (pan && pan.coarse < 0) pan = undefined;
         if (tilt && tilt.coarse < 0) tilt = undefined;
-        if (mode.heads.length) {
-          mode.heads.forEach((offsets, h) => {
-            const comps: Partial<Record<ColorComponent, number>> = {};
-            for (const off of offsets) {
-              const c = def.channels.get(mode.channels[off] ?? "")?.color;
-              if (c && comps[c] === undefined) comps[c] = off;
-            }
-            heads.set(h, comps);
-          });
-        } else {
-          const comps: Partial<Record<ColorComponent, number>> = {};
-          mode.channels.forEach((name, off) => {
-            const c = def.channels.get(name)?.color;
-            if (c && comps[c] === undefined) comps[c] = off;
-          });
-          heads.set(-1, comps);
-        }
+        // declared heads, or deduced from the channel names (zones « Red 1… », a halo), with the corrections
+        const corrected = this.overridesOf(patch).heads;
+        const found = headsOf(def, mode, corrected);
+        const heads = found.heads;
         const lampOnly = [...heads.values()].every((c) => Object.keys(c).length === 0);
-        result = { patch, def, mode, heads, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly };
+        result = { patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -653,8 +665,10 @@ export class Venue {
         const i = base + offset;
         if (i >= 0 && i < 512) buf[i] = Math.max(0, Math.min(255, Math.round(value)));
       };
+      // the full heads' colour offsets class a look; an accent head's (a halo) fade by their colours but class none
       const colorOffsets = new Set<number>();
-      if (raws) for (const comps of r.heads.values()) for (const off of Object.values(comps)) colorOffsets.add(off);
+      const accentOffsets = new Set<number>();
+      if (raws) for (const [h, comps] of r.heads) for (const off of Object.values(comps)) (r.accent.has(h) ? accentOffsets : colorOffsets).add(off);
       const painted = frame.colors.get(patch.id);
       // The looks on this fixture, each in one class (docs/specs/engine-effects-timing.md, « Fondu des
       // canaux bruts d'un look »): one that paints it or writes one of its colour offsets doses its light
@@ -668,6 +682,7 @@ export class Venue {
       const byDimmer = new Set<string>();
       const machines = new Map<string, number>();
       for (const [offset, writes] of raws ?? []) {
+        if (accentOffsets.has(offset)) continue; // an accent head's colour (a halo) neither doses the fixture nor is a machine
         for (const x of writes) {
           if (colorOffsets.has(offset)) byColour.set(x.look, Math.max(byColour.get(x.look) ?? 0, x.weight));
           else if (r.dimmers.includes(offset)) byDimmer.add(x.look);
@@ -691,8 +706,14 @@ export class Venue {
       const colorScale = hasDimmer ? 1 : intensity;
       if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
       if (painted && !r.lampOnly) {
+        // an accent head (a halo) that no look paints, alone or whole, follows the brightest of the full heads painted
+        let followed: Color | undefined;
+        const follow = (): Color | undefined => {
+          if (!followed) for (const [h, c] of painted) if (h >= 0 && !r.accent.has(h)) followed = followed ? brighter(followed, c) : c;
+          return followed;
+        };
         for (const [h, comps] of r.heads) {
-          const color = painted.get(h) ?? painted.get(-1);
+          const color = painted.get(h) ?? painted.get(-1) ?? (r.accent.has(h) && r.follow ? follow() : undefined);
           if (!color) continue;
           for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) write(off, (color[comp] ?? 0) * 255 * colorScale);
         }
@@ -709,7 +730,7 @@ export class Venue {
           for (const [offset, writes] of raws) {
             const kept = held.get(offset) ?? 0;
             if (r.dimmers.includes(offset)) write(offset, rawOver(writes, heldUnderDimmer(writes, kept, underOwnDimmer, (look) => byColour.has(look))));
-            else if (colorOffsets.has(offset)) write(offset, rawOver(writes, kept));
+            else if (colorOffsets.has(offset) || accentOffsets.has(offset)) write(offset, rawOver(writes, kept));
             else write(offset, rawValue(writes)); // a machine channel: verbatim, a machine never fades
           }
         });
@@ -761,7 +782,8 @@ export class Venue {
         out[patch.id] = [displayHex(Object.fromEntries(Object.entries(color).map(([k, x]) => [k, (x ?? 0) * dimmer])) as Color)];
         continue;
       }
-      out[patch.id] = [...r.heads.values()].map((comps) => {
+      // the full heads only: an accent head (a halo) is no visible colour of the fixture (venue/heads.ts)
+      out[patch.id] = [...r.heads].filter(([h]) => !r.accent.has(h)).map(([, comps]) => {
         const c: Color = {};
         for (const [comp, offset] of Object.entries(comps) as [ColorComponent, number][]) c[comp] = at(offset) * dimmer;
         return displayHex(c);
