@@ -253,9 +253,9 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
         const v = l.raw.get(o);
         return v === undefined ? [] : [{ sheet: l.sheet, weight: l.weight, value: v * 256 + (l.raw.get(fine) ?? 0), order }];
       });
-      const { value, opacity } = overSheets(wide, opts.merge, 0);
-      if (opacity > 0) {
-        const v16 = Math.max(0, Math.min(65535, Math.round(value / opacity)));
+      const glide = overSheets(wide, opts.merge, 0);
+      if (glide.opacity > 0) {
+        const v16 = Math.max(0, Math.min(65535, Math.round(glide.value / glide.opacity)));
         out.set(o, v16 >> 8);
         out.set(fine, v16 & 255);
       } else if (r.shutterOpen.has(o)) out.set(o, r.shutterOpen.get(o)!);
