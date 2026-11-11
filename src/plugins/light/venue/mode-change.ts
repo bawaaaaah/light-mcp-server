@@ -45,6 +45,7 @@ export function remapByName(from: ModeLayout, to: ModeLayout): Remap {
   const realHeads = (l: ModeLayout) => [...l.heads.keys()].filter((h) => h >= 0);
   const toHeads = new Map<string, number[]>();
   for (const h of realHeads(to)) {
+    if (!to.heads.get(h)!.length) continue;
     const k = headKey(to, to.heads.get(h)!);
     toHeads.set(k, [...(toHeads.get(k) ?? []), h]);
   }
@@ -64,7 +65,9 @@ export function remapByName(from: ModeLayout, to: ModeLayout): Remap {
         // a head the old mode did not have: nothing to match it by
         return { kind: "lost", head };
       }
-      const found = toHeads.get(headKey(from, offsets));
+      // a head with no channel name to know it by matches nothing (two empty heads would pair by chance)
+      const k = headKey(from, offsets);
+      const found = offsets.length ? toHeads.get(k) : undefined;
       if (found?.length === 1) return { kind: found[0] === head ? "same" : "moved", head, to: found[0]! };
       // no distinct heads left: the whole fixture, only when the old mode had a single one (else which one?)
       if (!found && realHeads(to).length === 0 && realHeads(from).length === 1) return { kind: "moved", head, to: -1 };

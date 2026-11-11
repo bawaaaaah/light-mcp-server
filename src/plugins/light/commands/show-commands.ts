@@ -72,8 +72,12 @@ export interface ShowCommandOptions {
 
 /** Writes a proposal carries beside its put commands (venue.fixture.mode: another show's looks, a fader emptied). */
 export interface ProposalHooks {
-  apply(): void;
-  revert(): void;
+  /** Part of show.apply's all or nothing: on a throw, `revert` then the puts' take-back run. A proposal with hooks is never redone. */
+  apply(): Promise<void>;
+  /** Takes back what `apply` wrote (only what is still as it wrote it); returns what it left alone, said. */
+  revert(): Promise<string[]>;
+  /** Throws when the open show or venue is no longer the one the proposal was applied on (show.revert refuses then). */
+  guard?(): void;
 }
 
 /** What the show commands hand to the commands registered beside them (commands/fixture-mode-commands.ts). */
@@ -1825,6 +1829,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: async ({ id }, ctx) => {
       const p = proposalOf(id);
       if (p.status !== "pending" && p.status !== "reverted") throw new Error(say(`proposition déjà ${p.status === "applied" ? "appliquée" : "écartée"}`, `proposal already ${p.status}`));
+      // writes made beside the puts were planned on what was there then: they are not replayed later
+      if (p.status === "reverted" && p.hooks) throw new CommandError("invalid", say(`« ${p.title ?? id} » ne se refait pas : le relancer (son plan est relu sur ce qui est là maintenant)`, `“${p.title ?? id}” cannot be redone: run it again (its plan is read again on what is there now)`));
       const done: Applied[] = [];
       try {
         for (const c of p.changes) {
@@ -1835,12 +1841,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           await reg.invoke(c.command, c.args, ctx);
           done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}) });
         }
+        // the writes beside the puts belong to the all or nothing: on their failure everything goes back
+        if (p.hooks) {
+          try {
+            await p.hooks.apply();
+          } catch (err) {
+            await p.hooks.revert();
+            throw err;
+          }
+        }
       } catch (err) {
         await takeBack(done, ctx, { force: true, shared: true });
-        throw new Error(say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`));
+        throw new CommandError("failed", say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`), { proposal: id });
       }
       Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), ...(ctx.who ? { appliedBy: ctx.who } : {}) });
-      p.hooks?.apply();
       return { id, applied: done.length };
     },
   });
@@ -1854,10 +1868,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: async ({ id, force, shared }, ctx) => {
       const p = proposalOf(id);
       if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
+      p.hooks?.guard?.(); // made on another show or venue than the one open now: refused before anything moves
       await takeBack(p.applied!, ctx, { force, shared });
-      p.hooks?.revert();
+      const warnings = (await p.hooks?.revert()) ?? [];
       p.status = "reverted";
-      return { id, reverted: p.applied!.length };
+      return { id, reverted: p.applied!.length, ...(warnings.length ? { warnings } : {}) };
     },
   });
   reg.register({

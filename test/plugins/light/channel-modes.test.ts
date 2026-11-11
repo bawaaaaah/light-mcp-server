@@ -23,8 +23,30 @@ describe("channel modes (venue/channel-modes.ts)", () => {
       ["Rainbow", "Rainbow", false],
       ["No function", "No function", false],
       ["Strobe Off", "Strobe Off", false],
+      // a word marker needs a separator before it: the end of a word is not « no »
+      ["Piano 2", "Piano", true],
+      ["Techno 1", "Techno", true],
+      ["Casino #3", "Casino", true],
+      ["Auto 1-4", "Auto", true],
     ];
-    for (const [name, root, stripped] of table) it(`« ${name} » → « ${root} »`, () => expect(rootOf(name)).to.deep.equal({ root, stripped }));
+    for (const [name, root, stripped] of table) it(`« ${name} » → « ${root} »`, () => expect(rootOf(name)).to.deep.include({ root, stripped }));
+    it("says what it took off: a progression, a percentage, a number", () => {
+      expect(rootOf("Speed slow → fast").trailers).to.deep.equal(["progression"]);
+      expect(rootOf("Dimmer 0-100%").trailers).to.deep.equal(["percent"]);
+      expect(rootOf("Speed 2").trailers).to.deep.equal(["number"]);
+    });
+  });
+
+  it("reads « Speed 1 », « Speed 2 » as variants of one mode, not two continuous ones; a bare « Speed » is continuous", () => {
+    expect(shape(channelModes(caps([0, 9, "Off"], [10, 127, "Speed 1"], [128, 255, "Speed 2"])))).to.deep.equal([
+      { name: "Off", variants: ["Off"], continuous: false },
+      { name: "Speed", variants: ["Speed 1", "Speed 2"], continuous: false },
+    ]);
+    expect(channelModes(caps([0, 9, "Off"], [10, 255, "Speed"]))[1]!.continuous).to.equal(true);
+    expect(shape(channelModes(caps([0, 9, "Piano 1"], [10, 19, "Piano 2"], [20, 29, "Techno 1"])))).to.deep.equal([
+      { name: "Piano", variants: ["Piano 1", "Piano 2"], continuous: false },
+      { name: "Techno 1", variants: ["Techno 1"], continuous: false },
+    ]);
   });
 
   it("groups consecutive variants of one mode, keeps the others apart, and reads a wide progression as continuous", () => {

@@ -148,10 +148,106 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
       expect((JSON.parse(readFileSync(join(dataRoot, "venues", original.id, "fixtures", "par.json"), "utf8")) as { mode: string }).mode).to.equal("6 Channel");
       expect(theirs().channels.targets[0]!.offset).to.equal(4);
     });
+
+    const activeVenue = async () => ((await run("venue.list")) as { id: string; active: boolean }[]).find((v) => v.active)!.id;
+
+    it("« copy » with a loss and no force: refused before anything moves, the show still on the shared venue", async () => {
+      const venueBefore = await activeVenue();
+      await run("look.put", { look: look("prog", [{ fixture: "par", offset: 4 }], [[23]]) });
+      await run("look.go", { id: "prog" });
+      const preview = (await run("venue.fixture.mode", { id: "par", mode: "Pixel", shared: "copy", dryRun: true })) as Plan & { detach: { stopped: string[] } };
+      expect(preview.detach.stopped).to.deep.equal(["prog"]); // reopened on the copy: what plays stops, said first
+      expect((await refusal(run("venue.fixture.mode", { id: "par", mode: "Pixel", shared: "copy" }))).message).to.contain("force: true");
+      expect(await activeVenue()).to.equal(venueBefore);
+      expect(par().mode).to.equal("6 Channel");
+      expect(plugin.runtime.isActive("prog")).to.equal(true);
+    });
+
+    it("« all »: a fader emptied in the other show goes from its folder and comes back with the revert; a later edit there is left alone", async () => {
+      const { writeFileSync } = await import("node:fs");
+      const faders = join(dataRoot, "shows", other, "faders");
+      mkdirSync(faders, { recursive: true });
+      writeFileSync(join(faders, "speed.json"), JSON.stringify({ id: "speed", name: "Vitesse", channels: [{ fixture: "par", offset: 5 }], level: 0 }));
+      const preview = (await run("venue.fixture.mode", { id: "par", mode: "Pixel", shared: "all", dryRun: true })) as Plan & { otherShows: { lost: number }[] };
+      expect(preview.emptied).to.deep.include({ show: "Deuxième", id: "speed", name: "Vitesse", usedBy: [] });
+      expect(preview.otherShows[0]!.lost).to.equal(2); // their look's « Program », their fader
+      const done = (await run("venue.fixture.mode", { id: "par", mode: "Pixel", shared: "all", force: true })) as Plan;
+      const { existsSync } = await import("node:fs");
+      expect(existsSync(join(faders, "speed.json"))).to.equal(false);
+      // their look edited since (by hand here): the revert leaves it and says so
+      writeFileSync(join(dataRoot, "shows", other, "looks", "theirs.json"), JSON.stringify({ ...look("theirs", [{ fixture: "par", offset: 0 }], [[99]]), timing: {} }));
+      const back = (await run("show.revert", { id: done.proposal })) as { warnings?: string[] };
+      expect(existsSync(join(faders, "speed.json"))).to.equal(true);
+      expect(back.warnings!.join()).to.contain("Deuxième · theirs");
+      expect(theirs().channels.targets[0]!.offset).to.equal(0);
+    });
+
+    it("« all »: a look of the other show that cannot be read refuses unless forced, named", async () => {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(join(dataRoot, "shows", other, "looks", "broken.json"), JSON.stringify({ id: "broken" }));
+      const preview = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel", shared: "all", dryRun: true })) as Plan & { unreadable: { show: string }[] };
+      expect(preview.unreadable.map((u) => u.show)).to.deep.equal(["Deuxième"]);
+      expect((await refusal(run("venue.fixture.mode", { id: "par", mode: "8 Channel", shared: "all" }))).message).to.contain("illisible");
+      expect(par().mode).to.equal("6 Channel");
+    });
+
+    it("« all »: a write failing in the other show takes everything back, and the proposal is not left to apply", async () => {
+      const { chmodSync } = await import("node:fs");
+      const looksDir = join(dataRoot, "shows", other, "looks");
+      chmodSync(looksDir, 0o555);
+      try {
+        const e = await refusal(run("venue.fixture.mode", { id: "par", mode: "8 Channel", shared: "all" }));
+        expect(e.message).to.contain("rien n'a changé");
+      } finally {
+        chmodSync(looksDir, 0o755);
+      }
+      expect(par().mode).to.equal("6 Channel");
+      expect(theirs().channels.targets[0]!.offset).to.equal(4);
+      const proposals = (await run("show.proposals")) as { status: string }[];
+      expect(proposals.map((p) => p.status)).to.deep.equal(["discarded"]);
+    });
+  });
+
+  it("is not redone after its undo (its plan is read again by running it again)", async () => {
+    await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
+    const done = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel" })) as Plan;
+    await run("show.revert", { id: done.proposal });
+    expect((await refusal(run("show.apply", { id: done.proposal }))).message).to.contain("ne se refait pas");
+    expect(par().mode).to.equal("6 Channel");
+  });
+
+  it("takes a canvas back with the undo, a look playing on it included", async () => {
+    await run("venue.fixture.put", { fixture: { ...par(), mode: "Pixel", address: 30 } });
+    const render = [{ from: 0, to: 0, targets: [{ fixture: "par", head: 0 }] }, { from: 1, to: 1, targets: [{ fixture: "par", head: 1 }] }];
+    await run("venue.canvas.put", { canvas: { id: "pix", name: "Pixels", topology: "line", cells: 2, render } });
+    await run("look.put", { look: { id: "on-pix", name: "Sur les pixels", canvas: "pix", technique: { kind: "plat", color: "#ff0000" } } });
+    await run("look.go", { id: "on-pix" });
+    const done = (await run("venue.fixture.mode", { id: "par", mode: "6 Channel", force: true })) as Plan;
+    expect(plugin.runtime.venue.canvases.get("pix")!.render).to.deep.equal([]);
+    await run("show.revert", { id: done.proposal });
+    expect(par().mode).to.equal("Pixel");
+    expect(plugin.runtime.venue.canvases.get("pix")!.render).to.deep.equal(render);
   });
 
   describe("fixture.channel.mode", () => {
     const value = () => plugin.engine.output.get(1)[par().address - 1 + 4]!;
+
+    it("tells two modes of one name apart by their first value, and refuses the name alone", async () => {
+      await run("venue.fixture.put", { fixture: { ...par(), mode: "Pixel reversed", address: 30 } });
+      const e = await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function" }));
+      expect(e.message).to.contain("No function (0–9), No function (246–255)").and.contain("min");
+      expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 246 })).to.include({ value: 250, output: 250, min: 246 });
+      expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 0 })).to.include({ value: 4 });
+      expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 5 }))).message).to.contain("ne commence à 5");
+    });
+
+    it("under a blackout says the output is below, not that someone holds it", async () => {
+      plugin.engine.setBlackout(true);
+      const r = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 2" })) as Record<string, unknown>;
+      expect(r).to.include({ output: 0, below: true, blackout: true });
+      expect(r.heldBy).to.equal(undefined);
+      plugin.engine.setBlackout(false);
+    });
 
     it("sets a channel's mode and variant by name through its own fader, at the middle of the range", async () => {
       const r = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 2" })) as { fader: string; value: number; output: number; heldBy?: unknown };
@@ -176,7 +272,7 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
     });
 
     it("refuses an unknown mode, variant or channel, and a value for a mode that is not continuous", async () => {
-      expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Laser" }))).message).to.contain("Auto, Sound");
+      expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Laser" }))).message).to.contain("Auto (8–103), Sound (104–167)");
       expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 9" }))).message).to.contain("Auto 1, Auto 2, Auto 3");
       expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Nope", mode: "Auto" }))).message).to.contain("canal inconnu");
       expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Dimmer", mode: "Auto" }))).message).to.contain("pas de fonctions");

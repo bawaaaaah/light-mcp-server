@@ -245,6 +245,7 @@ export class LightPlugin implements McpPlugin {
     registerFixtureModeCommands(this.commands, this.engine, this.runtime, showApi, {
       sharedWith: otherShowsSharing,
       otherShows: () => showsOnVenueOrThrow(dataRoot, this.config.venue, this.config.show).map(({ id, settings }) => showFolder(dataRoot, id, settings.name || id)),
+      place: () => ({ show: this.config.show, venue: this.config.venue }),
     });
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);

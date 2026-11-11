@@ -40,8 +40,10 @@
  </Channel>
  <Channel Name="Macro">
   <Group Byte="0">Effect</Group>
-  <Capability Min="0" Max="127">Off</Capability>
-  <Capability Min="128" Max="255">Rainbow</Capability>
+  <Capability Min="0" Max="9">No function</Capability>
+  <Capability Min="10" Max="127">Rainbow</Capability>
+  <Capability Min="128" Max="245">Chase</Capability>
+  <Capability Min="246" Max="255">No function</Capability>
  </Channel>
  <Mode Name="6 Channel">
   <Channel Number="0">Dimmer</Channel>

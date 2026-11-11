@@ -42,42 +42,52 @@ export const CONTINUOUS_MIN_WIDTH = 8;
 const QUALIFIER = String.raw`(?:slow|fast|medium|mid|normal|lent|lente|moyen|moyenne|rapide|cw|ccw|clockwise|counter[- ]?clockwise|forwards?|backwards?|reverse|left|right)`;
 /** A progression between two qualifiers (« slow to fast », « slow → fast », « fast-slow »). */
 const PROGRESSION = String.raw`${QUALIFIER}\s*(?:->|→|>|to|-|–|à)\s*${QUALIFIER}`;
-const TRAILERS: RegExp[] = [
-  // a numeric interval at the end: « Auto 1-4 », « Program (0-100%) »
-  /[\s(]*\d+\s*%?\s*(?:-|–|to|→|->)\s*\d+\s*%?\s*\)?\s*$/i,
+/** What a trailer is: a percentage interval and a progression say the value moves inside the range. */
+export type Trailer = "percent" | "interval" | "progression" | "number" | "qualifier";
+const TRAILERS: [Trailer, RegExp][] = [
+  // a percentage at the end: « Dimmer 0-100% », « Program (0-100 %) »
+  ["percent", /[\s(]*\d+\s*%?\s*(?:-|–|to|→|->)\s*\d+\s*%\s*\)?\s*$/i],
+  // a numeric interval at the end: « Auto 1-4 »
+  ["interval", /[\s(]+\d+\s*(?:-|–|to|→|->)\s*\d+\s*\)?\s*$/i],
   // a progression at the end: « Speed slow → fast »
-  new RegExp(String.raw`[\s(,:-]*${PROGRESSION}\s*\)?\s*$`, "i"),
-  // a final number, with its marker: « Auto 1 », « Program #2 », « Sound no. 3 », « Macro12 »
-  /[\s(,:-]*(?:#|no\.?|n°|nr\.?)?\s*\d+\s*\)?\s*$/i,
+  ["progression", new RegExp(String.raw`[\s(,:-]*${PROGRESSION}\s*\)?\s*$`, "i")],
+  // a final number: « Auto 1 », « Sound2 », « Program #2 », « Sound no. 3 »; a word marker needs a separator before it
+  // (« Piano 2 » is « Piano », not « Pia »)
+  ["number", /(?:[\s(,:-]+(?:(?:no\.?|n°|nr\.?)\s*)?|#\s*|)\d+\s*\)?\s*$/i],
   // a final qualifier: « Color fade slow »
-  new RegExp(String.raw`[\s(,:-]+${QUALIFIER}\s*\)?\s*$`, "i"),
+  ["qualifier", new RegExp(String.raw`[\s(,:-]+${QUALIFIER}\s*\)?\s*$`, "i")],
 ];
 
 /**
- * A capability name's root and whether something was taken off it: the root is what variants of one
- * mode share. Each kind of trailer is taken at most once, longest first (« Auto 1 slow » → « Auto »).
+ * A capability name's root and what was taken off it: the root is what variants of one mode share. Each kind
+ * of trailer is taken at most once a pass, in the order above (« Auto 1 slow » → « Auto »).
  */
-export function rootOf(name: string): { root: string; stripped: boolean } {
+export function rootOf(name: string): { root: string; stripped: boolean; trailers: Trailer[] } {
   let root = name.trim();
-  let stripped = false;
+  const trailers: Trailer[] = [];
   for (let pass = 0; pass < 2; pass++) {
-    for (const re of TRAILERS) {
+    for (const [kind, re] of TRAILERS) {
       const next = root.replace(re, "").trim();
       if (next && next !== root) {
         root = next;
-        stripped = true;
+        trailers.push(kind);
       }
     }
   }
-  return { root, stripped };
+  return { root, stripped: trailers.length > 0, trailers };
 }
 
 const key = (root: string) => root.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/** Whether a capability's name or preset says its value is a progression (a speed, a percentage). */
+/**
+ * Whether a capability's value is a progression (a speed, a percentage): its preset says so, or what its name
+ * ends with (« … slow → fast », « … 0-100 % »), or an arrow in it, or its name is a speed word alone. A number
+ * taken off is a variant, not a progression: « Speed 1 », « Speed 2 » are two steps of one mode.
+ */
 function progression(c: CapabilityLike): boolean {
   if (/(SlowToFast|FastToSlow|Speed|Percent)/.test(c.preset ?? "")) return true;
-  return new RegExp(String.raw`${PROGRESSION}|\d+\s*%?\s*(?:-|–|to|→)\s*\d+\s*%|\bspeed\b|\bvitesse\b|\bmin\b.*\bmax\b|→|->`, "i").test(c.name);
+  if (rootOf(c.name).trailers.some((t) => t === "progression" || t === "percent")) return true;
+  return /→|->/.test(c.name) || /^\s*(?:speed|vitesse|rate)\s*$/i.test(c.name);
 }
 
 /** The modes of a channel's capabilities (sorted by DMX value first); empty for a channel of one capability or none. */
