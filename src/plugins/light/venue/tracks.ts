@@ -23,6 +23,8 @@ import { rawOver, type Color, type CoarseFine, type LooksMerge } from "./venue.j
 /** What the engine reads of a fixture's enabled tracks: the offsets that fade (coarse and fine) and, per axis, what the motion layer does. */
 export interface ResolvedTracks {
   fade: ReadonlySet<number>;
+  /** A coarse channel's fine one (offsets), when the mode has it: a ticked pair glides as one 16-bit value. */
+  fine: ReadonlyMap<number, number>;
   /** Read by the motion layer (T25): « glide » for a ticked axis, « cut » for an unticked one. No effect before T25. */
   motion: { pan?: "glide" | "cut"; tilt?: "glide" | "cut" };
 }
@@ -37,16 +39,19 @@ export function tracksOf(def: FixtureDefinition, mode: FixtureMode, tracks: Trac
   const names = new Set(tracks.fade ?? []);
   const fade = new Set<number>();
   const motion: ResolvedTracks["motion"] = {};
-  const coarse = new Map<string, string>();
+  const coarse = new Map<string, { name: string; offset: number }>();
+  const fine = new Map<number, number>();
   mode.channels.forEach((name, offset) => {
     const ch = def.channels.get(name);
     const kind = `${ch?.attribute ?? "other"}:${ch?.color ?? ""}`;
-    const own = ch?.fine ? coarse.get(kind) : name;
-    if (!ch?.fine) coarse.set(kind, name);
+    const of = ch?.fine ? coarse.get(kind) : undefined;
+    if (of && !fine.has(of.offset)) fine.set(of.offset, offset);
+    const own = ch?.fine ? of?.name : name;
+    if (!ch?.fine) coarse.set(kind, { name, offset });
     if (own !== undefined && names.has(own)) fade.add(offset);
     if (ch && !ch.fine && (ch.attribute === "pan" || ch.attribute === "tilt")) motion[ch.attribute] ??= names.has(name) ? "glide" : "cut";
   });
-  return { fade, motion };
+  return { fade, fine, motion };
 }
 
 /** What a channel is to the tracks editor: the light (dimmer, colour), the position, the colour wheel, or anything else. */
@@ -236,7 +241,26 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   // the combined opacity of the layers lighting the fixture: what a colour under a fading dimmer is shared against
   const intensity = overSheets(ordered.filter(({ l }) => lit(l)).map(({ l, order }) => ({ sheet: l.sheet, weight: l.weight, value: 1, order })), opts.merge, 0).opacity;
   const dimmerFades = dimmers.some((d) => tracks.fade.has(d));
+  // a ticked 16-bit pair (a zoom, a focus): the coarse channel glides with its fine one as one value, written by the coarse
+  const glides = (o: number) => tracks.fade.has(o) && !dimmers.includes(o) && !colourOf.has(o) && o !== wheelOffset;
+  const pairs = new Map([...tracks.fine].filter(([c, f]) => offsets.has(c) && glides(c) && own(f)));
+  const paired = new Set(pairs.values());
   for (const o of offsets) {
+    if (paired.has(o)) continue;
+    const fine = pairs.get(o);
+    if (fine !== undefined) {
+      const wide: Carried[] = ordered.flatMap(({ l, order }) => {
+        const v = l.raw.get(o);
+        return v === undefined ? [] : [{ sheet: l.sheet, weight: l.weight, value: v * 256 + (l.raw.get(fine) ?? 0), order }];
+      });
+      const { value, opacity } = overSheets(wide, opts.merge, 0);
+      if (opacity > 0) {
+        const v16 = Math.max(0, Math.min(65535, Math.round(value / opacity)));
+        out.set(o, v16 >> 8);
+        out.set(fine, v16 & 255);
+      } else if (r.shutterOpen.has(o)) out.set(o, r.shutterOpen.get(o)!);
+      continue;
+    }
     const carried: Carried[] = ordered.flatMap(({ l, order }) => {
       const v = valueOf(l, o);
       return v === undefined ? [] : [{ sheet: l.sheet, weight: l.weight, value: v, order }];

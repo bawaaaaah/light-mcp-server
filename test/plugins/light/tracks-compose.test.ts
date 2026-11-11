@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
@@ -13,10 +13,16 @@ function venue(): Venue {
   const defs = join(dir, "fixtures");
   mkdirSync(defs);
   for (const f of ["bar4.qxf", "spot.qxf", "wheel-spot.qxf"]) copyFileSync(new URL(`../../fixtures/${f}`, import.meta.url), join(defs, f));
+  // a dimmer and a 16-bit zoom
+  writeFileSync(
+    join(defs, "zoom-par.qxf"),
+    `<?xml version="1.0"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Zoom Par</Model><Type>Color Changer</Type><Channel Name="Dimmer" Preset="IntensityMasterDimmer"/><Channel Name="Zoom"><Group Byte="0">Beam</Group></Channel><Channel Name="Zoom fine"><Group Byte="1">Beam</Group></Channel><Mode Name="3 Channel"><Channel Number="0">Dimmer</Channel><Channel Number="1">Zoom</Channel><Channel Number="2">Zoom fine</Channel></Mode></FixtureDefinition>`,
+  );
   const v = new Venue(new FolderStore(join(dir, "venue")), [defs]);
   v.fixtures.put({ id: "bar", name: "Bar", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 });
   v.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 100 });
   v.fixtures.put({ id: "lamp", name: "Lamp", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 200 });
+  v.fixtures.put({ id: "zoom", name: "Zoom", manufacturer: "Test", model: "Zoom Par", mode: "3 Channel", universe: 1, address: 300 });
   return v;
 }
 const resolved = (v: Venue, id: string) => v.resolve(id) as ResolvedFixture;
@@ -186,6 +192,20 @@ describe("fadeable tracks: composition (composeTracks)", () => {
       expect(out.get(2)).to.equal(15);
       expect(out.get(3)).to.be.closeTo(255 * 0.5 * 0.5, 1e-9);
     }
+  });
+
+  it("glides a ticked 16-bit channel as one value: 0x00FF to 0x0100 never passes by 0x0180", () => {
+    const r = resolved(venue(), "zoom");
+    const t = tracks(r, ["Dimmer", "Zoom"]);
+    expect([...t.fade]).to.deep.equal([0, 1, 2]);
+    for (let w = 0; w <= 1.0001; w += 0.05) {
+      const out = composeTracks(r, t, [layer("x:b", 1 - w, { raw: [[1, 0x00], [2, 0xff]] }), layer("x:b", w, { raw: [[1, 0x01], [2, 0x00]] })], opts);
+      const v16 = out.get(1)! * 256 + out.get(2)!;
+      expect(v16, `at ${w.toFixed(2)}`).to.be.within(0x00ff, 0x0100);
+    }
+    // unticked, the pair jumps together, the fine channel with its coarse one
+    const jump = composeTracks(r, tracks(r, ["Dimmer"]), [layer("x:b", 0.4, { raw: [[1, 0x00], [2, 0xff]] }), layer("x:b", 0.6, { raw: [[1, 0x01], [2, 0x00]] })], opts);
+    expect([jump.get(1), jump.get(2)]).to.deep.equal([1, 0]);
   });
 
   it("lays sheets over each other (« last ») and keeps the highest (« highest »)", () => {
