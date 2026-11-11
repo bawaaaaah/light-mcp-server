@@ -1244,6 +1244,30 @@ describe("a look's raw channels ride its fade (T3)", () => {
     });
   }
 
+  for (const [what, dIn, cIn] of [
+    ["equal fades", 2, 2],
+    ["different fades", 4, 0.5],
+  ] as const) {
+    it(`moves a shared raw dimmer without a jump when a dimmer look and a colour look start in the same frame (${what})`, () => {
+      const { show, dmx, advance } = setup();
+      show.looks.put(sceneLook("d", { entryFade: dIn }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }], [[100, 200]]));
+      show.looks.put(sceneLook("c", { entryFade: cIn }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 3 }], [[255, 255]]));
+      const levels: number[] = [];
+      show.go("d");
+      show.go("c");
+      for (let i = 0; i < 60; i++) {
+        levels.push(dmx()[0]!);
+        advance(0.2);
+      }
+      // from what lit the fixture before (nothing: it rises from black), never a step (it was 255 -> 128 in one frame)
+      expect(levels[0], levels.join(",")).to.be.at.most(10);
+      // a ramp as fast as the shortest fade allows (smoothstep's steepest 1.5 / fade over the travel, twice where two
+      // fades compose), not a jump
+      const steepest = ((255 * 1.5 * 0.1) / Math.min(dIn, cIn)) * 2;
+      for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), `step at ${i * 100} ms: ${levels.join(",")}`).to.be.at.most(steepest);
+    });
+  }
+
   it("keeps the dimmer of a look that paints a fixture and holds its mode channel: dosed once, by its colours", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 2 }], [[200]], { kind: "plat", color: "#ffffff" }));

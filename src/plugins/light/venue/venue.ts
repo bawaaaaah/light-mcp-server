@@ -90,39 +90,40 @@ export interface RawWrite {
 /**
  * A dosed raw channel (a dimmer or colour offset) over what the show holds there, composed like layers.
  * Each sheet is a layer: its opacity is its weight (at most 1) and its value the weighted mean of its
- * writes (a crossfade inside it goes from one value to the other without a dip). The held byte
- * (`heldUnder` each look writing, weighted by the looks' weights: a look at weight 0 adds nothing to
- * it yet, so a look arriving cannot lift it in one frame) lies under all of them: the result is
- * held × (1 − combined opacity) + combined opacity × the highest layer value, each value weighted by
- * its opacity against the most opaque layer. So a look fading in or out crosses from the held byte
- * to its level and back instead of starting from black; looks that do not cross keep the highest at
- * full (HTP), a look just arriving cannot jump over one already there, and an unrelated look writing
- * 0 does not dig into a crossfade.
+ * writes (a crossfade inside it goes from one value to the other without a dip). The `held` byte
+ * lies under all of them: the result is held × (1 − combined opacity) + combined opacity × the highest
+ * layer value, each value weighted by its opacity against the most opaque layer. So a look fading in
+ * or out crosses from the held byte to its level and back instead of starting from black; looks that
+ * do not cross keep the highest at full (HTP), a look just arriving cannot jump over one already
+ * there, and an unrelated look writing 0 does not dig into a crossfade.
  */
-export function rawOver(writes: readonly RawWrite[], heldUnder: (look: string) => number): number {
+export function rawOver(writes: readonly RawWrite[], held: number): number {
   const sheets = new Map<string, { dosed: number; weight: number }>();
-  let heldSum = 0;
-  let heldWeight = 0;
-  let heldMean = 0;
   for (const x of writes) {
     const w = Math.max(0, x.weight);
     const sheet = sheets.get(x.sheet) ?? { dosed: 0, weight: 0 };
     sheet.dosed += x.value * w;
     sheet.weight += w;
     sheets.set(x.sheet, sheet);
-    const under = heldUnder(x.look);
-    heldSum += under * w;
-    heldWeight += w;
-    heldMean += under / writes.length;
   }
-  // all at weight 0 (the very first frame): the plain mean, which the weighted one starts from
-  const held = heldWeight > 0 ? heldSum / heldWeight : heldMean;
   const layers = [...sheets.values()].filter((l) => l.weight > 0).map((l) => ({ opacity: Math.min(1, l.weight), value: l.dosed / l.weight }));
   if (!layers.length) return held;
   const opacity = 1 - layers.reduce((clear, l) => clear * (1 - l.opacity), 1);
   const top = Math.max(...layers.map((l) => l.opacity));
   const value = Math.max(...layers.map((l) => (l.value * l.opacity) / top));
   return held * (1 - opacity) + opacity * value;
+}
+
+/**
+ * The byte held under a raw dimmer: the show's own (`kept`) unless a look dosing by its dimmer writes
+ * it — that one rises from what else lights the fixture (`underOwnDimmer`), and the held byte goes
+ * back up to the show's as the looks dosing by their colours on that dimmer gain weight. In absolute
+ * terms, never a mean of the writers: two looks of each kind started in the same frame do not jump.
+ */
+export function heldUnderDimmer(writes: readonly RawWrite[], kept: number, underOwnDimmer: number | undefined, byColour: (look: string) => boolean): number {
+  if (underOwnDimmer === undefined || writes.every((x) => byColour(x.look))) return kept;
+  const colourWeight = Math.min(1, writes.reduce((sum, x) => sum + (byColour(x.look) ? Math.max(0, x.weight) : 0), 0));
+  return underOwnDimmer + (kept - underOwnDimmer) * colourWeight;
 }
 
 /**
@@ -638,8 +639,8 @@ export class Venue {
         rawPass.push(() => {
           for (const [offset, writes] of raws) {
             const kept = held.get(offset) ?? 0;
-            if (r.dimmers.includes(offset)) write(offset, rawOver(writes, (look) => (underOwnDimmer === undefined || byColour.has(look) ? kept : underOwnDimmer)));
-            else if (colorOffsets.has(offset)) write(offset, rawOver(writes, () => kept));
+            if (r.dimmers.includes(offset)) write(offset, rawOver(writes, heldUnderDimmer(writes, kept, underOwnDimmer, (look) => byColour.has(look))));
+            else if (colorOffsets.has(offset)) write(offset, rawOver(writes, kept));
             else write(offset, rawValue(writes)); // a machine channel: verbatim, a machine never fades
           }
         });
