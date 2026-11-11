@@ -24,7 +24,7 @@ describe("broadcast addresses (server and client agree)", () => {
     expect(test("198.51.100.255")).to.equal(true);
     expect(test("198.51.100.7")).to.equal(false);
     // an older server: its broadcast, and any .255 as before
-    expect(broadcastTest({ broadcast: "192.0.2.255" })("10.0.0.255")).to.equal(true);
+    expect(broadcastTest({ broadcast: "192.0.2.255" })("203.0.113.255")).to.equal(true);
   });
 });
 
@@ -57,13 +57,13 @@ describe("broadcast addresses with a bound interface (server and client agree)",
   });
 
   it("agrees on /31 and /32 interfaces too", () => {
-    const vpn = { address: "10.0.0.1", netmask: "255.255.255.255" };
-    for (const iface of [{ address: "10.0.0.254", netmask: "255.255.255.254" }, vpn]) {
+    const vpn = { address: "203.0.113.1", netmask: "255.255.255.255" };
+    for (const iface of [{ address: "203.0.113.254", netmask: "255.255.255.254" }, vpn]) {
       const router = new OutputRouter({ bindAddress: iface.address, routes: [] }, undefined, undefined, () => [iface, ...interfaces]);
       const client = clientOf(router);
-      for (const ip of [...ips, "10.0.0.255"]) expect(client(ip), `${ip} on ${iface.netmask}`).to.equal(router.isBroadcast(ip));
+      for (const ip of [...ips, "203.0.113.255"]) expect(client(ip), `${ip} on ${iface.netmask}`).to.equal(router.isBroadcast(ip));
     }
-    expect(isBroadcast("10.0.0.255", [{ address: "10.0.0.254", netmask: "255.255.255.254" }])).to.equal(false); // the /31 link's other end
+    expect(isBroadcast("203.0.113.255", [{ address: "203.0.113.254", netmask: "255.255.255.254" }])).to.equal(false); // the /31 link's other end
     // a bound /32 judges nothing: outOfSubnet is left out, and any .255 is a broadcast for both
     const bound = new OutputRouter({ bindAddress: vpn.address, routes: [] }, undefined, undefined, () => [vpn, ...interfaces]);
     expect(bound.outOfSubnet(ips)).to.equal(undefined);

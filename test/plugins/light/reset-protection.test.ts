@@ -365,4 +365,19 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(note).to.deep.include({ level: "attention" });
     expect(note!.message).to.contain("commence à 0").and.to.contain("ramène à 0");
   });
+
+  it("sends the « all » range when a typo-tolerated name carries it, and keeps the middle of a range holding 0", () => {
+    const typo = oneChannel([[0, 9, "No function"], [10, 99, "Reset pan/tilt"], [100, 199, "Resest All Functions", "ResetAll"], [200, 255, "Home pan", "ResetPanTilt"]]);
+    expect(resetChannels(typo)[0]).to.deep.include({ range: "Resest All Functions (100–199)", value: 149 });
+    // known limit: a single Reset range holding 0 gets its middle, which may do nothing on that device
+    const zero = oneChannel([[0, 255, "0–255 (Above 200 Shortly)", "ResetAll"]], "Reset");
+    expect(resetChannels(zero)[0]).to.deep.include({ value: 127 });
+  });
+
+  it("does not tag as reset what the channel's name would otherwise sweep in (unused, lamp, sound, auto, fan)", () => {
+    for (const n of ["Unused", "Not used", "Reserved", "No effect", "Lamp on", "Sound mode", "Auto mode", "Fan control"]) {
+      expect(capabilityTags(n, "ResetAll", "Reset"), n).to.not.include("reset");
+    }
+    expect(capabilityTags("Zoom preset", "ResetZoom", "Reset")).to.include("reset");
+  });
 });

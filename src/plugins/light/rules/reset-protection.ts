@@ -98,7 +98,7 @@ const ALL_WORD = /\b(all|complete|total|entire|tout|totale|complet|compl[èe]te)
 /**
  * The Reset range a voluntary reset sends, by what its name says first: QLC+ presets are often wrong
  * (ResetAll on « Enable blackout while pan/tilt move »). (a) a reset of everything by its name;
- * (b) a ResetAll preset whose name says reset; (c) the first range whose name says reset; (d) the
+ * (b) a ResetAll preset whose name says reset, then any tagged ResetAll range (typos); (c) the first range whose name says reset; (d) the
  * first Reset range. A range holding 0 is chosen only for a channel that has no other: the
  * protection keeps such a channel at 0, its power-on value.
  */
@@ -109,6 +109,7 @@ function chosenReset(ch: FixtureChannel): { cap: FixtureCapability; others: Fixt
   const cap =
     resets.find((c) => RESET_WORD.test(c.name) && ALL_WORD.test(c.name)) ??
     resets.find((c) => c.preset === "ResetAll" && RESET_WORD.test(c.name)) ??
+    resets.find((c) => c.preset === "ResetAll") ?? // tagged under a name the preset vouches for (« Resest all », « Home all »)
     resets.find((c) => RESET_WORD.test(c.name)) ??
     resets[0];
   return cap && { cap, others: all.filter((c) => c !== cap) };
