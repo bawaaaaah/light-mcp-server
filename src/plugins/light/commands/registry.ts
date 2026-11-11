@@ -113,3 +113,10 @@ export class CommandRegistry {
 
 /** Context for internal callers (engine, timeline, tests): every right granted. */
 export const systemContext = (origin: Origin = "system"): CommandContext => ({ origin, can: () => true });
+
+/**
+ * Callers where someone can answer a confirmation: the interface (a dialog), an AI client (it asks
+ * its user, then sends `confirm: true`), the command line. A MIDI pad, an OSC message, the DJ
+ * software or a song's timeline cannot: what needs a yes is refused from there.
+ */
+export const ANSWERING_ORIGINS: readonly Origin[] = ["ui", "mcp", "cli"];

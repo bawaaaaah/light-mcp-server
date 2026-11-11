@@ -113,8 +113,10 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
   const all = [...rules.venue.map((r) => ({ ...r, where: "venue" as const })), ...rules.show.map((r) => ({ ...r, where: "show" as const }))];
   const listed = [...(rules.builtin ?? []).map((r) => ({ ...r, where: "builtin" as const })), ...all];
   const scopeText = (r: Rule) => (r.scope.fixture ? fixtures.find((f) => f.id === r.scope.fixture)?.name ?? r.scope.fixture : r.scope.zone ? `${t.zone} ${zones.find((z) => z.id === r.scope.zone)?.name ?? r.scope.zone}` : r.scope.model ? r.scope.model : t.everything);
-  const targetText = (r: Rule) => {
+  const targetText = (r: Rule & { where?: string }) => {
+    if (r.where === "builtin") return t.builtinResetTarget;
     if (r.target.channel) return r.target.channel;
+    if (r.target.tag && Object.keys(r.target).length === 1) return t.ruleTags[r.target.tag as keyof typeof t.ruleTags] ?? r.target.tag;
     const key = Object.entries(TARGETS).find(([, v]) => JSON.stringify(v) === JSON.stringify(r.target))?.[0];
     return key ? t.ruleTargets[key as keyof typeof t.ruleTargets] : JSON.stringify(r.target);
   };
@@ -123,7 +125,8 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
     const target = draft.target === "channel" ? { channel: draft.channel } : TARGETS[draft.target]!;
     const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}${draft.forOrigins.length || draft.forRoles.length ? ` (${[...draft.forOrigins.map((o) => t.origins[o as keyof typeof t.origins]), ...draft.forRoles.map((id) => roleLabel(t, id, roles.find((x) => x.id === id)?.name))].join(", ")})` : ""}`;
     const rule = {
-      id: uniqueId(slug(name, "regle"), all.map((r) => r.id)),
+      // the engine's ids are reserved (rule.put refuses them)
+      id: uniqueId(slug(name, "regle"), [...all, ...(rules.builtin ?? [])].map((r) => r.id)),
       name,
       level: draft.level,
       scope: draft.scope === "all" || !draft.scopeValue ? {} : { [draft.scope]: draft.scopeValue },
@@ -223,7 +226,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           {listed.map((r) => (
             <tr key={`${r.where}-${r.id}`} title={r.where === "builtin" ? r.notes : undefined}>
               <td>
-                {r.name || r.id} {r.locked && <span className="badge conflict">{t.locked}</span>} {r.program && <span className="badge standby">{programs.programs.find((p) => p.id === r.program)?.name ?? r.program}</span>}
+                {r.name || r.id} {r.locked && <span className={r.where === "builtin" ? "badge builtin" : "badge conflict"}>{t.locked}</span>} {r.program && <span className="badge standby">{programs.programs.find((p) => p.id === r.program)?.name ?? r.program}</span>}
               </td>
               <td>
                 <small>
@@ -244,7 +247,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                     {t.forCallers} {[...(r.appliesTo.origins ?? []).map((o) => t.origins[o as keyof typeof t.origins] ?? o), ...(r.appliesTo.roles ?? []).map((id) => roleLabel(t, id, roles.find((x) => x.id === id)?.name))].join(", ")}
                   </span>
                 )}
-                {r.forbidTags?.length ? `${t.forbidden}${t.colon} ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
+                {r.where === "builtin" ? t.builtinResetHold : r.forbidTags?.length ? `${t.forbidden}${t.colon} ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
                 {r.where === "builtin" ? (

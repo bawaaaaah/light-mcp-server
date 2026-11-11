@@ -38,7 +38,11 @@ interface Group {
   master?: { level: number; mute: boolean };
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   members: { fixtures: string[]; looks: string[]; groups: string[] };
+  /** A live group: the fixtures whose role and tags match. */
+  selector?: { role?: string; tags?: string[] };
   effectiveLevel: number;
+  /** The fixtures it gathers now, its selector and sub-groups included. */
+  fixtureCount?: number;
 }
 interface ChannelFader extends FaderDraft {
   id: string;
@@ -275,16 +279,25 @@ export function ShowPage(): ReactElement {
       })
       .join(", ");
   };
-  /** What a group drives, zeros left out: a DCA of channel faders is not « empty » (it scales them). */
+  /**
+   * What a group drives, zeros left out: a DCA of channel faders is not « empty » (it scales them). A
+   * live group says what it follows and the fixtures it gathers now.
+   */
   const groupSummary = (g: Group) =>
     [
-      [g.members.looks.length, "looks"],
-      [g.members.fixtures.length, "fixtures"],
-      [g.members.groups.length, t.subGroups.toLowerCase()],
-      [faders.filter((f) => f.dca === g.id).length, t.fadersCount],
+      g.selector ? t.groupFollows.replace("{tags}", [g.selector.role, ...(g.selector.tags ?? [])].filter(Boolean).join(" + ")) : "",
+      ...(
+        [
+          [g.members.looks.length, "looks"],
+          [g.selector ? (g.fixtureCount ?? 0) : g.members.fixtures.length, "fixtures"],
+          [g.members.groups.length, t.subGroups.toLowerCase()],
+          [faders.filter((f) => f.dca === g.id).length, t.fadersCount],
+        ] as const
+      )
+        .filter(([n]) => n)
+        .map(([n, what]) => `${n} ${what}`),
     ]
-      .filter(([n]) => n)
-      .map(([n, what]) => `${n} ${what}`)
+      .filter(Boolean)
       .join(" · ") || "—";
   /** « ✖ 2 erreurs · ⚠ 4 alertes », or « ✔ Rien à signaler »: a check mark above six warnings misled. */
   const rank = (level: string) => (level === "erreur" ? 0 : level === "info" ? 2 : 1);
@@ -563,11 +576,11 @@ export function ShowPage(): ReactElement {
               .sort((a, b) => rank(a.level) - rank(b.level)) /* errors first, notes last */
               .map((i, k) => (
                 <li key={k} className={i.level === "erreur" ? "error" : i.level === "info" ? "hint" : ""}>
-                  {i.level === "erreur" ? "✖" : i.level === "info" ? "ℹ" : "⚠"} {i.where} : {i.message}
+                  {i.level === "erreur" ? "✖" : i.level === "info" ? "ℹ" : "⚠"} {i.where}{t.colon} {i.message}
                 </li>
               ))}
           </ul>
-          <TypeGroups onError={setError} onApplied={() => void cmd<Lint>("show.lint").then(setLint)} />
+          <TypeGroups checked={lint} onError={setError} onApplied={() => void cmd<Lint>("show.lint").then(setLint)} />
         </div>
       )}
 

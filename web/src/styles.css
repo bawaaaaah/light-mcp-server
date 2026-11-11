@@ -272,6 +272,11 @@ main {
 .ch.parked {
   outline: 1px solid var(--accent);
 }
+/* past channel 512: a fixture running off the universe, never sent */
+.ch.unsent {
+  opacity: 0.45;
+  outline: 1px dashed var(--danger);
+}
 .ch input[type="range"] {
   writing-mode: vertical-lr;
   direction: rtl;
@@ -364,6 +369,10 @@ td {
 }
 .warnings li {
   color: var(--warn);
+}
+/* information notes: nothing wrong, not coloured like a warning */
+.warnings li.hint {
+  color: var(--muted);
 }
 
 .grow {
@@ -843,6 +852,11 @@ table.sections th {
   background: color-mix(in srgb, var(--danger) 25%, transparent);
   color: var(--danger);
   border: 1px solid var(--danger);
+}
+/* the engine's own rule: locked, but nothing wrong */
+.badge.builtin {
+  border: 1px solid var(--line);
+  color: var(--muted);
 }
 .standby-bar {
   margin: 0.5em 0;

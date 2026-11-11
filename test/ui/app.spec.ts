@@ -2188,20 +2188,42 @@ test("show check: notes come last, and a type group is created only on a click, 
     const report = page.locator(".lint-report");
     await expect(report.locator("strong")).toContainText(/ℹ \d+ information\(s\)/);
     await expect(report.locator("li.hint", { hasText: "sans position sur la scène" }).first()).toBeVisible();
+    // a note is grey, not the colour of a warning
+    const muted = (await page.evaluate(`(() => { const p = document.createElement("span"); p.style.color = "var(--muted)"; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; })()`)) as string;
+    await expect(report.locator("li.hint").first()).toHaveCSS("color", muted);
     const proposal = report.getByRole("region", { name: "Groupes par type proposés" });
-    const lyres = proposal.locator("li", { hasText: "Lyres" });
+    await expect(proposal).toContainText("Les étiquettes restent en français"); // the help is written, not only hovered
+    const lyres = proposal.locator("li", { has: page.locator("span.name", { hasText: /^Lyres$/ }) });
     await expect(lyres).toContainText("3 projecteur(s)");
+    await expect(lyres).toContainText("head-a, head-b"); // the fixtures, by name, before the click
     expect(((await api(page, "group.list")) as { id: string }[]).some((g) => g.id === "type-lyre")).toBe(false); // nothing written yet
+    // a group gathering them by tag: nothing to propose, read again on each check
+    await api(page, "group.put", { group: { id: "mes-lyres", name: "Mes lyres", selector: { tags: ["lyre"] } } });
+    await page.getByRole("button", { name: "Vérifier le show" }).click();
+    await expect(lyres).toHaveCount(0);
+    await api(page, "group.delete", { id: "mes-lyres", force: true });
+    // a group of the user's that selects by the tag and another: the change is said before the click
+    await api(page, "group.put", { group: { id: "lyres-face", name: "Lyres de face", selector: { tags: ["lyre", "face"] } } });
+    const headA = ((await api(page, "venue.fixture.list")) as { id: string }[]).find((f) => f.id === "head-a")!;
+    await api(page, "venue.fixture.put", { fixture: { ...headA, tags: ["face"] } });
+    await page.getByRole("button", { name: "Vérifier le show" }).click();
+    await expect(lyres).toContainText("change aussi : « Lyres de face » +1");
     const live = lyres.getByLabel("mettre à jour automatiquement");
     await expect(live).toBeChecked(); // a live group by tag unless unticked
     await live.uncheck();
+    await expect(lyres).not.toContainText("change aussi"); // a fixed list adds no tag
     await lyres.getByRole("button", { name: "Créer le groupe" }).click();
-    await expect(proposal.locator("li", { hasText: "Lyres" })).toHaveCount(0); // gathered now: no longer proposed
+    await expect(lyres).toHaveCount(0); // gathered now: no longer proposed
     const group = ((await api(page, "group.list")) as { id: string; selector?: unknown; members: { fixtures: string[] } }[]).find((g) => g.id === "type-lyre")!;
     expect(group.selector).toBeUndefined();
     expect(group.members.fixtures.sort()).toEqual(["head-a", "head-b", "spot"]);
+    // the groups table says what a live group follows and gathers, not « — »
+    await api(page, "group.put", { group: { id: "lyres-tag", name: "Lyres par étiquette", selector: { tags: ["face"] } } });
+    await page.reload();
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await expect(page.locator("table.listing tr", { hasText: "Lyres par étiquette" })).toContainText("suit face · 1 fixtures");
   } finally {
-    await api(page, "group.delete", { id: "type-lyre", force: true });
+    for (const id of ["type-lyre", "lyres-face", "lyres-tag", "mes-lyres"]) await api(page, "group.delete", { id, force: true }).catch(() => undefined);
     for (const id of ["head-a", "head-b"]) await api(page, "venue.fixture.delete", { id });
   }
   expect(errors).toEqual([]);
@@ -2719,19 +2741,36 @@ test("DMX console: a Reset channel stays at rest, says why, and « Réinitialise
   try {
     await page.getByRole("button", { name: "Console DMX" }).click();
     const head = page.getByRole("region", { name: "Tête reset" });
-    await expect(head.locator(".ch").nth(3).locator(".val")).toHaveText("199"); // held just under the Reset range
+    await expect(head.locator(".ch").nth(3).locator(".val")).toHaveText("0"); // held at rest: what the show sends, not the top of « No function »
     await head.getByRole("button", { name: "Pourquoi ce canal 103" }).click();
     const why = page.getByRole("region", { name: "Pourquoi ce canal 103" });
-    await expect(why).toContainText("Protection du canal Reset (intégrée)");
-    await expect(why).toContainText("250 → 199");
-    page.once("dialog", (d) => void d.accept());
-    await why.getByRole("button", { name: "Réinitialiser l'appareil" }).click();
-    await expect(why).toContainText("Reset envoyé pendant 3 s");
-    await expect(why).toContainText("U1.103 = 200", { timeout: 3000 }); // the start of its Reset range, for a few seconds
-    await expect(why).toContainText("U1.103 = 199", { timeout: 8000 }); // then protected again
+    await expect(why).toContainText("Protection du canal Reset");
+    await expect(why).not.toContainText("(intégrée)");
+    await expect(why).toContainText("250 → 0");
+    await expect(why).toContainText("pas pendant un chant"); // the help is written, not only hovered
+    const button = why.getByRole("button", { name: "Réinitialiser l'appareil" });
+    await expect(button).toHaveClass(/danger/);
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.accept()));
+    await button.click();
+    await expect(why.getByRole("status")).toContainText("Reset envoyé pendant 5 s");
+    expect(asked).toContain("Control : Reset (200–255)"); // the range sent, named
+    await expect(button).toBeDisabled(); // once at a time
+    await expect(why).toContainText("U1.103 = 227", { timeout: 3000 }); // the middle of its Reset range, for a few seconds
+    await expect(why).toContainText("U1.103 = 0", { timeout: 10000 }); // then protected again
+    await expect(why.getByRole("status")).toHaveText("", { timeout: 3000 }); // the message goes with the window
+    await expect(button).toBeEnabled();
+    // a fixture running past 512: its last channel is shown as never sent
+    await api(page, "venue.fixture.put", { fixture: { id: "late-head", name: "Tête tardive", manufacturer: "Test", model: "Reset Head", mode: "4 Channel", universe: 1, address: 510 } });
+    await page.reload();
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    const late = page.getByRole("region", { name: "Tête tardive" });
+    await expect(late.locator(".ch.unsent")).toHaveCount(1);
+    await expect(late.locator(".ch.unsent")).toContainText("513");
+    await expect(late.locator(".ch.unsent input")).toBeDisabled();
   } finally {
     await api(page, "dmx.release", {});
-    await api(page, "venue.fixture.delete", { id: "reset-head" });
+    for (const id of ["reset-head", "late-head"]) await api(page, "venue.fixture.delete", { id }).catch(() => undefined);
   }
   expect(errors).toEqual([]);
 });
@@ -3642,6 +3681,13 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   await page.locator("nav.pages button", { hasText: "Lieu" }).click();
   const panel = page.locator(".rules-panel");
   const form = panel.locator(".rule-form");
+  // the engine's Reset protection reads as words, without a conflict badge nor its name twice
+  const builtin = panel.locator("table.rules tr", { hasText: "Protection du canal Reset" });
+  await expect(builtin).toContainText("canaux à plage Reset");
+  await expect(builtin).toContainText("tenus au repos");
+  await expect(builtin).not.toContainText("{");
+  await expect(builtin).not.toContainText("(intégrée)");
+  await expect(builtin.locator(".badge.conflict")).toHaveCount(0);
   // type level: Bar 4 dimmer max 50 %
   await form.getByLabel("Niveau").selectOption("type");
   await form.getByLabel("Portée").first().selectOption("model");

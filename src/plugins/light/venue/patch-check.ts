@@ -16,6 +16,8 @@ export interface PatchedRange {
   channels: number;
   /** Model and mode, to tell twins from mistakes. */
   kind: string;
+  /** Its channel count is a guess (no definition): what follows it is no gap. */
+  unknown?: true;
 }
 
 export interface PatchOverlap {
@@ -44,9 +46,12 @@ export function patchOverlaps(ranges: PatchedRange[]): PatchOverlap[] {
   return out;
 }
 
-/** « Spot 3 » and « Spot 4 » share U1.12–1.15, as people read it. */
+/** Channels of a universe as people read them: U1.12, U1.12–15. */
+export const dmxSpan = (universe: number, from: number, to: number): string => (from === to ? `U${universe}.${from}` : `U${universe}.${from}–${to}`);
+
+/** « Spot 3 » and « Spot 4 » share U1.12–15, as people read it. */
 export function overlapMessage(o: PatchOverlap, name: (id: string) => string): string {
-  const span = o.from === o.to ? `U${o.universe}.${o.from}` : `U${o.universe}.${o.from}–${o.universe}.${o.to}`;
+  const span = dmxSpan(o.universe, o.from, o.to);
   return say(`« ${name(o.a)} » et « ${name(o.b)} » partagent ${span}`, `“${name(o.a)}” and “${name(o.b)}” share ${span}`);
 }
 
@@ -89,29 +94,39 @@ export interface PatchGap {
 
 /**
  * Unused gaps between two patched fixtures: often an address typed wrong, or a mode counted wider
- * than it is. Information only: a gap may be kept on purpose (room for a fixture to come).
+ * than it is. Information only: a gap may be kept on purpose (room for a fixture to come). The caller
+ * passes the absent fixtures too (they keep their place for when they come back); after a fixture
+ * whose channel count is unknown (no definition) nothing is said: its end is not known.
  */
 export function patchGaps(ranges: PatchedRange[]): PatchGap[] {
   const sorted = [...ranges].sort((x, y) => x.universe - y.universe || x.address - y.address || x.id.localeCompare(y.id));
   const out: PatchGap[] = [];
   // the furthest channel reached so far in the universe, and by whom: a fixture inside a wider one leaves no gap
-  let reach: { universe: number; end: number; id: string } | undefined;
+  let reach: { universe: number; end: number; id: string; unknown: boolean } | undefined;
   for (const r of sorted) {
     if (reach?.universe !== r.universe) reach = undefined;
-    if (reach && r.address > reach.end + 1) out.push({ universe: r.universe, from: reach.end + 1, to: r.address - 1, after: reach.id, before: r.id });
-    if (!reach || last(r) > reach.end) reach = { universe: r.universe, end: last(r), id: r.id };
+    if (reach && !reach.unknown && r.address > reach.end + 1) out.push({ universe: r.universe, from: reach.end + 1, to: r.address - 1, after: reach.id, before: r.id });
+    if (!reach || last(r) > reach.end || (r.unknown && last(r) === reach.end)) reach = { universe: r.universe, end: last(r), id: r.id, unknown: Boolean(r.unknown) };
+    else if (r.unknown) reach.unknown = true; // inside a wider one, its end unknown: it may reach further
   }
   return out;
 }
 
-/** U1.31–1.40 free between « Bar 2 » and « Spot 1 ». */
-export function gapMessage(g: PatchGap, name: (id: string) => string): string {
-  const span = g.from === g.to ? `U${g.universe}.${g.from}` : `U${g.universe}.${g.from}–${g.universe}.${g.to}`;
-  const n = g.to - g.from + 1;
+/** The gaps of one universe in one line: U1 : 16–30 free between « Bar 2 » and « Spot 1 », 41 free… */
+export function gapsMessage(gaps: PatchGap[], name: (id: string) => string): string {
+  const n = gaps.reduce((sum, g) => sum + g.to - g.from + 1, 0);
+  const span = (g: PatchGap) => (g.from === g.to ? `${g.from}` : `${g.from}–${g.to}`);
   return say(
-    `${span} libre(s) entre « ${name(g.after)} » et « ${name(g.before)} » (${n} canal(aux)) : adresse à vérifier, ou place gardée exprès`,
-    `${span} free between “${name(g.after)}” and “${name(g.before)}” (${n} channel(s)): check the address, or room kept on purpose`,
+    `U${gaps[0]!.universe} : ${gaps.map((g) => `${span(g)} libre(s) entre « ${name(g.after)} » et « ${name(g.before)} »`).join(", ")} (${n} canal(aux)) : adresse à vérifier, ou place gardée exprès`,
+    `U${gaps[0]!.universe}: ${gaps.map((g) => `${span(g)} free between “${name(g.after)}” and “${name(g.before)}”`).join(", ")} (${n} channel(s)): check the address, or room kept on purpose`,
   );
+}
+
+/** The gaps grouped by universe, one line each. */
+export function gapsByUniverse(gaps: PatchGap[]): PatchGap[][] {
+  const by = new Map<number, PatchGap[]>();
+  for (const g of gaps) by.set(g.universe, [...(by.get(g.universe) ?? []), g]);
+  return [...by.values()];
 }
 
 /** What the name and position checks need to know of a patched fixture. */
@@ -139,12 +154,12 @@ export function sameModelSameName(fixtures: PatchedLook[]): { model: string; nam
   return [...byKey.values()].filter((e) => e.ids.length > 1);
 }
 
-/** 2 Acme Spot are called « Spot » (a, b). */
+/** 2 projecteurs « Acme Spot » s'appellent « Spot » (a, b). */
 export function sameModelNameMessage(s: { model: string; name: string; ids: string[] }): string {
   const name = s.name || say("sans nom", "unnamed");
   return say(
-    `${s.ids.length} ${s.model} s'appellent « ${name} » (${s.ids.join(", ")}) : donner à chacun un nom distinct (place, côté) pour les reconnaître`,
-    `${s.ids.length} ${s.model} are called “${name}” (${s.ids.join(", ")}): give each a distinct name (place, side) to tell them apart`,
+    `${s.ids.length} projecteurs « ${s.model} » s'appellent « ${name} » (${s.ids.join(", ")}) : donner à chacun un nom distinct (place, côté) pour les reconnaître`,
+    `${s.ids.length} “${s.model}” fixtures are called “${name}” (${s.ids.join(", ")}): give each a distinct name (place, side) to tell them apart`,
   );
 }
 

@@ -18,6 +18,7 @@ import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
 import { groupingMessage } from "../venue/grouping.js";
+import { holdAtRest, isBuiltinRule, unprotectable } from "../rules/reset-protection.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { say } from "../../../core/lang.js";
 
@@ -109,7 +110,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, definitions repeating a colour component out of any head (only one zone gets the colour), looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, definitions repeating a colour component out of any head (only one zone gets the colour), looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest). Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -166,6 +167,19 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const g of notes.gaps) note(say(`univers ${g.universe}`, `universe ${g.universe}`), g.message);
       for (const s of notes.sameNames) note(say(`projecteur ${s.ids.join(", ")}`, `fixture ${s.ids.join(", ")}`), s.message);
       for (const p of notes.noPosition) note(say(`projecteur ${p.id}`, `fixture ${p.id}`), p.message);
+      // a channel that is all maintenance (one 0–255 « Reset »): the built-in protection has no rest to hold it at
+      for (const f of runtime.venue.installed()) {
+        const r = runtime.venue.resolve(f.id);
+        if ("error" in r) continue;
+        for (const ch of unprotectable(r))
+          warn(
+            say(`projecteur ${f.id}`, `fixture ${f.id}`),
+            say(
+              `« ${f.name} » · ${ch} n'a que des plages de maintenance (Reset, lampe) : la protection Reset ne peut pas le tenir au repos ; ne pas le piloter par un look ni un fader`,
+              `“${f.name}” · ${ch} has maintenance ranges only (Reset, lamp): the Reset protection cannot hold it at rest; do not drive it from a look or a fader`,
+            ),
+          );
+      }
       const grouping = runtime.typeGrouping();
       if (grouping.tags.length || grouping.groups.length) note(say("groupes par type", "type groups"), groupingMessage(grouping));
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
@@ -176,6 +190,9 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         return f ? zoneOf(f, zones)?.id : undefined;
       };
       const always = runtime.rulesInForce().filter((r) => !r.program);
+      const ruleName = new Map(always.map((r) => [r.id, r.name || r.id]));
+      // the built-in Reset protection holds at rest, not at the nearest value (rules/reset-protection.ts)
+      const ordinary = always.filter((r) => !isBuiltinRule(r.id));
       if (always.length) {
         for (const l of runtime.looks.list()) {
           if (!l.channels) continue;
@@ -189,10 +206,13 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
               const index = r.patch.address - 1 + t.offset;
               if (index < 0 || index >= 512) continue;
               buf[index] = value;
-              const c = applyRules(always, r, buf, zoneById).find((x) => x.channel === name);
-              if (!c || said.has(`${t.fixture}/${name}`)) continue;
+              const moved = [...applyRules(ordinary, r, buf, zoneById), ...(ordinary.length < always.length ? holdAtRest(r, buf, new Map()) : [])].filter((x) => x.channel === name);
+              const c = moved.at(-1);
+              if (!c || buf[index] === value || said.has(`${t.fixture}/${name}`)) continue;
               said.add(`${t.fixture}/${name}`);
-              warn(`look ${l.id}`, say(`écrit ${r.patch.name} · ${name} à ${c.from}, mais la règle ${c.rule || "du lieu"} le ramène à ${c.to} : le look ne rend pas ce qu'il dit`, `writes ${r.patch.name} · ${name} at ${c.from}, but rule ${c.rule || "of the venue"} brings it to ${c.to}: the look does not show what it says`));
+              const rule = c.rule ? `« ${ruleName.get(c.rule) ?? c.rule} »` : say("du lieu", "of the venue");
+              const ruleEn = c.rule ? `“${ruleName.get(c.rule) ?? c.rule}”` : "of the venue";
+              warn(`look ${l.id}`, say(`écrit ${r.patch.name} · ${name} à ${value}, mais la règle ${rule} le ramène à ${buf[index]} : le look ne rend pas ce qu'il dit`, `writes ${r.patch.name} · ${name} at ${value}, but rule ${ruleEn} brings it to ${buf[index]}: the look does not show what it says`));
             }
           });
         }

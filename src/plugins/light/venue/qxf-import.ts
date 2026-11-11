@@ -132,7 +132,7 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
   if (/^Prism/.test(p) || /prism/i.test(n)) return "prism";
   if (/^Beam/.test(p) || /zoom|focus|iris|frost/i.test(n)) return "beam";
   if (/^Rotation/.test(p)) return "rotation";
-  if (/^Reset|^Lamp/.test(p) || /reset|lamp/i.test(n)) return "maintenance";
+  if (/^Reset|^Lamp/.test(p) || /\b(reset|lamps?)\b/i.test(n)) return "maintenance";
   if (/Macro|Effect/.test(p) || /macro|effect|program|sound|auto/i.test(n)) return "effect";
   if (/Speed|SlowToFast|FastToSlow/.test(p) || /speed/i.test(n)) return "speed";
   return "other";
@@ -145,7 +145,8 @@ export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
   if (/macro|built-?in/i.test(haystack)) tags.add("builtinMacro");
   if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
-  if (/reset/i.test(haystack)) tags.add("reset");
+  // a whole word, or a QLC+ Reset* preset: never « Preset 1 » nor « Colour presets », never « No reset »
+  if (/^Reset/.test(preset ?? "") || (/\breset\b/i.test(name) && !/\bno[ -]?reset\b/i.test(name))) tags.add("reset");
   if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");
   return [...tags];
 }

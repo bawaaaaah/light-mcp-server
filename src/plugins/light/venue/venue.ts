@@ -19,7 +19,8 @@ import { headsOf } from "./heads.js";
 import { findDuplicateDefinitions, type DuplicateReport } from "./definition-duplicates.js";
 import {
   beyondMessage,
-  gapMessage,
+  gapsByUniverse,
+  gapsMessage,
   missingPositions,
   noPositionMessage,
   overlapMessage,
@@ -462,11 +463,11 @@ export class Venue {
     return undefined;
   }
 
-  /** Each patched fixture's DMX footprint (one channel when its definition is missing). */
-  patchRanges(): PatchedRange[] {
-    return this.installed().map((f) => {
+  /** Each patched fixture's DMX footprint (one channel, said unknown, when its definition is missing); the absent ones too on demand. */
+  patchRanges(withAbsent = false): PatchedRange[] {
+    return (withAbsent ? this.fixtures.list() : this.installed()).map((f) => {
       const r = this.resolve(f.id);
-      return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels: "error" in r ? 1 : r.mode.channels.length, kind: `${f.manufacturer}|${f.model}|${f.mode}` };
+      return { id: f.id, name: f.name, universe: f.universe, address: f.address, channels: "error" in r ? 1 : r.mode.channels.length, kind: `${f.manufacturer}|${f.model}|${f.mode}`, ...("error" in r ? { unknown: true as const } : {}) };
     });
   }
 
@@ -495,11 +496,12 @@ export class Venue {
 
   /**
    * The patch's information notes (docs/specs/venue-fixtures-stage.md, « Patch »): unused gaps
-   * between fixtures, fixtures of one model sharing a name, moving heads or placed fixtures without
-   * a stage position. Installed fixtures only, as the overlap check.
+   * between fixtures, one line per universe (an absent fixture keeps its place), fixtures of one
+   * model sharing a name, moving heads or placed fixtures without a stage position (installed
+   * fixtures only, as the overlap check).
    */
   patchNotes(): {
-    gaps: (PatchGap & { message: string })[];
+    gaps: { universe: number; gaps: PatchGap[]; message: string }[];
     sameNames: { model: string; name: string; ids: string[]; message: string }[];
     noPosition: { id: string; moving: boolean; message: string }[];
   } {
@@ -509,7 +511,7 @@ export class Venue {
       return { id: f.id, name: f.name, model: `${f.manufacturer} ${f.model}`, moving: !("error" in r) && Boolean(r.pan || r.tilt), hasPosition: Boolean(f.position), placed: Boolean(f.mount || f.target) };
     });
     return {
-      gaps: patchGaps(this.patchRanges()).map((g) => ({ ...g, message: gapMessage(g, name) })),
+      gaps: gapsByUniverse(patchGaps(this.patchRanges(true))).map((gaps) => ({ universe: gaps[0]!.universe, gaps, message: gapsMessage(gaps, name) })),
       sameNames: sameModelSameName(looks).map((s) => ({ ...s, message: sameModelNameMessage(s) })),
       noPosition: missingPositions(looks).map((p) => ({ ...p, message: noPositionMessage(p, name) })),
     };

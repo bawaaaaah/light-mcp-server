@@ -145,7 +145,7 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.orient": "",
   "venue.fixture.presence": "I",
   "venue.fixture.put": "DI",
-  "venue.grouping.apply": "I",
+  "venue.grouping.apply": "",
   "venue.positions.import": "DI",
   "venue.wheel.clear": "DI",
   "venue.wheel.put": "DI",

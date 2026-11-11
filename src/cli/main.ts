@@ -191,7 +191,7 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
     switch (name) {
       case "check": {
         const lint = await caller.call<{ ok: boolean; issues: { level: string; where: string; message: string }[] }>("show.lint");
-        for (const i of lint.issues) console.log(`${i.level === "erreur" ? "✖" : "⚠"} ${i.where} : ${i.message}`);
+        for (const i of lint.issues) console.log(`${i.level === "erreur" ? "✖" : i.level === "info" ? "ℹ" : "⚠"} ${i.where} : ${i.message}`);
         console.log(lint.ok ? "✔ show valide" : "✖ erreurs à corriger");
         return lint.ok ? 0 : 1;
       }

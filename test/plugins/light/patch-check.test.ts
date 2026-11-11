@@ -7,7 +7,8 @@ import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import {
   beyondMessage,
-  gapMessage,
+  gapsByUniverse,
+  gapsMessage,
   missingPositions,
   overlapMessage,
   patchBeyondUniverse,
@@ -39,13 +40,25 @@ describe("patch check: end of universe, gaps, names, positions", () => {
       { universe: 1, from: 16, to: 30, after: "b", before: "c" },
       { universe: 1, from: 36, to: 39, after: "c", before: "d" },
     ]);
-    expect(gapMessage(gaps[0]!, (id) => id)).to.contain("U1.16–1.30").and.to.contain("15 canal(aux)");
+    // one line per universe
+    const lines = gapsByUniverse([...gaps, { universe: 2, from: 3, to: 3, after: "x", before: "y" }]);
+    expect(lines.map((l) => l.length)).to.deep.equal([2, 1]);
+    const line = gapsMessage(lines[0]!, (id) => id.toUpperCase());
+    expect(line).to.match(/^U1 : 16–30 libre\(s\) entre « B » et « C », 36–39 libre\(s\) entre « C » et « D » \(19 canal\(aux\)\)/);
+    expect(gapsMessage(lines[1]!, (id) => id)).to.contain("U2 : 3 libre(s)");
+  });
+
+  it("says no gap after a fixture whose channel count is unknown (no definition)", () => {
+    const unknown = { ...r("nodef", 11, 1), unknown: true as const };
+    expect(patchGaps([r("a", 1, 10), unknown, r("b", 30, 5)])).to.deep.equal([]);
+    // nor after a wider one holding it, its end being unknown too
+    expect(patchGaps([r("a", 1, 10), { ...r("nodef", 3, 1), unknown: true as const }, r("b", 30, 5)])).to.deep.equal([]);
   });
 
   it("names fixtures of one model sharing a name, not two models with one name", () => {
     const same = sameModelSameName([look("a", { name: "Spot" }), look("b", { name: " spot " }), look("c", { name: "Spot", model: "Other Spot" }), look("d", { name: "Spot cour" })]);
     expect(same).to.deep.equal([{ model: "Acme Par", name: "Spot", ids: ["a", "b"] }]);
-    expect(sameModelNameMessage(same[0]!)).to.contain("2 Acme Par").and.to.contain("« Spot »");
+    expect(sameModelNameMessage(same[0]!)).to.contain("2 projecteurs « Acme Par » s'appellent « Spot »");
   });
 
   it("asks a position of a moving head or a fixture placed on the stage, never of a plain PAR", () => {
@@ -65,7 +78,7 @@ describe("patch check: overlapping DMX channels", () => {
       ["e", "g", 20, 24],
       ["f", "g", 20, 24],
     ]);
-    expect(overlapMessage(found[0]!, (id) => id.toUpperCase())).to.equal("« B » et « C » partagent U1.9–1.10");
+    expect(overlapMessage(found[0]!, (id) => id.toUpperCase())).to.equal("« B » et « C » partagent U1.9–10");
     expect(overlapMessage({ a: "x", b: "y", universe: 2, from: 3, to: 3 }, (id) => id)).to.equal("« x » et « y » partagent U2.3");
   });
 
@@ -85,7 +98,7 @@ describe("patch check: overlapping DMX channels", () => {
       info: { gaps: [], sameNames: [], noPosition: [] },
     }); // bars at 1 and 16, 15 channels each
     const put = (await run("venue.fixture.put", { fixture: { id: "extra", name: "Extra", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 10 } })) as { warning?: string };
-    expect(put.warning).to.contain("partagent U1.10–1.15").and.to.contain("« Extra »");
+    expect(put.warning).to.contain("partagent U1.10–15").and.to.contain("« Extra »");
     const lint = (await run("show.lint")) as { issues: { where: string; message: string }[] };
     expect(lint.issues.filter((i) => i.message.includes("mêmes canaux"))).to.have.length(2); // with each bar
     // past the end of the universe: said when patching, a warning in the show check
@@ -95,9 +108,14 @@ describe("patch check: overlapping DMX channels", () => {
     expect(again.issues.find((i) => i.message.includes("519"))!.level).to.equal("attention");
     // the gap before it is information only
     expect(again.issues.find((i) => i.message.includes("libre(s)"))!.level).to.equal("info");
-    const check = (await run("venue.patch.check")) as { beyondUniverse: { id: string }[]; info: { gaps: { from: number; to: number }[] } };
+    const check = (await run("venue.patch.check")) as { beyondUniverse: { id: string }[]; info: { gaps: { universe: number; gaps: { from: number; to: number }[] }[] } };
     expect(check.beyondUniverse.map((b) => b.id)).to.deep.equal(["late"]);
-    expect(check.info.gaps.map((g) => [g.from, g.to])).to.deep.equal([[31, 504]]);
+    expect(check.info.gaps.map((l) => [l.universe, l.gaps.map((g) => [g.from, g.to])])).to.deep.equal([[1, [[31, 504]]]]);
+    // an absent fixture keeps its place: no gap where it stands
+    await run("venue.fixture.put", { fixture: { id: "away", name: "Away", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 31 } });
+    await run("venue.fixture.presence", { fixtures: ["away"], present: false });
+    const after = (await run("venue.patch.check")) as { info: { gaps: { gaps: { from: number; to: number }[] }[] } };
+    expect(after.info.gaps.flatMap((l) => l.gaps.map((g) => [g.from, g.to]))).to.deep.equal([[46, 504]]);
   });
 
   it("names the fixtures without a definition, once per model in the show check", async () => {

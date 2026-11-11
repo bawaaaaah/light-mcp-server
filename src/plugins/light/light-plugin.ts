@@ -32,6 +32,7 @@ import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { registerDesignCommands } from "./commands/design-commands.js";
 import { loadKnowledge, type Knowledge } from "./knowledge/knowledge.js";
 import { ShowRuntime } from "./show/runtime.js";
+import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore, ID_RE } from "./data/store.js";
@@ -223,11 +224,12 @@ export class LightPlugin implements McpPlugin {
       this.definitionDirs(this.config.venue),
     );
     this.runtime = new ShowRuntime(this.show, this.venue, this.tempo, opts.now);
+    this.runtime.otherShowsGroups = () => groupsOfOtherShows(path.join(dataRoot, "shows"), this.config.show, this.config.venue);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
-    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }));
+    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }), () => this.router.isStandby());
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());

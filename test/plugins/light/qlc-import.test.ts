@@ -88,6 +88,14 @@ describe("QLC+ fixture definition import", () => {
     expect(capabilityTags("Sound Control")).to.include("soundActive");
     expect(capabilityTags("Strobe Off")).to.not.include("strobe");
   });
+
+  it("tags a Reset range by the whole word or the QLC+ preset, never a « preset » nor « no reset »", () => {
+    for (const name of ["Colour presets", "Preset 1", "Presets 1-8", "No reset", "No Reset (hold)"]) expect(capabilityTags(name), name).to.not.include("reset");
+    expect(capabilityTags("Reset all")).to.include("reset");
+    expect(capabilityTags("Pan/Tilt reset")).to.include("reset");
+    expect(capabilityTags("Hold 5 s", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Preset 1", "ColorMacro")).to.not.include("reset");
+  });
 });
 
 describe("QLC+ workspace import", () => {

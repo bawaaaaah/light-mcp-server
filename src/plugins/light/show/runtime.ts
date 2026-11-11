@@ -15,8 +15,8 @@ import type { FixtureChannel } from "../venue/qxf-import.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
-import { isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule } from "../rules/reset-protection.js";
-import { proposeTypeGrouping, type TypeGrouping } from "../venue/grouping.js";
+import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
+import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGrouping } from "../venue/grouping.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
@@ -111,6 +111,8 @@ export interface ChannelExplanation {
   resettable?: true;
   /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour), the colour asked and the gap between them (OKLab, 0 = the same). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
+  /** Its Reset channels (the range a voluntary reset sends), and the seconds left while one runs. */
+  reset?: { channels: ResetChannel[]; secondsLeft?: number };
 }
 
 export class ShowRuntime {
@@ -537,6 +539,7 @@ export class ShowRuntime {
     this.flashes.clear();
     this.manualPositions.clear();
     this.activeProgram = undefined;
+    this.resets.clear();
   }
 
   private restart(lookId: string): void {
@@ -668,7 +671,9 @@ export class ShowRuntime {
       faders,
       rawLooks,
       clamps,
-      ...(!("error" in r) && resetChannels(r).length ? { resettable: true as const } : {}),
+      ...(!("error" in r) && resetChannels(r).length
+        ? { resettable: true as const, reset: { channels: resetChannels(r), ...(this.resetting(fixture.id) ? { secondsLeft: Math.ceil((this.resets.get(fixture.id)! - this.now()) / 1000) } : {}) } }
+        : {}),
     };
   }
 
@@ -701,10 +706,11 @@ export class ShowRuntime {
 
   /**
    * Resets a fixture on purpose: for RESET_WINDOW_MS, its Reset channels get the value that triggers
-   * the reset (over the show and the console), the built-in protection lifted for this fixture only;
-   * then the protection comes back. Refused for a fixture without a Reset channel.
+   * the reset (over the show and the console), the built-in protection lifted on those channels only
+   * (a twin wired on the same address gets it too: it shares them); then the protection comes back.
+   * Refused for a fixture without a Reset channel.
    */
-  startReset(fixtureId: string): { fixture: string; channels: { offset: number; name: string; value: number }[]; until: number; seconds: number } {
+  startReset(fixtureId: string): { fixture: string; channels: ResetChannel[]; until: number; seconds: number } {
     const r = this.venue.resolve(fixtureId);
     if ("error" in r) throw new Error(r.error);
     const channels = resetChannels(r);
@@ -712,6 +718,52 @@ export class ShowRuntime {
     const until = this.now() + RESET_WINDOW_MS;
     this.resets.set(fixtureId, until);
     return { fixture: fixtureId, channels, until, seconds: RESET_WINDOW_MS / 1000 };
+  }
+
+  /** Stops the voluntary resets under way (all, or one fixture's): the protection holds again at once. */
+  cancelResets(fixtureId?: string): void {
+    if (fixtureId === undefined) this.resets.clear();
+    else this.resets.delete(fixtureId);
+  }
+
+  /** The DMX slots the voluntary resets send now: universe → 0-based index → value. */
+  private resetSlots(now = this.now()): Map<number, Map<number, number>> {
+    const slots = new Map<number, Map<number, number>>();
+    for (const id of [...this.resets.keys()]) {
+      const f = this.venue.fixtures.get(id);
+      const r = this.venue.resolve(id);
+      if (!this.resetting(id, now) || !f || "error" in r || this.venue.absent.has(id)) continue;
+      const u = slots.get(f.universe) ?? new Map<number, number>();
+      for (const c of resetChannels(r)) if (f.address - 1 + c.offset < 512) u.set(f.address - 1 + c.offset, c.value);
+      slots.set(f.universe, u);
+    }
+    return slots;
+  }
+
+  /**
+   * What a voluntary reset really sends, read in rendered buffers: per Reset channel, the value out
+   * and, when it is not the reset's, the rules that moved that slot on the last frame (by name,
+   * through whichever fixture shares it). Blackout and the output's standby are the caller's to
+   * tell: they live in the engine and the router.
+   */
+  resetOutcome(fixtureId: string, buffers: readonly Uint8Array[]): { name: string; value: number; sent: number; rules: string[] }[] {
+    const f = this.venue.fixtures.get(fixtureId);
+    const r = this.venue.resolve(fixtureId);
+    if (!f || "error" in r) return [];
+    const names = new Map(this.rulesInForce().map((x) => [x.id, x.name || x.id]));
+    const slotOf = (c: Clamp): number | undefined => {
+      const o = this.venue.fixtures.get(c.fixture);
+      const ro = this.venue.resolve(c.fixture);
+      if (!o || o.universe !== f.universe || "error" in ro) return undefined;
+      const offset = ro.mode.channels.indexOf(c.channel);
+      return offset < 0 ? undefined : o.address - 1 + offset;
+    };
+    return resetChannels(r).map((c) => {
+      const index = f.address - 1 + c.offset;
+      const sent = buffers[f.universe - 1]?.[index] ?? 0;
+      const rules = sent === c.value ? [] : [...new Set(this.lastClamps.filter((x) => slotOf(x) === index).map((x) => names.get(x.rule) ?? x.rule))];
+      return { name: c.name, value: c.value, sent, rules };
+    });
   }
 
   /** Whether a voluntary reset of this fixture is under way; a closed window is forgotten. */
@@ -746,16 +798,20 @@ export class ShowRuntime {
   /** Tags and groups by kind of fixture to propose (venue/grouping.ts): nothing is written. */
   typeGrouping(): TypeGrouping {
     const fixtures = this.venue.fixtures.list().map((f) => {
+      const own = { id: f.id, name: f.name, tags: f.tags, ...(f.role ? { role: f.role } : {}) };
       const r = this.venue.resolve(f.id);
-      if ("error" in r) return { id: f.id, name: f.name, tags: f.tags, type: "", moving: false, machine: false, colour: false };
+      if ("error" in r) return { ...own, type: "", moving: false, machine: false, colour: false };
       const channels = r.mode.channels.map((n) => r.def.channels.get(n));
-      return { id: f.id, name: f.name, tags: f.tags, type: r.def.type, moving: Boolean(r.pan || r.tilt), machine: channels.some((c) => c?.tags.includes("machine")), colour: channels.some((c) => c?.attribute === "color") };
+      return { ...own, type: r.def.type, moving: Boolean(r.pan || r.tilt), machine: channels.some((c) => c?.tags.includes("machine")), colour: channels.some((c) => c?.attribute === "color") };
     });
-    return proposeTypeGrouping(
-      fixtures,
-      this.groups.list().map((g) => ({ id: g.id, name: g.name, fixtures: g.members.fixtures, ...(g.selector ? { selector: g.selector } : {}) })),
-    );
+    const proposal = proposeTypeGrouping(fixtures, this.groups.list().map(existingGroup));
+    // the tags live in the venue: the live groups of the other shows on it change too
+    const elsewhere = this.otherShowsGroups().flatMap((o) => affectedGroups(fixtures, proposal.tags, o.groups.map(existingGroup)).map((a) => ({ ...a, show: o.show })));
+    return { ...proposal, affected: [...proposal.affected, ...elsewhere] };
   }
+
+  /** The groups of the other shows playing on this venue (set by the plugin, which reads their folders); none in tests. */
+  otherShowsGroups: () => { show: string; groups: Group[] }[] = () => [];
 
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
   movingHeads(): string[] {
@@ -1033,13 +1089,10 @@ export class ShowRuntime {
    * it may not point into (the lectern), whoever aimed it, while its beam crosses that zone.
    */
   guard(buffers: Uint8Array[]): void {
-    // a voluntary reset sends its value over the show and the console, its fixture's protection lifted (mask)
-    for (const id of [...this.resets.keys()]) {
-      const f = this.venue.fixtures.get(id);
-      const r = this.venue.resolve(id);
-      const buf = f && buffers[f.universe - 1];
-      if (!this.resetting(id) || !f || !buf || "error" in r || this.venue.absent.has(id)) continue;
-      for (const c of resetChannels(r)) if (f.address - 1 + c.offset < buf.length) buf[f.address - 1 + c.offset] = c.value;
+    // a voluntary reset sends its value over the show and the console, the protection lifted on those slots (mask)
+    for (const [universe, slots] of this.resetSlots()) {
+      const buf = buffers[universe - 1];
+      if (buf) for (const [index, value] of slots) buf[index] = value;
     }
     const rules = this.rulesInForce();
     const locked = rules.filter((r) => r.locked);
@@ -1092,24 +1145,37 @@ export class ShowRuntime {
   private readonly motion = new Map<string, { v: number; t: number }>();
   private readonly steady = new Map<string, { v: number; t: number }>();
 
-  /** Applies rules to every fixture's channels in the buffers, durations included; what they bounded. */
+  /** Last value of each Reset channel outside its maintenance ranges, per DMX slot: where the protection holds it (holdAtRest). */
+  private readonly atRest = new Map<string, number>();
+
+  /**
+   * Applies rules to every fixture's channels in the buffers, durations included; what they bounded.
+   * The built-in Reset protection comes last (a venue's « max 199 » may land in a Reset range) and
+   * holds at rest rather than at the nearest value; a voluntary reset lifts it on its slots, for
+   * every fixture sharing them.
+   */
   private mask(buffers: Uint8Array[], rules: Rule[]): Clamp[] {
     const clamps: Clamp[] = [];
     if (!rules.length) return clamps;
     const now = this.now();
     const zoneById = this.zoneLookup();
+    const ordinary = rules.filter((x) => x.id !== RESET_RULE_ID);
+    const protect = ordinary.length !== rules.length;
+    const lifted = protect ? this.resetSlots(now) : new Map<number, Map<number, number>>();
     // not the absent fixtures: their channel layout would bound an installed fixture sharing their addresses
     for (const f of this.venue.installed()) {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
       if ("error" in r || !buf) continue;
-      // a voluntary reset lifts the built-in protection for its fixture only
-      const own = this.resetting(f.id, now) ? rules.filter((x) => x.id !== RESET_RULE_ID) : rules;
-      clamps.push(...applyRules(own, r, buf, zoneById), ...applyHolds(own, r, buf, now, this.holdSince, zoneById));
+      clamps.push(...applyRules(ordinary, r, buf, zoneById), ...applyHolds(ordinary, r, buf, now, this.holdSince, zoneById));
+      if (protect) clamps.push(...holdAtRest(r, buf, this.atRest, (index) => lifted.get(f.universe)?.has(index) ?? false));
     }
     return clamps;
   }
 }
+
+/** What the type grouping proposal reads of a group. */
+const existingGroup = (g: Group): ExistingGroup => ({ id: g.id, name: g.name, fixtures: g.members.fixtures, groups: g.members.groups, ...(g.selector ? { selector: g.selector } : {}) });
 
 /**
  * Level of a group's DCA: its master level (1 without a master) within its limits — clamped, or

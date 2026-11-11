@@ -26,7 +26,7 @@ export const PROMPTS: LightPrompt[] = [
       [
         "Vérifie que la régie lumière est prête pour le service, sans rien changer à la lumière.",
         "1. light_output_status : la sortie est-elle en veille (rien n'atteint les projecteurs) ? D'autres consoles Art-Net sont-elles vues ?",
-        "2. light_show_lint : les erreurs (✖) et les alertes (⚠), avec ce qu'il faut faire pour chacune.",
+        "2. light_show_lint : les erreurs (✖) et les alertes (⚠), avec ce qu'il faut faire pour chacune ; les informations (ℹ) ne sont pas des problèmes : les citer sans en faire des points à corriger.",
         "3. light_venue_patch_check : chevauchements d'adresses, projecteurs sans définition.",
         "4. light_show_settings et light_snapshot_list : le Panic a-t-il un instantané ou un look de secours ?",
         "5. light_activity_list : des changements récents inattendus (qui, d'où) ?",

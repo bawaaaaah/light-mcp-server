@@ -26,7 +26,12 @@ interface Explain {
   clamps: { rule: string; name?: string; from: number; to: number }[];
   /** Its fixture has Reset channels, held at rest by the built-in protection: fixture.reset resets it on purpose. */
   resettable?: boolean;
+  /** Those channels, the Reset range each would send, and the seconds left while a reset runs. */
+  reset?: { channels: { name: string; range: string; others: string[] }[]; secondsLeft?: number };
 }
+
+/** The last DMX slot of a universe: a fixture running past it loses its last channels. */
+const SLOTS = 512;
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 
@@ -34,11 +39,27 @@ const pct = (x: number) => `${Math.round(x * 100)} %`;
 function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void; onError: (message: string) => void }) {
   const t = useT();
   const f = why.fixture;
-  const [resetDone, setResetDone] = useState("");
-  /** A voluntary reset: the built-in protection is lifted for this fixture only, a few seconds. */
+  /** What the last reset answered (a warning when part of it could not go out), until its window ends. */
+  const [status, setStatus] = useState<{ text: string; warn: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const running = why.reset?.secondsLeft;
+  /** A voluntary reset: the built-in protection is lifted on this fixture's Reset channels, a few seconds. */
   const reset = (fixture: { id: string; name: string }) => {
-    if (!confirm(t.resetFixtureConfirm.replace("{name}", quoted(t, fixture.name)))) return;
-    void cmd<{ seconds: number }>("fixture.reset", { id: fixture.id }).then((r) => setResetDone(t.resetFixtureDone.replace("{s}", String(r.seconds))), (e: Error) => onError(e.message));
+    const ranges = (why.reset?.channels ?? []).map((c) => `${c.name}${t.colon} ${c.range}`).join(", ");
+    if (!confirm(t.resetFixtureConfirm.replace("{name}", quoted(t, fixture.name)).replace("{ranges}", ranges))) return;
+    setBusy(true);
+    void cmd<{ seconds: number; warning?: string }>("fixture.reset", { id: fixture.id, confirm: true })
+      .then(
+        (r) => {
+          setStatus({ text: r.warning ?? t.resetFixtureDone.replace("{s}", String(r.seconds)), warn: Boolean(r.warning) });
+          window.clearTimeout(timer.current);
+          timer.current = window.setTimeout(() => setStatus(null), r.seconds * 1000);
+        },
+        (e: Error) => onError(e.message),
+      )
+      .finally(() => setBusy(false));
   };
   return (
     <section className="report why" aria-label={`${t.whyChannel} ${why.channel}`}>
@@ -86,12 +107,17 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         ))}
       </ul>
       {f && why.resettable && (
-        <div className="row">
-          <button title={t.resetFixtureHelp} onClick={() => reset(f)}>
-            {t.resetFixture}
-          </button>
-          {resetDone && <span className="hint">{resetDone}</span>}
-        </div>
+        <>
+          <div className="row">
+            <button className="danger" disabled={busy || status !== null || running !== undefined} onClick={() => reset(f)}>
+              {t.resetFixture}
+            </button>
+            <span role="status" className={status?.warn ? "warn" : "hint"}>
+              {status?.text ?? (running !== undefined ? t.resetFixtureRunning.replace("{s}", String(running)) : "")}
+            </span>
+          </div>
+          <p className="hint">{t.resetFixtureHelp}</p>
+        </>
       )}
     </section>
   );
@@ -192,9 +218,19 @@ export function ConsolePage(): ReactElement {
   const byFixture = patchedOnly && fixtures.length > 0;
 
   const fader = (ch: number) => {
+    const name = names.get(ch);
+    // a fixture running off the universe: its last channels are never sent, nothing to force
+    if (ch > SLOTS)
+      return (
+        <div key={ch} className="ch unsent" title={`${name ? `${name.fixture} · ${name.channel} — ` : ""}${t.channelNotSent}`}>
+          <span className="num">{ch}</span>
+          <input type="range" min={0} max={255} value={0} disabled aria-label={`${ch} ${name ? `${name.fixture} ${name.channel} ` : ""}— ${t.channelNotSent}`} />
+          <span className="val">—</span>
+          {name && <span className="lbl">{name.channel}</span>}
+        </div>
+      );
     const isParked = parked[ch] !== undefined;
     const v = values[ch - 1] ?? 0;
-    const name = names.get(ch);
     return (
       <div key={ch} className={`ch${isParked ? " parked" : ""}${explained === ch ? " explained" : ""}`} title={name ? `${name.fixture} · ${name.channel}` : undefined}>
         <button className="num" aria-label={`${t.whyChannel} ${ch}`} aria-pressed={explained === ch} onClick={() => setExplained(explained === ch ? null : ch)}>
@@ -257,7 +293,7 @@ export function ConsolePage(): ReactElement {
         )}
       </section>
       {patch !== null && fixtures.length === 0 && <p className="hint">{t.noPatchHere}</p>}
-      {why && <WhyPanel key={why.channel} why={why} onClose={() => setExplained(null)} onError={setError} />}
+      {why && <WhyPanel key={`${why.universe}.${why.channel}`} why={why} onClose={() => setExplained(null)} onError={setError} />}
       {!why && <p className="hint">{t.whyChannelHelp}</p>}
       {byFixture ? (
         <div className="channels by-fixture">
