@@ -6,6 +6,7 @@ import { useFloatingMenu } from "./menu";
 import { DmxModeSection } from "./DmxModeSection";
 import { FixtureHeads } from "./FixtureHeads";
 import { WheelEntry } from "./WheelEditor";
+import { TracksEntry } from "./TracksEditor";
 
 export interface MarkedFixture {
   id: string;
@@ -250,6 +251,7 @@ export function FixtureMenu({
       )}
       <FixtureHeads fixture={fixture.id} onSaved={onSaved} />
       <WheelEntry fixtureId={fixture.id} onSaved={onSaved} />
+      <TracksEntry fixtureId={fixture.id} onSaved={onSaved} />
       <fieldset className="fixture-place">
         <legend>{t.fixtureMove}</legend>
         <div className="row">

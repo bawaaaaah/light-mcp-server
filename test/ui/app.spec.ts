@@ -5350,6 +5350,62 @@ test("venue patch: a lamp's colour wheel is corrected from its menu, for the mod
   expect(errors).toEqual([]);
 });
 
+test("venue patch: fadeable tracks are enabled on a fixture and ticked for its model, then for it alone (T5)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Tracks = { enabled: boolean; applies: string; own: string[] | null; model: { fade: string[] | null } };
+  const tracks = async () => (await api(page, "venue.tracks.get", { fixture: "spot" })) as Tracks;
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    const row = page.locator("tr", { hasText: "Lyre" }).filter({ has: page.locator("td") }).first();
+    await row.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
+    await menu.getByRole("button", { name: "Transitions…" }).click();
+    const editor = menu.getByRole("group", { name: "Transitions…" });
+    // nothing ticked at first, the tracks off: the usual engine, said in clear
+    await expect(editor.getByRole("status")).toContainText("Rien de coché : tous les canaux sautent");
+    await expect(editor).toContainText("comportement habituel du moteur");
+    await expect(editor.getByRole("checkbox", { name: "Dimmer" })).not.toBeChecked();
+    // pan and tilt can be ticked, but say they do nothing yet; the wheel has no box
+    await expect(editor.getByRole("group", { name: "Position" })).toContainText("sans effet pour l'instant");
+    await expect(editor.getByRole("checkbox", { name: "Pan", exact: true })).toBeVisible();
+    await expect(editor.getByRole("checkbox", { name: "Color Wheel" })).toHaveCount(0);
+    await expect(editor).toContainText("la roue change de case à mi-fondu, ou au noir");
+    // enabled on the fixture: saved, and the patch shows it
+    await editor.getByRole("button", { name: "Pistes activées sur cet appareil" }).click();
+    await expect.poll(async () => (await tracks()).enabled).toBe(true);
+    await expect(editor.getByRole("button", { name: "Pistes activées sur cet appareil" })).toHaveAttribute("aria-pressed", "true");
+    await expect(row.locator(".badge.tracks")).toBeVisible();
+    // for the model (the default scope): the shortcut ticks the intensity
+    await expect(editor.getByRole("radio", { name: "Ce modèle" })).toHaveAttribute("aria-checked", "true");
+    await editor.getByRole("button", { name: "Cocher l'intensité" }).click();
+    await expect.poll(async () => (await tracks()).model.fade).toEqual(["Dimmer"]);
+    await expect(editor.getByRole("checkbox", { name: "Dimmer" })).toBeChecked();
+    await expect(editor).toContainText("S'applique : la liste du modèle");
+    await expect(editor.getByRole("status")).toContainText("Les canaux cochés suivent les fondus");
+    // for this fixture only: it starts from the model's list, then keeps its own
+    await editor.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await expect(editor).toContainText("copie la liste du modèle");
+    await editor.getByRole("checkbox", { name: "Shutter" }).check();
+    await expect.poll(async () => (await tracks()).own).toEqual(["Dimmer", "Shutter"]);
+    await expect(editor).toContainText("S'applique : la liste de cet appareil");
+    await page.screenshot({ path: "test-results/venue-tracks-editor.png" });
+    // back to the model: its own list goes, the tracks stay enabled
+    await editor.getByRole("button", { name: "Revenir au modèle" }).click();
+    await expect.poll(async () => [(await tracks()).own, (await tracks()).applies, (await tracks()).enabled]).toEqual([null, "model", true]);
+    await expect(editor.getByRole("checkbox", { name: "Shutter" })).not.toBeChecked();
+    // switched off: the list stays, greyed
+    await editor.getByRole("button", { name: "Pistes activées sur cet appareil" }).click();
+    await expect.poll(async () => (await tracks()).enabled).toBe(false);
+    await expect(row.locator(".badge.tracks")).toHaveCount(0);
+    await expect(editor.getByRole("checkbox", { name: "Dimmer" })).toBeChecked();
+  } finally {
+    await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: false, fade: null });
+    await api(page, "venue.tracks.clear", { fixture: "spot", scope: "model" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("DMX console: a colour wheel channel says its slot, the colour asked and the gap between them", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

@@ -38,6 +38,8 @@ interface Fixture {
   /** A moving head's orientation (venue.fixture.list); the inversions show as badges in the patch. */
   orientation?: { yaw: number; pitch?: number; roll?: number; invertPan?: boolean; invertTilt?: boolean };
   color?: string;
+  /** Its own corrections (venue/overrides.ts): enabled fadeable tracks (T5) show as a badge in the patch. */
+  overrides?: { tracks?: { enabled?: boolean } };
   /** Not installed for the open show: dark, no DMX. */
   absent?: boolean;
   /** Its DMX footprint, as the server resolves its mode; missing without its definition or mode. */
@@ -236,6 +238,11 @@ export function VenuePage(): ReactElement {
                         </span>
                       );
                     })()}
+                    {f.overrides?.tracks?.enabled && (
+                      <span className="badge tracks" title={t.tracksBadge} aria-label={t.tracksBadge}>
+                        ∿
+                      </span>
+                    )}
                   </td>
                   <td>
                     <small>

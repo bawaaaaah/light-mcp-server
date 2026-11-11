@@ -846,6 +846,14 @@ table.sections th {
   font-weight: 600;
   cursor: help;
 }
+/* A fixture whose fadeable tracks are enabled (T5), beside its inversions */
+.badge.tracks {
+  margin-left: 0.45em;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: help;
+}
 .badge {
   padding: 0.2em 0.6em;
   border-radius: 999px;
@@ -1722,6 +1730,45 @@ table.rules td {
   .widget-menu .wheel-add {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+/* Fadeable tracks (TracksEditor.tsx): one box per channel, grouped by kind; greyed while the tracks are off */
+.widget-menu .tracks-editor {
+  display: grid;
+  gap: 0.4em;
+}
+.widget-menu .tracks-groups {
+  display: grid;
+  gap: 0.4em;
+}
+.widget-menu .tracks-groups.off {
+  opacity: 0.55;
+}
+.widget-menu .tracks-groups fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em 0.8em;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.widget-menu .tracks-groups fieldset > .hint {
+  flex-basis: 100%;
+}
+.widget-menu .tracks-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+@media (pointer: coarse) {
+  .widget-menu .tracks-editor button,
+  .widget-menu .tracks-channel {
+    min-height: 44px;
+  }
+  .widget-menu .tracks-channel input {
+    width: 22px;
+    height: 22px;
   }
 }
 .widget-menu .wheel-slots li.off .wheel-slot-name {

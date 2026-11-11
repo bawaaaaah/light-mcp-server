@@ -13,7 +13,7 @@ type Tracks = {
   applies: "fixture" | "model" | "none";
   channels: { name: string; kind: string; fade: boolean; from: string }[];
   own: string[] | null;
-  model: { fade: string[] | null; fixtures: number };
+  model: { fade: string[] | null; ids: string[] };
   motion: { pan?: string; tilt?: string } | null;
 };
 
@@ -40,7 +40,7 @@ describe("fadeable tracks: commands (T5)", () => {
   it("reads a fixture's channels by kind, nothing enabled nor ticked at first", async () => {
     const { get } = await patched();
     const t = await get("bar-l");
-    expect([t.enabled, t.applies, t.own, t.model, t.motion]).to.deep.equal([false, "none", null, { fade: null, fixtures: 2 }, null]);
+    expect([t.enabled, t.applies, t.own, t.model, t.motion]).to.deep.equal([false, "none", null, { fade: null, ids: ["bar-l", "bar-r"] }, null]);
     expect(t.channels.slice(0, 4).map((c) => [c.name, c.kind, c.fade])).to.deep.equal([
       ["Dimmer", "dimmer", false],
       ["Strobe", "other", false],
