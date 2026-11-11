@@ -56,8 +56,17 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
     if (library) void cmd<(KnowledgeMood & { id: string; shows?: string[] })[]>("intention.library").then((l) => setOwn(libraryRows(l))).catch((e: Error) => onError(e.message));
   }, [library, onError]);
   useEffect(readLibrary, [readLibrary]);
-  useCommandEvents(["intention.put", "intention.delete"], readLibrary);
+  // what changes which shows use it too: songs, looks, another show opened, created, reset or restored
+  useCommandEvents(["intention.put", "intention.delete", "song.put", "song.delete", "look.put", "look.delete", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"], readLibrary);
+  // the library section also reads the whole base: what a new key replaces (shipped, private file), what a show overrides
+  const [context, setContext] = useState<KnowledgeIntentions | null>(null);
+  const readContext = useCallback(() => {
+    if (library) void cmd<KnowledgeIntentions>("knowledge.get").then(setContext).catch(() => undefined);
+  }, [library]);
+  useEffect(readContext, [readContext]);
+  useCommandEvents(["intention.put", "intention.delete", "show.open", "show.create", "backup.restore"], readContext);
   const list = useMemo(() => (library ? (own ?? []) : intentionsOf(kb)), [library, own, kb]);
+  const everything = useMemo(() => (library ? intentionsOf(context) : list), [library, context, list]);
   const loaded = library ? own !== null : Boolean(kb);
   const scope: Scope = library ? "personal" : "show";
   const origin = (o: IntentionOrigin) => t.intentionOrigins[o];
@@ -68,13 +77,17 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
     const name = row.label;
     if (action === "edit" || action === "touchUp") return setDraft({ ...draftOf(row), ...(library ? { scope: "personal" as const } : {}) });
     if (library) {
+      // one replacing a shipped or private one: removing it gives that one back, nothing is lost
+      if (action === "revert") return confirm(fill(t.intentionRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void cmd("intention.delete", { id: row.key, scope: "personal" }).catch(fail);
       // the library's own: the shows still naming it are said first, and lose it on the yes
-      const question = row.usedBy.length ? `${fill(t.intentionLibraryDeleteUsed, { name })}\n\n• ${row.usedBy.join("\n• ")}\n\n${t.intentionDeleteAnyway}` : fill(t.intentionLibraryDelete, { name });
+      const question = row.usedBy.length ? `${fill(t.intentionLibraryDeleteUsed, { name })}\n\n• ${row.usedBy.join("\n• ")}\n\n${t.intentionLibraryDeleteAnyway}` : fill(t.intentionLibraryDelete, { name });
       return confirm(question) && void cmd("intention.delete", { id: row.key, scope: "personal", force: true }).catch(fail);
     }
     if (action === "toLibrary") {
-      // copied into the library; then, on a yes, the show's copy goes and the show uses the library's
-      if (!confirm(fill(row.over === "personal" ? t.intentionToLibraryReplace : t.intentionToLibraryAsk, { name }))) return;
+      // copied into the library; then, on a yes, the show's copy goes and the show uses the library's.
+      // A touch-up of a shipped or private one replaces it in every show: said so
+      const ask = row.over === "personal" ? t.intentionToLibraryReplace : row.over ? t.intentionToLibraryOverBase : t.intentionToLibraryAsk;
+      if (!confirm(fill(ask, { name, origin: origin(row.over ?? "generic") }))) return;
       return void cmd("intention.put", putArgs({ ...draftOf(row), scope: "personal" }))
         .then(() => confirm(fill(t.intentionToLibraryUnhook, { name })) && cmd("intention.delete", { id: row.key }))
         .catch(fail);
@@ -85,8 +98,8 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
     // what would leave songs or looks naming an unknown intention: the uses read now, said first, forced on the yes
     const words =
       action === "hide"
-        ? { plain: fill(t.intentionHideAsk, { name, origin: origin(row.origin) }), usedBy: t.intentionUsedBy, anyway: t.intentionHideAnyway }
-        : { plain: fill(row.origin === "personal" ? t.intentionDeletePersonal : t.intentionDeleteShow, { name }), usedBy: t.intentionUsedBy, anyway: t.intentionDeleteAnyway, forced: t.intentionOthersAnyway };
+        ? { plain: fill(t.intentionHideAsk, { name, origin: origin(row.origin) }), usedBy: t.intentionUsedByHere, anyway: t.intentionHideAnyway }
+        : { plain: fill(row.origin === "personal" ? t.intentionDeletePersonal : t.intentionDeleteShow, { name }), usedBy: t.intentionUsedByHere, anyway: t.intentionDeleteAnyway, forced: t.intentionOthersAnyway };
     void confirmDelete("intention", row.key, name, t, undefined, words).catch(fail);
   };
 
@@ -105,6 +118,7 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
       </div>
       {/* nothing said while the list is not there yet (loading, or the read failed: the page says why) */}
       {loaded && list.length > 0 && shown.length === 0 && <p className="hint">{t.noMatch}</p>}
+      {loaded && list.length === 0 && library && <p className="hint">{t.intentionLibraryEmpty}</p>}
       {shown.length > 0 && (
         <ul className="intention-list" aria-label={t.intentionList}>
           {shown.map((row) => (
@@ -122,7 +136,8 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
                 </small>
               </span>
               {/* a mask keeps saying what it hides: « livrée · masquée dans ce show » */}
-              <span className={`badge origin-${row.hidden ? (row.over ?? "generic") : row.origin}`}>{origin(row.hidden ? (row.over ?? "generic") : row.origin)}</span>
+              {/* in the library every row is personal: the badge would only repeat it */}
+              {!library && <span className={`badge origin-${row.hidden ? (row.over ?? "generic") : row.origin}`}>{origin(row.hidden ? (row.over ?? "generic") : row.origin)}</span>}
               {row.over && !row.hidden && <small className="hint">{fill(t.intentionOver, { origin: origin(row.over) })}</small>}
               {row.hidden && <small className="warn">{t.intentionHidden}</small>}
               {row.usedBy.length ? (
@@ -154,7 +169,7 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
           ))}
         </ul>
       )}
-      {draft && <IntentionEditor initial={draft} list={list} t={t} scopeChoice={!library} onClose={() => setDraft(null)} />}
+      {draft && <IntentionEditor initial={draft} list={list} context={everything} t={t} scopeChoice={!library} onClose={() => setDraft(null)} />}
     </section>
   );
 }
@@ -173,7 +188,24 @@ interface Swatch {
   text: string;
 }
 
-function IntentionEditor({ initial, list, t, onClose, scopeChoice }: { initial: IntentionDraft; list: IntentionRow[]; t: Texts; onClose: () => void; /** where a new one goes, offered (the show's section) or fixed (the library) */ scopeChoice: boolean }): ReactElement {
+function IntentionEditor({
+  initial,
+  list,
+  context,
+  t,
+  onClose,
+  scopeChoice,
+}: {
+  initial: IntentionDraft;
+  /** the rows of the section: a key taken in its place */
+  list: IntentionRow[];
+  /** every intention the show sees (the library section reads it too): what a new key replaces, what the show overrides */
+  context: IntentionRow[];
+  t: Texts;
+  onClose: () => void;
+  /** where a new one goes, offered (the show's section) or fixed (the library) */
+  scopeChoice: boolean;
+}): ReactElement {
   const id = useId();
   const next = useRef(0);
   const swatch = (color: string): Swatch => ({ id: next.current++, color, text: color });
@@ -190,8 +222,8 @@ function IntentionEditor({ initial, list, t, onClose, scopeChoice }: { initial: 
   const key = d.id ?? intentionKey(d.label);
   const creating = d.id === undefined;
   const changed = JSON.stringify(putArgs(draft)) !== JSON.stringify(putArgs(initial));
-  const shadowed = d.scope === "personal" && list.some((r) => r.key === key && r.origin === "show" && !r.hidden);
-  const replaced = replacedBy(draft, list);
+  const shadowed = d.scope === "personal" && context.some((r) => r.key === key && r.origin === "show" && !r.hidden);
+  const replaced = replacedBy(draft, context);
   const set = (patch: Partial<IntentionDraft>) => setD((x) => ({ ...x, ...patch }));
   const title = creating ? t.intentionNewTitle : initial.label || key;
 

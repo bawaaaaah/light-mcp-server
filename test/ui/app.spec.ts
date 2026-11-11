@@ -5754,6 +5754,7 @@ test("intentions on a phone: the list grows with the page, finger-sized controls
   expect(await list.evaluate((el) => el.ownerDocument.defaultView!.getComputedStyle(el).overflowY)).toBe("visible");
   const action = list.locator(".intention-actions button").first();
   expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const control of [section.getByRole("searchbox"), section.getByRole("button", { name: "➕ Nouvelle intention" })]) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   // the uses, unfolded by a finger: a 44 px target
   await api(page, "song.put", { song: { id: "t15-phone", title: "Essai téléphone", mood: ["calme"], sections: [] } });
   try {
@@ -5814,11 +5815,19 @@ test("intentions: a show's one goes to the library, the library is managed from 
     await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
     const library = page.locator("section.intentions", { has: page.getByRole("heading", { name: "Ma bibliothèque d'intentions" }) });
     const own = library.locator("li", { hasText: "Brume du soir" });
-    await expect(own.locator(".badge")).toHaveText("personnelle");
-    await expect(library.getByRole("radio")).toHaveCount(0);
+    await expect(own).toBeVisible();
+    await expect(own.locator(".badge")).toHaveCount(0); // every row is personal there: not repeated
+    // a new one from the library with a shipped key: said to replace it in every show
+    await library.getByRole("button", { name: "➕ Nouvelle intention" }).click();
+    const editor = page.getByRole("dialog", { name: "Nouvelle intention" });
+    await expect(editor.getByRole("radio")).toHaveCount(0); // its place is the library
+    await editor.getByLabel("Libellé").fill("Joie");
+    await expect(editor.getByText("Cette clé est celle d'une intention livrée (« Joie ») : la nouvelle la remplacera pour tous les shows de cette machine.")).toBeVisible();
+    await editor.getByRole("button", { name: "Annuler" }).click();
     await own.getByRole("button", { name: "Supprimer · Brume du soir" }).click();
     await expect(own).toHaveCount(0);
     expect(asked.at(-1)).toContain("Supprimer « Brume du soir » de ta bibliothèque");
+    await expect(library.getByText("Aucune intention dans ta bibliothèque.")).toBeVisible();
   } finally {
     // what a failed run left behind only: a delete of nothing would be a 404 in the console
     const kb = (await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }> };

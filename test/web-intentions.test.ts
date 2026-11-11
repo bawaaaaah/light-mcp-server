@@ -50,6 +50,7 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(of("lever-de-rideau")).to.deep.equal(["edit", "toLibrary", "delete"]);
     expect(of("calme")).to.deep.equal(["edit", "toLibrary", "revert"]);
     expect(actionsOf(list.find((r) => r.key === "lever-de-rideau")!, true)).to.deep.equal(["edit", "delete"]); // the library section
+    expect(actionsOf(list.find((r) => r.key === "calme")!, true)).to.deep.equal(["edit", "revert"]); // one over a shipped one gives it back
     expect(of("douceur")).to.deep.equal(["edit", "copyToShow", "delete"]);
     expect(of("brume")).to.deep.equal(["touchUp", "copyToShow", "hide"]);
     expect(of("joie")).to.deep.equal(["touchUp", "hide"]);

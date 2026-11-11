@@ -3,6 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { newSong, SetlistEditor, SongEditor, type SetlistDraft, type SongDraft } from "../components/SongEditor";
+import { originsOf, type KnowledgeIntentions } from "../intentions";
 
 interface Section {
   id: string;
@@ -59,6 +60,13 @@ export function SongsPage(): ReactElement {
   }, []);
   useEffect(refresh, [refresh]);
   useCommandEvents(["song.put", "song.delete", "setlist.put", "song.grid_fill"], refresh);
+  // each song's intentions said with where they come from (show, this machine, shipped: T15)
+  const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
+  const readKnowledge = useCallback(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
+  useEffect(readKnowledge, [readKnowledge]);
+  useCommandEvents(["intention.put", "intention.delete"], readKnowledge);
+  const moodsOf = (mood: string[]): string =>
+    knowledge ? originsOf(knowledge, mood).map((o) => `${o.label} (${o.origin === "unknown" ? t.intentionUnknown : o.hidden ? t.intentionHidden : t.intentionOrigins[o.origin]})`).join(", ") : mood.join(", ");
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
   // AbleSet followed and answering: a song can be sent there from here
   const [ablesetUp, setAblesetUp] = useState(false);
@@ -132,7 +140,7 @@ export function SongsPage(): ReactElement {
       {ordered.map((song) => (
         <section key={song.id} className={song.id === state.song ? "song current" : "song"}>
           <h2 onClick={() => void run("song.select", { id: song.id })}>
-            {song.title} <small>{[song.key, `${song.bpm} ${t.bpm}`, song.mood.join(", ")].filter(Boolean).join(" · ")}</small>{" "}
+            {song.title} <small>{[song.key, `${song.bpm} ${t.bpm}`, moodsOf(song.mood)].filter(Boolean).join(" · ")}</small>{" "}
             {song.id === state.song && state.transport?.playing ? (
               <button className="ghost" aria-label={`${t.stop} ${song.title}`} onClick={(e) => (e.stopPropagation(), void run("song.stop"))}>
                 ■

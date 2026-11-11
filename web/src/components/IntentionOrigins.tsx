@@ -14,12 +14,18 @@ export function IntentionOrigins({ words }: { words: readonly string[] }): React
   useEffect(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKb).catch(() => undefined), []);
   if (!kb || words.length === 0) return null;
   return (
-    <ul className="intention-origins" aria-label={t.intentions}>
-      {originsOf(kb, words).map((o) => (
-        <li key={o.word} className={`chip origin-${o.origin}`}>
-          {o.label} · {o.origin === "unknown" ? t.intentionUnknown : o.hidden ? t.intentionHidden : t.intentionOrigins[o.origin]}
-        </li>
-      ))}
-    </ul>
+    <div className="intention-origins">
+      <span className="hint">
+        {t.intentions}
+        {t.colon}
+      </span>
+      <ul aria-label={t.intentions}>
+        {originsOf(kb, words).map((o) => (
+          <li key={o.word} className={`chip origin-${o.origin}`}>
+            {o.label} · {o.origin === "unknown" ? t.intentionUnknown : o.hidden ? t.intentionHidden : t.intentionOrigins[o.origin]}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

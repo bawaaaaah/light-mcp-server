@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { downloadArchive, previewArchive, restoreArchive, type FixturePolicy, type FolderDiff, type FixtureSummary } from "../api";
 import { useT } from "../App";
+import { plural } from "../intentions";
 
 /**
  * A .lightshow file of the open show (and its venue): download it, or restore one after seeing what
@@ -23,10 +24,14 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
             if (!f) return;
             void previewArchive(f)
               .then((p) => {
-                const part = (label: string, d: FolderDiff | null) =>
-                  d === null
+                // the show's intentions get a line of their own below: not listed twice
+                const notIntention = (x: string) => !x.startsWith("intentions/");
+                const part = (label: string, whole: FolderDiff | null) => {
+                  const d = whole && { ...whole, added: whole.added.filter(notIntention), changed: whole.changed.filter(notIntention), removed: whole.removed.filter(notIntention) };
+                  return d === null
                     ? `${label}${t.colon} ${t.untouchedPart}`
                     : `${label}${t.colon} +${d.added.length} / ~${d.changed.length} / -${d.removed.length}${[...d.added.map((x) => `\n  + ${x}`), ...d.changed.map((x) => `\n  ~ ${x}`), ...d.removed.map((x) => `\n  - ${x}`)].slice(0, 12).join("")}`;
+                };
                 const defs = (x: FixtureSummary) =>
                   x.missing.length + x.differs.length + x.invalid.length + x.rejected.length === 0
                     ? ""
@@ -38,7 +43,7 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
                 const known = p.intentionsKnown ?? [];
                 const intentions =
                   (i && i.added + i.changed + i.removed ? `\n${t.restoreIntentions}${t.colon} +${i.added} / ~${i.changed} / -${i.removed}${i.removed && !i.added && !i.changed ? ` (${t.restoreIntentionsGone})` : ""}` : "") +
-                  (known.length ? `\n${t.restoreIntentionsKnown.replace("{n}", String(known.length))}${t.colon} ${known.join(", ")}` : "");
+                  (known.length ? `\n${plural(known.length, t.restoreIntentionKnown, t.restoreIntentionsKnown)}${t.colon} ${known.map((k) => k.label).join(", ")}` : "");
                 const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}${intentions}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;
                 if (!confirm(summary)) return;
                 // the policy: missing definitions are added; the differing ones only when asked

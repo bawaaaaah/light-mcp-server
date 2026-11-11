@@ -202,7 +202,7 @@ export type RowAction = "edit" | "touchUp" | "copyToShow" | "toLibrary" | "rever
  * show of the machine. In the library section (`library`), a row is the library's own: edited or deleted.
  */
 export function actionsOf(row: IntentionRow, library = false): RowAction[] {
-  if (library) return ["edit", "delete"];
+  if (library) return ["edit", row.over ? "revert" : "delete"];
   if (row.hidden) return ["restore"];
   if (row.origin === "show") return ["edit", "toLibrary", row.over ? "revert" : "delete"];
   if (row.origin === "personal") return ["edit", "copyToShow", row.over ? "revert" : "delete"];

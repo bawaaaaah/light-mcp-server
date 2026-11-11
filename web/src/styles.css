@@ -3456,9 +3456,12 @@ fieldset.checklist .checklist-search {
 }
 /* a phone: the list grows with the page (no box scrolling inside it), finger-sized controls */
 @media (max-width: 700px) {
+  /* 44 px tall, keeping its disclosure triangle (a flex summary loses it) */
   .intention-uses summary {
-    display: flex;
-    align-items: center;
+    line-height: 44px;
+  }
+  .intentions-bar input[type="search"],
+  .intentions-bar button {
     min-height: 44px;
   }
   .intention-list {
@@ -3475,11 +3478,18 @@ fieldset.checklist .checklist-search {
 .intention-origins {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.3em;
   margin: 0.2em 0 0;
+  font-size: 0.85em;
+}
+.intention-origins ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.85em;
 }
 .intention-origins .chip {
   padding: 0.05em 0.5em;
