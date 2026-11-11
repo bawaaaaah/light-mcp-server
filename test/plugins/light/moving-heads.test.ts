@@ -6,7 +6,7 @@ import { parseQxf, findMode } from "../../../src/plugins/light/venue/qxf-import.
 import { MoveSchema, movePosition } from "../../../src/plugins/light/engine/move.js";
 import { aimAt, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
+import { emptyFrame, Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { DmxEngine } from "../../../src/plugins/light/engine/dmx-engine.js";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -270,9 +270,11 @@ describe("moving heads", () => {
       expect(dmx()[5]).to.equal(128); // the painted level carries the look's weight once, not twice (64)
     });
 
-    describe("a colour wheel in a crossfade (T18)", () => {
-      /** A lamp with a ten-colour wheel (test/fixtures/wheel-spot.qxf: wheel offset 2, dimmer 3), looks A red and B blue in one exclusive group, B coming in over 2 s. */
-      function crossfade(wheel?: object) {
+    describe("a colour wheel under the real runtime (T18)", () => {
+      const RED = 15;
+      const BLUE = 65; // the middles of their slots
+      /** A lamp with a ten-colour wheel (test/fixtures/wheel-spot.qxf: wheel offset 2, dimmer 3) alone on a canvas, looks A red and B blue (B rising over 2 s). */
+      function spot(wheel?: object) {
         const t = setup();
         copyFileSync(new URL("../../fixtures/wheel-spot.qxf", import.meta.url), join(t.defs, "wheel-spot.qxf"));
         t.venue.refreshDefinitions();
@@ -280,34 +282,133 @@ describe("moving heads", () => {
         t.venue.canvases.put({ id: "seule", name: "Seule", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "roue", head: -1 }] }] });
         t.show.looks.put({ id: "a", name: "A", canvas: "seule", technique: { kind: "plat", color: "#ff0000" } });
         t.show.looks.put({ id: "b", name: "B", canvas: "seule", technique: { kind: "plat", color: "#0000ff" }, timing: { entryFade: 2 } });
+        /** The wheel and the dimmer of the real output, `count` frames `ms` apart. */
+        const sample = (count: number, ms = 50) => {
+          const frames: { wheel: number; dimmer: number }[] = [];
+          for (let i = 0; i < count; i++) {
+            const b = t.dmx();
+            frames.push({ wheel: b[29 + 2]!, dimmer: b[29 + 3]! });
+            t.advance(ms / 500);
+          }
+          return frames;
+        };
+        return { ...t, sample };
+      }
+      /** A and B in one exclusive group: B comes in over A, a crossfade of 2 s sampled every 100 ms. */
+      function crossfade(wheel?: object) {
+        const t = spot(wheel);
         t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
         t.show.go("a");
         t.advance(4);
         t.show.go("b");
-        const frames: { wheel: number; dimmer: number }[] = [];
-        for (let i = 0; i <= 20; i++) {
-          const b = t.dmx();
-          frames.push({ wheel: b[29 + 2]!, dimmer: b[29 + 3]! });
-          t.advance(0.2); // 100 ms
-        }
-        return frames;
+        return t.sample(21, 100);
       }
+      const wheels = (frames: { wheel: number }[]) => [...new Set(frames.map((f) => f.wheel))];
 
-      it("turns the wheel once, at mid-fade, never through the colours between (magenta)", () => {
+      it("crossfade: turns the wheel once, at mid-fade, never through the colours between (magenta)", () => {
         const frames = crossfade();
-        expect([...new Set(frames.map((f) => f.wheel))]).to.deep.equal([15, 65]); // red, then blue: the middles of their slots
-        const turn = frames.findIndex((f) => f.wheel === 65);
-        expect(turn).to.equal(10); // 1 s of the 2 s fade: B weighs as much as A
-        expect(frames[turn - 1]!.dimmer).to.be.above(120); // the lamp dips to half, never to black
+        expect(wheels(frames)).to.deep.equal([RED, BLUE]);
+        const turn = frames.findIndex((f) => f.wheel === BLUE);
+        expect(turn).to.equal(10); // 1 s of the 2 s fade: B lights as much as A
+        expect(frames[turn - 1]!.dimmer).to.be.above(120); // the lamp dips to half (its level is that of the mixed colour), never to black
       });
 
-      it("« au noir »: the dimmer goes through black where the slot turns", () => {
+      it("a look started over another (« last »): the wheel follows the colour that wins, from the first frame, in the dark", () => {
+        const t = spot();
+        t.show.go("a");
+        t.advance(4);
+        expect(t.sample(1)[0]).to.deep.equal({ wheel: RED, dimmer: 255 });
+        t.show.go("b"); // no exclusive group: B covers A where it paints, rising from black
+        const frames = t.sample(60); // 3 s, every 50 ms
+        expect(wheels(frames)).to.deep.equal([BLUE]); // never red under B's rising light
+        expect(frames[0]!.dimmer).to.equal(0);
+        expect(frames.every((f, i, all) => i === 0 || f.dimmer >= all[i - 1]!.dimmer)).to.equal(true);
+        expect(frames[59]!.dimmer).to.equal(255);
+      });
+
+      it("a blue / black chase over a red background (« last »): the wheel stays on blue through the black steps", () => {
+        const t = spot();
+        t.show.looks.put({ id: "chase", name: "Chase", canvas: "seule", technique: { kind: "pas", steps: [["#0000ff"], ["#000000"]] }, timing: { every: { beats: 1 }, attack: 0 } });
+        t.show.go("a");
+        t.advance(4);
+        t.show.go("chase");
+        const frames = t.sample(160, 25); // 4 s at 120 bpm: 8 steps
+        expect(wheels(frames)).to.deep.equal([BLUE]);
+        expect(wheels(frames.filter((f) => f.dimmer === 0))).to.deep.equal([BLUE]); // the black steps are there, and the wheel does not move
+        expect(frames.some((f) => f.dimmer === 0) && frames.some((f) => f.dimmer === 255)).to.equal(true);
+      });
+
+      it("« highest »: the look painting the most light holds the wheel (black never darkens: red shows on the chase's black step)", () => {
+        const t = spot();
+        t.show.settings = { ...t.show.settings, looksMerge: "highest" };
+        t.show.looks.put({ id: "chase", name: "Chase", canvas: "seule", technique: { kind: "pas", steps: [["#0000ff"], ["#000000"]] }, timing: { every: { beats: 1 }, attack: 0 } });
+        t.show.go("a");
+        t.advance(4);
+        t.show.go("chase");
+        const frames = t.sample(80, 25);
+        expect(frames.every((f) => f.dimmer === 255)).to.equal(true);
+        expect(wheels(frames)).to.deep.equal([BLUE, RED]); // blue on its step (the later look on equal levels), red on the black one
+      });
+
+      it("pre-positions the wheel in the dark: a look rising from black, and one whose master is at zero", () => {
+        const t = spot();
+        t.show.go("a");
+        t.advance(4);
+        t.show.stop("a");
+        t.show.go("b");
+        const frames = t.sample(4, 25);
+        expect(frames[0]).to.deep.equal({ wheel: BLUE, dimmer: 0 }); // the first frame of the rise: already on blue
+        expect(wheels(frames)).to.deep.equal([BLUE]);
+        // a master at zero: the look still asks its colour
+        const m = spot();
+        m.show.groups.put({ id: "g", name: "G", master: { level: 0, mute: false }, members: { looks: ["a"] }, presets: { included: ["a"], excluded: [] } });
+        m.show.go("a");
+        expect(m.sample(1)[0]).to.deep.equal({ wheel: RED, dimmer: 0 });
+      });
+
+      it("« au noir »: dark while the wheel turns (changeMs), lit again after — two looks painting the fixture do not keep it dark", () => {
+        const t = spot({ change: "black" });
+        t.show.go("a");
+        t.advance(4);
+        expect(t.sample(1)[0]).to.deep.equal({ wheel: RED, dimmer: 255 }); // the first slot taken is no change
+        t.show.looks.put({ id: "c", name: "C", canvas: "seule", technique: { kind: "plat", color: "#00ff00" } });
+        t.show.go("c"); // at once over A, both at weight 1 from now on
+        const frames = t.sample(40, 25); // 1 s
+        expect(wheels(frames)).to.deep.equal([45]); // green
+        expect(frames.slice(0, 12).every((f) => f.dimmer === 0), "dark for 300 ms").to.equal(true);
+        expect(frames.slice(12).every((f) => f.dimmer === 255), "then lit, for good").to.equal(true);
+        // the time is the model's
+        const quick = spot({ change: "black", changeMs: 100 });
+        quick.show.looks.put({ id: "c", name: "C", canvas: "seule", technique: { kind: "plat", color: "#00ff00" } });
+        quick.show.go("a");
+        quick.advance(4);
+        quick.sample(1);
+        quick.show.go("c");
+        expect(quick.sample(8, 25).map((f) => f.dimmer)).to.deep.equal([0, 0, 0, 0, 255, 255, 255, 255]);
+      });
+
+      it("« au noir » in a crossfade: down to black ahead of the change, dark while the wheel turns, then back up", () => {
         const frames = crossfade({ change: "black" });
-        expect([...new Set(frames.map((f) => f.wheel))]).to.deep.equal([15, 65]);
-        expect(frames[10]!.dimmer).to.equal(0);
+        expect(wheels(frames)).to.deep.equal([RED, BLUE]);
         expect(frames[0]!.dimmer).to.equal(255);
+        expect(frames[9]!.dimmer).to.be.below(frames[8]!.dimmer);
+        expect(frames.slice(10, 13).map((f) => f.dimmer)).to.deep.equal([0, 0, 0]); // the change at 1 s, then 300 ms
+        expect(frames.slice(0, 11).every((f, i, all) => i === 0 || f.dimmer <= all[i - 1]!.dimmer)).to.equal(true);
+        expect(frames.slice(12).every((f, i, all) => i === 0 || f.dimmer >= all[i - 1]!.dimmer)).to.equal(true);
         expect(frames[20]!.dimmer).to.equal(255);
-        expect(frames.slice(0, 11).every((f, i, all) => i === 0 || f.dimmer <= all[i - 1]!.dimmer)).to.equal(true); // down to black, then back up
+      });
+
+      it("forgets what was asked once nothing is painted, and the wheel of a fixture deleted", () => {
+        const t = spot();
+        t.show.go("a");
+        t.sample(1);
+        expect(t.show.explainChannel(1, 32).wheel).to.deep.include({ slot: "Red", asked: "#ff0000", gap: 0 });
+        t.show.stop("a");
+        t.sample(1);
+        expect(t.show.explainChannel(1, 32).wheel).to.deep.equal({ slot: "Red", color: "#ff0000", gap: 0 }); // the slot held, no colour asked any more
+        const held = new Map([["roue", { slot: 10, gap: 0 }], ["gone", { slot: 10, gap: 0 }]]);
+        t.venue.toDmx(emptyFrame(), [new Uint8Array(512)], held);
+        expect([...held.keys()]).to.deep.equal(["roue"]);
       });
     });
 
@@ -552,11 +653,19 @@ describe("a head driven by the command layer (the pad's path)", () => {
       expect(wheel()).to.equal(25); // red answered by the orange slot, for every fixture of the model, at once
       await run("venue.wheel.put", { id: "roue", scope: "fixture", wheel: { slots: { "70": { answers: ["#ff0000"] } } } });
       expect(wheel()).to.equal(75); // this fixture's own settings replace the model's
-      const got = (await run("venue.wheel.get", { id: "roue" })) as { applies: string; model: unknown; own: unknown; slots: { min: number; value: number; color: string; color2?: string; open?: boolean }[] };
+      const got = (await run("venue.wheel.get", { id: "roue" })) as { applies: string; model: unknown; own: unknown; slots: { min: number; value: number; name: string; color?: string; color2?: string; open?: boolean; colorless?: boolean }[] };
       expect(got.applies).to.equal("fixture");
       expect(got.model).to.deep.equal({ slots: { "20": { answers: ["#ff0000"] } } });
       expect(got.slots[0]).to.deep.include({ min: 0, value: 5, color: "#ffffff", open: true });
       expect(got.slots.find((s) => s.min === 100)).to.deep.include({ color: "#ff0000", color2: "#00ff00" });
+      // every range of the wheel channel is listed, the one without colour marked: it can be given one
+      expect(got.slots.find((s) => s.min === 110)).to.deep.include({ name: "Rainbow", colorless: true });
+      await run("venue.wheel.put", { id: "roue", scope: "fixture", wheel: { slots: { "70": { answers: ["#ff0000"] }, "110": { color: "#8000FF" } } } });
+      expect((plugin.runtime.venue.resolve("roue") as ResolvedFixture).wheel!.slots.find((s) => s.min === 110)).to.include({ name: "Rainbow" });
+      await run("venue.wheel.put", { id: "roue", scope: "fixture", wheel: { slots: { "016": { off: true } } } }).then(
+        () => expect.fail("a key with a leading zero is refused"),
+        () => undefined,
+      );
       const explained = (await run("dmx.explain", { universe: 1, channel: 62 })) as { wheel?: { slot: string; asked?: string; gap: number } };
       expect(explained.wheel).to.deep.include({ slot: "Magenta", asked: "#ff0000" });
       expect(explained.wheel!.gap).to.be.above(0.1); // what the stage shows (magenta) is far from what was asked

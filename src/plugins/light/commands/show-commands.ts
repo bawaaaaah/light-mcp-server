@@ -11,7 +11,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema, type ResolvedFixture } from "../venue/venue.js";
 import { modelKey, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
-import { slotValue, wheelSlots } from "../venue/color-wheel.js";
+import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify } from "../data/store.js";
@@ -336,7 +336,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   // ---- colour wheel (T18): the colour → slot correspondence, per model, overridable per fixture (venue/color-wheel.ts)
   /**
-   * A fixture's colour wheel as its definition gives it, and where its overrides live; undefined when it has
+   * A fixture's colour wheel as its definition gives it — every range of the wheel channel, with or without a
+   * colour: one the definition gives none can be given one — and where its overrides live; undefined when it has
    * none that answers painted colours (no wheel, no definition, or colour mixing: an RGB fixture's wheel is
    * left to raw channels).
    */
@@ -348,7 +349,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     const key = keyOrUndefined(f);
     if (!key) return undefined; // no key, nowhere to keep wheel settings: the wheel is left to raw channels
     const caps = r.def.channels.get(r.mode.channels[r.wheel.offset] ?? "")?.capabilities ?? [];
-    return { f, wheel: r.wheel, slots: wheelSlots(caps), key };
+    return { f, wheel: r.wheel, slots: wheelCapabilities(caps), key };
   };
   const wheelOfFixture = (fixtureId: string) => {
     const found = wheelOrNone(fixtureId);
@@ -360,7 +361,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.wheel.get",
     title: "Roue de couleurs",
     description:
-      "A lamp fixture's colour wheel (docs/specs/venue-fixtures-stage.md, « Roue de couleurs »): its slots as the definition gives them (DMX range, value sent = the middle, name, colour; a split slot has two; « open » = no filter, white), the overrides of its model and of this fixture (a slot's real colour, the colours it answers to, slots left out, split slots allowed, slot change at mid-fade or through black), and which applies. null when the fixture has no such wheel (none, no definition, or colour mixing).",
+      "A lamp fixture's colour wheel (docs/specs/venue-fixtures-stage.md, « Roue de couleurs »): every range of its wheel channel as the definition gives it (DMX range, value sent = the middle, name, colour; a split slot has two; « open » = no filter, white; « colorless » = the definition gives it no colour: it is never chosen until venue.wheel.put gives it its real colour), the overrides of its model and of this fixture (a slot's real colour, the colours it answers to, slots left out, split slots allowed, slot change at mid-fade or through black and how long the wheel takes to turn), and which applies. changeMs: the time in force. null when the fixture has no such wheel (none, no definition, or colour mixing).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -372,12 +373,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return {
         fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model },
         offset: wheel.offset + 1,
-        slots: slots.map((s) => ({ min: s.min, max: s.max, value: slotValue(s), name: s.name, color: displayHex(s.color), ...(s.color2 ? { color2: displayHex(s.color2) } : {}), ...(s.open ? { open: true } : {}) })),
+        slots: slots.map((s) => ({ min: s.min, max: s.max, value: slotValue(s), name: s.name, ...(s.color ? { color: displayHex(s.color) } : { colorless: true }), ...(s.color2 ? { color2: displayHex(s.color2) } : {}), ...(s.open ? { open: true } : {}) })),
         model: venue.models.get(key)?.overrides.wheel ?? null,
         own: f.overrides?.wheel ?? null,
         applies: f.overrides?.wheel ? "fixture" : venue.models.get(key)?.overrides.wheel ? "model" : "definition",
         doubles: wheel.doubles,
         change: wheel.change,
+        changeMs: wheel.changeMs,
       };
     },
   });
@@ -385,7 +387,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.wheel.put",
     title: "Régler la roue de couleurs",
     description:
-      "Sets the colour → slot correspondence of a lamp fixture's colour wheel, for its whole model (scope model) or for this fixture only (scope fixture, which then replaces the model's settings as a whole). slots, keyed by a slot's first DMX value (\"16\"): color (#rrggbb) its real colour when the definition is wrong, answers the colours it answers to beside its own (an asked colour nearest one of them lands on it), off never chosen from a painted colour. doubles: split slots may be chosen when a look asks their two colours of the fixture (default true). change: \"mid\" the slot changes at mid-fade in a crossfade (default), \"black\" the dimmer goes through black there. Replaces the wheel settings of that scope.",
+      "Sets the colour → slot correspondence of a lamp fixture's colour wheel, for its whole model (scope model) or for this fixture only (scope fixture, which then replaces the model's settings as a whole). slots, keyed by a slot's first DMX value (\"16\"): color (#rrggbb) its real colour when the definition is wrong or gives none (a range without colour becomes a slot), answers the colours it answers to beside its own (an asked colour nearest one of them lands on it), off never chosen from a painted colour. doubles: split slots may be chosen when a look asks their two colours of the fixture (default true). change: \"mid\" the slot changes at mid-fade in a crossfade (default), \"black\" the dimmer goes through black there, held at 0 for changeMs after the change (the time the wheel takes to turn, default 300 ms: to measure on the fixture). Replaces the wheel settings of that scope.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ id: z.string(), scope: wheelScope, wheel: WheelOverridesSchema }),

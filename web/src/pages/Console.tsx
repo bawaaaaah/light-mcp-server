@@ -24,6 +24,8 @@ interface Explain {
   faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
   rawLooks: { id: string; name: string; leaving?: true }[];
   clamps: { rule: string; name?: string; from: number; to: number }[];
+  /** A lamp's colour wheel: the slot held (its real colour, two joined by « + » for a split slot), the colour asked and the gap between them (OKLab). */
+  wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its fixture has Reset channels, held at rest by the built-in protection: fixture.reset resets it on purpose. */
   resettable?: boolean;
   /** Those channels, the Reset range each would send, and the seconds left while a reset runs. */
@@ -34,6 +36,18 @@ interface Explain {
 const SLOTS = 512;
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
+
+/** A wheel colour (or two, « #a+#b ») as swatches before its hex. */
+function WheelColors({ hex }: { hex: string }) {
+  return (
+    <>
+      {hex.split("+").map((h) => (
+        <span key={h} className="swatch-dot" style={{ background: h }} />
+      ))}
+      {hex}
+    </>
+  );
+}
 
 /** Why a channel has its value, one line per cause, as the console's « why » panel says it. */
 function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void; onError: (message: string) => void }) {
@@ -83,7 +97,20 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         ) : (
           <li className="hint">{t.whyNoFixture}</li>
         )}
-        {why.intensity && (
+        {why.wheel && (
+          <li className="why-wheel">
+            {t.whyWheelSlot} {why.wheel.slot} (<WheelColors hex={why.wheel.color} />)
+            {why.wheel.asked && (
+              <>
+                {" · "}
+                {t.whyWheelAsked} <WheelColors hex={why.wheel.asked} />
+                {" · "}
+                {t.whyWheelGap} {why.wheel.gap.toFixed(3).replace(".", t.decimalMark)}
+              </>
+            )}
+          </li>
+        )}
+        {why.intensity && !why.wheel && (
           <li>
             {t.whyIntensity}{t.colon} {t.grandMasterShort} {pct(why.intensity.grandMaster)}
             {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.effective)}${d.effective !== d.own ? ` (${t.whyOwn} ${pct(d.own)})` : ""}`).join("")} = {pct(why.intensity.factor)}

@@ -208,6 +208,7 @@ export function FixtureMenu({
           })}
           <input type="color" aria-label={t.customColor} title={t.customColor} value={isHex(color) ? color : "#ffffff"} onChange={(e) => paint(e.target.value)} />
         </div>
+        <small className="hint">{t.fixtureColorHelp}</small>
       </div>
       {/* The app's switches are ghost buttons with aria-pressed (the Live's toggles): a row of
           « label left, switch right » — the menu's .field grid would strand a native checkbox on
@@ -242,8 +243,7 @@ export function FixtureMenu({
         </>
       )}
       <FixtureHeads fixture={fixture.id} onSaved={onSaved} />
-      <WheelEntry fixtureId={fixture.id} />
-      <small className="hint">{t.fixtureColorHelp}</small>
+      <WheelEntry fixtureId={fixture.id} onSaved={onSaved} />
       <fieldset className="fixture-place">
         <legend>{t.fixtureMove}</legend>
         <div className="row">

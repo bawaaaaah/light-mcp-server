@@ -4363,7 +4363,8 @@ test("venue patch: a moving head's pan and tilt are inverted from its menu, and 
 test("venue patch: a lamp's colour wheel is corrected from its menu, for the model then for this fixture", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "9999");
-  type Wheel = { applies: string; model: { slots?: Record<string, { answers?: string[]; off?: boolean }> } | null; own: { slots?: Record<string, { answers?: string[]; off?: boolean }> } | null };
+  type Settings = { slots?: Record<string, { color?: string; answers?: string[]; off?: boolean }> } | null;
+  type Wheel = { applies: string; model: Settings; own: Settings };
   const wheel = async () => (await api(page, "venue.wheel.get", { id: "spot" })) as Wheel;
   try {
     await page.locator("nav.pages button", { hasText: "Lieu" }).click();
@@ -4371,23 +4372,96 @@ test("venue patch: a lamp's colour wheel is corrected from its menu, for the mod
     const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
     await menu.getByRole("button", { name: "Roue de couleurs…" }).click();
     const editor = menu.getByRole("group", { name: "Roue de couleurs…" });
-    await expect(editor.locator(".wheel-slots li")).toHaveCount(5); // white, red, green, blue, amber (the rainbow has no colour)
-    await expect(editor.getByRole("radio", { name: "Tout le modèle" })).toHaveAttribute("aria-checked", "true");
-    // red answered by the amber slot, for every fixture of the model
-    await editor.getByLabel("Ajouter une couleur à laquelle cette case répond · Amber").fill("#ff0000");
+    // every range of the wheel channel: white, red, green, blue, amber, and the rainbow, which has no colour yet
+    await expect(editor.locator(".wheel-slots li")).toHaveCount(6);
+    await expect(editor.locator(".wheel-slots li").last()).toContainText("sans couleur dans la définition");
+    await expect(editor.locator(".wheel-head")).toHaveText("CaseCouleur réelleRépond aussi àExclue"); // the columns are named, not left to tooltips
+    // the same scope names as « Têtes et halo… », and the help in clear
+    const scopes = editor.getByRole("radiogroup", { name: "S'applique à" });
+    await expect(scopes.getByRole("radio", { name: "Ce modèle" })).toHaveAttribute("aria-checked", "true");
+    await expect(editor).toContainText("ceux d'un appareil remplacent en bloc ceux du modèle");
+    // dragging in the colour picker saves nothing: only the colour chosen in the end is saved, once
+    const add = editor.getByLabel("Ajouter une couleur à laquelle cette case répond · Amber");
+    await page.evaluate(`(() => {
+      const el = document.querySelector('input[aria-label="Ajouter une couleur à laquelle cette case répond · Amber"]');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      for (let i = 0; i < 20; i++) {
+        set.call(el, "#ff00" + i.toString(16).padStart(2, "0"));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    })()`);
+    await page.waitForTimeout(300);
+    expect((await wheel()).model).toBe(null);
+    await add.fill("#ff0000"); // the picker closes: `change`
     await expect.poll(async () => (await wheel()).model?.slots?.["64"]?.answers).toEqual(["#ff0000"]);
     await expect(editor).toContainText("S'applique : les réglages du modèle");
-    // this fixture only: it starts from the model's settings, and its own replace them
-    await editor.getByRole("radio", { name: "Cet appareil seulement" }).click();
-    await editor.getByRole("button", { name: "Jamais choisie depuis une couleur peinte · White" }).click();
+    // a slot's real colour: marked as modified, and ↺ brings back the definition's
+    await editor.getByLabel("Couleur réelle de la case · Red").fill("#ee1111");
+    await expect.poll(async () => (await wheel()).model?.slots?.["16"]?.color).toBe("#ee1111");
+    const red = editor.locator(".wheel-slots li", { hasText: "Red" });
+    await expect(red).toContainText("modifiée");
+    await red.getByRole("button", { name: "Revenir à la couleur de la définition · Red" }).click();
+    await expect.poll(async () => (await wheel()).model?.slots?.["16"]).toBe(undefined);
+    await expect(red).not.toContainText("modifiée");
+    // the rainbow given its real colour becomes a slot
+    await editor.getByLabel("Couleur réelle de la case · Rainbow").fill("#8000ff");
+    await expect.poll(async () => (await wheel()).model?.slots?.["80"]?.color).toBe("#8000ff");
+    await editor.getByRole("button", { name: "Revenir à la couleur de la définition · Rainbow" }).click();
+    await expect.poll(async () => (await wheel()).model?.slots?.["80"]).toBe(undefined);
+    // this fixture only: said to start from the model's settings, and its own replace them
+    await scopes.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await expect(editor).toContainText("cet appareil ne suivra plus le modèle");
+    const off = editor.getByRole("button", { name: "Jamais choisie depuis une couleur peinte · White" });
+    await expect(off).toContainText("Exclue"); // a visible label, not a bare glyph
+    await off.click();
     await expect.poll(async () => (await wheel()).own?.slots).toEqual({ "0": { off: true }, "64": { answers: ["#ff0000"] } });
     await expect(editor).toContainText("S'applique : les réglages de cet appareil");
+    await expect(editor).not.toContainText("cet appareil ne suivra plus le modèle");
     await page.screenshot({ path: "test-results/venue-wheel-editor.png" });
+    // clearing asks in the menu itself, and gives the focus back to the scope
+    let dialogs = 0;
+    page.on("dialog", (d) => (dialogs++, void d.dismiss()));
     await editor.getByRole("button", { name: "Effacer ces réglages" }).click();
+    const ask = editor.getByRole("group", { name: "Effacer ces réglages" });
+    await expect(ask).toContainText("Effacer les réglages de cet appareil ?");
+    await ask.getByRole("button", { name: "Annuler" }).click();
+    await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused();
+    expect((await wheel()).applies).toBe("fixture");
+    await editor.getByRole("button", { name: "Effacer ces réglages" }).click();
+    await ask.getByRole("button", { name: "Effacer", exact: true }).click();
     await expect.poll(async () => (await wheel()).applies).toBe("model");
+    await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused();
+    await expect(editor.getByRole("button", { name: "Effacer ces réglages" })).toHaveCount(0); // nothing of its own left to clear
+    expect(dialogs).toBe(0);
   } finally {
     await api(page, "venue.wheel.clear", { id: "spot", scope: "fixture" });
     await api(page, "venue.wheel.clear", { id: "spot", scope: "model" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("DMX console: a colour wheel channel says its slot, the colour asked and the gap between them", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: { id: "wheel-why", name: "Roue", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "spot", head: -1 }] }] } });
+  await api(page, "look.put", { look: { id: "wheel-why", name: "Rose", canvas: "wheel-why", technique: { kind: "plat", color: "#ff3060" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } } });
+  await api(page, "look.go", { id: "wheel-why" });
+  try {
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    await page.locator("section.bar select").first().selectOption("2");
+    await page.getByRole("button", { name: "Pourquoi ce canal 5", exact: true }).click();
+    const why = page.getByRole("region", { name: "Pourquoi ce canal 5", exact: true });
+    const line = why.locator("li.why-wheel");
+    await expect(line).toContainText(/Case Red \(#ff0000\) · demandé #ff3060 · écart 0,\d{3}/);
+    await expect(line.locator(".swatch-dot")).toHaveCount(2);
+    await expect(why).not.toContainText("Intensité"); // a wheel does not carry the level
+    await page.screenshot({ path: "test-results/console-wheel-why.png" });
+    await api(page, "look.stop", { id: "wheel-why" });
+    await expect(line).toHaveText(/^Case Red \(#ff0000\)$/, { timeout: 5000 }); // nothing painted: the slot held, nothing asked
+  } finally {
+    await api(page, "look.stop", { id: "wheel-why" });
+    await api(page, "look.delete", { id: "wheel-why", force: true });
+    await api(page, "venue.canvas.delete", { id: "wheel-why", force: true });
   }
   expect(errors).toEqual([]);
 });

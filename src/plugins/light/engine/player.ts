@@ -136,19 +136,20 @@ export class LookPlayer {
     return ease(Math.min(1, Math.max(0, elapsedS / this.timing.entryFade)));
   }
 
-  render(nowMs: number, beats: number): Step {
-    const elapsedS = (nowMs - this.startMs) / 1000;
+  /** The look's colours at this time without its entry fade: what it shows once risen (a colour wheel pre-positions on it). */
+  state(nowMs: number, beats: number): Step {
     const pos = Math.max(0, this.position(nowMs, beats));
     const i = Math.floor(pos);
     const frac = pos - i;
     const cur = this.steps[this.stepAt(i)]!;
-    let state: Step;
-    if (this.steps.length === 1 || this.timing.attack === 0) state = cur;
-    else if (i === 0) state = cur;
-    else {
-      const prev = this.steps[this.stepAt(i - 1)]!;
-      state = frac >= this.timing.attack ? cur : mixStep(prev, cur, ease(frac / this.timing.attack));
-    }
+    if (this.steps.length === 1 || this.timing.attack === 0 || i === 0) return cur;
+    const prev = this.steps[this.stepAt(i - 1)]!;
+    return frac >= this.timing.attack ? cur : mixStep(prev, cur, ease(frac / this.timing.attack));
+  }
+
+  render(nowMs: number, beats: number): Step {
+    const elapsedS = (nowMs - this.startMs) / 1000;
+    const state = this.state(nowMs, beats);
     if (this.entry && this.timing.entryFade > 0 && elapsedS < this.timing.entryFade) return mixStep(this.entry, state, ease(elapsedS / this.timing.entryFade));
     return state;
   }

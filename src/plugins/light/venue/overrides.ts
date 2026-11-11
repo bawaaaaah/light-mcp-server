@@ -25,12 +25,14 @@ export type WheelSlotOverride = z.infer<typeof WheelSlotOverrideSchema>;
 
 /** T18 — the colour wheel's colour → slot correspondence (venue/color-wheel.ts). Each field missing: the default. */
 export const WheelOverridesSchema = z.object({
-  /** Per slot, keyed by its range's first value ("16"). */
-  slots: z.record(z.string().regex(/^\d{1,3}$/), WheelSlotOverrideSchema).optional(),
+  /** Per slot, keyed by its range's first DMX value ("16": 0 to 255, no leading zero). */
+  slots: z.record(z.string().regex(/^(0|[1-9]\d?|1\d\d|2[0-4]\d|25[0-5])$/), WheelSlotOverrideSchema).optional(),
   /** Split slots (two colours) may be chosen when a look asks those two colours of the fixture (default true). */
   doubles: z.boolean().optional(),
   /** When the slot changes during a crossfade: « mid » at mid-fade (default), « black » with the dimmer through black at that moment. */
   change: z.enum(["mid", "black"]).optional(),
+  /** « black » only: how long the wheel takes to turn from one slot to another, in ms — the dimmer stays at 0 that long after a change (default `WHEEL_CHANGE_MS`, color-wheel.ts). */
+  changeMs: z.number().int().min(0).max(5000).optional(),
 });
 export type WheelOverrides = z.infer<typeof WheelOverridesSchema>;
 /**

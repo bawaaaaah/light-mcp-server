@@ -12,7 +12,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
@@ -109,7 +109,7 @@ export interface ChannelExplanation {
   clamps: (Pick<Clamp, "rule" | "from" | "to"> & { name?: string })[];
   /** The fixture has Reset channels, held at rest by the built-in rule: `fixture.reset` resets it on purpose. */
   resettable?: true;
-  /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour), the colour asked and the gap between them (OKLab, 0 = the same). */
+  /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour) and, while a look asks a colour of it, that colour and the gap between them (OKLab, 0 = the same). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its Reset channels (the range a voluntary reset sends), and the seconds left while one runs. */
   reset?: { channels: ResetChannel[]; secondsLeft?: number };
@@ -961,14 +961,33 @@ export class ShowRuntime {
      * Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine
      * fade). Not those it paints on their accent heads only (a halo): that is no full colour of the fixture.
      */
-    const paints = (colors: AttributeFrame["colors"], weight: number, look: Look): AttributeFrame["colors"] => {
+    const paints = (colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] => {
       for (const [f, heads] of colors) {
         if (!this.venue.lightsBody(f, heads.keys())) continue;
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
-        frame.paintedBy.set(f, (frame.paintedBy.get(f) ?? new Map<string, Map<number, Color>>()).set(look.id, heads));
+        // a lamp's colour wheel follows one look: which look paints what, on which sheet, and its colour at full
+        if (this.venue.hasWheel(f)) frame.paintedBy.set(f, [...(frame.paintedBy.get(f) ?? []), { look: look.id, sheet, heads, hues: atFull(look, player).get(f) ?? heads }]);
       }
       return colors;
+    };
+    /**
+     * What a look paints at full, before its fades and its masters: a colour wheel pre-positions on it while the
+     * light is still dark. Painted once per look and frame, and only for a look that reaches a wheel.
+     */
+    const full = new Map<LookPlayer, AttributeFrame["colors"]>();
+    const atFull = (look: Look, player: LookPlayer): AttributeFrame["colors"] => {
+      let own = full.get(player);
+      if (!own) {
+        const sheet = emptyFrame();
+        try {
+          this.venue.paintCanvas(sheet, look.canvas, player.state(now, beats));
+        } catch {
+          // told once already, by the look's own colours
+        }
+        full.set(player, (own = sheet.colors));
+      }
+      return own;
     };
     /** A look's colours on its own sheet, scaled by `fade` and the masters of its groups, its exclusions taken out. */
     const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
@@ -1007,7 +1026,7 @@ export class ShowRuntime {
       if (t >= 1) continue;
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
-      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look), this.settings.looksMerge);
+      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`), this.settings.looksMerge);
       rawOf(r.look, r.player, w, `exit:${id}`);
       moveOf(r.look, r.player);
     }
@@ -1025,7 +1044,7 @@ export class ShowRuntime {
       for (const o of x.outgoing) {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
-        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look), w));
+        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`), w));
         rawOf(o.look, o.player, w * o.player.entryWeight(now), `x:${key}`);
         moveOf(o.look, o.player);
       }
@@ -1041,7 +1060,7 @@ export class ShowRuntime {
       const inW = x ? this.inWeight(x, now) : 1;
       const w = inW * player.entryWeight(now);
       rawOf(look, player, w, x ? `x:${look.id}` : `look:${look.id}`);
-      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w, look), inW))) : paints(colorsOf(look, player, 1), w, look);
+      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`), inW))) : paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`);
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);
     }
@@ -1050,7 +1069,7 @@ export class ShowRuntime {
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
     frame.raw = lookChannels;
-    errors.push(...this.venue.toDmx(frame, buffers, wheels));
+    errors.push(...this.venue.toDmx(frame, buffers, wheels, { now, merge: this.settings.looksMerge }));
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
     // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/
     // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on

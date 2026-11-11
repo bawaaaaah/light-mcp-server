@@ -38,7 +38,7 @@ import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
-import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel } from "./color-wheel.js";
+import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelHeld } from "./color-wheel.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -175,8 +175,8 @@ export interface AttributeFrame {
   raw: Map<string, Map<number, RawWrite[]>>;
   /** fixtureId → look id → fade weight of each look painting it: colours that dose themselves (toDmx, the machine fade). */
   painted: Map<string, Map<string, number>>;
-  /** fixtureId → look id → what that look paints there (head → colour): a colour wheel follows one look, never a mix (color-wheel.ts). */
-  paintedBy: Map<string, Map<string, Map<number, Color>>>;
+  /** fixtureId → the looks painting it, in the order their colours are laid, each with its sheet and what it paints there: a colour wheel follows one look, never a mix (color-wheel.ts). */
+  paintedBy: Map<string, LookPaint[]>;
   /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
   positions: Map<string, Position>;
 }
@@ -363,9 +363,8 @@ export interface ResolvedFixture {
 
 const levelOf = (c: Color) => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
 
-/** The slot a colour wheel holds (by fixture id, the slot's `min`), what was asked and the gap: kept by the runtime from frame to frame. */
-export interface WheelChoice {
-  slot: number;
+/** The slot a colour wheel holds (by fixture id, the slot's `min`), when it last changed, what was asked and the gap: kept by the runtime from frame to frame. */
+export interface WheelChoice extends WheelHeld {
   asked?: string;
   gap: number;
 }
@@ -550,6 +549,12 @@ export class Venue {
     return false;
   }
 
+  /** Whether a fixture is a lamp whose colour wheel answers painted colours (no colour mixing, a wheel with a slot at least). */
+  hasWheel(fixtureId: string): boolean {
+    const r = this.resolve(fixtureId);
+    return !("error" in r) && r.lampOnly && Boolean(r.wheel?.slots.length);
+  }
+
   /** The colour head a channel of a resolved fixture belongs to, and whether it is an accent one (dmx.explain). */
   headOf(r: ResolvedFixture, offset: number): { head: number; accent: boolean } | undefined {
     for (const [head, comps] of r.heads) if (Object.values(comps).includes(offset)) return { head, accent: r.accent.has(head) };
@@ -650,8 +655,9 @@ export class Venue {
    * verbatim — a machine never fades — and its look's weight doses (machineFade) the dimmer(s)
    * of the fixture no look wrote nor painted. Offsets off the definition stay verbatim, with no fade.
    */
-  toDmx(frame: AttributeFrame, buffers: Uint8Array[], wheels: Map<string, WheelChoice> = new Map()): string[] {
+  toDmx(frame: AttributeFrame, buffers: Uint8Array[], wheels: Map<string, WheelChoice> = new Map(), at: { now: number; merge: LooksMerge } = { now: 0, merge: "last" }): string[] {
     const errors: string[] = [];
+    for (const id of wheels.keys()) if (!this.fixtures.get(id)) wheels.delete(id); // a fixture deleted leaves no wheel held
     // The raw channels go down after every fixture's painted colours: an offset reaching past its
     // fixture onto a neighbour's addresses is not painted over by that neighbour.
     const rawPass: (() => void)[] = [];
@@ -714,24 +720,24 @@ export class Venue {
       if (r.lampOnly) {
         // Lamp-only fixtures are lit by what the looks paint on them, at its level (already dosed by
         // the painting looks' weights): a machine channel's weight does not reach their dimmer.
-        // Its wheel follows the heaviest look painting it, never a mix of two (color-wheel.ts); « au noir »
-        // (overrides) dims it through black where the slot changes. `wheels` keeps the slot held (hysteresis).
+        // Its wheel follows the look whose colour wins there, never a mix of two (color-wheel.ts); « au noir »
+        // (overrides) holds the dimmer at 0 while the wheel turns. `wheels` keeps the slot held (hysteresis) and
+        // when it changed, `at` gives the frame's time and how the looks merge.
         // the full heads only, like displayColors: an accent head (a halo) chooses neither the level nor the slot
         const full = (heads: ReadonlyMap<number, Color>) => new Map([...heads].filter(([h]) => !r.accent.has(h)));
         const body = painted && full(painted);
         const color = body?.get(-1) ?? body?.values().next().value;
         let dim = 1;
         if (r.wheel) {
-          const by = frame.paintedBy.get(patch.id);
-          const paints: LookPaint[] = [...(frame.painted.get(patch.id) ?? [])].flatMap(([look, weight]) => {
-            const heads = by?.get(look) && full(by.get(look)!);
-            return heads?.size ? [{ look, weight, heads }] : [];
+          const paints: LookPaint[] = (frame.paintedBy.get(patch.id) ?? []).flatMap((p) => {
+            const heads = full(p.heads);
+            return heads.size ? [{ ...p, heads, ...(p.hues ? { hues: full(p.hues) } : {}) }] : [];
           });
-          const held = wheels.get(patch.id);
-          const w = wheelFrame(r.wheel, paints, color, held?.slot);
+          const w = wheelFrame(r.wheel, paints, color, wheels.get(patch.id), at);
           if (w.pick) {
             write(r.wheel.offset, w.pick.value);
-            wheels.set(patch.id, { slot: w.pick.slot.min, ...(w.asked ? { asked: w.asked, gap: w.pick.gap } : { asked: held?.asked, gap: held?.gap ?? 0 }) });
+            // nothing asked (nothing painted, or black): the slot held stays, and no colour asked is told
+            wheels.set(patch.id, { slot: w.pick.slot.min, ...(w.changedAt === undefined ? {} : { changedAt: w.changedAt }), ...(w.asked ? { asked: w.asked, gap: w.pick.gap } : { gap: 0 }) });
           }
           dim = w.dim;
         }

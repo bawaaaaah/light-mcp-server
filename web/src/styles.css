@@ -1653,32 +1653,85 @@ table.rules td {
   gap: 0.4em;
 }
 .widget-menu .wheel-slots {
+  display: grid;
+  gap: 0.25em;
+}
+.widget-menu .wheel-slots ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0.25em;
 }
+/* one row per slot under a header naming the columns: the slot, its real colour, what it also answers to, left out */
+.widget-menu .wheel-head,
 .widget-menu .wheel-slots li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(5.5em, 1fr) minmax(3.6em, auto) minmax(3.2em, auto) auto;
   align-items: center;
   gap: 0.4em;
+}
+.widget-menu .wheel-head {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.widget-menu .wheel-head span:last-child {
+  text-align: right;
+}
+.widget-menu .wheel-real {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
   flex-wrap: wrap;
+}
+.widget-menu .wheel-real input[type="color"] {
+  width: 2em;
+  height: 1.8em;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.widget-menu .wheel-colorless {
+  grid-column: 1 / -1;
+}
+.widget-menu .wheel-modified {
+  color: var(--warn);
+}
+.widget-menu .wheel-slot-swatch.none {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--line) 3px 5px);
+}
+.widget-menu .wheel-confirm {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+/* fingers: every control of the editor is a 44 px target */
+@media (pointer: coarse) {
+  .widget-menu .wheel-editor button,
+  .widget-menu .wheel-editor select,
+  .widget-menu .wheel-editor input,
+  .widget-menu .wheel-add {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 .widget-menu .wheel-slots li.off .wheel-slot-name {
   text-decoration: line-through;
   opacity: 0.6;
 }
 .widget-menu .wheel-slot-swatch {
+  display: inline-block;
   width: 1.4em;
   height: 1.4em;
+  margin-right: 0.35em;
   border-radius: 50%;
   border: 2px solid var(--line);
-  flex: none;
+  vertical-align: middle;
 }
 .widget-menu .wheel-slot-name {
-  flex: 1;
-  min-width: 6em;
+  min-width: 0;
+  color: var(--text);
+  font-size: 1rem;
 }
 .widget-menu .wheel-add {
   display: inline-flex;
