@@ -150,9 +150,26 @@ describe("fadeable tracks: composition (composeTracks)", () => {
     const t = tracks(r, LIGHT);
     expect(composeTracks(r, t, [layer("look:a", 1, { colors: [RED] })], { ...opts, intensity: 0.5 }).get(0)).to.be.closeTo(127.5, 1e-9);
     // a look its group doses at 50 % keeps that level through its fade: half of its weight
-    const half = composeTracks(r, t, [layer("look:a", 0.5, { colors: [RED], level: [[0, 0.5]] })], opts);
+    const light = [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+    const half = composeTracks(r, t, [layer("look:a", 0.5, { colors: [RED], level: light.map((o) => [o, 0.5]) })], opts);
     expect(half.get(0)).to.be.closeTo(63.75, 1e-9);
     expect(half.get(3)).to.equal(255);
+    // a channel fader linked to that group holds R1 (its DCA doses R1 afterwards): the dimmer carries the highest level,
+    // each colour the rest of its own — R1 at full here, the others at half
+    const WHITE = [-1, { red: 1, green: 1, blue: 1 }] as [number, Record<string, number>];
+    const fader = composeTracks(r, t, [layer("look:a", 1, { colors: [WHITE], level: light.map((o) => [o, o === 3 ? 1 : 0.5]) })], opts);
+    expect([fader.get(0), fader.get(3), fader.get(4)]).to.deep.equal([255, 255, 127.5]);
+  });
+
+  it("switches a mode channel only one look writes at mid-fade too: the other counts at the channel's rest", () => {
+    const r = resolved(venue(), "bar");
+    const t = tracks(r, LIGHT);
+    const at = (w: number, aWrites: boolean) =>
+      composeTracks(r, t, [layer("x:b", 1 - w, { colors: [RED], ...(aWrites ? { raw: [[2, 200]] as [number, number][] } : {}) }), layer("x:b", w, { colors: [BLUE], ...(aWrites ? {} : { raw: [[2, 200]] as [number, number][] }) })], opts).get(2);
+    expect([at(0.1, true), at(0.4, true), at(0.6, true), at(0.9, true)]).to.deep.equal([200, 200, 0, 0]);
+    expect([at(0.1, false), at(0.4, false), at(0.6, false), at(0.9, false)]).to.deep.equal([0, 0, 200, 200]);
+    // a look that leaves alone still holds it to the end
+    expect(composeTracks(r, t, [layer("exit:a", 0.05, { colors: [RED], raw: [[2, 200]] })], opts).get(2)).to.equal(200);
   });
 
   it("writes no pan/tilt offset, coarse or fine, even raw or ticked", () => {

@@ -13,7 +13,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
-import { motionOffsets, type TrackLayer } from "../venue/tracks.js";
+import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
@@ -1156,12 +1156,12 @@ export class ShowRuntime {
     const doses = this.doses();
     /**
      * The fixtures whose tracks are enabled (T5, venue/tracks.ts), with their pan/tilt offsets: the looks reach them as
-     * layers (layerOf), not through the colours and raw channels below — but for pan/tilt, which stay raw and verbatim.
+     * layers (layerOf), not through the colours and raw channels below — but for pan/tilt and offsets past their mode, which stay raw and verbatim.
      */
-    const trackFixtures = new Map<string, Set<number>>();
+    const trackFixtures = new Map<string, (offset: number) => boolean>();
     for (const f of this.venue.installed()) {
       const r = this.venue.resolve(f.id);
-      if (!("error" in r) && r.tracks) trackFixtures.set(f.id, motionOffsets(r));
+      if (!("error" in r) && r.tracks) trackFixtures.set(f.id, verbatimOffsets(r));
     }
     /** Removes the fixtures with tracks from a look's colours, in place (after `paints`, which must still see them: the wheel). */
     const withoutTracks = <M extends Map<string, unknown>>(colors: M): M => {
@@ -1193,8 +1193,8 @@ export class ShowRuntime {
       const excluded = painted ? this.excludedFrom(look) : new Set<string>();
       const raw = new Map<string, Map<number, number>>();
       look.channels?.targets.forEach((t, k) => {
-        const motion = trackFixtures.get(t.fixture);
-        if (!motion || motion.has(t.offset)) return;
+        const verbatim = trackFixtures.get(t.fixture);
+        if (!verbatim || verbatim(t.offset)) return;
         raw.set(t.fixture, (raw.get(t.fixture) ?? new Map<number, number>()).set(t.offset, row?.[k] ?? 0));
       });
       const included = doses.isIncluded(look.id);
@@ -1211,7 +1211,9 @@ export class ShowRuntime {
           }
         const layer: TrackLayer = { look: look.id, sheet, weight, raw: own ?? new Map(), ...(colors ? { colors } : {}), ...(level ? { level } : {}) };
         ranks.set(layer, this.launchOrder.get(player) ?? 0);
-        frame.tracks.set(f, [...(frame.tracks.get(f) ?? []), layer]);
+        const stack = frame.tracks.get(f);
+        if (stack) stack.push(layer);
+        else frame.tracks.set(f, [layer]);
       }
     };
     const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
@@ -1220,9 +1222,9 @@ export class ShowRuntime {
       if (!look.channels || !row) return;
       const included = doses.isIncluded(look.id);
       look.channels.targets.forEach((t, k) => {
-        // a fixture with tracks keeps only its raw pan/tilt here (verbatim): the rest rides on its layers
-        const motion = trackFixtures.get(t.fixture);
-        if (motion && !motion.has(t.offset)) return;
+        // a fixture with tracks keeps only its raw pan/tilt and offsets past its mode here (verbatim): the rest rides on its layers
+        const verbatim = trackFixtures.get(t.fixture);
+        if (verbatim && !verbatim(t.offset)) return;
         const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
         const level = included ? doses.lookLevel(look.id, t.fixture, t.offset) : 1;
         byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet, ...(level === 1 ? {} : { level }) }]);

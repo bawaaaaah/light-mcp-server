@@ -39,7 +39,7 @@ import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
 import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelFrame, type WheelHeld } from "./color-wheel.js";
-import { composeTracks, motionOffsets, tracksOf, type ResolvedTracks, type TrackLayer } from "./tracks.js";
+import { composeTracks, tracksOf, verbatimOffsets, type ResolvedTracks, type TrackLayer } from "./tracks.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -804,15 +804,15 @@ export class Venue {
       if (r.tracks) {
         // Fadeable tracks (T5, tracks.ts): channel by channel from the looks' layers, none of the classes below. The
         // wheel still follows wheelFrame (paints saw the fixture), the position frame.positions; the looks' raw pan/tilt
-        // stay verbatim, after every fixture like any raw channel (rawOf kept only those for this fixture).
+        // and offsets past the mode stay verbatim, after every fixture like any raw channel (rawOf kept only those here).
         for (const [off, v] of r.shutterOpen) write(off, v);
         const wheel = r.lampOnly && r.wheel ? this.wheelOn(patch.id, r, r.wheel, undefined, frame, wheels, at) : undefined;
         for (const [off, v] of composeTracks(r, r.tracks, frame.tracks.get(patch.id) ?? [], { merge: at.merge, intensity, ...(wheel ? { wheel } : {}) })) write(off, v);
         if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
-        const motion = motionOffsets(r);
+        const verbatim = verbatimOffsets(r);
         if (raws)
           rawPass.push(() => {
-            for (const [offset, writes] of raws) if (motion.has(offset)) write(offset, rawValue(writes));
+            for (const [offset, writes] of raws) if (verbatim(offset)) write(offset, rawValue(writes));
           });
         continue;
       }

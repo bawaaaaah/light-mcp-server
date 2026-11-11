@@ -219,6 +219,45 @@ describe("fadeable tracks in the engine (T5)", () => {
     expect(t.show.strictBounds("a")).to.have.length(1);
   });
 
+  it("switches a mode channel only one of two crossing looks writes at mid-fade, both ways", () => {
+    for (const writer of ["a", "b"]) {
+      const t = setup({ tracks: { fade: LIGHT } });
+      t.show.looks.put(look("a", "#ff0000", {}, writer === "a" ? [[2, 200]] : []));
+      t.show.looks.put(look("b", "#0000ff", { entryFade: 2 }, writer === "b" ? [[2, 200]] : []));
+      t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["a", "b"] } });
+      t.show.go("a");
+      t.advance(2);
+      const program = sample(t, 2500, [2], (i) => i === 0 && t.show.go("b")).map((r) => r[0]!);
+      const [from, to] = writer === "a" ? [200, 0] : [0, 200];
+      const switched = program.findIndex((v) => v === to);
+      expect(program[0], writer).to.equal(from);
+      expect(program.slice(switched).every((v) => v === to), `${writer}: a single switch`).to.equal(true);
+      expect(switched * 20, writer).to.be.within(960, 1040);
+    }
+  });
+
+  it("doses a colour a channel fader linked to the look's group holds once, as without tracks (T35)", () => {
+    const lit = (tracks?: { fade: string[] }) => {
+      const t = setup(tracks ? { tracks } : {});
+      t.show.groups.put({ id: "g", name: "G", master: { level: 0.5 }, presets: { included: ["w"] } });
+      t.show.faders.put({ id: "f", name: "F", channels: [{ fixture: "bar-l", offset: 3 }], level: 0, dca: "g" });
+      t.show.looks.put(look("w", "#ffffff", {}));
+      t.show.go("w");
+      const b = t.dmx();
+      return [(b[0]! * b[3]!) / 255, (b[0]! * b[4]!) / 255].map(Math.round);
+    };
+    expect(lit({ fade: LIGHT })).to.deep.equal(lit());
+  });
+
+  it("leaves the neighbour's addresses a look reaches past a fixture with tracks as they were", () => {
+    const run = (tracks?: { fade: string[] }) => {
+      const t = setup(tracks ? { tracks } : {});
+      t.show.looks.put(look("a", "#ff0000", { entryFade: 2 }, [[16, 180], [2, 200]])); // offset 16: bar-r's Strobe
+      return sample(t, 2500, [15, 16, 17, 18], (i) => i === 0 && t.show.go("a"));
+    };
+    expect(run({ fade: LIGHT })).to.deep.equal(run());
+  });
+
   /** The light of head 0 (dimmer × red), sample by sample. */
   const light = (rows: number[][]) => rows.map((r) => (r[0]! * r[1]!) / 255);
   const steepestLight = (rows: number[][]) => Math.max(...light(rows).slice(1).map((v, i) => Math.abs(v - light(rows)[i]!)));

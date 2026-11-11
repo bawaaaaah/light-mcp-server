@@ -79,6 +79,16 @@ export function motionOffsets(r: Pick<TrackFixture, "pan" | "tilt">): Set<number
   return out;
 }
 
+/**
+ * The raw writes a fixture with tracks keeps verbatim, outside its layers: pan/tilt (the motion layer's) and offsets past
+ * its mode (a neighbour's addresses: written as on any fixture, never composed here).
+ */
+export function verbatimOffsets(r: Pick<TrackFixture, "pan" | "tilt" | "mode">): (offset: number) => boolean {
+  const motion = motionOffsets(r);
+  const size = r.mode.channels.length;
+  return (o) => motion.has(o) || o >= size;
+}
+
 /** The channels a user ticks, in the mode's order: fine channels left out (they follow their coarse one). */
 export function trackChannels(r: TrackFixture): { offset: number; name: string; attribute: string; kind: TrackKind }[] {
   const motion = motionOffsets(r);
@@ -147,7 +157,8 @@ export function overSheets(carried: readonly Carried[], merge: LooksMerge, held:
  * The layer whose value a jumping channel takes — the colour wheel's rule (T18 wheelFrame), so that one behaviour
  * explains both: with « last » only the latest sheet carrying the channel counts (a look started over another takes
  * its jumping channels at once); inside that sheet, or among all with « highest », the heaviest, the later one on
- * equal weights. So a crossfade switches at mid-fade, an entry at once, an exit at its very end.
+ * equal weights. So a crossfade switches at mid-fade, an entry at once, an exit at its very end. composeTracks adds, in the
+ * sheets carrying the channel, the layers lighting the fixture without it, at the channel's rest value.
  */
 export function dominantLayer<T extends { sheet: string; weight: number; order: number }>(carried: readonly T[], merge: LooksMerge): T | undefined {
   const last = carried.reduce<T | undefined>((x, y) => (!x || y.order >= x.order ? y : x), undefined);
@@ -171,10 +182,20 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   const colourOf = new Map<number, { head: number; comp: ColorComponent }>();
   for (const [head, comps] of r.heads) for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) colourOf.set(off, { head, comp });
   const wheelOffset = r.lampOnly && r.wheel && opts.wheel ? r.wheel.offset : undefined;
+  const size = r.mode.channels.length;
+  // the offsets this path composes: in the fixture's mode, pan/tilt left out (toDmx writes the others verbatim)
+  const own = (o: number) => o < size && !motion.has(o);
   const levelAt = (l: TrackLayer, o: number) => l.level?.get(o) ?? 1;
-  const ownRaw = (l: TrackLayer) => [...l.raw.keys()].some((o) => !motion.has(o));
   // a layer lights the fixture when it paints it or writes a raw channel other than pan/tilt (a position alone lights nothing)
-  const lit = (l: TrackLayer) => (l.colors?.size ?? 0) > 0 || ownRaw(l);
+  const lits = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some(own)]));
+  const lit = (l: TrackLayer) => lits.get(l) ?? false;
+  /**
+   * The groups' level of a look on a fixture with a dimmer (T35): the dimmer carries the highest of its light channels'
+   * levels, each colour the rest of its own (its level / that highest, at most 1) — a channel fader linked to a group
+   * that holds one colour doses that colour once, as on a fixture without tracks.
+   */
+  const lightOffsets = [...dimmers, ...colourOf.keys()];
+  const topLevel = new Map(layers.map((l) => [l, l.level ? Math.max(0, ...lightOffsets.map((o) => levelAt(l, o))) : 1]));
   const bodyLevel = (l: TrackLayer): number | undefined => {
     const body = [...(l.colors ?? [])].filter(([h]) => !r.accent.has(h));
     if (!body.length) return undefined;
@@ -192,7 +213,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
         const body = r.levelDimmer ? bodyLevel(l) : 1;
         if (body !== undefined) v = body * 255;
       }
-      return v === undefined ? undefined : v * levelAt(l, o);
+      return v === undefined ? undefined : v * (topLevel.get(l) ?? 1);
     }
     const colour = colourOf.get(o);
     if (colour) {
@@ -201,12 +222,15 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
         const c = l.colors?.get(colour.head) ?? (r.accent.has(colour.head) && !r.follow ? undefined : l.colors?.get(-1));
         if (c) v = (c[colour.comp] ?? 0) * 255;
       }
-      return v === undefined ? undefined : v * (hasDimmer ? 1 : levelAt(l, o));
+      if (v === undefined) return undefined;
+      if (!hasDimmer) return v * levelAt(l, o);
+      const top = topLevel.get(l) ?? 1;
+      return top > 0 ? v * Math.min(1, levelAt(l, o) / top) : 0;
     }
     return raw;
   };
   const offsets = new Set<number>([...dimmers, ...colourOf.keys()]);
-  for (const l of layers) for (const o of l.raw.keys()) if (!motion.has(o)) offsets.add(o);
+  for (const l of layers) for (const o of l.raw.keys()) if (own(o)) offsets.add(o);
   if (wheelOffset !== undefined) offsets.add(wheelOffset);
   const ordered = layers.map((l, order) => ({ l, order }));
   // the combined opacity of the layers lighting the fixture: what a colour under a fading dimmer is shared against
@@ -232,7 +256,12 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       continue;
     }
     if (!tracks.fade.has(o) || o === wheelOffset) {
-      out.set(o, dominantLayer(carried, opts.merge)!.value);
+      // in the sheets carrying the channel, a layer lighting the fixture without it counts at the channel's rest value:
+      // a crossfade from a look writing a mode channel to one that does not switches it back at mid-fade too
+      const sheets = new Set(carried.map((c) => c.sheet));
+      const rest = isDimmer ? (r.levelDimmer ? 0 : 255) : isColour ? 0 : (r.shutterOpen.get(o) ?? 0);
+      const resting = ordered.flatMap(({ l, order }) => (sheets.has(l.sheet) && lit(l) && valueOf(l, o) === undefined ? [{ sheet: l.sheet, weight: l.weight, value: rest, order }] : []));
+      out.set(o, dominantLayer([...carried, ...resting], opts.merge)!.value);
       continue;
     }
     const { value, opacity } = overSheets(carried, opts.merge, 0);
