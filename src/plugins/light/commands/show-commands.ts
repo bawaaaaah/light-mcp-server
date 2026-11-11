@@ -326,20 +326,28 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.heads.set",
     title: "Régler le halo d'une fixture",
     description:
-      "Corrects a fixture's accent heads (a halo, a ring, a backlight), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent heads, whole heads only, checked against every mode of the model (a mode that has none of them keeps the detection by name); [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head stays dark unless a look paints it (no colour from the other heads nor from a whole-fixture colour); null = back to the default (true). What is not given stays as set.",
+      "Corrects a fixture's accent heads (a halo, a ring, a backlight), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent heads, whole heads only and never every head (an accent needs a full head beside it), checked against every mode of the model (a mode that has none of them keeps the detection by name); [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head stays dark unless a look paints it (no colour from the other heads nor from a whole-fixture colour); null = back to the default (true). What is not given stays as set.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), scope: headsScope, accent: z.array(z.string()).nullable().optional(), follow: z.boolean().nullable().optional() }),
     run: ({ fixture, scope, accent, follow }) => {
       const { r, view } = headsOfFixture(fixture);
       if (accent?.length) {
-        const { unknown, partial } = accentProblems(r.def, accent);
+        const { unknown, partial, every } = accentProblems(r.def, accent);
         if (unknown.length) throw new Error(say(`pas un canal de couleur de ce modèle : ${unknown.join(", ")}`, `not a colour channel of this model: ${unknown.join(", ")}`));
         if (partial.length)
           throw new Error(
             say(
               `un halo est fait de têtes entières : ${partial.map((p) => `${p.head.join(", ")} (mode ${p.mode})`).join(" ; ")} n'y sont qu'en partie`,
               `an accent is made of whole heads: ${partial.map((p) => `${p.head.join(", ")} (mode ${p.mode})`).join("; ")} are only partly in it`,
+            ),
+          );
+        // marked so, every head would be a full one again (headsOf): refused rather than saved and silently undone
+        if (every.length)
+          throw new Error(
+            say(
+              `un halo a besoin d'au moins une zone pleine à côté : toutes les têtes y seraient (mode ${every.join(", ")})`,
+              `an accent needs at least one full zone beside it: every head would be in it (mode ${every.join(", ")})`,
             ),
           );
       }
@@ -490,7 +498,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "dmx.explain",
     title: "Pourquoi ce canal",
-    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks).",
+    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks: those whose canvas reaches its head, in the order they compose; leaving for one fading out, covered for one a later look covers under looksMerge « last »).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],

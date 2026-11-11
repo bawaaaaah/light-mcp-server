@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+
+type Scope = "model" | "fixture";
 
 interface HeadRow {
   head: number;
@@ -30,29 +32,53 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
   const t = useT();
   const [open, setOpen] = useState(false);
   const [heads, setHeads] = useState<Heads | null>(null);
-  const [scope, setScope] = useState<"model" | "fixture" | null>(null);
+  const [scope, setScope] = useState<Scope | null>(null);
   const [error, setError] = useState("");
+  const scopeButtons = useRef<Record<Scope, HTMLButtonElement | null>>({ model: null, fixture: null });
+  /** The last request sent: the answer to an older one (another fixture, the menu closed, a save overtaken) is dropped. */
+  const latest = useRef(0);
   useEffect(() => {
     if (!open) return;
+    const id = ++latest.current;
+    // closed, or another fixture: what is still on its way is no longer wanted
+    let wanted = true;
+    const current = () => wanted && id === latest.current;
     setError("");
     void cmd<Heads>("venue.fixture.heads", { fixture }).then(
       (h) => {
+        if (!current()) return;
         setHeads(h);
         // a fixture with its own correction: the model's would change nothing visible here
         setScope((s) => s ?? (h.overrides.fixture !== undefined ? "fixture" : "model"));
       },
-      (e: Error) => setError(e.message),
+      (e: Error) => {
+        if (current()) setError(e.message);
+      },
     );
+    return () => void (wanted = false);
   }, [open, fixture]);
   const save = (name: string, args: Record<string, unknown>) => {
+    const id = ++latest.current;
     setError("");
     void cmd<Heads>(name, { fixture, scope, ...args }).then(
       (h) => {
-        setHeads(h);
         onSaved();
+        if (id === latest.current) setHeads(h);
       },
-      (e: Error) => setError(e.message),
+      (e: Error) => {
+        if (id === latest.current) setError(e.message);
+      },
     );
+  };
+  /** Arrows move the scope as in any radio group: one tab stop, on the checked radio. */
+  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
+    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Partial<Record<string, number>>)[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const order: Scope[] = ["model", "fixture"];
+    const next = order[(order.indexOf(from) + step + order.length) % order.length]!;
+    setScope(next);
+    scopeButtons.current[next]?.focus();
   };
   const shown = heads && (scope === "model" ? { rows: heads.model.heads, follow: heads.model.follow } : { rows: heads.heads, follow: heads.follow });
   /** The accent is said by channel names: those of every head marked, with `head` switched. */
@@ -62,6 +88,12 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
   };
   const whole = heads !== null && heads.heads.length === 1 && heads.heads[0]!.head < 0;
   const corrected = heads && (scope === "model" ? heads.overrides.model : heads.overrides.fixture) !== undefined;
+  /** How many fixtures « this model » reaches, and which correction applies; nothing to say, no line. */
+  const note = heads
+    ? [scope === "model" ? t.headsModelCount.replace("{n}", String(heads.model.fixtures)) : "", heads.overrides.fixture !== undefined ? t.headsCorrectedFixture : heads.overrides.model !== undefined ? t.headsCorrectedModel : ""]
+        .filter(Boolean)
+        .join(" ")
+    : "";
 
   return (
     <div className="field">
@@ -81,15 +113,21 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
             <>
               <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
                 {(["model", "fixture"] as const).map((s) => (
-                  <button key={s} className={`ghost${scope === s ? " on" : ""}`} role="radio" aria-checked={scope === s} onClick={() => setScope(s)}>
+                  <button
+                    key={s}
+                    ref={(el) => void (scopeButtons.current[s] = el)}
+                    className={`ghost${scope === s ? " on" : ""}`}
+                    role="radio"
+                    aria-checked={scope === s}
+                    tabIndex={scope === s ? 0 : -1}
+                    onKeyDown={(e) => moveScope(e, s)}
+                    onClick={() => setScope(s)}
+                  >
                     {s === "model" ? t.headsScopeModel : t.headsScopeFixture}
                   </button>
                 ))}
               </div>
-              <small className="hint">
-                {scope === "model" ? t.headsModelCount.replace("{n}", String(heads.model.fixtures)) : ""}
-                {heads.overrides.fixture !== undefined ? ` ${t.headsCorrectedFixture}` : heads.overrides.model !== undefined ? ` ${t.headsCorrectedModel}` : ""}
-              </small>
+              {note && <small className="hint">{note}</small>}
               {shown.rows.map((h) => {
                 const names = h.channels.map((c) => c.name).join(", ");
                 return (

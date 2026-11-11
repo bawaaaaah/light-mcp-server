@@ -12,7 +12,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
@@ -109,8 +109,12 @@ export interface ChannelExplanation {
   clamps: (Pick<Clamp, "rule" | "from" | "to"> & { name?: string })[];
   /** The fixture has Reset channels, held at rest by the built-in rule: `fixture.reset` resets it on purpose. */
   resettable?: true;
-  /** A colour channel: the looks painting its head (or the whole fixture) on the last frame. */
-  paintingLooks?: { id: string; name: string }[];
+  /**
+   * A colour channel: the looks whose canvas reaches its head (or the whole fixture, or, for a halo that follows, a
+   * full head), in the order they compose. `leaving` for one fading out (an exit fade, or under a crossfade); `covered`
+   * for a playing look a later playing look covers there (`looksMerge: "last"`): its colour does not show.
+   */
+  paintingLooks?: { id: string; name: string; leaving?: true; covered?: true }[];
   /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour) and, while a look asks a colour of it, that colour and the gap between them (OKLab, 0 = the same). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its Reset channels (the range a voluntary reset sends), and the seconds left while one runs. */
@@ -133,8 +137,6 @@ export class ShowRuntime {
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
-  /** fixtureId → the looks painting it on the last frame composed, with the heads each paints (-1: whole), halo included (dmx.explain). */
-  private lastPainters = new Map<string, Map<string, { name: string; heads: Set<number> }>>();
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
@@ -673,14 +675,12 @@ export class ShowRuntime {
     const held = !("error" in r) && r.lampOnly && r.wheel?.offset === offset ? this.wheels.get(fixture.id) : undefined;
     const slot = held && !("error" in r) ? r.wheel?.slots.find((s) => s.min === held.slot) : undefined;
     const wheel = held && slot ? { slot: slot.name, color: slotHex(slot), ...(held.asked ? { asked: held.asked } : {}), gap: held.gap } : undefined;
-    // the looks painting this colour channel's head (or the whole fixture) on the last frame; on a lamp's wheel, those
-    // lighting its body (a halo alone turns no wheel)
+    // the looks painting this colour channel's head (or the whole fixture), read from their canvases only when asked;
+    // on a lamp's wheel, those lighting its body (a halo alone turns no wheel)
     const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
     const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
-    const painting = isColour
-      ? [...(this.lastPainters.get(fixture.id) ?? [])].filter(([, p]) => paintsHere(p.heads)).map(([id, p]) => ({ id, name: p.name }))
-      : [];
+    const painting = isColour ? this.paintingLooks(fixture.id, paintsHere) : [];
     return {
       ...(painting.length ? { paintingLooks: painting } : {}),
       ...(wheel ? { wheel } : {}),
@@ -693,6 +693,42 @@ export class ShowRuntime {
         ? { resettable: true as const, reset: { channels: resetChannels(r), ...(this.resetting(fixture.id) ? { secondsLeft: Math.ceil((this.resets.get(fixture.id)! - this.now()) / 1000) } : {}) } }
         : {}),
     };
+  }
+
+  /** The fixtures a look leaves out: those of the groups whose presets exclude it. */
+  private excludedFrom(look: Look): Set<string> {
+    const excluded = new Set<string>();
+    for (const g of this.groups.list()) if (g.presets.excluded.includes(look.id)) for (const f of this.fixturesOf(g.id)) excluded.add(f);
+    return excluded;
+  }
+
+  /**
+   * The looks whose canvas reaches a fixture's heads that `here` accepts (dmx.explain), read from their canvases only
+   * when asked, never per frame: the heads a look's cells target, its halo spelt out as the frame does
+   * (Venue.followAccents), in the order the looks compose — the ones leaving (an exit fade, under a crossfade), then
+   * the ones playing. Under `looksMerge: "last"`, a playing look a later playing look also reaches there is covered.
+   */
+  private paintingLooks(fixtureId: string, here: (heads: Set<number>) => boolean): NonNullable<ChannelExplanation["paintingLooks"]> {
+    const reaches = (look: Look): boolean => {
+      if (this.excludedFrom(look).has(fixtureId)) return false;
+      let cells: { fixture: string; head: number }[][];
+      try {
+        cells = this.venue.cellTargets(look.canvas);
+      } catch {
+        return false; // an unknown canvas paints nothing
+      }
+      const sheet = new Map<number, Color>(cells.flat().flatMap((t) => (t.fixture === fixtureId ? [[t.head, {}] as const] : [])));
+      if (!sheet.size) return false;
+      this.venue.followAccents(new Map([[fixtureId, sheet]]));
+      return here(new Set(sheet.keys()));
+    };
+    const leaving = [...this.releasing.values(), ...[...this.crossfades.values()].flatMap((x) => x.outgoing)]
+      .map(({ look }) => look)
+      .filter((look, i, all) => !this.active.has(look.id) && all.findIndex((l) => l.id === look.id) === i && reaches(look))
+      .map((look) => ({ id: look.id, name: look.name, leaving: true as const }));
+    const playing = [...this.active.values()].filter(({ look }) => reaches(look)).map(({ look }) => ({ id: look.id, name: look.name }));
+    const last = this.settings.looksMerge === "last";
+    return [...leaving, ...playing.map((l, i) => (last && i < playing.length - 1 ? { ...l, covered: true as const } : l))];
   }
 
   /** Intensity per fixture: product over the groups directly holding it × grand master. */
@@ -958,8 +994,6 @@ export class ShowRuntime {
   private compose(buffers: Uint8Array[], now: number, beats: number, wheels: Map<string, WheelChoice>): string[] {
     const frame = emptyFrame();
     const errors: string[] = [];
-    const painters = new Map<string, Map<string, { name: string; heads: Set<number> }>>();
-    this.lastPainters = painters;
     // Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing).
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
@@ -985,10 +1019,6 @@ export class ShowRuntime {
      */
     const paints = (colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] => {
       for (const [f, heads] of colors) {
-        const byFixture = painters.get(f) ?? new Map<string, { name: string; heads: Set<number> }>();
-        const mine = byFixture.get(look.id) ?? { name: look.name, heads: new Set<number>() };
-        for (const h of heads.keys()) mine.heads.add(h);
-        painters.set(f, byFixture.set(look.id, mine));
         if (!this.venue.lightsBody(f, heads.keys())) continue;
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
@@ -1023,11 +1053,8 @@ export class ShowRuntime {
     const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
       let step: Step = player.render(now, beats);
       let lookLevel = fade;
-      const excluded = new Set<string>();
-      for (const g of this.groups.list()) {
-        if (g.presets.included.includes(look.id)) lookLevel *= this.effectiveLevel(g.id);
-        if (g.presets.excluded.includes(look.id)) for (const f of this.fixturesOf(g.id)) excluded.add(f);
-      }
+      for (const g of this.groups.list()) if (g.presets.included.includes(look.id)) lookLevel *= this.effectiveLevel(g.id);
+      const excluded = this.excludedFrom(look);
       if (lookLevel < 1) step = step.map((c) => (c ? scaleColor(c, lookLevel) : c));
       const own = emptyFrame();
       try {

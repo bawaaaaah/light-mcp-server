@@ -7,9 +7,10 @@
  * The deduction runs when a fixture is resolved, never at import: `FixtureMode.heads` stays what the
  * .qxf says, so the QLC+ workspace import, the library and the duplicate check read the file as it is.
  * It is cautious: a definition that repeats no colour component, or whose parts do not look like zones
- * of one fixture (more parts than repetitions, a lone colour beside full zones), stays one colour (-1).
+ * of one fixture (more parts than repetitions, a lone colour beside parts that are not alike), stays one colour (-1).
+ * A colour channel that is no plain intensity (a laser, a channel cut into functions) is no colour here at all.
  */
-import type { ColorComponent, FixtureDefinition, FixtureMode } from "./qxf-import.js";
+import type { ColorComponent, FixtureChannel, FixtureDefinition, FixtureMode } from "./qxf-import.js";
 import type { HeadOverrides } from "./overrides.js";
 
 export type HeadComponents = Partial<Record<ColorComponent, number>>;
@@ -25,8 +26,11 @@ export interface FixtureHeads {
   escaped: number[];
 }
 
-/** Words naming an accent part (whole words). Not « back » nor « rear »: a double-sided « Front RGB / Back RGB » has two full faces. */
-const ACCENT = /\b(halo|aura|backlight)\b/;
+/**
+ * Words naming an accent part (whole words, matched on the words left once the colour words are out: no accents, no
+ * punctuation). Not « back » nor « rear »: a double-sided « Front RGB / Back RGB » has two full faces.
+ */
+const ACCENT = /\b(halo|aura|backlight|back light|anneau|couronne|contre jour)\b/;
 /** A ring is an accent only deduced and unnumbered: « Ring 1, Ring 2 », or a ring the definition declares as a head, are zones. */
 const RING = /\bring\b/;
 /** A head the definition declares is an accent by name only when called a halo or an aura (Martin MAC Aura). */
@@ -41,6 +45,8 @@ const COLOUR_WORDS =
 const TEMPERATURE = /(warm|cold|cool)|\b(ww|cw|chaud|froid)\b/;
 /** Colour channels that tune the colour rather than light a zone (« Color balancing red », « Red Tone »): never a zone. */
 const TUNING = /(balanc|saturation|\btone\b|temperature|macro|preset|select|speed|program|correction)/;
+/** A range of a colour channel that runs a function rather than sets a level (« Strobe slow-fast », « Sound active », « Fade in »). */
+const FUNCTION = /strob|sound|music|\bauto\b|program|macro|chase|spin|scan|jump|random|pulse|flash|fade (in|out)|alternat/;
 
 const plain = (name: string) =>
   name
@@ -61,6 +67,16 @@ export function partOf(channelName: string): { words: string; number?: number } 
   return { words, ...(numbers ? { number: Number(numbers[numbers.length - 1]) } : {}) };
 }
 
+/**
+ * A channel's colour component when it is a plain intensity of that colour; undefined for a laser (« Red Laser »:
+ * Blackout / On / Strobe slow-fast) or a colour channel cut into functions (a strobe, a sound mode, a fade program):
+ * at full, such a channel would run its function. It is then no zone and no colour writes it, a whole-fixture one included.
+ */
+export function plainColour(ch: FixtureChannel | undefined): ColorComponent | undefined {
+  if (!ch?.color || /\blaser/.test(plain(ch.name))) return undefined;
+  return ch.capabilities.length > 1 && ch.capabilities.some((c) => FUNCTION.test(plain(c.name))) ? undefined : ch.color;
+}
+
 /** The first channel of each component, in offset order. */
 function componentsOf(offsets: readonly number[], colourAt: (offset: number) => ColorComponent | undefined): HeadComponents {
   const comps: HeadComponents = {};
@@ -71,29 +87,57 @@ function componentsOf(offsets: readonly number[], colourAt: (offset: number) => 
   return comps;
 }
 
+/** A colour channel's component for the deduction: its colour, or « white-warm », « white-cool »… for a white told apart by its temperature. */
+type Component = string;
+
 /** A group of colour channels that may be one zone. */
 interface Part {
   number?: number;
+  /** The words left once the colours and the numbers are out ("" for « Red », « Red 2 »). */
+  words: string;
   offsets: number[];
+  /** Its components, sorted and joined: parts alike have the same. */
+  comps: string;
 }
 
 /** Colour channels grouped by `key`; undefined when a group would repeat a component (the key does not tell zones apart). */
-function groupBy(offsets: readonly number[], key: (offset: number) => { key: string; number?: number }, colourAt: (offset: number) => ColorComponent | undefined): Part[] | undefined {
-  const parts = new Map<string, Part & { comps: Set<ColorComponent> }>();
+function groupBy(offsets: readonly number[], key: (offset: number) => string, partAt: (offset: number) => { words: string; number?: number }, colourAt: (offset: number) => Component): Part[] | undefined {
+  const parts = new Map<string, Omit<Part, "comps"> & { comps: Set<Component> }>();
   for (const off of offsets) {
     const k = key(off);
-    const part = parts.get(k.key) ?? { ...(k.number !== undefined ? { number: k.number } : {}), offsets: [], comps: new Set<ColorComponent>() };
-    const c = colourAt(off)!;
+    const { words, number } = partAt(off);
+    const part = parts.get(k) ?? { ...(number !== undefined ? { number } : {}), words, offsets: [], comps: new Set<Component>() };
+    const c = colourAt(off);
     if (part.comps.has(c)) return undefined;
     part.comps.add(c);
     part.offsets.push(off);
-    parts.set(k.key, part);
+    parts.set(k, part);
   }
-  return [...parts.values()].map(({ comps: _c, ...p }) => p);
+  return [...parts.values()].map((p) => ({ ...p, comps: [...p.comps].sort().join("+") }));
 }
 
 /** Head order, fixed whatever the accent: numbered parts first by number, then the others as patched (by offset). Transitive. */
 const byPlace = (a: Part, b: Part): number => (a.number === undefined ? 1 : 0) - (b.number === undefined ? 1 : 0) || (a.number ?? 0) - (b.number ?? 0) || a.offsets[0]! - b.offsets[0]!;
+
+/**
+ * The first zone when the fixture numbers only the others (« Red / Red 2 / Red 3 »): an unnumbered part with no word
+ * left takes number 1, or 0 when a part is already numbered 1 (« Red / Red 1 / Red 2 »). The other unnumbered parts
+ * (a halo) stay after the numbered ones, as patched.
+ */
+function numberFirst(parts: Part[]): Part[] {
+  if (!parts.some((p) => p.number !== undefined)) return parts;
+  const first = parts.find((p) => p.number === undefined && p.words === "");
+  if (!first) return parts;
+  const number = parts.some((p) => p.number === 1) ? 0 : 1;
+  return parts.map((p) => (p === first ? { ...p, number } : p));
+}
+
+/** How many times the most repeated component comes among these channels. */
+function mostRepeated(offsets: readonly number[], colourAt: (offset: number) => Component): number {
+  const counts = new Map<Component, number>();
+  for (const off of offsets) counts.set(colourAt(off), (counts.get(colourAt(off)) ?? 0) + 1);
+  return Math.max(0, ...counts.values());
+}
 
 /** The accent correction that applies to this mode: [] always (no accent); a list only when one of its names is in the mode. */
 function accentFor(mode: FixtureMode, overrides: HeadOverrides | undefined): readonly string[] | undefined {
@@ -103,42 +147,43 @@ function accentFor(mode: FixtureMode, overrides: HeadOverrides | undefined): rea
 }
 
 /** The heads a mode has before any accent: declared, deduced from the names, or one for the whole fixture. */
-function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: Part[]; deduced: boolean } {
+function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: { offsets: number[] }[]; deduced: boolean } {
   if (mode.heads.length) return { parts: mode.heads.map((offsets) => ({ offsets: [...offsets] })), deduced: false };
-  const coarse = mode.channels.flatMap((name, off) => {
-    const ch = def.channels.get(name);
-    return ch?.color && !ch.fine && !TUNING.test(plain(name)) ? [off] : [];
-  });
+  const channel = (off: number) => def.channels.get(mode.channels[off] ?? "");
+  const coarse = mode.channels.flatMap((name, off) => (plainColour(channel(off)) && !channel(off)!.fine && !TUNING.test(plain(name)) ? [off] : []));
   // a white told apart by its temperature is its own component here: « Warm White / Cool White » are one zone
-  const colourAt = (off: number) => {
-    const c = def.channels.get(mode.channels[off] ?? "")?.color;
+  const colourAt = (off: number): Component => {
+    const c = plainColour(channel(off))!;
     const t = c === "white" ? TEMPERATURE.exec(plain(mode.channels[off]!)) : null;
-    return (t ? `white-${t[0]}` : c) as ColorComponent | undefined;
+    return t ? `white-${t[0]}` : c;
   };
   const whole = { parts: [], deduced: false };
   // a fixture that repeats no colour component has one zone: « RGBWA | U.V. », « CMY | CTO », « RGB | Emulated White »
-  const counts = new Map<ColorComponent, number>();
-  for (const off of coarse) counts.set(colourAt(off)!, (counts.get(colourAt(off)!) ?? 0) + 1);
-  const repeat = Math.max(0, ...counts.values());
-  if (repeat < 2) return whole;
+  if (mostRepeated(coarse, colourAt) < 2) return whole;
   // by the number left once the colour words are out (any language: « Rouge 1 », « LED 1 Red »); by the words too
   // when the number alone would put one component twice in a part (« Spot 1 Red / Derby 1 Red »)
-  const part = (off: number) => partOf(mode.channels[off]!);
-  const parts =
-    groupBy(coarse, (off) => ({ key: part(off).number !== undefined ? `#${part(off).number}` : part(off).words, ...(part(off).number !== undefined ? { number: part(off).number } : {}) }), colourAt) ??
-    groupBy(coarse, (off) => ({ key: `${part(off).words}#${part(off).number ?? ""}`, ...(part(off).number !== undefined ? { number: part(off).number } : {}) }), colourAt);
-  if (!parts || parts.length <= 1) return whole;
-  // zones of one fixture: no more parts than the most repeated component (« Red (Pixel 1) | Green (Pixel 2) … » are
-  // single LEDs, not zones), and no lone colour beside full zones (« Red / Fade Speed | Green / Blue »)
-  if (parts.length > repeat) return whole;
+  const names = new Map(coarse.map((off) => [off, partOf(mode.channels[off]!)]));
+  const partAt = (off: number) => names.get(off)!;
+  const found =
+    groupBy(coarse, (off) => (partAt(off).number !== undefined ? `#${partAt(off).number}` : partAt(off).words), partAt, colourAt) ??
+    groupBy(coarse, (off) => `${partAt(off).words}#${partAt(off).number ?? ""}`, partAt, colourAt);
+  if (!found) return whole;
+  // parts alike (the same components, twice at least) are zones: a lone colour beside them (a « UV Dimmer » beside
+  // 4 RGBW spots) is left out of any head rather than making the whole fixture one colour
+  const alike = (p: Part) => found.some((q) => q !== p && q.comps === p.comps);
+  const parts = found.some(alike) ? found.filter((p) => p.offsets.length > 1 || alike(p)) : found;
+  if (parts.length <= 1) return whole;
+  // zones of one fixture: no more parts than the most repeated component among them (« Red (Pixel 1) | Green (Pixel 2) … »
+  // are single LEDs, not zones), and no lone colour beside full zones that are not alike (« Red / Fade Speed | Green / Blue »)
+  if (parts.length > mostRepeated(parts.flatMap((p) => p.offsets), colourAt)) return whole;
   const sizes = parts.map((p) => p.offsets.length);
   if (Math.min(...sizes) === 1 && Math.max(...sizes) > 1) return whole;
-  return { parts: parts.sort(byPlace), deduced: true };
+  return { parts: numberFirst(parts).sort(byPlace), deduced: true };
 }
 
 /** A mode's heads, declared or deduced, and its accent heads, with the per-model or per-fixture correction. */
 export function headsOf(def: FixtureDefinition, mode: FixtureMode, overrides?: HeadOverrides): FixtureHeads {
-  const colourAt = (off: number) => def.channels.get(mode.channels[off] ?? "")?.color;
+  const colourAt = (off: number) => plainColour(def.channels.get(mode.channels[off] ?? ""));
   const names = (offsets: readonly number[]) => offsets.filter((o) => colourAt(o)).map((o) => mode.channels[o]!);
   const { parts, deduced } = partsOf(def, mode);
   const heads = new Map<number, HeadComponents>();
@@ -157,7 +202,7 @@ export function headsOf(def: FixtureDefinition, mode: FixtureMode, overrides?: H
       const ns = names(p.offsets);
       if (ns.length && ns.every((n) => (listed ? listed.includes(n) : named(n)))) accent.add(h);
     });
-    // an accent needs a full head beside it: all named so, they are all full heads
+    // an accent needs a full head beside it: all named so, they are all full heads (venue.fixture.heads.set refuses a list that marks them all)
     if (accent.size === heads.size) accent.clear();
   }
   // colours the definition repeats out of any head: only when deduced or whole (a definition that declares its heads
@@ -168,27 +213,33 @@ export function headsOf(def: FixtureDefinition, mode: FixtureMode, overrides?: H
     const inHeads = new Set([...heads.values()].flatMap((c) => Object.keys(c)));
     mode.channels.forEach((name, off) => {
       const ch = def.channels.get(name);
-      if (ch?.color && !ch.fine && !reached.has(off) && inHeads.has(ch.color) && !TEMPERATURE.test(plain(name)) && !TUNING.test(plain(name))) escaped.push(off);
+      const c = plainColour(ch);
+      if (c && !ch!.fine && !reached.has(off) && inHeads.has(c) && !TEMPERATURE.test(plain(name)) && !TUNING.test(plain(name))) escaped.push(off);
     });
   }
   return { heads, accent, deduced, escaped };
 }
 
 /**
- * Why a list of accent channels cannot be kept for a model (empty when it can): names that are no colour channel
- * of any of its modes, and, in every mode that has one of them, heads it covers only in part (an accent is whole heads).
+ * Why a list of accent channels cannot be kept for a model (all empty when it can): names that are no colour channel
+ * of any of its modes; in every mode that has one of them, heads it covers only in part (an accent is whole heads);
+ * and the modes where it would cover every head (an accent needs a full head beside it).
  */
-export function accentProblems(def: FixtureDefinition, accent: readonly string[]): { unknown: string[]; partial: { mode: string; head: string[] }[] } {
-  const unknown = accent.filter((n) => !def.channels.get(n)?.color || !def.modes.some((m) => m.channels.includes(n)));
+export function accentProblems(def: FixtureDefinition, accent: readonly string[]): { unknown: string[]; partial: { mode: string; head: string[] }[]; every: string[] } {
+  const unknown = accent.filter((n) => !plainColour(def.channels.get(n)) || !def.modes.some((m) => m.channels.includes(n)));
   const partial: { mode: string; head: string[] }[] = [];
+  const every: string[] = [];
   for (const mode of def.modes) {
     if (!accent.some((n) => mode.channels.includes(n))) continue;
     const { heads } = headsOf(def, mode, { accent: [] });
+    let covered = 0;
     for (const comps of heads.values()) {
       const head = Object.values(comps).map((o) => mode.channels[o]!);
       const inside = head.filter((n) => accent.includes(n)).length;
       if (inside > 0 && inside < head.length) partial.push({ mode: mode.name, head });
+      if (inside > 0 && inside === head.length) covered++;
     }
+    if (!heads.has(-1) && covered === heads.size) every.push(mode.name);
   }
-  return { unknown, partial };
+  return { unknown, partial, every };
 }

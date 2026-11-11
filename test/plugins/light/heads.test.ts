@@ -219,6 +219,12 @@ describe("heads: commands, canvas, show check and QLC+ import", () => {
     // part of a head: refused, naming the head
     await run("venue.fixture.heads.set", { fixture: "wash", accent: ["Halo Red", "Halo Green"] }).catch((e: Error) => (refused = e.message));
     expect(refused).to.contain("Halo Red, Halo Green, Halo Blue");
+    // every head: refused rather than saved and undone (all accents are full heads)
+    refused = "";
+    const all = [1, 2, 3].flatMap((z) => [`Red ${z}`, `Green ${z}`, `Blue ${z}`, `White ${z}`]).concat(["Halo Red", "Halo Green", "Halo Blue"]);
+    await run("venue.fixture.heads.set", { fixture: "wash", accent: all }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.match(/toutes les têtes|every head/);
+    expect(((await run("venue.fixture.heads", { fixture: "wash" })) as Heads).overrides).to.deep.equal({});
     // follow: null goes back to the default; the model's view says how many fixtures it reaches
     await run("venue.fixture.heads.set", { fixture: "wash", follow: false });
     type View = Heads & { follow: boolean; model: { fixtures: number; follow: boolean; heads: { accent: boolean }[] } };
@@ -260,6 +266,19 @@ describe("heads: commands, canvas, show check and QLC+ import", () => {
     type Why = { paintingLooks?: { name: string }[] };
     const names = async (offset: number) => (((await run("dmx.explain", { universe: 1, channel: 1 + offset })) as Why).paintingLooks ?? []).map((l) => l.name);
     expect([await names(ZONE(2).red), await names(HALO.red), await names(ZONE(1).red)]).to.deep.equal([["Rouge"], ["Rouge"], []]);
+    // a whole-fixture look launched after it covers it (looksMerge « last »), and a look stopped with an exit fade is leaving
+    await run("venue.canvas.put", { canvas: { id: "all", name: "All", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "wash", head: -1 }] }] } });
+    await run("look.put", { look: { id: "bleu", name: "Bleu", canvas: "all", technique: { kind: "plat", color: "#0000ff" } } });
+    await run("look.go", { id: "bleu" });
+    render();
+    type Painting = { paintingLooks?: { name: string; covered?: true; leaving?: true }[] };
+    const why = async (offset: number) => ((await run("dmx.explain", { universe: 1, channel: 1 + offset })) as Painting).paintingLooks;
+    expect(await why(ZONE(2).red)).to.deep.equal([{ id: "rouge", name: "Rouge", covered: true }, { id: "bleu", name: "Bleu" }]);
+    expect(await why(ZONE(1).red)).to.deep.equal([{ id: "bleu", name: "Bleu" }]);
+    await run("look.put", { look: { id: "bleu", name: "Bleu", canvas: "all", technique: { kind: "plat", color: "#0000ff" }, timing: { exitFade: 10 } } });
+    await run("look.stop", { id: "bleu" });
+    render();
+    expect(await why(ZONE(2).red)).to.deep.equal([{ id: "bleu", name: "Bleu", leaving: true }, { id: "rouge", name: "Rouge" }]);
   });
 
   it("keeps a QLC+ workspace fixture without <Head> aimed whole (-1)", () => {
@@ -302,11 +321,58 @@ describe("heads: a cautious deduction", () => {
     // single-colour LEDs numbered as pixels: 8 parts, each component twice
     const pixels = ["Red", "Green", "Blue", "White", "Red", "Green", "Blue", "White"].map((c, i): [string, string] => [`${c} (Pixel ${i + 1})`, c]);
     expect(headNames(qxf("Octa", pixels))).to.have.length(1);
-    // an unnumbered UV beside two numbered RGB zones
-    const lone = parseQxf(qxf("Lone", [["Red 1", "Red"], ["Green 1", "Green"], ["Blue 1", "Blue"], ["Red 2", "Red"], ["Green 2", "Green"], ["Blue 2", "Blue"], ["UV", "UV"]]));
+    // a lone red beside one RGB part, with no two parts alike
+    const lone = parseQxf(qxf("Lone", [["Red 1", "Red"], ["Red 2", "Red"], ["Green 2", "Green"], ["Blue 2", "Blue"]]));
     const h = headsOf(lone, lone.modes[0]!);
     expect([[...h.heads.keys()], h.deduced]).to.deep.equal([[-1], false]);
-    expect(h.escaped.map((o) => lone.modes[0]!.channels[o])).to.deep.equal(["Red 2", "Green 2", "Blue 2"]);
+    expect(h.escaped.map((o) => lone.modes[0]!.channels[o])).to.deep.equal(["Red 2"]);
+  });
+
+  it("keeps zones alike and leaves a lone colour beside them out of any head (4 RGBW spots + a UV dimmer)", () => {
+    const spots = [1, 2, 3, 4].flatMap((n): [string, string][] => [[`Spot ${n} Red`, "Red"], [`Spot ${n} Green`, "Green"], [`Spot ${n} Blue`, "Blue"], [`Spot ${n} White`, "White"]]);
+    const def = parseQxf(qxf("Spots UV", [...spots, ["UV Dimmer", "UV"]]));
+    const h = headsOf(def, def.modes[0]!);
+    expect(h.deduced).to.equal(true);
+    expect(headNames(qxf("Spots UV", [...spots, ["UV Dimmer", "UV"]]))).to.deep.equal([1, 2, 3, 4].map((n) => `${n - 1}:Spot ${n} Red/Spot ${n} Green/Spot ${n} Blue/Spot ${n} White`));
+    expect(h.escaped).to.deep.equal([]); // UV is in no head: nothing repeats it out of one
+    // a red for the whole fixture lights the 4 spots, not spot 1 alone
+    const dir = mkdtempSync(join(tmpdir(), "light-heads-spots-"));
+    mkdirSync(join(dir, "fixtures"));
+    writeFileSync(join(dir, "fixtures", "spots.qxf"), qxf("Spots UV", [...spots, ["UV Dimmer", "UV"]]));
+    const venue = new Venue(new FolderStore(join(dir, "venue")), [join(dir, "fixtures")]);
+    venue.fixtures.put({ id: "spots", name: "Spots", manufacturer: "Test", model: "Spots UV", mode: "Mode", universe: 1, address: 1 });
+    const frame = emptyFrame();
+    frame.colors.set("spots", new Map([[-1, { red: 1 }]]));
+    const buf = new Uint8Array(512);
+    venue.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" });
+    expect([0, 4, 8, 12].map((o) => buf[o])).to.deep.equal([255, 255, 255, 255]);
+    expect(buf[16]).to.equal(0); // the UV
+  });
+
+  it("puts an unnumbered first zone first when only the others are numbered (« Red, Red 2, Red 3 »)", () => {
+    const rgb = (suffix: string): [string, string][] => [[`Red${suffix}`, "Red"], [`Green${suffix}`, "Green"], [`Blue${suffix}`, "Blue"]];
+    expect(headNames(qxf("Red 23", [...rgb(""), ...rgb(" 2"), ...rgb(" 3")]))).to.deep.equal(["0:Red/Green/Blue", "1:Red 2/Green 2/Blue 2", "2:Red 3/Green 3/Blue 3"]);
+    expect(headNames(qxf("Red only", [["Red", "Red"], ["Red 2", "Red"], ["Red 3", "Red"]]))).to.deep.equal(["0:Red", "1:Red 2", "2:Red 3"]);
+    // a part already numbered 1: the unnumbered one is 0, still first
+    expect(headNames(qxf("Red 12", [...rgb(" 1"), ...rgb(""), ...rgb(" 2")]))).to.deep.equal(["0:Red/Green/Blue", "1:Red 1/Green 1/Blue 1", "2:Red 2/Green 2/Blue 2"]);
+    // a halo stays after the numbered zones
+    expect(headNames(qxf("Red halo", [...rgb(""), ...rgb(" 2"), ["Halo Red", "Red"], ["Halo Green", "Green"], ["Halo Blue", "Blue"]]))).to.deep.equal(["0:Red/Green/Blue", "1:Red 2/Green 2/Blue 2", "*2:Halo Red/Halo Green/Halo Blue"]);
+  });
+
+  it("never takes a laser or a colour channel cut into functions for a colour: no zone, and no whole-fixture colour writes it", () => {
+    const laser = (name: string, colour: string) =>
+      `<Channel Name="${name}"><Group Byte="0">Intensity</Group><Colour>${colour}</Colour><Capability Min="0" Max="4">Blackout</Capability><Capability Min="5" Max="54">On</Capability><Capability Min="55" Max="255">Strobe slow-fast</Capability></Channel>`;
+    const strobing = `<Channel Name="White"><Group Byte="0">Intensity</Group><Colour>White</Colour><Capability Min="0" Max="9">Off</Capability><Capability Min="10" Max="127">Dimmer</Capability><Capability Min="128" Max="255">Sound active</Capability></Channel>`;
+    const plainRgb = `<Channel Name="Red" Preset="IntensityRed"/><Channel Name="Green" Preset="IntensityGreen"/><Channel Name="Blue" Preset="IntensityBlue"/>`;
+    const switched = `<Channel Name="Amber"><Group Byte="0">Intensity</Group><Colour>Amber</Colour><Capability Min="0" Max="127">Off</Capability><Capability Min="128" Max="255">On</Capability></Channel>`;
+    const xml = `<?xml version="1.0"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Bar</Model><Type>Effect</Type>${laser("Red Laser", "Red")}${laser("Green Laser", "Green")}${strobing}${plainRgb}${switched}
+<Mode Name="M">${["Red Laser", "Green Laser", "White", "Red", "Green", "Blue", "Amber"].map((n, i) => `<Channel Number="${i}">${n}</Channel>`).join("")}</Mode></FixtureDefinition>`;
+    const def = parseQxf(xml);
+    const h = headsOf(def, def.modes[0]!);
+    // before: « Red Laser / Green Laser » became a second zone; now one colour, the lasers and the strobing white left out
+    expect([...h.heads.entries()]).to.deep.equal([[-1, { red: 3, green: 4, blue: 5, amber: 6 }]]);
+    expect(h.escaped).to.deep.equal([]);
+    expect(accentProblems(def, ["Red Laser"]).unknown).to.deep.equal(["Red Laser"]);
   });
 
   it("finds the zones by the number left once the colour words are out, in French or English, wherever it stands", () => {
@@ -360,7 +426,9 @@ describe("heads: a cautious deduction", () => {
       { mode: "Full", head: ["Halo Red", "Halo Green"] },
       { mode: "Short", head: ["Red 2", "Green 2"] },
     ]);
-    expect(accentProblems(parseQxf(xml), ["Halo Red", "Halo Green", "Halo R", "Halo G"])).to.deep.equal({ unknown: [], partial: [] });
+    expect(accentProblems(parseQxf(xml), ["Halo Red", "Halo Green", "Halo R", "Halo G"])).to.deep.equal({ unknown: [], partial: [], every: [] });
+    // every head marked: no full head would be left beside the accent
+    expect(accentProblems(parseQxf(xml), ["Red 1", "Green 1", "Red 2", "Green 2", "Halo Red", "Halo Green"]).every).to.deep.equal(["Full"]);
   });
 
   it("does not report colours a definition with declared heads keeps out of them (a master, a background)", () => {

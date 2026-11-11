@@ -2436,9 +2436,23 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
     await menu.getByRole("button", { name: "Têtes et halo…" }).click();
     const rows = menu.locator(".invert-row > span");
     await expect(rows).toHaveText([/^Zone 1Red 1, Green 1/, /^Zone 2/, /^Zone 3/, /^HaloHalo Red, Halo Green, Halo Blue/, "Le halo suit le look"]);
-    await expect(menu).toContainText("zones déduites des noms des canaux numérotés");
+    await expect(menu).toContainText("zones déduites des noms des canaux, par leur numéro");
     await expect(menu).toContainText("Concerne 1 appareil(s) de ce modèle.");
     await expect(menu.getByRole("radio", { name: "Ce modèle" })).toHaveAttribute("aria-checked", "true");
+    // the scope is one radio group: one tab stop, arrows move the choice and the focus
+    const modelRadio = menu.getByRole("radio", { name: "Ce modèle" });
+    const fixtureRadio = menu.getByRole("radio", { name: "Cet appareil seul" });
+    await expect(fixtureRadio).toHaveAttribute("tabindex", "-1");
+    await modelRadio.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(fixtureRadio).toHaveAttribute("aria-checked", "true");
+    await expect(fixtureRadio).toBeFocused();
+    await expect(fixtureRadio).toHaveAttribute("tabindex", "0");
+    // nothing to say for this fixture alone (no correction yet): no empty line
+    await expect(menu.locator("small.hint:empty")).toHaveCount(0);
+    await page.keyboard.press("ArrowLeft");
+    await expect(modelRadio).toHaveAttribute("aria-checked", "true");
+    await expect(modelRadio).toBeFocused();
     // the menu grew with the heads: it stays inside the window, its last button reachable
     const box = (await menu.boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(0);
