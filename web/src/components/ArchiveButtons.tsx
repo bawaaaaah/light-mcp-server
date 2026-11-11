@@ -25,12 +25,12 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
               .then((p) => {
                 const part = (label: string, d: FolderDiff | null) =>
                   d === null
-                    ? `${label} : ${t.untouchedPart}`
-                    : `${label} : +${d.added.length} / ~${d.changed.length} / -${d.removed.length}${[...d.added.map((x) => `\n  + ${x}`), ...d.changed.map((x) => `\n  ~ ${x}`), ...d.removed.map((x) => `\n  - ${x}`)].slice(0, 12).join("")}`;
+                    ? `${label}${t.colon} ${t.untouchedPart}`
+                    : `${label}${t.colon} +${d.added.length} / ~${d.changed.length} / -${d.removed.length}${[...d.added.map((x) => `\n  + ${x}`), ...d.changed.map((x) => `\n  ~ ${x}`), ...d.removed.map((x) => `\n  - ${x}`)].slice(0, 12).join("")}`;
                 const defs = (x: FixtureSummary) =>
                   x.missing.length + x.differs.length + x.invalid.length + x.rejected.length === 0
                     ? ""
-                    : `\n${t.restoreFixtures} : ${x.missing.length} ${t.restoreFixturesMissing}, ${x.differs.length} ${t.restoreFixturesDiffer}${x.invalid.length + x.rejected.length ? `, ${x.invalid.length + x.rejected.length} ${t.restoreFixturesSkipped}` : ""}${[...x.missing.map((n) => `\n  + ${n}`), ...x.differs.map((n) => `\n  ~ ${n}`)].slice(0, 12).join("")}`;
+                    : `\n${t.restoreFixtures}${t.colon} ${x.missing.length} ${t.restoreFixturesMissing}, ${x.differs.length} ${t.restoreFixturesDiffer}${x.invalid.length + x.rejected.length ? `, ${x.invalid.length + x.rejected.length} ${t.restoreFixturesSkipped}` : ""}${[...x.missing.map((n) => `\n  + ${n}`), ...x.differs.map((n) => `\n  ~ ${n}`)].slice(0, 12).join("")}`;
                 const folders = [p.show, p.venue].every((d) => d === null || d.added.length + d.changed.length + d.removed.length === 0);
                 if (folders && p.fixtures.missing.length + p.fixtures.differs.length === 0) return onError(t.restoreSame);
                 const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;

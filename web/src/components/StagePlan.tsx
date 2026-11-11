@@ -455,7 +455,7 @@ export function StagePlan({
     const only = selected && heads.includes(selected) ? [selected] : undefined;
     void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 }, ...(only ? { fixtures: only } : {}) })
       .then((res) => {
-        const errors = res.results.filter((x) => x.error).map((x) => `${x.fixture} : ${x.error}`);
+        const errors = res.results.filter((x) => x.error).map((x) => `${x.fixture}${t.colon} ${x.error}`);
         if (errors.length) onError(errors.join(" · "));
       })
       .catch((err: Error) => onError(err.message));
@@ -734,7 +734,7 @@ export function StagePlan({
               </g>
               {showBeam && (
                 <g className="beam">
-                  <title>{f.facing ? `${t.facingLabel} : ${t.facings[f.facing]}` : `${t.heading} ${Math.round(o?.yaw ?? 0)}° · ${t.pitchLabel} ${Math.round(o?.pitch ?? 0)}°`}</title>
+                  <title>{f.facing ? `${t.facingLabel}${t.colon} ${t.facings[f.facing]}` : `${t.heading} ${Math.round(o?.yaw ?? 0)}° · ${t.pitchLabel} ${Math.round(o?.pitch ?? 0)}°`}</title>
                   {Math.hypot(px, py) >= 0.35 && <line x1={sx(p.x)} y1={sy(p.y)} x2={sx(p.x) + px * reach} y2={sy(p.y) + py * reach} markerEnd="url(#beam-head)" />}
                   {Math.abs(toward) > 0.7 && (
                     <g transform={`translate(${sx(p.x) + halfWidth + 10} ${sy(p.y) - halfHeight - 2})`} /* by the body's corner as drawn, a standing bar's too */>

@@ -6,6 +6,7 @@ import { plain } from "../util";
 import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
 import { Modal } from "../components/Modal";
+import { quoted } from "../typography";
 
 interface Status {
   localAvailable: boolean;
@@ -98,7 +99,7 @@ function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }
       <p>
         {status.rtp.enabled ? (
           <>
-            {t.rtpOurs} « {status.profileConfig?.rtp.name} » · port {status.rtp.port}
+            {t.rtpOurs} {quoted(t, status.profileConfig?.rtp.name ?? "")} · port {status.rtp.port}
             {status.rtp.wanted !== undefined && <small className="hint"> · {t.rtpMoved.replace("{wanted}", String(status.rtp.wanted))}</small>}
           </>
         ) : (
@@ -279,7 +280,7 @@ export function MidiPage(): ReactElement {
     if (!e.matched?.length) return `${raw} · ${t.monitorUnmapped}`;
     const who = e.matched.map((x) => `${x.label || x.id} (${t.modesShort[x.mode as keyof typeof t.modesShort] ?? x.mode})`).join(", ");
     const did = e.calls.length ? e.calls.map((c) => `${c.command}${c.target ? ` ${c.target}` : ""} ${c.ok ? "✓" : `✗ ${c.error ?? ""}`}`).join(", ") : t.monitorNothing;
-    return `${raw} → ${who} : ${did}${e.ms >= 20 ? ` · ${Math.round(e.ms)} ms` : ""}`;
+    return `${raw} → ${who}${t.colon} ${did}${e.ms >= 20 ? ` · ${Math.round(e.ms)} ms` : ""}`;
   };
 
   useEffect(() => {
@@ -314,12 +315,12 @@ export function MidiPage(): ReactElement {
           </select>
         </label>
         {status && !status.localAvailable && <span className="warn">{t.localMidiMissing}{t.colon} {status.localError}</span>}
-        {status?.rtp.enabled && !status.rtp.error && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
-        {status?.rtp.error && <span className="warn">{t.rtpUnavailable} : {status.rtp.error}</span>}
+        {status?.rtp.enabled && !status.rtp.error && <span className="hint">RTP-MIDI{t.colon}{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
+        {status?.rtp.error && <span className="warn">{t.rtpUnavailable}{t.colon} {status.rtp.error}</span>}
         {status?.node && (
           <span className={status.node.max > 50 ? "warn" : "hint"} title={t.nodeDelay}>
-            {t.nodeDelay} : {status.node.p99} ms
-            {status.node.worst && ` · ${t.nodeWorst}${t.colon} ${Math.round(status.node.worst.ms)} ms (${new Date(status.node.worst.at).toLocaleTimeString().slice(0, 5)})`}
+            {t.nodeDelay}{t.colon} {status.node.p99} ms
+            {status.node.worst && ` · ${t.nodeWorst}${t.colon} ${Math.round(status.node.worst.ms)} ms (${new Date(status.node.worst.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`}
           </span>
         )}
         <label className="row">
@@ -355,7 +356,7 @@ export function MidiPage(): ReactElement {
             </select>{" "}
             <small className="hint">
               {tempo.bpm.toFixed(1)} BPM{tempo.clock ? ` · ${t.clockArriving}` : ""}
-              {tempo.source === "link" && link && ` · Link : ${link.peers} ${t.linkPeers}${link.phase ? `, ${t.linkPhase}` : ""}${link.listening ? "" : ` (${t.linkDeaf})`}`}
+              {tempo.source === "link" && link && ` · Link${t.colon} ${link.peers} ${t.linkPeers}${link.phase ? `, ${t.linkPhase}` : ""}${link.listening ? "" : ` (${t.linkDeaf})`}`}
             </small>
           </label>
         )}
@@ -397,7 +398,7 @@ export function MidiPage(): ReactElement {
           </div>
           {ableset.enabled && ableset.lastMatch && !ableset.lastMatch.found && (
             <p className="warn">
-              ⚠ {t.ablesetUnmatched} : « {ableset.lastMatch.song} » · « {ableset.lastMatch.section} »
+              ⚠ {t.ablesetUnmatched}{t.colon} {quoted(t, ableset.lastMatch.song)} · {quoted(t, ableset.lastMatch.section)}
             </p>
           )}
         </section>
@@ -456,7 +457,7 @@ export function MidiPage(): ReactElement {
           {heard && (
             <p className="heard">
               <span className="chip">
-                {t.heardInput} : <strong>{heardText(heard)}</strong>{" "}
+                {t.heardInput}{t.colon} <strong>{heardText(heard)}</strong>{" "}
                 <button className="ghost" aria-label={t.clearHeard} title={t.clearHeard} onClick={() => setHeard(null)}>
                   ✕
                 </button>

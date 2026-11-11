@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+import { quoted, beforeMark } from "../typography";
 
 type Versioned = "looks" | "groups" | "faders" | "dashboards";
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
@@ -64,7 +65,7 @@ export function RecentlyDeleted({ collections, onRestored }: { collections: Vers
       .then((pairs) => setLists(Object.fromEntries(pairs)))
       .catch((e: Error) => setError(e.message));
   const restore = (collection: Versioned, g: Gone) => {
-    if (!confirm(`${t.restoreDeletedConfirm} « ${g.name ?? g.id} » ?`)) return;
+    if (!confirm(`${t.restoreDeletedConfirm} ${quoted(t, g.name ?? g.id)}${beforeMark(t)}?`)) return;
     void cmd("history.restore", { collection, id: g.id, stamp: g.stamp })
       .then(() => {
         load();

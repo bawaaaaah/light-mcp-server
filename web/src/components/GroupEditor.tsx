@@ -108,7 +108,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
         <label className="field">
           <span>{t.name}</span>
           <input value={g.name} onChange={(e) => setG({ ...g, name: e.target.value })} />
-          {isNew && g.name && <small>id : {id}</small>}
+          {isNew && g.name && <small>id{t.colon} {id}</small>}
         </label>
         <label className="field">
           <span>DCA</span>

@@ -306,7 +306,7 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
           )}
           {output?.foreignSources.map((f) => (
             <p key={f.ip} className={output.standby ? "hint" : "error"}>
-              {output.standby ? t.otherHolds : `⚠ ${t.otherSource} :`} {f.ip}
+              {output.standby ? t.otherHolds : `⚠ ${t.otherSource}${t.colon}`} {f.ip}
               {f.local ? ` (${t.thisMachine})` : ""} (Art-Net {f.portAddresses.join(", ")})
             </p>
           ))}
@@ -355,7 +355,7 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
           )}
           {output?.coverage?.unheard.map((u) => (
             <p key={u.universe} className="warn">
-              ⚠ {t.universe} {u.universe} → Art-Net {u.portAddress} : {t.unheard}
+              ⚠ {t.universe} {u.universe} → Art-Net {u.portAddress}{t.colon} {t.unheard}
               {routing &&
                 output.coverage!.unfed.map((p) => (
                   <button key={p.key + p.portAddress} onClick={() => route(u.universe, { artnet: { portAddress: p.portAddress } })}>
@@ -392,7 +392,7 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
           {os2l?.enabled && (
             <div className="os2l">
               <p>
-                {t.os2lAddress} : <code>{(os2l.addresses.length ? os2l.addresses : ["—"]).map((a) => `${a}:${os2l.port ?? "—"}`).join(" · ")}</code>
+                {t.os2lAddress}{t.colon} <code>{(os2l.addresses.length ? os2l.addresses : ["—"]).map((a) => `${a}:${os2l.port ?? "—"}`).join(" · ")}</code>
               </p>
               {os2l.clients.length === 0 && <p className="hint">{t.os2lNone}</p>}
               <ul>

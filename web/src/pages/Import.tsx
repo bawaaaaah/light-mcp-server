@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { ApiError, cmd, switchingShow } from "../api";
 import { useT } from "../App";
+import { quoted } from "../typography";
 
 interface Proposal {
   applied: boolean;
@@ -162,7 +163,7 @@ export function ImportPage(): ReactElement {
           <ul className="added-definitions">
             {added.map((a) => (
               <li key={a.file} className={a.ok ? "" : "error"}>
-                {a.ok ? "✔" : "✖"} {a.file} : {a.detail}
+                {a.ok ? "✔" : "✖"} {a.file}{t.colon} {a.detail}
                 {a.retry && (
                   <button type="button" onClick={() => void replaceDefinition(a.retry!)}>
                     {t.replaceDefinition}
@@ -187,7 +188,7 @@ export function ImportPage(): ReactElement {
         <fieldset className="import-target">
           <legend>{t.importInto}</legend>
           <label className="inline">
-            <input type="radio" name="target" checked={target === "open"} onChange={() => setTarget("open")} /> {t.intoOpenShow} « {openShow} »
+            <input type="radio" name="target" checked={target === "open"} onChange={() => setTarget("open")} /> {t.intoOpenShow} {quoted(t, openShow)}
           </label>
           <label className="inline">
             <input type="radio" name="target" checked={target === "new"} onChange={() => setTarget("new")} /> {t.intoNewShow}
@@ -248,12 +249,12 @@ export function ImportPage(): ReactElement {
                           <td>
                             {m.kept.length > 0 && (
                               <small>
-                                {t.keptByHand} : {m.kept.join(", ")}
+                                {t.keptByHand}{t.colon} {m.kept.join(", ")}
                               </small>
                             )}{" "}
                             {m.toCheck.length > 0 && (
                               <small className="warn">
-                                {t.toCheck} : {m.toCheck.join(", ")}
+                                {t.toCheck}{t.colon} {m.toCheck.join(", ")}
                               </small>
                             )}
                           </td>
@@ -338,14 +339,14 @@ export function ImportPage(): ReactElement {
             <ul className="warnings">
               {selftest.failed.map((f) => (
                 <li key={f.mapping}>
-                  {f.label || f.mapping} : {f.reason}
+                  {f.label || f.mapping}{t.colon} {f.reason}
                 </li>
               ))}
               {selftest.exclusivity
                 .filter((e) => !e.ok)
                 .map((e) => (
                   <li key={e.group}>
-                    {e.group} : {e.detail}
+                    {e.group}{t.colon} {e.detail}
                   </li>
                 ))}
             </ul>

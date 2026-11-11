@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
+import { quoted } from "../typography";
 
 interface Patched {
   id: string;
@@ -55,19 +56,19 @@ function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
         )}
         {why.intensity && (
           <li>
-            {t.whyIntensity} : {t.grandMasterShort} {pct(why.intensity.grandMaster)}
+            {t.whyIntensity}{t.colon} {t.grandMasterShort} {pct(why.intensity.grandMaster)}
             {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.effective)}${d.effective !== d.own ? ` (${t.whyOwn} ${pct(d.own)})` : ""}`).join("")} = {pct(why.intensity.factor)}
           </li>
         )}
         {why.faders.map((x) => (
           <li key={x.id}>
-            {t.whyFader} « {x.name} » {pct(x.level)}
+            {t.whyFader} {quoted(t, x.name)} {pct(x.level)}
             {x.dca ? ` × DCA → ${pct(x.effective)}` : ""}
           </li>
         ))}
         {why.rawLooks.map((l) => (
           <li key={l.id}>
-            {t.whyRawLook} « {l.name} »{l.leaving ? ` (${t.whyLeaving})` : ""}
+            {t.whyRawLook} {quoted(t, l.name)}{l.leaving ? ` (${t.whyLeaving})` : ""}
           </li>
         ))}
         {why.clamps.map((c, i) => (

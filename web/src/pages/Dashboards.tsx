@@ -26,6 +26,7 @@ import { RecentlyDeleted, Versions } from "../components/Versions";
 import { isHex, SWATCHES, textOn } from "../color";
 import { pick } from "../selection";
 import { microphone } from "../audio/microphone";
+import { quoted } from "../typography";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
 interface Widget {
@@ -528,7 +529,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     try {
       await cmd("dashboard.put", { dashboard: dash });
       if (action === "delete") {
-        if (dashboards.length < 2 || !confirm(`${t.deleteDashboardConfirm} « ${dash.name} »`)) return;
+        if (dashboards.length < 2 || !confirm(`${t.deleteDashboardConfirm} ${quoted(t, dash.name)}`)) return;
         await cmd("dashboard.delete", { id: dash.id });
         return await reloadDashboards();
       }

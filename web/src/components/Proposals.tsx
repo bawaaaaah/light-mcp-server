@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import type { Texts } from "../i18n";
+import { quoted } from "../typography";
 
 interface Preview {
   command: string;
@@ -30,8 +32,8 @@ interface Proposal {
 }
 
 /** A value as it reads in one line. */
-const short = (v: unknown) => {
-  const s = v === undefined ? "—" : typeof v === "string" ? `« ${v} »` : JSON.stringify(v);
+const short = (t: Texts, v: unknown) => {
+  const s = v === undefined ? "—" : typeof v === "string" ? quoted(t, v) : JSON.stringify(v);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
 };
 const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -92,7 +94,7 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
                     {c.changes.slice(0, 8).map((d) => (
                       <li key={d.path}>
                         <small>
-                          {d.path} : {short(d.before)} → {short(d.after)}
+                          {d.path}{t.colon} {short(t, d.before)} → {short(t, d.after)}
                         </small>
                       </li>
                     ))}

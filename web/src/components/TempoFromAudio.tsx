@@ -55,7 +55,7 @@ export function TempoFromAudio({ onBpm, onSections, beatsPerBar }: { onBpm: (bpm
       {found && state.sections && state.sections.length > 1 && (
         <span className="row" title={t.sectionsFromAudioHelp}>
           <small>
-            {t.sectionsFromAudio} : {state.sections.join(" + ")} {t.bars.toLowerCase()}
+            {t.sectionsFromAudio}{t.colon} {state.sections.join(" + ")} {t.bars.toLowerCase()}
           </small>
           <button onClick={() => onSections(state.sections!)}>{t.sectionsUse}</button>
         </span>

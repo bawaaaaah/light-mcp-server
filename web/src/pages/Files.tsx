@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { can, cmd, downloadBackup, type Role } from "../api";
 import { useT } from "../App";
 import { ArchiveButtons } from "../components/ArchiveButtons";
+import { quoted } from "../typography";
 
 interface ShowRow {
   id: string;
@@ -97,7 +98,7 @@ export function FilesPage({ role }: { role: Role }): ReactElement {
                     <button onClick={() => setDraft({ name: `${s.name} (${t.copySuffix})`, from: s.id, venue: "current" })}>{t.duplicate}</button>
                   )}
                   {admin && !s.active && (
-                    <button className="ghost" onClick={() => confirm(`${t.deleteShowConfirm} « ${s.name} »`) && act(cmd("show.delete", { id: s.id }), t.deleted)}>
+                    <button className="ghost" onClick={() => confirm(`${t.deleteShowConfirm} ${quoted(t, s.name)}`) && act(cmd("show.delete", { id: s.id }), t.deleted)}>
                       {t.delete}
                     </button>
                   )}
@@ -170,7 +171,7 @@ export function FilesPage({ role }: { role: Role }): ReactElement {
                   {write && (
                     <button onClick={() => confirm(`${t.restoreBackupConfirm}\n\n${b.file}`) && act(cmd("backup.restore", { file: b.file }), t.restored)}>{t.restore}</button>
                   )}
-                  <button className="ghost" onClick={() => void downloadBackup(b.file).catch((e: Error) => setError(e.message))}>
+                  <button className="ghost" aria-label={t.download} title={t.download} onClick={() => void downloadBackup(b.file).catch((e: Error) => setError(e.message))}>
                     ⤓
                   </button>
                 </td>

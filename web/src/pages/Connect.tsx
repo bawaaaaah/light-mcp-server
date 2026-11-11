@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { api, can, getToken, serverInfo, type Role } from "../api";
 import { useT } from "../App";
 import { CodeBlock, CopyButton } from "../components/Copy";
+import { quoted } from "../typography";
 
 interface OAuthClient {
   clientId: string;
@@ -186,7 +187,7 @@ export function ConnectPage({ role }: { role: Role }): ReactElement {
                     {c.activeGrants} {t.grants} · {c.approvedBy.map((u) => u || t.masterToken).join(", ")}
                   </td>
                   <td>
-                    <button className="ghost" onClick={() => confirm(`${t.revokeClientConfirm} « ${c.clientName ?? c.clientId} »`) && void api(`/api/auth/oauth/clients/${encodeURIComponent(c.clientId)}`, "DELETE").then(loadClients)}>
+                    <button className="ghost" onClick={() => confirm(`${t.revokeClientConfirm} ${quoted(t, c.clientName ?? c.clientId)}`) && void api(`/api/auth/oauth/clients/${encodeURIComponent(c.clientId)}`, "DELETE").then(loadClients)}>
                       {t.revoke}
                     </button>
                   </td>

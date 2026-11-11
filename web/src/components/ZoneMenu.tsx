@@ -4,6 +4,7 @@ import { labelOf } from "../util";
 import { useFloatingMenu } from "./menu";
 import { rectPolygon, zoneRect } from "../zone-shape";
 import type { PlanZone } from "./StagePlan";
+import { quoted, beforeMark } from "../typography";
 
 /**
  * Right-click (or a long press) on a zone of the stage plan: its name, type, sizes (a rectangle as
@@ -68,7 +69,7 @@ export function ZoneMenu({ zone, at, onSave, onDelete, onClose }: { zone: PlanZo
         <button className="primary" onClick={save}>
           {t.save}
         </button>
-        <button className="danger" onClick={() => confirm(`${t.delete} « ${zone.name} » ?`) && (onDelete(), onClose())}>
+        <button className="danger" onClick={() => confirm(`${t.delete} ${quoted(t, zone.name)}${beforeMark(t)}?`) && (onDelete(), onClose())}>
           {t.delete}
         </button>
         <span className="grow" />

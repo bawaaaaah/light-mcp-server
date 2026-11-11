@@ -11,6 +11,7 @@ import { ZoneMenu } from "../components/ZoneMenu";
 import { confirmDelete } from "../components/confirmDelete";
 import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
+import { quoted, beforeMark } from "../typography";
 
 interface Def {
   manufacturer: string;
@@ -280,7 +281,7 @@ export function VenuePage(): ReactElement {
                 <option value="">{t.facingKeep}</option>
                 {(["audience", "upstage", "houseLeft", "houseRight", "ceiling", "floor"] as const).map((k) => (
                   <option key={k} value={k}>
-                    {t.facingLabel} : {t.facings[k]}
+                    {t.facingLabel}{t.colon} {t.facings[k]}
                   </option>
                 ))}
               </select>
@@ -340,7 +341,7 @@ export function VenuePage(): ReactElement {
                     </select>
                   </span>
                 )}
-                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} « ${z.name} » ?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
+                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} ${quoted(t, z.name)}${beforeMark(t)}?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
                   ✕
                 </button>
               </li>

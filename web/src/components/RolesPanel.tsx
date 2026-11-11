@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { api, cmd, grants } from "../api";
 import { useT } from "../App";
 import { roleLabel } from "../i18n";
+import { quoted, beforeMark } from "../typography";
 
 interface RoleRow {
   id: string;
@@ -70,7 +71,7 @@ export function RolesPanel(): ReactElement {
               <th key={r.id}>
                 {roleLabel(t, r.id, r.name)}
                 {!BUILT_IN.includes(r.id) && (
-                  <button className="ghost" title={t.delete} onClick={() => confirm(`${t.delete} « ${roleLabel(t, r.id, r.name)} » ?`) && void api(`/api/auth/roles/${r.id}`, "DELETE").then(load, (e: Error) => setError(e.message))}>
+                  <button className="ghost" title={t.delete} onClick={() => confirm(`${t.delete} ${quoted(t, roleLabel(t, r.id, r.name))}${beforeMark(t)}?`) && void api(`/api/auth/roles/${r.id}`, "DELETE").then(load, (e: Error) => setError(e.message))}>
                     ✕
                   </button>
                 )}

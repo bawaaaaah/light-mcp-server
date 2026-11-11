@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
 import { roleLabel } from "../i18n";
+import { quoted } from "../typography";
 
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
@@ -109,7 +110,7 @@ export function AccountPage({ role }: { role: Role }): ReactElement {
                       {k.rpId} · {day(k.createdAt)} · {t.lastUsed} {day(k.lastUsedAt)}
                     </td>
                     <td>
-                      <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} « ${k.name} »`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"), t.deleted)}>
+                      <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} ${quoted(t, k.name)}`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"), t.deleted)}>
                         {t.delete}
                       </button>
                     </td>

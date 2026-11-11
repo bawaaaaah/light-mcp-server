@@ -8,6 +8,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { plain, slug, splitList, uniqueId } from "../util";
 import { TempoFromAudio } from "./TempoFromAudio";
+import { quoted, beforeMark } from "../typography";
 
 export interface SectionDraft {
   id: string;
@@ -149,7 +150,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
         <label className="field">
           <span>{t.title}</span>
           <input value={song.title} onChange={(e) => set({ title: e.target.value })} />
-          {isNew && song.title && <small>id : {id}</small>}
+          {isNew && song.title && <small>id{t.colon} {id}</small>}
         </label>
         <label className="field">
           <span>{t.songKey}</span>
@@ -383,7 +384,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <button
             className="ghost danger"
             onClick={() => {
-              if (confirm(`${t.delete} « ${initial.title} » ?`)) void cmd("song.delete", { id: initial.id }).then(onClose);
+              if (confirm(`${t.delete} ${quoted(t, initial.title)}${beforeMark(t)}?`)) void cmd("song.delete", { id: initial.id }).then(onClose);
             }}
           >
             {t.delete}

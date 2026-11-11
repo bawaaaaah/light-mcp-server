@@ -4,6 +4,7 @@ import { useT } from "../App";
 import { roleLabel } from "../i18n";
 import { CopyButton } from "./Copy";
 import { QrCode } from "./QrCode";
+import { quoted } from "../typography";
 
 interface RoleRow {
   id: string;
@@ -123,7 +124,7 @@ export function UsersPanel({ role }: { role: Role }): ReactElement {
                         <label className="inline">
                           <input type="checkbox" checked={!u.disabled} onChange={(e) => patch(u.id, { disabled: !e.target.checked })} /> {t.enabled}
                         </label>
-                        <button className="ghost" onClick={() => confirm(`${t.deleteUserConfirm} « ${u.name} »`) && act(api(`/api/auth/users/${u.id}`, "DELETE"), t.deleted)}>
+                        <button className="ghost" onClick={() => confirm(`${t.deleteUserConfirm} ${quoted(t, u.name)}`) && act(api(`/api/auth/users/${u.id}`, "DELETE"), t.deleted)}>
                           {t.delete}
                         </button>
                       </div>
@@ -169,7 +170,7 @@ export function UsersPanel({ role }: { role: Role }): ReactElement {
                 {k.rpId} · {day(k.createdAt)} · {t.lastUsed} {day(k.lastUsedAt)}
               </td>
               <td>
-                <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} « ${k.name} »`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"))}>
+                <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} ${quoted(t, k.name)}`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"))}>
                   {t.delete}
                 </button>
               </td>

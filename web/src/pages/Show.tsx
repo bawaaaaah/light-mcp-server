@@ -1,3 +1,4 @@
+import { beforeMark, quoted } from "../typography";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -590,10 +591,10 @@ export function ShowPage(): ReactElement {
                 </td>
                 <td className="row">
                   <button onClick={() => void run("snapshot.recall", { id: s.id })}>{t.recall}</button>
-                  <button title={t.overwriteHelp} onClick={() => confirm(`${t.overwriteConfirm} « ${s.name} »`) && void run("snapshot.save", { id: s.id, name: s.name })}>
+                  <button title={t.overwriteHelp} onClick={() => confirm(`${t.overwriteConfirm} ${quoted(t, s.name)}`) && void run("snapshot.save", { id: s.id, name: s.name })}>
                     {t.overwrite}
                   </button>
-                  <button className="ghost" onClick={() => confirm(`${t.delete} « ${s.name} » ?`) && void run("snapshot.delete", { id: s.id })}>
+                  <button className="ghost" onClick={() => confirm(`${t.delete} ${quoted(t, s.name)}${beforeMark(t)}?`) && void run("snapshot.delete", { id: s.id })}>
                     {t.delete}
                   </button>
                 </td>

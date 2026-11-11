@@ -111,7 +111,7 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
             {result.tiltOffset}° · {result.invertPan ? t.panInverted : t.panNormal} · {result.invertTilt ? t.tiltInverted : t.tiltNormal}
           </p>
           <p className={result.errorDeg > 3 ? "error" : "hint"}>
-            {t.calibrationError} : {result.errorDeg}° ({result.errors.join("°, ")}°){result.errorDeg > 3 ? ` — ${t.calibrationBad}` : ""}
+            {t.calibrationError}{t.colon} {result.errorDeg}° ({result.errors.join("°, ")}°){result.errorDeg > 3 ? ` — ${t.calibrationBad}` : ""}
           </p>
           <button
             className="primary"

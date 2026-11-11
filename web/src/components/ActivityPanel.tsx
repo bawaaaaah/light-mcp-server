@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from "rea
 import { api, cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import { quoted, beforeMark } from "../typography";
 
 interface Entry {
   at: number;
@@ -85,7 +86,7 @@ export function ActivityPanel(): ReactElement {
   const shown = entries?.filter((e) => (!who || (e.who ?? "—") === who) && (!origin || e.origin === origin) && (!failedOnly || !e.ok));
   const undo = (e: Entry) => {
     const since = (entries ?? []).filter((x) => x.target === e.target && x.undo && x.at > e.until).reverse();
-    const question = [`« ${e.target} » : ${t.undoQuestion} (${time(e.at)}) ?`, ...(since.length ? [`\n${t.undoAlso}`, ...since.map((x) => `• ${time(x.at)} · ${x.who ?? "—"} · ${x.title}`)] : [])].join("\n");
+    const question = [`${quoted(t, e.target ?? "")}${t.colon} ${t.undoQuestion} (${time(e.at)})${beforeMark(t)}?`, ...(since.length ? [`\n${t.undoAlso}`, ...since.map((x) => `• ${time(x.at)} · ${x.who ?? "—"} · ${x.title}`)] : [])].join("\n");
     if (!confirm(question)) return;
     setError("");
     void cmd("history.undo", { ...e.undo, at: e.at, until: e.until }).then(load, (err: Error) => setError(err.message));
