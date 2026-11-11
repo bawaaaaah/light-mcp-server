@@ -9,11 +9,11 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ## 🔴 Fiabilité de la sortie et du moteur
 
 ### T1 — Flashs sur la sortie DMX USB après un certain temps
-- **Mis en attente (2026-11-07)** : l'utilisateur joue en Art-Net sans le DMX USB pour compenser. À reprendre quand on voudra de nouveau l'USB ; ne bloque plus.
-- **Lot 0 fait (2026-11-11)** : interface Open DMX (FTDI) ; flash = éclair bref sur tous les projecteurs, au bout d'un moment, avec ou sans charge. Open DMX à 30 trames/s, garde de fin de trame 8 ms, break 2 ms, horloge monotone, attentes revérifiées au réveil (décision du 2026-11-11 dans [decisions.md](decisions.md)).
-- **À faire par l'utilisateur : passe 1**, une heure de jeu en Open DMX avec changements de looks, puis relever `output.status` → `usb.devices` : `framesSent` (≈ 30 par seconde de jeu : ≈ 108 000 en une heure), `maxGapMs` (attendu ≈ 33-40 ; au-delà de 200 ms, le processus a été endormi ou bloqué), `breakMs` (≈ 2-3), `drainMs` (≈ 22,6 si `drain()` attend la ligne, bien moins sinon : à noter), `reopens` (0 attendu ; sinon `lastError` et `lastErrorAt`, à comparer à l'heure d'un flash). Noter l'heure de chaque flash vu. Plus de flash : T1 est réglé ; encore des flashs avec `reopens` à 0 et `maxGapMs` bas : passer à l'instrumentation (plan T1, sous-tâches 1 à 4).
+- **Mis en attente (2026-11-07)** : l'utilisateur joue en Art-Net sans le DMX USB pour compenser. À reprendre quand on voudra de nouveau l'USB ; ne bloque plus. **Repris le 2026-11-11** : lot 0 fait, essai d'une heure à faire par l'utilisateur.
+- **Lot 0 fait (2026-11-11)** : interface Open DMX (FTDI) ; flash = éclair bref sur tous les projecteurs, au bout d'un moment, avec ou sans charge. Open DMX à 30 trames/s, garde de fin de trame 8 ms (après la fin théorique de la trame ou le retour de `drain()`, le plus tard des deux), break 2 ms, horloge monotone, attentes revérifiées au réveil (décision du 2026-11-11 dans [decisions.md](decisions.md)).
+- **À faire par l'utilisateur : passe 1**, une heure de jeu en Open DMX avec changements de looks, puis relever `output.status` → `usb.devices` : `framesSent` (≈ 28 à 30 par seconde de jeu : 100 000 à 108 000 en une heure), `maxGapMs` (attendu ≈ 33-40 ; au-delà de 200 ms, le processus a été endormi ou bloqué), `breakMs` (≈ 2-3), `drainMs` (≈ 22,6 si `drain()` attend la ligne, bien moins sinon : à noter), `reopens` (0 attendu ; sinon `lastError` et `lastErrorAt`, à comparer à l'heure d'un flash). Noter l'heure de chaque flash vu. Plus de flash : T1 est réglé ; encore des flashs avec `reopens` à 0 et `maxGapMs` bas : passer à l'instrumentation (plan T1, sous-tâches 1 à 4).
 - **Symptôme** : la dernière modification a amélioré la gestion DMX USB, mais les flashs reviennent après un moment de fonctionnement.
-- **Pistes** (à mesurer avant de corriger) :
+- **Pistes** (relevées avant le lot 0 ; à mesurer si l'essai d'une heure montre encore des flashs) :
   - Open DMX : le break est cadencé par logiciel (`BREAK_MS` + `sleep` dans [dmx-usb.ts](../src/plugins/light/output/dmx-usb.ts)) : tout ce qui retarde la boucle d'événements de Node (GC, gros calculs du moteur, WebSocket) allonge ou raccourcit le break et la trame est mal lue. Le temps d'une trame DMX à 512 canaux est ~22,7 ms, soit au mieux ~44 Hz.
   - Cadence : le moteur tourne à 44 Hz (spec [output](specs/output-artnet-sacn.md)), l'utilisateur pense à 40 Hz. Vérifier que la boucle USB ne suit pas plus vite que ce que la ligne peut écouler (file d'attente qui grossit → latence puis saut).
   - Charge : quelles données sont recalculées ou poussées à chaque tick (diffs WS, aperçu de scène, `light:glide`) ? Mesurer le temps de tick et la gigue sous charge.
@@ -328,9 +328,9 @@ Questions en attente de l'utilisateur : voir `docs/plans/00-questions-en-attente
 | 28 | T25 revoir les mouvements via les looks | modèle, moteur, éditeur, migration ; décision de priorité à prendre |
 | 29 | T29 sous-looks et mouvements indépendants des pas | très dur : modèle, moteur, éditeur, références, migration |
 | 30 | T10 manette | trois étapes, API navigateur, scènes de manette |
-| 31 | T1 flashs sur le DMX USB | temps réel, matériel, difficile à reproduire ; en attente |
+| 31 | T1 flashs sur le DMX USB | temps réel, matériel, difficile à reproduire ; lot 0 fait (2026-11-11), essai d'une heure à faire par l'utilisateur |
 
-T1 est en dernier pour la difficulté, mais **mis en attente** : l'utilisateur joue en Art-Net. À reprendre plus tard, en mesurant avant de corriger.
+T1 est en dernier pour la difficulté, mais **mis en attente** : l'utilisateur joue en Art-Net. À reprendre plus tard, en mesurant avant de corriger. Le 2026-11-11, l'utilisateur a fait faire le lot 0 (Open DMX à 30 Hz, garde de 8 ms, horloge monotone) : reste son essai d'une heure.
 
 Fait depuis ce relevé (2026-11-09) : **T7** (« rang » 1), **T17** (« rang » 2), **T31** (composé d'outils existants — le pad XY et les faders de canaux — d'où la place modeste qu'il occupe dans la liste ci-dessus) et **T33** (gestion des dossiers, née à la suite du T17).
 
@@ -351,7 +351,7 @@ Après chaque phase : lancer `npm test`, `npm run typecheck` et `npm run test:ui
 
 ## Questions à trancher avec l'utilisateur
 Ouvertes :
-- Quelle interface DMX USB exacte (Open DMX FTDI ou USB Pro) et quels univers y sont routés ? (T1, en attente)
+- Quelle interface DMX USB exacte (Open DMX FTDI ou USB Pro) et quels univers y sont routés ? (T1 : Open DMX FTDI, réponse du 2026-11-11)
 - ~~T16 : l'instantané de démarrage passe-t-il outre la veille ?~~ tranché le 2026-11-11 : non, la veille tient.
 - T6 : une variante de mode (plusieurs valeurs voisines) se présente en sous-menu ou dans le même menu ?
 - T27 : formes de zones voulues (rectangle seulement, ou aussi ellipse et polygone) ?

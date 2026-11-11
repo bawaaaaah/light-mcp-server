@@ -105,7 +105,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 ### Phase 5 — Visuel : **T19** (après T6 et T20b).
 
 ### Phase 6 — En fin de parcours
-**T10** (manette : Web Gamepad API côté navigateur ; PS5 seulement après discussion avec l'utilisateur), puis **T1** (DMX USB : `output/dmx-usb.ts`, **mesurer avant de corriger** ; en attente tant que l'utilisateur joue en Art-Net).
+**T10** (manette : Web Gamepad API côté navigateur ; PS5 seulement après discussion avec l'utilisateur), puis **T1** (DMX USB : `output/dmx-usb.ts`). En attente depuis le 2026-11-07 (« mesurer avant de corriger », l'utilisateur jouait en Art-Net) ; **le 2026-11-11, lot 0 fait** (Open DMX à 30 Hz, garde de 8 ms, horloge monotone) : **essai d'une heure à faire par l'utilisateur**, puis mesure seulement s'il reste des flashs.
 
 ## 7. État d'avancement (à tenir à jour)
 
@@ -130,7 +130,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T23, T30, T28 | à faire | T23 avant T30 ; T27 et T25 avant T28 |
 | T19 | à faire | |
 | T10 | à faire | en fin de parcours |
-| T1 | en attente | l'utilisateur joue en Art-Net |
+| T1 | en cours | lot 0 fait (2026-11-11) ; essai d'une heure à faire par l'utilisateur (en attente du 2026-11-07 au 2026-11-11 : il jouait en Art-Net) |
 
 États possibles : à faire · en cours · fait (tests verts, commité) · bloqué (dire pourquoi) · en attente.
 
@@ -139,7 +139,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 - **T26** : verrou « Figer les lyres » à **deux niveaux** : souple (looks et cible bloqués, pad XY libre) et dur (tout, pad compris).
 - **T24** : chaque cible a son **groupe ou sa liste de lyres** ; plusieurs cibles à la fois.
 - **T10** : manette placée en fin de parcours ; PS5 (pavé tactile, gyro) seulement après discussion.
-- **T1** : DMX USB en attente (l'utilisateur joue en Art-Net).
+- **T1** : DMX USB mis en attente le 2026-11-07 (l'utilisateur joue en Art-Net) ; le 2026-11-11, il décide de faire le **lot 0 sans mesurer d'abord** (Open DMX à 30 Hz, garde de 8 ms, horloge monotone), puis un essai d'une heure.
 - **Reportées volontairement** : priorité entre couches de mouvement (T25), sous-look partagé par deux looks (T29). Les trancher à l'attaque de ces tâches, en posant la question en français avec une recommandation.
 - **T20** découpé : T20a (détecter les doublons, phase 2), T20b (le reste, phase 4).
 
