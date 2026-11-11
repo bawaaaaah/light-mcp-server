@@ -7,6 +7,8 @@
  * transitions (T5). A missing part means: the definition as it is.
  */
 import { z } from "zod";
+import { say } from "../../../core/lang.js";
+import { normaliseName } from "./qxf-import.js";
 
 const HexSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
@@ -60,8 +62,17 @@ export const ModelOverridesSchema = z.object({
 });
 export type ModelOverrides = z.infer<typeof ModelOverridesSchema>;
 
-/** The id of a model's overrides: manufacturer and model compared without case or punctuation, as definitions are found. */
-export const modelKey = (manufacturer: string, model: string): string => `${manufacturer} ${model}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/**
+ * The id of a model's overrides: manufacturer and model each normalised as definitions are found
+ * (qxf-import.ts normaliseName: accents, case, spaces and punctuation dropped), apart, so that
+ * (« A », « B C ») and (« A B », « C ») stay two models. A name without a letter or digit would key
+ * every such model alike: refused.
+ */
+export const modelKey = (manufacturer: string, model: string): string => {
+  const [m, n] = [normaliseName(manufacturer), normaliseName(model)];
+  if (!m || !n) throw new Error(say(`nom de modèle sans lettre ni chiffre : « ${manufacturer} » « ${model} »`, `model name without a letter or digit: “${manufacturer}” “${model}”`));
+  return `${m}_${n}`;
+};
 
 /** What applies to one fixture: the model's overrides, each part replaced as a whole by the fixture's own when it has one. */
 export function mergeOverrides(model: FixtureOverrides | undefined, fixture: FixtureOverrides | undefined): FixtureOverrides {

@@ -6,7 +6,7 @@
  * definition with the name of its source file, in loading order.
  */
 import { say } from "../../../core/lang.js";
-import { sameName, type FixtureDefinition } from "./qxf-import.js";
+import { normaliseName, sameName, type FixtureDefinition } from "./qxf-import.js";
 
 export interface LibraryEntry {
   def: FixtureDefinition;
@@ -82,7 +82,7 @@ const fingerprint = (d: FixtureDefinition): string => stable({ type: d.type, ext
 /** Same modes (names), channels (meaning, ranges) and heads, whatever the channels are called. */
 const signature = (d: FixtureDefinition): string => stable(sortedModes(d.modes).map((m) => ({ name: m.name, ...modeSig(d, m, false) })));
 
-const nameKey = (d: FixtureDefinition): string => `${d.manufacturer.toLowerCase().replace(/[^a-z0-9]/g, "")}|${d.model.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+const nameKey = (d: FixtureDefinition): string => `${normaliseName(d.manufacturer)}|${normaliseName(d.model)}`;
 
 export function diffDefinitions(winner: FixtureDefinition, other: FixtureDefinition): DefinitionDiff {
   const diff: DefinitionDiff = { modesOnlyInWinner: [], modesOnlyInOther: [], channelCounts: [], rangesDiffer: [], otherDiffers: false };

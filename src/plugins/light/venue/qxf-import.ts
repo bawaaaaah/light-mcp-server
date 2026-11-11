@@ -286,7 +286,14 @@ export function findMode(def: FixtureDefinition, name: string, channels?: number
   return sameCount.length === 1 ? sameCount[0] : undefined;
 }
 
-export const sameName = (a: string, b: string): boolean => a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+/**
+ * A manufacturer's or a model's name as definitions are looked up: accents folded (« Éclairage » is
+ * « eclairage »), case, spaces and punctuation dropped (« Spot 200 » is « Spot200 »). Empty when the
+ * name holds no letter or digit of the Latin alphabet.
+ */
+export const normaliseName = (s: string): string => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export const sameName = (a: string, b: string): boolean => normaliseName(a) === normaliseName(b);
 
 /** Most channels a QLC+ generic dimmer pack can have (its editor allows up to 512; packs stay small). */
 const GENERIC_DIMMER_MAX = 64;

@@ -2315,7 +2315,7 @@ test("venue: moving a fixture from its menu shows the overlap on both fixtures, 
     await menu.getByLabel("Adresse DMX").fill("16");
     await menu.getByRole("button", { name: "Déplacer" }).click();
     await expect(menu.getByRole("alert")).toHaveCount(0);
-    await expect(page.locator(".badge.conflict")).toHaveCount(0);
+    await expect(page.locator("#venue-patch .badge.conflict")).toHaveCount(0); // the rules panel has its own (a locked rule)
   } finally {
     const f = ((await api(page, "venue.fixture.list")) as Record<string, unknown>[]).find((x) => x.id === "bar-1")!;
     await api(page, "venue.fixture.put", { fixture: { ...f, address: 16 } });
@@ -2383,6 +2383,92 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
     await api(page, "venue.fixture.delete", { id: "wash-ui" });
   }
   expect(errors).toEqual([]);
+});
+
+
+test("venue: the fixture menu from the keyboard, focus kept inside and given back, colours as one radio group", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  try {
+    const row = page.locator("tr", { hasText: "Bar 1" });
+    await row.focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    await expect(menu).toContainText("Bar 1 · U1.16");
+    await expect(menu.getByLabel("Nom")).toBeFocused();
+    // Tab goes round inside the menu
+    await page.keyboard.press("Shift+Tab");
+    await expect(menu.getByRole("button", { name: "Supprimer", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(menu.getByLabel("Nom")).toBeFocused();
+    // the 13 swatches: one Tab stop, the arrows choose
+    const radios = menu.getByRole("radiogroup", { name: "Couleur de repère" }).getByRole("radio");
+    await expect(radios).toHaveCount(13);
+    await expect(menu.locator('[role="radio"][tabindex="0"]')).toHaveCount(1);
+    await page.keyboard.press("Tab");
+    await expect(menu.getByRole("radio", { name: "Sans couleur" })).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(menu.getByRole("radio", { name: "rouge" })).toBeFocused();
+    await expect(menu.getByRole("radio", { name: "rouge" })).toHaveAttribute("aria-checked", "true");
+    await expect.poll(async () => ((await api(page, "venue.fixture.list")) as { id: string; color?: string }[]).find((f) => f.id === "bar-1")?.color).toBe("#ef4444");
+    // Escape closes it and gives the focus back to the row
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(row).toBeFocused();
+  } finally {
+    await api(page, "venue.fixture.mark", { id: "bar-1", color: null });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue: the fixture menu checks a move before sending it, opens from the plan, and says when the fixture is gone", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "gone-fx", name: "gone-fx", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 2, address: 470 } });
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  try {
+    // from the stage plan: the same menu, on a fixture named for assistive technologies
+    const onPlan = page.locator("#venue-stage").getByRole("button", { name: "Bar 1", exact: true });
+    await onPlan.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    await expect(menu).toContainText("Bar 1 · U1.16");
+    const move = menu.getByRole("button", { name: "Déplacer", exact: true });
+    const universe = menu.getByLabel("Univers");
+    const address = menu.getByLabel("Adresse DMX");
+    await expect(move).toBeDisabled(); // nothing changed yet
+    await universe.fill("3");
+    await expect(move).toBeDisabled();
+    await expect(menu).toContainText("L'univers est un nombre entier de 1 à 2");
+    await universe.fill("1");
+    await address.fill("510");
+    await expect(move).toBeDisabled();
+    await expect(menu).toContainText("finirait au canal 524");
+    await address.fill("0");
+    await expect(menu).toContainText("L'adresse est un nombre entier de 1 à 512");
+    await menu.screenshot({ path: "test-results/venue-fixture-move-check.png" });
+    // Enter moves from either field
+    await address.fill("300");
+    await universe.press("Enter");
+    await expect(menu).toContainText("Bar 1 · U1.300");
+    await page.keyboard.press("Escape");
+    // a deletion refused by the server is said in the menu
+    await page.locator("tr", { hasText: "gone-fx" }).click({ button: "right" });
+    await page.route("**/api/plugins/light/commands/venue.fixture.delete", (route) => route.fulfill({ status: 409, json: { error: "refusé pour le test" } }));
+    page.once("dialog", (d) => void d.accept());
+    await menu.getByRole("button", { name: "Supprimer", exact: true }).click();
+    await expect(menu.getByRole("alert")).toContainText("refusé pour le test");
+    await page.unroute("**/api/plugins/light/commands/venue.fixture.delete");
+    // deleted meanwhile (another device): said on the page, the menu closed
+    await api(page, "venue.fixture.delete", { id: "gone-fx", force: true });
+    await expect(menu).toHaveCount(0);
+    await expect(page.locator(".venue > p.error")).toContainText("supprimé entre-temps");
+  } finally {
+    const f = ((await api(page, "venue.fixture.list")) as Record<string, unknown>[]).find((x) => x.id === "bar-1")!;
+    await api(page, "venue.fixture.put", { fixture: { ...f, universe: 1, address: 16 } });
+    await api(page, "venue.fixture.delete", { id: "gone-fx", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("409"))).toEqual([]);
 });
 
 test("venue: the patch table names its columns", async ({ page }) => {
@@ -3051,14 +3137,19 @@ test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ p
   expect(errors).toEqual([]);
 });
 
-test("settings: a banner says when an Art-Net route reaches nobody, and offers to retarget it or broadcast", async ({ page }) => {
+test("settings: a banner says when an Art-Net route reaches nobody, and offers broadcast first, then the node found", async ({ page }) => {
   const errors = watchErrors(page);
   // output.status is given what a dead target looks like (the test server has no node, and loopback sends never fail)
   await page.route("**/api/plugins/light/commands/output.status", async (route) => {
     const res = await route.fetch();
-    const body = (await res.json()) as { result: { coverage: object } };
+    const body = (await res.json()) as { result: { coverage: object; destinations: { universe: number; artnet?: string[] }[] } };
     body.result.coverage = { ...body.result.coverage, misdirected: [{ universe: 1, portAddress: 0, targets: ["127.0.0.2"], nodes: [{ key: "198.51.100.7#0", ip: "198.51.100.7", shortName: "Node scène" }] }] };
-    Object.assign(body.result, { sendHealth: { windowSeconds: 10, hosts: [{ host: "127.0.0.2", sends: 100, errors: 90, failing: true }] } });
+    // universe 2 goes to a broadcast address the network refuses
+    body.result.destinations = body.result.destinations.map((d) => (d.universe === 2 ? { ...d, artnet: ["127.0.0.255"] } : d));
+    Object.assign(body.result, {
+      sendHealth: { windowSeconds: 10, hosts: [{ host: "127.0.0.2", sends: 100, errors: 90, failing: true }, { host: "127.0.0.255", sends: 50, errors: 50, failing: true }] },
+      outOfSubnet: ["198.51.100.7"],
+    });
     await route.fulfill({ response: res, json: body });
   });
   const routed: unknown[] = [];
@@ -3070,19 +3161,33 @@ test("settings: a banner says when an Art-Net route reaches nobody, and offers t
   page.on("dialog", (d) => (asked.push(d.message()), void d.accept()));
   await login(page);
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
-  await expect(page.locator("p.reach")).toHaveCount(2); // both routes target the failing host
-  await expect(page.locator("p.reach", { hasText: "Univers 2" })).not.toContainText("que la découverte n'a pas vue"); // only universe 1 is misdirected
-  const banner = page.locator("p.reach", { hasText: "Univers 1" }); // its two reasons in one banner
+  await expect(page.getByRole("status").filter({ hasText: "Art-Net" })).toHaveCount(2);
+  const banner = page.locator(".reach", { hasText: "Univers 1" }); // its two reasons in one banner
+  await expect(banner).toHaveAttribute("role", "status");
   await expect(banner).toContainText("Univers 1 → Art-Net 0");
   await expect(banner).toContainText("les envois vers 127.0.0.2 échouent (sur 100, 90 en erreur");
-  await expect(banner).toContainText("que la découverte n'a pas vue");
+  await expect(banner).toContainText("cette adresse ne répond plus");
+  await expect(banner).toContainText("la node répond peut-être depuis 198.51.100.7");
   await banner.screenshot({ path: "test-results/settings-reach.png" });
-  await banner.getByRole("button", { name: /Recibler vers la node trouvée : Node scène \(198\.51\.100\.7\)/ }).click();
+  // broadcast first, as the primary action; the node found after it, marked out of this machine's subnet
+  const actions = banner.getByRole("button");
+  await expect(actions.first()).toHaveText("Passer en broadcast");
+  await expect(actions.first()).toHaveClass(/primary/);
+  await expect(actions.nth(1)).toContainText("Recibler vers la node Node scène (198.51.100.7)");
+  await expect(actions.nth(1)).toContainText("hors du sous-réseau");
+  await actions.nth(1).click();
   await expect.poll(() => routed.length).toBe(1);
   expect(routed[0]).toEqual({ universe: 1, artnet: { portAddress: 0, send: "nodes", targets: ["198.51.100.7"] } });
-  await banner.getByRole("button", { name: "Passer en broadcast" }).click();
+  expect(asked[0]).toContain("vers 198.51.100.7"); // the confirmation names the IP aimed at
+  await actions.first().click();
   await expect.poll(() => routed.length).toBe(2);
   expect(routed[1]).toEqual({ universe: 1, artnet: { portAddress: 0, send: "broadcast" } });
+  expect(asked[1]).toContain("tout le réseau");
+  // a broadcast address failing: the network refuses the sends, and broadcast is no way out
+  const refused = page.locator(".reach", { hasText: "Univers 2" });
+  await expect(refused).toContainText("le réseau refuse les envois vers 127.0.0.255");
+  await expect(refused).not.toContainText("la node répond peut-être");
+  await expect(refused.getByRole("button", { name: "Passer en broadcast" })).toHaveCount(0);
   expect(asked.length).toBe(2); // each change of the machine config is confirmed first
   expect(errors).toEqual([]);
 });

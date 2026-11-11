@@ -15,7 +15,8 @@ import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { SendHealth, HEALTH_WINDOW_MS, type HostHealth } from "./send-health.js";
-import { NodeRegistry, artnetDestinations, type ArtnetRoute, type KnownNode } from "./artnet-discovery.js";
+import { NodeRegistry, artnetDestinations, coverage, type ArtnetRoute, type Coverage, type KnownNode } from "./artnet-discovery.js";
+import { broadcastOf, isBroadcast, onSubnet, subnetsOf, type Subnet } from "./subnet.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
 
@@ -70,18 +71,15 @@ const POLL_MS = 3000;
 
 /** Broadcast address of the interface owning `address`, or the limited broadcast. */
 export function broadcastFor(address?: string): string {
-  if (address && address !== "0.0.0.0") {
-    for (const addrs of Object.values(networkInterfaces())) {
-      for (const a of addrs ?? []) {
-        if (a.family === "IPv4" && a.address === address) {
-          const ip = a.address.split(".").map(Number);
-          const mask = a.netmask.split(".").map(Number);
-          return ip.map((b, i) => (b & mask[i]!) | (~mask[i]! & 255)).join(".");
-        }
-      }
-    }
-  }
-  return "255.255.255.255";
+  const own = address && address !== "0.0.0.0" ? subnetsOf(networkInterfaces()).find((s) => s.address === address) : undefined;
+  return own ? broadcastOf(own) : "255.255.255.255";
+}
+
+/** The subnets a node can be reached on directly: the bound interface's, or every interface's when none is bound. */
+function reachableSubnets(bindAddress?: string): Subnet[] {
+  const all = subnetsOf(networkInterfaces());
+  const own = bindAddress && bindAddress !== "0.0.0.0" ? all.filter((s) => s.address === bindAddress) : [];
+  return own.length ? own : all;
 }
 
 export class OutputRouter {
@@ -103,11 +101,17 @@ export class OutputRouter {
    */
   private readonly recentlySent = new Map<string, number>();
   private readonly locals = localAddresses();
+  /** When discovery started polling, on `clock`; undefined while it does not. */
+  private discoverySince: number | undefined;
+  /** When each universe's Art-Net route last changed, on `clock`: a target just chosen is not called unseen at once. */
+  private readonly artnetChangedAt = new Map<number, number>();
 
   constructor(
     private config: OutputConfig,
     /** The DMX USB interfaces; none by default (the plugin gives the machine's serial ports). */
     readonly usb: DmxUsbOutputs = new DmxUsbOutputs(null),
+    /** Monotonic milliseconds for the send health, node expiry and the misdirected delay: a wall clock set back would freeze them. */
+    private readonly clock: () => number = () => performance.now(),
   ) {}
 
   private get artnetPort(): number {
@@ -123,12 +127,22 @@ export class OutputRouter {
   }
 
   setConfig(config: OutputConfig): void {
+    this.noteArtnetChanges(config.routes);
     this.config = config;
     if (this.artnet) this.usb.use(this.usbRoutes());
   }
 
+  private noteArtnetChanges(routes: readonly UniverseRoute[]): void {
+    const now = this.clock();
+    for (const r of routes) {
+      const before = this.config.routes.find((x) => x.universe === r.universe)?.artnet;
+      if (JSON.stringify(before) !== JSON.stringify(r.artnet)) this.artnetChangedAt.set(r.universe, now);
+    }
+  }
+
   /** New routes, sent at the next frame (not after the keep-alive): the light moves at once. */
   setRoutes(routes: UniverseRoute[]): void {
+    this.noteArtnetChanges(routes);
     this.config = { ...this.config, routes };
     this.lastSent.clear();
     if (this.artnet) this.usb.use(this.usbRoutes());
@@ -146,7 +160,7 @@ export class OutputRouter {
     });
     this.artnet.on("message", (msg, rinfo) => {
       const reply = decodePollReply(msg);
-      if (reply && this.registry.seen(reply, Date.now()) === "added") this.nodeListener?.({ added: this.registry.list().find((n) => n.ip === reply.ip) });
+      if (reply && this.registry.seen(reply, this.clock()) === "added") this.nodeListener?.({ added: this.registry.list().find((n) => n.ip === reply.ip) });
       if (!reply) this.received(msg, rinfo.address, rinfo.port);
     });
     const bindAddress = this.config.bindAddress ?? "0.0.0.0";
@@ -161,6 +175,7 @@ export class OutputRouter {
         });
         this.artnet.setBroadcast(true);
         this.stats.discovery = "active";
+        this.discoverySince = this.clock();
         this.poll();
         this.pollTimer = setInterval(() => this.poll(), POLL_MS);
         this.pollTimer.unref();
@@ -188,6 +203,7 @@ export class OutputRouter {
   stop(): void {
     void this.usb.stop();
     if (this.pollTimer) clearInterval(this.pollTimer);
+    this.discoverySince = undefined;
     this.artnet?.close();
     this.sacn?.close();
     this.artnet = this.sacn = undefined;
@@ -196,7 +212,7 @@ export class OutputRouter {
   poll(): void {
     if (!this.artnet || this.stats.discovery !== "active") return;
     this.artnet.send(encodePoll(), this.artnetPort, broadcastFor(this.config.bindAddress));
-    const lost = this.registry.expire(Date.now());
+    const lost = this.registry.expire(this.clock());
     if (lost.length) this.nodeListener?.({ lost });
   }
 
@@ -210,7 +226,7 @@ export class OutputRouter {
     if (!sock) return;
     sock.send(buf, port, host, (err) => {
       if (err) this.stats.errors += 1;
-      this.health.record(host, !err, Date.now());
+      this.health.record(host, !err, this.clock());
     });
     this.stats.packetsSent += 1;
   }
@@ -265,8 +281,30 @@ export class OutputRouter {
   }
 
   /** Sends and errors per target host over the last HEALTH_WINDOW_MS, with the hosts that mostly fail. */
-  sendHealth(nowMs = Date.now()): { windowSeconds: number; hosts: HostHealth[] } {
+  sendHealth(nowMs = this.clock()): { windowSeconds: number; hosts: HostHealth[] } {
     return { windowSeconds: HEALTH_WINDOW_MS / 1000, hosts: this.health.hosts(nowMs) };
+  }
+
+  /** Do the routes reach the nodes seen (artnet-discovery.ts coverage), with the delays and broadcast targets this router knows. */
+  coverage(nowMs = this.clock()): Coverage {
+    const subnets = subnetsOf(networkInterfaces());
+    return coverage(this.config.routes, this.registry.list(), {
+      nowMs,
+      ...(this.discoverySince === undefined ? {} : { discoverySince: this.discoverySince }),
+      changedAt: (u) => this.artnetChangedAt.get(u),
+      isBroadcast: (ip) => isBroadcast(ip, subnets),
+    });
+  }
+
+  /** The broadcast address Art-Net goes to from the bound interface. */
+  broadcastAddress(): string {
+    return broadcastFor(this.config.bindAddress);
+  }
+
+  /** Of these addresses, those on none of the subnets the output can reach directly: a node announcing one is out of reach without a router. */
+  outOfSubnet(ips: readonly string[]): string[] {
+    const subnets = reachableSubnets(this.config.bindAddress);
+    return [...new Set(ips)].filter((ip) => !onSubnet(ip, subnets));
   }
 
   /** Where each routed universe goes now, by protocol: node IPs, the broadcast or the multicast address. */

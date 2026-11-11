@@ -3,6 +3,7 @@
  * current time; expiry is computed, never timer-driven, so it is deterministic in tests.
  */
 import type { PollReply } from "./artnet.js";
+import { isBroadcast } from "./subnet.js";
 
 export interface KnownNode extends PollReply {
   /** ip#bindIndex: multi-port nodes answer once per bind index. */
@@ -92,28 +93,52 @@ export interface Coverage {
   /** Art-Net output ports of the nodes seen that no route feeds. */
   unfed: { key: string; ip: string; shortName: string; portAddress: number }[];
   /**
-   * Routes sent to chosen nodes (`send: "nodes"`), none of which was seen, while nodes seen do output
-   * the route's port-address: the node probably answers from another address. One entry per route.
+   * Routes sent to chosen nodes (`send: "nodes"`), none of which answered discovery for a while,
+   * while nodes seen do output the route's port-address: the node may answer from another address
+   * (a likely cause, not a certainty). One entry per route.
    */
   misdirected: { universe: number; portAddress: number; targets: string[]; nodes: { key: string; ip: string; shortName: string }[] }[];
+}
+
+/** How long (3 polls, 3 s apart) a target may stay unseen before its route is called misdirected: a slow node, a lost reply. */
+export const MISDIRECTED_GRACE_MS = 9_000;
+
+/** What `coverage` needs to call a route misdirected without crying wolf. Times from one (monotonic) clock. */
+export interface CoverageWatch {
+  nowMs: number;
+  /** Since when discovery has been polling (none: it is not, and nothing is called misdirected). */
+  discoverySince?: number;
+  /** When a universe's Art-Net route last changed (none: not since discovery started). */
+  changedAt?: (universe: number) => number | undefined;
+  /** Is this a broadcast address (default: subnet.ts isBroadcast without the interfaces): a target that is one is never a node failing to answer. */
+  isBroadcast?: (ip: string) => boolean;
+  graceMs?: number;
 }
 
 /**
  * Do the routes reach the nodes? Only Art-Net is checked: a route sent to chosen nodes is trusted,
  * and a port set to sACN listens to sACN universes, which ArtPollReply does not tell. With no node
- * seen (discovery off, or an empty network), there is nothing to say.
+ * seen (discovery off, or an empty network), there is nothing to say. A route aimed at nodes is
+ * called misdirected only once discovery and the route itself have both lasted `graceMs`, and never
+ * when one of its targets is a broadcast address. Without `watch`, no delay.
  */
-export function coverage(routes: readonly { universe: number; artnet?: ArtnetRoute }[], nodes: readonly KnownNode[]): Coverage {
+export function coverage(routes: readonly { universe: number; artnet?: ArtnetRoute }[], nodes: readonly KnownNode[], watch?: CoverageWatch): Coverage {
   if (!nodes.length) return { unheard: [], unfed: [], misdirected: [] };
   const seenIps = new Set(nodes.map((n) => n.ip));
   const heard = new Set(nodes.flatMap((n) => n.ports.filter((p) => !p.sacn).map((p) => p.portAddress)));
   const fed = new Set(routes.flatMap((r) => (r.artnet ? [r.artnet.portAddress] : [])));
+  const settled = (universe: number): boolean => {
+    if (!watch) return true;
+    if (watch.discoverySince === undefined) return false;
+    const since = Math.max(watch.discoverySince, watch.changedAt?.(universe) ?? -Infinity);
+    return watch.nowMs - since >= (watch.graceMs ?? MISDIRECTED_GRACE_MS);
+  };
   return {
     unheard: routes.flatMap((r) => (r.artnet && artnetSend(r.artnet) !== "nodes" && !heard.has(r.artnet.portAddress) ? [{ universe: r.universe, portAddress: r.artnet.portAddress }] : [])),
     misdirected: routes.flatMap((r) => {
       const a = r.artnet;
       const targets = a && artnetSend(a) === "nodes" ? [...new Set(a.targets ?? [])] : [];
-      if (!a || !targets.length || targets.some((ip) => seenIps.has(ip))) return [];
+      if (!a || !targets.length || targets.some((ip) => seenIps.has(ip) || (watch?.isBroadcast ?? isBroadcast)(ip)) || !settled(r.universe)) return [];
       const outputs = new Map(nodes.filter((n) => n.ports.some((p) => !p.sacn && p.portAddress === a.portAddress)).map((n) => [n.ip, { key: n.key, ip: n.ip, shortName: n.shortName }]));
       return outputs.size ? [{ universe: r.universe, portAddress: a.portAddress, targets, nodes: [...outputs.values()] }] : [];
     }),

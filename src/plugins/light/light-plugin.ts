@@ -21,7 +21,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { recallStartupSnapshot, registerShowCommands } from "./commands/show-commands.js";
 import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
-import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
+import { backupPath, registerFileCommands, runAutoBackup, sharedWith, type FileServices } from "./commands/file-commands.js";
 import { ActivityLog, commandNotice, undoOf } from "./activity.js";
 import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
@@ -226,7 +226,8 @@ export class LightPlugin implements McpPlugin {
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
-    registerShowCommands(this.commands, this.engine, this.runtime);
+    // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
+    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }));
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());

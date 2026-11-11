@@ -12,7 +12,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
 import { listQxfFiles } from "./definition-files.js";
-import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { findDefinition, findMode, normaliseName, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { headsOf } from "./heads.js";
@@ -480,7 +480,9 @@ export class Venue {
 
   /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
   overridesOf(patch: PatchedFixture): FixtureOverrides {
-    return mergeOverrides(this.models.get(modelKey(patch.manufacturer, patch.model))?.overrides, patch.overrides);
+    // a model named without a letter or digit has no key (modelKey refuses it), hence no model overrides
+    const keyed = normaliseName(patch.manufacturer) && normaliseName(patch.model);
+    return mergeOverrides(keyed ? this.models.get(modelKey(patch.manufacturer, patch.model))?.overrides : undefined, patch.overrides);
   }
 
   /** Fixtures ending past channel 512 (their last channels are dropped), said as people read it. */

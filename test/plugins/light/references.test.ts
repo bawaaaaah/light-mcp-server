@@ -70,6 +70,29 @@ describe("references: what uses a look, a group, a fader or a canvas", () => {
     expect(usesOf("fixture", "bar-9", show)).to.deep.equal([]);
   });
 
+  it("finds a fixture named by any command's fixture or fixtures, and the rules scoped to it", () => {
+    const show: ShowParts = {
+      ...empty,
+      mappings: [
+        { id: "m1", label: "Viser", on: { command: "position.aim", args: { fixture: "bar-0", zone: "scene" } } },
+        { id: "m2", label: "Installer", on: { command: "venue.fixture.presence", args: { fixtures: ["bar-1", "bar-0"], present: true } } },
+        { id: "m3", label: "Autre", on: { command: "position.release", args: { fixture: "bar-1" } } },
+      ],
+      songs: [{ id: "a", title: "Chant A", sections: [], cues: [{ command: "position.set", args: { fixture: "bar-0", pan: 0.5 } }, { command: "fader.fromChannel", args: { fixture: "bar-0", offset: 0 } }] }],
+      rules: [{ id: "r1", name: "Pas de strobe", scope: { fixture: "bar-0" } }, { id: "r2", name: "Tous", scope: {} }],
+      venueRules: [{ id: "r3", name: "", scope: { fixture: "bar-0" } }],
+    };
+    expect(usesOf("fixture", "bar-0", show)).to.deep.equal([
+      "règle du show « Pas de strobe »",
+      "règle du lieu « r3 »",
+      "mapping MIDI « Viser »",
+      "mapping MIDI « Installer »",
+      "chant « Chant A » (2 actions de la piste)",
+    ]);
+    // another kind is never named by `fixture`: a look's mapping with a fixture argument is not the look's
+    expect(usesOf("look", "bar-0", show)).to.deep.equal([]);
+  });
+
   describe("in the show", () => {
     let plugin: LightPlugin;
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
@@ -136,6 +159,20 @@ describe("references: what uses a look, a group, a fader or a canvas", () => {
       await run("venue.fixture.put", { fixture: { id: "libre", name: "Libre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 3, address: 1 } });
       expect(await run("venue.fixture.delete", { id: "libre" })).to.deep.include({ deleted: true });
       expect(await run("venue.fixture.delete", { id: "nulle-part" })).to.deep.include({ deleted: false });
+    });
+
+    it("answers deleted: false for an id out of the patch, even when a mapping still names it", async () => {
+      await run("midi.mapping.put", { mapping: { id: "m-stale", label: "Ancien", input: { type: "note", channel: 1, number: 10 }, on: { command: "position.release", args: { fixture: "parti" } } } });
+      expect(await run("venue.fixture.delete", { id: "parti" })).to.deep.equal({ deleted: false, usedBy: [] });
+    });
+
+    it("refuses to patch on a universe the output does not have, and says when a fixture ends past channel 512", async () => {
+      const fixture = { id: "loin", name: "Loin", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 99, address: 1 };
+      let refused = "";
+      await run("venue.fixture.put", { fixture }).catch((e: Error) => (refused = e.message));
+      expect(refused).to.contain("univers 99 hors de 1..");
+      const put = (await run("venue.fixture.put", { fixture: { ...fixture, universe: 1, address: 505 } })) as { warning?: string };
+      expect(put.warning).to.contain("512");
     });
 
     it("deletes what nothing uses, and the check flags names used twice", async () => {

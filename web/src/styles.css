@@ -847,6 +847,17 @@ table.sections th {
 .standby-bar {
   margin: 0.5em 0;
 }
+/* a route that reaches nobody (Settings): the reason, then its ways out on a line of their own */
+.reach {
+  margin: 0.6em 0;
+}
+.reach > p {
+  margin: 0 0 0.4em;
+}
+.reach-actions {
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
 
 .timeline .cue-mark {
   position: absolute;
@@ -1551,9 +1562,54 @@ table.rules td {
 .widget-menu .row {
   flex-wrap: wrap;
 }
-/* universe and address side by side, the button after them */
-.widget-menu .row.fixture-place > input {
+/* universe and address side by side, each under its label, the button after them */
+.widget-menu .fixture-place {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3em;
+}
+.widget-menu .fixture-place legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.widget-menu .fixture-place .row {
+  align-items: end;
+  gap: 0.5em;
+}
+.widget-menu .fixture-place label {
+  display: grid;
+  gap: 0.15em;
+}
+.widget-menu .fixture-place label span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.widget-menu .fixture-place input {
   width: 5.5em;
+}
+/* fixtures sharing channels: a sentence per pair, wrapped (a .badge would keep it on one line) */
+.widget-menu .overlap-alert {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 0.4em 0.6em;
+  font-size: 0.85rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.widget-menu .overlap-alert ul {
+  margin: 0.2em 0 0;
+  padding-left: 1.2em;
+}
+/* the delete, apart from the move: a slip of the finger must not reach it */
+.widget-menu .menu-danger {
+  border-top: 1px solid var(--line);
+  padding-top: 0.6em;
+  margin-top: 0.3em;
 }
 .widget-menu h3 {
   margin: 0.2em 0;

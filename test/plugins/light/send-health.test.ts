@@ -21,6 +21,16 @@ describe("send health per host over a recent window", () => {
     expect(h.hosts(60_000)).to.deep.equal([]);
   });
 
+  it("forgets the events from before the clock went back, instead of keeping them for ever", () => {
+    const h = new SendHealth({ windowMs: 1000 });
+    for (let i = 0; i < 6; i++) h.record("198.51.100.5", false, 50_000 + i);
+    // the clock jumps back: what was sent « later » than now leaves the window, for hosts() and for record()
+    expect(h.hosts(10_000)).to.deep.equal([]);
+    for (let i = 0; i < 6; i++) h.record("198.51.100.6", false, 50_000 + i);
+    for (let i = 0; i < 6; i++) h.record("198.51.100.6", true, 10_000 + i);
+    expect(h.hosts(10_010)).to.deep.equal([{ host: "198.51.100.6", sends: 6, errors: 0, failing: false }]);
+  });
+
   it("recovers: a host that answers again stops failing", () => {
     const h = new SendHealth({ windowMs: 1000 });
     for (let i = 0; i < 6; i++) h.record("198.51.100.5", false, i);

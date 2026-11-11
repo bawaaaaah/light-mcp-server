@@ -9,6 +9,7 @@ import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { headsOf, partOf } from "../../../src/plugins/light/venue/heads.js";
 import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
 import { emptyFrame, Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
+import { modelKey } from "../../../src/plugins/light/venue/overrides.js";
 import { qxwToShow } from "../../../src/plugins/light/presets/qxw-to-show.js";
 import type { QxwWorkspace } from "../../../src/plugins/light/presets/qxw-import.js";
 
@@ -138,7 +139,7 @@ describe("heads: deduced from the channel names, and the accent head", () => {
   it("takes the accent from the model's correction, then from the fixture's own", () => {
     const v = makeVenue();
     v.fixtures.put({ id: "wash-2", name: "Wash 2", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 1, address: 30 });
-    v.models.put({ id: "test-wash-zones", manufacturer: "Test", model: "Wash Zones", overrides: { heads: { accent: ["Red 3", "Green 3", "Blue 3", "White 3"] } } });
+    v.models.put({ id: modelKey("Test", "Wash Zones"), manufacturer: "Test", model: "Wash Zones", overrides: { heads: { accent: ["Red 3", "Green 3", "Blue 3", "White 3"] } } });
     for (const id of ["wash", "wash-2"]) {
       const r = resolved(v, id);
       expect([...r.accent], id).to.deep.equal([3]); // zone 3 is the accent now, the halo a full head

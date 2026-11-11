@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { cmd } from "../api";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
+import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { jumpTo, labelOf, slug, uniqueId } from "../util";
@@ -73,6 +73,16 @@ export function VenuePage(): ReactElement {
   /** The zone whose right-click menu is open, and where. */
   const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const rowMenu = useContextMenu<string>((at, id) => setMenu({ id, ...at }));
+  /** Shift+F10 or the context-menu key on a focused row (or a fixture of the plan): the same menu, by the element. */
+  const keyMenu = (id: string) => (e: ReactKeyboardEvent<Element>) => {
+    if (!((e.shiftKey && e.key === "F10") || e.key === "ContextMenu")) return;
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ id, x: r.left + 16, y: r.bottom });
+  };
+  /** How many universes the output has: the menu refuses a move beyond them before the server does. */
+  const [universes, setUniverses] = useState<number | undefined>(undefined);
+  useEffect(() => void lightState().then((s) => setUniverses(s.universes), () => undefined), []);
   /** « Placer la sélection »: the checked fixtures, in the order they were checked, along a zone edge. */
   const [arrangeDraft, setArrangeDraft] = useState({ zone: "", edge: "front", height: "", facing: "" });
   /** A rectangular zone: width × depth, centred on x, its front edge at y (metres; x towards cour, y upstage). */
@@ -136,7 +146,17 @@ export function VenuePage(): ReactElement {
   );
   /** The shared-venue warning for a delete (other shows lose the fixture too); empty when the venue is the open show's alone. */
   const sharedWarning = () => (openVenue?.shared ? `${t.sharedVenue} ${sharedShows.join(", ")}\n${t.deleteSharedConfirm}` : undefined);
-  const deleteFixture = (f: Fixture) => confirmDelete("fixture", f.id, f.name, t, sharedWarning()).then((done) => { if (done) refresh(); return done; }, (e: Error) => { setError(e.message); return false; });
+  /** Rejects with the server's refusal: the menu shows it inside, the ✕ on the page. */
+  const deleteFixture = (f: Fixture) => confirmDelete("fixture", f.id, f.name, t, sharedWarning()).then((done) => { if (done) refresh(); return done; });
+  /** A fixture's footprint, from its mode in the library (unknown without its definition). */
+  const channelsOf = (f: Fixture) => library.find((d) => d.manufacturer === f.manufacturer && d.model === f.model)?.modes.find((m) => m.name === f.mode)?.channels;
+  // the fixture of the open menu deleted meanwhile (another device, the AI): said, and the menu closed
+  useEffect(() => {
+    if (menu && !fixtures.some((f) => f.id === menu.id)) {
+      setMenu(null);
+      setError(t.fixtureGone);
+    }
+  }, [fixtures, menu, t]);
 
   const shown = useMemo(() => library.filter((d) => `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase())).slice(0, 50), [library, search]);
   const def = library.find((d) => `${d.manufacturer}|${d.model}` === draft.def);
@@ -188,7 +208,7 @@ export function VenuePage(): ReactElement {
               {[...fixtures]
                 .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
                 .map((f) => (
-                <tr key={f.id} className={[overlaps[f.id] ? "conflict" : "", f.absent ? "absent" : ""].filter(Boolean).join(" ") || undefined} title={t.fixtureMenuHint} {...rowMenu(f.id)}>
+                <tr key={f.id} className={[overlaps[f.id] ? "conflict" : "", f.absent ? "absent" : ""].filter(Boolean).join(" ") || undefined} title={t.fixtureMenuHint} tabIndex={0} aria-haspopup="dialog" onKeyDown={keyMenu(f.id)} {...rowMenu(f.id)}>
                   <td>
                     <input type="checkbox" aria-label={`${t.inNewCanvas} ${f.name}`} checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>
@@ -226,7 +246,7 @@ export function VenuePage(): ReactElement {
                     <input type="checkbox" title={t.installedHelp} aria-label={`${t.installed} ${f.name}`} checked={!f.absent} onChange={(e) => void run("venue.fixture.presence", { fixtures: [f.id], present: e.target.checked })} />
                   </td>
                   <td>
-                    <button className="ghost" title={t.delete} aria-label={`${t.delete} ${f.name}`} onClick={() => void deleteFixture(f)}>
+                    <button className="ghost" title={t.delete} aria-label={`${t.delete} ${f.name}`} onClick={() => void deleteFixture(f).catch((e: Error) => setError(e.message))}>
                       ✕
                     </button>
                   </td>
@@ -237,7 +257,20 @@ export function VenuePage(): ReactElement {
           {menu &&
             (() => {
               const f = fixtures.find((x) => x.id === menu.id);
-              return f ? <FixtureMenu key={f.id} fixture={f} overlaps={overlaps[f.id] ?? []} at={menu} onSaved={refresh} onDelete={() => deleteFixture(f)} onClose={() => setMenu(null)} /> : null;
+              return f ? (
+                <FixtureMenu
+                  key={f.id}
+                  fixture={f}
+                  overlaps={overlaps[f.id] ?? []}
+                  at={menu}
+                  universes={universes}
+                  channels={channelsOf(f)}
+                  onSaved={refresh}
+                  onDelete={() => deleteFixture(f)}
+                  onGone={() => (setMenu(null), setError(t.fixtureGone), refresh())}
+                  onClose={() => setMenu(null)}
+                />
+              ) : null;
             })()}
           <div className="editor">
             <input placeholder={t.name} value={canvasDraft.name} onChange={(e) => setCanvasDraft({ ...canvasDraft, name: e.target.value })} />
@@ -444,6 +477,7 @@ export function VenuePage(): ReactElement {
           onOrient={(f, change) => void run("venue.fixture.orient", { id: f.id, ...change }).then(refresh)}
           onSelect={setHeldId}
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
+          onFixtureMenu={(f, at) => setMenu({ id: f.id, ...at })}
           onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}
         />
         <p className="hint">{t.zoneHint}</p>

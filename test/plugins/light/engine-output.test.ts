@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import { decodeDmx, decodePollReply, encodeDmx, encodePollReply, portAddress } from "../../../src/plugins/light/output/artnet.js";
 import { OutputRouter } from "../../../src/plugins/light/output/output-router.js";
-import { NodeRegistry, artnetDestinations, coverage } from "../../../src/plugins/light/output/artnet-discovery.js";
+import { MISDIRECTED_GRACE_MS, NodeRegistry, artnetDestinations, coverage } from "../../../src/plugins/light/output/artnet-discovery.js";
+import { broadcastOf, isBroadcast, onSubnet } from "../../../src/plugins/light/output/subnet.js";
 import { Ticker, type TickerClock } from "../../../src/plugins/light/engine/ticker.js";
 
 /** Manual clock: timers fire only when advance() passes their due time. */
@@ -119,6 +120,66 @@ describe("a route aimed at a node that discovery has not seen", () => {
     expect(coverage([route], known(node("198.51.100.7", [5]))).misdirected).to.deep.equal([]);
     expect(coverage([{ universe: 1, artnet: { portAddress: 0, send: "auto" as const } }], known(node("198.51.100.7", [0]))).misdirected).to.deep.equal([]);
     expect(coverage([route], []).misdirected).to.deep.equal([]);
+  });
+
+  it("waits a few polls after discovery started before calling a target unseen: discovery may be slow", () => {
+    const nodes = known(node("198.51.100.7", [0], "lyre"));
+    const watch = (nowMs: number) => ({ nowMs, discoverySince: 1000 });
+    expect(coverage([route], nodes, watch(1000 + MISDIRECTED_GRACE_MS - 1)).misdirected).to.deep.equal([]);
+    expect(coverage([route], nodes, watch(1000 + MISDIRECTED_GRACE_MS)).misdirected).to.have.length(1);
+    // discovery not running: nothing to judge by
+    expect(coverage([route], nodes, { nowMs: 1e9 }).misdirected).to.deep.equal([]);
+  });
+
+  it("a target that never answers ArtPoll stays quiet until the delay after its route changed", () => {
+    const nodes = known(node("198.51.100.7", [0], "lyre"));
+    const changedAt = (u: number) => (u === 1 ? 50_000 : undefined);
+    expect(coverage([route], nodes, { nowMs: 55_000, discoverySince: 0, changedAt }).misdirected).to.deep.equal([]);
+    expect(coverage([route], nodes, { nowMs: 50_000 + MISDIRECTED_GRACE_MS, discoverySince: 0, changedAt }).misdirected.map((m) => m.targets)).to.deep.equal([["192.0.2.30"]]);
+  });
+
+  it("never calls a broadcast target unseen: the x.x.x.255 of a network, the limited broadcast, the interface's", () => {
+    const nodes = known(node("198.51.100.7", [0], "lyre"));
+    const aimed = (ip: string) => [{ universe: 1, artnet: { portAddress: 0, send: "nodes" as const, targets: [ip] } }];
+    expect(coverage(aimed("192.0.2.255"), nodes).misdirected).to.deep.equal([]);
+    expect(coverage(aimed("255.255.255.255"), nodes).misdirected).to.deep.equal([]);
+    const subnets = [{ address: "203.0.113.20", netmask: "255.255.255.128" }];
+    expect(coverage(aimed("203.0.113.127"), nodes, { nowMs: 1e6, discoverySince: 0, isBroadcast: (ip) => isBroadcast(ip, subnets) }).misdirected).to.deep.equal([]);
+    expect(coverage(aimed("203.0.113.126"), nodes, { nowMs: 1e6, discoverySince: 0, isBroadcast: (ip) => isBroadcast(ip, subnets) }).misdirected).to.have.length(1);
+  });
+
+  it("lists every node outputting the address, and stays quiet while the target itself is seen beside another one", () => {
+    const two = known(node("198.51.100.7", [0], "lyre"), node("198.51.100.8", [0], "barre"));
+    expect(coverage([route], two).misdirected[0]!.nodes.map((n) => n.ip)).to.deep.equal(["198.51.100.7", "198.51.100.8"]);
+    expect(coverage([route], known(node("192.0.2.30", [0], "cible"), node("198.51.100.7", [0], "lyre"))).misdirected).to.deep.equal([]);
+  });
+
+  it("the router waits after discovery starts and after a route changes, on its own monotonic clock", () => {
+    let now = 0;
+    const router = new OutputRouter({ routes: [route] }, undefined, () => now);
+    (router as unknown as { discoverySince: number }).discoverySince = 0; // as start() sets it, without a socket
+    router.registry.seen(node("198.51.100.7", [0], "lyre"), 0);
+    now = MISDIRECTED_GRACE_MS;
+    expect(router.coverage().misdirected).to.have.length(1);
+    router.setRoutes([{ universe: 1, artnet: { portAddress: 0, send: "nodes", targets: ["192.0.2.31"] } }]);
+    expect(router.coverage().misdirected).to.deep.equal([]); // just chosen: give it its polls
+    now += MISDIRECTED_GRACE_MS;
+    expect(router.coverage().misdirected.map((m) => m.targets)).to.deep.equal([["192.0.2.31"]]);
+  });
+});
+
+describe("local subnets", () => {
+  const subnets = [{ address: "192.0.2.10", netmask: "255.255.255.0" }, { address: "127.0.0.1", netmask: "255.0.0.0" }];
+
+  it("tells an address on one of the machine's subnets from one out of reach", () => {
+    expect(onSubnet("192.0.2.77", subnets)).to.equal(true);
+    expect(onSubnet("198.51.100.7", subnets)).to.equal(false);
+    expect(onSubnet("not an ip", subnets)).to.equal(false);
+  });
+
+  it("computes a subnet's broadcast address", () => {
+    expect(broadcastOf({ address: "203.0.113.20", netmask: "255.255.255.128" })).to.equal("203.0.113.127");
+    expect(broadcastOf({ address: "192.0.2.10", netmask: "255.255.255.0" })).to.equal("192.0.2.255");
   });
 });
 

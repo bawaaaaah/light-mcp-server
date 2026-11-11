@@ -18,7 +18,7 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type ReactElement } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -99,6 +99,7 @@ export function StagePlan({
   shownColors,
   initialView = "top",
   onZoneMenu,
+  onFixtureMenu,
   onZoneMove,
   beamsShown = true,
   controls,
@@ -122,6 +123,8 @@ export function StagePlan({
   initialView?: "top" | "front" | "3d";
   /** Right-click (or a long press) on a zone: its menu, at that point. */
   onZoneMenu?: (zone: PlanZone, at: { x: number; y: number }) => void;
+  /** Right-click (a long press, or Shift+F10 on a focused fixture) on a fixture: its menu, at that point (the patch's fixture menu). */
+  onFixtureMenu?: (fixture: PlanFixture, at: { x: number; y: number }) => void;
   /** « Déplacer les zones »: a zone dragged on the plan, its new corners. */
   onZoneMove?: (zone: PlanZone, polygon: [number, number][]) => void;
   /** Beams drawn (cones, the arrows of where fixtures point); off, a lit fixture only glows. */
@@ -157,6 +160,10 @@ export function StagePlan({
   const zoneMenu = useContextMenu<string>((at, id) => {
     const z = zones.find((x) => x.id === id);
     if (z) onZoneMenu?.(z, at);
+  });
+  const fixtureMenu = useContextMenu<string>((at, id) => {
+    const f = fixtures.find((x) => x.id === id);
+    if (f) onFixtureMenu?.(f, at);
   });
   const [orienting, setOrienting] = useState(false);
   /**
@@ -599,7 +606,7 @@ export function StagePlan({
           setDrag({ ...drag, at, moved: drag.moved || Math.hypot(at.x - drag.from.x, at.y - drag.from.y) * pxPerMetre > 3 });
         }}
         onPointerUp={() => (dropZone(), dropDrag(), dropBand(), dropTurn())}
-        role="img"
+        role="group"
         aria-label={t.stagePreview}
       >
         <defs>
@@ -691,12 +698,30 @@ export function StagePlan({
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
+          // its menu: right-click, a long press outside the modes (a drag must not open it), Shift+F10 once focused
+          const menu = onFixtureMenu ? fixtureMenu(f.id) : undefined;
           return (
             <g
               key={f.id}
               className={[isSelected ? "fixture selected" : "fixture", f.absent ? "absent" : ""].filter(Boolean).join(" ")}
               data-fixture={f.id}
+              role={menu ? "button" : "img"}
+              aria-label={f.name}
+              {...(menu
+                ? {
+                    ...menu,
+                    tabIndex: 0,
+                    "aria-haspopup": "dialog" as const,
+                    onKeyDown: (e: ReactKeyboardEvent<SVGGElement>) => {
+                      if (!((e.shiftKey && e.key === "F10") || e.key === "ContextMenu")) return;
+                      e.preventDefault();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      onFixtureMenu?.(f, { x: r.right, y: r.bottom });
+                    },
+                  }
+                : {})}
               onPointerDown={(e) => {
+                if (!orienting && !placing) menu?.onPointerDown(e);
                 if (orienting) {
                   e.stopPropagation();
                   select(f.id);

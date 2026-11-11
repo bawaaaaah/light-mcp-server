@@ -6,7 +6,6 @@ import { z } from "zod";
 import { CommandError, type CommandRegistry } from "./registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import type { OutputRouter, UniverseRoute } from "../output/output-router.js";
-import { coverage } from "../output/artnet-discovery.js";
 import { portPath } from "../output/dmx-usb.js";
 import { say } from "../../../core/lang.js";
 
@@ -26,7 +25,7 @@ export function registerCoreCommands(
   persistStandby: (on: boolean) => Promise<void> = async () => undefined,
   persistRoutes: (routes: UniverseRoute[]) => Promise<void> = async () => undefined,
 ): void {
-  const routeCoverage = () => coverage(router.getConfig().routes, router.registry.list());
+  const routeCoverage = () => router.coverage();
   reg.register({
     name: "dmx.get",
     title: "Lire un univers",
@@ -84,7 +83,7 @@ export function registerCoreCommands(
     name: "output.status",
     title: "État de la sortie",
     description:
-      "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed; routes sent to chosen nodes none of which answered discovery while another node outputs their address: misdirected, with the nodes that do), sendHealth (sends and errors per target host over the last windowSeconds; failing = most sends failed, i.e. that host does not answer), and the DMX USB interfaces in use (open, frames sent, error).",
+      "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed; routes sent to chosen nodes none of which answered discovery for a few polls while another node outputs their address: misdirected, with the nodes that do — a likely cause, the node may answer from another address; a broadcast target is never misdirected), sendHealth (sends and errors per target host over the last windowSeconds; failing = most sends failed, i.e. that host does not answer — detected from the operating system's send errors, which macOS gives for an unreachable link-local target and Linux may not), broadcast (the Art-Net broadcast address used), outOfSubnet (the node and target IPs on none of the output's local subnets: unreachable without a router, do not retarget to them), and the DMX USB interfaces in use (open, frames sent, error).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -98,6 +97,8 @@ export function registerCoreCommands(
       merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })),
       coverage: routeCoverage(),
       sendHealth: router.sendHealth(),
+      broadcast: router.broadcastAddress(),
+      outOfSubnet: router.outOfSubnet([...router.registry.list().map((n) => n.ip), ...router.getConfig().routes.flatMap((r) => [...(r.artnet?.targets ?? []), ...(r.sacn?.unicast ?? [])])]),
       destinations: router.destinations(),
       universes: engine.output.count,
       usb: { available: router.usb.binding !== undefined, ...(router.usb.error ? { error: router.usb.error } : {}), devices: router.usb.status() },

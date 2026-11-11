@@ -50,7 +50,12 @@ export function recallStartupSnapshot(engine: DmxEngine, show: ShowRuntime): { i
   return { id: snap.id, name: snap.name };
 }
 
-export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
+/**
+ * `sharedWith`: the other shows playing on the open venue, by name (file-commands.ts sharedWith); a
+ * lone show command set (tests) has none. An error reading them is not swallowed: a delete must not
+ * pass the shared-venue guard because the check failed.
+ */
+export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, sharedWith: () => string[] = () => []): void {
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
@@ -67,14 +72,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     looks: show.looks.list(),
     canvases: venue.canvases.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
+    rules: show.rules.list(),
+    venueRules: show.venueRules.list(),
     safeLook: show.settings.safeLook,
     safeSnapshot: show.settings.safeSnapshot,
     startupSnapshot: show.settings.startupSnapshot,
   });
   /** Deleting what is still used is refused (the error says where), unless `force`. */
-  const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean, sharedWith: string[] = []) => {
+  const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean, otherShows: string[] = []) => {
     const uses = usesOf(kind, i, parts());
-    if ((uses.length || sharedWith.length) && !force) throw new Error(inUseMessage(name ?? i, uses, sharedWith));
+    if ((uses.length || otherShows.length) && !force) throw new Error(inUseMessage(name ?? i, uses, otherShows));
     return uses;
   };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
@@ -167,11 +174,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.put",
     title: "Patcher une fixture",
-    description: "Creates or updates a patched fixture (manufacturer/model/mode from the library, universe, 1-based address, role, tags, position).",
+    description: "Creates or updates a patched fixture (manufacturer/model/mode from the library, universe, 1-based address, role, tags, position). A universe beyond the output's is refused (unless the fixture is already there); `warning` says what is patched anyway: channels shared with another fixture, a fixture ending past channel 512 (its last channels are dropped), a missing definition, absent for this show.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: PatchedFixtureSchema }),
     run: ({ fixture }) => {
+      // a universe the output does not have: its light would go nowhere. A fixture already there (an
+      // older patch, a smaller config) can still be edited where it is.
+      const before = venue.fixtures.get(fixture.id);
+      if (fixture.universe > engine.output.count && fixture.universe !== before?.universe)
+        throw new CommandError("invalid", say(`univers ${fixture.universe} hors de 1..${engine.output.count} (les univers de la sortie, Réglages)`, `universe ${fixture.universe} out of 1..${engine.output.count} (the output's universes, Settings)`));
       const saved = venue.fixtures.put(fixture);
       const r = venue.resolve(saved.id);
       // patched anyway (two lamps on one address can be wanted), but said at once
@@ -523,17 +535,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.delete",
     title: "Dépatcher",
     description:
-      "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, songs: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them). `usedBy` lists what was using it when forced.",
+      "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, rules scoped to it, MIDI mappings and song track actions naming it: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them). `usedBy` lists what was using it when forced. An id that is not in the patch: deleted false, nothing checked.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if the show uses it or the venue is shared with other shows") }),
-    run: async ({ id: i, force }, ctx) => {
+    run: ({ id: i, force }) => {
       const f = venue.fixtures.get(i);
-      // the other shows on this venue (venue.list, registered with the file commands): a lone show command set has none
-      const row = ((await reg.invoke("venue.list", {}, ctx).catch(() => [])) as { shows: string[]; active: boolean; shared: boolean }[]).find((v) => v.active && v.shared);
-      const shows = row ? ((await reg.invoke("show.list", {}, ctx).catch(() => [])) as { id: string; name: string; active: boolean }[]) : [];
-      const others = row ? row.shows.filter((id) => !shows.find((x) => x.id === id)?.active).map((id) => shows.find((x) => x.id === id)?.name ?? id) : [];
-      const usedBy = removable("fixture", i, f?.name, force, f ? others : []);
+      // not in the patch: nothing to delete, whatever may still name the id
+      if (!f) return { deleted: false, usedBy: [] };
+      const usedBy = removable("fixture", i, f.name, force, sharedWith());
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
       if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });

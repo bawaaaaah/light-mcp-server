@@ -41,6 +41,32 @@ const stamp = (d = new Date()): string => {
 };
 const BACKUP_RE = /^[\w.-]+\.lightshow$/;
 
+/** A show's settings (show.json) as on disk, defaults filled in. */
+function settingsOn(dataRoot: string, id: string): z.infer<typeof ShowSettingsSchema> {
+  const file = path.join(dataRoot, "shows", id, "show.json");
+  return ShowSettingsSchema.parse(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {});
+}
+
+/** The show folders under <dataRoot>/shows. */
+function showIdsIn(dataRoot: string): string[] {
+  const dir = path.join(dataRoot, "shows");
+  return existsSync(dir) ? readdirSync(dir).filter((id) => ID_RE.test(id) && statSync(path.join(dir, id)).isDirectory()) : [];
+}
+
+/** The shows that play on a venue, but `except`. */
+function showsOnVenue(dataRoot: string, venueId: string, except?: string): string[] {
+  return showIdsIn(dataRoot).filter((id) => id !== except && settingsOn(dataRoot, id).venue === venueId);
+}
+
+/**
+ * The other shows playing on the open show's venue, by name: they lose what is deleted from it. Given
+ * to the show commands (venue.fixture.delete) as a function, rather than invoked by command name.
+ */
+export function sharedWith(s: Pick<FileServices, "dataRoot" | "current">): string[] {
+  const { show, venue } = s.current();
+  return showsOnVenue(s.dataRoot, venue, show).map((id) => settingsOn(s.dataRoot, id).name || id);
+}
+
 /** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */
 export function writeBackup(s: FileServices, label?: string, now = new Date()): string {
   s.flush();
@@ -80,10 +106,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   const venuesDir = path.join(s.dataRoot, "venues");
   const backupsDir = path.join(s.dataRoot, "backups");
   const showDir = (id: string) => path.join(showsDir, id);
-  const settingsOf = (id: string) => {
-    const file = path.join(showDir(id), "show.json");
-    return ShowSettingsSchema.parse(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {});
-  };
+  const settingsOf = (id: string) => settingsOn(s.dataRoot, id);
   const writeSettings = (id: string, patch: Record<string, unknown>) => {
     mkdirSync(showDir(id), { recursive: true });
     writeFileSync(path.join(showDir(id), "show.json"), stableStringify({ ...settingsOf(id), ...patch }));
@@ -104,8 +127,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
 
   /** Venue folders, and the shows that play on each. */
   const venueIds = () => (existsSync(venuesDir) ? readdirSync(venuesDir).filter((id) => ID_RE.test(id) && statSync(path.join(venuesDir, id)).isDirectory()) : []);
-  const showIds = () => (existsSync(showsDir) ? readdirSync(showsDir).filter((id) => ID_RE.test(id) && statSync(showDir(id)).isDirectory()) : []);
-  const showsOn = (venueId: string, except?: string) => showIds().filter((id) => id !== except && settingsOf(id).venue === venueId);
+  const showsOn = (venueId: string, except?: string) => showsOnVenue(s.dataRoot, venueId, except);
   const knownVenue = (id: string) => {
     if (!ID_RE.test(id) || !existsSync(path.join(venuesDir, id))) throw new Error(say(`lieu inconnu : ${id}`, `unknown venue: ${id}`));
   };

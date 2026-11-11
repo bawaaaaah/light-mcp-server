@@ -54,6 +54,10 @@ interface Output {
     misdirected?: { universe: number; portAddress: number; targets: string[]; nodes: { key: string; ip: string; shortName: string }[] }[];
   };
   sendHealth?: { windowSeconds: number; hosts: { host: string; sends: number; errors: number; failing: boolean }[] };
+  /** The Art-Net broadcast address of the bound interface. */
+  broadcast?: string;
+  /** Node and target IPs on none of this machine's subnets: unreachable without a router. */
+  outOfSubnet?: string[];
   universes?: number;
   usb?: { available: boolean; error?: string; devices: { path: string; kind: UsbKind; open: boolean; framesSent: number; error?: string }[] };
 }
@@ -78,39 +82,64 @@ function nodesByIp(nodes: Node[], chosen: string[]): { ip: string; name: string;
   return [...out.values()];
 }
 
-/** An Art-Net route that reaches nobody: its sends fail, or it aims at an address no node answers from. */
+/** A route that reaches nobody: its sends fail (Art-Net or sACN unicast), or it aims at an address no node answers from (Art-Net). */
 export interface ReachProblem {
   universe: number;
-  portAddress: number;
-  send: ArtnetSend;
-  failing?: { hosts: string[]; sends: number; errors: number; seconds: number };
-  misdirected?: string[];
-  /** The nodes that output this port-address and are not failing: where the route can be pointed. */
-  nodes: { ip: string; name: string }[];
+  protocol: "artnet" | "sacn";
+  /** The Art-Net port-address, or the sACN universe. */
+  address: number;
+  failing?: { hosts: string[]; sends: number; errors: number; seconds: number; broadcast: boolean };
+  /** The targets discovery does not see, and the nodes that output the address from elsewhere. */
+  misdirected?: { targets: string[]; nodes: string[] };
+  /** Art-Net: the route already goes to the whole network, so « broadcast » is no way out. */
+  broadcasting: boolean;
+  /** Art-Net: the nodes that output this port-address and are not failing, where the route can be pointed; those out of this machine's subnets last. */
+  nodes: { ip: string; name: string; outOfSubnet: boolean }[];
 }
 
-/** The routes whose sends fail (output.sendHealth) or that aim at a node not seen (coverage.misdirected), by universe. */
-export function reachProblems(output: Pick<Output, "config" | "destinations" | "coverage" | "sendHealth">, nodes: Node[]): ReachProblem[] {
+/** The routes whose sends fail (output.sendHealth) or that aim at a node not seen (coverage.misdirected), by universe and protocol. */
+export function reachProblems(output: Pick<Output, "config" | "destinations" | "coverage" | "sendHealth" | "broadcast" | "outOfSubnet">, nodes: Node[]): ReachProblem[] {
   const failingHosts = new Map((output.sendHealth?.hosts ?? []).filter((h) => h.failing).map((h) => [h.host, h]));
+  const away = new Set(output.outOfSubnet ?? []);
+  const isBroadcast = (ip: string) => ip === output.broadcast || ip.endsWith(".255");
+  const failing = (hosts: string[]) =>
+    hosts.length
+      ? { failing: { hosts, sends: hosts.reduce((a, h) => a + failingHosts.get(h)!.sends, 0), errors: hosts.reduce((a, h) => a + failingHosts.get(h)!.errors, 0), seconds: output.sendHealth!.windowSeconds, broadcast: hosts.every(isBroadcast) } }
+      : {};
   const out: ReachProblem[] = [];
   for (const r of output.config.routes) {
-    if (!r.artnet) continue;
-    const hosts = output.destinations?.find((d) => d.universe === r.universe)?.artnet?.filter((h) => failingHosts.has(h)) ?? [];
-    const mis = output.coverage?.misdirected?.find((m) => m.universe === r.universe);
-    if (!hosts.length && !mis) continue;
-    const found = new Map<string, string>();
-    for (const n of mis?.nodes ?? []) found.set(n.ip, n.shortName);
-    if (!mis) for (const n of nodes) if (!failingHosts.has(n.ip) && nodePorts(n).some((p) => !p.sacn && p.portAddress === r.artnet!.portAddress)) found.set(n.ip, n.shortName);
-    out.push({
-      universe: r.universe,
-      portAddress: r.artnet.portAddress,
-      send: artnetSendOf(r.artnet),
-      ...(hosts.length ? { failing: { hosts, sends: hosts.reduce((a, h) => a + failingHosts.get(h)!.sends, 0), errors: hosts.reduce((a, h) => a + failingHosts.get(h)!.errors, 0), seconds: output.sendHealth!.windowSeconds } } : {}),
-      ...(mis ? { misdirected: mis.targets } : {}),
-      nodes: [...found].map(([ip, name]) => ({ ip, name })),
-    });
+    const sending = output.destinations?.find((d) => d.universe === r.universe);
+    if (r.artnet) {
+      const hosts = sending?.artnet?.filter((h) => failingHosts.has(h)) ?? [];
+      const mis = output.coverage?.misdirected?.find((m) => m.universe === r.universe);
+      if (hosts.length || mis) {
+        const found = new Map<string, string>();
+        for (const n of mis?.nodes ?? []) found.set(n.ip, n.shortName);
+        if (!mis) for (const n of nodes) if (!failingHosts.has(n.ip) && nodePorts(n).some((p) => !p.sacn && p.portAddress === r.artnet!.portAddress)) found.set(n.ip, n.shortName);
+        out.push({
+          universe: r.universe,
+          protocol: "artnet",
+          address: r.artnet.portAddress,
+          ...failing(hosts),
+          ...(mis ? { misdirected: { targets: mis.targets, nodes: mis.nodes.map((n) => n.ip) } } : {}),
+          broadcasting: artnetSendOf(r.artnet) === "broadcast" || Boolean(sending?.artnet?.some(isBroadcast)),
+          nodes: [...found].map(([ip, name]) => ({ ip, name, outOfSubnet: away.has(ip) })).sort((a, b) => Number(a.outOfSubnet) - Number(b.outOfSubnet)),
+        });
+      }
+    }
+    // sACN unicast: a node that does not answer fails the same way (multicast is never « failing »)
+    const sacnHosts = r.sacn?.unicast?.length ? (sending?.sacn?.filter((h) => failingHosts.has(h)) ?? []) : [];
+    if (r.sacn && sacnHosts.length) out.push({ universe: r.universe, protocol: "sacn", address: r.sacn.universe, ...failing(sacnHosts), broadcasting: false, nodes: [] });
   }
   return out;
+}
+
+/** Why a route reaches nobody, in words (the hosts, their counts, the likely cause). */
+function reachReasons(p: ReachProblem, t: ReturnType<typeof useT>): string {
+  const f = p.failing;
+  const failingText = f && (f.broadcast ? t.sendRefused : f.hosts.length > 1 ? t.sendFailingMany : t.sendFailing).replace("{hosts}", f.hosts.join(", ")).replace("{sends}", String(f.sends)).replace("{errors}", String(f.errors)).replace("{seconds}", String(f.seconds));
+  const misText = p.misdirected && t.sendMisdirected.replace("{targets}", p.misdirected.targets.join(", ")).replace("{nodes}", p.misdirected.nodes.join(", "));
+  return [failingText, misText].filter(Boolean).join(" ; ");
 }
 
 /** What a route sends, in words. */
@@ -304,8 +333,8 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
     return () => clearInterval(timer);
   }, [load, loadPorts]);
   // the light moves at once: asked first, unless nothing is sent (standby)
-  const route = (universe: number, change: RouteChange) => {
-    if (!output?.standby && !confirm(t.routeConfirm)) return;
+  const route = (universe: number, change: RouteChange, question = t.routeConfirm) => {
+    if (!output?.standby && !confirm(question)) return;
     setError("");
     const { artnet, sacn, usb } = change;
     void cmd("output.route", {
@@ -405,25 +434,38 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
             </p>
           ))}
           {output &&
-            reachProblems(output, nodes).map((p) => (
-              <p key={`reach${p.universe}`} className="warn reach">
-                ⚠ {t.universe} {p.universe} → Art-Net {p.portAddress}
-                {t.colon}{" "}
-                {[
-                  p.failing && t.sendFailing.replace("{hosts}", p.failing.hosts.join(", ")).replace("{sends}", String(p.failing.sends)).replace("{errors}", String(p.failing.errors)).replace("{seconds}", String(p.failing.seconds)),
-                  p.misdirected && t.sendMisdirected.replace("{targets}", p.misdirected.join(", ")),
-                ]
-                  .filter(Boolean)
-                  .join(" ; ")}
-                {routing &&
-                  p.nodes.map((n) => (
-                    <button key={n.ip} onClick={() => route(p.universe, { artnet: { portAddress: p.portAddress, send: "nodes", targets: [n.ip] } })}>
-                      {t.retargetTo} {n.name || n.ip} ({n.ip})
-                    </button>
-                  ))}
-                {routing && p.send !== "broadcast" && <button onClick={() => route(p.universe, { artnet: { portAddress: p.portAddress, send: "broadcast" } })}>{t.goBroadcast}</button>}
-              </p>
-            ))}
+            reachProblems(output, nodes).map((p) => {
+              // broadcast first, the way out that needs no address; then the nodes found, those out of reach marked
+              const offerBroadcast = routing && p.protocol === "artnet" && !p.broadcasting;
+              const retarget = routing && p.protocol === "artnet" ? p.nodes : [];
+              return (
+                <div key={`reach-${p.protocol}-${p.universe}`} className="warn reach" role="status">
+                  <p>
+                    ⚠ {t.universe} {p.universe} → {p.protocol === "artnet" ? "Art-Net" : "sACN"} {p.address}
+                    {t.colon} {reachReasons(p, t)}
+                  </p>
+                  {(offerBroadcast || retarget.length > 0) && (
+                    <div className="row reach-actions">
+                      {offerBroadcast && (
+                        <button className="primary" onClick={() => route(p.universe, { artnet: { portAddress: p.address, send: "broadcast" } }, t.broadcastConfirm)}>
+                          {t.goBroadcast}
+                        </button>
+                      )}
+                      {retarget.map((n, i) => (
+                        <button
+                          key={n.ip}
+                          className={!offerBroadcast && i === 0 && !n.outOfSubnet ? "primary" : undefined}
+                          title={n.outOfSubnet ? t.outOfSubnet : undefined}
+                          onClick={() => route(p.universe, { artnet: { portAddress: p.address, send: "nodes", targets: [n.ip] } }, t.retargetConfirm.replace("{ip}", n.ip))}
+                        >
+                          {t.retargetTo} {n.name || n.ip} ({n.ip}){n.outOfSubnet ? ` ⚠ ${t.outOfSubnet}` : ""}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           <h2>{t.nodes}</h2>
           {nodes.length === 0 && <p className="hint">{t.noNodes}</p>}
           <ul className="nodes">
