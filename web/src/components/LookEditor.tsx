@@ -5,7 +5,7 @@
  * with an animated preview computed by the server. Everything is saved with `look.put`.
  */
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
@@ -93,6 +93,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   const [fixtures, setFixtures] = useState<Named[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
+  /** The error line, brought into view when it appears: the editor is long, and a refused save must not look silent. */
+  const errorEl = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (error) errorEl.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+  /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
+  const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
   const [rawOpen, setRawOpen] = useState(false);
   const tempo = useTopic<{ bpm: number } | null>("light:tempo", null);
@@ -184,9 +191,24 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         <label className="field" title={t.folderHelp}>
           <span>{t.folder}</span>
           <span className="row">
-            <input aria-label={t.folder} value={folderOf(look.tags) ?? ""} list="look-folder-suggestions" onChange={(e) => set({ tags: withFolder(look.tags, e.target.value) })} />
+            <input
+              aria-label={t.folder}
+              value={folderText}
+              list="look-folder-suggestions"
+              onChange={(e) => {
+                setFolderText(e.target.value);
+                set({ tags: withFolder(look.tags, e.target.value.trim() ? e.target.value : undefined) });
+              }}
+            />
             {/* typing names or creates one; the list picks one of the known folders, nested paths included */}
-            <select aria-label={t.folderChoose} value={folderOf(look.tags) ?? ""} onChange={(e) => set({ tags: withFolder(look.tags, e.target.value || undefined) })}>
+            <select
+              aria-label={t.folderChoose}
+              value={folderOf(look.tags) ?? ""}
+              onChange={(e) => {
+                setFolderText(e.target.value);
+                set({ tags: withFolder(look.tags, e.target.value || undefined) });
+              }}
+            >
               <option value="">{t.noFolder}</option>
               {(folders ?? []).map((f) => (
                 <option key={f} value={f}>
@@ -415,7 +437,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
           </button>
         )}
         {error && (
-          <span className="error" onClick={() => setError("")}>
+          <span ref={errorEl} className="error" role="alert" onClick={() => setError("")}>
             {error}
           </span>
         )}

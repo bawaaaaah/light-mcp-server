@@ -90,6 +90,8 @@ export class CommandRegistry {
     if (!parsed.success) {
       // the first problem, where it is: a person or an AI client can act on it without the details
       const first = parsed.error.issues[0];
+      // a refusal written for people (a schema refine's own sentence) is said as it is, without the technical frame
+      if (first?.code === "custom") throw new CommandError("invalid", first.message, parsed.error.flatten());
       const where = first?.path.length ? `${first.path.join(".")}${say(" : ", ": ")}` : "";
       throw new CommandError("invalid", say(`arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, `invalid arguments for ${name}${first ? ` (${where}${first.message})` : ""}`), parsed.error.flatten());
     }

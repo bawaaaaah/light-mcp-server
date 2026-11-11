@@ -41,8 +41,8 @@ export function normalizeFolder(path: string): string {
 /** The names the list gives the looks without a folder (« Sans dossier », « No folder »): a folder may not take one. */
 export const RESERVED_FOLDERS = ["sans dossier", "no folder"];
 
-/** Whether a (normalised) folder path is one the list already uses for the looks without a folder. */
-export const isReservedFolder = (path: string): boolean => RESERVED_FOLDERS.includes(path.toLowerCase());
+/** Whether a (normalised) folder path starts with a name the list already uses for the looks without a folder (« Sans dossier/Enfant » would show a « Sans dossier » header too). */
+export const isReservedFolder = (path: string): boolean => RESERVED_FOLDERS.includes((path.split(SEPARATOR)[0] ?? "").toLowerCase());
 
 /** True when a look sits in the folder `node` itself or nested under it. */
 export function inTree(tags: string[], node: string): boolean {

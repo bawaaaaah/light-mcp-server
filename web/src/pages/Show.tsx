@@ -293,13 +293,19 @@ export function ShowPage(): ReactElement {
   const createFolder = () => {
     const name = folderDraft.trim();
     if (!name) return;
-    if (selection.length) {
-      void run("show.folder.move", { ids: selection, folder: name });
-      setSelected([]);
-      anchor.current = undefined;
-    } else void run("show.folder.create", { folder: name });
-    setFolderBar(false);
-    setFolderDraft("");
+    // the bar stays open with the name typed while the server refuses it (« Sans dossier »…): it is said, then fixed in place
+    void cmd(selection.length ? "show.folder.move" : "show.folder.create", selection.length ? { ids: selection, folder: name } : { folder: name }).then(
+      () => {
+        if (selection.length) {
+          setSelected([]);
+          anchor.current = undefined;
+        }
+        setFolderBar(false);
+        setFolderDraft("");
+        setError("");
+      },
+      (e: Error) => setError(e.message),
+    );
   };
   /** The ghost label a drag carries: the look's name (or the count), or the folder's name. */
   const carryLabel = carried

@@ -121,6 +121,21 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     await run("show.folder.delete", { folder: "X" });
   });
 
+  it("keeps a « Sans dossier » folder of an older show usable, and refuses one only as a destination", async () => {
+    const stored = (await run("look.get", { id: "hole" })) as Record<string, unknown>;
+    delete stored.active;
+    delete stored.swatch;
+    plugin.runtime.looks.put({ ...stored, tags: ["dossier:Sans dossier"] } as never); // filed there before the name was reserved
+    await run("look.put", { look: { ...stored, name: "Trou renommé", tags: ["dossier:Sans dossier"] } }); // still editable where it is
+    let refused = "";
+    await run("show.folder.create", { folder: "Sans dossier/Enfant" }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.match(/Sans dossier|No folder/); // the first segment counts: it would show a « Sans dossier » header too
+    await run("show.folder.rename", { from: "Sans dossier", to: "Divers" }); // the way out
+    expect(folderTags(await tags("hole"))).to.deep.equal(["dossier:Divers"]);
+    await run("show.folder.delete", { folder: "Divers" });
+    await run("look.put", { look: { ...stored } });
+  });
+
   it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {
     await run("show.folder.move", { ids: ["checker"], folder: "X/B" });
     await run("show.folder.move", { ids: ["palette"], folder: "B" });

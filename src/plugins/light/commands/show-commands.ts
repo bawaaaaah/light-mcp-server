@@ -376,7 +376,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
     }
     const folder = folderOf(look.tags);
-    if (folder !== undefined && isReservedFolder(folder)) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
+    // only a move *into* a reserved name is refused: a look an older show already filed there stays editable
+    const stored = show.looks.get(look.id);
+    if (folder !== undefined && isReservedFolder(folder) && folder !== (stored ? folderOf(stored.tags) : undefined)) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
     const tags = folder === undefined ? look.tags : withFolder(look.tags, folder);
     return sameTags(tags, look.tags) ? look : { ...look, tags };
   };
@@ -416,15 +418,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // born from tags lives as long as its looks; one named ahead (show.folder.create) stays, stored
   // with the show's settings. Every look goes through look.put (its checks and history apply), all of
   // them checked first: a look that no longer passes refuses the whole command before any write.
-  const folderName = z
+  /** A folder named as it already is (a command's source): any existing name, « Sans dossier » of an older show included, so it can still be renamed or disbanded. */
+  const folderSource = z
     .string()
     .trim()
     .min(1)
     .max(100)
     // slashes at the ends and empty segments are simply dropped (« /X/ » is « X »); what is left must name a folder
     .refine((v) => normalizeFolder(v) !== "", { error: () => say("un nom de dossier ne peut pas être vide", "a folder name cannot be empty") })
-    .refine((v) => !isReservedFolder(normalizeFolder(v)), { error: () => say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom", "“No folder” already names the looks filed nowhere: choose another name") })
     .transform(normalizeFolder)
+    .describe("a folder name or path (« Famille/Sous-dossier »)");
+  /** A folder a command files looks into or names: not under « Sans dossier », which the list keeps for the looks filed nowhere. */
+  const folderName = folderSource
+    .refine((v) => !isReservedFolder(v), { error: () => say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom", "“No folder” already names the looks filed nowhere: choose another name") })
     .describe("a folder name or path (« Famille/Sous-dossier »), free to create");
   /** Every look in the folder `name`, its whole sub-tree included. */
   const underFolder = (name: string) => show.looks.list().filter((l) => inTree(l.tags, name));
@@ -479,7 +485,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Renames the `dossier:` tag of every look of the folder, its sub-folders included (their path keeps its tail); renaming onto an existing folder merges the two. A look twice tagged counts under its first folder, and its extra tags are cleaned by the rewrite. Folders named ahead in the subtree move with it.",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ from: folderName, to: folderName }),
+    schema: z.object({ from: folderSource, to: folderName }),
     run: async ({ from, to }, ctx) => {
       if (to.startsWith(from + "/")) throw new Error(say(`« ${to} » serait un sous-dossier de « ${from} »`, `“${to}” would become a sub-folder of “${from}”`));
       if (from === to) return { renamed: 0, from, to };
@@ -496,7 +502,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Empties a folder, its sub-folders included: every look of them goes back « sans dossier » (the looks stay), and folders named ahead in the subtree stop existing.",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ folder: folderName }),
+    schema: z.object({ folder: folderSource }),
     run: async ({ folder }, ctx) => {
       const disbanded = await moveThroughLookPut(underFolder(folder), undefined, ctx);
       const left = show.settings.folders.filter((f) => f !== folder && !f.startsWith(folder + "/"));
@@ -510,7 +516,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Moves a folder — its looks and sub-folders along — under a parent folder (« B » under « A » becomes « A/B »), or back to the top level when `under` is absent.",
     right: "show:write",
     profiles: ["design"],
-    schema: z.object({ src: folderName, under: folderName.optional() }),
+    schema: z.object({ src: folderSource, under: folderSource.optional() }),
     run: async ({ src, under }, ctx) => {
       const target = nestOf(src, under);
       if (target === src) return { nested: 0, from: src, to: target };
