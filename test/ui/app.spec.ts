@@ -10,7 +10,8 @@ function watchErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`console: ${m.text()}`);
+    // a refused request is logged without saying which: its address is added, to tell an expected refusal from another
+    if (m.type() === "error") errors.push(`console: ${m.text()}${/Failed to load resource/.test(m.text()) ? ` (${m.location().url})` : ""}`);
   });
   return errors;
 }
@@ -271,7 +272,11 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   await expect(page.locator("header .show-name")).toHaveText("Autre salle"); // opened on every screen
   await expect(page.locator(".import .report")).toContainText("✔"); // the report survived the reload
   // back to the first show, the new one removed
+  // opening a show reloads every page: a command sent while this one reloads is replayed by `api`, and a
+  // delete replayed is refused. The reload is waited for before the delete.
+  const reloaded = page.waitForEvent("load");
   await api(page, "show.open", { id: "default" });
+  await reloaded;
   await expect(page.locator("header .show-name")).toHaveText("Show");
   await api(page, "show.delete", { id: "autre-salle" });
   const refused = errors.findIndex((e) => e.includes("422")); // the refused duplicate is one 422 on purpose
@@ -1774,6 +1779,15 @@ test("canvas editor: a drag let go away from the strip or ended by Escape moves 
     await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:2", "bar-0:3", "bar-0:0"]);
     await expect(cell(3)).toBeFocused();
     await expect(cell(3)).toHaveAttribute("aria-selected", "true");
+    // a gesture made from a button leaves the focus on it, to press it again
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers le début" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:2", "bar-0:0", "bar-0:3"]);
+    await expect(dialog.getByRole("button", { name: "Déplacer d'une case vers le début" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:0", "bar-0:2", "bar-0:3"]);
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:2", "bar-0:3", "bar-0:0"]);
     // ⌘Z twice in a burst: two steps back, none lost
     await page.keyboard.press("ControlOrMeta+z", { delay: 0 });
     await page.keyboard.press("ControlOrMeta+z", { delay: 0 });
@@ -1854,8 +1868,6 @@ test("canvas editor: a mirrored mask cannot follow its squares; adapting the oth
     await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:1", "bar-0:3"]);
     // the look that could follow did: forcing the mask did not shift it
     expect(((await api(page, "look.get", { id: "test-edit-look" })) as { technique: { steps: string[][] } }).technique.steps).toEqual([["#ff0000", "#0000ff", "#00ff00", "#ffffff"]]);
-    // a gesture made from a button leaves the focus on it, to press it again
-    await expect(dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" })).toBeEnabled();
     await dialog.getByRole("button", { name: "Fermer" }).click();
   } finally {
     await api(page, "look.delete", { id: "test-edit-look", force: true });

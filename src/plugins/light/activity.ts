@@ -19,6 +19,8 @@ export interface ActivityEntry {
   who?: string;
   /** The object acted on (its id), when the arguments name one. */
   target?: string;
+  /** The collection a history.restore / history.undo acted on. */
+  collection?: string;
   ok: boolean;
   error?: string;
 }
@@ -40,6 +42,8 @@ const EntrySchema = z.object({
   origin: z.enum(["ui", "midi", "osc", "os2l", "ableset", "mcp", "timeline", "cli", "system"]),
   who: z.string().optional(),
   target: z.string().optional(),
+  /** The collection a history.restore / history.undo acted on: its line is undone in that collection. */
+  collection: z.string().optional(),
   ok: z.boolean(),
   error: z.string().optional(),
 });
@@ -71,7 +75,9 @@ export type UndoableCollection = (typeof UNDOABLE)[keyof typeof UNDOABLE];
  * a fader moved is state, not a change to undo).
  */
 export function undoOf(e: ActivityEntry, designWrite: (name: string) => boolean): { collection: UndoableCollection; id: string } | undefined {
-  const prefix = e.name.startsWith("venue.canvas.") ? "venue.canvas" : e.name.split(".")[0];
+  // a canvas put back by a version or an undo writes no line of its own (the others go through their put command, whose line is undone)
+  const restored = (e.name === "history.restore" || e.name === "history.undo") && e.collection === "canvases";
+  const prefix = restored || e.name.startsWith("venue.canvas.") ? "venue.canvas" : e.name.split(".")[0];
   const collection = UNDOABLE[prefix as keyof typeof UNDOABLE];
   return collection && e.ok && e.target && designWrite(e.name) ? { collection, id: e.target } : undefined;
 }
@@ -96,17 +102,19 @@ export class ActivityLog {
 
   record(e: CommandEvent, title: string): void {
     const target = targetOf(e.args, e.name);
+    const of = e.name.startsWith("history.") ? (e.args as { collection?: unknown } | undefined)?.collection : undefined;
+    const collection = typeof of === "string" ? of : undefined;
     for (let i = this.entries.length - 1; i >= Math.max(0, this.entries.length - BURST_LOOKBACK); i--) {
       const x = this.entries[i]!;
       if (e.at - x.until > BURST_MS) break;
-      if (x.name === e.name && x.who === e.who && x.origin === e.origin && x.target === target && x.ok === e.ok) {
+      if (x.name === e.name && x.who === e.who && x.origin === e.origin && x.target === target && x.collection === collection && x.ok === e.ok) {
         x.until = e.at;
         x.count++;
         this.changed = true;
         return;
       }
     }
-    this.entries.push({ at: e.at, until: e.at, count: 1, name: e.name, title, origin: e.origin, ...(e.who ? { who: e.who } : {}), ...(target ? { target } : {}), ok: e.ok, ...(e.error ? { error: e.error } : {}) });
+    this.entries.push({ at: e.at, until: e.at, count: 1, name: e.name, title, origin: e.origin, ...(e.who ? { who: e.who } : {}), ...(target ? { target } : {}), ...(collection ? { collection } : {}), ok: e.ok, ...(e.error ? { error: e.error } : {}) });
     if (this.entries.length > ACTIVITY_MAX) this.entries.splice(0, this.entries.length - ACTIVITY_MAX);
     this.changed = true;
   }

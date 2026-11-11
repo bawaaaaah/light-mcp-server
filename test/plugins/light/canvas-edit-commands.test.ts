@@ -356,4 +356,41 @@ describe("canvas commands: edit, checked put, versions", () => {
     const done = (await run("venue.canvas.put", { canvas: { ...canvas(), name: "Mur" } })) as { revision: string };
     expect(done.revision).to.equal(((await run("venue.canvas.get", { id: "qlc" })) as { revision: string }).revision);
   });
+
+  it("refuses a proposal that changes one canvas twice: the second would be read on a canvas the first has changed", async () => {
+    const edit = (ops: unknown[]) => ({ command: "venue.canvas.edit", args: { id: "qlc", ops } });
+    const p = (await run("show.propose", { changes: [edit([{ op: "set", name: "Mur" }]), edit([{ op: "set", notes: "n" }])] })) as { valid: boolean; preview: { valid: boolean; issues?: string[] }[] };
+    expect(p.valid).to.equal(false);
+    expect(p.preview.map((x) => x.valid)).to.deep.equal([true, false]);
+    expect(p.preview[1]!.issues![0]).to.contain("regrouper dans une seule édition");
+    const mixed = (await run("show.propose", { changes: [{ command: "venue.canvas.put", args: { canvas: { ...canvas(), name: "Mur" } } }, edit([{ op: "set", notes: "n" }])] })) as { valid: boolean };
+    expect(mixed.valid).to.equal(false);
+    // grouped in one edit, it applies
+    const one = (await run("show.propose", { changes: [edit([{ op: "set", name: "Mur" }, { op: "set", notes: "n" }])] })) as { valid: boolean; id: string };
+    await run("show.apply", { id: one.id });
+    expect(canvas()).to.include({ name: "Mur", notes: "n" });
+  });
+
+  it("undoing a change that moved no cell leaves alone the steps a look got in the same seconds", async () => {
+    await tick();
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "set", name: "Mur" }] });
+    const typed = rowsOf("checker").map((r) => r.map(() => "#123456"));
+    const look = plugin.runtime.looks.get("checker")!;
+    await run("look.put", { look: { ...look, technique: { ...look.technique, steps: typed } } });
+    type Line = { name: string; at: number; until: number; collection?: string; undo?: { collection: string; id: string } };
+    const line = ((await run("activity.list")) as Line[]).find((l) => l.name === "venue.canvas.edit" && l.undo)!;
+    await run("history.undo", { ...line.undo, at: line.at, until: line.until });
+    expect(canvas().name).to.equal("Import QLC+");
+    expect(rowsOf("checker")).to.deep.equal(typed);
+    // the undo's own line can be undone in turn: the name comes back
+    await tick();
+    const undone = ((await run("activity.list")) as Line[]).find((l) => l.name === "history.undo")!;
+    expect(undone.undo).to.deep.equal({ collection: "canvases", id: "qlc" });
+    await run("history.undo", { ...undone.undo, at: undone.at, until: undone.until });
+    expect(canvas().name).to.equal("Mur");
+    // a look put back by its versions keeps the line of its put command: the restore's own line offers no second undo
+    const [v] = (await run("history.list", { collection: "looks", id: "checker" })) as { stamp: string }[];
+    await run("history.restore", { collection: "looks", id: "checker", stamp: v!.stamp });
+    expect(((await run("activity.list")) as Line[]).find((l) => l.name === "history.restore")!.undo).to.equal(undefined);
+  });
 });

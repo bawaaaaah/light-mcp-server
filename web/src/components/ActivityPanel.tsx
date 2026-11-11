@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { api, cmd } from "../api";
-import { canvasQuestion } from "./Versions";
+import { canvasPass, canvasQuestion } from "./Versions";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { quoted, beforeMark } from "../typography";
@@ -86,17 +86,17 @@ export function ActivityPanel(): ReactElement {
   useEffect(() => () => void (timer.current !== null && window.clearTimeout(timer.current)), []);
   const shown = entries?.filter((e) => (!who || (e.who ?? "—") === who) && (!origin || e.origin === origin) && (!failedOnly || !e.ok));
   const undo = (e: Entry) => {
-    const since = (entries ?? []).filter((x) => x.target === e.target && x.undo && x.at > e.until).reverse();
+    const since = (entries ?? []).filter((x) => x.target === e.target && x.undo?.collection === e.undo?.collection && x.at > e.until).reverse();
     const question = [`${quoted(t, e.target ?? "")}${t.colon} ${t.undoQuestion} (${time(e.at)})${beforeMark(t)}?`, ...(since.length ? [`\n${t.undoAlso}`, ...since.map((x) => `• ${time(x.at)} · ${x.who ?? "—"} · ${x.title}`)] : [])].join("\n");
     if (!confirm(question)) return;
     setError("");
     const args = { ...e.undo, at: e.at, until: e.until };
     void cmd("history.undo", args)
-      // a canvas put back is checked like any canvas put: the refusal is said, and forced on a yes
+      // a canvas put back is checked like any canvas put: the refusal is said, and passed on a yes (shared, or force when looks are left out of line)
       .catch((err: unknown) => {
         const forced = canvasQuestion(t, err);
         if (forced === undefined) throw err;
-        return confirm(forced) ? cmd("history.undo", { ...args, force: true }) : undefined;
+        return confirm(forced) ? cmd("history.undo", { ...args, ...canvasPass(err) }) : undefined;
       })
       .then(load, (err: Error) => setError(err.message));
   };

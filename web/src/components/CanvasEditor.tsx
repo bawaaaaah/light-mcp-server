@@ -291,7 +291,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
   };
   const undo = () => queued(() => putBack("undo"));
   const redo = () => queued(() => putBack("redo"));
-  /** « Versions »: an earlier canvas put back; the local undo no longer applies. A restore knows only `force`. */
+  /** « Versions »: an earlier canvas put back; the local undo no longer applies. */
   const restore = (stamp: string, force = false) =>
     queued(async () => {
       setError("");
@@ -954,7 +954,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
           </p>
         )}
         {refused && (
-          <section ref={panel} tabIndex={-1} className="canvas-impact" role="alertdialog" aria-label={tc.impactTitle} aria-describedby="canvas-impact-text">
+          <section ref={panel} tabIndex={-1} className="canvas-impact" role="alertdialog" aria-label={brokenLooks.length ? tc.impactTitle : tc.sharedTitle} aria-describedby="canvas-impact-text">
             <h3>{brokenLooks.length ? tc.impactTitle : tc.sharedTitle}</h3>
             <div id="canvas-impact-text">
               {brokenLooks.length > 0 && <p>{tc.impactSteps}</p>}

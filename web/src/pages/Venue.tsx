@@ -139,7 +139,7 @@ export function VenuePage(): ReactElement {
     refresh();
     void cmd<Def[]>("venue.library").then(setLibrary).catch(() => undefined);
   }, [refresh]);
-  useCommandEvents(["venue.", "stage.", "import.", "show."], refresh);
+  useCommandEvents(["venue.", "stage.", "import.", "show.", "history."], refresh);
   const run = (name: string, args: unknown) => cmd(name, args).catch((e: Error) => setError(e.message));
   /** The open venue's row (venue.list), and the other shows that play on it. */
   const openVenue = useMemo(() => venueRows.find((v) => v.active), [venueRows]);

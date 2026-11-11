@@ -45,7 +45,7 @@ export function GettingStarted({ role, looks, dashboards, current, onDashboard }
       }
     }, () => undefined);
   }, [load]);
-  useCommandEvents(["venue.", "import.", "show."], load);
+  useCommandEvents(["venue.", "import.", "show.", "history."], load);
 
   if (fixtures === null || hidden) return null;
   // one dashboard with something to play is enough: a second one left empty on purpose is no reason to show the guide

@@ -17,12 +17,17 @@ export function canvasQuestion(t: Texts, e: unknown): string | undefined {
   const d = e.detail as { impact: { looksAffected: { id: string; name: string }[] }; broken?: string[]; shared?: string[] };
   const looks = d.impact.looksAffected.filter((l) => d.broken?.includes(l.id)).map((l) => quoted(t, l.name));
   const tc = t.canvasEditor;
-  return [...(looks.length ? [`${tc.impactSteps} ${looks.join(", ")}`] : []), ...(d.shared?.length ? [`${tc.impactShared} ${d.shared.join(", ")}`] : []), "", `${tc.force}${beforeMark(t)}?`].join("\n");
+  return [...(looks.length ? [`${tc.impactSteps} ${looks.join(", ")}`] : []), ...(d.shared?.length ? [`${tc.impactShared} ${d.shared.join(", ")}`] : []), "", `${looks.length ? tc.force : tc.sharedGo}${beforeMark(t)}?`].join("\n");
+}
+
+/** What a yes to that question sends: `shared` when only the venue's other shows were in the way, `force` when looks would be left out of line. */
+export function canvasPass(e: unknown): { shared: true } | { force: true } {
+  return e instanceof ApiError && (e.detail as { broken?: string[] } | undefined)?.broken?.length === 0 ? { shared: true } : { force: true };
 }
 
 /**
  * Puts a version back (history.restore). A canvas put back is checked as any canvas put (looks of exact
- * steps that would no longer line up, a shared venue): the refusal is said and forced on a yes.
+ * steps that would no longer line up, a shared venue): the refusal is said, and passed on a yes.
  */
 export async function restoreVersion(args: { collection: Versioned; id: string; stamp: string }, t: Texts): Promise<boolean> {
   try {
@@ -31,7 +36,7 @@ export async function restoreVersion(args: { collection: Versioned; id: string; 
     const question = canvasQuestion(t, e);
     if (question === undefined) throw e;
     if (!confirm(question)) return false;
-    await cmd("history.restore", { ...args, force: true });
+    await cmd("history.restore", { ...args, ...canvasPass(e) });
   }
   return true;
 }
@@ -62,7 +67,7 @@ export function Versions({
   const load = () =>
     void cmd<{ stamp: string; at: string }[]>("history.list", { collection, id }).then(setList, (e: Error) => setError(e.message));
   const restore = (v: { stamp: string; at: string }) => {
-    if (restoreWith) return restoreWith(v); // the caller asks in its own window, and its undo covers a slip
+    if (restoreWith) return restoreWith(v); // the caller asks in its own window; the version replaced is kept in turn
     if (!confirm(`${t.restoreVersionConfirm}\n\n${t.replacedOn} ${when(v.at)}`)) return;
     void restoreVersion({ collection, id, stamp: v.stamp }, t).then((done) => done && onRestored(), (e: Error) => setError(e.message));
   };

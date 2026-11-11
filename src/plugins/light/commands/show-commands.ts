@@ -1519,10 +1519,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const before = replaced[replaced.length - 1];
       if (!before) throw new Error(say(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`, `nothing to undo for ${i}: this change replaced no version (a creation is undone by deleting the object)`));
       if (collection === "canvases") {
-        // the looks whose steps the same change adapted go back with the canvas: the version each kept while it ran
+        // the looks whose steps the same change adapted go back with the canvas: the version each kept while it ran.
+        // Only when the undo moves cells, and only for the looks it would break without them: a look.put that
+        // merely fell in the same two seconds (a rename of the canvas, then steps typed) is not this change's.
         const canvas = venue.canvases.parse(venue.canvases.version(i, before.stamp));
+        const now = venue.canvases.get(i);
+        const needy = new Set(now ? impactOf(now, canvas, { moved: putMoves(now, canvas) }, looksOn(i)).looksAffected.flatMap((l) => (l.reason === "steps" ? [l.id] : [])) : []);
         const steps: Record<string, LookRows> = {};
         for (const l of looksOn(i)) {
+          if (!needy.has(l.id)) continue;
           const kept = show.looks.versions(l.id).filter((x) => Date.parse(x.at) >= at && Date.parse(x.at) <= end);
           const was = kept.length ? (show.looks.version(l.id, kept[kept.length - 1]!.stamp) as Look | undefined) : undefined;
           const rows = was?.technique.kind === l.technique.kind ? rowsOfTechnique(was.technique) : undefined;
@@ -1568,7 +1573,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       key: "canvas",
       // looks' steps written with the canvas would show in no preview, and no take-back would put them back
       plan: (a) => {
-        if (a.steps && typeof a.steps === "object" && Object.keys(a.steps).length) throw new Error(say("une proposition ne porte pas de pas avec le canevas (steps) : proposer les looks par look.put", "a proposal carries no steps with the canvas (steps): propose the looks with look.put"));
+        if (a.steps && typeof a.steps === "object" && Object.keys(a.steps).length) throw new Error(say("les pas donnés avec le canevas (steps) ne se prévisualisent pas : passer les looks par look.put", "steps given with the canvas (steps) cannot be previewed: give the looks with look.put"));
         return { object: a.canvas };
       },
     },
@@ -1700,7 +1705,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: z.object({ changes: z.array(ChangeSchema).min(1).max(50), title: z.string().max(200).optional() }),
     run: ({ changes, title }, ctx) => {
-      const preview = changes.map(previewOf);
+      const preview: ReturnType<typeof previewOf>[] = changes.map(previewOf);
+      // one change per canvas: a second one would be read on a canvas the first has already changed (cell indices, the revision pinned below)
+      const canvasesSeen = new Set<string>();
+      changes.forEach((c, k) => {
+        const p = preview[k]!;
+        if (!p.valid || p.collection !== "canvases") return;
+        if (canvasesSeen.has(p.id)) preview[k] = { command: c.command, valid: false, collection: "canvases", issues: [say(`le canevas ${p.id} est déjà changé par cette proposition : regrouper dans une seule édition (venue.canvas.edit prend plusieurs opérations)`, `canvas ${p.id} is already changed by this proposal: group it in one edit (venue.canvas.edit takes several operations)`)] };
+        canvasesSeen.add(p.id);
+      });
       const invalid = preview.filter((x) => !x.valid);
       if (invalid.length) return { valid: false, preview };
       // an edit is a list of cell indices: it is applied to the canvas that was shown, or not at all
