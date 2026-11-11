@@ -91,7 +91,8 @@ export interface RawWrite {
  * A dosed raw channel (a dimmer or colour offset) over what the show holds there, composed like layers.
  * Each sheet is a layer: its opacity is its weight (at most 1) and its value the weighted mean of its
  * writes (a crossfade inside it goes from one value to the other without a dip). The held byte
- * (`heldUnder` each look writing; the highest) lies under all of them: the result is
+ * (`heldUnder` each look writing, weighted by the looks' weights: a look at weight 0 adds nothing to
+ * it yet, so a look arriving cannot lift it in one frame) lies under all of them: the result is
  * held × (1 − combined opacity) + combined opacity × the highest layer value, each value weighted by
  * its opacity against the most opaque layer. So a look fading in or out crosses from the held byte
  * to its level and back instead of starting from black; looks that do not cross keep the highest at
@@ -100,15 +101,22 @@ export interface RawWrite {
  */
 export function rawOver(writes: readonly RawWrite[], heldUnder: (look: string) => number): number {
   const sheets = new Map<string, { dosed: number; weight: number }>();
-  let held = 0;
+  let heldSum = 0;
+  let heldWeight = 0;
+  let heldMean = 0;
   for (const x of writes) {
     const w = Math.max(0, x.weight);
     const sheet = sheets.get(x.sheet) ?? { dosed: 0, weight: 0 };
     sheet.dosed += x.value * w;
     sheet.weight += w;
     sheets.set(x.sheet, sheet);
-    held = Math.max(held, heldUnder(x.look));
+    const under = heldUnder(x.look);
+    heldSum += under * w;
+    heldWeight += w;
+    heldMean += under / writes.length;
   }
+  // all at weight 0 (the very first frame): the plain mean, which the weighted one starts from
+  const held = heldWeight > 0 ? heldSum / heldWeight : heldMean;
   const layers = [...sheets.values()].filter((l) => l.weight > 0).map((l) => ({ opacity: Math.min(1, l.weight), value: l.dosed / l.weight }));
   if (!layers.length) return held;
   const opacity = 1 - layers.reduce((clear, l) => clear * (1 - l.opacity), 1);
@@ -120,7 +128,9 @@ export function rawOver(writes: readonly RawWrite[], heldUnder: (look: string) =
 /**
  * The dimmer of a fixture driven by machine channels (a wheel, a macro: a colour that cannot scale),
  * from the looks' machine weight `machine` and the weight `selfDosed` (at most 1) of the looks that
- * dose themselves there (painting it, or writing its own dimmer or colours). Continuous everywhere:
+ * dose themselves there (painting it, or writing its own dimmer or colours). Continuous everywhere
+ * but at the origin (a machine look and a self-dosing look started together jump to about half in
+ * one frame: no formula without memory avoids it, docs/specs/engine-effects-timing.md):
  * 1 while the machine weight is 0 and something doses itself (a look coming in over a lit fixture
  * takes nothing from it), the machine weight alone when nothing else is there, 1 when what doses
  * itself is at full — in between, the machine's share eases from one to the other.

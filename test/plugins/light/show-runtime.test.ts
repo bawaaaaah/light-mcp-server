@@ -1208,6 +1208,42 @@ describe("a look's raw channels ride its fade (T3)", () => {
     expect(sample(true)).to.deep.equal(sample(false)); // the twin reads what the show held, not its neighbour's dose
   });
 
+  for (const [what, exclusive, first, then] of [
+    ["a colour look starts while a dimmer look rises", false, "d", "c"],
+    ["a colour look starts while a dimmer look fades out", false, "d-out", "c"],
+    ["a colour look replaces a rising dimmer look in an exclusive group", true, "d", "c"],
+    ["a dimmer look replaces an established colour look in an exclusive group", true, "c-full", "d"],
+  ] as const) {
+    it(`moves a shared raw dimmer without a jump when ${what}`, () => {
+      const { show, dmx, advance } = setup();
+      // d doses by its dimmer (dimmer 100 + Program), c by its colours (dimmer 255 + R1)
+      show.looks.put(sceneLook("d", { entryFade: 4, exitFade: 4 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }], [[100, 200]]));
+      show.looks.put(sceneLook("c", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 3 }], [[255, 255]]));
+      if (exclusive) show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["c", "d"] } });
+      const levels: number[] = [];
+      const tick = () => {
+        levels.push(dmx()[0]!);
+        advance(0.2); // every 100 ms
+      };
+      if (first === "d") show.go("d");
+      if (first === "d-out") {
+        show.go("d");
+        for (let i = 0; i < 50; i++) tick();
+        show.stop("d");
+      }
+      if (first === "c-full") {
+        show.go("c");
+        for (let i = 0; i < 30; i++) tick();
+      }
+      for (let i = 0; i < 10; i++) tick(); // 1 s into the first look's move
+      show.go(then);
+      for (let i = 0; i < 60; i++) tick();
+      // no jump in one frame (it was 14 -> 231): where two fades combine the ramp is steeper than one fade's
+      // (up to ~45 per 100 ms, a known limit, docs/specs/engine-effects-timing.md), never a step
+      for (let i = 1; i < levels.length; i++) expect(Math.abs(levels[i]! - levels[i - 1]!), `step at ${i * 100} ms: ${levels.join(",")}`).to.be.at.most(50);
+    });
+  }
+
   it("keeps the dimmer of a look that paints a fixture and holds its mode channel: dosed once, by its colours", () => {
     const { show, dmx, advance } = setup();
     show.looks.put(sceneLook("scene", { entryFade: 2, exitFade: 2 }, [{ fixture: "bar-l", offset: 2 }], [[200]], { kind: "plat", color: "#ffffff" }));
