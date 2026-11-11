@@ -5,22 +5,23 @@
  * use), the typed word otherwise (a free theme, reported back as unknown by the server).
  */
 import { fold, searchBy, searchPhrase } from "./search-text.js";
+import { intentionKey, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
 
 export interface Theme {
   key: string;
   label: string;
   colors: string[];
   family: string;
+  /** Where it comes from (T15): a show or personal intention is marked in the list. */
+  origin?: IntentionOrigin;
 }
 
-export interface KnowledgeMoods {
-  moods: Record<string, { label?: string; colors: string[]; family?: string }>;
-}
+export type KnowledgeMoods = KnowledgeIntentions;
 
 /** The known themes, by label (accent-insensitive order). */
 export function themesOf(kb: KnowledgeMoods | null | undefined): Theme[] {
   return Object.entries(kb?.moods ?? {})
-    .map(([key, m]) => ({ key, label: m.label ?? key, colors: m.colors, family: m.family ?? "" }))
+    .map(([key, m]) => ({ key, label: m.label ?? key, colors: m.colors, family: m.family ?? "", ...(m.origin ? { origin: m.origin } : {}) }))
     .sort((a, b) => fold(a.label).localeCompare(fold(b.label)));
 }
 
@@ -30,7 +31,9 @@ export const searchThemes = (list: readonly Theme[], query: string): Theme[] => 
 /** The known theme a chosen value stands for (its key, or its label typed), if any. */
 export const themeOf = (list: readonly Theme[], value: string): Theme | undefined => {
   const f = fold(value).trim();
-  return list.find((t) => t.key === f) ?? list.find((t) => fold(t.label) === f);
+  // a key with spaces or punctuation typed (« lever de rideau ») is the key the server would read
+  const key = intentionKey(value);
+  return list.find((t) => t.key === f) ?? list.find((t) => fold(t.label) === f) ?? (key ? list.find((t) => t.key === key) : undefined);
 };
 
 /** What a chosen value is shown as: the label of a known theme, the word itself otherwise. */

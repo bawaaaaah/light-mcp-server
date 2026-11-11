@@ -33,7 +33,10 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
                     : `\n${t.restoreFixtures}${t.colon} ${x.missing.length} ${t.restoreFixturesMissing}, ${x.differs.length} ${t.restoreFixturesDiffer}${x.invalid.length + x.rejected.length ? `, ${x.invalid.length + x.rejected.length} ${t.restoreFixturesSkipped}` : ""}${[...x.missing.map((n) => `\n  + ${n}`), ...x.differs.map((n) => `\n  ~ ${n}`)].slice(0, 12).join("")}`;
                 const folders = [p.show, p.venue].every((d) => d === null || d.added.length + d.changed.length + d.removed.length === 0);
                 if (folders && p.fixtures.missing.length + p.fixtures.differs.length === 0) return onError(t.restoreSame);
-                const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;
+                // the show's intentions, apart: an older backup without any removes them (T15)
+                const i = p.intentions;
+                const intentions = i && i.added + i.changed + i.removed ? `\n${t.restoreIntentions}${t.colon} +${i.added} / ~${i.changed} / -${i.removed}${i.removed && !i.added && !i.changed ? ` (${t.restoreIntentionsGone})` : ""}` : "";
+                const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}${intentions}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;
                 if (!confirm(summary)) return;
                 // the policy: missing definitions are added; the differing ones only when asked
                 const policy: FixturePolicy = p.fixtures.differs.length && confirm(t.restoreFixturesReplaceAsk) ? "replace" : "missing";

@@ -17,6 +17,7 @@ import { RecentlyDeleted } from "../components/Versions";
 import { Proposals } from "../components/Proposals";
 import { TypeGroups } from "../components/TypeGroups";
 import { ThemePicker } from "../components/ThemePicker";
+import { IntentionsManager } from "../components/IntentionsManager";
 import { themeLabel, themesOf, type KnowledgeMoods } from "../themes";
 
 interface Look {
@@ -148,7 +149,7 @@ export function ShowPage(): ReactElement {
       .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot."], refresh);
+  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot.", "intention.", "song.put", "song.delete"], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const themes = useMemo(() => themesOf(knowledge), [knowledge]);
@@ -661,6 +662,8 @@ export function ShowPage(): ReactElement {
           </ul>
         )}
       </section>
+
+      <IntentionsManager kb={knowledge} onChanged={refresh} onError={setError} />
 
       {editing && (
         <Modal label={editing.name || t.newLook}>

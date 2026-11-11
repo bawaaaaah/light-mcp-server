@@ -78,6 +78,8 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
                   ))}
                 </span>
                 {theme.family && <small className="theme-family">{theme.family}</small>}
+                {/* the user's own (T15): where it lives, the shipped ones go unmarked */}
+                {theme.origin && theme.origin !== "generic" && <small className={`theme-origin origin-${theme.origin}`}>{t.intentionOrigins[theme.origin]}</small>}
               </button>
             </li>
           );

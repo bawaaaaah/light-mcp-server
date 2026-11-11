@@ -5594,3 +5594,120 @@ test("theme picker: a word inside a theme is still addable, Enter only adds, × 
   await expect(picker.getByRole("status")).toContainText("Intimité");
   expect(errors).toEqual([]);
 });
+
+test("intentions: create one in the show, use it by intention, edit it, refuse a duplicate, touch up and hide a shipped one (T15)", async ({ page }) => {
+  const errors = watchErrors(page);
+  const asked: string[] = [];
+  page.on("dialog", (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  const section = page.locator("section.intentions");
+  const list = section.getByRole("list", { name: "Intentions connues" });
+  const row = (label: string) => list.locator("li", { has: page.locator("strong", { hasText: new RegExp(`^${label}$`) }) });
+  const byIntent = page.locator("section", { has: page.getByRole("heading", { name: "Créer un look par intention" }) });
+  const picker = byIntent.locator(".theme-picker");
+  try {
+    // a new one, stored in the show: two colours typed in hexadecimal, an energy, the live proposal
+    await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
+    const editor = page.getByRole("dialog", { name: "➕ Nouvelle intention" });
+    await editor.getByLabel("Libellé").fill("Lever de rideau");
+    await expect(editor.getByText("Clé : lever-de-rideau")).toBeVisible();
+    await editor.getByLabel("Couleur 1, en hexadécimal").fill("#ff0000");
+    await editor.getByRole("button", { name: "+ Couleur" }).click();
+    await editor.getByLabel("Couleur 2, en hexadécimal").fill("0000ff");
+    await editor.getByLabel("Énergie").selectOption("survolte");
+    await expect(editor.locator(".intention-preview")).toContainText("« Lever de rideau »");
+    await expect(editor.locator(".intention-preview")).toContainText("ΔE");
+    await expect(editor.getByRole("radio", { name: /ce show/ })).toBeChecked();
+    await page.screenshot({ path: "test-results/intention-editor.png" });
+    await editor.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(editor).toHaveCount(0);
+    await section.screenshot({ path: "test-results/intentions.png" });
+    await section.getByRole("searchbox").fill("rideau");
+    await expect(row("Lever de rideau").locator(".badge")).toHaveText("ce show");
+    await expect(row("Lever de rideau")).toContainText("survolté");
+    // offered at once by « create a look by intention », marked as the show's
+    await picker.getByRole("searchbox").fill("rideau");
+    const theme = picker.getByRole("button", { name: /^Lever de rideau/ });
+    await expect(theme.locator(".theme-origin")).toHaveText("ce show");
+    await theme.click();
+    await byIntent.getByRole("button", { name: "Proposition" }).click();
+    await expect(byIntent.locator("ul.hint").last()).toContainText("« Lever de rideau »");
+    // edited: the label changes, the key stays
+    await row("Lever de rideau").getByRole("button", { name: "Modifier · Lever de rideau" }).click();
+    const edit = page.getByRole("dialog", { name: "Lever de rideau" });
+    await edit.getByLabel("Libellé").fill("Lever du rideau");
+    await expect(edit.getByText("Clé : lever-de-rideau")).toBeVisible();
+    await expect(edit.getByRole("radio")).toHaveCount(0); // an edit keeps its place
+    await edit.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(row("Lever du rideau")).toBeVisible();
+    // a new one of the same key is refused before it is sent
+    await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
+    const dup = page.getByRole("dialog", { name: "➕ Nouvelle intention" });
+    await dup.getByLabel("Libellé").fill("lever de rideau !");
+    await expect(dup.getByText(/existe déjà à cet endroit/)).toBeVisible();
+    await expect(dup.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+    await dup.getByRole("button", { name: "Annuler" }).click();
+    // a shipped one touched up for the show, then back to the original
+    await section.getByRole("searchbox").fill("paix");
+    await row("Paix").getByRole("button", { name: "Retoucher pour ce show · Paix" }).click();
+    const touch = page.getByRole("dialog", { name: "Paix" });
+    await touch.getByLabel("Couleur 1, en hexadécimal").fill("#00ff00");
+    await touch.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(row("Paix").locator(".badge")).toHaveText("ce show");
+    await expect(row("Paix")).toContainText("remplace : livrée");
+    await row("Paix").getByRole("button", { name: "Revenir à l'original · Paix" }).click();
+    await expect(row("Paix").locator(".badge")).toHaveText("livrée");
+    // a shipped one a song uses: hidden after saying where it serves, then shown again
+    await section.getByRole("searchbox").fill("joie");
+    await row("Joie").getByRole("button", { name: "Masquer pour ce show · Joie" }).click();
+    await expect(row("Joie")).toContainText("masquée dans ce show");
+    expect(asked.at(-1)).toContain("chant « Chant test »");
+    await picker.getByRole("searchbox").fill("joie");
+    await expect(picker.getByRole("button", { name: /^Joie/ })).toHaveCount(0);
+    await row("Joie").getByRole("button", { name: "Rétablir · Joie" }).click();
+    await expect(row("Joie").locator(".badge")).toHaveText("livrée");
+    await expect(picker.getByRole("button", { name: /^Joie/ })).toBeVisible();
+    // deleted when nothing uses it
+    await section.getByRole("searchbox").fill("rideau");
+    await row("Lever du rideau").getByRole("button", { name: "Supprimer · Lever du rideau" }).click();
+    await expect(list.locator("li")).toHaveCount(0);
+  } finally {
+    const kb = (await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }>; hidden: { id: string }[] };
+    for (const id of ["lever-de-rideau", "paix", "joie"]) if (kb.moods[id]?.origin === "show" || kb.hidden.some((h) => h.id === id)) await api(page, "intention.delete", { id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("intentions travel in a backup: the restore says what happens to them, and brings them back (T15)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "intention.put", { intention: { label: "Douceur", colors: ["#ffeedd", "#ffb000"], energy: "pose", family: "chaud" } });
+  try {
+    const backup = await page.evaluate(async () => {
+      const res = await fetch("/api/plugins/light/archive", { headers: { authorization: `Bearer ${sessionStorage.getItem("token")}` } });
+      return Array.from(new Uint8Array(await res.arrayBuffer()));
+    });
+    await api(page, "intention.delete", { id: "douceur" });
+    expect(((await api(page, "knowledge.get")) as { moods: Record<string, unknown> }).moods.douceur).toBeUndefined();
+    await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
+    let message = "";
+    page.once("dialog", (d) => {
+      message = d.message();
+      void d.accept();
+    });
+    await page.locator('input[type=file][accept*="lightshow"]').setInputFiles({ name: "show.lightshow", mimeType: "application/zip", buffer: Buffer.from(backup) });
+    await expect.poll(async () => ((await api(page, "knowledge.get")) as { moods: Record<string, { origin?: string }> }).moods.douceur?.origin).toBe("show");
+    expect(message).toContain("Intentions du show : +1 / ~0 / -0");
+    // and it is listed again on the Show page
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.locator("section.intentions").getByRole("searchbox").fill("douceur");
+    await expect(page.locator("section.intentions li", { hasText: "Douceur" }).locator(".badge")).toHaveText("ce show");
+  } finally {
+    await api(page, "intention.delete", { id: "douceur", force: true });
+  }
+  expect(errors).toEqual([]);
+});

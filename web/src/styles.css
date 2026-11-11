@@ -3346,4 +3346,88 @@ fieldset.checklist .checklist-search {
   .canvas-gap {
     box-shadow: none;
   }
+
+/* the intentions of the Show page (T15): one line each, swatches, name, origin, uses, actions that wrap */
+.theme-picker .theme-origin {
+  font-size: 0.75em;
+  padding: 0 0.4em;
+  border: 1px solid var(--accent);
+  border-radius: 1em;
+}
+.intention-list {
+  display: grid;
+  gap: 0.3em;
+  margin: 0.5em 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 24em;
+  overflow-y: auto;
+}
+.intention-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em 0.6em;
+  padding: 0.3em 0.4em;
+  border-bottom: 1px solid rgb(128 128 128 / 0.2);
+}
+.intention-list > li.hidden-intention {
+  opacity: 0.7;
+}
+.intention-list .intention-name {
+  flex: 1 1 10em;
+  min-width: 0;
+}
+.intention-list .intention-actions {
+  margin-left: auto;
+}
+.intention-swatches {
+  display: inline-flex;
+  gap: 2px;
+}
+.intention-swatches i {
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  border: 1px solid rgb(128 128 128 / 0.5);
+}
+.badge.origin-show {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.intention-editor {
+  display: grid;
+  gap: 0.6em;
+}
+.intention-editor label {
+  display: grid;
+  gap: 0.2em;
+}
+.intention-editor label.row {
+  display: flex;
+  align-items: center;
+}
+.intention-editor .intention-colors {
+  display: grid;
+  gap: 0.3em;
+  margin: 0 0 0.4em;
+  padding: 0;
+  list-style: none;
+}
+.intention-editor .intention-colors input[type="color"] {
+  width: 3em;
+  min-height: 32px;
+  padding: 0;
+}
+.intention-editor .intention-colors input.hex {
+  width: 7em;
+  font-family: ui-monospace, monospace;
+}
+.intention-editor .intention-colors button {
+  min-width: 32px;
+  min-height: 32px;
+}
+.intentions input[type="search"] {
+  flex: 1 1 16em;
+  min-width: 0;
 }
