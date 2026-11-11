@@ -12,7 +12,7 @@
  * Pure: the commands pass the layers.
  */
 import { z } from "zod";
-import { EnergySchema, normalizeMood, type Knowledge, type KnowledgeLayers, type Mood } from "./knowledge.js";
+import { EnergySchema, flattenLayers, normalizeMood, type Knowledge, type KnowledgeLayers, type Mood } from "./knowledge.js";
 
 export const MAX_INTENTION_COLORS = 6;
 const HexSchema = z
@@ -78,8 +78,7 @@ export function mergeKnowledge(layers: KnowledgeLayers, personal: readonly Inten
     const { id: _id, origin: _o, over: _v, hidden: _h, ...mood } = e;
     moods[e.id] = mood;
   }
-  const base = layers.private ? { version: layers.private.version, source: `${layers.generic.source} + base personnelle`, rules: [...layers.generic.rules, ...layers.private.rules] } : { version: layers.generic.version, source: layers.generic.source, rules: layers.generic.rules };
-  return { ...base, moods };
+  return { ...flattenLayers(layers), moods };
 }
 
 /** Whether a word (a `song.mood` entry, an `ambiance:` tag) names this key. */
