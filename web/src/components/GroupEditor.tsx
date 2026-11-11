@@ -2,7 +2,7 @@
  * Group editor (docs/specs/groups-masters.md): name, members (fixtures, looks, sub-groups), DCA
  * (master) on or off, exclusive, looks dosed or excluded by the DCA. Saved with `group.put`.
  */
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useId, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
@@ -68,6 +68,7 @@ export function Checklist({ title, items, selected, onChange }: { title: string;
 
 export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
+  const dosesId = useId();
   const [g, setG] = useState<GroupDraft>(initial);
   const [fixtures, setFixtures] = useState<Named[]>([]);
   const [looks, setLooks] = useState<Named[]>([]);
@@ -112,7 +113,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
         </label>
         <label className="field">
           <span>DCA</span>
-          <input type="checkbox" checked={Boolean(g.master)} onChange={(e) => setG({ ...g, master: e.target.checked ? { level: 1, mute: false } : undefined })} />
+          <input type="checkbox" checked={Boolean(g.master)} aria-describedby={g.master ? dosesId : undefined} onChange={(e) => setG({ ...g, master: e.target.checked ? { level: 1, mute: false } : undefined })} />
         </label>
         {g.master && (
           <label className="field" title={t.playbackHelp}>
@@ -126,6 +127,13 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           <input type="checkbox" checked={g.exclusive} onChange={(e) => setG({ ...g, exclusive: e.target.checked })} />
         </label>
       </div>
+      {g.master && (
+        <ul id={dosesId} className="hint dca-doses">
+          {t.dcaDosesHelp.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
       <p className="hint">{t.groupHelp}</p>
       <div className="checklists">
         <Checklist title={t.fixturesMembers} items={fixtures} selected={g.members.fixtures} onChange={(ids) => members("fixtures", ids)} />
@@ -139,7 +147,6 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           </>
         )}
       </div>
-      {g.master && <p className="hint dca-doses">{t.dcaDosesHelp}</p>}
       <textarea placeholder={t.notes} value={g.notes ?? ""} onChange={(e) => setG({ ...g, notes: e.target.value || undefined })} />
       <div className="row actions">
         <button className="primary" onClick={save}>

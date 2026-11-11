@@ -25,9 +25,12 @@ interface Explain {
   paintingLooks?: { id: string; name: string; level?: number }[];
   /** Every DCA covering the fixture, each once: `own` is the factor multiplied; `dosesRaw` on its light channel (a raw write there is dosed). */
   intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number; dosesRaw?: true };
+  /** Not a light channel: neither the grand master nor any DCA doses it. */
+  undosed?: true;
   /** The DCAs channel faders link to this light channel: they dose the looks writing it too. */
   faderDcas?: { dcas: { id: string; name: string; own: number }[]; factor: number };
-  faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
+  /** `effective`: the fader's own value here, its DCAs (`dcas`) and the grand master when it reaches it; `doses` on a colour fixture's dimmer. */
+  faders: { id: string; name: string; level: number; dca?: string; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
   /** `level`: what the groups including the look give it on this fixture, when below 100 %. */
   rawLooks: { id: string; name: string; leaving?: true; level?: number }[];
   clamps: { rule: string; name?: string; from: number; to: number }[];
@@ -65,6 +68,14 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Escape closes the panel, like the ✕ (a modal open above it keeps its own Escape)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented && !document.querySelector("[role=dialog], dialog[open]")) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   const running = why.reset?.secondsLeft;
   /** A voluntary reset: the built-in protection is lifted on this fixture's Reset channels, a few seconds. */
   const reset = (fixture: { id: string; name: string }) => {
@@ -119,22 +130,26 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
             )}
           </li>
         )}
-        {why.intensity && !why.wheel && (
+        {why.undosed && !why.wheel && <li className="why-undosed">{t.whyUndosed}</li>}
+        {why.intensity && !why.wheel && !why.undosed && (
           <li>
             {t.whyIntensity}{t.colon} {t.grandMasterShort} {pct(why.intensity.grandMaster)}
             {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.own)}`).join("")} = {pct(why.intensity.factor)}
-            {why.intensity.dosesRaw ? ` (${t.whyRawDosed})` : ""}
           </li>
         )}
+        {why.intensity?.dosesRaw && <li className="why-raw-dosed">{t.whyRawDosed}</li>}
         {why.faderDcas && (
           <li className="why-fader-dcas">
-            {t.whyFaderDcas}{t.colon} {why.faderDcas.dcas.map((d) => `${d.name} ${pct(d.own)}`).join(" × ")} = {pct(why.faderDcas.factor)}
+            {(why.faderDcas.dcas.length > 1 ? t.whyFaderDcasMany : t.whyFaderDcas) + t.colon} {why.faderDcas.dcas.map((d) => `${d.name} ${pct(d.own)}`).join(" × ")} = {pct(why.faderDcas.factor)}
           </li>
         )}
         {why.faders.map((x) => (
           <li key={x.id}>
             {t.whyFader} {quoted(t, x.name)} {pct(x.level)}
-            {x.dca ? ` × DCA → ${pct(x.effective)}` : ""}
+            {x.dcas.map((d) => ` × ${d.name} ${pct(d.own)}`).join("")}
+            {x.grandMaster !== undefined ? ` × ${t.grandMasterShort} ${pct(x.grandMaster)}` : ""}
+            {x.dcas.length || x.grandMaster !== undefined ? ` → ${pct(x.effective)}` : ""}
+            {x.doses ? ` (${t.whyFaderDoses})` : ""}
           </li>
         ))}
         {why.paintingLooks?.length ? (
@@ -145,8 +160,8 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         {why.rawLooks.map((l) => (
           <li key={l.id}>
             {t.whyRawLook} {quoted(t, l.name)}
-            {l.leaving ? ` (${t.whyLeaving})` : ""}
             {l.level !== undefined ? ` ${t.whyLookLevel.replace("{pct}", pct(l.level))}` : ""}
+            {l.leaving ? ` (${t.whyLeaving})` : ""}
           </li>
         ))}
         {why.clamps.map((c, i) => (

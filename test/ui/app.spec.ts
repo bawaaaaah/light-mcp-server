@@ -3259,10 +3259,19 @@ test("DCA: a raw scene follows its DCA once, a fader's DCA and the grand master,
     const why = page.getByRole("region", { name: "Pourquoi ce canal 450" });
     await expect(why).toContainText("U1.450 = 64");
     await expect(why).toContainText("grand master 100 % × Sous A 100 % × Sous B 100 % × DCA lampes 50 % = 50 %");
-    await expect(why).toContainText("gradateur ou couleur bruts : dosés par cette intensité");
+    await expect(why.locator(".why-raw-dosed")).toHaveText("Gradateur ou couleur bruts : le look qui l'écrit est dosé par cette intensité");
     await expect(why).toContainText("Looks sur ce canal, dosés aussi par le DCA lié à son fader : DCA du fader 50 % = 50 %");
     await expect(why).toContainText("Look à canaux bruts « Scène lampe »");
+    await expect(why).toContainText("Fader de canaux « Fader lampe » 0 % × DCA du fader 50 %"); // its own value, its DCAs named
+    await expect(why).toContainText("× grand master 100 % → 0 %");
     await page.screenshot({ path: "test-results/t35-console-why.png" });
+    await page.keyboard.press("Escape"); // Escape closes the panel
+    await expect(why).toHaveCount(0);
+    // a machine channel (a bar's Program) says it is not dosed, instead of an intensity it does not follow
+    await page.getByRole("region", { name: "Bar 0" }).getByRole("button", { name: "Pourquoi ce canal 3" }).click();
+    const program = page.getByRole("region", { name: "Pourquoi ce canal 3" });
+    await expect(program).toContainText("Canal de machine : non dosé (ni grand master ni DCA)");
+    await expect(program).not.toContainText("Intensité");
   } finally {
     await api(page, "grandmaster.set", { level: 1 });
     await api(page, "look.stop", { id: "t35-scene" });
@@ -3282,7 +3291,9 @@ test("DCA: the group editor, the fader editor and the raw channels say what a DC
   await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
   const editor = page.locator(".group-editor");
   await editor.getByLabel("DCA", { exact: true }).check();
-  await expect(editor.locator(".dca-doses")).toContainText("Il compte une seule fois, même atteint par deux chemins");
+  await expect(editor.locator(".dca-doses li")).toHaveCount(3);
+  await expect(editor.locator(".dca-doses")).toContainText("Il compte une seule fois");
+  await expect(editor.getByLabel("DCA", { exact: true })).toHaveAttribute("aria-describedby", /.+/);
   await editor.screenshot({ path: "test-results/t35-group-editor.png" });
   await editor.getByLabel("DCA", { exact: true }).uncheck();
   await expect(editor.locator(".dca-doses")).toHaveCount(0); // said only where it applies
@@ -3293,6 +3304,14 @@ test("DCA: the group editor, the fader editor and the raw channels say what a DC
   const look = page.locator(".look-editor").last();
   await look.getByLabel("Canaux bruts (machines, lampes)").check();
   await expect(look.locator(".raw-dca")).toContainText("Un gradateur ou une couleur bruts suivent le grand master et les DCA de leur projecteur");
+  await look.getByRole("button", { name: "Fermer", exact: true }).click();
+  await expect(look).toHaveCount(0);
+  // the fader editor says it once a DCA is chosen
+  await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
+  const fader = page.locator(".fader-editor, .look-editor").last();
+  await expect(fader.locator(".fader-dca")).toHaveCount(0);
+  await fader.getByLabel("Dosé par le DCA").selectOption({ index: 1 });
+  await expect(fader.locator(".fader-dca")).toHaveText("Un look qui écrit ces canaux (gradateur, couleur) suit aussi ce DCA.");
   expect(errors).toEqual([]);
 });
 
@@ -4581,7 +4600,7 @@ test("faders on chosen fixtures and channels (found by address), dosing the dimm
     await api(page, "fader.level", { id: "bords", level: 1 });
     await api(page, "fader.level", { id: "centre-rouge", level: 1 });
     await api(page, "group.level", { id: "barres", level: 0.5 });
-    await expect.poll(async () => { const d = await dmx(page); return [d[0], d[15], d[18]].map((v) => Math.round(v! / 10)); }).toEqual([13, 13, 13]); // ½ of 255 each
+    await expect.poll(async () => { const d = await dmx(page); return [d[0], d[15], d[18]].map((v) => Math.round(v! / 10)); }).toEqual([13, 13, 26]); // both dimmers at ½; the second bar's red at its fader's full, its dimmer carrying the DCA once (T35)
     // unticked from the DCA: the fader no longer follows it
     await page.getByRole("button", { name: "Modifier Barres" }).click();
     await page.locator(".group-editor").getByLabel("Centre rouge").uncheck();
