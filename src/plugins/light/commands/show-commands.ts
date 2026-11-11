@@ -61,15 +61,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     dashboards: dashboards.list(),
     snapshots: show.snapshots.list(),
     looks: show.looks.list(),
+    canvases: venue.canvases.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     safeLook: show.settings.safeLook,
     safeSnapshot: show.settings.safeSnapshot,
     startupSnapshot: show.settings.startupSnapshot,
   });
   /** Deleting what is still used is refused (the error says where), unless `force`. */
-  const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean) => {
+  const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean, sharedWith: string[] = []) => {
     const uses = usesOf(kind, i, parts());
-    if (uses.length && !force) throw new Error(inUseMessage(name ?? i, uses));
+    if ((uses.length || sharedWith.length) && !force) throw new Error(inUseMessage(name ?? i, uses, sharedWith));
+    return uses;
   };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
   const canvasDeletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a look still uses it") });
@@ -284,17 +286,18 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.delete",
     title: "Dépatcher",
-    description: "Removes a fixture from the patch. Returns what still refers to it (groups, channel faders, raw channels of looks, canvases), to fix by hand; `show.lint` reports them too.",
+    description:
+      "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, songs: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them). `usedBy` lists what was using it when forced.",
     right: "show:write",
     profiles: ["setup"],
-    schema: idSchema,
-    run: ({ id: i }) => {
-      const usedBy = [
-        ...show.groups.list().filter((g) => g.members.fixtures.includes(i)).map((g) => `groupe ${g.name}`),
-        ...show.faders.list().filter((f) => f.channels.some((c) => c.fixture === i)).map((f) => `fader ${f.name}`),
-        ...show.looks.list().filter((l) => l.channels?.targets.some((c) => c.fixture === i)).map((l) => `look ${l.name}`),
-        ...venue.canvases.list().filter((c) => c.render.some((r) => r.targets.some((t) => t.fixture === i))).map((c) => `canevas ${c.name}`),
-      ];
+    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if the show uses it or the venue is shared with other shows") }),
+    run: async ({ id: i, force }, ctx) => {
+      const f = venue.fixtures.get(i);
+      // the other shows on this venue (venue.list, registered with the file commands): a lone show command set has none
+      const row = ((await reg.invoke("venue.list", {}, ctx).catch(() => [])) as { shows: string[]; active: boolean; shared: boolean }[]).find((v) => v.active && v.shared);
+      const shows = row ? ((await reg.invoke("show.list", {}, ctx).catch(() => [])) as { id: string; name: string; active: boolean }[]) : [];
+      const others = row ? row.shows.filter((id) => !shows.find((x) => x.id === id)?.active).map((id) => shows.find((x) => x.id === id)?.name ?? id) : [];
+      const usedBy = removable("fixture", i, f?.name, force, f ? others : []);
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
       if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });
@@ -669,11 +672,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader or a canvas is used: groups, channel faders, MIDI mappings, dashboards, snapshots, songs, looks (canvas), safe state. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas or a patched fixture is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs, looks (canvas), safe state. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture"]), id: z.string() }),
     run: ({ kind, id: i }) => ({ uses: usesOf(kind, i, parts()) }),
   });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {

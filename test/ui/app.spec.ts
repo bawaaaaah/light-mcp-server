@@ -2217,7 +2217,7 @@ test("venue: a shared venue says so, asks before deleting a fixture, and detache
     let asked = "";
     page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
     await del.click();
-    expect(asked).toContain("Show partagé");
+    await expect.poll(() => asked).toContain("Show partagé"); // asked after show.references answered
     expect(asked).toContain("Installé pour ce show");
     await expect(page.locator("#venue-patch tr", { hasText: "Spare" })).toHaveCount(1); // dismissed: kept
     page.once("dialog", (d) => void d.accept());
@@ -2233,7 +2233,7 @@ test("venue: a shared venue says so, asks before deleting a fixture, and detache
     expect(venues.find((v) => v.id === open.venue)!.shows).toEqual([other.id]);
   } finally {
     // back on the first venue (same show: no reload), whatever step failed
-    await call("venue.fixture.delete", { id: "spare" });
+    await call("venue.fixture.delete", { id: "spare", force: true });
     await call("show.venue.set", { venue: open.venue });
     await call("show.delete", { id: other.id });
   }
@@ -2260,6 +2260,72 @@ test("venue: right-click a fixture to rename it and give it a marker colour", as
     expect(channels.find((f) => f.id === "bar-1")).toMatchObject({ name: "Barre jardin", color: "#22c55e" });
   } finally {
     await api(page, "venue.fixture.mark", { id: "bar-1", name: "Bar 1", color: null });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue: moving a fixture from its menu shows the overlap on both fixtures, and clears it once moved back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  try {
+    await page.locator("tr", { hasText: "Bar 1" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    await expect(menu.getByRole("alert")).toHaveCount(0);
+    await menu.getByLabel("Adresse DMX").fill("10");
+    await menu.getByRole("button", { name: "Déplacer" }).click();
+    // the menu names the other fixture, and the patch flags both
+    await expect(menu).toContainText("Bar 1 · U1.10");
+    await expect(menu.getByRole("alert")).toContainText("Bar 0");
+    await expect(page.locator("tr", { hasText: "Bar 0" }).locator(".badge.conflict")).toHaveCount(1);
+    await expect(page.locator("tr", { hasText: "Bar 1" }).locator(".badge.conflict")).toHaveCount(1);
+    // the rest of the fixture is written back whole: its role and mode stay
+    const moved = ((await api(page, "venue.fixture.list")) as { id: string; address: number; mode: string }[]).find((f) => f.id === "bar-1")!;
+    expect(moved).toMatchObject({ address: 10, mode: "15 Channel" });
+    await menu.getByLabel("Adresse DMX").fill("16");
+    await menu.getByRole("button", { name: "Déplacer" }).click();
+    await expect(menu.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator(".badge.conflict")).toHaveCount(0);
+  } finally {
+    const f = ((await api(page, "venue.fixture.list")) as Record<string, unknown>[]).find((x) => x.id === "bar-1")!;
+    await api(page, "venue.fixture.put", { fixture: { ...f, address: 16 } });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue: a fixture is deleted from its menu or the ✕ through the same confirmation, naming where it is used", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const spare = (id: string, address: number) => ({ id, name: id, manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 2, address });
+  await api(page, "venue.fixture.put", { fixture: spare("menu-del", 300) });
+  await api(page, "venue.fixture.put", { fixture: spare("cross-del", 400) });
+  await api(page, "fader.put", { fader: { id: "del-fader", name: "Fader suppression", channels: [{ fixture: "menu-del", offset: 0 }, { fixture: "cross-del", offset: 0 }], level: 0 } });
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  try {
+    // from the menu: dismissed, the fixture stays; accepted, it goes, forced after the informed yes
+    await page.locator("tr", { hasText: "menu-del" }).click({ button: "right" });
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await page.getByRole("dialog", { name: "Réglages de l'appareil" }).getByRole("button", { name: "Supprimer", exact: true }).click();
+    await expect.poll(() => asked).toContain("fader de canaux « Fader suppression »");
+    expect(asked).toContain("encore utilisé");
+    await expect(page.locator("tr", { hasText: "menu-del" })).toHaveCount(1);
+    await expect(page.getByRole("dialog", { name: "Réglages de l'appareil" })).toHaveCount(1); // cancelled: the menu stays
+    page.once("dialog", (d) => void d.accept());
+    await page.getByRole("dialog", { name: "Réglages de l'appareil" }).getByRole("button", { name: "Supprimer", exact: true }).click();
+    await expect(page.locator("tr", { hasText: "menu-del" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Réglages de l'appareil" })).toHaveCount(0);
+    // from the ✕: the same question
+    asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.accept()));
+    await page.locator("tr", { hasText: "cross-del" }).getByRole("button", { name: "Supprimer cross-del" }).click();
+    await expect(page.locator("tr", { hasText: "cross-del" })).toHaveCount(0);
+    expect(asked).toContain("fader de canaux « Fader suppression »");
+    expect(asked).toContain("Le supprimer quand même");
+  } finally {
+    await api(page, "fader.delete", { id: "del-fader", force: true });
+    await api(page, "venue.fixture.delete", { id: "menu-del", force: true });
+    await api(page, "venue.fixture.delete", { id: "cross-del", force: true });
   }
   expect(errors).toEqual([]);
 });

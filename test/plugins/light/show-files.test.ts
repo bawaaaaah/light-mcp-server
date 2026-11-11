@@ -60,7 +60,7 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(plugin.runtime.activeLooks()).to.deep.equal([]); // opening stops what played
     // the copy is independent: deleting a look there leaves the original intact
     await run("look.delete", { id: before[0] });
-    await run("venue.fixture.delete", { id: "bar-0" });
+    await run("venue.fixture.delete", { id: "bar-0", force: true });
     await run("show.open", { id: "default" });
     expect(await looks()).to.deep.equal(before);
     expect(plugin.runtime.venue.fixtures.get("bar-0")).to.not.equal(undefined);
@@ -141,7 +141,7 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     // the copy is the open show's own: removing a fixture there leaves the other show's venue whole
     expect(await run("show.venue.detach")).to.deep.include({ detached: true, from: "default", venue: "concert", sharedWith: ["default"] });
     const mine = (await run("venue.fixture.list")) as { id: string }[];
-    await run("venue.fixture.delete", { id: mine[0]!.id });
+    await run("venue.fixture.delete", { id: mine[0]!.id, force: true });
     expect(((await run("venue.fixture.list")) as unknown[]).length).to.equal(count - 1);
     await run("show.open", { id: "default" });
     expect(((await run("venue.fixture.list")) as unknown[]).length).to.equal(count);
@@ -153,6 +153,20 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
       () => expect.fail("an unknown venue is refused"),
       (e: Error) => expect(e.message).to.contain("nope"),
     );
+  });
+
+  it("refuses to unpatch a fixture of a venue shared with other shows unless forced, and names those shows", async () => {
+    await run("show.create", { name: "Concert" }); // shares the venue with the first show, and is open
+    await run("venue.fixture.put", { fixture: { id: "libre", name: "Libre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 3, address: 1 } });
+    const refused = await run("venue.fixture.delete", { id: "libre" }).then(() => "", (e: Error) => e.message);
+    expect(refused).to.contain("lieu partagé").and.contain("force: true");
+    expect(refused).to.contain(((await run("show.list")) as ShowRow[]).find((x) => !x.active)!.name); // the other show is named
+    expect(((await run("venue.fixture.list")) as { id: string }[]).some((f) => f.id === "libre")).to.equal(true);
+    // used as well: the uses come first, then the warning
+    const used = await run("venue.fixture.delete", { id: ((await run("venue.fixture.list")) as { id: string }[])[0]!.id }).then(() => "", (e: Error) => e.message);
+    expect(used).to.contain("encore utilisé").and.contain("ce lieu est partagé");
+    await run("venue.fixture.delete", { id: "libre", force: true });
+    expect(((await run("venue.fixture.list")) as { id: string }[]).some((f) => f.id === "libre")).to.equal(false);
   });
 
   it("moves the fixtures of a venue to where another one has them, after showing what would move", async () => {
@@ -189,7 +203,7 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(absentOf("neuf")).to.deep.equal([]); // an empty venue: nothing to be absent from
     await run("show.reset");
     expect(absentOf("default")).to.deep.equal([first, second].sort()); // the venue kept, so is what is not installed
-    await run("venue.fixture.delete", { id: first });
+    await run("venue.fixture.delete", { id: first, force: true });
     expect(absentOf("default")).to.deep.equal([second]); // gone from the patch, gone from the list
     // on another venue, the ids are kept; only those it has are reported as dark
     expect(await run("show.venue.set", { venue: "neuf" })).to.deep.include({ venue: "neuf", absent: [] });

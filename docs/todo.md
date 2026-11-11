@@ -81,6 +81,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ## 🟠 Patch et lieu
 
 ### T11 — Menu d'un appareil (clic droit) : gestion complète
+- **Fait (2026-11-11)** : déplacer dans le patch depuis le menu (univers et adresse ; l'appareil est relu entier puis écrit par `venue.fixture.put`, les chevauchements s'affichent dans le menu en nommant l'autre appareil) ; supprimer depuis le menu et depuis le ✕ de la liste par la même confirmation (`confirmDelete`, qui dit où l'appareil sert et avertit d'un lieu partagé) ; `venue.fixture.delete` refuse sans `force` tant que l'appareil sert ou que le lieu est partagé ; genre `fixture` dans `show.references`. **Reste** : changer le mode (T6). Piège : un appareil importé d'un `.qxw` sert au canevas d'import, donc sa suppression demande confirmation (et `force` par MCP/CLI).
 - ◐ Le clic droit renomme et colore déjà. Ajouter : **déplacer dans le patch** (adresse/univers), **changer le mode** (T6), supprimer.
 - ◐ Les chevauchements d'adresses sont déjà signalés au patch et dans « Vérifier le show » : afficher aussi un **avertissement visible sur les deux appareils** dès qu'ils se recouvrent, dans le menu et la liste du patch.
 

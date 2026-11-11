@@ -46,6 +46,30 @@ describe("references: what uses a look, a group, a fader or a canvas", () => {
     expect(usesOf("look", "warm", empty)).to.deep.equal([]);
   });
 
+  it("finds where a patched fixture is used: groups, channel faders, raw channels of looks, canvases, mappings and song cues", () => {
+    const target = { fixture: "bar-0" };
+    const show: ShowParts = {
+      ...empty,
+      groups: [{ id: "avant", name: "Avant", members: { looks: [], groups: [], fixtures: ["bar-0", "bar-1"] } }, { id: "autre", name: "Autre", members: { looks: [], groups: [], fixtures: ["bar-1"] } }],
+      faders: [{ id: "uv", name: "UV", channels: [target] }, { id: "fog", name: "Fumée", channels: [{ fixture: "bar-1" }] }],
+      looks: [{ id: "smoke", name: "Fumée seule", canvas: "mur", channels: { targets: [target] } }, { id: "plain", name: "Plat", canvas: "mur" }],
+      canvases: [{ id: "mur", name: "Mur", render: [{ targets: [target] }] }, { id: "autre", name: "Autre mur", render: [{ targets: [{ fixture: "bar-1" }] }] }],
+      mappings: [{ id: "m1", label: "Couleur", on: { command: "venue.fixture.mark", args: { id: "bar-0" } } }, { id: "m2", on: { command: "look.go", args: { id: "bar-0" } } }],
+      songs: [{ id: "a", title: "Chant A", sections: [], cues: [{ command: "venue.fixture.mark", args: { id: "bar-0" } }] }],
+      // a snapshot holds looks, groups and faders, never a fixture
+      snapshots: [{ id: "s", name: "Accueil", looks: [], groups: {}, faders: { uv: 1 } }],
+    };
+    expect(usesOf("fixture", "bar-0", show)).to.deep.equal([
+      "groupe « Avant »",
+      "fader de canaux « UV »",
+      "look « Fumée seule » (canaux bruts)",
+      "canevas « Mur »",
+      "mapping MIDI « Couleur »",
+      "chant « Chant A » (1 action de la piste)",
+    ]);
+    expect(usesOf("fixture", "bar-9", show)).to.deep.equal([]);
+  });
+
   describe("in the show", () => {
     let plugin: LightPlugin;
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
@@ -92,6 +116,26 @@ describe("references: what uses a look, a group, a fader or a canvas", () => {
       refused = "";
       await run("venue.canvas.delete", { id: "nulle-part" }).catch((e: Error) => (refused = e.message));
       expect(refused).to.equal("canevas inconnu : nulle-part");
+    });
+
+    it("refuses to unpatch a fixture the show uses, names the uses, unpatches it once forced or unused", async () => {
+      await run("group.put", { group: { id: "avant", name: "Avant", members: { fixtures: ["bar-0"], looks: [], groups: [] }, master: { level: 1, mute: false } } });
+      await run("fader.put", { fader: { id: "uv", name: "UV", channels: [{ fixture: "bar-0", offset: 0 }], level: 0 } });
+      await run("midi.mapping.put", { mapping: { id: "m-mark", label: "Couleur", input: { type: "note", channel: 1, number: 9 }, on: { command: "venue.fixture.mark", args: { id: "bar-0" } } } });
+      const uses = ((await run("show.references", { kind: "fixture", id: "bar-0" })) as { uses: string[] }).uses;
+      expect(uses).to.include.members(["groupe « Avant »", "fader de canaux « UV »", "mapping MIDI « Couleur »"]);
+      let refused = "";
+      await run("venue.fixture.delete", { id: "bar-0" }).catch((e: Error) => (refused = e.message));
+      expect(refused).to.contain("groupe « Avant »").and.contain("fader de canaux « UV »").and.contain("force: true");
+      expect(plugin.runtime.venue.fixtures.get("bar-0")).to.not.equal(undefined);
+      const forced = (await run("venue.fixture.delete", { id: "bar-0", force: true })) as { deleted: boolean; usedBy: string[] };
+      expect(forced.deleted).to.equal(true);
+      expect(forced.usedBy).to.include.members(uses);
+      expect(plugin.runtime.venue.fixtures.get("bar-0")).to.equal(undefined);
+      // nothing uses a new fixture: no force needed, and an unknown id is not an error
+      await run("venue.fixture.put", { fixture: { id: "libre", name: "Libre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 3, address: 1 } });
+      expect(await run("venue.fixture.delete", { id: "libre" })).to.deep.include({ deleted: true });
+      expect(await run("venue.fixture.delete", { id: "nulle-part" })).to.deep.include({ deleted: false });
     });
 
     it("deletes what nothing uses, and the check flags names used twice", async () => {

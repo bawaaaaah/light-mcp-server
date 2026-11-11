@@ -134,6 +134,9 @@ export function VenuePage(): ReactElement {
         : [],
     [openVenue, showRows],
   );
+  /** The shared-venue warning for a delete (other shows lose the fixture too); empty when the venue is the open show's alone. */
+  const sharedWarning = () => (openVenue?.shared ? `${t.sharedVenue} ${sharedShows.join(", ")}\n${t.deleteSharedConfirm}` : undefined);
+  const deleteFixture = (f: Fixture) => confirmDelete("fixture", f.id, f.name, t, sharedWarning()).then((done) => { if (done) refresh(); return done; }, (e: Error) => { setError(e.message); return false; });
 
   const shown = useMemo(() => library.filter((d) => `${d.manufacturer} ${d.model}`.toLowerCase().includes(search.toLowerCase())).slice(0, 50), [library, search]);
   const def = library.find((d) => `${d.manufacturer}|${d.model}` === draft.def);
@@ -223,13 +226,7 @@ export function VenuePage(): ReactElement {
                     <input type="checkbox" title={t.installedHelp} aria-label={`${t.installed} ${f.name}`} checked={!f.absent} onChange={(e) => void run("venue.fixture.presence", { fixtures: [f.id], present: e.target.checked })} />
                   </td>
                   <td>
-                    <button className="ghost" title={t.delete} aria-label={`${t.delete} ${f.name}`} onClick={() => {
-                      if (openVenue?.shared && !confirm(`${t.sharedVenue} ${sharedShows.join(", ")}\n${t.deleteSharedConfirm}`)) return;
-                      void run("venue.fixture.delete", { id: f.id }).then((r) => {
-                        const usedBy = (r as { usedBy?: string[] } | undefined)?.usedBy ?? [];
-                        if (usedBy.length) setError(`${f.name}${t.colon} ${t.stillUsedBy} ${usedBy.join(", ")}`);
-                      });
-                    }}>
+                    <button className="ghost" title={t.delete} aria-label={`${t.delete} ${f.name}`} onClick={() => void deleteFixture(f)}>
                       ✕
                     </button>
                   </td>
@@ -240,7 +237,7 @@ export function VenuePage(): ReactElement {
           {menu &&
             (() => {
               const f = fixtures.find((x) => x.id === menu.id);
-              return f ? <FixtureMenu key={f.id} fixture={f} at={menu} onSaved={refresh} onClose={() => setMenu(null)} /> : null;
+              return f ? <FixtureMenu key={f.id} fixture={f} overlaps={overlaps[f.id] ?? []} at={menu} onSaved={refresh} onDelete={() => deleteFixture(f)} onClose={() => setMenu(null)} /> : null;
             })()}
           <div className="editor">
             <input placeholder={t.name} value={canvasDraft.name} onChange={(e) => setCanvasDraft({ ...canvasDraft, name: e.target.value })} />
