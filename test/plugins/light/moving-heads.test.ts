@@ -403,6 +403,7 @@ describe("moving heads", () => {
         t.show.go("a");
         t.sample(1);
         expect(t.show.explainChannel(1, 32).wheel).to.deep.include({ slot: "Red", asked: "#ff0000", gap: 0 });
+        expect(t.show.explainChannel(1, 32).paintingLooks).to.deep.equal([{ id: "a", name: "A" }]); // the look the wheel follows, named beside it
         t.show.stop("a");
         t.sample(1);
         expect(t.show.explainChannel(1, 32).wheel).to.deep.equal({ slot: "Red", color: "#ff0000", gap: 0 }); // the slot held, no colour asked any more

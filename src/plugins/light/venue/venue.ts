@@ -208,7 +208,7 @@ const brighter = (a: Color, b: Color): Color => {
 
 /**
  * One look's colours onto what the looks before it painted: « last », the last one started covers
- * the others where it paints; « highest », each colour component keeps the highest value (two looks
+ * the others on every head it reaches (a whole-fixture colour: all of them); « highest », each colour component keeps the highest value (two looks
  * add up, black never darkens). A whole fixture (head -1) and its heads combine as toDmx reads them:
  * a head shows its own colour, else the whole fixture's.
  */
@@ -216,7 +216,9 @@ export function mergeColors(into: AttributeFrame["colors"], from: AttributeFrame
   for (const [fixture, heads] of from) {
     const dst = into.get(fixture);
     if (!dst || how === "last") {
-      if (!dst) into.set(fixture, new Map(heads));
+      // « last »: the later look covers every head it reaches; a whole-fixture colour reaches them all (an accent it
+      // does not paint was spelt out of it by Venue.followAccents, and keeps what the looks before painted there)
+      if (!dst || heads.has(-1)) into.set(fixture, new Map(heads));
       else for (const [h, c] of heads) dst.set(h, c);
       continue;
     }
@@ -336,7 +338,7 @@ export interface ResolvedFixture {
   heads: Map<number, Partial<Record<ColorComponent, number>>>;
   /** Accent heads (a halo, a ring): they follow the look but are no full visible colour (not in `painted`, the preview, canvas.auto). */
   accent: ReadonlySet<number>;
-  /** An accent head no look paints takes the brightest of what the looks paint on the full heads (false: it stays dark). */
+  /** An accent head a look leaves unpainted takes the brightest of what that look paints on the full heads, and a whole-fixture colour reaches it (false: neither, it stays dark unless painted). */
   follow: boolean;
   /** Whether the heads were deduced from channel names (the definition declares none). */
   deducedHeads: boolean;
@@ -555,6 +557,29 @@ export class Venue {
     return !("error" in r) && r.lampOnly && Boolean(r.wheel?.slots.length);
   }
 
+  /**
+   * One look's sheet with its accent heads (a halo) painted as that look shows them (docs/specs/venue-fixtures-
+   * stage.md, « Têtes et zones »), in place: a whole-fixture colour (-1) is spelt out on each head, the accent
+   * included unless `follow` is false; an accent the look leaves unpainted takes, per component, the brightest of the
+   * full heads it paints (unless `follow` is false). Done per look, before looks are merged or weighted, so that
+   * crossfades, exits and `looksMerge` treat the halo like any other head.
+   */
+  followAccents(colors: AttributeFrame["colors"]): void {
+    for (const [fixture, sheet] of colors) {
+      const r = this.resolve(fixture);
+      if ("error" in r || !r.accent.size) continue;
+      const whole = sheet.get(-1);
+      if (whole) {
+        sheet.delete(-1);
+        for (const h of r.heads.keys()) if (!sheet.has(h) && (!r.accent.has(h) || r.follow)) sheet.set(h, whole);
+      }
+      if (!r.follow) continue;
+      let full: Color | undefined;
+      for (const [h, c] of sheet) if (!r.accent.has(h)) full = full ? brighter(full, c) : c;
+      if (full) for (const h of r.accent) if (!sheet.has(h)) sheet.set(h, full);
+    }
+  }
+
   /** The colour head a channel of a resolved fixture belongs to, and whether it is an accent one (dmx.explain). */
   headOf(r: ResolvedFixture, offset: number): { head: number; accent: boolean } | undefined {
     for (const [head, comps] of r.heads) if (Object.values(comps).includes(offset)) return { head, accent: r.accent.has(head) };
@@ -746,14 +771,10 @@ export class Venue {
       const colorScale = hasDimmer ? 1 : intensity;
       if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
       if (painted && !r.lampOnly) {
-        // an accent head (a halo) that no look paints, alone or whole, follows the brightest of the full heads painted
-        let followed: Color | undefined;
-        const follow = (): Color | undefined => {
-          if (!followed) for (const [h, c] of painted) if (h >= 0 && !r.accent.has(h)) followed = followed ? brighter(followed, c) : c;
-          return followed;
-        };
+        // what follows the look on an accent head (a halo) is painted per look already (followAccents): a whole-fixture
+        // colour reaches it here only when it follows
         for (const [h, comps] of r.heads) {
-          const color = painted.get(h) ?? painted.get(-1) ?? (r.accent.has(h) && r.follow ? follow() : undefined);
+          const color = painted.get(h) ?? (r.accent.has(h) && !r.follow ? undefined : painted.get(-1));
           if (!color) continue;
           for (const [comp, off] of Object.entries(comps) as [ColorComponent, number][]) write(off, (color[comp] ?? 0) * 255 * colorScale);
         }

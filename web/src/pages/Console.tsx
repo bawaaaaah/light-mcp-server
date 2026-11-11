@@ -19,7 +19,10 @@ interface Explain {
   channel: number;
   value: number;
   parked?: number;
-  fixture?: { id: string; name: string; offset: number; channel?: string; attribute?: string; definition: boolean };
+  /** `head`: the colour head it drives on a fixture with several (0-based); `accent`: that head is the halo. */
+  fixture?: { id: string; name: string; offset: number; channel?: string; attribute?: string; definition: boolean; head?: number; accent?: true };
+  /** A colour channel: the looks painting its head (or the whole fixture) now. */
+  paintingLooks?: { id: string; name: string }[];
   intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number };
   faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
   rawLooks: { id: string; name: string; leaving?: true }[];
@@ -92,6 +95,7 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
           <li>
             {f.name} · {t.whyChannelOf} {f.offset}
             {f.channel ? ` (${f.channel}${f.attribute ? `, ${f.attribute}` : ""})` : ""}
+            {f.head !== undefined && ` · ${f.accent ? t.headAccent : `${t.headZone} ${f.head + 1}`}`}
             {!f.definition && <span className="badge conflict"> {t.noDefinition}</span>}
           </li>
         ) : (
@@ -122,6 +126,11 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
             {x.dca ? ` × DCA → ${pct(x.effective)}` : ""}
           </li>
         ))}
+        {why.paintingLooks?.length ? (
+          <li>
+            {t.whyPainting} {why.paintingLooks.map((l) => quoted(t, l.name)).join(", ")}
+          </li>
+        ) : null}
         {why.rawLooks.map((l) => (
           <li key={l.id}>
             {t.whyRawLook} {quoted(t, l.name)}{l.leaving ? ` (${t.whyLeaving})` : ""}

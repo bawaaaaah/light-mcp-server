@@ -2384,23 +2384,46 @@ test("venue: a fixture is deleted from its menu or the ✕ through the same conf
 
 test("venue: the fixture menu shows the zones deduced for a wash and corrects its halo", async ({ page }) => {
   const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 800 });
   await login(page);
   await api(page, "venue.fixture.put", { fixture: { id: "wash-ui", name: "Wash zones", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 2, address: 200 } });
   try {
     await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
-    await page.locator("tr", { hasText: "Wash zones" }).click({ button: "right" });
+    const row = page.locator("tr", { hasText: "Wash zones" });
+    // opened low in the window, as a right-click near the bottom of the list would
+    await row.evaluate((el) => el.dispatchEvent(new el.ownerDocument.defaultView!.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 760, button: 2 })));
     const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
     await menu.getByRole("button", { name: "Têtes et halo…" }).click();
-    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Halo", "Le halo suit le look"]);
-    await expect(menu).toContainText("zones déduites des noms des canaux");
-    // this fixture only: its halo becomes a fourth zone
+    const rows = menu.locator(".invert-row > span");
+    await expect(rows).toHaveText([/^Zone 1Red 1, Green 1/, /^Zone 2/, /^Zone 3/, /^HaloHalo Red, Halo Green, Halo Blue/, "Le halo suit le look"]);
+    await expect(menu).toContainText("zones déduites des noms des canaux numérotés");
+    await expect(menu).toContainText("Concerne 1 appareil(s) de ce modèle.");
+    await expect(menu.getByRole("radio", { name: "Ce modèle" })).toHaveAttribute("aria-checked", "true");
+    // the menu grew with the heads: it stays inside the window, its last button reachable
+    const box = (await menu.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(800);
+    await menu.getByRole("button", { name: "Supprimer" }).scrollIntoViewIfNeeded();
+    await expect(menu.getByRole("button", { name: "Supprimer" })).toBeInViewport();
+    // this fixture only: its halo becomes a fourth zone, the focus stays on that head
     await menu.getByRole("radio", { name: "Cet appareil seul" }).click();
-    await menu.getByRole("button", { name: /^Halo · Halo Red/ }).click();
-    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Zone 4"]);
+    const haloToggle = menu.getByRole("button", { name: /^C'est le halo · Halo Red/ });
+    await haloToggle.click();
+    await expect(rows).toHaveText([/^Zone 1/, /^Zone 2/, /^Zone 3/, /^Zone 4Halo Red/]);
+    await expect(haloToggle).toBeFocused();
+    await expect(menu).toContainText("Corrigé pour cet appareil.");
     expect(await api(page, "venue.fixture.heads", { fixture: "wash-ui" })).toMatchObject({ overrides: { fixture: { accent: [] } } });
     await page.screenshot({ path: "test-results/venue-fixture-heads.png" });
-    await menu.getByRole("button", { name: "Retrouver le halo par son nom" }).click();
-    await expect(menu.locator(".invert-row > span")).toHaveText(["Zone 1", "Zone 2", "Zone 3", "Halo", "Le halo suit le look"]);
+    // « this model » shows the model's own list, not the fixture's
+    await menu.getByRole("radio", { name: "Ce modèle" }).click();
+    await expect(rows).toHaveText([/^Zone 1/, /^Zone 2/, /^Zone 3/, /^Halo/, "Le halo suit le look"]);
+    // opened again: « this fixture only » is preselected, as it has its own correction
+    await page.keyboard.press("Escape");
+    await row.click({ button: "right" });
+    await menu.getByRole("button", { name: "Têtes et halo…" }).click();
+    await expect(menu.getByRole("radio", { name: "Cet appareil seul" })).toHaveAttribute("aria-checked", "true");
+    await menu.getByRole("button", { name: "Annuler la correction de cet appareil" }).click();
+    await expect(rows).toHaveText([/^Zone 1/, /^Zone 2/, /^Zone 3/, /^Halo/, "Le halo suit le look"]);
   } finally {
     await api(page, "venue.fixture.delete", { id: "wash-ui" });
   }
@@ -2727,6 +2750,35 @@ test("DMX console: shows live values and parks a channel", async ({ page }) => {
   await page.getByRole("radio", { name: "Les 512 canaux" }).click();
   await expect(page.locator(".ch")).toHaveCount(512);
   await page.getByRole("radio", { name: "Canaux patchés" }).click(); // the choice is remembered: leave the default
+  expect(errors).toEqual([]);
+});
+
+test("DMX console: « Pourquoi ce canal » names the zone or the halo and the look painting it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "why-wash", name: "Wash pourquoi", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 1, address: 300 } });
+  await api(page, "venue.canvas.put", { canvas: { id: "why-wash", name: "Wash pourquoi", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "why-wash", head: 1 }] }] } });
+  await api(page, "look.put", { look: { id: "why-red", name: "Zone 2 rouge", canvas: "why-wash", technique: { kind: "plat", color: "#ff0000" } } });
+  await api(page, "look.go", { id: "why-red" });
+  try {
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    const wash = page.getByRole("region", { name: "Wash pourquoi" });
+    // Red 2 is the 7th channel (306), the halo's red the 15th (314)
+    await wash.getByRole("button", { name: "Pourquoi ce canal 306" }).click();
+    const zone = page.getByRole("region", { name: "Pourquoi ce canal 306" });
+    await expect(zone).toContainText("Wash pourquoi · canal 7 (Red 2, color) · Zone 2");
+    await expect(zone).toContainText("Couleur peinte par « Zone 2 rouge »");
+    await zone.getByRole("button", { name: "Fermer" }).click();
+    await wash.getByRole("button", { name: "Pourquoi ce canal 314" }).click();
+    const halo = page.getByRole("region", { name: "Pourquoi ce canal 314" });
+    await expect(halo).toContainText("(Halo Red, color) · Halo");
+    await expect(halo).toContainText("Couleur peinte par « Zone 2 rouge »"); // the halo follows the zone it paints
+  } finally {
+    await api(page, "look.stop", { id: "why-red" });
+    await api(page, "look.delete", { id: "why-red" });
+    await api(page, "venue.canvas.delete", { id: "why-wash" });
+    await api(page, "venue.fixture.delete", { id: "why-wash" });
+  }
   expect(errors).toEqual([]);
 });
 

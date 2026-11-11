@@ -109,6 +109,8 @@ export interface ChannelExplanation {
   clamps: (Pick<Clamp, "rule" | "from" | "to"> & { name?: string })[];
   /** The fixture has Reset channels, held at rest by the built-in rule: `fixture.reset` resets it on purpose. */
   resettable?: true;
+  /** A colour channel: the looks painting its head (or the whole fixture) on the last frame. */
+  paintingLooks?: { id: string; name: string }[];
   /** The colour wheel of a lamp-only fixture: the slot it holds (its real colour) and, while a look asks a colour of it, that colour and the gap between them (OKLab, 0 = the same). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its Reset channels (the range a voluntary reset sends), and the seconds left while one runs. */
@@ -131,6 +133,8 @@ export class ShowRuntime {
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
+  /** fixtureId → the looks painting it on the last frame composed, with the heads each paints (-1: whole), halo included (dmx.explain). */
+  private lastPainters = new Map<string, Map<string, { name: string; heads: Set<number> }>>();
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
@@ -664,7 +668,16 @@ export class ShowRuntime {
     const held = !("error" in r) && r.lampOnly && r.wheel?.offset === offset ? this.wheels.get(fixture.id) : undefined;
     const slot = held && !("error" in r) ? r.wheel?.slots.find((s) => s.min === held.slot) : undefined;
     const wheel = held && slot ? { slot: slot.name, color: slotHex(slot), ...(held.asked ? { asked: held.asked } : {}), gap: held.gap } : undefined;
+    // the looks painting this colour channel's head (or the whole fixture) on the last frame; on a lamp's wheel, those
+    // lighting its body (a halo alone turns no wheel)
+    const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
+    const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
+    const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
+    const painting = isColour
+      ? [...(this.lastPainters.get(fixture.id) ?? [])].filter(([, p]) => paintsHere(p.heads)).map(([id, p]) => ({ id, name: p.name }))
+      : [];
     return {
+      ...(painting.length ? { paintingLooks: painting } : {}),
       ...(wheel ? { wheel } : {}),
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r), ...(head ? { head: head.head, ...(head.accent ? { accent: true as const } : {}) } : {}) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id) },
@@ -938,6 +951,8 @@ export class ShowRuntime {
   private compose(buffers: Uint8Array[], now: number, beats: number, wheels: Map<string, WheelChoice>): string[] {
     const frame = emptyFrame();
     const errors: string[] = [];
+    const painters = new Map<string, Map<string, { name: string; heads: Set<number> }>>();
+    this.lastPainters = painters;
     // Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing).
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
@@ -963,6 +978,10 @@ export class ShowRuntime {
      */
     const paints = (colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] => {
       for (const [f, heads] of colors) {
+        const byFixture = painters.get(f) ?? new Map<string, { name: string; heads: Set<number> }>();
+        const mine = byFixture.get(look.id) ?? { name: look.name, heads: new Set<number>() };
+        for (const h of heads.keys()) mine.heads.add(h);
+        painters.set(f, byFixture.set(look.id, mine));
         if (!this.venue.lightsBody(f, heads.keys())) continue;
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
@@ -985,6 +1004,8 @@ export class ShowRuntime {
         } catch {
           // told once already, by the look's own colours
         }
+        // the halo spelt out as in colorsOf, so that the same heads are read at full and now
+        this.venue.followAccents(sheet.colors);
         full.set(player, (own = sheet.colors));
       }
       return own;
@@ -1006,6 +1027,8 @@ export class ShowRuntime {
         errors.push((err as Error).message);
       }
       for (const f of excluded) own.colors.delete(f);
+      // the halo as this look shows it, before any merge or fade: it then fades and merges like any head
+      this.venue.followAccents(own.colors);
       return own.colors;
     };
     const moveOf = (look: Look, player: LookPlayer): void => {

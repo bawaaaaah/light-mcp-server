@@ -4,7 +4,8 @@
  * and overridable for **one fixture** of the patch. Each part belongs to one feature, which owns its
  * schema here: `wheel` the colour wheel's colour → slot correspondence (T18), `heads` the heads deduced
  * from a definition without <Head> and the accent (halo) one (T21), `tracks` which channels follow the
- * transitions (T5). A missing part means: the definition as it is.
+ * transitions (T5). A missing part means: the definition as it is. A fixture's own part replaces its
+ * model's as a whole (mergeOverrides), except `heads`, merged field by field (`accent`, `follow`).
  */
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
@@ -36,9 +37,10 @@ export const WheelOverridesSchema = z.object({
 });
 export type WheelOverrides = z.infer<typeof WheelOverridesSchema>;
 /**
- * T21 — the accent heads of a fixture (venue/heads.ts): a halo, a ring, a back light, found by their channel names
- * unless `accent` lists them (channel names of the definition; [] = no accent, every head is a full one). `follow`
- * false: an accent head the looks do not paint stays dark instead of taking the colour of the others.
+ * T21 — the accent heads of a fixture (venue/heads.ts): a halo (an unnumbered ring, a backlight), found by their
+ * channel names unless `accent` lists them (channel names of the definition, whole heads; a mode with none of them
+ * keeps the detection by name; [] = no accent, every head is a full one). `follow` false: an accent head stays dark
+ * unless a look paints it, instead of taking the colour of the other heads or of a whole-fixture colour.
  */
 export const HeadOverridesSchema = z.object({
   accent: z.array(z.string()).optional(),
@@ -76,7 +78,13 @@ export const modelKey = (manufacturer: string, model: string): string => {
   return `${m}_${n}`;
 };
 
-/** What applies to one fixture: the model's overrides, each part replaced as a whole by the fixture's own when it has one. */
+/**
+ * What applies to one fixture: the model's overrides, each part replaced as a whole by the fixture's own when it has
+ * one, except `heads`, merged field by field (the fixture's `accent` or `follow` over the model's): a fixture that
+ * only keeps its halo dark still has the model's accent. `wheel` and `tracks` stay whole (one slot table, one list).
+ */
 export function mergeOverrides(model: FixtureOverrides | undefined, fixture: FixtureOverrides | undefined): FixtureOverrides {
-  return { ...(model ?? {}), ...Object.fromEntries(Object.entries(fixture ?? {}).filter(([, v]) => v !== undefined)) };
+  const merged: FixtureOverrides = { ...(model ?? {}), ...Object.fromEntries(Object.entries(fixture ?? {}).filter(([, v]) => v !== undefined)) };
+  if (model?.heads && fixture?.heads) merged.heads = { ...model.heads, ...Object.fromEntries(Object.entries(fixture.heads).filter(([, v]) => v !== undefined)) };
+  return merged;
 }

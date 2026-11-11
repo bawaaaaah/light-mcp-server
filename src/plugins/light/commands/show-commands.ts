@@ -8,7 +8,8 @@ import { displayHex } from "../engine/display.js";
 import { ANSWERING_ORIGINS, CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import { CanvasSchema, PatchedFixtureSchema, type ResolvedFixture } from "../venue/venue.js";
+import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
+import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKey, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
@@ -257,6 +258,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return undefined;
     }
   };
+  /** A fixture's heads as it resolves, and as its model's correction alone gives them (what « this model » edits). */
   const headsOfFixture = (fixtureId: string) => {
     const f = venue.fixtures.get(fixtureId);
     if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
@@ -265,13 +267,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     const key = keyOrUndefined(f);
     const model = key ? venue.models.get(key)?.overrides.heads : undefined;
     const channel = (offset: number) => ({ offset, name: r.mode.channels[offset]!, color: r.def.channels.get(r.mode.channels[offset]!)?.color });
+    const list = (found: { heads: ReadonlyMap<number, Partial<Record<string, number>>>; accent: ReadonlySet<number> }) =>
+      [...found.heads].map(([head, comps]) => ({ head, accent: found.accent.has(head), channels: Object.values(comps).flatMap((o) => (o === undefined ? [] : [o])).sort((a, b) => a - b).map(channel) }));
+    const ofModel = headsOf(r.def, r.mode, model);
     return {
-      fixture: f.id,
-      deduced: r.deducedHeads,
-      heads: [...r.heads].map(([head, comps]) => ({ head, accent: r.accent.has(head), channels: Object.values(comps).sort((a, b) => a - b).map(channel) })),
-      follow: r.follow,
-      escaped: r.escapedColours.map(channel),
-      overrides: { ...(model ? { model } : {}), ...(f.overrides?.heads ? { fixture: f.overrides.heads } : {}) },
+      r,
+      view: {
+        fixture: f.id,
+        deduced: r.deducedHeads,
+        heads: list(r),
+        follow: r.follow,
+        escaped: r.escapedColours.map(channel),
+        overrides: { ...(model ? { model } : {}), ...(f.overrides?.heads ? { fixture: f.overrides.heads } : {}) },
+        /** The model's heads with its correction only, and how many patched fixtures of that model it reaches. */
+        model: { heads: list(ofModel), follow: model?.follow ?? true, fixtures: key ? venue.fixtures.list().filter((x) => keyOrUndefined(x) === key).length : 1 },
+      },
     };
   };
   /** Writes (or, with undefined, removes) the heads part of a fixture's or its model's overrides. */
@@ -292,46 +302,54 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.heads",
     title: "Têtes d'une fixture",
     description:
-      "A fixture's colour heads: those its definition declares, or, when it declares none but repeats its colour components (« Red 1 / Green 1 … Red 2 … », « Halo Red »), those deduced from its channel names (deduced: true). Each head lists its channels; accent marks a halo, ring or back light: it follows the look (follow) but is no full colour of the fixture (left out of the preview, of what a look lights and of venue.canvas.auto). escaped: colour channels no head reaches although their component is in one. overrides: the corrections of its model and its own.",
+      "A fixture's colour heads: those its definition declares, or, when it declares none but repeats its colour components (« Red 1 / Green 1 … Red 2 … », « Halo Red »), those deduced from its channel names (deduced: true). Each head lists its channels; accent marks a halo (or an unnumbered ring, a backlight): it follows the look (follow) but is no full colour of the fixture (left out of the preview, of what a look lights and of venue.canvas.auto). Head numbers never move when the accent changes. escaped: colour channels no head reaches although their component is in one. overrides: the corrections of its model and its own (merged field by field: the fixture's accent or follow over the model's). model: the heads with the model's correction alone, and how many patched fixtures of that model it reaches.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({ fixture: z.string() }),
-    run: ({ fixture }) => headsOfFixture(fixture),
+    run: ({ fixture }) => headsOfFixture(fixture).view,
   });
   reg.register({
     name: "venue.fixture.heads.set",
     title: "Régler le halo d'une fixture",
     description:
-      "Corrects a fixture's accent heads (a halo, a ring, a back light), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent part; [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head no look paints stays dark instead of taking the colour of the others. What is not given stays as set.",
+      "Corrects a fixture's accent heads (a halo, a ring, a backlight), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent heads, whole heads only, checked against every mode of the model (a mode that has none of them keeps the detection by name); [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head stays dark unless a look paints it (no colour from the other heads nor from a whole-fixture colour); null = back to the default (true). What is not given stays as set.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ fixture: z.string(), scope: headsScope, accent: z.array(z.string()).nullable().optional(), follow: z.boolean().optional() }),
+    schema: z.object({ fixture: z.string(), scope: headsScope, accent: z.array(z.string()).nullable().optional(), follow: z.boolean().nullable().optional() }),
     run: ({ fixture, scope, accent, follow }) => {
-      const before = headsOfFixture(fixture);
-      const r = venue.resolve(fixture) as ResolvedFixture;
-      const unknown = (accent ?? []).filter((n) => !r.mode.channels.includes(n) || !r.def.channels.get(n)?.color);
-      if (unknown.length) throw new Error(say(`pas un canal de couleur de ce mode : ${unknown.join(", ")}`, `not a colour channel of this mode: ${unknown.join(", ")}`));
-      const current = (scope === "model" ? before.overrides.model : before.overrides.fixture) ?? {};
+      const { r, view } = headsOfFixture(fixture);
+      if (accent?.length) {
+        const { unknown, partial } = accentProblems(r.def, accent);
+        if (unknown.length) throw new Error(say(`pas un canal de couleur de ce modèle : ${unknown.join(", ")}`, `not a colour channel of this model: ${unknown.join(", ")}`));
+        if (partial.length)
+          throw new Error(
+            say(
+              `un halo est fait de têtes entières : ${partial.map((p) => `${p.head.join(", ")} (mode ${p.mode})`).join(" ; ")} n'y sont qu'en partie`,
+              `an accent is made of whole heads: ${partial.map((p) => `${p.head.join(", ")} (mode ${p.mode})`).join("; ")} are only partly in it`,
+            ),
+          );
+      }
+      const current = (scope === "model" ? view.overrides.model : view.overrides.fixture) ?? {};
       const { accent: oldAccent, follow: oldFollow, ...rest } = current;
       const nextAccent = accent === null ? undefined : (accent ?? oldAccent);
-      const nextFollow = follow ?? oldFollow;
+      const nextFollow = follow === null ? undefined : (follow ?? oldFollow);
       const next: HeadOverrides = { ...rest, ...(nextAccent ? { accent: nextAccent } : {}), ...(nextFollow !== undefined ? { follow: nextFollow } : {}) };
       putHeads(fixture, scope, Object.keys(next).length ? next : undefined);
-      return headsOfFixture(fixture);
+      return headsOfFixture(fixture).view;
     },
   });
   reg.register({
     name: "venue.fixture.heads.clear",
-    title: "Halo détecté par son nom",
-    description: "Removes the correction of a fixture's accent heads for its model (default) or this fixture only: the halo is found by its channel names again (or the model's correction applies again).",
+    title: "Annuler la correction des têtes",
+    description: "Removes the whole heads correction (accent and follow) of a fixture's model (default) or of this fixture only: the halo is found by its channel names again and follows the look (or the model's correction applies again).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), scope: headsScope }),
     run: ({ fixture, scope }) => {
       headsOfFixture(fixture); // an unknown fixture is an error
       putHeads(fixture, scope, undefined);
-      return headsOfFixture(fixture);
+      return headsOfFixture(fixture).view;
     },
   });
   // ---- colour wheel (T18): the colour → slot correspondence, per model, overridable per fixture (venue/color-wheel.ts)
@@ -459,7 +477,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "dmx.explain",
     title: "Pourquoi ce canal",
-    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame.",
+    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],

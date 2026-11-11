@@ -10,6 +10,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as Reac
 export function useFloatingMenu(at: { x: number; y: number }, onClose: () => void, above?: number): { box: RefObject<HTMLDivElement | null>; style: { left: number; top: number } } {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 340, height: 380 });
+  // the window's size, only to place the menu again when it changes
+  const [, setViewport] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -26,6 +28,21 @@ export function useFloatingMenu(at: { x: number; y: number }, onClose: () => voi
     const el = box.current;
     if (el && (el.offsetWidth !== size.width || el.offsetHeight !== size.height)) setSize({ width: el.offsetWidth, height: el.offsetHeight });
   });
+  // an entry that grows on its own (a heads or wheel editor unfolding, its list arriving) re-renders itself, not the
+  // menu: watch the box's size too, and the window's, so the menu is placed again and stays inside the viewport
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setSize((s) => (s.width === el.offsetWidth && s.height === el.offsetHeight ? s : { width: el.offsetWidth, height: el.offsetHeight }));
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(el);
+    const resized = () => (measure(), setViewport({ width: window.innerWidth, height: window.innerHeight }));
+    window.addEventListener("resize", resized);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resized);
+    };
+  }, []);
   const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
   const flip = above !== undefined && at.y + size.height + 8 > window.innerHeight;
   const top = flip ? Math.max(8, above - size.height) : Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
