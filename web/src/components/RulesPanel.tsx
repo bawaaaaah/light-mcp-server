@@ -8,6 +8,7 @@ import { api, can, cmd } from "../api";
 import { useMe, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { slug, uniqueId } from "../util";
+import { roleLabel } from "../i18n";
 
 interface Rule {
   id: string;
@@ -117,7 +118,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
 
   const add = () => {
     const target = draft.target === "channel" ? { channel: draft.channel } : TARGETS[draft.target]!;
-    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}${draft.forOrigins.length || draft.forRoles.length ? ` (${[...draft.forOrigins.map((o) => t.origins[o as keyof typeof t.origins]), ...draft.forRoles.map((id) => roles.find((x) => x.id === id)?.name ?? id)].join(", ")})` : ""}`;
+    const name = draft.name || `${t.ruleTargets[draft.target as keyof typeof t.ruleTargets] ?? draft.channel}${draft.max ? ` max ${draft.max} %` : ""}${draft.min ? ` min ${draft.min} %` : ""}${draft.maxHz ? ` ≤ ${draft.maxHz} Hz` : ""}${draft.holdAbove && draft.holdSeconds ? ` ≥ ${draft.holdAbove} % ${draft.holdSeconds} s max` : ""}${draft.maxDeg ? ` ≤ ${draft.maxDeg} °/s` : ""}${draft.steady ? ` ${t.steadyShort} ${draft.steady} s` : ""}${draft.allow.length ? ` ${t.allowOnly} ${draft.allow.map((k) => t.capabilityKinds[k as keyof typeof t.capabilityKinds]).join(", ")}` : ""}${draft.forOrigins.length || draft.forRoles.length ? ` (${[...draft.forOrigins.map((o) => t.origins[o as keyof typeof t.origins]), ...draft.forRoles.map((id) => roleLabel(t, id, roles.find((x) => x.id === id)?.name))].join(", ")})` : ""}`;
     const rule = {
       id: uniqueId(slug(name, "regle"), all.map((r) => r.id)),
       name,
@@ -237,7 +238,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                 {r.onViolation && r.onViolation !== "clamp" && <span className="badge conflict">{t.onViolations[r.onViolation]}</span>}
                 {r.appliesTo && (
                   <span className="badge">
-                    {t.forCallers} {[...(r.appliesTo.origins ?? []).map((o) => t.origins[o as keyof typeof t.origins] ?? o), ...(r.appliesTo.roles ?? []).map((id) => roles.find((x) => x.id === id)?.name ?? id)].join(", ")}
+                    {t.forCallers} {[...(r.appliesTo.origins ?? []).map((o) => t.origins[o as keyof typeof t.origins] ?? o), ...(r.appliesTo.roles ?? []).map((id) => roleLabel(t, id, roles.find((x) => x.id === id)?.name))].join(", ")}
                   </span>
                 )}
                 {r.forbidTags?.length ? `${t.forbidden} : ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
@@ -365,7 +366,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
           {roles.map((r) => (
             <label key={r.id} className="row">
               <input type="checkbox" checked={draft.forRoles.includes(r.id)} onChange={(e) => setDraft({ ...draft, forRoles: e.target.checked ? [...draft.forRoles, r.id] : draft.forRoles.filter((x) => x !== r.id) })} />
-              {r.name}
+              {roleLabel(t, r.id, r.name)}
             </label>
           ))}
         </fieldset>

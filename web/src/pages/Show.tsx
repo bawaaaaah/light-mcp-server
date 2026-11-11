@@ -472,7 +472,8 @@ export function ShowPage(): ReactElement {
             onChange={(e) => {
               const [kind, id] = e.target.value.split(/:(.*)/);
               // null clears: a key set to undefined would vanish from the JSON and the server keep the old one
-              void run("show.settings.set", kind === "snapshot" ? { safeSnapshot: id } : { safeSnapshot: null, safeLook: kind === "look" ? id : null });
+              // one fallback at a time: a look left behind a snapshot would come back silently were the snapshot deleted
+              void run("show.settings.set", kind === "snapshot" ? { safeSnapshot: id, safeLook: null } : { safeSnapshot: null, safeLook: kind === "look" ? id : null });
             }}
           >
             <option value="">{t.none} ({t.blackout})</option>

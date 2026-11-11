@@ -1206,8 +1206,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       .omit({ schemaVersion: true, kind: true })
       .extend({
         grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
-        safeLook: z.string().nullable().optional().describe("the look « Panic neutre » plays; null: none"),
-        safeSnapshot: z.string().nullable().optional().describe("the snapshot « Panic neutre » recalls (wins over safeLook); null: none"),
+        safeLook: z.string().min(1).nullable().optional().describe("the look « Panic neutre » plays; null: none"),
+        safeSnapshot: z.string().min(1).nullable().optional().describe("the snapshot « Panic neutre » recalls (wins over safeLook); null: none"),
       }),
     run: ({ grandMasterSmoothing, safeLook, safeSnapshot, ...rest }) => {
       const patch = {
