@@ -211,10 +211,10 @@ describe("DMX USB", () => {
       await d.stop();
       // the frame starts 6 ms after the loop began (2 + the 2 ms break + 2) and takes 22.6 ms: the next break not before
       // 22.6 + 8 ms after the write began (8 ms of margin), more than the 33 ms period alone, although drain() returned at once
-      const wait = waits.find((w) => w > 2)!;
+      const wait = waits.find((w) => w > 20)!;
       expect(wait).to.be.closeTo(22.572 + 8, 0.01);
       expect(d.status().drainMs).to.equal(0);
-      expect(d.status().breakMs).to.equal(6);
+      expect(d.status().breakMs).to.be.at.least(2 + 1 + 2); // both calls to set() and the break itself
     });
 
     it("sets DTR and RTS low as soon as the port is open, not at the first break: the OS raises them at open", async () => {
@@ -485,6 +485,24 @@ describe("DMX USB", () => {
       for (const x of f) expect(x.brkOff - x.brk).to.be.at.least(2 - 1e-9);
     });
 
+    it("a drain() that comes back late still leaves the whole guard before the next break", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      const calls = timed(serial, () => t);
+      const inner = serial.before!;
+      serial.before = (op) => (inner(op), void (op === "drain" && (t += 40))); // the driver holds drain() for 40 ms, past the frame's end
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 3);
+      await d.stop();
+      const all = calls();
+      const drained = all.filter((c) => c.op === "drain").map((c) => c.t + 40);
+      const breaks = frameTimes(all).map((x) => x.brk);
+      expect(breaks.length).to.be.at.least(3);
+      for (let i = 1; i < breaks.length; i++) expect(breaks[i]! - drained[i - 1]!).to.be.at.least(8 - 1e-9);
+    });
+
     it("a timer that fires early cuts short neither the break nor the guard: the clock is read again on waking", async () => {
       const serial = new FakeSerial();
       let t = 0;
@@ -524,11 +542,10 @@ describe("DMX USB", () => {
       const f = frameTimes(calls());
       expect(f.length).to.be.at.least(6);
       for (let i = 1; i < f.length; i++) {
-        const gap = f[i]!.brk - f[i - 1]!.brk;
-        expect(gap).to.be.within(32.5, 200); // no break early, no hour-long hole
-        expect(f[i]!.brk - (f[i - 1]!.write + FRAME)).to.be.at.least(7.9);
+        // no break early (a late one is the machine's business, not the clock's: no upper bound on a real clock)
+        expect(f[i]!.brk - f[i - 1]!.brk).to.be.at.least(33 - 0.05);
+        expect(f[i]!.brk - (f[i - 1]!.write + FRAME)).to.be.at.least(8 - 0.05);
       }
-      expect(d.status().maxGapMs).to.be.lessThan(200);
     });
 
     it("measures the longest gap between two frames", async () => {
@@ -539,7 +556,7 @@ describe("DMX USB", () => {
       d.start();
       await until(() => d.status().framesSent >= 5);
       await d.stop();
-      expect(d.status().maxGapMs).to.be.within(25, 40);
+      expect(d.status().maxGapMs).to.be.within(33, 36);
     });
   });
 

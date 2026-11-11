@@ -93,9 +93,10 @@ const BREAK_MS = 2;
 /** The start code and 512 channels, 11 bits each (start, 8 data, 2 stop) at 250 kbaud: what a frame takes on the line. */
 const FRAME_MS = (513 * 11 * 1000) / 250_000;
 /**
- * The next break comes at least this long after the end of a frame, whatever drain() said (it may return when the OS
- * buffer is empty, not the chip's), counted from the call to write(): room for the chip starting late (USB, a busy
- * libuv thread). With the break and the frame, it sets the period: about 2 + 22.6 + 8 ≈ 33 ms.
+ * The next break comes at least this long after the end of a frame: its end in theory (the call to write() plus the
+ * 22.6 ms it takes on the line) or the return of drain(), whichever is later. drain() may return when the OS buffer is
+ * empty, not the chip's, and the call to write() is not when the chip starts: the guard is room for a late start (USB,
+ * a busy libuv thread). With the break and the frame, it sets the period: about 2 + 22.6 + 8 ≈ 33 ms.
  */
 const FRAME_GUARD_MS = 8;
 const PRO_KEEPALIVE_MS = 1000;
@@ -209,9 +210,15 @@ export class DmxUsbDevice {
   /**
    * Sleeps until the clock reaches `deadline`, reading it again on waking: a timer that fires early (Node's timers start
    * from the loop's time, taken at the start of its turn, and count whole milliseconds) does not cut the wait short.
+   * A clock that did not move at all across a sleep (an injected one, frozen) ends the wait: it cannot hold the loop forever.
    */
   private async sleepUntil(deadline: number): Promise<void> {
-    for (let left = deadline - this.now(); left > 0; left = deadline - this.now()) await this.sleep(left);
+    for (let at = this.now(); at < deadline; ) {
+      await this.sleep(deadline - at);
+      const later = this.now();
+      if (later === at) return;
+      at = later;
+    }
   }
 
   /** One frame on the line. DTR and RTS are named, at 0 as set() has always left them: the lines do not move with the break. */
@@ -228,8 +235,9 @@ export class DmxUsbDevice {
     this.breakMs = writing - began;
     await port.write(openDmxFrame(data));
     await port.drain(); // the next break must not cut this frame
-    this.drainMs = this.now() - writing;
-    this.frameEnd = writing + FRAME_MS + FRAME_GUARD_MS;
+    const drained = this.now();
+    this.drainMs = drained - writing;
+    this.frameEnd = Math.max(writing + FRAME_MS, drained) + FRAME_GUARD_MS; // a drain() that came back late still leaves the whole guard
   }
 
   /** Runs until stopped; a loop from before a stop and a start ends by itself, closing only its own port. */
