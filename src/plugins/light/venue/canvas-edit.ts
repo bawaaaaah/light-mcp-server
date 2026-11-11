@@ -72,7 +72,7 @@ export function compact(cells: readonly (readonly CellTarget[])[]): Range[] {
   let last: string | undefined;
   cells.forEach((targets, i) => {
     const key = keyOf(targets);
-    if (targets.length && key === last && out[out.length - 1]!.to === i - 1) out[out.length - 1]!.to = i;
+    if (targets.length && key === last) out[out.length - 1]!.to = i;
     else if (targets.length) out.push({ from: i, to: i, targets: targets.map((t) => ({ ...t })) });
     last = targets.length ? key : undefined;
   });
@@ -128,11 +128,11 @@ export function applyOps(canvas: Canvas, ops: readonly CanvasOp[], ctx: EditCont
           if (op.heads) {
             const missing = op.heads.filter((h) => h !== -1 && !heads.all.includes(h));
             if (missing.length) fail(`${where} : ${fixture} n'a pas de tête ${missing.join(", ")}`, `${where}: ${fixture} has no head ${missing.join(", ")}`);
-            chosen = op.heads;
+            chosen = [...new Set(op.heads)];
           }
+          if (!chosen.length) fail(`${where} : ${fixture} n'a que des têtes d'accent, qui n'ont pas de cellule (les nommer dans heads)`, `${where}: ${fixture} has accent heads only, which get no cell (name them in heads)`);
           for (const head of chosen) added.push({ targets: [{ fixture, head }], origin: null });
         }
-        if (!added.length) fail(`${where} : aucune tête à ajouter (une tête d'accent n'a pas de cellule ; la nommer dans heads)`, `${where}: no head to add (an accent head gets no cell; name it in heads)`);
         const at = gap(op.at);
         cells = [...cells.slice(0, at), ...added, ...cells.slice(at)];
         break;
@@ -149,7 +149,9 @@ export function applyOps(canvas: Canvas, ops: readonly CanvasOp[], ctx: EditCont
         const block = moved.map((i) => cells[i]!);
         const rest = cells.filter((_, i) => !set.has(i));
         const at = to - moved.filter((i) => i < to).length;
-        cells = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+        const next = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+        if (next.every((c, i) => c === cells[i])) return; // dropped where they were: the stored ranges are kept
+        cells = next;
         break;
       }
       case "reverse": {
@@ -178,6 +180,9 @@ export function applyOps(canvas: Canvas, ops: readonly CanvasOp[], ctx: EditCont
         if (op.topology !== undefined) meta.topology = op.topology;
         if (op.columns === null) delete meta.columns;
         else if (op.columns !== undefined) meta.columns = op.columns;
+        if (op.columns != null && op.columns > cells.length) fail(`${where} : ${op.columns} colonnes pour ${cells.length} cellules`, `${where}: ${op.columns} columns for ${cells.length} cells`);
+        // a grid needs its columns: the nearest square until they are given
+        if (op.topology === "grid" && meta.columns === undefined) meta.columns = Math.ceil(Math.sqrt(cells.length));
         if (op.notes !== undefined) meta.notes = op.notes;
         return; // the cells are left alone
       }
@@ -196,21 +201,118 @@ export function inPlace(origin: readonly (number | null)[], before: number): boo
   return origin.length === before && origin.every((o, i) => o === i);
 }
 
+/**
+ * Whether a whole canvas put over another moves cells (venue.canvas.put, a restore: nothing says where each
+ * cell went). The count changes, or a cell now holds what another changed cell held (the same cells in
+ * another order). A cell given targets no changed cell had is aimed elsewhere, not moved: no look shifts.
+ */
+export function putMoves(before: Pick<Canvas, "cells" | "render">, after: Pick<Canvas, "cells" | "render">): boolean {
+  if (before.cells !== after.cells) return true;
+  const [was, now] = [flatten(before).map(keyOf), flatten(after).map(keyOf)];
+  const changed = was.flatMap((k, i) => (k === now[i] ? [] : [i]));
+  const left = new Set(changed.map((i) => was[i]!));
+  return changed.some((i) => left.has(now[i]!));
+}
+
 /** A look as the impact reads it. */
 export interface LookOnCanvas {
   id: string;
   name: string;
-  technique: { kind: string; steps?: unknown };
+  /** The look's own mirror, over the canvas's topology. */
+  mirror?: boolean | undefined;
+  technique: { kind: string; steps?: unknown; masks?: unknown; patterns?: unknown; block?: unknown; map?: unknown; colors?: unknown };
 }
+/** What of a canvas the looks read: its cell count, and whether it mirrors (line-mirror). */
+export type CanvasShape = Pick<Canvas, "cells" | "topology">;
+const mirrors = (l: LookOnCanvas, c: CanvasShape) => l.mirror ?? c.topology === "line-mirror";
 
 /** Techniques that paint every cell alike: the cell count changes nothing in them. */
 const UNIFORM = new Set(["plat", "flash", "aucune"]);
+
+/** The rows a technique stores as they are: the steps of « pas » (one array per step), the masks or patterns of the mask techniques (one string per step). */
+export type LookRows = string[][] | string[];
+const strip = (m: string) => m.replace(/\s/g, "");
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * The rows of a look that the engine reads cell by cell (generateSteps): one entry per cell, null for a row
+ * read otherwise (a mask per block), left alone. « pas »: every step. « masques »: a mask at least as long as
+ * the span (half the cells when mirrored: such a mask cannot follow its cells, `adaptable` false).
+ * « masques-colores »: with blocks of one cell, a pattern at least as long as the canvas. Undefined: the look
+ * generates its pattern, nothing in it names a cell.
+ */
+export function exactRows(l: LookOnCanvas, canvas: CanvasShape): { rows: (string[] | null)[]; fill: string; adaptable: boolean } | undefined {
+  const t = l.technique;
+  if (t.kind === "pas" && Array.isArray(t.steps)) return { rows: t.steps as string[][], fill: "", adaptable: true };
+  const mirror = mirrors(l, canvas);
+  if (t.kind === "masques") {
+    const span = mirror ? Math.ceil(canvas.cells / 2) : canvas.cells;
+    const rows = strings(t.masks).map((m) => (strip(m).length >= span ? [...strip(m)] : null));
+    return rows.some(Boolean) ? { rows, fill: "-", adaptable: !mirror } : undefined;
+  }
+  if (t.kind === "masques-colores" && (t.block ?? 4) === 1) {
+    const rows = strings(t.patterns).map((p) => (strip(p).length >= canvas.cells ? [...strip(p)] : null));
+    const map = (t.map ?? {}) as Record<string, unknown>;
+    // a letter without a colour is off: the cell added shows nothing
+    const fill = ["-", ".", "_", "0"].find((c) => !map[c]) ?? "-";
+    return rows.some(Boolean) ? { rows, fill, adaptable: true } : undefined;
+  }
+  return undefined;
+}
+
+/** A look's rows as its technique stores them (LookRows): undefined for a technique without any. */
+export function rowsOfTechnique(t: LookOnCanvas["technique"]): LookRows | undefined {
+  if (t.kind === "pas" && Array.isArray(t.steps)) return t.steps as string[][];
+  if (t.kind === "masques") return strings(t.masks);
+  if (t.kind === "masques-colores") return strings(t.patterns);
+  return undefined;
+}
+
+/** A technique with other rows (its steps, masks or patterns): refused when the rows are not of its kind. */
+export function withRows<T extends { kind: string }>(technique: T, rows: LookRows): T {
+  const perStep = rows.every((r) => Array.isArray(r));
+  const perMask = rows.every((r) => typeof r === "string");
+  if (technique.kind === "pas" && perStep && rows.length) return { ...technique, steps: rows };
+  if (technique.kind === "masques" && perMask && rows.length) return { ...technique, masks: rows };
+  if (technique.kind === "masques-colores" && perMask && rows.length) return { ...technique, patterns: rows };
+  return fail(`ces pas ne vont pas à la technique ${technique.kind}`, `these steps do not fit technique ${technique.kind}`);
+}
+
+/** Whether every row of a look of exact steps has one column per cell. */
+export const fits = (rows: readonly (readonly string[])[], cells: number): boolean => rows.every((r) => r.length === cells);
+
+/** A look's exact steps following their cells: each column goes where its cell went; a removed cell's column goes, an added cell is left untouched (""), a duplicate copies its source. */
+export function adaptSteps(rows: readonly (readonly string[])[], origin: readonly (number | null)[], fill = ""): string[][] {
+  return rows.map((row) => origin.map((o) => (o === null ? fill : (row[o] ?? fill))));
+}
+
+/**
+ * A look's rows following their cells (adaptSteps), as its technique stores them: undefined when nothing in
+ * it is read by cell, or when it cannot follow (a mirrored mask).
+ */
+export function adaptLook(l: LookOnCanvas, before: CanvasShape, origin: readonly (number | null)[]): LookRows | undefined {
+  const exact = exactRows(l, before);
+  if (!exact?.adaptable) return undefined;
+  if (l.technique.kind === "pas") return adaptSteps(exact.rows as string[][], origin);
+  const stored = rowsOfTechnique(l.technique) as string[];
+  return exact.rows.map((r, i) => (r ? adaptSteps([r], origin, exact.fill)[0]!.join("") : stored[i]!));
+}
+
+/** Rows as colours a screen can paint (hex, "-" off, "" untouched): the steps of « pas » as they are, a mask's letters as the colours they light. */
+export function paintedRows(l: LookOnCanvas, rows: LookRows): string[][] {
+  const t = l.technique;
+  if (t.kind === "pas") return rows as string[][];
+  const colors = strings(t.colors);
+  const block = typeof t.block === "number" ? t.block : 4;
+  const map = (t.map ?? {}) as Record<string, string | null>;
+  return (rows as string[]).map((m) => [...strip(m)].map((c, k) => (t.kind === "masques" ? (c === "-" ? "-" : (colors[Math.floor(k / block) % 2] ?? "#ffffff")) : (map[c] ?? "-"))));
+}
 
 export interface AffectedLook {
   id: string;
   name: string;
   technique: string;
-  /** steps: exact steps whose columns no longer line up with the cells (refused unless forced or adapted); cells: a generated pattern that changes proportion (still plays). */
+  /** steps: exact steps (or a mask per cell) whose columns no longer line up with the cells (refused unless forced or adapted); cells: a generated pattern that changes proportion (still plays). */
   reason: "steps" | "cells";
 }
 
@@ -222,51 +324,52 @@ export interface Impact {
   looksAffected: AffectedLook[];
 }
 
-const rowsOf = (l: LookOnCanvas): string[][] | undefined => (l.technique.kind === "pas" && Array.isArray(l.technique.steps) ? (l.technique.steps as string[][]) : undefined);
-/** Whether every row of a look of exact steps has one column per cell. */
-export const fits = (rows: readonly (readonly string[])[], cells: number): boolean => rows.every((r) => r.length === cells);
-
 /**
- * What an edit does to the looks on the canvas. `origin` null: a whole canvas put over the old one
- * (venue.canvas.put, a restore), where only the cell count can be compared: a look of exact steps is
- * broken when it fitted the old count and the count changes (one already out of line is not this
- * change's doing; « Vérifier le show » says it).
+ * What a change does to the looks on the canvas. `origin`: an edit, which knows where each cell went.
+ * `moved`: a whole canvas put over the old one (venue.canvas.put, a restore), compared cell by cell
+ * (putMoves); there a look of exact steps is broken only when it fitted the old canvas (one already out of
+ * line is not this change's doing; « Vérifier le show » says it).
  */
-export function impactOf(cellsBefore: number, cellsAfter: number, origin: readonly (number | null)[] | null, looks: readonly LookOnCanvas[]): Impact {
-  const shifted = origin ? !inPlace(origin, cellsBefore) : cellsBefore !== cellsAfter;
+export function impactOf(before: CanvasShape, after: CanvasShape, how: { origin: readonly (number | null)[] } | { moved: boolean }, looks: readonly LookOnCanvas[]): Impact {
+  const shifted = "origin" in how ? !inPlace(how.origin, before.cells) : how.moved;
   const looksAffected: AffectedLook[] = [];
   for (const l of looks) {
-    const rows = rowsOf(l);
-    if (rows) {
-      const broken = origin ? shifted : cellsBefore !== cellsAfter && fits(rows, cellsBefore);
-      if (broken) looksAffected.push({ id: l.id, name: l.name, technique: l.technique.kind, reason: "steps" });
-    } else if (cellsBefore !== cellsAfter && !UNIFORM.has(l.technique.kind)) looksAffected.push({ id: l.id, name: l.name, technique: l.technique.kind, reason: "cells" });
+    const kind = l.technique.kind;
+    const exact = exactRows(l, before);
+    const outOfLine = !("origin" in how) && kind === "pas" && !fits(exact!.rows as string[][], before.cells);
+    // a generated pattern follows the cell count, and the mirror folds it in two
+    const generated = !UNIFORM.has(kind) && (before.cells !== after.cells || (kind !== "pas" && mirrors(l, before) !== mirrors(l, after)));
+    if (exact && shifted) {
+      if (!outOfLine) looksAffected.push({ id: l.id, name: l.name, technique: kind, reason: "steps" });
+    } else if (generated && kind !== "pas") looksAffected.push({ id: l.id, name: l.name, technique: kind, reason: "cells" });
   }
-  return { cellsBefore, cellsAfter, shifted, looksAffected };
+  return { cellsBefore: before.cells, cellsAfter: after.cells, shifted, looksAffected };
 }
 
-/** A look's exact steps following their cells: each column goes where its cell went; a removed cell's column goes, an added cell is left untouched (""), a duplicate copies its source. */
-export function adaptSteps(rows: readonly (readonly string[])[], origin: readonly (number | null)[]): string[][] {
-  return rows.map((row) => origin.map((o) => (o === null ? "" : (row[o] ?? ""))));
-}
-
-/** The refusal of an edit (or a put) that breaks looks of exact steps, naming them; the shows sharing the venue are named too. */
-export function impactMessage(name: string, broken: readonly AffectedLook[], sharedWith: readonly string[] = []): string {
+/**
+ * The refusal of a change that breaks looks of exact steps, naming them; the shows sharing the venue are
+ * named too. `edit`: venue.canvas.edit can adapt their steps itself; a put, a restore or an undo cannot
+ * (nothing says where each cell went), and says how to get there.
+ */
+export function impactMessage(name: string, broken: readonly AffectedLook[], sharedWith: readonly string[] = [], edit = true): string {
   const looks = broken.slice(0, 6).map((l) => say(`« ${l.name} »`, `“${l.name}”`)).join(", ");
   const more = broken.length > 6 ? say(` et ${broken.length - 6} autre(s)`, ` and ${broken.length - 6} more`) : "";
   const parts: string[] = [];
   if (broken.length)
     parts.push(
-      say(
-        `les pas de ${broken.length > 1 ? "ces looks" : "ce look"} ne seraient plus en face de leurs cellules : ${looks}${more}. Adapter leurs pas (adapt: true) ou le faire quand même (force: true)`,
-        `the steps of ${broken.length > 1 ? "these looks" : "this look"} would no longer line up with their cells: ${looks}${more}. Adapt their steps (adapt: true) or do it anyway (force: true)`,
-      ),
+      say(`les pas de ${broken.length > 1 ? "ces looks" : "ce look"} ne seraient plus en face de leurs cellules : ${looks}${more}. `, `the steps of ${broken.length > 1 ? "these looks" : "this look"} would no longer line up with their cells: ${looks}${more}. `) +
+        (edit
+          ? say("Adapter leurs pas (adapt: true) ou le faire quand même (force: true)", "Adapt their steps (adapt: true) or do it anyway (force: true)")
+          : say(
+              "Donner leurs pas avec le canevas (steps), déplacer les cellules par venue.canvas.edit (adapt: true adapte leurs pas), ou le faire quand même (force: true)",
+              "Give their steps with the canvas (steps), move the cells with venue.canvas.edit (adapt: true adapts their steps), or do it anyway (force: true)",
+            )),
     );
   if (sharedWith.length)
     parts.push(
       say(
-        `ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), dont les looks ne sont pas vérifiés : le faire quand même (force: true)`,
-        `this venue is shared with other shows (${sharedWith.join(", ")}), whose looks are not checked: do it anyway (force: true)`,
+        `ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), dont les looks ne sont pas vérifiés : le faire en le sachant (shared: true)`,
+        `this venue is shared with other shows (${sharedWith.join(", ")}), whose looks are not checked: do it knowingly (shared: true)`,
       ),
     );
   return say(`Canevas « ${name} » : `, `Canvas “${name}”: `) + parts.join(say(" ; ", "; "));
@@ -338,8 +441,8 @@ export function canvasIssues(canvases: readonly Canvas[], looks: readonly (LookO
   for (const c of canvases) for (const p of canvasProblems(c, ctx)) out.push({ level: p.level, where: say(`canevas ${c.id}`, `canvas ${c.id}`), message: p.message });
   const byId = new Map(canvases.map((c) => [c.id, c]));
   for (const l of looks) {
-    const rows = rowsOf(l);
     const canvas = byId.get(l.canvas);
+    const rows = l.technique.kind === "pas" && Array.isArray(l.technique.steps) ? (l.technique.steps as string[][]) : undefined;
     if (!rows || !canvas || fits(rows, canvas.cells)) continue;
     const lengths = [...new Set(rows.map((r) => r.length))].sort((a, b) => a - b).join("/");
     out.push({

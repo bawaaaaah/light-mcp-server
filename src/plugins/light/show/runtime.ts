@@ -12,7 +12,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
@@ -231,9 +231,8 @@ export class ShowRuntime {
     }
   }
 
-  /** The steps a look plays on its canvas (palette and mirror applied). */
-  stepsOf(look: Look): Step[] {
-    const canvas = this.venue.canvases.get(look.canvas);
+  /** The steps a look plays on its canvas (palette and mirror applied); `canvas`: as it is about to be written. */
+  stepsOf(look: Look, canvas: Pick<Canvas, "cells" | "topology"> | undefined = this.venue.canvases.get(look.canvas)): Step[] {
     if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
     return generateSteps(this.resolvedTechnique(look), canvas.cells, look.mirror ?? canvas.topology === "line-mirror");
   }

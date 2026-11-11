@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { adaptSteps, applyOps, canvasIssues, canvasProblems, compact, fits, flatten, impactOf, inPlace, MAX_CELLS, type CanvasOp, type EditContext } from "../../../src/plugins/light/venue/canvas-edit.js";
+import { adaptLook, adaptSteps, applyOps, canvasIssues, canvasProblems, compact, exactRows, fits, flatten, impactOf, inPlace, MAX_CELLS, paintedRows, putMoves, withRows, type CanvasOp, type EditContext } from "../../../src/plugins/light/venue/canvas-edit.js";
 import { generateSteps, TechniqueSchema } from "../../../src/plugins/light/engine/techniques.js";
 import type { Canvas } from "../../../src/plugins/light/venue/venue.js";
 
@@ -23,6 +23,7 @@ const base = (): Canvas => ({
   cells: 5,
   render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: one("bar-a", h) })).concat([{ from: 4, to: 4, targets: one("spot", -1) }]),
 });
+const line = (cells: number) => ({ cells, topology: "line" as const });
 const targetsOf = (c: Canvas) => flatten(c).map((t) => t.map((x) => `${x.fixture}:${x.head}`).join("+"));
 const edit = (ops: CanvasOp[], c = base()) => applyOps(c, ops, ctx);
 
@@ -79,11 +80,18 @@ describe("canvas edit: operations on a canvas's cells (pure)", () => {
 
   it("sets name, topology, columns and notes without touching the stored ranges", () => {
     const old: Canvas = { ...base(), render: [{ from: 0, to: 9, targets: one("spot", -1) }], columns: 2 }; // an old range past the end
-    const r = applyOps(old, [{ op: "set", name: "Back", topology: "grid", columns: null, notes: "n" }], ctx);
+    const r = applyOps(old, [{ op: "set", name: "Back", topology: "ring", columns: null, notes: "n" }], ctx);
     expect(r.cellsTouched).to.equal(false);
     expect(r.canvas.render).to.equal(old.render); // read as it is, never normalised
-    expect(r.canvas).to.include({ name: "Back", topology: "grid", notes: "n" });
+    expect(r.canvas).to.include({ name: "Back", topology: "ring", notes: "n" });
     expect(r.canvas).to.not.have.property("columns");
+    // a grid gets columns (the nearest square) until they are given, never more than its cells
+    expect(edit([{ op: "set", topology: "grid" }]).canvas.columns).to.equal(3);
+    expect(edit([{ op: "set", topology: "grid", columns: 5 }]).canvas.columns).to.equal(5);
+    expect(() => edit([{ op: "set", columns: 99 }])).to.throw("99 colonnes pour 5 cellules");
+    // a move that changes nothing keeps the stored ranges; heads named twice give one cell; accent heads alone are said
+    expect(applyOps(old, [{ op: "move", cells: [1, 2], to: 1 }], ctx).cellsTouched).to.equal(false);
+    expect(edit([{ op: "add", fixtures: ["bar-b"], heads: [1, 1] }]).canvas.cells).to.equal(6);
   });
 
   it("applies the operations in order, all or nothing, and says which one failed", () => {
@@ -120,21 +128,61 @@ describe("canvas edit: what it does to the looks on the canvas", () => {
 
   it("names a look of exact steps once a cell moves, and a generated pattern only when the count changes", () => {
     const moved = edit([{ op: "move", cells: [4], to: 0 }]);
-    expect(impactOf(5, 5, moved.origin, looks)).to.deep.equal({ cellsBefore: 5, cellsAfter: 5, shifted: true, looksAffected: [{ id: "exact", name: "Exact", technique: "pas", reason: "steps" }] });
+    expect(impactOf(line(5), line(5), moved, looks)).to.deep.equal({ cellsBefore: 5, cellsAfter: 5, shifted: true, looksAffected: [{ id: "exact", name: "Exact", technique: "pas", reason: "steps" }] });
     const removed = edit([{ op: "remove", cells: [0] }]);
-    expect(impactOf(5, 4, removed.origin, looks).looksAffected.map((l) => [l.id, l.reason])).to.deep.equal([
+    expect(impactOf(line(5), line(4), removed, looks).looksAffected.map((l) => [l.id, l.reason])).to.deep.equal([
       ["exact", "steps"],
       ["wave", "cells"],
     ]);
     // retargeting or renaming shifts nothing: no look is affected
-    expect(impactOf(5, 5, edit([{ op: "retarget", cells: [0], targets: one("bar-b", 0) }]).origin, looks)).to.deep.include({ shifted: false, looksAffected: [] });
+    expect(impactOf(line(5), line(5), edit([{ op: "retarget", cells: [0], targets: one("bar-b", 0) }]), looks)).to.deep.include({ shifted: false, looksAffected: [] });
   });
 
-  it("compares the cell count only for a whole put, and leaves a look already out of line alone", () => {
-    expect(impactOf(5, 5, null, looks).looksAffected).to.deep.equal([]);
-    expect(impactOf(5, 6, null, looks).looksAffected.map((l) => l.id)).to.deep.equal(["exact", "wave"]);
+  it("compares a whole put cell by cell: another count or the same cells in another order move, a cell aimed elsewhere does not", () => {
+    const c = base();
+    const swapped = { ...c, render: [c.render[1]!, c.render[0]!, ...c.render.slice(2)].map((r, i) => ({ ...r, from: i, to: i })) };
+    expect(putMoves(c, c)).to.equal(false);
+    expect(putMoves(c, swapped)).to.equal(true); // as many cells, not where they were
+    expect(putMoves(c, { ...c, cells: 4, render: c.render.slice(0, 4) })).to.equal(true);
+    // one cell aimed at a head no cell had, or at one an untouched cell keeps: nothing moved
+    expect(putMoves(c, { ...c, render: [{ ...c.render[0]!, targets: one("bar-b", 0) }, ...c.render.slice(1)] })).to.equal(false);
+    expect(putMoves(c, { ...c, render: [{ ...c.render[0]!, targets: one("bar-a", 3) }, ...c.render.slice(1)] })).to.equal(false);
+    expect(impactOf(line(5), line(5), { moved: false }, looks).looksAffected).to.deep.equal([]);
+    expect(impactOf(line(5), line(5), { moved: true }, looks).looksAffected.map((l) => l.id)).to.deep.equal(["exact"]);
+    expect(impactOf(line(5), line(6), { moved: true }, looks).looksAffected.map((l) => l.id)).to.deep.equal(["exact", "wave"]);
     const off = [{ id: "off", name: "Off", technique: { kind: "pas", steps: [["#ff0000"]] } }];
-    expect(impactOf(5, 6, null, off).looksAffected).to.deep.equal([]); // not this change's doing
+    expect(impactOf(line(5), line(6), { moved: true }, off).looksAffected).to.deep.equal([]); // not this change's doing
+  });
+
+  it("treats a mask read cell by cell as exact steps, one per block as a generated pattern", () => {
+    const perCell = { id: "m", name: "Masque", technique: { kind: "masques", colors: ["#ff0000", "#0000ff"], block: 1, masks: ["#-#-#", "## -- #", "#-"] } };
+    const perBlock = { id: "b", name: "Blocs", technique: { kind: "masques", colors: ["#ff0000", "#0000ff"], block: 2, masks: ["#-"] } };
+    const coloured = { id: "c", name: "Lettres", technique: { kind: "masques-colores", block: 1, map: { a: "#ff0000", b: "#00ff00" }, patterns: ["ababa", "ab"] } };
+    expect(exactRows(perCell, line(5))!.rows).to.deep.equal([[..."#-#-#"], [..."##--#"], null]);
+    expect(exactRows(perBlock, line(5))).to.equal(undefined);
+    const removed = edit([{ op: "remove", cells: [1] }, { op: "add", fixtures: ["spot"] }]); // cells: old 0, 2, 3, 4, new
+    expect(impactOf(line(5), line(5), removed, [perCell, perBlock, coloured]).looksAffected.map((l) => [l.id, l.reason])).to.deep.equal([
+      ["m", "steps"],
+      ["c", "steps"],
+    ]);
+    // each letter follows its cell; the mask per block is left as it is; an added cell is off
+    expect(adaptLook(perCell, line(5), removed.origin)).to.deep.equal(["##-#-", "#--#-", "#-"]);
+    expect(adaptLook(coloured, line(5), removed.origin)).to.deep.equal(["aaba-", "ab"]);
+    expect(paintedRows(coloured, ["ab-"])).to.deep.equal([["#ff0000", "#00ff00", "-"]]);
+    expect(paintedRows(perCell, ["#-#"])).to.deep.equal([["#ff0000", "-", "#ff0000"]]);
+    // mirrored, a mask is read over half the canvas: it is exact, and cannot follow its cells
+    const mirrored = { ...perCell, mirror: true };
+    expect(exactRows(mirrored, line(5))!.adaptable).to.equal(false);
+    expect(adaptLook(mirrored, line(5), removed.origin)).to.equal(undefined);
+    // rows of another kind are refused
+    expect(() => withRows({ kind: "pas", steps: [["-"]] }, ["#-"])).to.throw("ne vont pas");
+    expect(withRows({ kind: "masques", masks: ["#"] }, ["#-"])).to.deep.equal({ kind: "masques", masks: ["#-"] });
+  });
+
+  it("says a generated look changes when the canvas starts or stops mirroring, unless the look mirrors by itself", () => {
+    const own = { id: "own", name: "Own", mirror: false, technique: { kind: "onde" } };
+    const got = impactOf(line(5), { cells: 5, topology: "line-mirror" }, { origin: [0, 1, 2, 3, 4] }, [...looks, own]);
+    expect(got.looksAffected.map((l) => [l.id, l.reason])).to.deep.equal([["wave", "cells"]]);
   });
 
   it("adapts exact steps so each column follows its cell", () => {

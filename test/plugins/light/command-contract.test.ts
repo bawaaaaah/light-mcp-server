@@ -73,9 +73,9 @@ describe("command contract", () => {
     it("says what the handlers really do: relative or restarting is not idempotent, an overwrite without versions is destructive", () => {
       // `turn` adds to the heading, `create` makes a new group each time, a play rewinds, notes are stamped
       for (const name of ["venue.fixture.orient", "look.exclusive", "song.play", "notes.set", "ableset.jump", "history.undo", "live.adjust"]) expect(toolHints({ name }).idempotentHint, name).to.equal(false);
-      // looks, groups, faders and dashboards keep versions; the rest is replaced for good
-      for (const name of ["look.put", "group.put", "fader.put", "dashboard.put"]) expect(toolHints({ name }).destructiveHint, name).to.equal(false);
-      for (const name of ["venue.fixture.put", "venue.canvas.put", "stage.zone.put", "rule.put", "palette.put", "program.put", "midi.mapping.put", "song.put", "setlist.put", "notes.set", "calibration.solve", "midi.profile.save"])
+      // looks, groups, faders, dashboards and canvases keep versions; the rest is replaced for good
+      for (const name of ["look.put", "group.put", "fader.put", "dashboard.put", "venue.canvas.put", "venue.canvas.edit", "venue.canvas.auto"]) expect(toolHints({ name }).destructiveHint, name).to.equal(false);
+      for (const name of ["venue.fixture.put", "stage.zone.put", "rule.put", "palette.put", "program.put", "midi.mapping.put", "song.put", "setlist.put", "notes.set", "calibration.solve", "midi.profile.save"])
         expect(toolHints({ name }).destructiveHint, name).to.equal(true);
     });
 

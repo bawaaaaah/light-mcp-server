@@ -5,9 +5,10 @@
  *
  * - readOnlyHint: the command changes nothing (`CommandDef.readOnly`).
  * - destructiveHint: it deletes stored data, empties or replaces a whole show or venue, discards a
- *   pending proposal, or overwrites an object that no version can bring back. Looks, groups, faders and
- *   dashboards keep their versions (`history.restore`): updating them by id (`*.put`) is not destructive;
- *   updating a fixture, canvas, zone, rule, palette, program, mapping, song or setlist replaces it, and is.
+ *   pending proposal, or overwrites an object that no version can bring back. Looks, groups, faders,
+ *   dashboards and canvases keep their versions (`history.restore`): updating them by id (`*.put`,
+ *   `venue.canvas.edit`, `venue.canvas.auto`) is not destructive; updating a fixture, zone, rule, palette,
+ *   program, mapping, song or setlist replaces it, and is.
  *   Panic is not: `panic.undo` puts back what played. Setting a value of the live state (a level, a
  *   position, the tempo) is not either.
  * - idempotentHint: calling it again with the same arguments leaves things as the first call did.
@@ -134,10 +135,10 @@ export const HINTS: Record<string, string> = {
   "stage.zone.put": "DI",
   "tempo.set": "IO",
   "tempo.tap": "",
-  "venue.canvas.auto": "DI",
+  "venue.canvas.auto": "I",
   "venue.canvas.delete": "DI",
-  "venue.canvas.edit": "D",
-  "venue.canvas.put": "DI",
+  "venue.canvas.edit": "",
+  "venue.canvas.put": "I",
   "venue.fixture.arrange": "I",
   "venue.fixture.delete": "DI",
   "venue.fixture.heads.clear": "DI",

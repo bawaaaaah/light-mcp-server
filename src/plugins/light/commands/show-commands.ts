@@ -10,7 +10,7 @@ import { ANSWERING_ORIGINS, CommandError, type CommandContext, type CommandRegis
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
-import { adaptSteps, applyOps, CanvasOpSchema, canvasProblems, impactMessage, impactOf, type AffectedLook, type EditContext, type Impact } from "../venue/canvas-edit.js";
+import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKey, modelKeyOrUndefined, WheelOverridesSchema, type FixtureOverrides, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
@@ -654,6 +654,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- canvases: every write over an existing canvas checks what it does to the looks on it (venue/canvas-edit.ts)
   const canvasCtx: EditContext = { headsOf: (f) => venue.canvasHeads(f) };
   const looksOn = (canvasId: string) => show.looks.list().filter((l) => l.canvas === canvasId);
+  const unknownCanvas = (i: string) => new CommandError("failed", say(`canevas inconnu : ${i}`, `unknown canvas: ${i}`), { unknown: "canvas" });
   /** The other shows on the venue, for a change that moves cells (their looks are not checked); one that cannot be read counts. */
   const othersOnVenue = (): string[] => {
     try {
@@ -664,49 +665,137 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   };
   /** First rows of a look's steps, before and after an adaptation: enough to see it, not a whole imported look. */
   const PREVIEW_ROWS = 8;
-  const adaptableOf = (broken: AffectedLook[], origin: readonly (number | null)[]) =>
-    broken.flatMap((a) => {
-      const look = show.looks.get(a.id);
-      if (look?.technique.kind !== "pas") return [];
-      const rows = look.technique.steps;
-      return [{ id: a.id, name: a.name, rows: rows.length, before: rows.slice(0, PREVIEW_ROWS), after: adaptSteps(rows.slice(0, PREVIEW_ROWS), origin) }];
-    });
-  /** Refuses a change that breaks looks of exact steps or moves cells of a shared venue, unless forced; `detail.impact` lets a screen ask. */
-  const refuseUnlessForced = (name: string, impact: Impact, broken: AffectedLook[], others: string[], force: boolean, adaptable: unknown[] = []) => {
-    if (force || (!broken.length && !others.length)) return;
-    throw new CommandError("invalid", impactMessage(name, broken, others), { impact, broken: broken.map((l) => l.id), shared: others, adaptable });
+  const revisionOf = (canvas: Canvas) => createHash("sha1").update(stableStringify(canvas)).digest("hex").slice(0, 12);
+  /** Refused when the canvas is not the one an earlier answer gave: changed elsewhere (`detail.stale`), or gone (`detail.unknown`). */
+  const sameRevision = (i: string, current: Canvas | undefined, revision: string | undefined) => {
+    if (revision === undefined) return;
+    if (!current) throw unknownCanvas(i);
+    if (revision !== revisionOf(current)) throw new CommandError("failed", say(`le canevas « ${current.name} » a changé ailleurs depuis : le recharger`, `canvas “${current.name}” changed elsewhere since: reload it`), { stale: true, revision: revisionOf(current) });
   };
-  /** Puts a whole canvas: over an existing one, the cell count is compared (a put says nothing of where each cell went). */
-  const putCanvas = (value: unknown, force: boolean) => {
-    const canvas = venue.canvases.parse(value);
-    const old = venue.canvases.get(canvas.id);
-    if (old) {
-      const impact = impactOf(old.cells, canvas.cells, null, looksOn(canvas.id));
-      const broken = impact.looksAffected.filter((l) => l.reason === "steps");
-      refuseUnlessForced(canvas.name, impact, broken, impact.shifted ? othersOnVenue() : [], force);
-    }
-    const stored = venue.canvases.put(canvas);
-    const warnings = canvasProblems(stored, canvasCtx)
+  const warningsOf = (canvas: Canvas) =>
+    canvasProblems(canvas, canvasCtx)
       .filter((p) => p.level === "attention")
       .map((p) => p.message);
+  /** How a canvas write is let through: `force` whatever it breaks, `shared` knowing the venue's other shows are not checked. */
+  interface Passes {
+    force: boolean;
+    shared: boolean;
+  }
+  /**
+   * Refuses a change that breaks looks of exact steps (unless forced) or moves cells of a shared venue (unless
+   * forced or `shared`); `detail.impact` lets a screen ask. The other shows are read only when they matter.
+   */
+  const refuseUnlessPassed = (name: string, impact: Impact, broken: AffectedLook[], pass: Passes, edit: boolean, adaptable: unknown[] = []) => {
+    if (pass.force) return;
+    const others = impact.shifted && !pass.shared ? othersOnVenue() : [];
+    if (!broken.length && !others.length) return;
+    throw new CommandError("invalid", impactMessage(name, broken, others, edit), { impact, broken: broken.map((l) => l.id), shared: others, adaptable });
+  };
+  /** What an edit would do: the canvas, its impact, the looks it breaks and how their rows would follow. */
+  const planEdit = (current: Canvas, ops: CanvasOp[]) => {
+    const edited = applyOps(current, ops, canvasCtx);
+    const canvas = venue.canvases.parse(edited.canvas);
+    const impact = impactOf(current, canvas, { origin: edited.origin }, looksOn(current.id));
+    const broken = impact.looksAffected.filter((l) => l.reason === "steps");
+    const adaptable = broken.flatMap((a) => {
+      const look = show.looks.get(a.id);
+      const before = look && rowsOfTechnique(look.technique);
+      const after = look && adaptLook(look, current, edited.origin);
+      if (!look || !before || !after) return [];
+      return [{ id: a.id, name: a.name, rows: before.length, before: paintedRows(look, before.slice(0, PREVIEW_ROWS) as LookRows), after: paintedRows(look, after.slice(0, PREVIEW_ROWS) as LookRows), stored: { before, after } }];
+    });
+    return { canvas, impact, broken, adaptable };
+  };
+  /** What putting a whole canvas would do; over an existing one, compared cell by cell (a put says nothing of where each cell went). Looks whose steps come with it follow. */
+  const checkCanvasPut = (canvas: Canvas, rows: ReadonlyMap<string, LookRows>, pass: Passes) => {
+    const old = venue.canvases.get(canvas.id);
+    if (!old) return;
+    const impact = impactOf(old, canvas, { moved: putMoves(old, canvas) }, looksOn(canvas.id));
+    refuseUnlessPassed(
+      canvas.name,
+      impact,
+      impact.looksAffected.filter((l) => l.reason === "steps" && !rows.has(l.id)),
+      pass,
+      false,
+    );
+  };
+  /**
+   * Writes a canvas and the rows of the looks that follow it, all or nothing: every look is checked on the
+   * canvas as it will be before the first write, and what was written is put back if a write fails. Only the
+   * rows change in a look (its steps, masks or patterns): a rename made meanwhile stays.
+   */
+  const writeCanvas = async (canvas: Canvas, rows: ReadonlyMap<string, LookRows>, ctx: CommandContext): Promise<Canvas> => {
+    const next = [...rows].map(([lookId, r]) => {
+      const look = show.looks.get(lookId);
+      if (!look) throw new Error(say(`look inconnu : ${lookId}`, `unknown look: ${lookId}`));
+      if (look.canvas !== canvas.id) throw new Error(say(`« ${look.name} » ne joue pas sur le canevas ${canvas.id}`, `“${look.name}” does not play on canvas ${canvas.id}`));
+      const changed = show.looks.parse({ ...look, technique: withRows(look.technique, r) });
+      if (changed.technique.kind === "pas" && !fits(changed.technique.steps, canvas.cells))
+        throw new Error(say(`« ${look.name} » : chaque pas doit avoir ${canvas.cells} colonne(s), une par cellule`, `“${look.name}”: each step must have ${canvas.cells} column(s), one per cell`));
+      try {
+        return { before: look, after: checkLook(changed, canvas) };
+      } catch (err) {
+        throw new Error(say(`« ${look.name} » (${look.id}) : ${(err as Error).message}`, `“${look.name}” (${look.id}): ${(err as Error).message}`));
+      }
+    });
+    const written: Look[] = [];
+    try {
+      // the steps first, through look.put (versions, a playing look restarted), then the canvas they follow
+      for (const l of next) {
+        await reg.invoke("look.put", { look: l.after }, ctx);
+        written.push(l.before);
+      }
+      return venue.canvases.put(canvas);
+    } catch (err) {
+      for (const l of written) show.looks.put(l); // the canvas is written last: it did not change
+      throw err;
+    }
+  };
+  const rowsSchema = z
+    .record(z.string(), z.union([z.array(z.array(z.string())), z.array(z.string())]))
+    .default({})
+    .describe("the looks whose steps follow the canvas, by look id: the steps of a look of exact steps (technique pas, one column per cell), or the masks / patterns of a mask technique; written with the canvas, all or nothing");
+  const sharedFlag = z.boolean().default(false).describe("the venue is shared with other shows and that is known: move cells without checking their looks");
+  /** Puts a whole canvas (venue.canvas.put, venue.canvas.auto): checked, then written with the looks' rows. */
+  const putCanvas = async (value: unknown, opts: Passes & { steps?: Record<string, LookRows>; revision?: string | undefined }, ctx: CommandContext) => {
+    const canvas = venue.canvases.parse(value);
+    sameRevision(canvas.id, venue.canvases.get(canvas.id), opts.revision);
+    const rows = new Map(Object.entries(opts.steps ?? {}));
+    checkCanvasPut(canvas, rows, opts);
+    const stored = await writeCanvas(canvas, rows, ctx);
+    const warnings = warningsOf(stored);
     return warnings.length ? { ...stored, warnings } : stored;
   };
-  const revisionOf = (canvas: Canvas) => createHash("sha1").update(stableStringify(canvas)).digest("hex").slice(0, 12);
+  reg.register({
+    name: "venue.canvas.get",
+    title: "Canevas",
+    description: "One canvas and its revision (to give back to venue.canvas.edit or venue.canvas.put, which refuse a canvas changed since).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: idSchema,
+    run: ({ id: i }) => {
+      const canvas = venue.canvases.get(i);
+      if (!canvas) throw unknownCanvas(i);
+      const warnings = warningsOf(canvas);
+      return { canvas, revision: revisionOf(canvas), ...(warnings.length ? { warnings } : {}) };
+    },
+  });
   reg.register({
     name: "venue.canvas.put",
     title: "Définir un canevas",
     description:
-      "Creates or updates a canvas (topology, cell count) and its rendering onto the venue's fixtures (cell ranges → fixture heads). Over an existing canvas whose cell count changes, refused unless force when a look of exact steps (technique pas) on it would no longer line up (the error names them) or when the venue is shared with other shows (their looks are not checked). warnings: ranges reversed or past the end, fixtures not in the patch, heads they do not have (written anyway: an import may come before the patch). To change a few cells, venue.canvas.edit says what moves.",
+      "Creates or updates a canvas (topology, cell count) and its rendering onto the venue's fixtures (cell ranges → fixture heads). Over an existing canvas, compared cell by cell: when cells move (another count, or the same cells in another order), refused unless force when a look of exact steps on it (technique pas, or a mask read cell by cell) would no longer line up (the error names them) — or give their steps with the canvas (steps), written together, all or nothing — and refused unless shared (or force) when the venue is shared with other shows (their looks are not checked). revision: the one venue.canvas.get gave; refused if the canvas changed since or is gone. warnings: ranges reversed or past the end, fixtures not in the patch, heads they do not have (written anyway: an import may come before the patch). To change a few cells, venue.canvas.edit says what moves and adapts the steps itself.",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ canvas: CanvasSchema, force: z.boolean().default(false).describe("write even if looks of exact steps no longer line up with the cells") }),
-    run: ({ canvas, force }) => putCanvas(canvas, force),
+    schema: z.object({ canvas: CanvasSchema, steps: rowsSchema, force: z.boolean().default(false).describe("write even if looks of exact steps no longer line up with the cells"), shared: sharedFlag, revision: z.string().optional() }),
+    run: ({ canvas, ...opts }, ctx) => putCanvas(canvas, opts, ctx),
   });
   reg.register({
     name: "venue.canvas.edit",
     title: "Éditer un canevas",
     description:
-      "Edits a canvas cell by cell, all operations at once or none: add (fixtures, one cell per full head as venue.canvas.auto, or the heads named, at a position), remove (cells), move (cells, contiguous or not, into the gap before cell `to`), reverse (from..to), duplicate (cells), retarget (cells → other fixture heads, the count unchanged), set (name, topology, columns, notes). Cells are 0-based, read as the previous operations left them; the ranges are written back compacted. impact: cell count before and after, whether cells moved (shifted), and the looks on the canvas it affects: reason steps for a look of exact steps (technique pas) whose columns no longer line up — refused unless adapt (their columns follow their cells: a removed cell's column goes, an added cell is left untouched; adaptable shows the first rows before and after) or force — and reason cells for a generated pattern that changes proportion (it still plays). On a venue shared with other shows, moving cells is refused unless force. dryRun: what it would do, nothing written (ops may be empty: the canvas and its revision). revision: the one an earlier answer gave; refused if the canvas changed since.",
+      "Edits a canvas cell by cell, all operations at once or none: add (fixtures, one cell per full head as venue.canvas.auto, or the heads named, at a position), remove (cells), move (cells, contiguous or not, into the gap before cell `to`), reverse (from..to), duplicate (cells), retarget (cells → other fixture heads, the count unchanged), set (name, topology, columns, notes). Cells are 0-based, read as the previous operations left them; the ranges are written back compacted. impact: cell count before and after, whether cells moved (shifted), and the looks on the canvas it affects: reason steps for a look read cell by cell (technique pas, or a mask as long as the canvas) whose columns no longer line up — refused unless adapt (their columns follow their cells: a removed cell's column goes, an added cell is left untouched; adaptable shows the first rows before and after; the looks and the canvas are written together, all or nothing; steps gives the rows of each adapted look before and after) or force — and reason cells for a generated pattern that changes proportion (it still plays). On a venue shared with other shows, moving cells is refused unless shared (or force). dryRun: what it would do, nothing written. revision: the one an earlier answer (or venue.canvas.get) gave; refused if the canvas changed since.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({
@@ -714,41 +803,32 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       ops: z.array(CanvasOpSchema).max(200),
       dryRun: z.boolean().default(false),
       force: z.boolean().default(false).describe("write even if looks of exact steps no longer line up with the cells, or the venue is shared"),
+      shared: sharedFlag,
       adapt: z.union([z.boolean(), z.array(z.string())]).default(false).describe("adapt the steps of the looks of exact steps it breaks (true: all of them; or their ids)"),
       revision: z.string().optional(),
     }),
-    run: async ({ id: i, ops, dryRun, force, adapt, revision }, ctx) => {
+    dry: (args) => args.dryRun,
+    run: async ({ id: i, ops, dryRun, force, shared, adapt, revision }, ctx) => {
       const current = venue.canvases.get(i);
-      if (!current) throw new Error(say(`canevas inconnu : ${i}`, `unknown canvas: ${i}`));
-      if (revision !== undefined && revision !== revisionOf(current))
-        throw new CommandError("failed", say(`le canevas « ${current.name} » a changé ailleurs depuis : le recharger`, `canvas “${current.name}” changed elsewhere since: reload it`), { stale: true, revision: revisionOf(current) });
-      const edited = applyOps(current, ops, canvasCtx);
-      const canvas = venue.canvases.parse(edited.canvas);
-      const impact = impactOf(current.cells, canvas.cells, edited.origin, looksOn(i));
-      const broken = impact.looksAffected.filter((l) => l.reason === "steps");
-      const adaptable = adaptableOf(broken, edited.origin);
-      const adapted = adaptable.filter((a) => adapt === true || (Array.isArray(adapt) && adapt.includes(a.id))).map((a) => a.id);
-      const warnings = canvasProblems(canvas, canvasCtx)
-        .filter((p) => p.level === "attention")
-        .map((p) => p.message);
+      if (!current) throw unknownCanvas(i);
+      sameRevision(i, current, revision);
+      const { canvas, impact, broken, adaptable: plan } = planEdit(current, ops);
+      const chosen = plan.filter((a) => adapt === true || (Array.isArray(adapt) && adapt.includes(a.id)));
+      const adapted = chosen.map((a) => a.id);
+      const adaptable = plan.map(({ stored: _s, ...a }) => a);
+      const warnings = warningsOf(canvas);
       const answer = { canvas, revision: revisionOf(canvas), impact, adaptable, adapted, ...(warnings.length ? { warnings } : {}) };
       if (dryRun) return { ...answer, dryRun: true };
-      refuseUnlessForced(
+      refuseUnlessPassed(
         canvas.name,
         impact,
         broken.filter((l) => !adapted.includes(l.id)),
-        impact.shifted ? othersOnVenue() : [],
-        force,
+        { force, shared },
+        true,
         adaptable,
       );
-      // the steps first, through look.put (versions, a playing look restarted), then the canvas they follow
-      for (const lookId of adapted) {
-        const look = show.looks.get(lookId);
-        if (look?.technique.kind !== "pas") continue;
-        await reg.invoke("look.put", { look: { ...look, technique: { ...look.technique, steps: adaptSteps(look.technique.steps, edited.origin) } } }, ctx);
-      }
-      venue.canvases.put(canvas);
-      return answer;
+      await writeCanvas(canvas, new Map(chosen.map((a) => [a.id, a.stored.after])), ctx);
+      return { ...answer, steps: Object.fromEntries(chosen.map((a) => [a.id, a.stored])) };
     },
   });
   reg.register({
@@ -790,8 +870,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Builds a canvas from fixtures in the given order: one cell per full head, declared or deduced from the channel names (or per fixture without heads); an accent head (a halo) gets none, a whole-fixture colour reaches it. Topology line, line-mirror or ring. Over an existing canvas, checked as venue.canvas.put (force).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ id: z.string(), name: z.string(), fixtures: z.array(z.string()).min(1), topology: z.enum(["line", "line-mirror", "ring"]).default("line"), force: z.boolean().default(false).describe("over an existing canvas: as venue.canvas.put") }),
-    run: ({ id: cid, name, fixtures, topology, force }) => {
+    schema: z.object({ id: z.string(), name: z.string(), fixtures: z.array(z.string()).min(1), topology: z.enum(["line", "line-mirror", "ring"]).default("line"), force: z.boolean().default(false).describe("over an existing canvas: as venue.canvas.put"), shared: sharedFlag }),
+    run: ({ id: cid, name, fixtures, topology, force, shared }, ctx) => {
       const render: { from: number; to: number; targets: { fixture: string; head: number }[] }[] = [];
       let cell = 0;
       for (const fid of fixtures) {
@@ -801,7 +881,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         const heads = [...r.heads.keys()].filter((h) => !r.accent.has(h));
         for (const h of heads) render.push({ from: cell, to: cell++, targets: [{ fixture: fid, head: h }] });
       }
-      return putCanvas({ id: cid, name, topology, cells: cell, render }, force);
+      return putCanvas({ id: cid, name, topology, cells: cell, render }, { force, shared }, ctx);
     },
   });
 
@@ -852,10 +932,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * (all checked before the first write). Its folder tag comes back normalised (segments trimmed, no
    * empty one), so a folder typed « Foo » with a trailing space is the folder « Foo ».
    */
-  const checkLook = (look: Look): Look => {
-    if (!venue.canvases.get(look.canvas)) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
+  const checkLook = (look: Look, canvas: Canvas | undefined = venue.canvases.get(look.canvas)): Look => {
+    if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
     // « jamais coupé » (noCut): only techniques that never switch a cell off
-    if (look.noCut && show.stepsOf(look).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
+    if (look.noCut && show.stepsOf(look, canvas).some((step) => step.some((c) => c !== null && Object.values(c).every((v) => !v)))) {
       throw new Error(say(`« ${look.name} » est marqué « jamais coupé » mais sa technique éteint des cellules (pas noirs, masques sans plancher, flash…)`, `“${look.name}” is marked “never cut” but its technique turns cells off (black steps, masks without a floor, flash…)`));
     }
     if (look.channels) {
@@ -1458,7 +1538,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * The write commands a proposal can hold (and light call … --check): their collection, the argument carrying the object, the arguments kept beside it.
    * An edit (venue.canvas.edit) carries operations, not the object: `object` computes what it would write, and `restore` is the put that takes it back.
    */
-  const PUT_COMMANDS: Record<string, { collection: (a: Record<string, unknown>) => Diffable; key: string; keep?: string[]; object?: (a: Record<string, unknown>) => unknown; restore?: string }> = {
+  const proposedEdit = (a: Record<string, unknown>) => {
+    const current = venue.canvases.get(String(a.id));
+    if (!current) throw unknownCanvas(String(a.id));
+    return planEdit(current, z.array(CanvasOpSchema).parse(a.ops ?? []));
+  };
+  const PUT_COMMANDS: Record<string, { collection: (a: Record<string, unknown>) => Diffable; key: string; keep?: string[]; object?: (a: Record<string, unknown>) => unknown; impact?: (a: Record<string, unknown>) => Impact; restore?: string }> = {
     "look.put": { collection: () => "looks", key: "look" },
     "group.put": { collection: () => "groups", key: "group" },
     "fader.put": { collection: () => "faders", key: "fader" },
@@ -1474,10 +1559,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       restore: "venue.canvas.put",
       object: (a) => {
         if (a.adapt) throw new Error(say("une proposition n'adapte pas les pas des looks : l'enlever (adapt) et éditer le canevas directement", "a proposal does not adapt the steps of looks: drop adapt and edit the canvas directly"));
-        const current = venue.canvases.get(String(a.id));
-        if (!current) throw new Error(say(`canevas inconnu : ${String(a.id)}`, `unknown canvas: ${String(a.id)}`));
-        return applyOps(current, z.array(CanvasOpSchema).parse(a.ops ?? []), canvasCtx).canvas;
+        if (a.dryRun) throw new Error(say("une proposition n'est pas un essai : enlever dryRun", "a proposal is not a dry run: drop dryRun"));
+        const { canvas, impact, broken } = proposedEdit(a);
+        // what apply would refuse is said now, with the proposal: a forced one carries its impact in the preview
+        refuseUnlessPassed(canvas.name, impact, broken, { force: a.force === true, shared: a.shared === true }, true);
+        return canvas;
       },
+      impact: (a) => proposedEdit(a).impact,
     },
   };
   const putOf = (command: string) => {
@@ -1556,7 +1644,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       // an edit whose operations cannot apply: invalid, as a put the schema refuses
       return { command: c.command, valid: false as const, collection: putOf(c.command).collection(c.args), issues: [err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : (err as Error).message] };
     }
-    return { command: c.command, ...diffOf(target.collection, target.object) };
+    const impact = putOf(c.command).impact?.(c.args);
+    return { command: c.command, ...diffOf(target.collection, target.object), ...(impact?.looksAffected.length ? { impact } : {}) };
   };
   /**
    * Puts the objects back as they were before (newest first): the ones created go. A canvas is put back
@@ -1564,6 +1653,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * back what was there a moment ago, and forces.
    */
   const takeBack = async (done: Applied[], ctx: Parameters<Parameters<typeof reg.register>[0]["run"]>[1], force = false) => {
+    // every canvas is checked before the first object goes back: a refusal leaves the proposal whole
+    if (!force) for (const a of done) if (a.collection === "canvases" && a.before !== undefined) checkCanvasPut(venue.canvases.parse(a.before), new Map(), { force: false, shared: false });
     for (const a of [...done].reverse()) {
       const coll = DIFFABLE[a.collection] as Store;
       if (a.before === undefined) coll.delete(a.id);

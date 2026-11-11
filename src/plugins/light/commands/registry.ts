@@ -32,6 +32,8 @@ export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
   schema: S;
   /** Read-only commands do not change state (no frame request, no undo). */
   readOnly?: boolean;
+  /** Whether this call only says what it would do (a dry run): like a read, no frame, no event, no activity line. */
+  dry?(args: z.infer<S>): boolean;
   /** MCP tool profile(s) this command belongs to. */
   profiles?: ("setup" | "design" | "live")[];
   run(args: z.infer<S>, ctx: CommandContext): R | Promise<R>;
@@ -95,10 +97,11 @@ export class CommandRegistry {
       const where = first?.path.length ? `${first.path.join(".")}${say(" : ", ": ")}` : "";
       throw new CommandError("invalid", say(`arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, `invalid arguments for ${name}${first ? ` (${where}${first.message})` : ""}`), parsed.error.flatten());
     }
+    const quiet = Boolean(def.readOnly) || def.dry?.(parsed.data) === true;
     const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}) };
     try {
       const result = await def.run(parsed.data, ctx);
-      if (!def.readOnly) this.onStateChange();
+      if (!quiet) this.onStateChange();
       return result;
     } catch (err) {
       event.ok = false;
@@ -106,7 +109,7 @@ export class CommandRegistry {
       if (err instanceof CommandError) throw err;
       throw new CommandError("failed", event.error);
     } finally {
-      if (!def.readOnly) for (const l of this.listeners) l(event);
+      if (!quiet) for (const l of this.listeners) l(event);
     }
   }
 }

@@ -176,9 +176,113 @@ describe("canvas commands: edit, checked put, versions", () => {
   it("refuses to move cells of a venue shared with other shows unless forced, naming them", async () => {
     await run("show.create", { name: "Concert" }); // shares the venue, and is open: it has no look on the canvas
     const e = await refusal(run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }] }));
-    expect(e.message).to.contain("partagé avec d'autres shows").and.contain("force: true");
+    expect(e.message).to.contain("partagé avec d'autres shows").and.contain("shared: true");
+    // knowing it is shared lets it through, without forcing anything else
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "duplicate", cells: [0] }], shared: true });
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [1] }], shared: true });
     await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "set", name: "Partagé" }] }); // nothing moves: no question
     await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }], force: true });
     expect(canvas().cells).to.equal(7);
+  });
+
+  it("reads a canvas and its revision without a trace, and a dry run publishes nothing either", async () => {
+    const heard: string[] = [];
+    const off = plugin.commands.onCommand((e) => heard.push(e.name));
+    const got = (await run("venue.canvas.get", { id: "qlc" })) as { canvas: { cells: number }; revision: string };
+    const dry = (await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }], dryRun: true })) as Edit;
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [99] }], dryRun: true }).catch(() => undefined);
+    expect(heard).to.deep.equal([]);
+    expect(got.canvas.cells).to.equal(8);
+    expect(dry.revision).to.not.equal(got.revision);
+    expect(((await refusal(run("venue.canvas.get", { id: "nope" }))).detail as { unknown: string }).unknown).to.equal("canvas");
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "set", notes: "x" }] });
+    expect(heard).to.deep.equal(["venue.canvas.edit"]);
+    off();
+  });
+
+  it("adapts all the looks or none: one that no longer passes its checks refuses the edit before the first write", async () => {
+    // a mask read cell by cell, never cut: a cell added would be off in it
+    await run("look.put", { look: { id: "zz-mask", name: "Masque", canvas: "qlc", noCut: true, technique: { kind: "masques", colors: ["#ff0000", "#0000ff"], block: 1, masks: ["########"], floor: 0 } } });
+    const looks = JSON.stringify(plugin.runtime.looks.list());
+    const before = JSON.stringify(canvas());
+    const e = await refusal(run("venue.canvas.edit", { id: "qlc", ops: [{ op: "add", fixtures: ["bar-0"], heads: [0] }], adapt: true }));
+    expect(e.message).to.contain("« Masque » (zz-mask)").and.contain("jamais coupé");
+    expect(JSON.stringify(plugin.runtime.looks.list())).to.equal(looks);
+    expect(JSON.stringify(canvas())).to.equal(before);
+    // a removal keeps it lit: the mask follows its cells with the steps of the others
+    const done = (await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }], adapt: true })) as Edit & { steps: Record<string, { before: unknown; after: unknown }> };
+    expect(done.adapted).to.include("zz-mask");
+    expect(done.steps["zz-mask"]).to.deep.equal({ before: ["########"], after: ["#######"] });
+    const t = plugin.runtime.looks.get("zz-mask")!.technique;
+    expect(t.kind === "masques" && t.masks).to.deep.equal(["#######"]);
+  });
+
+  it("refuses a put that reorders as many cells, naming the looks; their steps given with it are written together or not at all", async () => {
+    const c = canvas();
+    const swapped = { ...c, render: [c.render[1]!, c.render[0]!, ...c.render.slice(2)].map((r, i) => ({ ...r, from: i, to: i })) };
+    const e = await refusal(run("venue.canvas.put", { canvas: swapped }));
+    expect(e.message).to.contain("« ").and.contain("steps").and.not.contain("adapt: true)  ");
+    expect((e.detail as { broken: string[] }).broken.sort()).to.deep.equal(["breath", "checker", "hole", "masks", "palette"]);
+    // one cell aimed elsewhere moves nothing: no question
+    await run("venue.canvas.put", { canvas: { ...c, render: [{ ...c.render[0]!, targets: [{ fixture: "bar-1", head: 3 }] }, ...c.render.slice(1)] } });
+    await run("venue.canvas.put", { canvas: c });
+    const swap = (rows: string[][]) => rows.map((r) => [r[1]!, r[0]!, ...r.slice(2)]);
+    const ids = ["breath", "checker", "hole", "masks", "palette"];
+    const steps = Object.fromEntries(ids.map((i) => [i, swap(rowsOf(i))]));
+    const was = JSON.stringify(plugin.runtime.looks.list());
+    // a row of the wrong width in the last look: nothing is written, not even the first looks
+    const bad = await refusal(run("venue.canvas.put", { canvas: swapped, steps: { ...steps, palette: [["#ff0000"]] } }));
+    expect(bad.message).to.contain("8 colonne(s)");
+    expect(JSON.stringify(plugin.runtime.looks.list())).to.equal(was);
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-0", head: 0 });
+    // some looks left out: still refused, naming those
+    const some = await refusal(run("venue.canvas.put", { canvas: swapped, steps: { checker: steps.checker } }));
+    expect((some.detail as { broken: string[] }).broken).to.not.include("checker");
+    // a look renamed meanwhile keeps its name: only its steps are put
+    await run("look.put", { look: { ...plugin.runtime.looks.get("checker")!, name: "Renommé" } });
+    await run("venue.canvas.put", { canvas: swapped, steps });
+    expect(plugin.runtime.looks.get("checker")!.name).to.equal("Renommé");
+    expect(rowsOf("checker")).to.deep.equal(steps.checker);
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-0", head: 1 });
+  });
+
+  it("refuses a put on a revision that is no longer the canvas's, and never brings a deleted canvas back", async () => {
+    const { canvas: c, revision } = (await run("venue.canvas.get", { id: "qlc" })) as { canvas: Record<string, unknown>; revision: string };
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "set", notes: "ailleurs" }] });
+    expect(((await refusal(run("venue.canvas.put", { canvas: c, revision }))).detail as { stale: boolean }).stale).to.equal(true);
+    await run("venue.canvas.delete", { id: "qlc", force: true });
+    expect(((await refusal(run("venue.canvas.put", { canvas: c, revision }))).detail as { unknown: string }).unknown).to.equal("canvas");
+    expect(plugin.runtime.venue.canvases.get("qlc")).to.equal(undefined);
+  });
+
+  it("says at once what a proposed edit would break; a forced one carries its impact; a dry run is no proposal", async () => {
+    const args = { id: "qlc", ops: [{ op: "move", cells: [7], to: 0 }] };
+    type Proposal = { valid: boolean; id: string; preview: { issues?: string[]; impact?: { looksAffected: { id: string }[] } }[] };
+    const plain = (await run("show.propose", { changes: [{ command: "venue.canvas.edit", args }] })) as Proposal;
+    expect(plain.valid).to.equal(false);
+    expect(plain.preview[0]!.issues![0]).to.contain("ne seraient plus en face");
+    const dry = (await run("show.propose", { changes: [{ command: "venue.canvas.edit", args: { ...args, dryRun: true } }] })) as Proposal;
+    expect(dry.preview[0]!.issues![0]).to.contain("dryRun");
+    const forced = (await run("show.propose", { changes: [{ command: "venue.canvas.edit", args: { ...args, force: true } }] })) as Proposal;
+    expect(forced.valid).to.equal(true);
+    expect(forced.preview[0]!.impact!.looksAffected.map((l) => l.id).sort()).to.deep.equal(["breath", "checker", "hole", "masks", "palette"]);
+  });
+
+  it("takes a proposal back only if every canvas can go back: checked before the first object", async () => {
+    await run("look.put", { look: { id: "zz-other", name: "Avant", canvas: "qlc", technique: { kind: "plat", color: "#ff0000" } } });
+    const p = (await run("show.propose", {
+      changes: [
+        { command: "look.put", args: { look: { id: "zz-other", name: "Après", canvas: "qlc", technique: { kind: "plat", color: "#00ff00" } } } },
+        { command: "venue.canvas.edit", args: { id: "qlc", ops: [{ op: "reverse" }], force: true } },
+      ],
+    })) as { id: string };
+    await run("show.apply", { id: p.id });
+    const e = await refusal(run("show.revert", { id: p.id }));
+    expect(e.message).to.contain("ne seraient plus en face");
+    expect(plugin.runtime.looks.get("zz-other")!.name).to.equal("Après"); // the canvas comes first in the take-back, yet nothing went back
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-1", head: 3 });
+    await run("show.revert", { id: p.id, force: true });
+    expect(plugin.runtime.looks.get("zz-other")!.name).to.equal("Avant");
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-0", head: 0 });
   });
 });
