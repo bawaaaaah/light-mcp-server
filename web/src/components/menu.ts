@@ -30,19 +30,33 @@ export function useFloatingMenu(at: { x: number; y: number }, onClose: () => voi
   });
   // an entry that grows on its own (a heads or wheel editor unfolding, its list arriving) re-renders itself, not the
   // menu: watch the box's size too, and the window's, so the menu is placed again and stays inside the viewport
+  const observer = useRef<ResizeObserver | undefined>(undefined);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
     const measure = () => setSize((s) => (s.width === el.offsetWidth && s.height === el.offsetHeight ? s : { width: el.offsetWidth, height: el.offsetHeight }));
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    observer?.observe(el);
+    const watching = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer.current = watching;
     const resized = () => (measure(), setViewport({ width: window.innerWidth, height: window.innerHeight }));
     window.addEventListener("resize", resized);
     return () => {
-      observer?.disconnect();
+      watching?.disconnect();
+      observer.current = undefined;
       window.removeEventListener("resize", resized);
     };
   }, []);
+  // The observer only reports a size that differs from the last one IT saw, at the end of a frame. The measure after
+  // a render (above) can record a size the observer never saw (an entry shrinking then growing back within one
+  // frame): the box is then back at the observer's last size, nothing is reported, and the menu stays placed for the
+  // smaller size, its bottom outside the window. So each recorded size starts the observation again: observing
+  // always reports once, which checks the recorded size against the box as it really is, and corrects it.
+  useEffect(() => {
+    const el = box.current;
+    const watching = observer.current;
+    if (!el || !watching) return;
+    watching.unobserve(el);
+    watching.observe(el);
+  }, [size.width, size.height]);
   const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
   const flip = above !== undefined && at.y + size.height + 8 > window.innerHeight;
   const top = flip ? Math.max(8, above - size.height) : Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
