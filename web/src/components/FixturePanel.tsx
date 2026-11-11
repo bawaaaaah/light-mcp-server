@@ -46,7 +46,8 @@ interface ModeSet {
   below?: true;
   blackout?: true;
   clamps?: { rule: string; name?: string }[];
-  dca?: string;
+  dcas?: string[];
+  grandMaster?: number;
 }
 
 /**
@@ -235,7 +236,13 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
         // below the range: a blackout, the DCA dosing this fader, or a rule bounding the channel says why
         const below = r.blackout
           ? t.fixtureMode.blackout
-          : [r.dca ? t.fixtureMode.dosedBy.replace("{dca}", r.dca) : "", r.clamps?.length ? t.fixtureMode.boundBy.replace("{rules}", r.clamps.map((x) => quoted(t, x.name ?? x.rule)).join(", ")) : ""].filter(Boolean).join(" ");
+          : [
+              r.dcas?.length === 1 ? t.fixtureMode.dosedBy.replace("{dca}", r.dcas[0]!) : r.dcas?.length ? t.fixtureMode.dosedByMany.replace("{list}", r.dcas.map((d) => quoted(t, d)).join(", ")) : "",
+              r.grandMaster !== undefined ? t.fixtureMode.grandMasterBelow.replace("{n}", String(Math.round(r.grandMaster * 100))) : "",
+              r.clamps?.length ? t.fixtureMode.boundBy.replace("{rules}", r.clamps.map((x) => quoted(t, x.name ?? x.rule)).join(", ")) : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
         setAsked((a) => ({ ...a, [c.offset]: { min: v.min, max: v.max, above: heldBy ? t.fixtureMode.heldBy.replace("{who}", heldBy) : "", below } }));
       })
       .catch((e: Error) => onError(e.message));

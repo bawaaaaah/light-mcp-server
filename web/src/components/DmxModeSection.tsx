@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { ApiError, cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import type { Texts } from "../i18n";
+import { control } from "../ws";
 import { quoted } from "../typography";
 import { ModePicker, type ModeItem } from "./ModePicker";
 
@@ -49,6 +50,11 @@ interface Done {
   detached?: boolean;
 }
 
+/** What a refused undo says was edited since (show.revert `detail.changed`), as people read it: « look « Fumée », appareil « Par » ». */
+export function changedSince(t: Texts, changed: readonly { collection: string; name: string }[]): string {
+  return changed.map((c) => `${t.fixtureMode.kinds[c.collection] ?? c.collection} ${quoted(t, c.name)}`).join(", ");
+}
+
 /** The last change made from a fixture's menu in this page, so that reopening the menu still offers its undo. */
 const lastChange = new Map<string, Done>();
 
@@ -69,10 +75,17 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
   /** Where the focus goes once the next render is on screen (the triggering control is gone by then). */
   const focusNext = useRef<"status" | "current" | null>(null);
   // another show opened, or this one put on another venue: the changes remembered here are no longer to undo
-  useCommandEvents(["show.open", "show.venue.set"], () => {
-    lastChange.clear();
-    setDone(null);
-  });
+  // heard as commands only: a link coming back (a Wi-Fi blip) changes nothing to what can be undone
+  useEffect(
+    () =>
+      control.subscribe("light:command", (d) => {
+        const e = d as { name: string; ok: boolean };
+        if (!e.ok || (e.name !== "show.open" && e.name !== "show.venue.set")) return;
+        lastChange.clear();
+        setDone(null);
+      }),
+    [],
+  );
   // a plan shown below the list is brought into the menu's view once, when it comes
   const planBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -138,11 +151,11 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     setPlan(null);
     setChoice(undefined);
   };
-  const undo = async (force = false): Promise<void> => {
+  const undo = async (overwrite = false): Promise<void> => {
     if (!done?.proposal) return;
     setError("");
     try {
-      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal, ...(force ? { force } : {}) });
+      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal, ...(overwrite ? { overwrite } : {}) });
       lastChange.delete(fixture.id);
       focusNext.current = "status";
       setNote([done.detached ? tm.undoneCopy : tm.undone, r.warnings?.length ? tm.undoWarnings.replace("{list}", r.warnings.join(" ; ")) : ""].filter(Boolean).join(" "));
@@ -150,7 +163,16 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
       onSaved();
     } catch (e) {
       // edited since the change: taken back only on a yes that names what would be lost
-      if (!force && e instanceof ApiError && Array.isArray(e.detail?.changed) && confirm(tm.revertChanged.replace("{list}", (e.detail.changed as string[]).join(", ")))) return undo(true);
+      const detail = e instanceof ApiError ? e.detail : undefined;
+      if (!overwrite && Array.isArray(detail?.changed) && !detail.blockedBy) {
+        if (confirm(tm.revertChanged.replace("{list}", changedSince(t, detail.changed as { collection: string; name: string }[])))) return undo(true);
+        return;
+      }
+      // a later change to undo first is said as the server words it; any other refusal (gone, applied elsewhere): nothing left to undo here
+      if (!detail?.blockedBy) {
+        lastChange.delete(fixture.id);
+        setDone(null);
+      }
       setError((e as Error).message);
     }
   };

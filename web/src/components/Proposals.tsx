@@ -10,6 +10,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
 import { quoted } from "../typography";
+import { changedSince } from "./DmxModeSection";
 
 interface Preview {
   command: string;
@@ -47,10 +48,10 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
   const load = useCallback(() => void cmd<Proposal[]>("show.proposals").then(setList, () => setList([])), []);
   useEffect(load, [load]);
   useCommandEvents(["show.propose", "show.apply", "show.revert", "show.discard"], load);
-  const act = (name: string, id: string, force = false) => {
+  const act = (name: string, id: string, overwrite = false) => {
     setError("");
     setNotice("");
-    void cmd<{ warnings?: string[] }>(name, { id, ...(force ? { force } : {}) }).then(
+    void cmd<{ warnings?: string[] }>(name, { id, ...(overwrite ? { overwrite } : {}) }).then(
       (r) => {
         if (r?.warnings?.length) setNotice(t.fixtureMode.undoWarnings.replace("{list}", r.warnings.join(" ; ")));
         load();
@@ -58,7 +59,11 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
       },
       (e: Error) => {
         // a mode change edited since: taken back only on a yes that names what would be lost
-        if (name === "show.revert" && !force && e instanceof ApiError && Array.isArray(e.detail?.changed) && confirm(t.fixtureMode.revertChanged.replace("{list}", (e.detail.changed as string[]).join(", ")))) return act(name, id, true);
+        const detail = e instanceof ApiError ? e.detail : undefined;
+        if (name === "show.revert" && !overwrite && Array.isArray(detail?.changed) && !detail.blockedBy) {
+          if (confirm(t.fixtureMode.revertChanged.replace("{list}", changedSince(t, detail.changed as { collection: string; name: string }[])))) return act(name, id, true);
+          return;
+        }
         setError(e.message);
       },
     );

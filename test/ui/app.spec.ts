@@ -3128,6 +3128,19 @@ test("venue plan: the panel sets a channel's working mode by name, reads the one
     await api(page, "look.stop", { id: "mode-hold" });
     await expect.poll(program).toBe(23);
     await expect(panel.getByRole("status").filter({ hasText: "Tient le programme" })).toHaveCount(0);
+    // below the mode: the DCA dosing the channel's fader is named, then the rule bounding it
+    await api(page, "group.put", { group: { id: "mode-doseur", name: "Doseur", members: { fixtures: [], groups: [], looks: [] }, master: { level: 0.5, mute: false }, presets: { included: [], excluded: [] } } });
+    const own = ((await api(page, "fader.list")) as { id: string; channels: { fixture: string; offset: number }[] }[]).find((f) => f.channels.length === 1 && f.channels[0]!.fixture === "mode-par" && f.channels[0]!.offset === 4)!;
+    await api(page, "fader.put", { fader: { ...own, dca: "mode-doseur" } });
+    await button.click();
+    await list.getByRole("button", { name: /^Auto 2/ }).click();
+    await expect(panel.getByRole("status").filter({ hasText: "Program" })).toContainText("dosé par le DCA « Doseur »");
+    await api(page, "fader.put", { fader: { ...own, dca: undefined } });
+    await api(page, "rule.put", { where: "show", rule: { id: "mode-cap", name: "Plafond programme", scope: { fixture: "mode-par" }, target: { channel: "Program" }, max: 30 } });
+    await button.click();
+    await list.getByRole("button", { name: /^Auto 2/ }).click();
+    await expect(panel.getByRole("status").filter({ hasText: "Program" })).toContainText("borné par la règle « Plafond programme »");
+    await api(page, "rule.delete", { where: "show", id: "mode-cap" });
     // on a phone the list still opens in view, under its button
     await page.setViewportSize({ width: 400, height: 860 });
     await button.scrollIntoViewIfNeeded();
@@ -3141,7 +3154,9 @@ test("venue plan: the panel sets a channel's working mode by name, reads the one
   } finally {
     await api(page, "look.stop", { id: "mode-hold" });
     await api(page, "look.delete", { id: "mode-hold", force: true });
+    await api(page, "rule.delete", { where: "show", id: "mode-cap" });
     for (const f of (await api(page, "fader.list")) as { id: string; channels: { fixture: string }[] }[]) if (f.channels.some((c) => c.fixture === "mode-par")) await api(page, "fader.delete", { id: f.id, force: true });
+    await api(page, "group.delete", { id: "mode-doseur", force: true });
     await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
   }
   expect(errors).toEqual([]);
@@ -3180,6 +3195,34 @@ test("live: a channel fader on a channel cut into functions shows its ranges whe
     await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
   }
   expect(errors).toEqual([]);
+});
+
+test("show page: undoing a mode change edited since names what was edited and asks first", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: modePar() });
+  const mode = async () => ((await api(page, "venue.fixture.list")) as { id: string; mode: string }[]).find((f) => f.id === "mode-par")?.mode;
+  try {
+    await api(page, "venue.fixture.mode", { id: "mode-par", mode: "8 Channel" });
+    await api(page, "venue.fixture.mark", { id: "mode-par", name: "Par retouché" });
+    await page.locator("nav.pages").getByRole("button", { name: "Show" }).click();
+    // earlier tests left reverted proposals of the same title: the applied one is the newest
+    const row = page.locator("section.proposals .proposal.applied", { hasText: "Mode DMX de Par à modes" }).first();
+    const undo = row.getByRole("button", { name: "↶ Défaire" });
+    await expect(undo).toBeVisible();
+    await expect(row).toBeVisible();
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await undo.click();
+    await expect.poll(() => asked).toContain("appareil « Par retouché »");
+    expect(await mode()).toBe("8 Channel"); // dismissed: nothing undone
+    page.once("dialog", (d) => void d.accept());
+    await undo.click();
+    await expect.poll(mode).toBe("6 Channel");
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("commands/show.revert"))).toEqual([]); // the first undo is refused on purpose
 });
 
 test("venue: the patch table names its columns", async ({ page }) => {
