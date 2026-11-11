@@ -19,6 +19,8 @@ import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPat
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
+import { isBuiltinRule, RESET_WINDOW_MS } from "../rules/reset-protection.js";
+import { TYPE_TAGS } from "../venue/grouping.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
 import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
 import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
@@ -174,6 +176,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const warnings = [
         "error" in r ? r.error : "",
         ...venue.patchProblems(saved.id).map((o) => o.message),
+        ...venue.patchBeyond(saved.id).map((b) => b.message),
         // absence goes by id: a fixture patched again under an absent one's id stays dark, and must be told
         venue.absent.has(saved.id) ? say("absent pour ce show : rien n'est envoyé (venue.fixture.presence pour l'installer)", "absent for this show: nothing is sent (venue.fixture.presence to install it)") : "",
       ].filter(Boolean);
@@ -269,7 +272,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
-    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
+    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, fixtures ending past channel 512 (beyondUniverse: their last channels are never sent), information notes (info: unused gaps between two fixtures, fixtures of one model sharing a name, moving heads or fixtures given a mount or a target zone but no stage position), and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -278,9 +281,68 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const dup = venue.duplicateDefinitions();
       return {
         overlaps: venue.patchProblems(),
+        beyondUniverse: venue.patchBeyond(),
         missingDefinitions: venue.missingDefinitions(),
         duplicateDefinitions: { sameName: dup.sameName.map((g) => ({ ...g, message: sameNameMessage(g) })), sameSignature: dup.sameSignature.map((g) => ({ ...g, message: sameSignatureMessage(g) })) },
+        info: venue.patchNotes(),
       };
+    },
+  });
+  reg.register({
+    name: "fixture.reset",
+    title: "Réinitialiser l'appareil",
+    description: `Resets a fixture on purpose: its Reset channels (ranges tagged reset in its definition) get the start of their Reset range for ${RESET_WINDOW_MS / 1000} s, over the show and the DMX console, the built-in Reset protection lifted for this fixture only; then the protection comes back. A moving head swings and may go dark while it resets: not during a song. Refused for a fixture without a Reset channel.`,
+    right: "show:write",
+    profiles: ["setup"],
+    schema: idSchema,
+    run: ({ id: i }) => {
+      if (!venue.fixtures.get(i)) throw new Error(say(`fixture inconnue : ${i}`, `unknown fixture: ${i}`));
+      if (venue.absent.has(i)) throw new Error(say(`${i} est absent pour ce show : rien ne lui est envoyé`, `${i} is absent for this show: nothing is sent to it`));
+      const { until: _until, ...done } = show.startReset(i);
+      engine.requestFrame();
+      return done;
+    },
+  });
+  reg.register({
+    name: "venue.grouping.propose",
+    title: "Proposer des groupes par type",
+    description: `Proposes, without writing anything, a tag per kind of fixture (${TYPE_TAGS.join(", ")}: read from the definition's type, its pan/tilt and machine outputs) for the fixtures lacking it, and a group per kind of at least two fixtures that no group gathers yet (one selecting exactly that tag, or holding exactly those fixtures). Existing groups and tags are never renamed nor changed. Apply with venue.grouping.apply.`,
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({}),
+    run: () => show.typeGrouping(),
+  });
+  reg.register({
+    name: "venue.grouping.apply",
+    title: "Créer des groupes par type",
+    description:
+      "Applies what venue.grouping.propose proposes, for the kinds chosen only: tags adds each kind's tag to its fixtures lacking it (other tags untouched); groups creates a kind's group, live (selector on the tag: a fixture tagged later joins it; its fixtures get the tag) or fixed (the list of its fixtures today). A kind with nothing proposed is refused. Existing groups are never changed.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: z.object({
+      tags: z.array(z.enum(TYPE_TAGS)).default([]).describe("kinds whose proposed tags are added to their fixtures"),
+      groups: z.array(z.object({ tag: z.enum(TYPE_TAGS), live: z.boolean().default(true).describe("true: follows the tag (updated automatically); false: a fixed list") })).default([]),
+    }),
+    run: ({ tags, groups }) => {
+      const proposal = show.typeGrouping();
+      const unknown = [...new Set([...tags.filter((t) => !proposal.tags.some((p) => p.tag === t)), ...groups.filter((g) => !proposal.groups.some((p) => p.tag === g.tag)).map((g) => g.tag)])];
+      if (unknown.length) throw new Error(say(`rien n'est proposé pour : ${unknown.join(", ")} (venue.grouping.propose)`, `nothing is proposed for: ${unknown.join(", ")} (venue.grouping.propose)`));
+      // a live group gathers by its tag: its fixtures need it, whether asked or not
+      const tagKinds = new Set([...tags, ...groups.filter((g) => g.live).map((g) => g.tag)]);
+      const tagged: { fixture: string; tag: string }[] = [];
+      for (const p of proposal.tags.filter((x) => tagKinds.has(x.tag))) {
+        const f = venue.fixtures.get(p.fixture);
+        if (!f || f.tags.includes(p.tag)) continue;
+        venue.fixtures.put({ ...f, tags: [...f.tags, p.tag] });
+        tagged.push({ fixture: p.fixture, tag: p.tag });
+      }
+      const created = groups.map(({ tag, live }) => {
+        const p = proposal.groups.find((x) => x.tag === tag)!;
+        show.groups.put(GroupSchema.parse({ id: p.id, name: p.name, ...(live ? { selector: { tags: [tag] } } : { members: { fixtures: p.fixtures } }) }));
+        return { id: p.id, name: p.name, tag, live, fixtures: p.fixtures };
+      });
+      return { tagged, created };
     },
   });
   reg.register({
@@ -815,8 +877,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // ---- rules
   const where = z.enum(["venue", "show"]).default("show");
   const rulesOf = (w: "venue" | "show") => (w === "venue" ? show.venueRules : show.rules);
-  reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
-  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => rulesOf(w).put(rule) });
+  /** The engine's own rules (the Reset protection) are neither replaced nor deleted: their ids are reserved. */
+  const notBuiltin = (ruleId: string): true => {
+    if (isBuiltinRule(ruleId)) throw new Error(say(`la règle ${ruleId} est intégrée au moteur : ni modifiable ni supprimable`, `rule ${ruleId} is built into the engine: it can be neither edited nor deleted`));
+    return true;
+  };
+  reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), the engine's built-in ones (builtin: the Reset channel protection, locked, neither deletable nor editable; fixture.reset lifts it for one fixture and a few seconds), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ builtin: show.builtinRules(), venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
+  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => rulesOf(w).put(notBuiltin(rule.id) && rule) });
   reg.register({
     name: "rule.effective",
     title: "Règles en vigueur",
@@ -889,7 +956,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string().nullable() }),
     run: ({ id: i }) => ({ active: (show.selectProgram(i ?? undefined), show.activeProgram ?? null) }),
   });
-  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: rulesOf(w).delete(i) }) });
+  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule.", right: "show:write", profiles: ["setup"], schema: z.object({ where, id: z.string() }), run: ({ where: w, id: i }) => ({ deleted: notBuiltin(i) && rulesOf(w).delete(i) }) });
 
   // ---- dashboards
   const dashboards = show.store.collection("dashboards", DashboardSchema);

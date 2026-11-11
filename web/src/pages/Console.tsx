@@ -23,15 +23,23 @@ interface Explain {
   intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number };
   faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
   rawLooks: { id: string; name: string; leaving?: true }[];
-  clamps: { rule: string; from: number; to: number }[];
+  clamps: { rule: string; name?: string; from: number; to: number }[];
+  /** Its fixture has Reset channels, held at rest by the built-in protection: fixture.reset resets it on purpose. */
+  resettable?: boolean;
 }
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 
 /** Why a channel has its value, one line per cause, as the console's « why » panel says it. */
-function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
+function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void; onError: (message: string) => void }) {
   const t = useT();
   const f = why.fixture;
+  const [resetDone, setResetDone] = useState("");
+  /** A voluntary reset: the built-in protection is lifted for this fixture only, a few seconds. */
+  const reset = (fixture: { id: string; name: string }) => {
+    if (!confirm(t.resetFixtureConfirm.replace("{name}", quoted(t, fixture.name)))) return;
+    void cmd<{ seconds: number }>("fixture.reset", { id: fixture.id }).then((r) => setResetDone(t.resetFixtureDone.replace("{s}", String(r.seconds))), (e: Error) => onError(e.message));
+  };
   return (
     <section className="report why" aria-label={`${t.whyChannel} ${why.channel}`}>
       <div className="row">
@@ -73,10 +81,18 @@ function WhyPanel({ why, onClose }: { why: Explain; onClose: () => void }) {
         ))}
         {why.clamps.map((c, i) => (
           <li key={i} className="warn">
-            {t.whyClamp.replace("{rule}", c.rule).replace("{from}", String(c.from)).replace("{to}", String(c.to))}
+            {t.whyClamp.replace("{rule}", c.name ?? c.rule).replace("{from}", String(c.from)).replace("{to}", String(c.to))}
           </li>
         ))}
       </ul>
+      {f && why.resettable && (
+        <div className="row">
+          <button title={t.resetFixtureHelp} onClick={() => reset(f)}>
+            {t.resetFixture}
+          </button>
+          {resetDone && <span className="hint">{resetDone}</span>}
+        </div>
+      )}
     </section>
   );
 }
@@ -241,7 +257,7 @@ export function ConsolePage(): ReactElement {
         )}
       </section>
       {patch !== null && fixtures.length === 0 && <p className="hint">{t.noPatchHere}</p>}
-      {why && <WhyPanel why={why} onClose={() => setExplained(null)} />}
+      {why && <WhyPanel key={why.channel} why={why} onClose={() => setExplained(null)} onError={setError} />}
       {!why && <p className="hint">{t.whyChannelHelp}</p>}
       {byFixture ? (
         <div className="channels by-fixture">

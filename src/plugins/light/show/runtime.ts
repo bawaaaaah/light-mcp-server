@@ -14,6 +14,8 @@ import { aimAt } from "../venue/aim.js";
 import type { FixtureChannel } from "../venue/qxf-import.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type RawWrite, type Venue, type WeightedColors } from "../venue/venue.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
+import { isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule } from "../rules/reset-protection.js";
+import { proposeTypeGrouping, type TypeGrouping } from "../venue/grouping.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
@@ -101,7 +103,10 @@ export interface ChannelExplanation {
   faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number }[];
   /** Looks writing the channel as a raw channel; `leaving` for one fading out (an exit fade, or under a crossfade): it still counts. */
   rawLooks: { id: string; name: string; leaving?: true }[];
-  clamps: Pick<Clamp, "rule" | "from" | "to">[];
+  /** `name`: the rule's, when it is still in force (the built-in Reset protection's among them). */
+  clamps: (Pick<Clamp, "rule" | "from" | "to"> & { name?: string })[];
+  /** The fixture has Reset channels, held at rest by the built-in rule: `fixture.reset` resets it on purpose. */
+  resettable?: true;
 }
 
 export class ShowRuntime {
@@ -642,13 +647,15 @@ export class ShowRuntime {
       ...[...this.active.values()].filter(({ look }) => writes(look)).map(({ look }) => ({ id: look.id, name: look.name })),
       ...leaving.filter((look) => writes(look) && !this.active.has(look.id)).map((look) => ({ id: look.id, name: look.name, leaving: true as const })),
     ].filter((l, i, all) => all.findIndex((x) => x.id === l.id) === i);
-    const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to }));
+    const ruleNames = new Map(this.rulesInForce().map((x) => [x.id, x.name]));
+    const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to, ...(ruleNames.get(rule) ? { name: ruleNames.get(rule)! } : {}) }));
     return {
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id) },
       faders,
       rawLooks,
       clamps,
+      ...(!("error" in r) && resetChannels(r).length ? { resettable: true as const } : {}),
     };
   }
 
@@ -663,10 +670,44 @@ export class ShowRuntime {
     return level;
   }
 
-  /** Venue and show rules in force now (the active program's included). */
-  /** The rules bounding the output now: those of no program or of the active one; not those for some callers only. */
+  /**
+   * The rules bounding the output now: the engine's built-in ones (the Reset protection), then those
+   * of no program or of the active one; not those for some callers only.
+   */
   rulesInForce(program = this.activeProgram): Rule[] {
-    return rulesInForce([...this.venueRules.list(), ...this.rules.list()], program).filter((r) => !r.appliesTo);
+    return [...this.builtinRules(), ...rulesInForce([...this.venueRules.list(), ...this.rules.list()], program).filter((r) => !r.appliesTo && !isBuiltinRule(r.id))];
+  }
+
+  /** Rules of the engine itself, in force on every venue and show, neither deletable nor editable. */
+  builtinRules(): Rule[] {
+    return [resetProtectionRule()];
+  }
+
+  /** Voluntary resets (`fixture.reset`): fixture id → when the protection of its Reset channels comes back (runtime clock). */
+  private readonly resets = new Map<string, number>();
+
+  /**
+   * Resets a fixture on purpose: for RESET_WINDOW_MS, its Reset channels get the value that triggers
+   * the reset (over the show and the console), the built-in protection lifted for this fixture only;
+   * then the protection comes back. Refused for a fixture without a Reset channel.
+   */
+  startReset(fixtureId: string): { fixture: string; channels: { offset: number; name: string; value: number }[]; until: number; seconds: number } {
+    const r = this.venue.resolve(fixtureId);
+    if ("error" in r) throw new Error(r.error);
+    const channels = resetChannels(r);
+    if (!channels.length) throw new Error(say(`${r.patch.name} n'a pas de canal Reset dans sa définition`, `${r.patch.name} has no Reset channel in its definition`));
+    const until = this.now() + RESET_WINDOW_MS;
+    this.resets.set(fixtureId, until);
+    return { fixture: fixtureId, channels, until, seconds: RESET_WINDOW_MS / 1000 };
+  }
+
+  /** Whether a voluntary reset of this fixture is under way; a closed window is forgotten. */
+  resetting(fixtureId: string, now = this.now()): boolean {
+    const until = this.resets.get(fixtureId);
+    if (until === undefined) return false;
+    if (now < until) return true;
+    this.resets.delete(fixtureId);
+    return false;
   }
 
   /** The rules in force for some callers only (appliesTo) that concern this one. */
@@ -687,6 +728,20 @@ export class ShowRuntime {
   /** The program a MIDI Program Change selects, if any. */
   programFor(channel: number, number: number): RuleProgram | undefined {
     return this.programs.list().find((p) => p.programChange === number && p.channel === channel);
+  }
+
+  /** Tags and groups by kind of fixture to propose (venue/grouping.ts): nothing is written. */
+  typeGrouping(): TypeGrouping {
+    const fixtures = this.venue.fixtures.list().map((f) => {
+      const r = this.venue.resolve(f.id);
+      if ("error" in r) return { id: f.id, name: f.name, tags: f.tags, type: "", moving: false, machine: false, colour: false };
+      const channels = r.mode.channels.map((n) => r.def.channels.get(n));
+      return { id: f.id, name: f.name, tags: f.tags, type: r.def.type, moving: Boolean(r.pan || r.tilt), machine: channels.some((c) => c?.tags.includes("machine")), colour: channels.some((c) => c?.attribute === "color") };
+    });
+    return proposeTypeGrouping(
+      fixtures,
+      this.groups.list().map((g) => ({ id: g.id, name: g.name, fixtures: g.members.fixtures, ...(g.selector ? { selector: g.selector } : {}) })),
+    );
   }
 
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
@@ -959,6 +1014,14 @@ export class ShowRuntime {
    * it may not point into (the lectern), whoever aimed it, while its beam crosses that zone.
    */
   guard(buffers: Uint8Array[]): void {
+    // a voluntary reset sends its value over the show and the console, its fixture's protection lifted (mask)
+    for (const id of [...this.resets.keys()]) {
+      const f = this.venue.fixtures.get(id);
+      const r = this.venue.resolve(id);
+      const buf = f && buffers[f.universe - 1];
+      if (!this.resetting(id) || !f || !buf || "error" in r || this.venue.absent.has(id)) continue;
+      for (const c of resetChannels(r)) if (f.address - 1 + c.offset < buf.length) buf[f.address - 1 + c.offset] = c.value;
+    }
     const rules = this.rulesInForce();
     const locked = rules.filter((r) => r.locked);
     if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
@@ -1021,7 +1084,9 @@ export class ShowRuntime {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
       if ("error" in r || !buf) continue;
-      clamps.push(...applyRules(rules, r, buf, zoneById), ...applyHolds(rules, r, buf, now, this.holdSince, zoneById));
+      // a voluntary reset lifts the built-in protection for its fixture only
+      const own = this.resetting(f.id, now) ? rules.filter((x) => x.id !== RESET_RULE_ID) : rules;
+      clamps.push(...applyRules(own, r, buf, zoneById), ...applyHolds(own, r, buf, now, this.holdSince, zoneById));
     }
     return clamps;
   }

@@ -138,6 +138,8 @@ export interface LightPluginOptions {
   /** Test seams. */
   tickerRateHz?: number;
   midiNative?: null;
+  /** The show runtime's clock (ms): fades, holds and voluntary resets follow it. */
+  now?: () => number;
   /** The serial ports for DMX USB: null, none; a fake one in tests. */
   serial?: SerialBinding | null;
 }
@@ -220,7 +222,7 @@ export class LightPlugin implements McpPlugin {
       new FolderStore(path.join(dataRoot, "venues", this.config.venue), path.join(dataRoot, "backups", "venues", this.config.venue)),
       this.definitionDirs(this.config.venue),
     );
-    this.runtime = new ShowRuntime(this.show, this.venue, this.tempo);
+    this.runtime = new ShowRuntime(this.show, this.venue, this.tempo, opts.now);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());

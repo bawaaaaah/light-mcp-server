@@ -15,6 +15,7 @@ import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEdito
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 import { RecentlyDeleted } from "../components/Versions";
 import { Proposals } from "../components/Proposals";
+import { TypeGroups } from "../components/TypeGroups";
 import { ThemePicker } from "../components/ThemePicker";
 import { themeLabel, themesOf, type KnowledgeMoods } from "../themes";
 
@@ -286,11 +287,14 @@ export function ShowPage(): ReactElement {
       .map(([n, what]) => `${n} ${what}`)
       .join(" · ") || "—";
   /** « ✖ 2 erreurs · ⚠ 4 alertes », or « ✔ Rien à signaler »: a check mark above six warnings misled. */
+  const rank = (level: string) => (level === "erreur" ? 0 : level === "info" ? 2 : 1);
   const lintSummary = (l: Lint) => {
     const errors = l.issues.filter((i) => i.level === "erreur").length;
-    const warnings = l.issues.length - errors;
+    // information notes (a gap in the patch, a proposal): nothing wrong
+    const infos = l.issues.filter((i) => i.level === "info").length;
+    const warnings = l.issues.length - errors - infos;
     if (!l.issues.length) return `✔ ${t.lintClean}`;
-    return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : ""].filter(Boolean).join(" · ");
+    return [errors ? `✖ ${errors} ${t.lintErrors}` : "✔", warnings ? `⚠ ${warnings} ${t.lintWarnings}` : "", infos ? `ℹ ${infos} ${t.lintInfos}` : ""].filter(Boolean).join(" · ");
   };
   const cadence = (l: Look) => ("beats" in l.timing.every && l.timing.every.beats ? `${l.timing.every.beats} ${t.beatsShort}` : `${l.timing.every.seconds} s`);
   /** The folder named in the bar takes the picked looks; bare-handed, it is born empty (show.folder.create). */
@@ -556,13 +560,14 @@ export function ShowPage(): ReactElement {
           </div>
           <ul className="warnings">
             {[...lint.issues]
-              .sort((a, b) => Number(b.level === "erreur") - Number(a.level === "erreur")) /* errors first */
+              .sort((a, b) => rank(a.level) - rank(b.level)) /* errors first, notes last */
               .map((i, k) => (
-                <li key={k} className={i.level === "erreur" ? "error" : ""}>
-                  {i.level === "erreur" ? "✖" : "⚠"} {i.where} : {i.message}
+                <li key={k} className={i.level === "erreur" ? "error" : i.level === "info" ? "hint" : ""}>
+                  {i.level === "erreur" ? "✖" : i.level === "info" ? "ℹ" : "⚠"} {i.where} : {i.message}
                 </li>
               ))}
           </ul>
+          <TypeGroups onError={setError} onApplied={() => void cmd<Lint>("show.lint").then(setLint)} />
         </div>
       )}
 

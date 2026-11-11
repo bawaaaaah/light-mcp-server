@@ -28,6 +28,7 @@ interface Rule {
   forbidTags?: string[];
   locked: boolean;
   program?: string;
+  notes?: string;
 }
 interface Program {
   id: string;
@@ -81,7 +82,8 @@ const toDmx = (p: string) => (p === "" ? undefined : Math.round((Number(p) / 100
 
 export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zones: Named[]; onError: (msg: string) => void }): ReactElement {
   const t = useT();
-  const [rules, setRules] = useState<{ venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
+  // builtin: the engine's own rules (the Reset protection), shown, never deletable
+  const [rules, setRules] = useState<{ builtin?: Rule[]; venue: Rule[]; show: Rule[]; clamps: { fixture: string; channel: string; from: number; to: number; rule: string }[] }>({ venue: [], show: [], clamps: [] });
   const [draft, setDraft] = useState({ name: "", level: "show" as Rule["level"], scope: "all", scopeValue: "", target: "intensity", channel: "", min: "", max: "", maxHz: "", holdAbove: "", holdSeconds: "", maxDeg: "", steady: "", allow: [] as string[], onViolation: "clamp", forOrigins: [] as string[], forRoles: [] as string[], forbid: [] as string[], locked: false, program: "" });
   const [programs, setPrograms] = useState<{ active: string | null; programs: Program[] }>({ active: null, programs: [] });
   const [roles, setRoles] = useState<{ id: string; name: string }[]>(BUILT_IN_ROLES);
@@ -109,6 +111,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
 
   const models = [...new Set(fixtures.map((f) => f.model).filter((m): m is string => Boolean(m)))];
   const all = [...rules.venue.map((r) => ({ ...r, where: "venue" as const })), ...rules.show.map((r) => ({ ...r, where: "show" as const }))];
+  const listed = [...(rules.builtin ?? []).map((r) => ({ ...r, where: "builtin" as const })), ...all];
   const scopeText = (r: Rule) => (r.scope.fixture ? fixtures.find((f) => f.id === r.scope.fixture)?.name ?? r.scope.fixture : r.scope.zone ? `${t.zone} ${zones.find((z) => z.id === r.scope.zone)?.name ?? r.scope.zone}` : r.scope.model ? r.scope.model : t.everything);
   const targetText = (r: Rule) => {
     if (r.target.channel) return r.target.channel;
@@ -217,8 +220,8 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       <h3>{t.rulesList}</h3>
       <table className="rules">
         <tbody>
-          {all.map((r) => (
-            <tr key={`${r.where}-${r.id}`}>
+          {listed.map((r) => (
+            <tr key={`${r.where}-${r.id}`} title={r.where === "builtin" ? r.notes : undefined}>
               <td>
                 {r.name || r.id} {r.locked && <span className="badge conflict">{t.locked}</span>} {r.program && <span className="badge standby">{programs.programs.find((p) => p.id === r.program)?.name ?? r.program}</span>}
               </td>
@@ -244,9 +247,13 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
                 {r.forbidTags?.length ? `${t.forbidden}${t.colon} ${r.forbidTags.map((x) => t.ruleTags[x as keyof typeof t.ruleTags] ?? x).join(", ")}` : ""}
               </td>
               <td>
-                <button className="ghost" aria-label={`${t.delete} ${r.name || r.id}`} onClick={() => void cmd("rule.delete", { where: r.where, id: r.id }).catch((e: Error) => onError(e.message))}>
-                  ✕
-                </button>
+                {r.where === "builtin" ? (
+                  <span className="badge">{t.builtinRule}</span>
+                ) : (
+                  <button className="ghost" aria-label={`${t.delete} ${r.name || r.id}`} onClick={() => void cmd("rule.delete", { where: r.where, id: r.id }).catch((e: Error) => onError(e.message))}>
+                    ✕
+                  </button>
+                )}
               </td>
             </tr>
           ))}

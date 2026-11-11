@@ -17,6 +17,7 @@ import type { Timing } from "../engine/player.js";
 import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
+import { groupingMessage } from "../venue/grouping.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { say } from "../../../core/lang.js";
 
@@ -108,15 +109,17 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
     schema: z.object({}),
     run: () => {
-      const issues: { level: "erreur" | "attention"; where: string; message: string }[] = [];
+      const issues: { level: "erreur" | "attention" | "info"; where: string; message: string }[] = [];
       const err = (where: string, message: string) => issues.push({ level: "erreur", where, message });
       const warn = (where: string, message: string) => issues.push({ level: "attention", where, message });
+      // worth knowing, nothing wrong: a gap kept on purpose, a proposal
+      const note = (where: string, message: string) => issues.push({ level: "info", where, message });
       for (const l of runtime.looks.list()) {
         if (!runtime.venue.canvases.get(l.canvas)) err(`look ${l.id}`, say(`canevas inconnu ${l.canvas}`, `unknown canvas ${l.canvas}`));
         if (l.palette && !runtime.palettes.get(l.palette)) err(`look ${l.id}`, say(`palette inconnue ${l.palette}`, `unknown palette ${l.palette}`));
@@ -158,6 +161,13 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         }
       };
       for (const o of runtime.venue.patchProblems()) warn(say(`projecteur ${o.b}`, `fixture ${o.b}`), say(`${o.message} : deux projecteurs écrivent les mêmes canaux`, `${o.message}: two fixtures write the same channels`));
+      for (const b of runtime.venue.patchBeyond()) warn(say(`projecteur ${b.id}`, `fixture ${b.id}`), b.message);
+      const notes = runtime.venue.patchNotes();
+      for (const g of notes.gaps) note(say(`univers ${g.universe}`, `universe ${g.universe}`), g.message);
+      for (const s of notes.sameNames) note(say(`projecteur ${s.ids.join(", ")}`, `fixture ${s.ids.join(", ")}`), s.message);
+      for (const p of notes.noPosition) note(say(`projecteur ${p.id}`, `fixture ${p.id}`), p.message);
+      const grouping = runtime.typeGrouping();
+      if (grouping.tags.length || grouping.groups.length) note(say("groupes par type", "type groups"), groupingMessage(grouping));
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
       // nobody would know why. Rules that always apply (no program); each written value is tried.
       const zones = runtime.zones.list();

@@ -16,7 +16,22 @@ import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { findDuplicateDefinitions, type DuplicateReport } from "./definition-duplicates.js";
-import { patchOverlaps, overlapMessage, type PatchedRange } from "./patch-check.js";
+import {
+  beyondMessage,
+  gapMessage,
+  missingPositions,
+  noPositionMessage,
+  overlapMessage,
+  patchBeyondUniverse,
+  patchGaps,
+  patchOverlaps,
+  sameModelNameMessage,
+  sameModelSameName,
+  type PatchBeyond,
+  type PatchedLook,
+  type PatchedRange,
+  type PatchGap,
+} from "./patch-check.js";
 import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
@@ -465,6 +480,36 @@ export class Venue {
   /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
   overridesOf(patch: PatchedFixture): FixtureOverrides {
     return mergeOverrides(this.models.get(modelKey(patch.manufacturer, patch.model))?.overrides, patch.overrides);
+  }
+
+  /** Fixtures ending past channel 512 (their last channels are dropped), said as people read it. */
+  patchBeyond(onlyFor?: string): (PatchBeyond & { message: string })[] {
+    const name = (id: string) => this.fixtures.get(id)?.name ?? id;
+    return patchBeyondUniverse(this.patchRanges())
+      .filter((b) => !onlyFor || b.id === onlyFor)
+      .map((b) => ({ ...b, message: beyondMessage(b, name) }));
+  }
+
+  /**
+   * The patch's information notes (docs/specs/venue-fixtures-stage.md, « Patch »): unused gaps
+   * between fixtures, fixtures of one model sharing a name, moving heads or placed fixtures without
+   * a stage position. Installed fixtures only, as the overlap check.
+   */
+  patchNotes(): {
+    gaps: (PatchGap & { message: string })[];
+    sameNames: { model: string; name: string; ids: string[]; message: string }[];
+    noPosition: { id: string; moving: boolean; message: string }[];
+  } {
+    const name = (id: string) => this.fixtures.get(id)?.name ?? id;
+    const looks: PatchedLook[] = this.installed().map((f) => {
+      const r = this.resolve(f.id);
+      return { id: f.id, name: f.name, model: `${f.manufacturer} ${f.model}`, moving: !("error" in r) && Boolean(r.pan || r.tilt), hasPosition: Boolean(f.position), placed: Boolean(f.mount || f.target) };
+    });
+    return {
+      gaps: patchGaps(this.patchRanges()).map((g) => ({ ...g, message: gapMessage(g, name) })),
+      sameNames: sameModelSameName(looks).map((s) => ({ ...s, message: sameModelNameMessage(s) })),
+      noPosition: missingPositions(looks).map((p) => ({ ...p, message: noPositionMessage(p, name) })),
+    };
   }
 
   /** Duplicate definitions of the library: one model in several files, one structure under two names. */

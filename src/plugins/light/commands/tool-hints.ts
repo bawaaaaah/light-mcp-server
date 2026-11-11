@@ -53,6 +53,7 @@ export const HINTS: Record<string, string> = {
   "fader.level": "I",
   "fader.put": "I",
   "fixture.definition.add": "DI",
+  "fixture.reset": "",
   "grandmaster.set": "I",
   "group.delete": "DI",
   "group.flash": "I",
@@ -142,6 +143,7 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.orient": "",
   "venue.fixture.presence": "I",
   "venue.fixture.put": "DI",
+  "venue.grouping.apply": "I",
   "venue.positions.import": "DI",
   // read-only commands that look at the network, the hardware or another program
   "ableset.status": "O",

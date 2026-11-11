@@ -2177,6 +2177,36 @@ test("show check: a summary first, errors before warnings, and it closes", async
   expect(errors).toEqual([]);
 });
 
+// ---- show check: information notes and type groups on proposal (T22)
+test("show check: notes come last, and a type group is created only on a click, fixed or live", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  for (const [id, address] of [["head-a", 200], ["head-b", 300]] as const) await api(page, "venue.fixture.put", { fixture: { id, name: id, manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.getByRole("button", { name: "Vérifier le show" }).click();
+    const report = page.locator(".lint-report");
+    await expect(report.locator("strong")).toContainText(/ℹ \d+ information\(s\)/);
+    await expect(report.locator("li.hint", { hasText: "sans position sur la scène" }).first()).toBeVisible();
+    const proposal = report.getByRole("region", { name: "Groupes par type proposés" });
+    const lyres = proposal.locator("li", { hasText: "Lyres" });
+    await expect(lyres).toContainText("3 projecteur(s)");
+    expect(((await api(page, "group.list")) as { id: string }[]).some((g) => g.id === "type-lyre")).toBe(false); // nothing written yet
+    const live = lyres.getByLabel("mettre à jour automatiquement");
+    await expect(live).toBeChecked(); // a live group by tag unless unticked
+    await live.uncheck();
+    await lyres.getByRole("button", { name: "Créer le groupe" }).click();
+    await expect(proposal.locator("li", { hasText: "Lyres" })).toHaveCount(0); // gathered now: no longer proposed
+    const group = ((await api(page, "group.list")) as { id: string; selector?: unknown; members: { fixtures: string[] } }[]).find((g) => g.id === "type-lyre")!;
+    expect(group.selector).toBeUndefined();
+    expect(group.members.fixtures.sort()).toEqual(["head-a", "head-b", "spot"]);
+  } finally {
+    await api(page, "group.delete", { id: "type-lyre", force: true });
+    for (const id of ["head-a", "head-b"]) await api(page, "venue.fixture.delete", { id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: the patch reads by address, and fixtures sharing channels are flagged", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -2564,6 +2594,34 @@ test("DMX console: shows live values and parks a channel", async ({ page }) => {
   await page.getByRole("radio", { name: "Les 512 canaux" }).click();
   await expect(page.locator(".ch")).toHaveCount(512);
   await page.getByRole("radio", { name: "Canaux patchés" }).click(); // the choice is remembered: leave the default
+  expect(errors).toEqual([]);
+});
+
+// ---- DMX console: the built-in Reset protection and a voluntary reset (T22)
+test("DMX console: a Reset channel stays at rest, says why, and « Réinitialiser l'appareil » resets that fixture", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Reset Head</Model><Type>Moving Head</Type><Channel Name="Pan" Preset="PositionPan"/><Channel Name="Tilt" Preset="PositionTilt"/><Channel Name="Dimmer" Preset="IntensityDimmer"/><Channel Name="Control"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="199">No function</Capability><Capability Min="200" Max="255">Reset</Capability></Channel><Mode Name="4 Channel"><Channel Number="0">Pan</Channel><Channel Number="1">Tilt</Channel><Channel Number="2">Dimmer</Channel><Channel Number="3">Control</Channel></Mode></FixtureDefinition>`;
+  await api(page, "fixture.definition.add", { name: "test-reset-head.qxf", xml, replace: true });
+  await api(page, "venue.fixture.put", { fixture: { id: "reset-head", name: "Tête reset", manufacturer: "Test", model: "Reset Head", mode: "4 Channel", universe: 1, address: 100 } });
+  await api(page, "dmx.set", { universe: 1, channel: 103, value: 250 }); // forced into its Reset range
+  try {
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    const head = page.getByRole("region", { name: "Tête reset" });
+    await expect(head.locator(".ch").nth(3).locator(".val")).toHaveText("199"); // held just under the Reset range
+    await head.getByRole("button", { name: "Pourquoi ce canal 103" }).click();
+    const why = page.getByRole("region", { name: "Pourquoi ce canal 103" });
+    await expect(why).toContainText("Protection du canal Reset (intégrée)");
+    await expect(why).toContainText("250 → 199");
+    page.once("dialog", (d) => void d.accept());
+    await why.getByRole("button", { name: "Réinitialiser l'appareil" }).click();
+    await expect(why).toContainText("Reset envoyé pendant 3 s");
+    await expect(why).toContainText("U1.103 = 200", { timeout: 3000 }); // the start of its Reset range, for a few seconds
+    await expect(why).toContainText("U1.103 = 199", { timeout: 8000 }); // then protected again
+  } finally {
+    await api(page, "dmx.release", {});
+    await api(page, "venue.fixture.delete", { id: "reset-head" });
+  }
   expect(errors).toEqual([]);
 });
 
