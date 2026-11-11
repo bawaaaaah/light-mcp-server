@@ -149,7 +149,10 @@ export function ShowPage(): ReactElement {
       .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot.", "intention.", "song.put", "song.delete"], refresh);
+  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot."], refresh);
+  // the intentions and what uses them: the knowledge base alone is read again (T15)
+  const refreshKnowledge = useCallback(() => void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
+  useCommandEvents(["intention.put", "intention.delete", "song.put", "song.delete"], refreshKnowledge);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const themes = useMemo(() => themesOf(knowledge), [knowledge]);
@@ -663,7 +666,7 @@ export function ShowPage(): ReactElement {
         )}
       </section>
 
-      <IntentionsManager kb={knowledge} onChanged={refresh} onError={setError} />
+      <IntentionsManager kb={knowledge} onError={setError} />
 
       {editing && (
         <Modal label={editing.name || t.newLook}>

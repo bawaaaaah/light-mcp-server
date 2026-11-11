@@ -173,7 +173,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
             throw new CommandError(
               "invalid",
               say(`« ${name} » sert encore dans d'autres shows de cette machine (${others.join(", ")}) : la supprimer de la bibliothèque la leur retire aussi. La supprimer quand même : force: true`, `“${name}” still serves other shows of this machine (${others.join(", ")}): deleting it from the library takes it from them too. Delete it anyway: force: true`),
-              { otherShows: others, force: true },
+              { otherShows: others, force: true, reason: say(`« ${name} » sert encore dans d'autres shows de cette machine : ${others.join(", ")}`, `“${name}” still serves other shows of this machine: ${others.join(", ")}`) },
             );
         }
         remove(entry.origin === "show" ? intentions.show : intentions.personal);

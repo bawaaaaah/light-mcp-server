@@ -3,16 +3,16 @@
  * couleur »): every intention known to the show with its colours, energy, family, origin (shipped,
  * private file, personal library, this show) and uses; a new one is stored in the show or in the
  * personal library, chosen in the editor; a shipped one is touched up or hidden for the show, a
- * personal one copied into the show so that it travels with its backups. Everything goes through
- * the commands (`intention.put`, `intention.delete`, `intention.preview`); the list is the one the
- * page already reads (`knowledge.get`) and comes back through `onChanged`.
+ * personal one copied into the show. Everything goes through the commands (`intention.put`,
+ * `intention.delete`, `intention.preview`); the list is the one the page reads (`knowledge.get`), read
+ * again by the page when a command changes it.
  */
-import { useEffect, useId, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import type { Texts } from "../i18n";
-import { quoted, beforeMark } from "../typography";
 import { Modal } from "./Modal";
+import { confirmDelete } from "./confirmDelete";
 import {
   actionsOf,
   addColor,
@@ -20,48 +20,48 @@ import {
   draftProblems,
   ENERGIES,
   familiesOf,
+  fill,
   intentionKey,
   intentionsOf,
   MAX_COLORS,
   moveColor,
   newDraft,
   normalizeHex,
+  plural,
   putArgs,
   removeColor,
+  replacedBy,
   searchIntentions,
   takenIn,
   type IntentionDraft,
+  type IntentionOrigin,
   type IntentionRow,
   type KnowledgeIntentions,
   type RowAction,
 } from "../intentions";
 
-const fill = (text: string, values: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (m, k: string) => String(values[k] ?? m));
-
-export function IntentionsManager({ kb, onChanged, onError }: { kb: KnowledgeIntentions | null; onChanged: () => void; onError: (message: string) => void }): ReactElement {
+export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | null; onError: (message: string) => void }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<IntentionDraft | null>(null);
   const list = useMemo(() => intentionsOf(kb), [kb]);
-  const origin = (o: string) => t.intentionOrigins[o] ?? o;
+  const origin = (o: IntentionOrigin) => t.intentionOrigins[o];
   const shown = searchIntentions(list, query, origin);
-  const run = (name: string, args: unknown) =>
-    cmd(name, args)
-      .then(onChanged)
-      .catch((e: Error) => onError(e.message));
+  const fail = (e: Error) => onError(e.message);
 
   const act = (row: IntentionRow, action: RowAction) => {
     const name = row.label;
-    // what would leave songs or looks naming an unknown intention: say where first, force on the yes
-    const askUses = (plain: string) => (row.usedBy.length ? confirm(`${quoted(t, name)} ${t.usedBy}\n\n• ${row.usedBy.join("\n• ")}\n\n${t.deleteAnyway}`) : confirm(plain));
     if (action === "edit" || action === "touchUp") return setDraft(draftOf(row));
-    if (action === "copyToShow") return void run("intention.put", putArgs({ ...draftOf(row), scope: "show" }));
-    if (action === "restore") return void run("intention.delete", { id: row.key });
-    if (action === "revert") return confirm(fill(t.intentionRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void run("intention.delete", { id: row.key });
-    if (action === "hide") return askUses(fill(t.intentionHideAsk, { name })) && void run("intention.delete", { id: row.key, force: row.usedBy.length > 0 });
-    const question = row.origin === "personal" ? fill(t.intentionDeletePersonal, { name }) : `${t.delete} ${quoted(t, name)}${beforeMark(t)}?`;
-    return askUses(question) && void run("intention.delete", { id: row.key, force: row.usedBy.length > 0 });
+    if (action === "copyToShow") return void cmd("intention.put", putArgs({ ...draftOf(row), scope: "show" })).catch(fail);
+    if (action === "restore") return void cmd("intention.delete", { id: row.key }).catch(fail);
+    if (action === "revert") return confirm(fill(t.intentionRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void cmd("intention.delete", { id: row.key }).catch(fail);
+    // what would leave songs or looks naming an unknown intention: the uses read now, said first, forced on the yes
+    const words =
+      action === "hide"
+        ? { plain: fill(t.intentionHideAsk, { name, origin: origin(row.origin) }), usedBy: t.intentionUsedBy, anyway: t.intentionHideAnyway }
+        : { plain: fill(row.origin === "personal" ? t.intentionDeletePersonal : t.intentionDeleteShow, { name }), usedBy: t.intentionUsedBy, anyway: t.intentionDeleteAnyway, forced: t.intentionOthersAnyway };
+    void confirmDelete("intention", row.key, name, t, undefined, words).catch(fail);
   };
 
   const label = (action: RowAction): string =>
@@ -71,56 +71,58 @@ export function IntentionsManager({ kb, onChanged, onError }: { kb: KnowledgeInt
     <section className="intentions" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`}>{t.intentions}</h2>
       <p className="hint">{t.intentionsHelp}</p>
-      <div className="row">
+      <div className="row intentions-bar">
         <input type="search" aria-label={t.intentionSearch} placeholder={t.intentionSearch} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="primary" onClick={() => setDraft(newDraft())}>
           {t.intentionNew}
         </button>
       </div>
-      {shown.length === 0 && <p className="hint">{t.noMatch}</p>}
-      <ul className="intention-list" aria-label={t.intentionList}>
-        {shown.map((row) => (
-          <li key={`${row.key}${row.hidden ? "-hidden" : ""}`} className={row.hidden ? "hidden-intention" : ""}>
-            <span className="intention-swatches" aria-hidden="true">
-              {row.colors.map((c, k) => (
-                <i key={k} style={{ background: c }} />
-              ))}
-            </span>
-            <span className="intention-name">
-              <strong>{row.label}</strong>{" "}
-              <small className="hint">
-                {t.energies[row.energy]}
-                {row.family ? ` · ${row.family}` : ""}
-              </small>
-            </span>
-            <span className={`badge origin-${row.origin}`}>{origin(row.origin)}</span>
-            {row.over && !row.hidden && <small className="hint">{fill(t.intentionOver, { origin: origin(row.over) })}</small>}
-            {row.hidden && <small className="warn">{t.intentionHidden}</small>}
-            <small className="hint" title={row.usedBy.join("\n")}>
-              {row.usedBy.length ? fill(t.intentionUses, { n: row.usedBy.length }) : t.intentionNotUsed}
-            </small>
-            <span className="row intention-actions">
-              {actionsOf(row).map((a) => (
-                <button key={a} className={a === "delete" || a === "hide" ? "ghost" : ""} aria-label={`${label(a)} · ${row.label}`} title={a === "copyToShow" ? t.intentionCopyHelp : undefined} onClick={() => act(row, a)}>
-                  {label(a)}
-                </button>
-              ))}
-            </span>
-          </li>
-        ))}
-      </ul>
-      {draft && (
-        <IntentionEditor
-          initial={draft}
-          list={list}
-          t={t}
-          onClose={() => setDraft(null)}
-          onSaved={() => {
-            setDraft(null);
-            onChanged();
-          }}
-        />
+      {/* nothing said while the list is not there yet (loading, or the read failed: the page says why) */}
+      {kb && list.length > 0 && shown.length === 0 && <p className="hint">{t.noMatch}</p>}
+      {shown.length > 0 && (
+        <ul className="intention-list" aria-label={t.intentionList}>
+          {shown.map((row) => (
+            <li key={`${row.key}${row.hidden ? "-hidden" : ""}`} className={row.hidden ? "hidden-intention" : ""}>
+              <span className="intention-swatches" aria-hidden="true">
+                {row.colors.map((c, k) => (
+                  <i key={k} style={{ background: c }} />
+                ))}
+              </span>
+              <span className="intention-name">
+                <strong>{row.label}</strong>{" "}
+                <small className="hint">
+                  {t.energies[row.energy]}
+                  {row.family ? ` · ${row.family}` : ""}
+                </small>
+              </span>
+              {/* a mask keeps saying what it hides: « livrée · masquée dans ce show » */}
+              <span className={`badge origin-${row.hidden ? (row.over ?? "generic") : row.origin}`}>{origin(row.hidden ? (row.over ?? "generic") : row.origin)}</span>
+              {row.over && !row.hidden && <small className="hint">{fill(t.intentionOver, { origin: origin(row.over) })}</small>}
+              {row.hidden && <small className="warn">{t.intentionHidden}</small>}
+              {row.usedBy.length ? (
+                <details className="intention-uses">
+                  <summary>{plural(row.usedBy.length, t.intentionUse, t.intentionUses)}</summary>
+                  <ul>
+                    {row.usedBy.map((u) => (
+                      <li key={u}>{u}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : (
+                <small className="hint">{t.intentionNotUsed}</small>
+              )}
+              <span className="row intention-actions">
+                {actionsOf(row).map((a) => (
+                  <button key={a} className={a === "delete" || a === "hide" ? "ghost" : ""} aria-label={`${label(a)} · ${row.label}`} title={a === "copyToShow" ? t.intentionCopyHelp : undefined} onClick={() => act(row, a)}>
+                    {label(a)}
+                  </button>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
+      {draft && <IntentionEditor initial={draft} list={list} t={t} onClose={() => setDraft(null)} />}
     </section>
   );
 }
@@ -128,88 +130,128 @@ export function IntentionsManager({ kb, onChanged, onError }: { kb: KnowledgeInt
 interface Preview {
   explanation: string[];
   contrast?: number;
+  lowContrast?: boolean;
 }
 
-function IntentionEditor({ initial, list, t, onClose, onSaved }: { initial: IntentionDraft; list: IntentionRow[]; t: Texts; onClose: () => void; onSaved: () => void }): ReactElement {
+/** A colour of the draft with a stable id: its row keeps its key (and the focus) when it moves. */
+interface Swatch {
+  id: number;
+  color: string;
+  /** What is typed in its hexadecimal field (may be half typed). */
+  text: string;
+}
+
+function IntentionEditor({ initial, list, t, onClose }: { initial: IntentionDraft; list: IntentionRow[]; t: Texts; onClose: () => void }): ReactElement {
   const id = useId();
-  const [d, setD] = useState(initial);
-  const [hex, setHex] = useState<string[]>(initial.colors);
+  const next = useRef(0);
+  const swatch = (color: string): Swatch => ({ id: next.current++, color, text: color });
+  const [d, setD] = useState<Omit<IntentionDraft, "colors">>(initial);
+  const [swatches, setSwatches] = useState<Swatch[]>(() => initial.colors.map(swatch));
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const problems = draftProblems(d, takenIn(list));
+  /** The colour to give the focus to after a move: its id, and which of its buttons. */
+  const focusAfter = useRef<{ id: number; by: -1 | 1 } | null>(null);
+  const draft: IntentionDraft = { ...d, colors: swatches.map((s) => s.color) };
+  const problems = draftProblems(draft, takenIn(list));
   const families = useMemo(() => familiesOf(list), [list]);
   const key = d.id ?? intentionKey(d.label);
   const creating = d.id === undefined;
+  const changed = JSON.stringify(putArgs(draft)) !== JSON.stringify(putArgs(initial));
   const shadowed = d.scope === "personal" && list.some((r) => r.key === key && r.origin === "show" && !r.hidden);
+  const replaced = replacedBy(draft, list);
   const set = (patch: Partial<IntentionDraft>) => setD((x) => ({ ...x, ...patch }));
-  const setColors = (colors: string[]) => {
-    set({ colors });
-    setHex(colors);
-  };
+  const title = creating ? t.intentionNewTitle : initial.label || key;
 
-  // the proposal these settings would give, refreshed as they change (debounced)
-  const previewArgs = JSON.stringify(putArgs(d).intention);
+  // the proposal these settings would give, refreshed as they change (debounced; a late answer is dropped; notes play no part)
+  const { notes: _notes, ...shape } = putArgs(draft).intention;
+  const previewArgs = JSON.stringify(shape);
   const valid = !problems.includes("colors");
   useEffect(() => {
     if (!valid) return setPreview(null);
+    let current = true;
     const timer = setTimeout(() => {
       void cmd<Preview>("intention.preview", { intention: JSON.parse(previewArgs) as unknown })
-        .then(setPreview)
-        .catch(() => setPreview(null));
+        .then((p) => current && setPreview(p))
+        .catch(() => current && setPreview(null));
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
   }, [previewArgs, valid]);
 
-  const save = () =>
-    void cmd("intention.put", putArgs(d))
-      .then(onSaved)
-      .catch((e: Error) => setError(e.message));
+  useEffect(() => {
+    const f = focusAfter.current;
+    if (!f) return;
+    focusAfter.current = null;
+    // the moved colour's same button, or the other one when it reached an end
+    const row = document.getElementById(`${id}-c${f.id}`);
+    const button = row?.querySelector<HTMLButtonElement>(`button[data-move="${f.by}"]:not(:disabled)`) ?? row?.querySelector<HTMLButtonElement>("button[data-move]:not(:disabled)");
+    button?.focus();
+  }, [swatches, id]);
+
+  const save = () => {
+    setSaving(true);
+    void cmd("intention.put", putArgs(draft))
+      .then(onClose)
+      .catch((e: Error) => {
+        setError(e.message);
+        setSaving(false);
+      });
+  };
+  const move = (k: number, by: -1 | 1) => {
+    focusAfter.current = { id: swatches[k]!.id, by };
+    setSwatches((s) => moveColor(s, k, by));
+  };
+  const setColor = (k: number, patch: Partial<Swatch>) => setSwatches((s) => s.map((x, j) => (j === k ? { ...x, ...patch } : x)));
 
   return (
-    <Modal label={creating ? t.intentionNew : initial.label || key}>
+    // unchanged, Escape or a press beside it closes it (nothing to lose); once changed, only its buttons do
+    <Modal label={title} onClose={changed ? undefined : onClose}>
       <div className="intention-editor">
-        <h3>{creating ? t.intentionNew : initial.label || key}</h3>
+        <h3>{title}</h3>
         <label>
           {t.intentionLabel}
-          <input value={d.label} onChange={(e) => set({ label: e.target.value })} aria-invalid={problems.includes("label") || problems.includes("taken")} />
+          <input value={d.label} maxLength={120} onChange={(e) => set({ label: e.target.value })} aria-invalid={problems.includes("label") || problems.includes("taken") || problems.includes("long")} />
         </label>
-        {key && <small className="hint">{t.intentionKey.replace("{key}", key)}</small>}
+        {key && <small className="hint">{fill(t.intentionKey, { key })}</small>}
         {problems.includes("label") && d.label.trim() !== "" && <small className="warn">{t.intentionNoLabel}</small>}
+        {problems.includes("long") && <small className="warn">{t.intentionTooLong}</small>}
         {problems.includes("taken") && <small className="warn">{t.intentionTaken}</small>}
+        {replaced && !problems.includes("taken") && (
+          <small className="hint">{fill(t.intentionReplaces, { origin: t.intentionOrigins[replaced.hidden ? (replaced.over ?? "generic") : replaced.origin], name: replaced.label, where: d.scope === "show" ? t.intentionReplacesShow : t.intentionReplacesPersonal })}</small>
+        )}
         <fieldset>
           <legend>{t.intentionColors}</legend>
           <ol className="intention-colors">
-            {d.colors.map((c, k) => {
+            {swatches.map((c, k) => {
               const n = k + 1;
               return (
-                <li key={k} className="row">
-                  <input type="color" aria-label={t.intentionColor.replace("{n}", String(n))} value={normalizeHex(c) ?? "#000000"} onChange={(e) => setColors(d.colors.map((x, j) => (j === k ? e.target.value : x)))} />
+                <li key={c.id} id={`${id}-c${c.id}`} className="row">
+                  <input type="color" aria-label={fill(t.intentionColor, { n })} value={normalizeHex(c.color) ?? "#000000"} onChange={(e) => setColor(k, { color: e.target.value, text: e.target.value })} />
                   <input
                     className="hex"
-                    aria-label={t.intentionColorHex.replace("{n}", String(n))}
-                    value={hex[k] ?? c}
-                    aria-invalid={!normalizeHex(hex[k] ?? c)}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      setHex((h) => h.map((x, j) => (j === k ? text : x)));
-                      set({ colors: d.colors.map((x, j) => (j === k ? (normalizeHex(text) ?? text) : x)) });
-                    }}
-                    onBlur={() => setHex(d.colors)}
+                    aria-label={fill(t.intentionColorHex, { n })}
+                    value={c.text}
+                    aria-invalid={!normalizeHex(c.text)}
+                    onChange={(e) => setColor(k, { text: e.target.value, color: normalizeHex(e.target.value) ?? e.target.value })}
+                    onBlur={() => setColor(k, { text: normalizeHex(c.text) ?? c.text })}
                   />
-                  <button type="button" aria-label={t.intentionColorUp.replace("{n}", String(n))} disabled={k === 0} onClick={() => setColors(moveColor(d.colors, k, -1))}>
+                  <button type="button" data-move="-1" aria-label={fill(t.intentionColorUp, { n })} disabled={k === 0} onClick={() => move(k, -1)}>
                     ↑
                   </button>
-                  <button type="button" aria-label={t.intentionColorDown.replace("{n}", String(n))} disabled={k === d.colors.length - 1} onClick={() => setColors(moveColor(d.colors, k, 1))}>
+                  <button type="button" data-move="1" aria-label={fill(t.intentionColorDown, { n })} disabled={k === swatches.length - 1} onClick={() => move(k, 1)}>
                     ↓
                   </button>
-                  <button type="button" className="ghost" aria-label={t.intentionColorRemove.replace("{n}", String(n))} disabled={d.colors.length <= 1} onClick={() => setColors(removeColor(d.colors, k))}>
+                  <button type="button" className="ghost" aria-label={fill(t.intentionColorRemove, { n })} disabled={swatches.length <= 1} onClick={() => setSwatches((s) => removeColor(s, k))}>
                     ×
                   </button>
                 </li>
               );
             })}
           </ol>
-          <button type="button" disabled={d.colors.length >= MAX_COLORS} onClick={() => setColors(addColor(d.colors))}>
+          <button type="button" disabled={swatches.length >= MAX_COLORS} onClick={() => setSwatches((s) => [...s, swatch(addColor(s.map((x) => x.color)).at(-1)!)])}>
             {t.intentionColorAdd}
           </button>
           {problems.includes("colors") && <small className="warn">{t.intentionBadColors}</small>}
@@ -226,7 +268,7 @@ function IntentionEditor({ initial, list, t, onClose, onSaved }: { initial: Inte
         </label>
         <label>
           {t.intentionFamily}
-          <input list={`${id}-families`} value={d.family} onChange={(e) => set({ family: e.target.value })} />
+          <input list={`${id}-families`} value={d.family} maxLength={40} onChange={(e) => set({ family: e.target.value })} />
           <datalist id={`${id}-families`}>
             {families.map((f) => (
               <option key={f} value={f} />
@@ -235,45 +277,48 @@ function IntentionEditor({ initial, list, t, onClose, onSaved }: { initial: Inte
         </label>
         <label>
           {t.notes}
-          <textarea rows={2} value={d.notes} onChange={(e) => set({ notes: e.target.value })} />
+          <textarea rows={2} value={d.notes} maxLength={2000} onChange={(e) => set({ notes: e.target.value })} />
         </label>
         {creating && (
-          <fieldset>
+          <fieldset className="intention-scope">
             <legend>{t.intentionScope}</legend>
-            <label className="row">
+            <label>
               <input type="radio" name={`${id}-scope`} checked={d.scope === "show"} onChange={() => set({ scope: "show" })} />
-              {t.intentionScopeShow}
+              <span>{t.intentionScopeShow}</span>
             </label>
-            <label className="row">
+            <label>
               <input type="radio" name={`${id}-scope`} checked={d.scope === "personal"} onChange={() => set({ scope: "personal" })} />
-              {t.intentionScopePersonal}
+              <span>{t.intentionScopePersonal}</span>
             </label>
           </fieldset>
         )}
         {shadowed && <small className="hint">{t.intentionShadowed}</small>}
-        {preview && (
-          <div className="intention-preview" aria-live="polite">
-            <strong>{t.intentionPreview}</strong>
-            <ul className="hint">
-              {preview.explanation.map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-              {preview.contrast !== undefined && (
-                <li className={preview.contrast < 25 ? "warn" : ""}>
-                  {t.intentionContrast.replace("{n}", String(preview.contrast))}
-                  {preview.contrast < 25 ? ` — ${t.intentionLowContrast}` : ""}
-                </li>
-              )}
-            </ul>
-          </div>
-        )}
+        {/* always there, so that a reader hears the proposal change */}
+        <div className="intention-preview" aria-live="polite">
+          {preview && (
+            <>
+              <strong>{t.intentionPreview}</strong>
+              <ul className="hint">
+                {preview.explanation.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+                {preview.contrast !== undefined && (
+                  <li className={preview.lowContrast ? "warn" : ""}>
+                    {fill(t.intentionContrast, { n: preview.contrast })}
+                    {preview.lowContrast ? ` — ${t.intentionLowContrast}` : ""}
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+        </div>
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
         <div className="row actions">
-          <button className="primary" disabled={problems.length > 0} onClick={save}>
+          <button className="primary" disabled={problems.length > 0 || saving} onClick={save}>
             {t.save}
           </button>
           <button onClick={onClose}>{t.cancel}</button>

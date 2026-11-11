@@ -5612,7 +5612,14 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
   try {
     // a new one, stored in the show: two colours typed in hexadecimal, an energy, the live proposal
     await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
-    const editor = page.getByRole("dialog", { name: "➕ Nouvelle intention" });
+    const editor = page.getByRole("dialog", { name: "Nouvelle intention" });
+    // a label whose key would be over 64 characters is stopped as it is typed
+    await editor.getByLabel("Libellé").fill("mot ".repeat(17));
+    await expect(editor.getByText(/Libellé trop long/)).toBeVisible();
+    await expect(editor.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+    // the key of a shipped one: said that it will replace it
+    await editor.getByLabel("Libellé").fill("Joie");
+    await expect(editor.getByText("Cette clé est celle d'une intention livrée (« Joie ») : la nouvelle la remplacera pour ce show.")).toBeVisible();
     await editor.getByLabel("Libellé").fill("Lever de rideau");
     await expect(editor.getByText("Clé : lever-de-rideau")).toBeVisible();
     await editor.getByLabel("Couleur 1, en hexadécimal").fill("#ff0000");
@@ -5621,6 +5628,7 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
     await editor.getByLabel("Énergie").selectOption("survolte");
     await expect(editor.locator(".intention-preview")).toContainText("« Lever de rideau »");
     await expect(editor.locator(".intention-preview")).toContainText("ΔE");
+    await expect(editor.locator(".intention-preview li").first()).not.toContainText("—"); // no family: nothing said of it
     await expect(editor.getByRole("radio", { name: /ce show/ })).toBeChecked();
     await page.screenshot({ path: "test-results/intention-editor.png" });
     await editor.getByRole("button", { name: "Enregistrer" }).click();
@@ -5636,6 +5644,17 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
     await theme.click();
     await byIntent.getByRole("button", { name: "Proposition" }).click();
     await expect(byIntent.locator("ul.hint").last()).toContainText("« Lever de rideau »");
+    await expect(byIntent.locator("ul.hint").last().locator("li").first()).not.toContainText("—");
+    // its uses, one then two, said in words and listed when unfolded
+    await api(page, "song.put", { song: { id: "t15-a", title: "Essai A", mood: ["lever de rideau"], sections: [] } });
+    await expect(row("Lever de rideau").locator(".intention-uses summary")).toHaveText("1 usage");
+    await api(page, "song.put", { song: { id: "t15-b", title: "Essai B", mood: ["Lever-de-rideau"], sections: [] } });
+    await expect(row("Lever de rideau").locator(".intention-uses summary")).toHaveText("2 usages");
+    await row("Lever de rideau").locator(".intention-uses summary").click();
+    await expect(row("Lever de rideau").locator(".intention-uses li")).toHaveText(["chant « Essai A »", "chant « Essai B »"]);
+    await api(page, "song.delete", { id: "t15-a" });
+    await api(page, "song.delete", { id: "t15-b" });
+    await expect(row("Lever de rideau")).toContainText("inutilisée");
     // edited: the label changes, the key stays
     await row("Lever de rideau").getByRole("button", { name: "Modifier · Lever de rideau" }).click();
     const edit = page.getByRole("dialog", { name: "Lever de rideau" });
@@ -5646,11 +5665,18 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
     await expect(row("Lever du rideau")).toBeVisible();
     // a new one of the same key is refused before it is sent
     await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
-    const dup = page.getByRole("dialog", { name: "➕ Nouvelle intention" });
+    const dup = page.getByRole("dialog", { name: "Nouvelle intention" });
     await dup.getByLabel("Libellé").fill("lever de rideau !");
     await expect(dup.getByText(/existe déjà à cet endroit/)).toBeVisible();
     await expect(dup.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
     await dup.getByRole("button", { name: "Annuler" }).click();
+    // an editor left unchanged closes with Escape, and gives the focus back to what opened it
+    const opener = section.getByRole("button", { name: "➕ Nouvelle intention" });
+    await opener.click();
+    await expect(page.getByRole("dialog", { name: "Nouvelle intention" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Nouvelle intention" })).toHaveCount(0);
+    await expect(opener).toBeFocused();
     // a shipped one touched up for the show, then back to the original
     await section.getByRole("searchbox").fill("paix");
     await row("Paix").getByRole("button", { name: "Retoucher pour ce show · Paix" }).click();
@@ -5665,7 +5691,10 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
     await section.getByRole("searchbox").fill("joie");
     await row("Joie").getByRole("button", { name: "Masquer pour ce show · Joie" }).click();
     await expect(row("Joie")).toContainText("masquée dans ce show");
+    await expect(row("Joie").locator(".badge")).toHaveText("livrée"); // a mask still says what it hides
     expect(asked.at(-1)).toContain("chant « Chant test »");
+    expect(asked.at(-1)).toContain("La masquer quand même");
+    expect(asked.at(-1)).not.toMatch(/supprimer/i);
     await picker.getByRole("searchbox").fill("joie");
     await expect(picker.getByRole("button", { name: /^Joie/ })).toHaveCount(0);
     await row("Joie").getByRole("button", { name: "Rétablir · Joie" }).click();
@@ -5674,8 +5703,10 @@ test("intentions: create one in the show, use it by intention, edit it, refuse a
     // deleted when nothing uses it
     await section.getByRole("searchbox").fill("rideau");
     await row("Lever du rideau").getByRole("button", { name: "Supprimer · Lever du rideau" }).click();
-    await expect(list.locator("li")).toHaveCount(0);
+    await expect(list).toHaveCount(0);
+    await expect(section.getByText("Rien ne correspond à cette recherche.")).toBeVisible();
   } finally {
+    for (const songId of ["t15-a", "t15-b"]) await api(page, "song.delete", { id: songId });
     const kb = (await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }>; hidden: { id: string }[] };
     for (const id of ["lever-de-rideau", "paix", "joie"]) if (kb.moods[id]?.origin === "show" || kb.hidden.some((h) => h.id === id)) await api(page, "intention.delete", { id, force: true });
   }
@@ -5709,5 +5740,38 @@ test("intentions travel in a backup: the restore says what happens to them, and 
   } finally {
     await api(page, "intention.delete", { id: "douceur", force: true });
   }
+  expect(errors).toEqual([]);
+});
+
+test("intentions on a phone: the list grows with the page, finger-sized controls, each radio beside its text (T15)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  const section = page.locator("section.intentions");
+  const list = section.getByRole("list", { name: "Intentions connues" });
+  await expect(list).toBeVisible();
+  expect(await list.evaluate((el) => el.ownerDocument.defaultView!.getComputedStyle(el).overflowY)).toBe("visible");
+  const action = list.locator(".intention-actions button").first();
+  expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
+  const editor = page.getByRole("dialog", { name: "Nouvelle intention" });
+  await editor.getByRole("button", { name: "+ Couleur" }).click();
+  const down = editor.getByRole("button", { name: "Descendre la couleur 1" });
+  const box = (await down.boundingBox())!;
+  expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+  // moved, the colour keeps the focus on its own button
+  await editor.getByLabel("Couleur 1, en hexadécimal").fill("#123456");
+  await down.click();
+  await expect(editor.getByLabel("Couleur 2, en hexadécimal")).toHaveValue("#123456");
+  await expect(editor.getByRole("button", { name: "Monter la couleur 2" })).toBeFocused();
+  for (const name of [/ce show/, /ma bibliothèque personnelle/]) {
+    const radio = (await editor.getByRole("radio", { name }).boundingBox())!;
+    const text = (await editor.locator(".intention-scope label", { has: page.getByRole("radio", { name }) }).locator("span").boundingBox())!;
+    expect(radio.y).toBeLessThan(text.y + 24); // on the text's first line, not alone above it
+    expect(radio.x).toBeLessThan(text.x);
+  }
+  await page.screenshot({ path: "test-results/intention-editor-phone.png" });
+  await editor.getByRole("button", { name: "Annuler" }).click();
   expect(errors).toEqual([]);
 });

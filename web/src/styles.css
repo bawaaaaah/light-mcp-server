@@ -3431,3 +3431,36 @@ fieldset.checklist .checklist-search {
   flex: 1 1 16em;
   min-width: 0;
 }
+.intention-uses summary {
+  cursor: pointer;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+.intention-uses ul {
+  margin: 0.2em 0 0;
+  padding-left: 1.2em;
+  font-size: 0.85em;
+}
+/* the place of a new intention: a radio beside its text, the text wrapping under itself */
+.intention-editor .intention-scope label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4em;
+}
+.intention-editor .intention-scope input {
+  flex: none;
+  margin-top: 0.2em;
+}
+/* a phone: the list grows with the page (no box scrolling inside it), finger-sized controls */
+@media (max-width: 700px) {
+  .intention-list {
+    max-height: none;
+    overflow: visible;
+  }
+  .intention-editor .intention-colors button,
+  .intention-editor .intention-colors input[type="color"],
+  .intention-list .intention-actions button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

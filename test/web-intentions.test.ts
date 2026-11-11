@@ -1,5 +1,9 @@
 import { expect } from "chai";
-import { actionsOf, addColor, draftOf, draftProblems, familiesOf, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, putArgs, removeColor, searchIntentions, takenIn, type KnowledgeIntentions } from "../web/src/intentions.js";
+import { actionsOf, addColor, draftOf, draftProblems, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, removeColor, replacedBy, searchIntentions, takenIn, type KnowledgeIntentions } from "../web/src/intentions.js";
+import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../src/plugins/light/knowledge/knowledge.js";
+import { mergeKnowledge } from "../src/plugins/light/knowledge/intentions.js";
+import { inLang } from "../src/core/lang.js";
+import { TEXTS } from "../web/src/i18n.js";
 import { themeOf, themesOf } from "../web/src/themes.js";
 
 describe("intentions (T15): the Show page's list and editor", () => {
@@ -96,5 +100,36 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(themes.find((t) => t.key === "lever-de-rideau")!.origin).to.equal("show");
     expect(themes.some((t) => t.key === "paix")).to.equal(false); // a masked one is not offered
     expect(themeOf(themes, "lever de rideau")?.key).to.equal("lever-de-rideau");
+  });
+
+  it("makes exactly the key the server makes, word for word", () => {
+    const words = ["Joie", "joie !", "Lever de rideau", "  LEVER--de__rideau  ", "Intimité", "Cœur", "ŒUVRE", "Ægir", "Straße", "Øre", "naïve façade", "À l'aube", "?!", "", "x2 / y3", "émotion—forte", "über"];
+    for (const w of words) expect(intentionKey(w), w).to.equal(normalizeMood(w));
+  });
+
+  it("says one use or several, and stops a key too long before it is sent", () => {
+    expect(plural(1, "1 usage", "{n} usages")).to.equal("1 usage");
+    expect(plural(3, "1 usage", "{n} usages")).to.equal("3 usages");
+    expect(fill("Couleur {n} de {name}", { n: 2, name: "x" })).to.equal("Couleur 2 de x");
+    const taken = takenIn(list);
+    expect(draftProblems({ ...newDraft(), label: "mot ".repeat(17) }, taken)).to.deep.equal(["long"]); // a key of 67 characters
+    expect(draftProblems({ ...newDraft(), label: "é".repeat(81) }, taken)).to.deep.equal(["long"]); // a label over 80
+    expect(draftProblems({ ...newDraft(), label: "mot ".repeat(15) }, taken)).to.deep.equal([]);
+  });
+
+  it("says what a new intention would replace: a shipped or private one, or what the show hides", () => {
+    expect(replacedBy({ ...newDraft(), label: "Joie !" }, list)?.key).to.equal("joie");
+    expect(replacedBy({ ...newDraft(), label: "Brume" }, list)?.origin).to.equal("private");
+    expect(replacedBy({ ...newDraft(), label: "Paix" }, list)?.hidden).to.equal(true);
+    expect(replacedBy({ ...newDraft(), label: "Douceur" }, list)).to.equal(undefined); // a personal one: « taken » in its place, or shadowed
+    expect(replacedBy({ ...newDraft(), id: "joie", label: "Joie" }, list)).to.equal(undefined); // an edit replaces nothing
+  });
+
+  it("names the energies in English as the server's proposals do", async () => {
+    const base = mergeKnowledge(loadKnowledgeLayers(), [], []);
+    for (const [energy, mood] of [["pose", "calme"], ["dynamique", "joie"], ["survolte", "fete"]] as const) {
+      const said = await inLang("en", async () => proposeLook(base, { mood: [mood] }).explanation[0]!);
+      expect(said, energy).to.contain(`${TEXTS.en.energies[energy]} energy`);
+    }
   });
 });

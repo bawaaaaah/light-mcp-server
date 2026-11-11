@@ -43,11 +43,16 @@ export interface IntentionRow {
 }
 
 /**
- * The key of a label, as the server makes it (`normalizeMood`): no accents nor case, every run of
- * separators one « - ». « Lever de rideau » → « lever-de-rideau ».
+ * The key of a label, exactly as the server makes it (`normalizeMood`, knowledge.ts): ligatures spelt
+ * out, no accents nor case, every run of separators one « - ». « Lever de rideau » →
+ * « lever-de-rideau », « Cœur » → « coeur »; a label without letters nor digits has the empty key.
  */
 export const intentionKey = (label: string): string =>
   label
+    .replace(/œ/gi, "oe")
+    .replace(/æ/gi, "ae")
+    .replace(/ß/g, "ss")
+    .replace(/ø/gi, "o")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -114,7 +119,11 @@ export const draftOf = (row: IntentionRow): IntentionDraft => ({
   scope: row.origin === "personal" ? "personal" : "show",
 });
 
-export type DraftProblem = "label" | "taken" | "colors";
+/** A key is an id: 64 characters at most (the server refuses longer). */
+export const MAX_KEY = 64;
+export const MAX_LABEL = 80;
+
+export type DraftProblem = "label" | "long" | "taken" | "colors";
 
 /**
  * What stops a draft from being saved. `taken`: whether that place already has a visible intention
@@ -124,6 +133,7 @@ export function draftProblems(d: IntentionDraft, taken: (key: string, scope: Sco
   const problems: DraftProblem[] = [];
   const key = d.id ?? intentionKey(d.label);
   if (!key) problems.push("label");
+  else if (key.length > MAX_KEY || d.label.length > MAX_LABEL) problems.push("long");
   else if (d.id === undefined && taken(key, d.scope)) problems.push("taken");
   if (d.colors.length < 1 || d.colors.length > MAX_COLORS || d.colors.some((c) => !normalizeHex(c))) problems.push("colors");
   return problems;
@@ -134,6 +144,22 @@ export const takenIn =
   (list: readonly IntentionRow[]): ((key: string, scope: Scope) => boolean) =>
   (key: string, scope: Scope): boolean =>
     list.some((r) => r.key === key && !r.hidden && (scope === "show" ? r.origin === "show" : r.origin === "personal" || r.over === "personal"));
+
+/**
+ * What a new intention would replace (its key being one of the shipped base or the private file):
+ * said before it is saved. Undefined for an edit or a new key.
+ */
+export function replacedBy(d: IntentionDraft, list: readonly IntentionRow[]): IntentionRow | undefined {
+  if (d.id !== undefined) return undefined;
+  const key = intentionKey(d.label);
+  return key ? list.find((r) => r.key === key && (r.origin === "generic" || r.origin === "private" || (r.hidden && r.over !== undefined))) : undefined;
+}
+
+/** Fills the « {name} » marks of a text. */
+export const fill = (text: string, values: Record<string, string | number>): string => text.replace(/\{(\w+)\}/g, (m, k: string) => String(values[k] ?? m));
+
+/** One or several of something, as the language says it (`{n}` in the text). */
+export const plural = (n: number, one: string, many: string): string => fill(n === 1 ? one : many, { n });
 
 export interface PutArgs {
   scope: Scope;
@@ -147,7 +173,7 @@ export const putArgs = (d: IntentionDraft): PutArgs => ({
 });
 
 /** Moves a colour one place (`by` −1 up, +1 down); the first one leads. */
-export function moveColor(colors: readonly string[], index: number, by: -1 | 1): string[] {
+export function moveColor<T>(colors: readonly T[], index: number, by: -1 | 1): T[] {
   const to = index + by;
   if (to < 0 || to >= colors.length) return [...colors];
   const next = [...colors];
@@ -155,7 +181,7 @@ export function moveColor(colors: readonly string[], index: number, by: -1 | 1):
   return next;
 }
 
-export const removeColor = (colors: readonly string[], index: number): string[] => (colors.length <= 1 ? [...colors] : colors.filter((_, k) => k !== index));
+export const removeColor = <T>(colors: readonly T[], index: number): T[] => (colors.length <= 1 ? [...colors] : colors.filter((_, k) => k !== index));
 
 /** A new colour after the others (white, or the last one again would be invisible): up to six. */
 export const addColor = (colors: readonly string[]): string[] => (colors.length >= MAX_COLORS ? [...colors] : [...colors, colors.includes("#ffffff") ? "#000000" : "#ffffff"]);
