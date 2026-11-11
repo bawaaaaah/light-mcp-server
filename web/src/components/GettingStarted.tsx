@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { can, cmd, lightState, type Role } from "../api";
+import { ApiError, can, cmd, lightState, type Role } from "../api";
 import { useNav, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { slug } from "../util";
@@ -58,7 +58,8 @@ export function GettingStarted({ role, looks, dashboards, current, onDashboard }
     setBusy(true);
     setError("");
     void p
-      .then(load, (e: Error) => setError(e.message))
+      // a canvas of that name with looks on its cells is edited, never rebuilt: said in the interface's words
+      .then(load, (e: Error) => setError(e instanceof ApiError && e.detail?.impact ? t.canvasEditor.exists : e.message))
       .finally(() => setBusy(false));
   };
   const hide = () => {

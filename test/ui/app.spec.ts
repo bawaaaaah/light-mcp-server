@@ -1833,6 +1833,38 @@ test("canvas editor: a canvas deleted elsewhere is said gone and never comes bac
   expect(errors.filter((e) => !e.includes("422"))).toEqual([]); // the read of a canvas that is gone is refused: the browser logs it
 });
 
+test("canvas editor: a mirrored mask cannot follow its squares; adapting the others then forcing it keeps them adapted", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  await api(page, "look.put", { look: { id: "test-edit-look", name: "Pas exacts", canvas: "test-edit", technique: { kind: "pas", steps: [["#ff0000", "#00ff00", "#0000ff", "#ffffff"]] } } });
+  await api(page, "look.put", { look: { id: "test-edit-mirror", name: "Masque miroir", canvas: "test-edit", mirror: true, technique: { kind: "masques", colors: ["#ff0000", "#0000ff"], block: 1, masks: ["#-"] } } });
+  try {
+    const dialog = await openCanvasEditor(page);
+    await dialog.getByRole("listbox").getByRole("option").nth(1).click();
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" }).click();
+    const impact = dialog.getByRole("alertdialog", { name: "Des looks sont touchés" });
+    await expect(impact).toContainText("Masque miroir");
+    await impact.getByRole("button", { name: "Adapter les pas" }).click();
+    // asked again for the mask alone: nothing left to adapt, only to do it anyway
+    await expect(impact).toContainText("Ne peuvent pas suivre leurs cases");
+    await expect(impact.getByRole("button", { name: "Adapter les pas" })).toHaveCount(0);
+    await expect(impact.locator(".mini-row")).toHaveCount(0);
+    await impact.getByRole("button", { name: "Le faire quand même" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:1", "bar-0:3"]);
+    // the look that could follow did: forcing the mask did not shift it
+    expect(((await api(page, "look.get", { id: "test-edit-look" })) as { technique: { steps: string[][] } }).technique.steps).toEqual([["#ff0000", "#0000ff", "#00ff00", "#ffffff"]]);
+    // a gesture made from a button leaves the focus on it, to press it again
+    await expect(dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" })).toBeEnabled();
+    await dialog.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    await api(page, "look.delete", { id: "test-edit-look", force: true });
+    await api(page, "look.delete", { id: "test-edit-mirror", force: true });
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("400"))).toEqual([]);
+});
+
 test("canvas editor on a phone: the question about the looks shows on screen, takes the focus, and Escape cancels it", async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1847,7 +1879,8 @@ test("canvas editor on a phone: the question about the looks shows on screen, ta
     const impact = dialog.getByRole("alertdialog", { name: "Des looks sont touchés" });
     await expect(impact).toBeInViewport({ ratio: 0.9 });
     await expect(impact).toContainText("Pas exacts : 1 pas, chaque colonne suit sa case"); // said in words, not only drawn
-    await expect(impact.getByRole("button", { name: "Adapter les pas" })).toBeFocused();
+    await expect(impact).toBeFocused(); // on the question, not on a button a key still on its way would press
+    await expect(dialog.getByRole("button", { name: "Dupliquer" })).toBeDisabled(); // the gestures wait for the answer
     const [panel, preview] = [(await impact.boundingBox())!, (await impact.locator(".steps-compare").boundingBox())!];
     expect(panel.x + panel.width).toBeLessThanOrEqual(390);
     expect(preview.x + preview.width).toBeLessThanOrEqual(panel.x + panel.width);

@@ -81,8 +81,13 @@ type Rect = { left: number; top: number; width: number; height: number };
 const refusalOf = (e: unknown): Refusal | undefined => {
   if (!(e instanceof ApiError) || !e.detail?.impact) return undefined;
   const d = e.detail as unknown as Partial<Refusal> & { impact: Impact };
-  return { impact: d.impact, broken: d.broken ?? [], shared: d.shared ?? [], adaptable: d.adaptable ?? [] };
+  const broken = d.broken ?? [];
+  // only a look still broken is offered to adapt: one the attempt already adapted is not asked again
+  return { impact: d.impact, broken, shared: d.shared ?? [], adaptable: (d.adaptable ?? []).filter((a) => broken.includes(a.id)) };
 };
+/** What a canvas put answers: the canvas with its revision and warnings beside its fields. */
+type Put = CanvasData & { revision: string; warnings?: string[] };
+const gotOf = ({ revision, warnings, ...canvas }: Put): Got => ({ canvas, revision, ...(warnings ? { warnings } : {}) });
 const unknownCanvas = (e: unknown) => e instanceof ApiError && e.detail?.unknown === "canvas";
 /** A look as look.preview takes it: what look.get adds (whether it plays, its swatch) left out. */
 const lookOnly = (l: Record<string, unknown>): Record<string, unknown> => {
@@ -259,7 +264,8 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       after?.(r);
     } catch (e) {
       const refusal = refusalOf(e);
-      if (refusal && !how.force) setAsk({ refusal, canAdapt: true, go: (h) => queued(() => edit(ops, h, after)) });
+      // an attempt that adapted keeps adapting: forcing the looks that cannot follow must not shift those that can
+      if (refusal && !how.force) setAsk({ refusal, canAdapt: true, go: (h) => queued(() => edit(ops, how.adapt ? { ...h, adapt: true } : h, after)) });
       else await staleOr(e);
     }
   };
@@ -272,10 +278,10 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
     setNotice("");
     writes.current++;
     try {
-      await cmd("venue.canvas.put", { canvas: target, steps, revision: revision.current, ...passes(how) });
+      const put = await cmd<Put>("venue.canvas.put", { canvas: target, steps, revision: revision.current, ...passes(how) });
       if (way === "undo") history.current.undone(step);
       else history.current.redone(step);
-      show(await cmd<Got>("venue.canvas.get", { id }), true);
+      show(gotOf(put), true); // the revision this very write made: another one slipped in after it is not taken for ours
       say(way === "undo" ? tc.announceUndone : tc.announceRedone);
     } catch (e) {
       const refusal = refusalOf(e);
@@ -291,13 +297,13 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       setError("");
       writes.current++;
       try {
-        await cmd("history.restore", { collection: "canvases", id, stamp, ...(force ? { force: true } : {}) });
+        const put = await cmd<Put>("history.restore", { collection: "canvases", id, stamp, ...passes(force ? { force: true } : {}) });
         history.current.clear();
-        show(await cmd<Got>("venue.canvas.get", { id }), true);
+        show(gotOf(put), true);
         say(tc.announceRestored);
       } catch (e) {
         const refusal = refusalOf(e);
-        if (refusal && !force) setAsk({ refusal, canAdapt: false, go: () => restore(stamp, true) });
+        if (refusal && !force) setAsk({ refusal, canAdapt: false, go: (h) => restore(stamp, h.force === true) });
         else throw e;
       }
     });
@@ -329,6 +335,13 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
     return `${tc.cell} ${i + 1}${t.colon} ${what}`;
   };
 
+  /** The square to focus once redrawn — when the keyboard was on the squares (or nowhere): a gesture made from a button leaves the focus on it, to press it again. */
+  const focusLater = (i: number) => {
+    const el = document.activeElement;
+    if (!box.current?.contains(el) || strip.current?.contains(el)) wantFocus.current = i;
+    else setFocusCell(i);
+  };
+
   // ---- the gestures: each reads the canvas and the selection when its turn comes
   const remove = () =>
     queued(async () => {
@@ -338,7 +351,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       if (list.length >= c.cells) return say(tc.keepOne); // a canvas keeps a cell: nothing is sent
       await edit([{ op: "remove", cells: list }], {}, (r) => {
         setSelection([]);
-        wantFocus.current = Math.min(list[0]!, r.canvas.cells - 1);
+        focusLater(Math.min(list[0]!, r.canvas.cells - 1));
         say(`${list.length} ${tc.announceRemoved}`);
       });
     });
@@ -350,7 +363,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       await edit([{ op: "move", cells: list, to }], {}, () => {
         const now = pickedAfterMove(n, list, to);
         setSelection(now);
-        wantFocus.current = now[0] ?? 0;
+        focusLater(now[0] ?? 0);
         say(`${list.length} ${tc.announceMoved}`);
       });
     });
@@ -365,7 +378,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       await edit(ops, {}, () => {
         const now = list.map((i) => i + by);
         setSelection(now);
-        wantFocus.current = list.includes(focused) ? focused + by : now[0]!;
+        focusLater(list.includes(focused) ? focused + by : now[0]!);
         say(`${list.length} ${tc.announceMoved}`);
       });
     });
@@ -376,7 +389,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       await edit([{ op: "duplicate", cells: list }], {}, () => {
         const from = list[list.length - 1]! + 1;
         setSelection(list.map((_, k) => from + k)); // the copies, right after the last square copied
-        wantFocus.current = from;
+        focusLater(from);
         say(`${list.length} ${tc.announceDuplicated}`);
       });
     });
@@ -615,8 +628,8 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
   useEffect(() => {
     if (!asked) return;
     setRememberAdapt(false);
-    panel.current?.scrollIntoView({ block: "nearest" });
-    panel.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    // on the question itself, never on a button: a Space or an Enter still on its way must not answer it
+    panel.current?.focus({ preventScroll: true });
     panel.current?.scrollIntoView({ block: "nearest" });
   }, [asked]);
 
@@ -649,7 +662,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
         const added = r.canvas.cells - c.cells;
         const from = at ?? c.cells;
         setSelection(Array.from({ length: added }, (_, k) => from + k));
-        wantFocus.current = from;
+        focusLater(from);
         setChosen([]);
         setManualOrder(false);
         say(`${added} ${tc.announceAdded}`);
@@ -700,10 +713,10 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
       </h2>
       {canvas && !gone && (
         <>
-          <button title={`${t.undo} (${isMac ? "⌘" : "Ctrl+"}Z)`} aria-label={t.undo} disabled={!history.current.canUndo} onClick={undo}>
+          <button title={`${t.undo} (${isMac ? "⌘" : "Ctrl+"}Z)`} aria-label={t.undo} disabled={!history.current.canUndo || asked} onClick={undo}>
             ↶
           </button>
-          <button title={`${t.redo} (${isMac ? "⇧⌘" : `Ctrl+${tc.shiftKey}+`}Z)`} aria-label={t.redo} disabled={!history.current.canRedo} onClick={redo}>
+          <button title={`${t.redo} (${isMac ? "⇧⌘" : `Ctrl+${tc.shiftKey}+`}Z)`} aria-label={t.redo} disabled={!history.current.canRedo || asked} onClick={redo}>
             ↷
           </button>
         </>
@@ -865,22 +878,22 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
             {selection.length} {tc.picked}
           </span>
           <span className="spacer" />
-          <button disabled={atStart} aria-label={tc.moveLeft} title={`${tc.moveLeft} (Alt+←)`} onClick={() => nudge(-1)}>
+          <button disabled={atStart || asked} aria-label={tc.moveLeft} title={`${tc.moveLeft} (Alt+←)`} onClick={() => nudge(-1)}>
             ◀
           </button>
-          <button disabled={atEnd} aria-label={tc.moveRight} title={`${tc.moveRight} (Alt+→)`} onClick={() => nudge(1)}>
+          <button disabled={atEnd || asked} aria-label={tc.moveRight} title={`${tc.moveRight} (Alt+→)`} onClick={() => nudge(1)}>
             ▶
           </button>
-          <button disabled={!selection.length || selection.length >= cellCount} aria-pressed={placing} title={tc.moveBeforeHelp} onClick={() => setPlacing(!placing)}>
+          <button disabled={!selection.length || selection.length >= cellCount || asked} aria-pressed={placing} title={tc.moveBeforeHelp} onClick={() => setPlacing(!placing)}>
             {tc.moveBefore}
           </button>
-          <button disabled={!selection.length} onClick={duplicate}>
+          <button disabled={!selection.length || asked} onClick={duplicate}>
             {tc.duplicate}
           </button>
-          <button disabled={!canReverse} title={canReverse ? undefined : tc.reverseHelp} onClick={reverse}>
+          <button disabled={!canReverse || asked} title={canReverse ? undefined : tc.reverseHelp} onClick={reverse}>
             {selection.length ? tc.reverse : tc.reverseAll}
           </button>
-          <button className="danger" disabled={!selection.length || selection.length >= cellCount} title={selection.length >= cellCount ? tc.keepOne : undefined} onClick={remove}>
+          <button className="danger" disabled={!selection.length || selection.length >= cellCount || asked} title={selection.length >= cellCount ? tc.keepOne : undefined} onClick={remove}>
             {tc.remove}
           </button>
         </div>
@@ -941,7 +954,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
           </p>
         )}
         {refused && (
-          <section ref={panel} className="canvas-impact" role="alertdialog" aria-label={tc.impactTitle} aria-describedby="canvas-impact-text">
+          <section ref={panel} tabIndex={-1} className="canvas-impact" role="alertdialog" aria-label={tc.impactTitle} aria-describedby="canvas-impact-text">
             <h3>{brokenLooks.length ? tc.impactTitle : tc.sharedTitle}</h3>
             <div id="canvas-impact-text">
               {brokenLooks.length > 0 && <p>{tc.impactSteps}</p>}
@@ -1069,7 +1082,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
                 </option>
               </select>
             </label>
-            <button className="primary" disabled={!chosen.length} onClick={add}>
+            <button className="primary" disabled={!chosen.length || asked} onClick={add}>
               {tc.addButton} ({chosen.length})
             </button>
           </div>
@@ -1097,7 +1110,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
                 ))}
               </select>
             )}
-            <button disabled={!retarget || !selection.length} onClick={aimAt}>
+            <button disabled={!retarget || !selection.length || asked} onClick={aimAt}>
               {tc.retargetButton} ({selection.length})
             </button>
           </div>

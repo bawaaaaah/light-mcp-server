@@ -62,8 +62,8 @@ export function Versions({
   const load = () =>
     void cmd<{ stamp: string; at: string }[]>("history.list", { collection, id }).then(setList, (e: Error) => setError(e.message));
   const restore = (v: { stamp: string; at: string }) => {
+    if (restoreWith) return restoreWith(v); // the caller asks in its own window, and its undo covers a slip
     if (!confirm(`${t.restoreVersionConfirm}\n\n${t.replacedOn} ${when(v.at)}`)) return;
-    if (restoreWith) return restoreWith(v);
     void restoreVersion({ collection, id, stamp: v.stamp }, t).then((done) => done && onRestored(), (e: Error) => setError(e.message));
   };
   return (

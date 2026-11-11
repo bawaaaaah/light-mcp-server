@@ -11,6 +11,10 @@ describe("activity log", () => {
     expect(targetOf({ look: { id: "warm", name: "Chaud" } })).to.equal("warm");
     expect(targetOf({ on: true })).to.equal(undefined);
     expect(targetOf(undefined)).to.equal(undefined);
+    // a canvas is the object of the canvas commands only: elsewhere it is what a look is made for
+    expect(targetOf({ canvas: { id: "wall" } }, "venue.canvas.put")).to.equal("wall");
+    expect(targetOf({ canvas: "wall", save: true }, "look.from_intent")).to.equal(undefined);
+    expect(targetOf({ canvas: "wall" }, "show.autopresets")).to.equal(undefined);
   });
 
   it("merges a burst on one object into one line, even interleaved with another, and keeps the rest apart", () => {

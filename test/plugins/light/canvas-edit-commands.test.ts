@@ -285,4 +285,75 @@ describe("canvas commands: edit, checked put, versions", () => {
     expect(plugin.runtime.looks.get("zz-other")!.name).to.equal("Avant");
     expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-0", head: 0 });
   });
+
+  it("refuses a proposal that carries steps with a canvas: no preview would show them, no take-back would put them back", async () => {
+    const c = canvas();
+    const p = (await run("show.propose", { changes: [{ command: "venue.canvas.put", args: { canvas: { ...c, name: "Mur" }, steps: { checker: rowsOf("checker") } } }] })) as { valid: boolean; preview: { issues: string[] }[] };
+    expect(p.valid).to.equal(false);
+    expect(p.preview[0]!.issues[0]).to.contain("steps");
+    // without steps it is a proposal like any other, and an edit is pinned to the canvas it was shown on
+    const ok = (await run("show.propose", { changes: [{ command: "venue.canvas.edit", args: { id: "qlc", ops: [{ op: "set", name: "Mur" }] } }] })) as { valid: boolean; id: string };
+    expect(ok.valid).to.equal(true);
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "set", notes: "entre-temps" }] });
+    expect((await refusal(run("show.apply", { id: ok.id }))).message).to.contain("a changé ailleurs");
+    expect(canvas().name).to.equal("Import QLC+");
+  });
+
+  it("undoes an adapted edit from its activity line: the canvas and the steps it adapted go back together, without forcing", async () => {
+    const before = rowsOf("checker");
+    await tick();
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }], adapt: true });
+    expect(rowsOf("checker")[0]).to.have.length(7);
+    type Line = { name: string; at: number; until: number; undo?: { collection: string; id: string } };
+    const lines = (await run("activity.list")) as Line[];
+    expect(lines.filter((l) => l.name === "look.put")).to.deep.equal([]); // one line for the gesture, none per look
+    const line = lines.find((l) => l.name === "venue.canvas.edit" && l.undo)!;
+    await run("history.undo", { ...line.undo, at: line.at, until: line.until });
+    expect(canvas().cells).to.equal(8);
+    expect(rowsOf("checker")).to.deep.equal(before);
+    for (const l of plugin.runtime.looks.list()) for (const row of rowsOf(l.id)) expect(row).to.have.length(8);
+  });
+
+  it("says in each refusal only what its command takes, and what a mirrored mask needs", async () => {
+    const c = canvas();
+    await tick();
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "reverse" }], adapt: true });
+    const [version] = (await run("history.list", { collection: "canvases", id: "qlc" })) as { stamp: string }[];
+    const restore = await refusal(run("history.restore", { collection: "canvases", id: "qlc", stamp: version!.stamp }));
+    expect(restore.message).to.contain("force: true").and.not.contain("steps").and.not.contain("adapt");
+    await run("venue.canvas.put", { canvas: c, force: true });
+    // a mask read over half the canvas cannot follow its cells: adapting the others still leaves it, and says so
+    await run("look.put", { look: { id: "zz-mirror", name: "Miroir", canvas: "qlc", mirror: true, technique: { kind: "masques", colors: ["#ff0000", "#0000ff"], block: 1, masks: ["#-#-"] } } });
+    const e = await refusal(run("venue.canvas.edit", { id: "qlc", ops: [{ op: "reverse" }], adapt: true }));
+    expect(e.message).to.contain("« Miroir » ne peut pas suivre ses cases").and.not.contain("adapt: true");
+    expect(e.detail as { broken: string[]; adaptable: unknown[] }).to.deep.include({ broken: ["zz-mirror"], adaptable: [] });
+    // adapting the others and forcing that one, in one write
+    await run("venue.canvas.edit", { id: "qlc", ops: [{ op: "reverse" }], adapt: true, force: true });
+    expect(rowsOf("checker")[0]).to.deep.equal([...rowsOf("checker")[0]!]);
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-1", head: 3 });
+    // on a shared venue, a restore and a take-back take `shared` as an edit does
+    await run("show.create", { name: "Concert" });
+    const shared = await refusal(run("history.restore", { collection: "canvases", id: "qlc", stamp: version!.stamp }));
+    expect(shared.message).to.contain("shared: true");
+    await run("history.restore", { collection: "canvases", id: "qlc", stamp: version!.stamp, shared: true });
+    expect(canvas().render[0]!.targets[0]).to.deep.equal({ fixture: "bar-0", head: 0 });
+  });
+
+  it("puts the looks back when the canvas cannot be written, and gives a put's revision", async () => {
+    const looks = JSON.stringify(plugin.runtime.looks.list());
+    const store = plugin.runtime.venue.canvases;
+    const put = store.put.bind(store);
+    store.put = () => {
+      throw new Error("disque plein");
+    };
+    try {
+      expect((await refusal(run("venue.canvas.edit", { id: "qlc", ops: [{ op: "remove", cells: [0] }], adapt: true }))).message).to.contain("disque plein");
+    } finally {
+      store.put = put;
+    }
+    expect(JSON.stringify(plugin.runtime.looks.list())).to.equal(looks);
+    expect(canvas().cells).to.equal(8);
+    const done = (await run("venue.canvas.put", { canvas: { ...canvas(), name: "Mur" } })) as { revision: string };
+    expect(done.revision).to.equal(((await run("venue.canvas.get", { id: "qlc" })) as { revision: string }).revision);
+  });
 });

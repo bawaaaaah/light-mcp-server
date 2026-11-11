@@ -191,6 +191,8 @@ export function applyOps(canvas: Canvas, ops: readonly CanvasOp[], ctx: EditCont
     if (cells.length < 1) fail(`${where} : un canevas garde au moins une cellule (le supprimer plutôt : venue.canvas.delete)`, `${where}: a canvas keeps at least one cell (delete it instead: venue.canvas.delete)`);
     if (cells.length > MAX_CELLS) fail(`${where} : ${cells.length} cellules, au-delà de ${MAX_CELLS}`, `${where}: ${cells.length} cells, more than ${MAX_CELLS}`);
   });
+  // cells removed under a grid: it never has more columns than cells
+  if (touched && meta.columns !== undefined && meta.columns > cells.length) meta.columns = cells.length;
   const { columns: _c, notes: _n, ...base } = canvas;
   const out: Canvas = { ...base, ...meta, cells: cells.length, render: touched ? compact(cells.map((c) => c.targets)) : canvas.render };
   return { canvas: out, origin: cells.map((c) => c.origin), cellsTouched: touched };
@@ -336,7 +338,7 @@ export function impactOf(before: CanvasShape, after: CanvasShape, how: { origin:
   for (const l of looks) {
     const kind = l.technique.kind;
     const exact = exactRows(l, before);
-    const outOfLine = !("origin" in how) && kind === "pas" && !fits(exact!.rows as string[][], before.cells);
+    const outOfLine = !("origin" in how) && kind === "pas" && !!exact && !fits(exact.rows as string[][], before.cells);
     // a generated pattern follows the cell count, and the mirror folds it in two
     const generated = !UNIFORM.has(kind) && (before.cells !== after.cells || (kind !== "pas" && mirrors(l, before) !== mirrors(l, after)));
     if (exact && shifted) {
@@ -348,22 +350,29 @@ export function impactOf(before: CanvasShape, after: CanvasShape, how: { origin:
 
 /**
  * The refusal of a change that breaks looks of exact steps, naming them; the shows sharing the venue are
- * named too. `edit`: venue.canvas.edit can adapt their steps itself; a put, a restore or an undo cannot
- * (nothing says where each cell went), and says how to get there.
+ * named too. Each way says only what its command takes: an `edit` can adapt the steps of the looks in
+ * `adaptable` (a mirrored mask cannot follow its cells: force alone); a `put` can carry the steps; a
+ * `restore` (a version put back, an undo, a proposal taken back) knows force and shared only.
  */
-export function impactMessage(name: string, broken: readonly AffectedLook[], sharedWith: readonly string[] = [], edit = true): string {
-  const looks = broken.slice(0, 6).map((l) => say(`« ${l.name} »`, `“${l.name}”`)).join(", ");
-  const more = broken.length > 6 ? say(` et ${broken.length - 6} autre(s)`, ` and ${broken.length - 6} more`) : "";
+export function impactMessage(name: string, broken: readonly AffectedLook[], sharedWith: readonly string[] = [], how: "edit" | "put" | "restore" = "edit", adaptable: ReadonlySet<string> = new Set(broken.map((l) => l.id))): string {
+  const named = (list: readonly AffectedLook[]) =>
+    list.slice(0, 6).map((l) => say(`« ${l.name} »`, `“${l.name}”`)).join(", ") + (list.length > 6 ? say(` et ${list.length - 6} autre(s)`, ` and ${list.length - 6} more`) : "");
   const parts: string[] = [];
-  if (broken.length)
+  const can = how === "edit" ? broken.filter((l) => adaptable.has(l.id)) : [];
+  const stuck = how === "edit" ? broken.filter((l) => !adaptable.has(l.id)) : broken;
+  const off = (list: readonly AffectedLook[]) => say(`les pas de ${list.length > 1 ? "ces looks" : "ce look"} ne seraient plus en face de leurs cellules : ${named(list)}. `, `the steps of ${list.length > 1 ? "these looks" : "this look"} would no longer line up with their cells: ${named(list)}. `);
+  if (can.length) parts.push(off(can) + say("Adapter leurs pas (adapt: true) ou le faire quand même (force: true)", "Adapt their steps (adapt: true) or do it anyway (force: true)"));
+  if (stuck.length)
     parts.push(
-      say(`les pas de ${broken.length > 1 ? "ces looks" : "ce look"} ne seraient plus en face de leurs cellules : ${looks}${more}. `, `the steps of ${broken.length > 1 ? "these looks" : "this look"} would no longer line up with their cells: ${looks}${more}. `) +
-        (edit
-          ? say("Adapter leurs pas (adapt: true) ou le faire quand même (force: true)", "Adapt their steps (adapt: true) or do it anyway (force: true)")
-          : say(
-              "Donner leurs pas avec le canevas (steps), déplacer les cellules par venue.canvas.edit (adapt: true adapte leurs pas), ou le faire quand même (force: true)",
-              "Give their steps with the canvas (steps), move the cells with venue.canvas.edit (adapt: true adapts their steps), or do it anyway (force: true)",
-            )),
+      how === "edit"
+        ? say(`${named(stuck)} ne ${stuck.length > 1 ? "peuvent" : "peut"} pas suivre ses cases (masque en miroir) : le faire quand même (force: true)`, `${named(stuck)} cannot follow ${stuck.length > 1 ? "their" : "its"} cells (mirrored mask): do it anyway (force: true)`)
+        : off(stuck) +
+            (how === "put"
+              ? say(
+                  "Donner leurs pas avec le canevas (steps), déplacer les cellules par venue.canvas.edit (adapt: true adapte leurs pas), ou le faire quand même (force: true)",
+                  "Give their steps with the canvas (steps), move the cells with venue.canvas.edit (adapt: true adapts their steps), or do it anyway (force: true)",
+                )
+              : say("Le faire quand même (force: true)", "Do it anyway (force: true)")),
     );
   if (sharedWith.length)
     parts.push(

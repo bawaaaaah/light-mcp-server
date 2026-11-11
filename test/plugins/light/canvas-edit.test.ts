@@ -89,6 +89,7 @@ describe("canvas edit: operations on a canvas's cells (pure)", () => {
     expect(edit([{ op: "set", topology: "grid" }]).canvas.columns).to.equal(3);
     expect(edit([{ op: "set", topology: "grid", columns: 5 }]).canvas.columns).to.equal(5);
     expect(() => edit([{ op: "set", columns: 99 }])).to.throw("99 colonnes pour 5 cellules");
+    expect(edit([{ op: "set", topology: "grid", columns: 5 }, { op: "remove", cells: [0, 1] }]).canvas.columns).to.equal(3); // never more columns than cells
     // a move that changes nothing keeps the stored ranges; heads named twice give one cell; accent heads alone are said
     expect(applyOps(old, [{ op: "move", cells: [1, 2], to: 1 }], ctx).cellsTouched).to.equal(false);
     expect(edit([{ op: "add", fixtures: ["bar-b"], heads: [1, 1] }]).canvas.cells).to.equal(6);

@@ -44,11 +44,16 @@ const EntrySchema = z.object({
   error: z.string().optional(),
 });
 
-/** The object a command acts on: an `id`, or the id of the object it carries (look.put { look }…). */
-export function targetOf(args: unknown): string | undefined {
+const TARGET_KEYS = ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture"];
+/**
+ * The object a command acts on: an `id`, or the id of the object it carries (look.put { look }…). A `canvas`
+ * is the object only for the canvas commands (venue.canvas.put { canvas }): elsewhere it is the canvas a
+ * look is made for (look.from_intent, show.autopresets), not what the command changes.
+ */
+export function targetOf(args: unknown, command = ""): string | undefined {
   if (!args || typeof args !== "object") return undefined;
   const a = args as Record<string, unknown>;
-  for (const key of ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture", "canvas"]) {
+  for (const key of command.startsWith("venue.canvas.") ? [...TARGET_KEYS, "canvas"] : TARGET_KEYS) {
     const v = a[key];
     if (typeof v === "string" && v) return v;
     if (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") return (v as { id: string }).id;
@@ -80,7 +85,7 @@ export const ARGS_BROADCAST_MAX = 2048;
  * activity log, with its right, says that).
  */
 export function commandNotice(e: CommandEvent): { name: string; origin: Origin; ok: boolean; at: number; error?: string; target?: string; args?: unknown } {
-  const target = targetOf(e.args);
+  const target = targetOf(e.args, e.name);
   const short = JSON.stringify(e.args ?? {}).length <= ARGS_BROADCAST_MAX;
   return { name: e.name, origin: e.origin, ok: e.ok, at: e.at, ...(e.error ? { error: e.error } : {}), ...(target ? { target } : {}), ...(short ? { args: e.args } : {}) };
 }
@@ -90,7 +95,7 @@ export class ActivityLog {
   private changed = false;
 
   record(e: CommandEvent, title: string): void {
-    const target = targetOf(e.args);
+    const target = targetOf(e.args, e.name);
     for (let i = this.entries.length - 1; i >= Math.max(0, this.entries.length - BURST_LOOKBACK); i--) {
       const x = this.entries[i]!;
       if (e.at - x.until > BURST_MS) break;

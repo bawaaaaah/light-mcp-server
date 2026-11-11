@@ -685,11 +685,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * Refuses a change that breaks looks of exact steps (unless forced) or moves cells of a shared venue (unless
    * forced or `shared`); `detail.impact` lets a screen ask. The other shows are read only when they matter.
    */
-  const refuseUnlessPassed = (name: string, impact: Impact, broken: AffectedLook[], pass: Passes, edit: boolean, adaptable: unknown[] = []) => {
+  const refuseUnlessPassed = (name: string, impact: Impact, broken: AffectedLook[], pass: Passes, how: "edit" | "put" | "restore", adaptable: { id: string }[] = []) => {
     if (pass.force) return;
     const others = impact.shifted && !pass.shared ? othersOnVenue() : [];
     if (!broken.length && !others.length) return;
-    throw new CommandError("invalid", impactMessage(name, broken, others, edit), { impact, broken: broken.map((l) => l.id), shared: others, adaptable });
+    // only the looks still broken can be adapted: one already adapted is not offered again
+    const can = adaptable.filter((a) => broken.some((l) => l.id === a.id));
+    throw new CommandError("invalid", impactMessage(name, broken, others, how, new Set(can.map((a) => a.id))), { impact, broken: broken.map((l) => l.id), shared: others, adaptable: can });
   };
   /** What an edit would do: the canvas, its impact, the looks it breaks and how their rows would follow. */
   const planEdit = (current: Canvas, ops: CanvasOp[]) => {
@@ -707,7 +709,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     return { canvas, impact, broken, adaptable };
   };
   /** What putting a whole canvas would do; over an existing one, compared cell by cell (a put says nothing of where each cell went). Looks whose steps come with it follow. */
-  const checkCanvasPut = (canvas: Canvas, rows: ReadonlyMap<string, LookRows>, pass: Passes) => {
+  const checkCanvasPut = (canvas: Canvas, rows: ReadonlyMap<string, LookRows>, pass: Passes, how: "put" | "restore" = "put") => {
     const old = venue.canvases.get(canvas.id);
     if (!old) return;
     const impact = impactOf(old, canvas, { moved: putMoves(old, canvas) }, looksOn(canvas.id));
@@ -716,7 +718,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       impact,
       impact.looksAffected.filter((l) => l.reason === "steps" && !rows.has(l.id)),
       pass,
-      false,
+      how,
     );
   };
   /**
@@ -724,7 +726,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * canvas as it will be before the first write, and what was written is put back if a write fails. Only the
    * rows change in a look (its steps, masks or patterns): a rename made meanwhile stays.
    */
-  const writeCanvas = async (canvas: Canvas, rows: ReadonlyMap<string, LookRows>, ctx: CommandContext): Promise<Canvas> => {
+  const writeCanvas = (canvas: Canvas, rows: ReadonlyMap<string, LookRows>): Canvas => {
     const next = [...rows].map(([lookId, r]) => {
       const look = show.looks.get(lookId);
       if (!look) throw new Error(say(`look inconnu : ${lookId}`, `unknown look: ${lookId}`));
@@ -738,11 +740,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         throw new Error(say(`« ${look.name} » (${look.id}) : ${(err as Error).message}`, `“${look.name}” (${look.id}): ${(err as Error).message}`));
       }
     });
+    // the steps first, then the canvas they follow; written straight to the store (every check is made, and the
+    // command that writes is the one line of the activity), so a failed write leaves nothing to explain
     const written: Look[] = [];
     try {
-      // the steps first, through look.put (versions, a playing look restarted), then the canvas they follow
       for (const l of next) {
-        await reg.invoke("look.put", { look: l.after }, ctx);
+        show.looks.put(l.after);
         written.push(l.before);
       }
       return venue.canvases.put(canvas);
@@ -757,14 +760,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     .describe("the looks whose steps follow the canvas, by look id: the steps of a look of exact steps (technique pas, one column per cell), or the masks / patterns of a mask technique; written with the canvas, all or nothing");
   const sharedFlag = z.boolean().default(false).describe("the venue is shared with other shows and that is known: move cells without checking their looks");
   /** Puts a whole canvas (venue.canvas.put, venue.canvas.auto): checked, then written with the looks' rows. */
-  const putCanvas = async (value: unknown, opts: Passes & { steps?: Record<string, LookRows>; revision?: string | undefined }, ctx: CommandContext) => {
+  const putCanvas = async (value: unknown, opts: Passes & { steps?: Record<string, LookRows>; revision?: string | undefined; how?: "put" | "restore" }) => {
     const canvas = venue.canvases.parse(value);
     sameRevision(canvas.id, venue.canvases.get(canvas.id), opts.revision);
     const rows = new Map(Object.entries(opts.steps ?? {}));
-    checkCanvasPut(canvas, rows, opts);
-    const stored = await writeCanvas(canvas, rows, ctx);
+    checkCanvasPut(canvas, rows, opts, opts.how);
+    const stored = writeCanvas(canvas, rows);
     const warnings = warningsOf(stored);
-    return warnings.length ? { ...stored, warnings } : stored;
+    return { ...stored, revision: revisionOf(stored), ...(warnings.length ? { warnings } : {}) };
   };
   reg.register({
     name: "venue.canvas.get",
@@ -789,7 +792,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ canvas: CanvasSchema, steps: rowsSchema, force: z.boolean().default(false).describe("write even if looks of exact steps no longer line up with the cells"), shared: sharedFlag, revision: z.string().optional() }),
-    run: ({ canvas, ...opts }, ctx) => putCanvas(canvas, opts, ctx),
+    run: ({ canvas, ...opts }) => putCanvas(canvas, opts),
   });
   reg.register({
     name: "venue.canvas.edit",
@@ -808,7 +811,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       revision: z.string().optional(),
     }),
     dry: (args) => args.dryRun,
-    run: async ({ id: i, ops, dryRun, force, shared, adapt, revision }, ctx) => {
+    run: ({ id: i, ops, dryRun, force, shared, adapt, revision }) => {
       const current = venue.canvases.get(i);
       if (!current) throw unknownCanvas(i);
       sameRevision(i, current, revision);
@@ -824,10 +827,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         impact,
         broken.filter((l) => !adapted.includes(l.id)),
         { force, shared },
-        true,
+        "edit",
         adaptable,
       );
-      await writeCanvas(canvas, new Map(chosen.map((a) => [a.id, a.stored.after])), ctx);
+      writeCanvas(canvas, new Map(chosen.map((a) => [a.id, a.stored.after])));
       return { ...answer, steps: Object.fromEntries(chosen.map((a) => [a.id, a.stored])) };
     },
   });
@@ -871,7 +874,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ id: z.string(), name: z.string(), fixtures: z.array(z.string()).min(1), topology: z.enum(["line", "line-mirror", "ring"]).default("line"), force: z.boolean().default(false).describe("over an existing canvas: as venue.canvas.put"), shared: sharedFlag }),
-    run: ({ id: cid, name, fixtures, topology, force, shared }, ctx) => {
+    run: ({ id: cid, name, fixtures, topology, force, shared }) => {
       const render: { from: number; to: number; targets: { fixture: string; head: number }[] }[] = [];
       let cell = 0;
       for (const fid of fixtures) {
@@ -881,7 +884,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         const heads = [...r.heads.keys()].filter((h) => !r.accent.has(h));
         for (const h of heads) render.push({ from: cell, to: cell++, targets: [{ fixture: fid, head: h }] });
       }
-      return putCanvas({ id: cid, name, topology, cells: cell, render }, { force, shared }, ctx);
+      return putCanvas({ id: cid, name, topology, cells: cell, render }, { force, shared });
     },
   });
 
@@ -1487,15 +1490,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.restore",
     title: "Restaurer une version",
-    description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put); the current version goes to the history in turn, so a restore is undone the same way.",
+    description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put; shared for a venue shared with other shows); the current version goes to the history in turn, so a restore is undone the same way.",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ collection: versioned, id: z.string(), stamp: z.string(), force: restoreForce }),
-    run: async ({ collection, id: i, stamp, force }, ctx) => {
+    schema: z.object({ collection: versioned, id: z.string(), stamp: z.string(), force: restoreForce, shared: sharedFlag }),
+    run: async ({ collection, id: i, stamp, force, shared }, ctx) => {
       const v = VERSIONED[collection];
       const old = v.coll.version(i, stamp) as { id?: string; master?: unknown; level?: unknown } | undefined;
       if (!old || old.id !== i) throw new Error(say(`version introuvable : ${collection}/${i} ${stamp}`, `version not found: ${collection}/${i} ${stamp}`));
-      return reg.invoke(v.put, { [v.key]: keepLive(collection, old, v.coll.get(i)), ...(collection === "canvases" ? { force } : {}) }, ctx);
+      if (collection === "canvases") return putCanvas(old, { force, shared, how: "restore" });
+      return reg.invoke(v.put, { [v.key]: keepLive(collection, old, v.coll.get(i)) }, ctx);
     },
   });
 
@@ -1503,18 +1507,29 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "history.undo",
     title: "Annuler une modification",
     description:
-      "Undoes one change to a look, group, channel fader, dashboard or canvas, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead. A canvas is put back as history.restore does (force).",
+      "Undoes one change to a look, group, channel fader, dashboard or canvas, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead. A canvas is put back as history.restore does (force, shared), and the looks whose steps that same change adapted (venue.canvas.edit with adapt) get their steps back with it, written together.",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ collection: versioned, id: z.string(), at: z.number(), until: z.number().optional(), force: restoreForce }),
-    run: async ({ collection, id: i, at, until, force }, ctx) => {
+    schema: z.object({ collection: versioned, id: z.string(), at: z.number(), until: z.number().optional(), force: restoreForce, shared: sharedFlag }),
+    run: async ({ collection, id: i, at, until, force, shared }, ctx) => {
       const versions = VERSIONED[collection].coll.versions(i); // newest first
       // the copy a change keeps is written while it runs: just after its line's time
       const end = (until ?? at) + UNDO_SLACK_MS;
       const replaced = versions.filter((x) => Date.parse(x.at) >= at && Date.parse(x.at) <= end);
       const before = replaced[replaced.length - 1];
       if (!before) throw new Error(say(`rien à annuler pour ${i} : cette modification n'a remplacé aucune version (une création s'annule en supprimant l'objet)`, `nothing to undo for ${i}: this change replaced no version (a creation is undone by deleting the object)`));
-      await reg.invoke("history.restore", { collection, id: i, stamp: before.stamp, force }, ctx);
+      if (collection === "canvases") {
+        // the looks whose steps the same change adapted go back with the canvas: the version each kept while it ran
+        const canvas = venue.canvases.parse(venue.canvases.version(i, before.stamp));
+        const steps: Record<string, LookRows> = {};
+        for (const l of looksOn(i)) {
+          const kept = show.looks.versions(l.id).filter((x) => Date.parse(x.at) >= at && Date.parse(x.at) <= end);
+          const was = kept.length ? (show.looks.version(l.id, kept[kept.length - 1]!.stamp) as Look | undefined) : undefined;
+          const rows = was?.technique.kind === l.technique.kind ? rowsOfTechnique(was.technique) : undefined;
+          if (rows && (was!.technique.kind !== "pas" || fits(rows as string[][], canvas.cells))) steps[l.id] = rows;
+        }
+        await putCanvas(canvas, { force, shared, steps, how: "restore" });
+      } else await reg.invoke("history.restore", { collection, id: i, stamp: before.stamp }, ctx);
       return { id: i, restored: before.stamp };
     },
   });
@@ -1536,14 +1551,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean };
   /**
    * The write commands a proposal can hold (and light call … --check): their collection, the argument carrying the object, the arguments kept beside it.
-   * An edit (venue.canvas.edit) carries operations, not the object: `object` computes what it would write, and `restore` is the put that takes it back.
+   * An edit (venue.canvas.edit) carries operations, not the object: `plan` computes what it would write (and what it does to the looks, or why
+   * it cannot be proposed), and `restore` is the put that takes it back.
    */
-  const proposedEdit = (a: Record<string, unknown>) => {
-    const current = venue.canvases.get(String(a.id));
-    if (!current) throw unknownCanvas(String(a.id));
-    return planEdit(current, z.array(CanvasOpSchema).parse(a.ops ?? []));
-  };
-  const PUT_COMMANDS: Record<string, { collection: (a: Record<string, unknown>) => Diffable; key: string; keep?: string[]; object?: (a: Record<string, unknown>) => unknown; impact?: (a: Record<string, unknown>) => Impact; restore?: string }> = {
+  const PUT_COMMANDS: Record<string, { collection: (a: Record<string, unknown>) => Diffable; key: string; keep?: string[]; plan?: (a: Record<string, unknown>) => { object: unknown; impact?: Impact }; restore?: string }> = {
     "look.put": { collection: () => "looks", key: "look" },
     "group.put": { collection: () => "groups", key: "group" },
     "fader.put": { collection: () => "faders", key: "fader" },
@@ -1552,20 +1563,31 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     "stage.zone.put": { collection: () => "zones", key: "zone" },
     "rule.put": { collection: (a) => (a.where === "venue" ? "venueRules" : "rules"), key: "rule", keep: ["where"] },
     "venue.fixture.put": { collection: () => "fixtures", key: "fixture" },
-    "venue.canvas.put": { collection: () => "canvases", key: "canvas" },
+    "venue.canvas.put": {
+      collection: () => "canvases",
+      key: "canvas",
+      // looks' steps written with the canvas would show in no preview, and no take-back would put them back
+      plan: (a) => {
+        if (a.steps && typeof a.steps === "object" && Object.keys(a.steps).length) throw new Error(say("une proposition ne porte pas de pas avec le canevas (steps) : proposer les looks par look.put", "a proposal carries no steps with the canvas (steps): propose the looks with look.put"));
+        return { object: a.canvas };
+      },
+    },
     "venue.canvas.edit": {
       collection: () => "canvases",
       key: "canvas",
       restore: "venue.canvas.put",
-      object: (a) => {
+      plan: (a) => {
         if (a.adapt) throw new Error(say("une proposition n'adapte pas les pas des looks : l'enlever (adapt) et éditer le canevas directement", "a proposal does not adapt the steps of looks: drop adapt and edit the canvas directly"));
         if (a.dryRun) throw new Error(say("une proposition n'est pas un essai : enlever dryRun", "a proposal is not a dry run: drop dryRun"));
-        const { canvas, impact, broken } = proposedEdit(a);
+        const current = venue.canvases.get(String(a.id));
+        if (!current) throw unknownCanvas(String(a.id));
+        // the revision the proposal was made on (show.propose pins it): a canvas changed since is not the one that was shown
+        sameRevision(current.id, current, typeof a.revision === "string" ? a.revision : undefined);
+        const { canvas, impact, broken, adaptable } = planEdit(current, z.array(CanvasOpSchema).parse(a.ops ?? []));
         // what apply would refuse is said now, with the proposal: a forced one carries its impact in the preview
-        refuseUnlessPassed(canvas.name, impact, broken, { force: a.force === true, shared: a.shared === true }, true);
-        return canvas;
+        refuseUnlessPassed(canvas.name, impact, broken, { force: a.force === true, shared: a.shared === true }, "edit", adaptable);
+        return { object: canvas, impact };
       },
-      impact: (a) => proposedEdit(a).impact,
     },
   };
   const putOf = (command: string) => {
@@ -1575,7 +1597,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   };
   const targetOf = (command: string, args: Record<string, unknown>) => {
     const p = putOf(command);
-    return { collection: p.collection(args), object: p.object ? p.object(args) : args[p.key] };
+    return { collection: p.collection(args), ...(p.plan ? p.plan(args) : { object: args[p.key] }) };
   };
   /** What putting `object` in `collection` would change, or why it is invalid. */
   const diffOf = (collection: Diffable, object: unknown) => {
@@ -1637,30 +1659,34 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     return p;
   };
   const previewOf = (c: Change) => {
-    let target: { collection: Diffable; object: unknown };
+    let target: { collection: Diffable; object: unknown; impact?: Impact };
     try {
       target = targetOf(c.command, c.args);
     } catch (err) {
       // an edit whose operations cannot apply: invalid, as a put the schema refuses
       return { command: c.command, valid: false as const, collection: putOf(c.command).collection(c.args), issues: [err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : (err as Error).message] };
     }
-    const impact = putOf(c.command).impact?.(c.args);
-    return { command: c.command, ...diffOf(target.collection, target.object), ...(impact?.looksAffected.length ? { impact } : {}) };
+    return { command: c.command, ...diffOf(target.collection, target.object), ...(target.impact?.looksAffected.length ? { impact: target.impact } : {}) };
   };
   /**
    * Puts the objects back as they were before (newest first): the ones created go. A canvas is put back
    * like any canvas put (looks of exact steps checked) unless `force`: the rollback of a failed apply puts
    * back what was there a moment ago, and forces.
+   *
+   * Every canvas is checked before the first object goes back, so a refusal leaves the proposal whole. The
+   * check is the cautious one: it reads the looks as they are now, not as the take-back will leave them, so a
+   * proposal that changed a canvas and the steps of its looks together is refused though it would line up
+   * again; `force` takes it back.
    */
-  const takeBack = async (done: Applied[], ctx: Parameters<Parameters<typeof reg.register>[0]["run"]>[1], force = false) => {
-    // every canvas is checked before the first object goes back: a refusal leaves the proposal whole
-    if (!force) for (const a of done) if (a.collection === "canvases" && a.before !== undefined) checkCanvasPut(venue.canvases.parse(a.before), new Map(), { force: false, shared: false });
+  const takeBack = async (done: Applied[], ctx: Parameters<Parameters<typeof reg.register>[0]["run"]>[1], pass: Passes = { force: false, shared: false }) => {
+    for (const a of done) if (a.collection === "canvases" && a.before !== undefined) checkCanvasPut(venue.canvases.parse(a.before), new Map(), pass, "restore");
     for (const a of [...done].reverse()) {
       const coll = DIFFABLE[a.collection] as Store;
       if (a.before === undefined) coll.delete(a.id);
+      else if (a.collection === "canvases") await putCanvas(a.before, { ...pass, how: "restore" });
       else {
         const p = putOf(a.command);
-        await reg.invoke(p.restore ?? a.command, { ...Object.fromEntries((p.keep ?? []).map((k) => [k, a.args[k]])), [p.key]: keepLive(a.collection, a.before, coll.get(a.id)), ...(a.collection === "canvases" ? { force } : {}) }, ctx);
+        await reg.invoke(p.restore ?? a.command, { ...Object.fromEntries((p.keep ?? []).map((k) => [k, a.args[k]])), [p.key]: keepLive(a.collection, a.before, coll.get(a.id)) }, ctx);
       }
     }
   };
@@ -1677,6 +1703,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const preview = changes.map(previewOf);
       const invalid = preview.filter((x) => !x.valid);
       if (invalid.length) return { valid: false, preview };
+      // an edit is a list of cell indices: it is applied to the canvas that was shown, or not at all
+      changes = changes.map((c) => {
+        const current = c.command === "venue.canvas.edit" && c.args.revision === undefined ? venue.canvases.get(String(c.args.id)) : undefined;
+        return current ? { ...c, args: { ...c.args, revision: revisionOf(current) } } : c;
+      });
       const now = Date.now();
       for (const [k, p] of proposals) if (now - p.at > PROPOSAL_KEEP_MS) proposals.delete(k);
       const id = `p-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1729,7 +1760,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}) });
         }
       } catch (err) {
-        await takeBack(done, ctx, true);
+        await takeBack(done, ctx, { force: true, shared: true });
         throw new Error(say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`));
       }
       Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), ...(ctx.who ? { appliedBy: ctx.who } : {}) });
@@ -1739,14 +1770,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.revert",
     title: "Défaire une proposition",
-    description: "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed. show.apply applies it again (redo). A canvas is put back as venue.canvas.put does it (force).",
+    description: "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed. show.apply applies it again (redo). A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells") }),
-    run: async ({ id, force }, ctx) => {
+    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells"), shared: sharedFlag }),
+    run: async ({ id, force, shared }, ctx) => {
       const p = proposalOf(id);
       if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
-      await takeBack(p.applied!, ctx, force);
+      await takeBack(p.applied!, ctx, { force, shared });
       p.status = "reverted";
       return { id, reverted: p.applied!.length };
     },
