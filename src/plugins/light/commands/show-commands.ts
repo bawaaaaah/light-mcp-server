@@ -15,6 +15,7 @@ import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessag
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKey, modelKeyOrUndefined, WheelOverridesSchema, type FixtureOverrides, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
+import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
@@ -69,7 +70,19 @@ export interface ShowCommandOptions {
   intentionReferences?: (id: string) => string[];
 }
 
-export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, options: ShowCommandOptions = {}): void {
+/** Writes a proposal carries beside its put commands (venue.fixture.mode: another show's looks, a fader emptied). */
+export interface ProposalHooks {
+  apply(): void;
+  revert(): void;
+}
+
+/** What the show commands hand to the commands registered beside them (commands/fixture-mode-commands.ts). */
+export interface ShowCommandsApi {
+  /** Attaches writes to a pending proposal: made once show.apply has applied it, taken back once show.revert has reverted it. */
+  hookProposal(id: string, hooks: ProposalHooks): void;
+}
+
+export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, options: ShowCommandOptions = {}): ShowCommandsApi {
   const { sharedWith = () => [], standby = () => false, intentionReferences } = options;
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
@@ -181,7 +194,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
     description:
-      "Channels of each patched fixture (with its model, universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
+      "Channels of each patched fixture (with its model, universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro) and the same ranges read as working modes (modes: name, min, max, variants — consecutive ranges sharing a name once a number or a speed word is taken off, « Auto 1 », « Auto 2 » — and continuous for one wide range whose value is a speed; fixture.channel.mode sets one). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -195,7 +208,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
             : r.mode.channels.map((name, offset) => {
                 const ch = r.def.channels.get(name);
                 const caps = ch?.capabilities ?? [];
-                return { offset, name, attribute: ch?.attribute ?? "other", ...(ch?.color ? { color: ch.color } : {}), ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
+                // modes: the same ranges grouped (variants of one mode, a continuous one), computed, never stored (venue/channel-modes.ts)
+                return { offset, name, attribute: ch?.attribute ?? "other", ...(ch?.color ? { color: ch.color } : {}), ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })), modes: channelModes(caps) } : {}) };
               });
         return { id: f.id, name: f.name, model: `${f.manufacturer} ${f.model}`, universe: f.universe, address: f.address, ...(f.color ? { color: f.color } : {}), ...("error" in r ? {} : { type: r.def.type }), channels };
       }),
@@ -1699,6 +1713,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     applied?: Applied[];
     appliedAt?: number;
     appliedBy?: string;
+    /** Writes made with it outside the put commands (another show's looks, a fader emptied): done once it applies, taken back once it is reverted. */
+    hooks?: ProposalHooks;
   }
   const proposals = new Map<string, Proposal>();
   const PROPOSAL_KEEP_MS = 24 * 3600_000;
@@ -1729,7 +1745,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    */
   const takeBack = async (done: Applied[], ctx: Parameters<Parameters<typeof reg.register>[0]["run"]>[1], pass: Passes = { force: false, shared: false }) => {
     for (const a of done) if (a.collection === "canvases" && a.before !== undefined) checkCanvasPut(venue.canvases.parse(a.before), new Map(), pass, "restore");
-    for (const a of [...done].reverse()) {
+    // newest first, the fixtures before anything else: looks, faders and canvases are checked against a fixture's
+    // mode (checkChannels, its heads), so a mode change (venue.fixture.mode) must be undone before what it carried
+    const newestFirst = [...done].reverse();
+    for (const a of [...newestFirst.filter((x) => x.collection === "fixtures"), ...newestFirst.filter((x) => x.collection !== "fixtures")]) {
       const coll = DIFFABLE[a.collection] as Store;
       if (a.before === undefined) coll.delete(a.id);
       else if (a.collection === "canvases") await putCanvas(a.before, { ...pass, how: "restore" });
@@ -1821,6 +1840,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         throw new Error(say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`));
       }
       Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), ...(ctx.who ? { appliedBy: ctx.who } : {}) });
+      p.hooks?.apply();
       return { id, applied: done.length };
     },
   });
@@ -1835,6 +1855,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const p = proposalOf(id);
       if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
       await takeBack(p.applied!, ctx, { force, shared });
+      p.hooks?.revert();
       p.status = "reverted";
       return { id, reverted: p.applied!.length };
     },
@@ -2034,4 +2055,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return { undone: true, ...done };
     },
   });
+  return {
+    hookProposal(id, hooks) {
+      const p = proposalOf(id);
+      if (p.status !== "pending") throw new Error(say(`proposition déjà ${p.status}`, `proposal already ${p.status}`));
+      p.hooks = hooks;
+    },
+  };
 }

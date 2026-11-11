@@ -47,7 +47,7 @@ const BACKUP_RE = /^[\w.-]+\.lightshow$/;
  * The shows that play on a venue, but `except` (data/show-folders.ts): a show.json that cannot be
  * read is an error naming the show, where a write depends on it.
  */
-function showsOnVenueOrThrow(dataRoot: string, venueId: string, except?: string): { id: string; settings: ShowSettings }[] {
+export function showsOnVenueOrThrow(dataRoot: string, venueId: string, except?: string): { id: string; settings: ShowSettings }[] {
   return showsOnVenue(dataRoot, venueId, except, (id, why) => {
     throw new CommandError("invalid", say(`les réglages du show « ${id} » sont illisibles (show.json) : ${why}`, `the settings of show “${id}” cannot be read (show.json): ${why}`));
   });

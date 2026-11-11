@@ -21,7 +21,8 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./com
 import { recallStartupSnapshot, registerShowCommands } from "./commands/show-commands.js";
 import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
-import { backupPath, registerFileCommands, runAutoBackup, sharedWith, type FileServices } from "./commands/file-commands.js";
+import { backupPath, registerFileCommands, runAutoBackup, sharedWith, showsOnVenueOrThrow, type FileServices } from "./commands/file-commands.js";
+import { registerFixtureModeCommands, showFolder } from "./commands/fixture-mode-commands.js";
 import { ActivityLog, commandNotice, undoOf } from "./activity.js";
 import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
@@ -234,10 +235,16 @@ export class LightPlugin implements McpPlugin {
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
-    registerShowCommands(this.commands, this.engine, this.runtime, {
-      sharedWith: () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }),
+    const otherShowsSharing = () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) });
+    const showApi = registerShowCommands(this.commands, this.engine, this.runtime, {
+      sharedWith: otherShowsSharing,
       standby: () => this.router.isStandby(),
       intentionReferences: (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id),
+    });
+    // a fixture's DMX mode, and a channel's working mode (T6); a mode changed « for every show » rewrites their folders
+    registerFixtureModeCommands(this.commands, this.engine, this.runtime, showApi, {
+      sharedWith: otherShowsSharing,
+      otherShows: () => showsOnVenueOrThrow(dataRoot, this.config.venue, this.config.show).map(({ id, settings }) => showFolder(dataRoot, id, settings.name || id)),
     });
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
