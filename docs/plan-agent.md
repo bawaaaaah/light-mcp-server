@@ -125,7 +125,8 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T21, T22, T18 | à faire | |
 | T5, T11, T6, T9 | à faire | |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |
-| T15, T13, T20b, T8 | à faire | |
+| T13 (2026-11-11) | **fait** (tests verts, commité) | édition des canevas : `venue.canvas.edit`, refus ou adaptation des looks de pas, même contrôle pour put / versions, éditeur en fenêtre de la page Lieu ; voir [todo.md](todo.md) T13 et [decisions.md](decisions.md) |
+| T15, T20b, T8 | à faire | |
 | T23, T30, T28 | à faire | T23 avant T30 ; T27 et T25 avant T28 |
 | T19 | à faire | |
 | T10 | à faire | en fin de parcours |

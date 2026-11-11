@@ -92,6 +92,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 
 ### T13 — Gestion des canevas
 - Éditer un canevas existant, y ajouter ou en retirer des éléments, plus facilement (sélection multiple, glisser, suppression directe, annuler/rétablir).
+- **Fait (2026-11-11)** : commande `venue.canvas.edit` (opérations typées, tout ou rien, `dryRun`, `force`, `adapt`, `revision`) sur un module pur [canvas-edit.ts](../src/plugins/light/venue/canvas-edit.ts) ; refus nommant les looks de pas exacts décalés, ou adaptation de leurs pas (choix de l'utilisateur) ; même contrôle pour `venue.canvas.put`, `auto`, la restauration et l'annulation d'une version, `show.revert` ; canevas versionnés (un canevas supprimé revient) ; « Vérifier le show » signale plages, projecteurs, têtes, cellules vides et pas désalignés ; éditeur en fenêtre depuis la page Lieu ([CanvasEditor.tsx](../web/src/components/CanvasEditor.tsx), helpers purs [canvas-edit-view.ts](../web/src/canvas-edit-view.ts)). Spec [venue-fixtures-stage](specs/venue-fixtures-stage.md) ; tests `canvas-edit.test.ts`, `canvas-edit-commands.test.ts`, `web-canvas-edit-view.test.ts` et deux parcours UI. Pas vérifié : le glisser au toucher (le doigt défile, non testé en Playwright), Safari.
 
 ## 🟠 Looks, intentions, instantanés
 
