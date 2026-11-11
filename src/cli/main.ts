@@ -356,6 +356,8 @@ async function unpack(caller: Caller, file: string, check = false, fixtures = "m
       diff = caller.plugin!.previewArchive(new Uint8Array(bytes), policy);
     }
     printDiff("Show", diff.show);
+    const i = diff.intentions; // an older server's preview has none
+    if (i && i.added + i.changed + i.removed) console.log(`Intentions du show : ${i.added} ajoutée(s), ${i.changed} modifiée(s), ${i.removed} supprimée(s)`);
     printDiff("Lieu", diff.venue);
     printFixtures(diff.fixtures);
     console.error("(rien n'a été écrit : relancer sans --check pour restaurer)");

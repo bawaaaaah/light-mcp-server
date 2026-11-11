@@ -4,13 +4,15 @@
  * unless `save` is true.
  */
 import { z } from "zod";
-import type { CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection } from "../data/store.js";
 import { slugify } from "../data/store.js";
 import { mappingInputKey, type Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
-import { deltaE, proposeLook, type Energy, type Knowledge } from "../knowledge/knowledge.js";
+import { deltaE, EnergySchema, normalizeMood, proposeLook, type Energy, type Knowledge, type KnowledgeLayers } from "../knowledge/knowledge.js";
+import { IntentionSchema, MAX_INTENTION_COLORS, mergeKnowledge, stackIntentions, type Intention } from "../knowledge/intentions.js";
+import { inUseMessage, intentionUses } from "../show/references.js";
 import type { Group, Look, Palette } from "../show/model.js";
 import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
@@ -44,16 +46,134 @@ const energyOfSection = (name: string): Energy => {
   return "pose";
 };
 
-export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntime, songs: Collection<Song>, mappings: () => Mapping[], knowledge: () => Knowledge): void {
+/**
+ * The layers of the colour knowledge base (T15): the files read once (generic, private), and the
+ * intentions of the personal library and of the open show, read at every call (a change is seen at
+ * once, without a restart; opening another show brings its own).
+ */
+export interface IntentionStores {
+  base: () => KnowledgeLayers;
+  personal: Collection<Intention>;
+  show: Collection<Intention>;
+}
+
+/** What `intention.put` and `intention.preview` take: no `hidden` (a mask is `intention.delete`'s). */
+const IntentionInputSchema = z.object({
+  id: z.string().optional(),
+  label: z.string(),
+  colors: z.array(z.string()).min(1).max(MAX_INTENTION_COLORS),
+  energy: EnergySchema.default("dynamique"),
+  family: z.string().default(""),
+  notes: z.string().optional(),
+});
+
+/** A schema's refusal as a command error, its issues on one line. */
+const parsedOr = <T>(parse: () => T): T => {
+  try {
+    return parse();
+  } catch (err) {
+    if (err instanceof z.ZodError) throw new CommandError("invalid", err.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; "));
+    throw err;
+  }
+};
+
+export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntime, songs: Collection<Song>, mappings: () => Mapping[], intentions: IntentionStores): void {
+  const stack = () => stackIntentions(intentions.base(), intentions.personal.list(), intentions.show.list());
+  const knowledge = (): Knowledge => mergeKnowledge(intentions.base(), intentions.personal.list(), intentions.show.list());
+  const usesOfIntention = (key: string) => intentionUses(key, { songs: songs.list(), looks: runtime.looks.list() });
+  /** The key of a new intention (from its label) or of one named (`given`: must already be a key). */
+  const keyOf = (word: string, given: boolean): string => {
+    const key = normalizeMood(word);
+    if (!key) throw new CommandError("invalid", say("libellé vide : une intention a besoin d'au moins une lettre ou un chiffre", "empty label: an intention needs at least a letter or a digit"));
+    if (given && key !== word) throw new CommandError("invalid", say(`clé invalide : « ${word} » (attendu « ${key} »)`, `invalid key: “${word}” (expected “${key}”)`), { expected: key });
+    if (key.length > 64) throw new CommandError("invalid", say("libellé trop long : sa clé dépasse 64 caractères", "label too long: its key is over 64 characters"));
+    return key;
+  };
+
   reg.register({
     name: "knowledge.get",
     title: "Base de connaissances couleur",
-    description: "Mood keywords → colours, energy and family, plus the design rules (generic base, merged with the user's private one if present).",
+    description:
+      "Mood keywords (intentions) → colours, energy and family, plus the design rules. Layers, the most specific winning key by key: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag); `hidden` lists the intentions the show masks.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
     schema: z.object({}),
-    run: () => knowledge(),
+    run: () => {
+      const all = [...stack().values()].map((e) => ({ ...e, usedBy: usesOfIntention(e.id) }));
+      return { ...knowledge(), moods: Object.fromEntries(all.filter((e) => !e.hidden).map(({ id, hidden: _h, ...e }) => [id, e])), hidden: all.filter((e) => e.hidden) };
+    },
+  });
+
+  reg.register({
+    name: "intention.put",
+    title: "Intention",
+    description: `Creates or changes an intention (a mood of the colour knowledge base): label, 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, it is never exported. Without id: a creation, the key made from the label (« Lever de rideau » → lever-de-rideau), refused when that place already has the key (detail.exists); a key of the shipped base or the private file is not taken: the new one is a touch-up of it. With id: that key is written (an edit; the key never follows the label: songs and ambiance: tags name it). Precedence: show > personal > private file > shipped.`,
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ intention: IntentionInputSchema, scope: z.enum(["show", "personal"]).default("show") }),
+    run: ({ intention: input, scope }) => {
+      const target = scope === "personal" ? intentions.personal : intentions.show;
+      const label = input.label.trim();
+      const id = input.id !== undefined ? keyOf(input.id, true) : keyOf(label, false);
+      const taken = input.id === undefined ? target.get(id) : undefined;
+      // a mask of the show is no intention: creating over it shows the key again, with these colours
+      if (taken && !taken.hidden) throw new CommandError("invalid", say(`l'intention « ${taken.label || id} » existe déjà (${id}) : choisir un autre libellé, ou la modifier`, `the intention “${taken.label || id}” already exists (${id}): choose another label, or edit it`), { exists: id });
+      const saved = parsedOr(() => target.put({ ...input, id, label: label || id }));
+      const entry = stack().get(id);
+      return { intention: saved, scope, origin: entry?.origin, ...(entry?.over ? { over: entry.over } : {}), ...(scope === "personal" && entry?.origin === "show" ? { shadowedBy: "show" } : {}) };
+    },
+  });
+
+  reg.register({
+    name: "intention.delete",
+    title: "Supprimer une intention",
+    description:
+      "Removes an intention, by key. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). Returns what was done: deleted, reverted, hidden or restored.",
+    right: "show:write",
+    profiles: ["design"],
+    schema: z.object({ id: z.string(), force: z.boolean().default(false) }),
+    run: ({ id: word, force }) => {
+      const key = normalizeMood(word);
+      const entry = stack().get(key);
+      if (!entry) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
+      // only what would become unknown is guarded: a touch-up removed leaves the one below
+      const guard = (): string[] => {
+        const uses = usesOfIntention(key);
+        if (uses.length && !force) throw new CommandError("invalid", inUseMessage(entry.label || key, uses), { uses });
+        return uses;
+      };
+      if (entry.origin === "show" && entry.hidden) {
+        intentions.show.delete(key);
+        return { id: key, action: "restored" as const, origin: entry.over };
+      }
+      if (entry.origin === "show" || entry.origin === "personal") {
+        const uses = entry.over ? [] : guard();
+        (entry.origin === "show" ? intentions.show : intentions.personal).delete(key);
+        return entry.over ? { id: key, action: "reverted" as const, origin: entry.over, usedBy: uses } : { id: key, action: "deleted" as const, usedBy: uses };
+      }
+      // shipped or from the private file: not the show's to remove, masked for this show
+      const usedBy = guard();
+      intentions.show.put({ id: key, label: entry.label ?? key, colors: entry.colors, energy: entry.energy, family: entry.family, hidden: true });
+      return { id: key, action: "hidden" as const, origin: entry.origin, usedBy };
+    },
+  });
+
+  reg.register({
+    name: "intention.preview",
+    title: "Aperçu d'une intention",
+    description: "What look.from_intent would propose for an intention as typed, before it is saved: technique, timing, energy, explanation, and the contrast (ΔE) between its first two colours. Writes nothing; no canvas needed.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design"],
+    schema: z.object({ intention: IntentionInputSchema }),
+    run: ({ intention: input }) => {
+      const parsed = parsedOr(() => IntentionSchema.parse({ ...input, id: "apercu" }));
+      const label = input.label.trim() || say("cette intention", "this intention");
+      const p = proposeLook({ ...knowledge(), moods: { apercu: { label, colors: parsed.colors, energy: parsed.energy, family: parsed.family } } }, { mood: ["apercu"] });
+      const [a, b] = parsed.colors;
+      return { technique: p.technique, timing: p.timing, energy: p.energy, explanation: p.explanation, ...(a && b ? { contrast: Math.round(deltaE(a, b)) } : {}) };
+    },
   });
 
   reg.register({
@@ -111,7 +231,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention or one of the personal library (it does not travel with the show), looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -313,8 +433,19 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           warn(`fader ${f.id}`, say(`à 0, il éteint ${darkened.length} projecteur(s) (${darkened.slice(0, 4).join(", ")}${darkened.length > 4 ? "…" : ""}) tant qu'on ne le monte pas`, `at 0 it darkens ${darkened.length} fixture(s) (${darkened.slice(0, 4).join(", ")}${darkened.length > 4 ? "…" : ""}) until it is raised`));
       }
       for (const l of runtime.looks.list()) if (l.channels) checkChannels(`look ${l.id}`, l.channels.targets);
+      // the intentions a song names: known, and travelling with the show (a personal one stays on this machine)
+      const intentionsNow = stack();
       for (const s of songs.list()) {
         if (!s.mood.length) warn(say(`chant ${s.id}`, `song ${s.id}`), say("pas d'ambiance globale", "no overall mood"));
+        for (const word of s.mood) {
+          const e = intentionsNow.get(normalizeMood(word));
+          if (!e || e.hidden) warn(say(`chant ${s.id}`, `song ${s.id}`), say(`intention inconnue « ${word} »${e?.hidden ? " (masquée dans ce show)" : ""} : la grille ne sait pas quelles couleurs prendre`, `unknown intention “${word}”${e?.hidden ? " (hidden in this show)" : ""}: the grid does not know which colours to take`));
+          else if (e.origin === "personal" || e.origin === "private")
+            warn(
+              say(`chant ${s.id}`, `song ${s.id}`),
+              say(`intention « ${e.label ?? word} » de la bibliothèque personnelle : elle ne voyage pas avec le show (archives, autre machine) ; la copier dans le show`, `intention “${e.label ?? word}” of the personal library: it does not travel with the show (archives, another machine); copy it into the show`),
+            );
+        }
         s.sections.forEach((sec, i) => {
           if (!sec.look) warn(say(`chant ${s.id}`, `song ${s.id}`), say(`section ${sec.id} sans look`, `section ${sec.id} without a look`));
           else if (!runtime.looks.get(sec.look)) err(say(`chant ${s.id}`, `song ${s.id}`), say(`section ${sec.id} : look inconnu ${sec.look}`, `section ${sec.id}: unknown look ${sec.look}`));
@@ -331,7 +462,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "show.autopresets",
     title: "Presets automatiques",
     description:
-      "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten.",
+      "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten. The colours follow the knowledge base as merged for the show: an intention touched up in the show changes them, a masked one falls back to the built-in colours.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ canvas: z.string().optional(), apply: z.boolean().default(false) }),

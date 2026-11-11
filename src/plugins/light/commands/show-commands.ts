@@ -21,6 +21,7 @@ import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
+import { IntentionSchema } from "../knowledge/intentions.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -1193,11 +1194,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas or a patched fixture is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs, looks (canvas), safe state. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture or an intention (mood key) is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag), safe state. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention"]), id: z.string() }),
     run: ({ kind, id: i }) => ({ uses: usesOf(kind, i, parts()) }),
   });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {
@@ -1551,6 +1552,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     venueRules: show.venueRules,
     fixtures: venue.fixtures,
     canvases: venue.canvases,
+    intentions: show.store.collection("intentions", IntentionSchema),
   } as const;
   type Diffable = keyof typeof DIFFABLE;
   type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean };
@@ -1593,6 +1595,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         refuseUnlessPassed(canvas.name, impact, broken, { force: a.force === true, shared: a.shared === true }, "edit", adaptable);
         return { object: canvas, impact };
       },
+    },
+    // the show's intentions only: the personal library is not the show's to propose
+    "intention.put": {
+      collection: (a) => {
+        if (a.scope === "personal") throw new Error(say("pas de proposition pour une intention de la bibliothèque personnelle : seulement celles du show", "no proposal for an intention of the personal library: only the show's"));
+        return "intentions";
+      },
+      key: "intention",
+      keep: ["scope"],
     },
   };
   const putOf = (command: string) => {

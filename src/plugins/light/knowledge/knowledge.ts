@@ -13,25 +13,48 @@ import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
 import { hexToColor } from "../engine/techniques.js";
 
-const MoodSchema = z.object({ label: z.string().optional(), colors: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).default("dynamique"), family: z.string().default("") });
+export const EnergySchema = z.enum(["pose", "dynamique", "survolte"]);
+const MoodSchema = z.object({ label: z.string().optional(), colors: z.array(z.string()).min(1), energy: EnergySchema.default("dynamique"), family: z.string().default(""), notes: z.string().optional() });
 export const KnowledgeSchema = z.object({ version: z.number().default(1), source: z.string().default(""), moods: z.record(z.string(), MoodSchema).prefault({}), rules: z.array(z.string()).default([]) });
 export type Knowledge = z.infer<typeof KnowledgeSchema>;
-export type Energy = "pose" | "dynamique" | "survolte";
+export type Mood = z.infer<typeof MoodSchema>;
+export type Energy = z.infer<typeof EnergySchema>;
 
+/**
+ * The one key of an intention (T15): accents and case dropped, every run of separators (spaces,
+ * punctuation) one « - », none at either end. « Joie », « joie ! » and « JOIE » are « joie »;
+ * « lever de rideau » is « lever-de-rideau », a valid collection id. Used for the base's keys, the
+ * show's and the personal library's, the words of `song.mood` and the `ambiance:` tags alike.
+ */
 export const normalizeMood = (word: string): string =>
   word
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .trim();
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
-export function loadKnowledge(privatePath?: string): Knowledge {
+/** The two files the base is made of: the generic one shipped, the user's private one when present. */
+export interface KnowledgeLayers {
+  generic: Knowledge;
+  private?: Knowledge;
+}
+
+export function loadKnowledgeLayers(privatePath?: string): KnowledgeLayers {
   const generic = KnowledgeSchema.parse(JSON.parse(readFileSync(new URL("./generic.json", import.meta.url), "utf8")));
-  if (!privatePath || !existsSync(privatePath)) return generic;
+  if (!privatePath || !existsSync(privatePath)) return { generic };
   const own = KnowledgeSchema.parse(JSON.parse(readFileSync(privatePath, "utf8")));
-  const moods = { ...generic.moods };
-  for (const [k, v] of Object.entries(own.moods)) moods[normalizeMood(k)] = v;
-  return { version: own.version, source: `${generic.source} + base personnelle`, moods, rules: [...generic.rules, ...own.rules] };
+  return { generic, private: { ...own, moods: Object.fromEntries(Object.entries(own.moods).map(([k, v]) => [normalizeMood(k), v])) } };
+}
+
+/** The generic base with the private one merged on top, keyword by keyword. */
+export function loadKnowledge(privatePath?: string): Knowledge {
+  return flattenLayers(loadKnowledgeLayers(privatePath));
+}
+
+export function flattenLayers({ generic, private: own }: KnowledgeLayers): Knowledge {
+  if (!own) return generic;
+  return { version: own.version, source: `${generic.source} + base personnelle`, moods: { ...generic.moods, ...own.moods }, rules: [...generic.rules, ...own.rules] };
 }
 
 /** Perceptual distance between two colours (CIE76 ΔE on Lab), for contrast checks. */

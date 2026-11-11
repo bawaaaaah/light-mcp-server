@@ -230,17 +230,36 @@ export interface RestorePreview {
   show: FolderDiff | null;
   venue: FolderDiff | null;
   fixtures: FixtureSummary;
+  /**
+   * The show's intentions (T15), counted apart: a restore replaces them like every collection of the
+   * show, so an archive without any removes the show's own. Null when the show is left untouched.
+   */
+  intentions: CollectionCount | null;
+}
+
+export interface CollectionCount {
+  added: number;
+  changed: number;
+  removed: number;
+}
+
+/** How many objects of one collection of a folder (`<name>/…json`) a restore adds, changes and removes. */
+export function countCollection(diff: FolderDiff, name: string): CollectionCount {
+  const of = (paths: string[]) => paths.filter((p) => p.startsWith(`${name}/`)).length;
+  return { added: of(diff.added), changed: of(diff.changed), removed: of(diff.removed) };
 }
 
 /** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
 export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
+  const show = Object.keys(content.show).length ? diffFolder(t.showDir, content.show) : null;
   return {
     dryRun: true,
     manifest: content.manifest,
-    show: Object.keys(content.show).length ? diffFolder(t.showDir, content.show) : null,
+    show,
     venue: Object.keys(content.venue).length ? diffFolder(t.venueDir, content.venue) : null,
     fixtures: summarizeFixtures(plan, policy),
+    intentions: show && countCollection(show, "intentions"),
   };
 }
 

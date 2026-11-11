@@ -1,20 +1,22 @@
 /**
- * Where a look, a group (DCA), a channel fader, a canvas or a patched fixture is used in the show: groups, channel faders,
- * MIDI mappings, dashboards, snapshots, songs (sections and timeline cues), looks (a canvas), rules (a fixture) and the safe state.
+ * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture or an intention is used in the show: groups, channel faders,
+ * MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:` tag), rules (a fixture) and the safe state.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
  * forced, so a QLC+ import's look-alike objects (three DCAs all named « Master ») cannot be
  * cleaned up by mistake.
  */
 import { say } from "../../../core/lang.js";
-export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture";
+import { namesIntention } from "../knowledge/intentions.js";
+import { normalizeMood } from "../knowledge/knowledge.js";
+export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention";
 
 /**
  * A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). A
  * fixture is also named by any command's `args.fixture` or `args.fixtures` (position.set, venue.fixture.presence…).
  */
-const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture." };
+const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -23,10 +25,10 @@ export interface ShowParts {
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown> }[];
   /** The looks play on a canvas (`look.canvas`). */
-  looks: { id: string; name: string; canvas: string; channels?: { targets: { fixture: string }[] } }[];
+  looks: { id: string; name: string; canvas: string; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
   /** The canvases render onto fixtures (cell ranges → heads). */
   canvases?: { id: string; name: string; render: { targets: { fixture: string }[] }[] }[];
-  songs: { id: string; title: string; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
+  songs: { id: string; title: string; mood?: string[]; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
   /** The show's rules, and the venue's (type and venue levels): a rule scoped to one fixture names it. */
   rules?: { id: string; name: string; scope: { fixture?: string } }[];
   venueRules?: { id: string; name: string; scope: { fixture?: string } }[];
@@ -38,6 +40,7 @@ export interface ShowParts {
 
 /** One line per place that uses the object (French, as the other server messages); empty when nothing does. */
 export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string[] {
+  if (kind === "intention") return intentionUses(id, show);
   const uses: string[] = [];
   for (const g of show.groups) {
     if (kind === "look" && (g.members.looks.includes(id) || g.presets?.included.includes(id) || g.presets?.excluded.includes(id))) uses.push(say(`groupe « ${g.name} »`, `group “${g.name}”`));
@@ -74,6 +77,18 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string
   }
   if (kind === "look" && show.safeLook === id) uses.push(say("secours du Panic", "the Panic's fallback"));
   if (kind === "canvas" && show.safeLook && canvasLooks.has(show.safeLook)) uses.push(say("secours du Panic (look de secours)", "the Panic's fallback (safe look)"));
+  return uses;
+}
+
+/**
+ * What names an intention (T15): the songs whose overall mood holds it and the looks tagged
+ * `ambiance:<it>`, the words compared by the intention key (« Joie », « joie ! » are « joie »).
+ */
+export function intentionUses(word: string, show: Pick<ShowParts, "songs" | "looks">): string[] {
+  const key = normalizeMood(word);
+  const uses: string[] = [];
+  for (const s of show.songs) if (s.mood?.some((m) => namesIntention(m, key))) uses.push(say(`chant « ${s.title} »`, `song “${s.title}”`));
+  for (const l of show.looks) if (l.tags?.some((t) => t.startsWith("ambiance:") && namesIntention(t.slice("ambiance:".length), key))) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
   return uses;
 }
 

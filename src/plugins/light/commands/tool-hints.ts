@@ -64,6 +64,8 @@ export const HINTS: Record<string, string> = {
   "history.restore": "I",
   "history.undo": "",
   "import.qxw": "DI",
+  "intention.delete": "DI",
+  "intention.put": "DI",
   "live.adjust": "",
   "look.delete": "DI",
   "look.exclusive": "",

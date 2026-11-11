@@ -30,7 +30,8 @@ import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { registerDesignCommands } from "./commands/design-commands.js";
-import { loadKnowledge, type Knowledge } from "./knowledge/knowledge.js";
+import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
+import { IntentionSchema } from "./knowledge/intentions.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
@@ -273,8 +274,15 @@ export class LightPlugin implements McpPlugin {
     };
     registerSongCommands(this.commands, this.songs);
     const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
-    let kb: Knowledge | undefined;
-    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), () => (kb ??= loadKnowledge(knowledgePath)));
+    let kb: KnowledgeLayers | undefined;
+    // the intentions (T15): the files read once, the personal library (this machine, never exported)
+    // and the show's own (in its folder: archives and backups carry them) read at every call
+    const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private"));
+    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), {
+      base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
+      personal: personal.collection("intentions", IntentionSchema),
+      show: this.show.collection("intentions", IntentionSchema),
+    });
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     this.files = {
       dataRoot,
