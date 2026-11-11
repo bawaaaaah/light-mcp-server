@@ -252,8 +252,11 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       }
       case "venue": {
         const [action, arg] = positionals;
-        if (action === "list") for (const v of await caller.call<{ id: string; fixtures: number; shows: string[]; shared: boolean; active: boolean }[]>("venue.list")) console.log(`${v.active ? "▶" : " "} ${v.id.padEnd(40)} ${String(v.fixtures).padStart(3)} projecteurs  ${v.shared ? "partagé : " : ""}${v.shows.join(", ")}`);
-        else if (action === "positions" && arg) json(await caller.call("venue.positions.import", { from: arg, apply: values.apply }));
+        if (action === "list") {
+          const venues = await caller.call<{ id: string; fixtures: number; shows: string[]; shared: boolean; active: boolean; warning?: string }[]>("venue.list");
+          for (const v of venues) console.log(`${v.active ? "▶" : " "} ${v.id.padEnd(40)} ${String(v.fixtures).padStart(3)} projecteurs  ${v.shared ? "partagé : " : ""}${v.shows.join(", ")}`);
+          if (venues[0]?.warning) console.error(`attention : ${venues[0].warning}`);
+        } else if (action === "positions" && arg) json(await caller.call("venue.positions.import", { from: arg, apply: values.apply }));
         else throw new CliError("usage : light venue list|positions <lieu-source> [--apply]");
         return 0;
       }

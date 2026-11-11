@@ -132,7 +132,7 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
   if (/^Prism/.test(p) || /prism/i.test(n)) return "prism";
   if (/^Beam/.test(p) || /zoom|focus|iris|frost/i.test(n)) return "beam";
   if (/^Rotation/.test(p)) return "rotation";
-  if (/^Reset|^Lamp/.test(p) || /\b(reset|lamps?)\b/i.test(n)) return "maintenance";
+  if (/^Lamp/.test(p) || (/^Reset/.test(p) && isResetCapability(n, p)) || /\b(reset|lamps?)\b/i.test(n)) return "maintenance";
   if (/Macro|Effect/.test(p) || /macro|effect|program|sound|auto/i.test(n)) return "effect";
   if (/Speed|SlowToFast|FastToSlow/.test(p) || /speed/i.test(n)) return "speed";
   return "other";
@@ -140,14 +140,20 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
 
 /**
  * A range that resets the fixture: « reset », « resets » or « resetting » as a whole word (never
- * « Preset 1 », « Colour presets » nor « No reset »), or a QLC+ Reset* preset under a name that says
- * something. The preset alone is unreliable: QLC+ definitions put ResetAll on « No function »,
- * « Nothing » or a blank range, and ResetEffects on a whole « Motor speed » channel.
+ * « Preset 1 », « Colour presets », « No reset », nor a setting switched off: « Tilt reset off »,
+ * « Reset P/T fade off »), or a QLC+ Reset* preset under a name that says so too. The preset alone is
+ * unreliable: QLC+ definitions put ResetAll on « No function », « Nothing », « Shutdown », « Adjust
+ * motor » or « Enable blackout while pan/tilt move », and ResetEffects on a whole « Motor speed »
+ * channel. With a preset, the name must say reset (« Resetall » glued included), home, restore or
+ * init, or be nothing but what is reset (« All », « Pan/Tilt », « Motors »). A wrong tag the name
+ * cannot tell is a limit (docs/specs/rules-limits.md).
  */
 function isResetCapability(name: string, preset?: string): boolean {
+  if (/\breset\s*off\b|\breset\b.*\bfade\s*(off|on)\b/i.test(name)) return false;
   if (/\breset(s|ting)?\b/i.test(name)) return !/\bno[ -]?reset(s|ting)?\b/i.test(name);
+  if (!/^Reset/.test(preset ?? "")) return false;
   const n = name.trim();
-  return /^Reset/.test(preset ?? "") && !/^(no function|no effect|nothing|none|)$/i.test(n) && !/speed|slow|fast/i.test(n);
+  return /reset|\bhome\b|\brestor|\binit/i.test(n) || /^(all|pan|tilt|motors?|all motors|pan\s*[/&,]?\s*tilt|p\s*\/\s*t)$/i.test(n);
 }
 
 export function capabilityTags(name: string, preset?: string): CapabilityTag[] {

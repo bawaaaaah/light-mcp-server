@@ -10,7 +10,7 @@ import { z } from "zod";
 import { packArchive, readArchive, type ArchiveManifest, type RestorePreview, type RestoreResult } from "../data/archive.js";
 import { definitionDirsFor, FixturePolicySchema, type FixturePolicy } from "../data/archive-fixtures.js";
 import { ID_RE, slugify, stableStringify } from "../data/store.js";
-import { ShowSettingsSchema } from "../show/model.js";
+import { settingsOn, showsOnVenue, type ShowSettings } from "../data/show-folders.js";
 import { PatchedFixtureSchema, type PatchedFixture } from "../venue/venue.js";
 import { pairFixtures, placementChange } from "../venue/positions-import.js";
 import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
@@ -41,47 +41,13 @@ const stamp = (d = new Date()): string => {
 };
 const BACKUP_RE = /^[\w.-]+\.lightshow$/;
 
-/** A show's settings (show.json) as on disk, defaults filled in. */
-function settingsOn(dataRoot: string, id: string): z.infer<typeof ShowSettingsSchema> {
-  const file = path.join(dataRoot, "shows", id, "show.json");
-  return ShowSettingsSchema.parse(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {});
-}
-
-/** Like settingsOn, but a show.json that cannot be read is a CommandError naming the show, not a raw parse error. */
-function settingsOfShow(dataRoot: string, id: string): z.infer<typeof ShowSettingsSchema> {
-  try {
-    return settingsOn(dataRoot, id);
-  } catch (e) {
-    const why = e instanceof z.ZodError ? e.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
-    throw new CommandError("invalid", say(`les réglages du show « ${id} » sont illisibles (show.json) : ${why}`, `the settings of show “${id}” cannot be read (show.json): ${why}`));
-  }
-}
-
-/** The show folders under <dataRoot>/shows; a linked folder counts, a dead link or a stray file does not. */
-export function showIdsIn(dataRoot: string): string[] {
-  const dir = path.join(dataRoot, "shows");
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((d) => ID_RE.test(d.name) && (d.isDirectory() || (d.isSymbolicLink() && (statSync(path.join(dir, d.name), { throwIfNoEntry: false })?.isDirectory() ?? false))))
-    .map((d) => d.name);
-}
-
 /**
- * The shows that play on a venue, but `except`, with their settings. A show.json that cannot be read
- * is an error naming the show (`unreadable: "throw"`, where a write depends on it), or that show is
- * left out (`"skip"`, for a notice): never taken for a show on the default venue.
+ * The shows that play on a venue, but `except` (data/show-folders.ts): a show.json that cannot be
+ * read is an error naming the show, where a write depends on it.
  */
-export function showsOnVenue(dataRoot: string, venueId: string, except?: string, unreadable: "throw" | "skip" = "throw"): { id: string; settings: z.infer<typeof ShowSettingsSchema> }[] {
-  return showIdsIn(dataRoot).flatMap((id) => {
-    if (id === except) return [];
-    let settings;
-    try {
-      settings = settingsOfShow(dataRoot, id);
-    } catch (e) {
-      if (unreadable === "throw") throw e;
-      return [];
-    }
-    return settings.venue === venueId ? [{ id, settings }] : [];
+function showsOnVenueOrThrow(dataRoot: string, venueId: string, except?: string): { id: string; settings: ShowSettings }[] {
+  return showsOnVenue(dataRoot, venueId, except, (id, why) => {
+    throw new CommandError("invalid", say(`les réglages du show « ${id} » sont illisibles (show.json) : ${why}`, `the settings of show “${id}” cannot be read (show.json): ${why}`));
   });
 }
 
@@ -91,7 +57,7 @@ export function showsOnVenue(dataRoot: string, venueId: string, except?: string,
  */
 export function sharedWith(s: Pick<FileServices, "dataRoot" | "current">): string[] {
   const { show, venue } = s.current();
-  return showsOnVenue(s.dataRoot, venue, show).map(({ id, settings }) => settings.name || id);
+  return showsOnVenueOrThrow(s.dataRoot, venue, show).map(({ id, settings }) => settings.name || id);
 }
 
 /** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */
@@ -154,7 +120,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
 
   /** Venue folders, and the shows that play on each. */
   const venueIds = () => (existsSync(venuesDir) ? readdirSync(venuesDir).filter((id) => ID_RE.test(id) && statSync(path.join(venuesDir, id)).isDirectory()) : []);
-  const showsOn = (venueId: string, except?: string) => showsOnVenue(s.dataRoot, venueId, except).map((x) => x.id);
+  const showsOn = (venueId: string, except?: string) => showsOnVenueOrThrow(s.dataRoot, venueId, except).map((x) => x.id);
   const knownVenue = (id: string) => {
     if (!ID_RE.test(id) || !existsSync(path.join(venuesDir, id))) throw new Error(say(`lieu inconnu : ${id}`, `unknown venue: ${id}`));
   };
@@ -263,18 +229,28 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "venue.list",
     title: "Lieux",
-    description: "The venues on this machine (folders under data/venues): id, how many fixtures, the shows that play on it (a venue shared by several shows changes for all of them), and which one is open.",
+    description:
+      "The venues on this machine (folders under data/venues): id, how many fixtures, the shows that play on it (a venue shared by several shows changes for all of them), and which one is open. A show whose show.json cannot be read is left out of every venue and named in each row's `warning` (it may play on any of them).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () =>
-      venueIds()
+    run: () => {
+      const unreadable = new Map<string, string>();
+      const rows = venueIds()
         .map((id) => {
-          const shows = showsOn(id);
+          const shows = showsOnVenue(s.dataRoot, id, undefined, (show, why) => unreadable.set(show, why)).map((x) => x.id);
           return { id, fixtures: fixturesOfVenue(id).length, shows, shared: shows.length > 1, active: id === s.current().venue };
         })
-        .sort((a, b) => a.id.localeCompare(b.id)),
+        .sort((a, b) => a.id.localeCompare(b.id));
+      if (!unreadable.size) return rows;
+      const list = [...unreadable].map(([show, why]) => `${show} (${why})`).join(", ");
+      const warning = say(
+        `réglages illisibles (show.json), show laissé hors des lieux : ${list} ; il joue peut-être sur l'un d'eux`,
+        `unreadable settings (show.json), show left out of the venues: ${list}; it may play on one of them`,
+      );
+      return rows.map((r) => ({ ...r, warning }));
+    },
   });
 
   reg.register({

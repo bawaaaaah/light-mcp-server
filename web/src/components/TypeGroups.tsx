@@ -17,7 +17,7 @@ interface Proposal {
  * the fixtures it gathers and the existing groups a tag would change, before the click. `checked`
  * changes on each « Vérifier le show »: the proposal is read again then.
  */
-export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; onError: (message: string) => void; onApplied: () => void }): ReactElement | null {
+export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; onError: (message: string) => void; onApplied: () => Promise<unknown> }): ReactElement | null {
   const t = useT();
   const title = useId();
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -32,8 +32,13 @@ export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; 
     setBusy(tag);
     void cmd("venue.grouping.apply", args)
       .then(
-        // onApplied checks the show again, which changes `checked`: the proposal is read once, then
-        () => onApplied(),
+        // onApplied checks the show again, which changes `checked`: the proposal is read once, then;
+        // when that check fails, the proposal is read here, never left as it was before the click
+        () =>
+          onApplied().catch((e: Error) => {
+            onError(e.message);
+            load();
+          }),
         (e: Error) => onError(e.message),
       )
       .finally(() => setBusy(null));

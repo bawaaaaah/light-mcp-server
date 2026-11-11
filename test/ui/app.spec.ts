@@ -2230,6 +2230,44 @@ test("show check: notes come last, and a type group is created only on a click, 
   expect(errors).toEqual([]);
 });
 
+test("show check: a type group applied while the check fails says why and reads the proposal again", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  for (const [id, address] of [["head-c", 200], ["head-d", 300]] as const) await api(page, "venue.fixture.put", { fixture: { id, name: id, manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address } });
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+    await page.getByRole("button", { name: "Vérifier le show" }).click();
+    const proposal = page.locator(".lint-report").getByRole("region", { name: "Groupes par type proposés" });
+    const lyres = proposal.locator("li", { has: page.locator("span.name", { hasText: /^Lyres$/ }) });
+    await expect(lyres).toHaveCount(1);
+    // the check after the click fails: its error is said, and the proposal does not keep the group just made
+    await page.route("**/api/plugins/light/commands/show.lint", (route) => route.fulfill({ status: 500, json: { ok: false, error: "vérification en échec pour le test" } }));
+    await lyres.getByRole("button", { name: "Créer le groupe" }).click();
+    await expect(page.locator(".error", { hasText: "vérification en échec pour le test" })).toBeVisible();
+    await expect(lyres).toHaveCount(0);
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/show.lint");
+    await api(page, "group.delete", { id: "type-lyre", force: true }).catch(() => undefined);
+    for (const id of ["head-c", "head-d"]) await api(page, "venue.fixture.delete", { id });
+  }
+  expect(errors.filter((e) => !e.includes("500"))).toEqual([]);
+});
+
+test("venue: a show whose settings cannot be read is named above the patch", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.route("**/api/plugins/light/commands/venue.list", async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { result: object[] };
+    body.result = body.result.map((r) => ({ ...r, warning: "réglages illisibles (show.json), show laissé hors des lieux : abime (Unexpected token)" }));
+    await route.fulfill({ response: res, json: body });
+  });
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  await expect(page.locator(".venue > p.warn[role=status]")).toContainText("abime");
+  await page.unroute("**/api/plugins/light/commands/venue.list");
+  expect(errors).toEqual([]);
+});
+
 test("venue: the patch reads by address, and fixtures sharing channels are flagged", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -3298,10 +3336,10 @@ test("settings: a banner says when an Art-Net route reaches nobody, and offers b
     const res = await route.fetch();
     const body = (await res.json()) as { result: { coverage: object; destinations: { universe: number; artnet?: string[] }[] } };
     body.result.coverage = { ...body.result.coverage, misdirected: [{ universe: 1, portAddress: 0, targets: ["127.0.0.2"], nodes: [{ key: "198.51.100.7#0", ip: "198.51.100.7", shortName: "Node scène" }] }] };
-    // universe 2 goes to a broadcast address the network refuses
-    body.result.destinations = body.result.destinations.map((d) => (d.universe === 2 ? { ...d, artnet: ["127.0.0.255"] } : d));
+    // universe 2 goes to a broadcast address the network refuses: the loopback /8 one (127.0.0.255 is a host there)
+    body.result.destinations = body.result.destinations.map((d) => (d.universe === 2 ? { ...d, artnet: ["127.255.255.255"] } : d));
     Object.assign(body.result, {
-      sendHealth: { windowSeconds: 10, hosts: [{ host: "127.0.0.2", sends: 100, errors: 90, failing: true }, { host: "127.0.0.255", sends: 50, errors: 50, failing: true }] },
+      sendHealth: { windowSeconds: 10, hosts: [{ host: "127.0.0.2", sends: 100, errors: 90, failing: true }, { host: "127.255.255.255", sends: 50, errors: 50, failing: true }] },
       outOfSubnet: ["198.51.100.7"],
     });
     await route.fulfill({ response: res, json: body });
@@ -3340,7 +3378,7 @@ test("settings: a banner says when an Art-Net route reaches nobody, and offers b
   expect(asked[1]).toContain("tout le réseau");
   // a broadcast address failing: the network refuses the sends, and broadcast is no way out
   const refused = page.locator(".reach", { hasText: "Univers 2" });
-  await expect(refused).toContainText("le réseau refuse les envois vers 127.0.0.255");
+  await expect(refused).toContainText("le réseau refuse les envois vers 127.255.255.255");
   await expect(refused).not.toContainText("la node répond peut-être");
   await expect(refused.getByRole("button", { name: "Passer en broadcast" })).toHaveCount(0);
   expect(asked.length).toBe(2); // each change of the machine config is confirmed first

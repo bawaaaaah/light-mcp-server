@@ -179,13 +179,13 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
               `“${f.name}” · ${ch} has Reset and « Lamp off » ranges only: the Reset protection cannot hold it at rest; do not drive it from a look or a fader`,
             ),
           );
-        // a Reset range holding 0: the channel sits there from power-on, so the protection takes it for no trigger
+        // a Reset range holding 0 and more: the protection keeps the channel at 0, its power-on value
         for (const p of powerOnResets(r))
-          note(
+          warn(
             say(`projecteur ${f.id}`, `fixture ${f.id}`),
             say(
-              `« ${f.name} » · ${p.channel} : la plage ${p.range} commence à 0, où le canal est à l'allumage ; la protection Reset ne la tient pas pour un reset et laisse le canal y rester (vérifier dans le manuel ce que fait cette plage)`,
-              `“${f.name}” · ${p.channel}: range ${p.range} starts at 0, where the channel sits from power-on; the Reset protection does not take it for a reset and lets the channel stay there (check in the manual what this range does)`,
+              `« ${f.name} » · ${p.channel} : la plage ${p.range} commence à 0, où le canal est à l'allumage ; la protection Reset ramène à 0 toute valeur de cette plage : un look ou un fader ne peut pas l'envoyer (vérifier dans le manuel ce que fait cette plage)`,
+              `“${f.name}” · ${p.channel}: range ${p.range} starts at 0, where the channel sits from power-on; the Reset protection brings any value of this range back to 0: a look or a fader cannot send it (check in the manual what this range does)`,
             ),
           );
       }

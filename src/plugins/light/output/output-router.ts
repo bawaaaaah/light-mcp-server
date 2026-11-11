@@ -16,7 +16,7 @@ import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { SendHealth, HEALTH_WINDOW_MS, type HostHealth } from "./send-health.js";
 import { NodeRegistry, artnetDestinations, coverage, type ArtnetRoute, type Coverage, type KnownNode } from "./artnet-discovery.js";
-import { broadcastOf, isBroadcast, outOfSubnet, subnetsOf, type Subnet } from "./subnet.js";
+import { broadcastOf, isBroadcast, localBroadcasts, outOfSubnet, subnetsOf, type Subnet } from "./subnet.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
 
@@ -313,6 +313,11 @@ export class OutputRouter {
       changedAt: (u) => this.artnetChangedAt.get(u),
       isBroadcast: (ip) => isBroadcast(ip, subnets),
     });
+  }
+
+  /** The broadcast addresses of this machine's subnets (every interface, as coverage judges them), the limited broadcast first. */
+  localBroadcasts(): string[] {
+    return localBroadcasts(subnetsOf(networkInterfaces()));
   }
 
   /** The broadcast address Art-Net goes to from the bound interface. */

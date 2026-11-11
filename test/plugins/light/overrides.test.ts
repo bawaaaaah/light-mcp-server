@@ -97,4 +97,29 @@ describe("model keys of a venue opened", () => {
     expect(venue.models.list().map((m) => m.id)).to.deep.equal(["acme-long"]);
     expect(venue.store.loadErrors.some((e) => e.includes("acme-long"))).to.equal(true);
   });
+
+  it("keeps the kept record's names when an old one merges into it", () => {
+    const root = mkdtempSync(join(tmpdir(), "light-models-"));
+    const key = modelKey("Acme", "Spot 200");
+    write(root, key, "Acme", "Spot 200", { heads: { follow: false } });
+    write(root, "acme-spot-200", "ACME", "SPOT 200", { wheel: { doubles: false } }); // the same key, other casing
+    const venue = open(root);
+    expect(venue.models.get(key)).to.deep.include({ manufacturer: "Acme", model: "Spot 200" });
+    expect(venue.models.get(key)?.overrides).to.deep.equal({ heads: { follow: false }, wheel: { doubles: false } });
+  });
+
+  it("says each load error once, however many times the venue is read again", () => {
+    const root = mkdtempSync(join(tmpdir(), "light-models-"));
+    write(root, "acme-long", "Acme", "x".repeat(70), { wheel: { doubles: false } });
+    mkdirSync(join(root, "fixtures"), { recursive: true });
+    writeFileSync(join(root, "fixtures", "broken.json"), JSON.stringify({ id: "broken" }));
+    const venue = open(root);
+    const count = () => [venue.store.loadErrors.filter((e) => e.includes("acme-long")).length, venue.store.loadErrors.filter((e) => e.includes("broken.json")).length];
+    expect(count()).to.deep.equal([1, 1]);
+    venue.reload();
+    venue.reload();
+    expect(count()).to.deep.equal([1, 1]);
+    venue.retarget(root, undefined, []);
+    expect(count()).to.deep.equal([1, 1]);
+  });
 });

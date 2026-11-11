@@ -580,7 +580,7 @@ export function ShowPage(): ReactElement {
                 </li>
               ))}
           </ul>
-          <TypeGroups checked={lint} onError={setError} onApplied={() => void cmd<Lint>("show.lint").then(setLint)} />
+          <TypeGroups checked={lint} onError={setError} onApplied={() => cmd<Lint>("show.lint").then(setLint)} />
         </div>
       )}
 

@@ -226,7 +226,6 @@ export class FolderStore {
     this.rootDir = root;
     this.backupRoot = backupRoot;
     mkdirSync(root, { recursive: true });
-    this.loadErrors.length = 0;
     this.reloadAll();
   }
 
@@ -243,8 +242,9 @@ export class FolderStore {
     for (const c of this.collections.values()) c.flushLive();
   }
 
-  /** Re-reads every collection from disk and notifies listeners. */
+  /** Re-reads every collection from disk and notifies listeners; the load errors are those of this read only. */
   reloadAll(): void {
+    this.loadErrors.length = 0;
     for (const c of this.collections.values()) c.reload();
     this.emit({ collection: "*", id: "*", kind: "put" });
   }

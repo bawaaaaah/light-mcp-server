@@ -93,7 +93,8 @@ describe("QLC+ fixture definition import", () => {
     for (const name of ["Colour presets", "Preset 1", "Presets 1-8", "No reset", "No Reset (hold)"]) expect(capabilityTags(name), name).to.not.include("reset");
     expect(capabilityTags("Reset all")).to.include("reset");
     expect(capabilityTags("Pan/Tilt reset")).to.include("reset");
-    expect(capabilityTags("Hold 5 s", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Home all", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Hold 5 s", "ResetAll")).to.not.include("reset"); // the preset alone says nothing
     expect(capabilityTags("Preset 1", "ColorMacro")).to.not.include("reset");
   });
 });

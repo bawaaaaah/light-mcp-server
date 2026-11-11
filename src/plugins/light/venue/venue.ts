@@ -413,7 +413,8 @@ export class Venue {
       if (!key || m.id === key) continue;
       try {
         const kept = this.models.get(key);
-        this.models.put({ ...m, id: key, ...(kept ? { overrides: { ...m.overrides, ...kept.overrides } } : {}) });
+        // the kept record wins whole (its names included: the current format wrote them), the old one adds its missing parts
+        this.models.put(kept ? { ...kept, overrides: { ...m.overrides, ...kept.overrides } } : { ...m, id: key });
         this.models.delete(m.id);
       } catch (err) {
         this.store.loadErrors.push(say(`models/${m.id} : corrections du modèle non reprises (${(err as Error).message})`, `models/${m.id}: model corrections not carried over (${(err as Error).message})`));
@@ -424,6 +425,8 @@ export class Venue {
   /** Re-reads the venue folder and the definitions (an archive restored, a show reset), re-keying old model overrides as at opening. */
   reload(): void {
     this.store.reloadAll();
+    // reloadAll cleared the load errors: the definitions' ones stand until refreshDefinitions reads them again
+    this.store.loadErrors.push(...this.definitionErrors);
     this.refreshDefinitions();
     this.migrateModelKeys();
   }
@@ -442,8 +445,10 @@ export class Venue {
     this.definitionDirs = definitionDirs;
     this.definitionStamp = "";
     this.definitionErrors = [];
+    // store.retarget reads the folder (its load errors cleared): only the definitions and the model keys are left
     this.store.retarget(root, backupRoot);
-    this.reload();
+    this.refreshDefinitions();
+    this.migrateModelKeys();
   }
 
   /**

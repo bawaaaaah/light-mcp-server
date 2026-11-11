@@ -274,12 +274,15 @@ main {
 }
 /* past channel 512: a fixture running off the universe, never sent */
 .ch.unsent {
-  opacity: 0.6;
   outline: 1px dashed var(--danger);
+}
+/* only the slider is greyed: the channel number and the note stay readable */
+.ch.unsent input[type="range"] {
+  opacity: 0.4;
 }
 .ch.unsent .unsent-note {
   color: var(--danger);
-  font-size: 0.7em;
+  font-size: 0.7rem;
   line-height: 1.1;
   text-align: center;
 }

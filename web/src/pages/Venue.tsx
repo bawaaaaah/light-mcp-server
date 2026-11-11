@@ -55,6 +55,8 @@ interface VenueRow {
   shows: string[];
   shared: boolean;
   active: boolean;
+  /** Shows whose show.json cannot be read, left out of every venue (they may play on this one). */
+  warning?: string;
 }
 interface ShowRow {
   id: string;
@@ -126,7 +128,7 @@ export function VenuePage(): ReactElement {
       .catch(() => undefined);
     void cmd<Canvas[]>("venue.canvas.list").then(setCanvases).catch(() => undefined);
     void cmd<Zone[]>("stage.zone.list").then(setZones).catch(() => undefined);
-    void cmd<VenueRow[]>("venue.list").then(setVenueRows).catch(() => undefined);
+    void cmd<VenueRow[]>("venue.list").then(setVenueRows).catch((e: Error) => setError(e.message));
     void cmd<ShowRow[]>("show.list").then(setShowRows).catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -170,6 +172,11 @@ export function VenuePage(): ReactElement {
       {error && (
         <p className="error" onClick={() => setError("")}>
           {error}
+        </p>
+      )}
+      {openVenue?.warning && (
+        <p className="warn" role="status">
+          {openVenue.warning}
         </p>
       )}
       {openVenue?.shared && (

@@ -155,6 +155,15 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     );
   });
 
+  it("lists the venues past a show whose settings cannot be read, and names it", async () => {
+    mkdirSync(join(dataRoot, "shows", "abime"), { recursive: true });
+    writeFileSync(join(dataRoot, "shows", "abime", "show.json"), "{ not json");
+    const rows = (await run("venue.list")) as { id: string; shows: string[]; warning?: string }[];
+    const open = rows.find((v) => v.id === "default")!;
+    expect(open.shows).to.not.include("abime");
+    expect(open.warning).to.contain("abime").and.contain("show.json");
+  });
+
   it("refuses to unpatch a fixture of a venue shared with other shows unless forced, and names those shows", async () => {
     await run("show.create", { name: "Concert" }); // shares the venue with the first show, and is open
     await run("venue.fixture.put", { fixture: { id: "libre", name: "Libre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 3, address: 1 } });

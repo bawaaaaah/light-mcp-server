@@ -5,6 +5,7 @@ import { UsersPanel } from "../components/UsersPanel";
 import { RolesPanel } from "../components/RolesPanel";
 import { ActivityPanel, OnlinePanel } from "../components/ActivityPanel";
 import { jumpTo } from "../util";
+import { broadcastTest } from "../broadcast";
 
 interface Node {
   key: string;
@@ -56,6 +57,8 @@ interface Output {
   sendHealth?: { windowSeconds: number; hosts: { host: string; sends: number; errors: number; failing: boolean }[] };
   /** The Art-Net broadcast address of the bound interface. */
   broadcast?: string;
+  /** The broadcast addresses of this machine's subnets, 255.255.255.255 first (src/plugins/light/output/subnet.ts). */
+  localBroadcasts?: string[];
   /** Node and target IPs on none of this machine's subnets: unreachable without a router. */
   outOfSubnet?: string[];
   universes?: number;
@@ -98,10 +101,10 @@ export interface ReachProblem {
 }
 
 /** The routes whose sends fail (output.sendHealth) or that aim at a node not seen (coverage.misdirected), by universe and protocol. */
-export function reachProblems(output: Pick<Output, "config" | "destinations" | "coverage" | "sendHealth" | "broadcast" | "outOfSubnet">, nodes: Node[]): ReachProblem[] {
+export function reachProblems(output: Pick<Output, "config" | "destinations" | "coverage" | "sendHealth" | "broadcast" | "localBroadcasts" | "outOfSubnet">, nodes: Node[]): ReachProblem[] {
   const failingHosts = new Map((output.sendHealth?.hosts ?? []).filter((h) => h.failing).map((h) => [h.host, h]));
   const away = new Set(output.outOfSubnet ?? []);
-  const isBroadcast = (ip: string) => ip === output.broadcast || ip.endsWith(".255");
+  const isBroadcast = broadcastTest(output);
   const failing = (hosts: string[]) =>
     hosts.length
       ? { failing: { hosts, sends: hosts.reduce((a, h) => a + failingHosts.get(h)!.sends, 0), errors: hosts.reduce((a, h) => a + failingHosts.get(h)!.errors, 0), seconds: output.sendHealth!.windowSeconds, broadcast: hosts.every(isBroadcast) } }

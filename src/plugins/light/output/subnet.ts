@@ -47,12 +47,20 @@ export function onSubnet(ip: string, subnets: readonly Subnet[]): boolean {
 }
 
 /**
- * A broadcast address: the limited broadcast, a subnet's broadcast, or any x.x.x.255 (the usual /24
- * one, even of a network this machine is not on): a route given one sends to everybody, never to a
- * node that could fail to answer discovery.
+ * A broadcast address: the limited broadcast; on one of this machine's subnets, that subnet's
+ * broadcast only (on a /8, 2.3.4.255 is an ordinary node); elsewhere, any x.x.x.255 (the usual /24
+ * one of a network this machine is not on): a route given one sends to everybody, never to a node
+ * that could fail to answer discovery. A /31 or /32 interface has no broadcast and decides nothing.
  */
 export function isBroadcast(ip: string, subnets: readonly Subnet[] = []): boolean {
-  return ip === "255.255.255.255" || ip.endsWith(".255") || subnets.some((s) => { const b = broadcastOf(s); return b !== undefined && b === ip; });
+  if (ip === "255.255.255.255") return true;
+  const local = subnets.filter((s) => broadcastOf(s) !== undefined && onSubnet(ip, [s]));
+  return local.length ? local.some((s) => broadcastOf(s) === ip) : ip.endsWith(".255");
+}
+
+/** The broadcast addresses of these subnets, the limited broadcast first (what output.status publishes). */
+export function localBroadcasts(subnets: readonly Subnet[]): string[] {
+  return [...new Set(["255.255.255.255", ...subnets.map(broadcastOf).filter((b) => b !== undefined)])];
 }
 
 /**

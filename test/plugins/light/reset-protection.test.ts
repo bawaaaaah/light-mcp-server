@@ -203,7 +203,7 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(((await standby.refusal("fixture.reset", { id: "h1" })) as Error).message).to.contain("veille");
   });
 
-  it("never triggers what sits at 0: a Reset range holding 0 is no trigger, and a neutral range under a Reset preset is no reset", () => {
+  it("never triggers what sits at 0: a Reset range holding 0 goes back to 0, and a neutral range under a Reset preset is no reset", () => {
     // « 0 No effect [ResetAll] / 1–10 Sound control »: the preset alone does not make it a reset
     const sound = oneChannel([[0, 0, "No Effect", "ResetAll"], [1, 10, "Sound Control"], [11, 255, "Auto"]]);
     expect(sound.ch.tags).to.not.include("reset");
@@ -212,7 +212,8 @@ describe("Reset channel protection (built-in locked rule)", () => {
     // « 0–10 Reset to display fan setting / 11–20 Fans off »: a reset by its name, but at power-on
     const fan = oneChannel([[0, 10, "Reset to display fan setting"], [11, 20, "Fans Off"], [21, 255, "Fan speed"]]);
     expect(fan.ch.tags).to.include("reset");
-    expect(fan.hold(0, 5, 0)).to.deep.equal([0, 5, 0]); // never pushed to 11 (Fans off)
+    expect(fan.hold(0, 5, 0)).to.deep.equal([0, 0, 0]); // back to 0, its power-on value: never pushed to 11 (Fans off)
+    expect(fan.hold(30, 5)).to.deep.equal([30, 0]); // not to the remembered 30 either: 0 stays in the same range
     expect(powerOnResets(fan)).to.deep.equal([{ channel: "Ctl", range: "Reset to display fan setting (0–10)" }]);
     expect(unprotectable(fan)).to.deep.equal([]);
     // the preset alone, under a name saying nothing, a speed, or « No resetting »
@@ -224,6 +225,52 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(capabilityTags("XY motor resetting")).to.include("reset");
     expect(capabilityTags("Resets the gobo wheel")).to.include("reset");
     expect(capabilityTags("Home Color system", "ResetColor")).to.include("reset"); // a preset under a name that says something
+  });
+
+  it("brings a value written in a Reset range holding 0 back to 0, and fixture.reset still sends it", async () => {
+    const whole = oneChannel([[0, 255, "Reset"]]);
+    expect(whole.hold(255, 0, 128)).to.deep.equal([0, 0, 0]);
+    expect(unprotectable(whole)).to.deep.equal([]);
+    expect(resetChannels(whole)[0]).to.deep.include({ value: 127, range: "Reset (0–255)" });
+    const motors = oneChannel([[0, 249, "Reset all motors"], [250, 255, "No function"]]);
+    expect(motors.hold(200, 252, 100)).to.deep.equal([0, 252, 0]);
+    // a wheel whose white range resets the fixture when 5, 6 or 7 is held 5 s
+    const wheel = oneChannel([[0, 16, "White (5,6,7 held 5 s = reset)"], [17, 33, "Red"], [34, 255, "Rainbow"]]);
+    expect(wheel.ch.tags).to.include("reset");
+    expect(wheel.hold(6, 20, 6)).to.deep.equal([0, 20, 0]);
+    expect(powerOnResets(wheel)).to.deep.equal([{ channel: "Ctl", range: "White (5,6,7 held 5 s = reset) (0–16)" }]);
+    expect(powerOnResets(oneChannel([[0, 0, "Reset"], [1, 255, "Nothing"]]))).to.deep.equal([]); // 0–0: nothing to hold
+    // the voluntary reset lifts the protection on such a channel too
+    const { run, at } = await setup();
+    const whole255 = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Whole</Model><Type>Moving Head</Type><Channel Name="Ctl"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="255">Reset</Capability></Channel><Mode Name="1"><Channel Number="0">Ctl</Channel></Mode></FixtureDefinition>`;
+    await run("fixture.definition.add", { name: "whole.qxf", xml: whole255 });
+    await run("venue.fixture.put", { fixture: { id: "w", name: "W", manufacturer: "Test", model: "Whole", mode: "1", universe: 1, address: 100 } });
+    await run("dmx.set", { universe: 1, channel: 100, value: 255 });
+    expect(at(100)).to.equal(0);
+    await run("fixture.reset", { id: "w" });
+    expect(at(100)).to.equal(127);
+  });
+
+  it("takes a Reset preset for a reset only when the name says so, and a setting switched off for none", () => {
+    expect(capabilityTags("Enable blackout while pan/tilt move", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("Shutdown", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("Adjust motor", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("Resetall", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Pan and tilt home", "ResetPanTilt")).to.include("reset");
+    expect(capabilityTags("Machine Restoration", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Pan/Tilt", "ResetPanTilt")).to.include("reset");
+    expect(capabilityTags("All", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Tilt reset off")).to.not.include("reset");
+    expect(capabilityTags("Reset P/T Fade Off")).to.not.include("reset");
+    expect(capabilityTags("Reset LED Fade On")).to.not.include("reset");
+    expect(capabilityTags("Reset / Lamp Off")).to.include("reset");
+  });
+
+  it("finds the neutral rest under a Reset preset that is no reset", () => {
+    // « No effect [ResetAll] » is no reset: the channel rests there, not on « Sound control »
+    const ch = oneChannel([[0, 9, "Sound control"], [10, 19, "No function", "ResetAll"], [20, 29, "Reset"], [30, 255, "Auto"]]);
+    expect(restValue(ch.ch)).to.equal(10);
+    expect(ch.hold(25)).to.deep.equal([10]);
   });
 
   it("goes back to the last value outside its Reset ranges, a lamp range included, and never into Lamp off", () => {
@@ -243,7 +290,8 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(byName([[0, 9, "No function"], blackout, [20, 29, "Reset pan", "ResetPan"], [30, 39, "Complete reset"]])).to.equal("Complete reset (30–39)");
     expect(byName([[0, 9, "No function"], blackout, [20, 29, "Reset pan", "ResetPan"], [30, 39, "Reset", "ResetAll"]])).to.equal("Reset (30–39)");
     expect(byName([[0, 9, "No function"], blackout, [20, 29, "XY motor resetting"]])).to.equal("XY motor resetting (20–29)");
-    expect(byName([[0, 9, "No function"], blackout])).to.equal("Enable blackout while pan/tilt move (10–19)"); // nothing named reset: the first
+    expect(byName([[0, 9, "No function"], blackout])).to.equal(undefined); // its preset alone makes no reset
+    expect(byName([[0, 9, "No function"], [10, 19, "Pan/Tilt", "ResetPanTilt"]])).to.equal("Pan/Tilt (10–19)"); // nothing named reset: the first
   });
 
   it("holds after every fixture's rules: a fixture sharing the slot cannot write the reset after the protection", async () => {
@@ -275,7 +323,7 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(beyond.message).to.contain("Control est au-delà du canal 512").and.not.to.contain("reste à 0");
   });
 
-  it("says in show.lint which Reset range holds 0", async () => {
+  it("warns in show.lint of a Reset range holding 0 and more", async () => {
     const { run, plugin } = await setup();
     const fan = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Fan</Model><Type>Moving Head</Type><Channel Name="Fan"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="10">Reset to display fan setting</Capability><Capability Min="11" Max="255">Fans Off</Capability></Channel><Mode Name="1"><Channel Number="0">Fan</Channel></Mode></FixtureDefinition>`;
     await run("fixture.definition.add", { name: "fan.qxf", xml: fan });
@@ -283,7 +331,7 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(plugin.engine.render()[0]![99]).to.equal(0);
     const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
     const note = lint.issues.find((i) => i.message.includes("Reset to display fan setting (0–10)"));
-    expect(note).to.deep.include({ level: "info" });
-    expect(note!.message).to.contain("commence à 0");
+    expect(note).to.deep.include({ level: "attention" });
+    expect(note!.message).to.contain("commence à 0").and.to.contain("ramène à 0");
   });
 });
