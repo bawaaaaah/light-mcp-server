@@ -21,23 +21,30 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
   const timer = useRef<number | undefined>(undefined);
   const target = fixture ? { fixtures: [fixture] } : group ? { group } : {};
 
+  // Read the head's position on mount and on every resync (a panel bumps it on position.* events,
+  // its own sends included). The read leaves the send loop alone — its 40 ms cadence holds — and
+  // does not pull the dot back while a gesture is still being sent.
   useEffect(() => {
     void cmd<Head[]>("position.list")
       .then((heads) => {
+        if (timer.current !== undefined || pending.current) return;
         const manual = (fixture ? heads.find((h) => h.id === fixture) : heads.find((h) => h.manual))?.manual ?? null;
         setPos(manual);
         onPosition?.(manual);
       })
       .catch(() => undefined);
-    return () => {
-      // a resync (position.set itself bumps it through the panel) must not leave the send loop stuck:
-      // the timer is cleared *and* forgotten, and a gesture value not sent yet still goes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `onPosition` is a new closure on every render of the panel: reading again on each would flood position.list
+  }, [group, fixture, resync]);
+  // On unmount only: stop the loop, and send the gesture value not sent yet.
+  useEffect(
+    () => () => {
       window.clearTimeout(timer.current);
       timer.current = undefined;
       if (pending.current) flush();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group, fixture, resync]);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, on unmount: `flush` sends to this pad's own target
+    [],
+  );
 
   const flush = () => {
     timer.current = undefined;
@@ -68,6 +75,24 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
         aria-label={label ?? t.heads}
         aria-valuetext={pos ? `pan ${Math.round(pos.pan * 100)} %, tilt ${Math.round(pos.tilt * 100)} %` : "—"}
         aria-disabled={disabled || undefined}
+        tabIndex={disabled ? -1 : 0}
+        onKeyDown={(e) => {
+          // the keyboard moves the head too: arrows by 1 % (Shift: 10 %), Home back to the centre
+          if (disabled) return;
+          const step = e.shiftKey ? 0.1 : 0.01;
+          const at = pos ?? { pan: 0.5, tilt: 0.5 };
+          const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 1000) / 1000));
+          const next =
+            e.key === "ArrowLeft" ? { ...at, pan: clamp(at.pan - step) }
+            : e.key === "ArrowRight" ? { ...at, pan: clamp(at.pan + step) }
+            : e.key === "ArrowUp" ? { ...at, tilt: clamp(at.tilt + step) }
+            : e.key === "ArrowDown" ? { ...at, tilt: clamp(at.tilt - step) }
+            : e.key === "Home" ? { pan: 0.5, tilt: 0.5 }
+            : undefined;
+          if (!next) return;
+          e.preventDefault();
+          send(next);
+        }}
         onPointerDown={(e) => {
           if (disabled) return; // the role may not move the heads (commands:position)
           e.currentTarget.setPointerCapture(e.pointerId);
