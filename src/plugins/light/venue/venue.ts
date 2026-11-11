@@ -100,13 +100,16 @@ export type Color = Partial<Record<ColorComponent, number>>; // components 0..1
 /**
  * One look's write on a raw channel (docs/specs/engine-effects-timing.md, « Fondu des canaux bruts d'un
  * look »): its DMX value, the fade weight of its look, the look, and the sheet it rides on — a crossfade
- * and the looks it replaces share one sheet, every other look has its own.
+ * and the looks it replaces share one sheet, every other look has its own. `level` (1 when absent): what
+ * the groups including the look give it on this fixture (ShowRuntime.lookLevelOn, T35) — it doses the
+ * look's light once, like its weight: its dimmer, or its colours when it doses itself by them.
  */
 export interface RawWrite {
   value: number;
   weight: number;
   look: string;
   sheet: string;
+  level?: number;
 }
 
 /**
@@ -718,6 +721,8 @@ export class Venue {
    * a colour offset scales the same way, a machine channel (a wheel, a macro, an effect) holds
    * verbatim — a machine never fades — and its look's weight doses (machineFade) the dimmer(s)
    * of the fixture no look wrote nor painted. Offsets off the definition stay verbatim, with no fade.
+   * A raw dimmer, and a raw colour of a fixture without a dimmer, are the fixture's light: the intensity
+   * (grand master, DCAs) doses them like a painted one, and each write's `level` once (T35).
    */
   toDmx(frame: AttributeFrame, buffers: Uint8Array[], wheels: Map<string, WheelChoice>, at: { now: number; merge: LooksMerge }): string[] {
     const errors: string[] = [];
@@ -827,11 +832,23 @@ export class Venue {
         // Under a look that doses itself by its dimmer, only what else lights the fixture holds it up:
         // the machine weight and the looks dosing their colours (alone, it rises from black).
         const underOwnDimmer = r.levelDimmer ? undefined : intensity * 255 * Math.min(1, (machine ?? 0) + selfDosed);
+        // The fixture's light is dosed once (T35): a raw dimmer, or a raw colour of a fixture without a dimmer, by
+        // the intensity (grand master, DCAs) — the byte held under it carries it already, and rawOver and
+        // heldUnderDimmer are linear in (values, held byte) —; and each look's `level` once, on what doses its
+        // light: its dimmer when it doses itself by it, its colours otherwise (as its weight does).
+        const byOwnDimmer = (look: string) => byDimmer.has(look) && !byColour.has(look);
+        const dose = (writes: RawWrite[], k: (x: RawWrite) => number): RawWrite[] =>
+          writes.map((x) => {
+            const f = k(x);
+            return f === 1 ? x : { ...x, value: x.value * f };
+          });
         rawPass.push(() => {
           for (const [offset, writes] of raws) {
             const kept = held.get(offset) ?? 0;
-            if (r.dimmers.includes(offset)) write(offset, rawOver(writes, heldUnderDimmer(writes, kept, underOwnDimmer, (look) => byColour.has(look))));
-            else if (colorOffsets.has(offset) || accentOffsets.has(offset)) write(offset, rawOver(writes, kept));
+            if (r.dimmers.includes(offset)) {
+              const dosed = dose(writes, (x) => intensity * (byColour.has(x.look) ? 1 : (x.level ?? 1)));
+              write(offset, rawOver(dosed, heldUnderDimmer(dosed, kept, underOwnDimmer, (look) => byColour.has(look))));
+            } else if (colorOffsets.has(offset) || accentOffsets.has(offset)) write(offset, rawOver(dose(writes, (x) => (hasDimmer ? 1 : intensity) * (byOwnDimmer(x.look) ? 1 : (x.level ?? 1))), kept));
             else write(offset, rawValue(writes)); // a machine channel: verbatim, a machine never fades
           }
         });
