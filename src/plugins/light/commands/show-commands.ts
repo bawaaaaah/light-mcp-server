@@ -61,7 +61,7 @@ export function recallStartupSnapshot(engine: DmxEngine, show: ShowRuntime): { i
  * pass the shared-venue guard because the check failed. `standby`: whether the output is on standby (a reset
  * sent then reaches nothing).
  */
-export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, sharedWith: () => string[] = () => [], standby: () => boolean = () => false): void {
+export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, sharedWith: () => string[] = () => [], standby: () => boolean = () => false, intentionReferences?: (id: string) => string[]): void {
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
@@ -1195,12 +1195,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture or an intention (mood key) is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag), safe state. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture or an intention (mood key) is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
     schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention"]), id: z.string() }),
-    run: ({ kind, id: i }) => ({ uses: usesOf(kind, i, parts()) }),
+    // an intention of the personal library also serves the other shows of this machine: the plugin says which (T15)
+    run: ({ kind, id: i }) => ({ uses: kind === "intention" && intentionReferences ? intentionReferences(i) : usesOf(kind, i, parts()) }),
   });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {
     const g = show.groups.get(groupId);
@@ -1521,7 +1522,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       "Undoes one change to a look, group, channel fader, dashboard or canvas, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead. A canvas is put back as history.restore does (force, shared), and the looks whose steps that same change adapted (venue.canvas.edit with adapt) get their steps back with it, written together.",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ collection: versioned, id: z.string(), at: z.number(), until: z.number().optional(), force: restoreForce, shared: sharedFlag }),
+    // the collections the activity log offers undo on (activity.ts UNDOABLE): intentions go back through history.restore
+    schema: z.object({ collection: z.enum(["looks", "groups", "faders", "dashboards", "canvases"]), id: z.string(), at: z.number(), until: z.number().optional(), force: restoreForce, shared: sharedFlag }),
     run: async ({ collection, id: i, at, until, force, shared }, ctx) => {
       const versions = VERSIONED[collection].coll.versions(i); // newest first
       // the copy a change keeps is written while it runs: just after its line's time

@@ -5754,6 +5754,17 @@ test("intentions on a phone: the list grows with the page, finger-sized controls
   expect(await list.evaluate((el) => el.ownerDocument.defaultView!.getComputedStyle(el).overflowY)).toBe("visible");
   const action = list.locator(".intention-actions button").first();
   expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // the uses, unfolded by a finger: a 44 px target
+  await api(page, "song.put", { song: { id: "t15-phone", title: "Essai téléphone", mood: ["calme"], sections: [] } });
+  try {
+    await section.getByRole("searchbox").fill("calme");
+    const uses = list.locator("li", { hasText: "Calme" }).locator(".intention-uses summary");
+    await expect(uses).toBeVisible();
+    expect((await uses.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  } finally {
+    await api(page, "song.delete", { id: "t15-phone" });
+  }
+  await section.getByRole("searchbox").fill("");
   await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
   const editor = page.getByRole("dialog", { name: "Nouvelle intention" });
   await editor.getByRole("button", { name: "+ Couleur" }).click();

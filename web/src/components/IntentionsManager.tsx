@@ -113,11 +113,17 @@ export function IntentionsManager({ kb, onError }: { kb: KnowledgeIntentions | n
               )}
               <span className="row intention-actions">
                 {actionsOf(row).map((a) => (
-                  <button key={a} className={a === "delete" || a === "hide" ? "ghost" : ""} aria-label={`${label(a)} · ${row.label}`} title={a === "copyToShow" ? t.intentionCopyHelp : undefined} onClick={() => act(row, a)}>
+                  <button key={a} className={a === "delete" || a === "hide" ? "ghost" : ""} aria-label={`${label(a)} · ${row.label}`} aria-describedby={a === "copyToShow" ? `${id}-copy-${row.key}` : undefined} onClick={() => act(row, a)}>
                     {label(a)}
                   </button>
                 ))}
               </span>
+              {/* said on screen, for a finger as for a mouse: what copying into the show is for */}
+              {actionsOf(row).includes("copyToShow") && (
+                <small className="hint intention-copy-help" id={`${id}-copy-${row.key}`}>
+                  {t.intentionCopyHelp}
+                </small>
+              )}
             </li>
           ))}
         </ul>

@@ -2214,7 +2214,7 @@ const en: typeof fr = {
   portIdle: "nothing going out",
   beatsShort: "b",
   auto: "auto",
-  energies: { pose: "settled", dynamique: "dynamic", survolte: "high" },
+  energies: { pose: "settled", dynamique: "dynamic", survolte: "high-energy" },
   topologies: { line: "line", "line-mirror": "mirrored line", ring: "ring", grid: "grid", free: "free" },
   zoneTypes: { stage: "stage", riser: "riser", floor: "floor", audience: "audience", wall: "wall", pillar: "pillar", truss: "truss", ceiling: "ceiling", backdrop: "backdrop", other: "other" },
   headCount: "heads",

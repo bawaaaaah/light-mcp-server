@@ -181,8 +181,9 @@ export class Collection<T extends { id: string }> {
       .historyLatest(this.name)
       .filter((e) => !this.items.has(e.id))
       .map((e) => {
-        const last = this.store.readHistory(e.stamp, `${this.name}/${e.id}.json`) as { name?: unknown; title?: unknown } | undefined;
-        const name = typeof last?.name === "string" ? last.name : typeof last?.title === "string" ? last.title : undefined;
+        const last = this.store.readHistory(e.stamp, `${this.name}/${e.id}.json`) as { name?: unknown; title?: unknown; label?: unknown } | undefined;
+        // a look's name, a song's title, an intention's label
+        const name = typeof last?.name === "string" ? last.name : typeof last?.title === "string" ? last.title : typeof last?.label === "string" && last.label ? last.label : undefined;
         return { ...e, ...(name ? { name } : {}) };
       });
   }

@@ -11,7 +11,7 @@ import { slugify } from "../data/store.js";
 import { mappingInputKey, type Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
 import { deltaE, EnergySchema, LOW_CONTRAST, normalizeMood, proposeLook, type Energy, type Knowledge, type KnowledgeLayers } from "../knowledge/knowledge.js";
-import { IntentionSchema, MAX_FAMILY, MAX_INTENTION_COLORS, MAX_LABEL, MAX_NOTES, mergeKnowledge, stackIntentions, type Intention } from "../knowledge/intentions.js";
+import { embeddedIntentions, IntentionSchema, MAX_FAMILY, MAX_INTENTION_COLORS, MAX_LABEL, MAX_NOTES, mergeKnowledge, stackIntentions, type Intention } from "../knowledge/intentions.js";
 import { inUseMessage, intentionUses, intentionUsesByKey } from "../show/references.js";
 import type { Group, Look, Palette } from "../show/model.js";
 import type { Technique } from "../engine/techniques.js";
@@ -83,6 +83,20 @@ const parsedOr = <T>(parse: () => T): T => {
   }
 };
 
+/** A line of the uses of an intention: another show of this machine names it. */
+const otherShowLine = (show: string): string => say(`show « ${show} » (autre show de cette machine)`, `show “${show}” (another show of this machine)`);
+
+/**
+ * Where an intention is used, for show.references and intention.delete: the open show's songs and
+ * looks, and, for a personal one with nothing below (it serves every show), the other shows naming it.
+ */
+export function intentionReferences(stores: IntentionStores, show: { songs: Song[]; looks: Look[] }, word: string): string[] {
+  const key = normalizeMood(word);
+  const entry = key ? stackIntentions(stores.base(), stores.personal.list(), stores.show.list()).get(key) : undefined;
+  const others = entry?.origin === "personal" && !entry.over ? (stores.otherShows?.(key) ?? []) : [];
+  return [...intentionUses(key, show), ...others.map(otherShowLine)];
+}
+
 export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntime, songs: Collection<Song>, mappings: () => Mapping[], intentions: IntentionStores): void {
   const stack = () => stackIntentions(intentions.base(), intentions.personal.list(), intentions.show.list());
   const knowledge = (): Knowledge => mergeKnowledge(intentions.base(), intentions.personal.list(), intentions.show.list());
@@ -116,7 +130,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.put",
     title: "Intention",
-    description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, the key made from the label (« Lever de rideau » → lever-de-rideau), refused when that place already has the key (detail.exists); a key of the shipped base or the private file is not taken: the new one replaces it (for the show, or for every show from the personal library). With id: that key is written (an edit; the key never follows the label: songs and ambiance: tags name it). hidden: true (show only, a key known below) writes a mask, as intention.delete does. Precedence: show > personal > private file > shipped.`,
+    description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, the key made from the label (« Lever de rideau » → lever-de-rideau), refused when that place already has the key (detail.exists); a key of the shipped base or the private file is not taken: the new one replaces it (for the show, or for every show from the personal library). With id: that key is written (an edit; the key never follows the label: songs and ambiance: tags name it). hidden: true (show only, a key known below) writes a mask as intention.delete does, but without its guard (history.restore and show.revert put a mask back this way): songs and looks still naming it are returned in usedBy, they now name an unknown intention. Precedence: show > personal > private file > shipped.`,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ intention: IntentionInputSchema, scope: z.enum(["show", "personal"]).default("show") }),
@@ -134,7 +148,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       if (taken && !taken.hidden) throw new CommandError("invalid", say(`l'intention « ${taken.label || id} » existe déjà (${id}) : choisir un autre libellé, ou la modifier`, `the intention “${taken.label || id}” already exists (${id}): choose another label, or edit it`), { exists: id });
       const saved = parsedOr(() => target.put({ ...input, id, label: label || id, ...(input.hidden ? { hidden: true } : { hidden: undefined }) }));
       const entry = stack().get(id);
-      return { intention: saved, scope, origin: entry?.origin, ...(entry?.over ? { over: entry.over } : {}), ...(scope === "personal" && entry?.origin === "show" ? { shadowedBy: "show" } : {}) };
+      // a mask is not refused while used (a version or a proposal taken back puts it back as it was): said instead
+      return { intention: saved, scope, ...(input.hidden ? { usedBy: usesOfIntention(id) } : {}), origin: entry?.origin, ...(entry?.over ? { over: entry.over } : {}), ...(scope === "personal" && entry?.origin === "show" ? { shadowedBy: "show" } : {}) };
     },
   });
 
@@ -142,7 +157,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "intention.delete",
     title: "Supprimer une intention",
     description:
-      "Removes an intention, by key. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one is also refused, unless force, while other shows of this machine name it (detail.otherShows; detail.force: true). Returns what was done: deleted, reverted, hidden or restored.",
+      "Removes an intention, by key. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string(), force: z.boolean().default(false) }),
@@ -151,11 +166,14 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const entry = key ? stack().get(key) : undefined;
       if (!entry) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
       const name = entry.label || key;
-      // only what would become unknown is guarded: a touch-up removed leaves the one below
+      // only what would become unknown is guarded: a touch-up removed leaves the one below. A personal
+      // one with nothing below serves the other shows of the machine too: named in the same question
       const guard = (): string[] => {
         const uses = usesOfIntention(key);
-        if (uses.length && !force) throw new CommandError("invalid", inUseMessage(name, uses), { uses });
-        return uses;
+        const others = entry.origin === "personal" && !entry.over ? (intentions.otherShows?.(key) ?? []) : [];
+        const all = [...uses, ...others.map(otherShowLine)];
+        if (all.length && !force) throw new CommandError("invalid", inUseMessage(name, all), { uses, ...(others.length ? { otherShows: others } : {}) });
+        return all;
       };
       const remove = (from: Collection<Intention>) => {
         if (!from.delete(key)) throw new CommandError("failed", say(`intention déjà supprimée : ${key}`, `intention already deleted: ${key}`));
@@ -166,16 +184,6 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       }
       if (entry.origin === "show" || entry.origin === "personal") {
         const uses = entry.over ? [] : guard();
-        if (entry.origin === "personal" && !entry.over && !force) {
-          // the library serves every show: the others still naming it would lose it too
-          const others = intentions.otherShows?.(key) ?? [];
-          if (others.length)
-            throw new CommandError(
-              "invalid",
-              say(`« ${name} » sert encore dans d'autres shows de cette machine (${others.join(", ")}) : la supprimer de la bibliothèque la leur retire aussi. La supprimer quand même : force: true`, `“${name}” still serves other shows of this machine (${others.join(", ")}): deleting it from the library takes it from them too. Delete it anyway: force: true`),
-              { otherShows: others, force: true, reason: say(`« ${name} » sert encore dans d'autres shows de cette machine : ${others.join(", ")}`, `“${name}” still serves other shows of this machine: ${others.join(", ")}`) },
-            );
-        }
         remove(entry.origin === "show" ? intentions.show : intentions.personal);
         return entry.over ? { id: key, action: "reverted" as const, origin: entry.over, usedBy: uses } : { id: key, action: "deleted" as const, usedBy: uses };
       }
@@ -463,6 +471,12 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const l of runtime.looks.list()) if (l.channels) checkChannels(`look ${l.id}`, l.channels.targets);
       // the intentions a song names: known; one of this machine is copied into the show's archives
       const intentionsNow = stack();
+      // one of this machine the show names but the schema refuses: the backups go without it
+      for (const r of embeddedIntentions(intentionsNow, intentionUsesByKey(showParts()).keys()).refused)
+        warn(
+          say(`intention ${r.id}`, `intention ${r.id}`),
+          say(`« ${r.label} » vient de cette machine et ne sera pas emportée par les sauvegardes du show : ${r.why} ; la corriger`, `“${r.label}” comes from this machine and will not be carried by the show's backups: ${r.why}; fix it`),
+        );
       for (const m of intentions.base().privateMerged ?? []) warn(say("fichier privé des intentions", "private intentions file"), say(`${m.words.map((w) => `« ${w} »`).join(", ")} donnent la même clé « ${m.key} » : seule la dernière compte ; renommer les autres`, `${m.words.map((w) => `“${w}”`).join(", ")} make the same key “${m.key}”: only the last one counts; rename the others`));
       for (const e of intentions.loadErrors?.() ?? []) warn(say("intentions", "intentions"), say(`fichier ignoré, illisible : ${e}`, `file left out, unreadable: ${e}`));
       for (const s of songs.list()) {

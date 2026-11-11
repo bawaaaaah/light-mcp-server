@@ -125,11 +125,11 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(replacedBy({ ...newDraft(), id: "joie", label: "Joie" }, list)).to.equal(undefined); // an edit replaces nothing
   });
 
-  it("names the energies in English as the server's proposals do", async () => {
+  it("names the energies in English as the server's proposals do (« high-energy » for « high energy »)", async () => {
     const base = mergeKnowledge(loadKnowledgeLayers(), [], []);
     for (const [energy, mood] of [["pose", "calme"], ["dynamique", "joie"], ["survolte", "fete"]] as const) {
       const said = await inLang("en", async () => proposeLook(base, { mood: [mood] }).explanation[0]!);
-      expect(said, energy).to.contain(`${TEXTS.en.energies[energy]} energy`);
+      expect(said, energy).to.contain(`${TEXTS.en.energies[energy].replace(/-energy$/, "")} energy`);
     }
   });
 });

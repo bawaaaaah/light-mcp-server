@@ -191,14 +191,51 @@ describe("intentions (T15)", () => {
       const back = await kb();
       expect(back.moods.brume).to.equal(undefined);
       expect(back.moods.douceur).to.include({ origin: "show" });
-      // a personal one deleted (no show copy here): refused while another show names it, then gone for every show
+      // a personal one deleted (no show copy here): the other show citing it has its own copy, it loses nothing
       await run("show.open", { id: "autre" });
-      const refused = (await refusal(run("intention.delete", { id: "douceur" }))) as CommandError;
-      expect(refused.message).to.match(/sert encore dans d'autres shows de cette machine \(.+\)/);
-      expect(refused.detail).to.deep.include({ force: true });
-      expect((refused.detail as { otherShows: string[] }).otherShows).to.have.length(1);
-      expect(await run("intention.delete", { id: "douceur", force: true })).to.deep.include({ action: "deleted" });
+      expect(await run("intention.delete", { id: "douceur" })).to.deep.include({ action: "deleted" });
       expect(existsSync(join(dataRoot, "private", "intentions", "douceur.json"))).to.equal(false);
+    });
+
+    it("names the other shows that still cite a personal intention in the same question as this show's uses", async () => {
+      await run("show.rename", { name: "Premier" });
+      await run("intention.put", { intention: { label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" });
+      await run("song.put", { song: { id: "a", title: "Ici", mood: ["douceur"], sections: [] } });
+      await run("show.create", { name: "Second" });
+      await run("song.put", { song: { id: "b", title: "Là-bas", mood: ["Douceur"], sections: [] } });
+      await run("show.create", { name: "Troisième" }); // its own copy: it loses nothing
+      await run("song.put", { song: { id: "c", title: "Autre", mood: ["douceur"], sections: [] } });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#000000"] } });
+      await run("show.open", { id: "second" });
+      const { uses } = (await run("show.references", { kind: "intention", id: "douceur" })) as { uses: string[] };
+      expect(uses).to.deep.equal(["chant « Là-bas »", "show « Premier » (autre show de cette machine)"]);
+      const refused = (await refusal(run("intention.delete", { id: "douceur" }))) as CommandError;
+      expect(refused.message).to.contain("chant « Là-bas »").and.to.contain("show « Premier » (autre show de cette machine)");
+      expect(refused.detail).to.deep.equal({ uses: ["chant « Là-bas »"], otherShows: ["Premier"] });
+      // forced on that informed yes, as the interface does after showing those uses
+      expect(await run("intention.delete", { id: "douceur", force: true })).to.deep.include({ action: "deleted" });
+      // a mask put back by intention.put says what now names an unknown intention
+      const masked = (await run("intention.put", { intention: { id: "joie", label: "Joie", colors: ["#ffcc1a"], hidden: true } })) as { usedBy: string[] };
+      expect(masked.usedBy).to.deep.equal([]);
+      await run("song.put", { song: { id: "d", title: "Joyeux", mood: ["joie"], sections: [] } });
+      const again = (await run("intention.put", { intention: { id: "joie", label: "Joie", colors: ["#ffcc1a"], hidden: true } })) as { usedBy: string[] };
+      expect(again.usedBy).to.deep.equal(["chant « Joyeux »"]);
+      // the history names a deleted intention by its label
+      await run("intention.put", { intention: { label: "Brume", colors: ["#cccccc"] } });
+      await run("intention.delete", { id: "brume" });
+      expect(((await run("history.deleted", { collection: "intentions" })) as { id: string; name?: string }[]).find((d) => d.id === "brume")?.name).to.equal("Brume");
+      // the activity log's undo is for looks, groups, faders and dashboards only
+      expect(await refusal(run("history.undo", { collection: "intentions", id: "brume", at: Date.now() }))).to.be.instanceOf(Error);
+    });
+
+    it("warns that an intention of this machine the schema refuses will not travel with the show", async () => {
+      mkdirSync(join(dataRoot, "private"), { recursive: true });
+      writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { brume: { label: "Brume", colors: ["bleu"], energy: "pose" } } }));
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["brume"], sections: [] } });
+      const lint = (await run("show.lint")) as { issues: { level: string; where: string; message: string }[] };
+      expect(lint.issues.find((i) => i.where === "intention brume")).to.deep.include({ level: "attention" });
+      expect(lint.issues.find((i) => i.where === "intention brume")!.message).to.match(/ne sera pas emportée par les sauvegardes du show : colors/);
+      expect(plugin.showExtra()).to.deep.equal({});
     });
 
     it("previews an unsaved intention: technique, explanation and contrast, nothing written", async () => {

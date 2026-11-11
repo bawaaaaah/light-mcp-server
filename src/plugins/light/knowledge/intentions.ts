@@ -99,15 +99,18 @@ export const namesIntention = (word: string, key: string): boolean => key !== ""
  * file intentions it uses (`used`: keys named by its songs and looks), copied as intentions of the
  * show, so that they come back as such on a restore — elsewhere too. The show's own and the shipped
  * ones are left alone (the first are in the folder, the second ship everywhere); an entry the
- * schema refuses (a hand-edited colour that is not #rrggbb) is left out.
+ * schema refuses (a hand-edited colour that is not #rrggbb, a label too long) is left out and named
+ * in `refused`, with why (show.lint says it will not travel).
  */
-export function embeddedIntentions(stack: ReadonlyMap<string, IntentionEntry>, used: Iterable<string>): Intention[] {
-  const out: Intention[] = [];
+export function embeddedIntentions(stack: ReadonlyMap<string, IntentionEntry>, used: Iterable<string>): { intentions: Intention[]; refused: { id: string; label: string; why: string }[] } {
+  const intentions: Intention[] = [];
+  const refused: { id: string; label: string; why: string }[] = [];
   for (const key of new Set(used)) {
     const e = stack.get(key);
     if (!e || e.hidden || (e.origin !== "personal" && e.origin !== "private")) continue;
     const parsed = IntentionSchema.safeParse({ id: key, label: e.label ?? key, colors: e.colors, energy: e.energy, family: e.family, ...(e.notes ? { notes: e.notes } : {}) });
-    if (parsed.success) out.push(parsed.data);
+    if (parsed.success) intentions.push(parsed.data);
+    else refused.push({ id: key, label: e.label ?? key, why: parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ") });
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return { intentions: intentions.sort((a, b) => a.id.localeCompare(b.id)), refused };
 }

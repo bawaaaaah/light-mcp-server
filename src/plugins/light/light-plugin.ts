@@ -29,7 +29,7 @@ import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
-import { registerDesignCommands, type IntentionStores } from "./commands/design-commands.js";
+import { intentionReferences, registerDesignCommands, type IntentionStores } from "./commands/design-commands.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
 import { embeddedIntentions, IntentionSchema, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
@@ -157,6 +157,7 @@ export class LightPlugin implements McpPlugin {
   readonly show: FolderStore;
   /** The layers of the colour knowledge base and the intentions of this machine and of the show (T15). */
   readonly intentions: IntentionStores;
+  private readonly personalIntentions: FolderStore;
   readonly venue: Venue;
   readonly runtime: ShowRuntime;
   readonly hub: MidiHub;
@@ -234,7 +235,7 @@ export class LightPlugin implements McpPlugin {
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
-    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }), () => this.router.isStandby());
+    registerShowCommands(this.commands, this.engine, this.runtime, () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) }), () => this.router.isStandby(), (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id));
     registerMoveCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());
@@ -282,6 +283,7 @@ export class LightPlugin implements McpPlugin {
     // the intentions (T15): the files read once, the personal library (every show of this machine; its
     // history pruned with the shows', backups/private/library) and the show's own (in its folder), read at every call
     const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private", "library"));
+    this.personalIntentions = personal;
     const showIntentions = this.show.collection("intentions", IntentionSchema);
     this.intentions = {
       base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
@@ -339,6 +341,8 @@ export class LightPlugin implements McpPlugin {
     });
     // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
     this.show.onChange(() => (this.changedSinceAutoBackup = true));
+    // the personal intentions a show uses go into its backups (T15): a change there is a change of the backup
+    this.personalIntentions.onChange(() => (this.changedSinceAutoBackup = true));
     this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
     this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));
@@ -491,7 +495,7 @@ export class LightPlugin implements McpPlugin {
     const i = this.intentions;
     const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }).keys();
     const stack = stackIntentions(i.base(), i.personal.list(), i.show.list());
-    return Object.fromEntries(embeddedIntentions(stack, used).map((x) => [`intentions/${x.id}.json`, stableStringify(x)]));
+    return Object.fromEntries(embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)]));
   }
 
   restoreTargets(): RestoreTargets {

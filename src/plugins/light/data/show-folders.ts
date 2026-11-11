@@ -49,3 +49,24 @@ export function showsOnVenue(dataRoot: string, venueId: string, except: string |
     return settings.venue === venueId ? [{ id, settings }] : [];
   });
 }
+
+/**
+ * The objects of one collection folder of a show not opened (data/shows/<id>/<collection>), each
+ * picked from its JSON: a file that cannot be read, or that `pick` refuses (undefined), is left out.
+ * Shared by the notices on other shows (show/shared-venue.ts, show/other-shows.ts).
+ */
+export function readCollection<T>(dir: string, pick: (raw: unknown) => T | undefined): T[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .flatMap((f) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(path.join(dir, f), "utf8"));
+      } catch {
+        return [];
+      }
+      const item = pick(raw);
+      return item === undefined ? [] : [item];
+    });
+}

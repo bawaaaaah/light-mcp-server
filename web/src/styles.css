@@ -3451,8 +3451,16 @@ fieldset.checklist .checklist-search {
   flex: none;
   margin-top: 0.2em;
 }
+.intention-list .intention-copy-help {
+  flex-basis: 100%;
+}
 /* a phone: the list grows with the page (no box scrolling inside it), finger-sized controls */
 @media (max-width: 700px) {
+  .intention-uses summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
   .intention-list {
     max-height: none;
     overflow: visible;
