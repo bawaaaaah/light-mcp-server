@@ -1621,8 +1621,17 @@ test("canvas editor: pick with click, Ctrl and Shift or a frame, remove at once,
   await login(page);
   await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
   try {
+    // reading the canvas is a read: opening the editor writes no activity line and does not reload on its own echo
+    let reads = 0;
+    page.on("request", (r) => void (r.url().endsWith("/commands/venue.canvas.get") && reads++));
+    const linesBefore = ((await api(page, "activity.list")) as unknown[]).length;
     const dialog = await openCanvasEditor(page);
     const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    // the keyboard is in the window as it opens
+    await expect(cell(0)).toBeFocused();
+    await page.waitForTimeout(600);
+    expect(reads).toBeLessThanOrEqual(2);
+    expect(((await api(page, "activity.list")) as unknown[]).length).toBe(linesBefore);
     // click, Ctrl/⌘, Shift
     await cell(0).click();
     await cell(2).click({ modifiers: ["ControlOrMeta"] });
@@ -1662,6 +1671,7 @@ test("canvas editor: pick with click, Ctrl and Shift or a frame, remove at once,
     expect((await canvasHeads(page)).slice(4)).toEqual(["bar-1:0", "bar-1:1", "bar-1:2", "bar-1:3"]);
     await page.screenshot({ path: "test-results/canvas-editor.png", fullPage: true });
     await dialog.getByRole("button", { name: "Fermer" }).click(); // closed before the canvas goes
+    await expect(page.getByRole("button", { name: "Éditer Canevas éditable" })).toBeFocused(); // back where it was opened from
   } finally {
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
   }
@@ -1712,8 +1722,8 @@ test("canvas editor: keyboard alone picks and moves; a drag moves; a look of exa
     expect(await rows()).toEqual(steps); // forced: the steps stay as they were
     // cancelled: nothing moves
     await cell(0).click();
-    await expect(dialog.getByRole("button", { name: "Avancer d'une case" })).toBeDisabled(); // already the first
-    await dialog.getByRole("button", { name: "Reculer d'une case" }).click();
+    await expect(dialog.getByRole("button", { name: "Déplacer d'une case vers le début" })).toBeDisabled(); // already the first
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" }).click();
     await impact.getByRole("button", { name: "Annuler" }).click();
     expect(await canvasHeads(page)).toEqual(["bar-0:3", "bar-0:0", "bar-0:1", "bar-0:2"]);
     await page.screenshot({ path: "test-results/canvas-editor-impact.png", fullPage: true });
@@ -1723,6 +1733,149 @@ test("canvas editor: keyboard alone picks and moves; a drag moves; a look of exa
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
   }
   expect(errors.filter((e) => !e.includes("400"))).toEqual([]); // the refusals that ask about the look come as a 400: the browser logs them
+});
+
+test("canvas editor: a drag let go away from the strip or ended by Escape moves nothing; a burst of keys loses no gesture", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  const start = ["bar-0:0", "bar-0:1", "bar-0:2", "bar-0:3"];
+  try {
+    const dialog = await openCanvasEditor(page);
+    const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    const from = (await cell(3).boundingBox())!;
+    const first = (await cell(0).boundingBox())!;
+    const band = (await dialog.getByRole("listbox").boundingBox())!;
+    const carry = async () => {
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(first.x + 4, first.y + first.height / 2, { steps: 8 });
+      await expect(dialog.locator(".canvas-gap")).toHaveCount(1);
+    };
+    // let go well above the strip: the mark goes, nothing moves
+    await carry();
+    await page.mouse.move(first.x + 4, band.y - 80, { steps: 4 });
+    await expect(dialog.locator(".canvas-gap")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(dialog.getByRole("status").last()).toHaveText("Déplacement annulé.");
+    expect(await canvasHeads(page)).toEqual(start);
+    // Escape while carrying: nothing moves, and the square under the pointer is not picked by the release
+    await carry();
+    await page.keyboard.press("Escape");
+    await expect(dialog.locator(".canvas-gap")).toHaveCount(0);
+    await page.mouse.up();
+    expect(await canvasHeads(page)).toEqual(start);
+    await expect(dialog.locator("[aria-selected=true]")).toHaveCount(0);
+    await expect(dialog).toBeVisible(); // Escape did not close the window either
+    // three Alt+→ in a burst: three places, the focus following the square
+    await cell(0).focus();
+    await page.keyboard.press("Space");
+    for (let k = 0; k < 3; k++) await page.keyboard.press("Alt+ArrowRight", { delay: 0 });
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:2", "bar-0:3", "bar-0:0"]);
+    await expect(cell(3)).toBeFocused();
+    await expect(cell(3)).toHaveAttribute("aria-selected", "true");
+    // ⌘Z twice in a burst: two steps back, none lost
+    await page.keyboard.press("ControlOrMeta+z", { delay: 0 });
+    await page.keyboard.press("ControlOrMeta+z", { delay: 0 });
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:0", "bar-0:2", "bar-0:3"]);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => canvasHeads(page)).toEqual(start);
+    await expect(dialog.getByRole("button", { name: "Annuler" }).first()).toBeDisabled();
+    await dialog.getByRole("button", { name: "Rétablir" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:1", "bar-0:0", "bar-0:2", "bar-0:3"]);
+    // every square picked: Delete sends nothing, and says why
+    await cell(0).focus();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("Delete");
+    await expect(dialog.getByRole("status").last()).toContainText("garde au moins une case");
+    expect((await canvasHeads(page)).length).toBe(4);
+    // « move before… » then a touch on the destination: one move, as a tablet does it
+    await cell(3).click();
+    await dialog.getByRole("button", { name: "Déplacer avant…" }).click();
+    await cell(0).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:3", "bar-0:1", "bar-0:0", "bar-0:2"]);
+    await dialog.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("canvas editor: a canvas deleted elsewhere is said gone and never comes back by an undo; one changed elsewhere empties the undo", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  try {
+    const dialog = await openCanvasEditor(page);
+    const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    const undo = dialog.getByRole("button", { name: "Annuler" }).first();
+    await cell(0).click();
+    await page.keyboard.press("Delete");
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(3);
+    await expect(undo).toBeEnabled();
+    // changed elsewhere (another device, the AI): what this window would undo is no longer the canvas
+    await api(page, "venue.canvas.edit", { id: "test-edit", ops: [{ op: "set", notes: "ailleurs" }] });
+    await expect(undo).toBeDisabled();
+    await cell(0).click();
+    await page.keyboard.press("Delete");
+    await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(2);
+    await expect(undo).toBeEnabled();
+    // deleted elsewhere, then ⌘Z here
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+    await expect(dialog.getByText("Ce canevas n'existe plus.")).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.waitForTimeout(300);
+    expect(((await api(page, "venue.canvas.list")) as { id: string }[]).some((c) => c.id === "test-edit")).toBe(false);
+    await dialog.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true }).catch(() => undefined);
+  }
+  expect(errors.filter((e) => !e.includes("422"))).toEqual([]); // the read of a canvas that is gone is refused: the browser logs it
+});
+
+test("canvas editor on a phone: the question about the looks shows on screen, takes the focus, and Escape cancels it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: editableCanvas, force: true });
+  await api(page, "look.put", { look: { id: "test-edit-look", name: "Pas exacts", canvas: "test-edit", technique: { kind: "pas", steps: [["#ff0000", "#00ff00", "#0000ff", "#ffffff"]] } } });
+  try {
+    const dialog = await openCanvasEditor(page);
+    const cell = (i: number) => dialog.getByRole("listbox").getByRole("option").nth(i);
+    await cell(1).click();
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" }).click();
+    const impact = dialog.getByRole("alertdialog", { name: "Des looks sont touchés" });
+    await expect(impact).toBeInViewport({ ratio: 0.9 });
+    await expect(impact).toContainText("Pas exacts : 1 pas, chaque colonne suit sa case"); // said in words, not only drawn
+    await expect(impact.getByRole("button", { name: "Adapter les pas" })).toBeFocused();
+    const [panel, preview] = [(await impact.boundingBox())!, (await impact.locator(".steps-compare").boundingBox())!];
+    expect(panel.x + panel.width).toBeLessThanOrEqual(390);
+    expect(preview.x + preview.width).toBeLessThanOrEqual(panel.x + panel.width);
+    // a gesture meanwhile is held back and said, not lost in silence
+    await page.keyboard.press("Escape");
+    await expect(impact).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    expect(await canvasHeads(page)).toEqual(["bar-0:0", "bar-0:1", "bar-0:2", "bar-0:3"]);
+    // adapted once « for the next gestures too »: the next move asks nothing
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" }).click();
+    await impact.getByLabel(/Adapter aussi les pas aux gestes suivants/).check();
+    await impact.getByRole("button", { name: "Adapter les pas" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:1", "bar-0:3"]);
+    await dialog.getByRole("button", { name: "Déplacer d'une case vers la fin" }).click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:3", "bar-0:1"]);
+    await expect(impact).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "test-edit-look" })) as { technique: { steps: string[][] } }).technique.steps).toEqual([["#ff0000", "#0000ff", "#ffffff", "#00ff00"]]);
+    // undo: the canvas and the steps go back in one write
+    await dialog.getByRole("button", { name: "Annuler" }).first().click();
+    await expect.poll(() => canvasHeads(page)).toEqual(["bar-0:0", "bar-0:2", "bar-0:1", "bar-0:3"]);
+    expect(((await api(page, "look.get", { id: "test-edit-look" })) as { technique: { steps: string[][] } }).technique.steps).toEqual([["#ff0000", "#0000ff", "#00ff00", "#ffffff"]]);
+    await page.screenshot({ path: "test-results/canvas-editor-phone.png" });
+    await dialog.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    await api(page, "look.delete", { id: "test-edit-look", force: true });
+    await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("400"))).toEqual([]);
 });
 
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {

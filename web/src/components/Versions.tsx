@@ -1,21 +1,36 @@
 import { useState, type ReactElement } from "react";
 import { ApiError, cmd } from "../api";
 import { useT } from "../App";
+import type { Texts } from "../i18n";
 import { quoted, beforeMark } from "../typography";
 
 type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases";
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
 
 /**
+ * The question a refused canvas write asks, in the interface's words (the server's sentence names API
+ * arguments): the looks whose steps would no longer line up, the shows sharing the venue. Undefined when
+ * the error is not such a refusal.
+ */
+export function canvasQuestion(t: Texts, e: unknown): string | undefined {
+  if (!(e instanceof ApiError) || !e.detail?.impact) return undefined;
+  const d = e.detail as { impact: { looksAffected: { id: string; name: string }[] }; broken?: string[]; shared?: string[] };
+  const looks = d.impact.looksAffected.filter((l) => d.broken?.includes(l.id)).map((l) => quoted(t, l.name));
+  const tc = t.canvasEditor;
+  return [...(looks.length ? [`${tc.impactSteps} ${looks.join(", ")}`] : []), ...(d.shared?.length ? [`${tc.impactShared} ${d.shared.join(", ")}`] : []), "", `${tc.force}${beforeMark(t)}?`].join("\n");
+}
+
+/**
  * Puts a version back (history.restore). A canvas put back is checked as any canvas put (looks of exact
  * steps that would no longer line up, a shared venue): the refusal is said and forced on a yes.
  */
-export async function restoreVersion(args: { collection: Versioned; id: string; stamp: string }, forceQuestion: string): Promise<boolean> {
+export async function restoreVersion(args: { collection: Versioned; id: string; stamp: string }, t: Texts): Promise<boolean> {
   try {
     await cmd("history.restore", args);
   } catch (e) {
-    if (!(e instanceof ApiError && e.detail?.impact)) throw e;
-    if (!confirm(`${e.message}\n\n${forceQuestion}`)) return false;
+    const question = canvasQuestion(t, e);
+    if (question === undefined) throw e;
+    if (!confirm(question)) return false;
     await cmd("history.restore", { ...args, force: true });
   }
   return true;
@@ -26,7 +41,21 @@ export async function restoreVersion(args: { collection: Versioned; id: string; 
  * opened. Restoring puts one back; the current version is kept in turn, so a restore is undone the
  * same way. A DCA or fader keeps its live level.
  */
-export function Versions({ collection, id, onRestored }: { collection: Versioned; id: string; onRestored: () => void }): ReactElement {
+export function Versions({
+  collection,
+  id,
+  onRestored,
+  help,
+  restore: restoreWith,
+}: {
+  collection: Versioned;
+  id: string;
+  onRestored: () => void;
+  /** What these versions keep, when the usual sentence (a DCA's level) is off the subject. */
+  help?: string;
+  /** Puts a version back in the caller's own way (an editor that asks in its window); the usual restore otherwise. */
+  restore?: (v: { stamp: string; at: string }) => void;
+}): ReactElement {
   const t = useT();
   const [list, setList] = useState<{ stamp: string; at: string }[] | null>(null);
   const [error, setError] = useState("");
@@ -34,12 +63,13 @@ export function Versions({ collection, id, onRestored }: { collection: Versioned
     void cmd<{ stamp: string; at: string }[]>("history.list", { collection, id }).then(setList, (e: Error) => setError(e.message));
   const restore = (v: { stamp: string; at: string }) => {
     if (!confirm(`${t.restoreVersionConfirm}\n\n${t.replacedOn} ${when(v.at)}`)) return;
-    void restoreVersion({ collection, id, stamp: v.stamp }, t.canvasEditor.force).then((done) => done && onRestored(), (e: Error) => setError(e.message));
+    if (restoreWith) return restoreWith(v);
+    void restoreVersion({ collection, id, stamp: v.stamp }, t).then((done) => done && onRestored(), (e: Error) => setError(e.message));
   };
   return (
     <details className="versions" onToggle={(e) => e.currentTarget.open && list === null && load()}>
       <summary>{t.versions}</summary>
-      <p className="hint">{t.versionsHelp}</p>
+      <p className="hint">{help ?? t.versionsHelp}</p>
       {list?.length === 0 && <p className="hint">{t.noVersions}</p>}
       <ul>
         {list?.map((v) => (
@@ -81,7 +111,7 @@ export function RecentlyDeleted({ collections, onRestored }: { collections: Vers
       .catch((e: Error) => setError(e.message));
   const restore = (collection: Versioned, g: Gone) => {
     if (!confirm(`${t.restoreDeletedConfirm} ${quoted(t, g.name ?? g.id)}${beforeMark(t)}?`)) return;
-    void restoreVersion({ collection, id: g.id, stamp: g.stamp }, t.canvasEditor.force)
+    void restoreVersion({ collection, id: g.id, stamp: g.stamp }, t)
       .then((done) => {
         if (!done) return;
         load();

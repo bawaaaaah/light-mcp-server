@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { api, ApiError, cmd } from "../api";
+import { api, cmd } from "../api";
+import { canvasQuestion } from "./Versions";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { quoted, beforeMark } from "../typography";
@@ -92,7 +93,11 @@ export function ActivityPanel(): ReactElement {
     const args = { ...e.undo, at: e.at, until: e.until };
     void cmd("history.undo", args)
       // a canvas put back is checked like any canvas put: the refusal is said, and forced on a yes
-      .catch((err: unknown) => (err instanceof ApiError && err.detail?.impact && confirm(`${err.message}\n\n${t.canvasEditor.force}`) ? cmd("history.undo", { ...args, force: true }) : Promise.reject(err as Error)))
+      .catch((err: unknown) => {
+        const forced = canvasQuestion(t, err);
+        if (forced === undefined) throw err;
+        return confirm(forced) ? cmd("history.undo", { ...args, force: true }) : undefined;
+      })
       .then(load, (err: Error) => setError(err.message));
   };
   useCommandEvents([""], () => {

@@ -293,7 +293,12 @@ export function VenuePage(): ReactElement {
             </select>
             <button
               disabled={!canvasDraft.name || canvasDraft.fixtures.length === 0}
-              onClick={() => void run("venue.canvas.auto", { id: slug(canvasDraft.name), name: canvasDraft.name, topology: canvasDraft.topology, fixtures: canvasDraft.fixtures })}
+              onClick={() =>
+                // a canvas of that name is edited, never rebuilt over: looks may play on its cells
+                canvases.some((c) => c.id === slug(canvasDraft.name))
+                  ? setError(t.canvasEditor.exists)
+                  : void run("venue.canvas.auto", { id: slug(canvasDraft.name), name: canvasDraft.name, topology: canvasDraft.topology, fixtures: canvasDraft.fixtures })
+              }
             >
               {t.makeCanvas} ({canvasDraft.fixtures.length})
             </button>
@@ -344,7 +349,7 @@ export function VenuePage(): ReactElement {
           <h2>{t.canvases}</h2>
           <ul>
             {canvases.map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className="canvas-row">
                 {c.name} <small>({labelOf(t.topologies, c.topology)}, {c.cells})</small>{" "}
                 <button className="ghost" aria-label={`${t.canvasEditor.open} ${c.name}`} onClick={() => setEditingCanvas(c.id)}>
                   ✎ {t.canvasEditor.open}

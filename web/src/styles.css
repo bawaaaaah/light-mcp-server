@@ -3129,7 +3129,35 @@ fieldset.checklist .checklist-search {
   white-space: nowrap;
 }
 /* the canvas editor (components/CanvasEditor.tsx, T13): one square per cell, grouped by fixture, wrapping */
+.canvas-editor-head {
+  flex-wrap: nowrap;
+}
 .canvas-editor-head h2 {
+  margin: 0.3em 0;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* a long canvas name wraps in the venue's list instead of widening the page */
+.canvas-row {
+  overflow-wrap: anywhere;
+}
+/* the help speaks of the keys and the mouse, or of the touch: the one the device has */
+.canvas-editor .only-coarse {
+  display: none;
+}
+@media (pointer: coarse) {
+  .canvas-editor .only-fine {
+    display: none;
+  }
+  .canvas-editor .only-coarse {
+    display: block;
+  }
+}
+.canvas-warning {
+  color: var(--warn);
+}
+.canvas-placing {
   margin: 0.3em 0;
 }
 .canvas-editor .spacer {
@@ -3176,7 +3204,15 @@ fieldset.checklist .checklist-search {
   flex-wrap: wrap;
   gap: 3px;
 }
+.canvas-strip.dragging {
+  touch-action: none; /* a pen carrying squares does not scroll the strip */
+  cursor: grabbing;
+}
+.canvas-strip.placing .canvas-cell {
+  cursor: copy;
+}
 .canvas-cell-slot {
+  position: relative;
   display: inline-flex;
   align-items: stretch;
 }
@@ -3197,19 +3233,44 @@ fieldset.checklist .checklist-search {
 .canvas-cell.empty {
   background: repeating-linear-gradient(45deg, transparent 0 4px, var(--line) 4px 6px);
 }
+/* picked: a ring inside the square and a tick, so the focus outline around it still shows */
 .canvas-cell.picked {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
+  box-shadow: inset 0 0 0 3px var(--accent), inset 0 0 0 5px rgba(0, 0, 0, 0.65);
+}
+.canvas-cell.picked::after {
+  content: "✓";
+  position: absolute;
+  top: 0;
+  right: 3px;
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+.canvas-cell {
+  position: relative;
+}
+.canvas-cell:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 .canvas-cell.carried {
   opacity: 0.35;
 }
+/* over the gap between two squares: showing it moves nothing */
 .canvas-gap {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: -4px;
   width: 4px;
-  margin: 0 2px;
+  pointer-events: none;
   border-radius: 2px;
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
+}
+.canvas-gap.after {
+  left: auto;
+  right: -4px;
 }
 .canvas-frame {
   position: fixed;
@@ -3231,24 +3292,29 @@ fieldset.checklist .checklist-search {
 .canvas-impact ul {
   padding-left: 1.1em;
 }
+.canvas-impact {
+  scroll-margin: 1em;
+}
+/* before above after, each as wide as the window at most: the squares shrink rather than run off a phone */
 .steps-compare {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1em;
+  display: grid;
+  gap: 0.4em;
   margin: 0.3em 0;
   max-width: 100%;
-  overflow-x: auto;
 }
 .mini-steps {
   display: grid;
   gap: 1px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .mini-row {
   display: flex;
   gap: 1px;
 }
 .mini-row span {
-  width: 9px;
+  flex: 0 1 9px;
+  min-width: 2px;
   height: 9px;
   background: #000;
   border-radius: 1px;

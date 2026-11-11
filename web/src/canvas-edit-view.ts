@@ -33,10 +33,11 @@ export function pickCells(count: number, selection: readonly number[], anchor: n
 }
 
 /** The cells whose centre lies in a frame drawn over the strip (screen rectangles: the strip wraps over lines). */
-export function cellsInFrame(rects: readonly { left: number; top: number; width: number; height: number }[], frame: { x1: number; y1: number; x2: number; y2: number }): number[] {
+export function cellsInFrame(rects: readonly ({ left: number; top: number; width: number; height: number } | null)[], frame: { x1: number; y1: number; x2: number; y2: number }): number[] {
   const [x1, x2] = [Math.min(frame.x1, frame.x2), Math.max(frame.x1, frame.x2)];
   const [y1, y2] = [Math.min(frame.y1, frame.y2), Math.max(frame.y1, frame.y2)];
   return rects.flatMap((r, i) => {
+    if (!r) return []; // hidden by the strip's scroll
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     return cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2 ? [i] : [];
@@ -87,20 +88,60 @@ export function addOrder<F extends { id: string; universe: number; address: numb
   return [...fixtures].sort((a, b) => (placed ? a.position!.x - b.position!.x : 0) || a.universe - b.universe || a.address - b.address);
 }
 
-/** A step of the editor's undo: the canvas, and the looks whose steps followed it, before and after. */
-export interface EditStep<C, L> {
-  before: C;
-  after: C;
-  looksBefore: L[];
-  looksAfter: L[];
+/** The runs of consecutive cells in a selection (in canvas order): [first, last] each. */
+export function runsOf(cells: readonly number[]): [number, number][] {
+  const sorted = [...new Set(cells)].sort((a, b) => a - b);
+  const out: [number, number][] = [];
+  for (const c of sorted) {
+    const last = out[out.length - 1];
+    if (last && last[1] === c - 1) last[1] = c;
+    else out.push([c, c]);
+  }
+  return out;
 }
 
-/** The editor's undo and redo stacks (as the dashboards' editor: 100 steps, a new change forgets the redo). */
-export class EditHistory<C, L> {
-  private past: EditStep<C, L>[] = [];
-  private future: EditStep<C, L>[] = [];
+/** Whether a selection is one run of at least two cells: what « reverse » turns round. */
+export function isRun(cells: readonly number[]): boolean {
+  const runs = runsOf(cells);
+  return runs.length === 1 && runs[0]![1] > runs[0]![0];
+}
+
+/**
+ * The moves that shift every picked cell one place earlier (-1) or later (+1), each run keeping its place among
+ * the others (a selection in several pieces is not gathered): one `move` per run, to apply in order in one
+ * edit. Empty when a run already touches that end.
+ */
+export function shiftOps(count: number, cells: readonly number[], by: -1 | 1): { op: "move"; cells: number[]; to: number }[] {
+  const runs = runsOf(cells);
+  if (!runs.length || (by < 0 ? runs[0]![0] <= 0 : runs[runs.length - 1]![1] >= count - 1)) return [];
+  const span = ([a, b]: [number, number]) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  // the run nearest the end it goes to moves first: the next one finds its neighbour where it was
+  return (by < 0 ? runs : [...runs].reverse()).map((r) => ({ op: "move" as const, cells: span(r), to: by < 0 ? r[0] - 1 : r[1] + 2 }));
+}
+
+/** The cells a frame may take: those whose square shows in the strip (a strip that scrolls hides some). */
+export function shownIn<R extends { left: number; top: number; width: number; height: number }>(rects: readonly R[], view: { left: number; top: number; right: number; bottom: number }): (R | null)[] {
+  return rects.map((r) => (r.left + r.width / 2 >= view.left && r.left + r.width / 2 <= view.right && r.top + r.height / 2 >= view.top && r.top + r.height / 2 <= view.bottom ? r : null));
+}
+
+/** A step of the editor's undo: the canvas, and the rows of the looks whose steps followed it (by look id), before and after. */
+export interface EditStep<C, R> {
+  before: C;
+  after: C;
+  rowsBefore: Record<string, R>;
+  rowsAfter: Record<string, R>;
+}
+
+/**
+ * The editor's undo and redo stacks (as the dashboards' editor: 100 steps, a new change forgets the redo).
+ * A step is read first (`toUndo`, `toRedo`) and changes stack only once the server took it (`undone`,
+ * `redone`): one that is refused, or asked twice while the first is on its way, is never lost.
+ */
+export class EditHistory<C, R> {
+  private past: EditStep<C, R>[] = [];
+  private future: EditStep<C, R>[] = [];
   constructor(private readonly max = 100) {}
-  push(step: EditStep<C, L>): void {
+  push(step: EditStep<C, R>): void {
     this.past.push(step);
     if (this.past.length > this.max) this.past.shift();
     this.future = [];
@@ -111,25 +152,19 @@ export class EditHistory<C, L> {
   get canRedo(): boolean {
     return this.future.length > 0;
   }
-  /** The step to take back (moved to the redo stack): undefined when there is none. */
-  undo(): EditStep<C, L> | undefined {
-    const s = this.past.pop();
-    if (s) this.future.push(s);
-    return s;
+  /** The step an undo would take back, left where it is. */
+  get toUndo(): EditStep<C, R> | undefined {
+    return this.past[this.past.length - 1];
   }
-  redo(): EditStep<C, L> | undefined {
-    const s = this.future.pop();
-    if (s) this.past.push(s);
-    return s;
+  get toRedo(): EditStep<C, R> | undefined {
+    return this.future[this.future.length - 1];
   }
-  /** A step that could not be taken back or redone goes back where it was. */
-  restoreUndo(step: EditStep<C, L>): void {
-    this.future = this.future.filter((s) => s !== step);
-    this.past.push(step);
+  /** The step was taken back: it can be redone. Ignored when it is no longer the one on top. */
+  undone(step: EditStep<C, R>): void {
+    if (this.toUndo === step) this.future.push(this.past.pop()!);
   }
-  restoreRedo(step: EditStep<C, L>): void {
-    this.past = this.past.filter((s) => s !== step);
-    this.future.push(step);
+  redone(step: EditStep<C, R>): void {
+    if (this.toRedo === step) this.past.push(this.future.pop()!);
   }
   clear(): void {
     this.past = [];
