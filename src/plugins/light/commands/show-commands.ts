@@ -503,7 +503,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
-    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, fixtures ending past channel 512 (beyondUniverse: their last channels are never sent), information notes (info: unused gaps between two fixtures, fixtures of one model sharing a name, moving heads or fixtures given a mount or a target zone but no stage position), and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
+    description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, fixtures ending past channel 512 (beyondUniverse: their last channels are never sent), information notes (info: gaps, unused channels between two fixtures, as [{universe, gaps: [{universe, from, to, after, before}], message}] one line per universe; sameNames, fixtures of one model sharing a name; noPosition, moving heads or fixtures given a mount or a target zone but no stage position), and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -522,7 +522,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "fixture.reset",
     title: "Réinitialiser l'appareil",
-    description: `Resets a fixture on purpose: each of its Reset channels (ranges tagged reset in its definition) gets the middle of its Reset range (the « all » one when there are several) for ${RESET_WINDOW_MS / 1000} s, over the show and the DMX console, the built-in Reset protection lifted on those channels only (a twin on the same address shares them); then the protection comes back. A moving head swings and may go dark while it resets: not during a song. Ask the user first, naming the fixture and the range, and send confirm: true only on their yes. Only from the interface, an AI client or the command line (never MIDI, OSC, OS2L nor a song). Refused for a fixture without a Reset channel, during a Blackout, on output standby, or when another locked rule keeps every Reset channel from its value; warning when it keeps some of them.`,
+    description: `Resets a fixture on purpose: each of its Reset channels (ranges tagged reset in its definition) gets the middle of its Reset range (the « all » one when there are several) for ${RESET_WINDOW_MS / 1000} s, over the show and the DMX console, the built-in Reset protection lifted on those channels only (a twin on the same address shares them); then the protection comes back. A moving head swings and may go dark while it resets: not during a song. Ask the user first, naming the fixture and the range, and send confirm: true only on their yes. Only from the interface, an AI client or the command line (never MIDI, OSC, OS2L nor a song). Refused for a fixture without a Reset channel, during a Blackout or on output standby (checked before asking), or when another locked rule or the end of the universe (a channel past 512) keeps every Reset channel from its value; warning when it keeps some of them.`,
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ id: z.string(), confirm: z.boolean().default(false).describe("the user agreed to reset this fixture now") }),
@@ -541,8 +541,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const r = venue.resolve(i);
       const channels = "error" in r ? [] : resetChannels(r);
       if (!channels.length) throw new Error(say(`${f.name} n'a pas de canal Reset dans sa définition`, `${f.name} has no Reset channel in its definition`));
+      // before asking the user: a yes would be for nothing
+      if (engine.isBlackout()) throw new CommandError("failed", say("Blackout en cours : la valeur Reset ne sortirait pas (le lever d'abord)", "Blackout is on: the Reset value would not go out (lift it first)"));
+      if (standby()) throw new CommandError("failed", say("sortie en veille : rien n'atteint les projecteurs (Réglages → Reprendre la main)", "output on standby: nothing reaches the fixtures (Settings → Take over)"));
       if (ctx.origin === "mcp" && !confirm) {
-        const ranges = channels.map((c) => `${c.name} : ${c.range}`).join(", ");
+        const ranges = channels.map((c) => `${c.name} : ${c.range}${c.others.length ? say(` (autres plages Reset non envoyées : ${c.others.join(", ")})`, ` (other Reset ranges, not sent: ${c.others.join(", ")})`) : ""}`).join(", ");
         throw new CommandError(
           "failed",
           say(
@@ -552,12 +555,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           { confirm: true },
         );
       }
-      if (engine.isBlackout()) throw new CommandError("failed", say("Blackout en cours : la valeur Reset ne sortirait pas (le lever d'abord)", "Blackout is on: the Reset value would not go out (lift it first)"));
-      if (standby()) throw new CommandError("failed", say("sortie en veille : rien n'atteint les projecteurs (Réglages → Reprendre la main)", "output on standby: nothing reaches the fixtures (Settings → Take over)"));
       const { until: _until, ...done } = show.startReset(i);
       // what really goes out: another locked rule (a venue's « max 199 ») may keep the value from its range
-      const blocked = show.resetOutcome(i, engine.render()).filter((o) => o.sent !== o.value);
-      const why = blocked.map((o) => say(`${o.name} reste à ${o.sent} au lieu de ${o.value}${o.rules.length ? ` (règle ${o.rules.join(", ")})` : ""}`, `${o.name} stays at ${o.sent} instead of ${o.value}${o.rules.length ? ` (rule ${o.rules.join(", ")})` : ""}`)).join(" ; ");
+      const blocked = show.resetOutcome(i, engine.render()).filter((o) => o.beyond || o.sent !== o.value);
+      const why = blocked.map((o) =>
+        o.beyond
+          ? say(`${o.name} est au-delà du canal 512 (l'appareil déborde de son univers) : jamais envoyé`, `${o.name} is past channel 512 (the fixture runs off its universe): never sent`)
+          : say(`${o.name} reste à ${o.sent} au lieu de ${o.value}${o.rules.length ? ` (règle ${o.rules.join(", ")})` : ""}`, `${o.name} stays at ${o.sent} instead of ${o.value}${o.rules.length ? ` (rule ${o.rules.join(", ")})` : ""}`),
+      ).join(" ; ");
       if (blocked.length === done.channels.length) {
         show.cancelResets(i);
         engine.requestFrame();
@@ -580,7 +585,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.grouping.apply",
     title: "Créer des groupes par type",
     description:
-      "Applies what venue.grouping.propose proposes, for the kinds chosen only: tags adds each kind's tag to its fixtures lacking it (other tags untouched); groups creates a kind's group, live (selector on the tag: a fixture tagged later joins it; its fixtures get the tag) or fixed (the list of its fixtures today), or completes the fixed type group proposed for completion (live ignored). A kind with nothing proposed is refused, and then nothing is written. Tags added change the existing groups selecting by them (affected, as venue.grouping.propose says, in the answer). Not idempotent: a second call finds nothing proposed.",
+      "Applies what venue.grouping.propose proposes, for the kinds chosen only: tags adds each kind's tag to its fixtures lacking it (other tags untouched); groups creates a kind's group, live (selector on the tag: a fixture tagged later joins it; its fixtures get the tag) or fixed (the list of its fixtures today), or completes the fixed type group proposed for completion (live ignored). A kind with nothing proposed is refused, and then nothing is written. Tags added change the existing groups selecting by them (affected, as venue.grouping.propose says, in the answer). Not idempotent: a second call finds nothing proposed. Not atomic either: tags and groups are written one file after another, so a disk error midway leaves what was written before it (call venue.grouping.propose again to see what is left).",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({

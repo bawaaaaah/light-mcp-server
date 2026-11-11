@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError, type Origin } from "../../../src/plugins/light/commands/registry.js";
-import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
-import { RESET_ORIGINS, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, restValue, unprotectable } from "../../../src/plugins/light/rules/reset-protection.js";
+import { capabilityTags, parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
+import { holdAtRest, powerOnResets, RESET_ORIGINS, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, restValue, unprotectable } from "../../../src/plugins/light/rules/reset-protection.js";
+import type { ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
 /** A synthetic moving head: pan, tilt, dimmer, and a control channel whose top range resets it. */
 const HEAD = `<?xml version="1.0" encoding="UTF-8"?>
@@ -19,15 +20,34 @@ const HEAD = `<?xml version="1.0" encoding="UTF-8"?>
  <Mode Name="4 Channel"><Channel Number="0">Pan</Channel><Channel Number="1">Tilt</Channel><Channel Number="2">Dimmer</Channel><Channel Number="3">Control</Channel></Mode>
 </FixtureDefinition>`;
 
-/** A lamp head: its Reset range sits between Lamp off and Lamp on, and a second channel is all Reset. */
+/** A lamp head: its Reset range sits between Lamp off and Lamp on, and a second channel is all Lamp off and Reset. */
 const LAMP = `<?xml version="1.0" encoding="UTF-8"?>
 <FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
  <Manufacturer>Test</Manufacturer><Model>Lamp</Model><Type>Moving Head</Type>
  <Channel Name="Pan" Preset="PositionPan"/>
  <Channel Name="Control"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="99">No function</Capability><Capability Min="100" Max="149" Preset="LampOff">Lamp off</Capability><Capability Min="150" Max="199">Reset pan/tilt</Capability><Capability Min="200" Max="227">Reset all</Capability><Capability Min="228" Max="255" Preset="LampOn">Lamp on</Capability></Channel>
- <Channel Name="Wipe"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="255">Reset</Capability></Channel>
+ <Channel Name="Wipe"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="99" Preset="LampOff">Lamp off</Capability><Capability Min="100" Max="255">Reset</Capability></Channel>
  <Mode Name="3 Channel"><Channel Number="0">Pan</Channel><Channel Number="1">Control</Channel><Channel Number="2">Wipe</Channel></Mode>
 </FixtureDefinition>`;
+
+/** A one-channel definition from its ranges, as [min, max, name, preset?]: synthetic, shaped on real QLC+ cases. */
+function oneChannel(ranges: [number, number, string, string?][]) {
+  const caps = ranges.map(([min, max, name, preset]) => `<Capability Min="${min}" Max="${max}"${preset ? ` Preset="${preset}"` : ""}>${name}</Capability>`).join("");
+  const def = parseQxf(`<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>One</Model><Type>Moving Head</Type><Channel Name="Ctl"><Group Byte="0">Maintenance</Group>${caps}</Channel><Mode Name="1"><Channel Number="0">Ctl</Channel></Mode></FixtureDefinition>`);
+  const mode = def.modes[0]!;
+  const fx = { def, mode, patch: { id: "x", universe: 1, address: 1 } } as unknown as ResolvedFixture;
+  /** What the protection sends for each value written in turn, with one memory. */
+  const hold = (...values: number[]) => {
+    const last = new Map<string, number>();
+    return values.map((v) => {
+      const buf = new Uint8Array(512);
+      buf[0] = v;
+      holdAtRest(fx, buf, last);
+      return buf[0];
+    });
+  };
+  return { def, mode, fx, hold, ch: def.channels.get("Ctl")! };
+}
 
 /** Two heads (control channels at DMX 4 and 24) on a plugin whose clock the test moves. */
 async function setup(opts: { standby?: boolean } = {}) {
@@ -54,9 +74,9 @@ describe("Reset channel protection (built-in locked rule)", () => {
     const lamp = parseQxf(LAMP);
     const [control, wipe] = resetChannels({ def: lamp, mode: lamp.modes[0]! });
     expect(control).to.deep.include({ name: "Control", value: 213, range: "Reset all (200–227)", others: ["Reset pan/tilt (150–199)"] });
-    expect(wipe!.value).to.equal(127);
+    expect(wipe!.value).to.equal(177);
     expect(restValue(lamp.channels.get("Control")!)).to.equal(0); // its « No function »
-    expect(restValue(lamp.channels.get("Wipe")!)).to.equal(undefined); // all Reset: nowhere to rest
+    expect(restValue(lamp.channels.get("Wipe")!)).to.equal(undefined); // Lamp off and Reset: nowhere to rest
     expect(unprotectable({ def: lamp, mode: lamp.modes[0]! })).to.deep.equal(["Wipe"]);
   });
 
@@ -104,9 +124,11 @@ describe("Reset channel protection (built-in locked rule)", () => {
     await run("rule.put", { where: "venue", rule: { id: "plafond", name: "Plafond", level: "venue", target: { channel: "Control" }, max: 199, locked: true } });
     await run("dmx.set", { universe: 1, channel: 42, value: 250 });
     expect(at(42)).to.equal(0);
-    // a channel all Reset cannot rest: left as it is, and show.lint says so
+    // a channel of Lamp off and Reset only cannot rest: left as it is (never pushed into Lamp off), and show.lint says so
     await run("dmx.set", { universe: 1, channel: 43, value: 90 });
     expect(at(43)).to.equal(90);
+    await run("dmx.set", { universe: 1, channel: 43, value: 150 });
+    expect(at(43)).to.equal(0); // back to what the show sends there (0, where it sits from power-on), never to a nearest value
     const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
     expect(lint.issues.find((i) => i.message.includes("Wipe"))).to.deep.include({ level: "attention" });
     expect(lint.issues.find((i) => i.message.includes("Wipe"))!.message).to.contain("ne peut pas le tenir au repos");
@@ -179,5 +201,89 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(control(1)).to.equal(0); // the Panic gave the channel back to rest
     const standby = await setup({ standby: true });
     expect(((await standby.refusal("fixture.reset", { id: "h1" })) as Error).message).to.contain("veille");
+  });
+
+  it("never triggers what sits at 0: a Reset range holding 0 is no trigger, and a neutral range under a Reset preset is no reset", () => {
+    // « 0 No effect [ResetAll] / 1–10 Sound control »: the preset alone does not make it a reset
+    const sound = oneChannel([[0, 0, "No Effect", "ResetAll"], [1, 10, "Sound Control"], [11, 255, "Auto"]]);
+    expect(sound.ch.tags).to.not.include("reset");
+    expect(resetChannels(sound)).to.deep.equal([]);
+    expect(sound.hold(0, 0)).to.deep.equal([0, 0]); // never pushed to 1 (Sound control)
+    // « 0–10 Reset to display fan setting / 11–20 Fans off »: a reset by its name, but at power-on
+    const fan = oneChannel([[0, 10, "Reset to display fan setting"], [11, 20, "Fans Off"], [21, 255, "Fan speed"]]);
+    expect(fan.ch.tags).to.include("reset");
+    expect(fan.hold(0, 5, 0)).to.deep.equal([0, 5, 0]); // never pushed to 11 (Fans off)
+    expect(powerOnResets(fan)).to.deep.equal([{ channel: "Ctl", range: "Reset to display fan setting (0–10)" }]);
+    expect(unprotectable(fan)).to.deep.equal([]);
+    // the preset alone, under a name saying nothing, a speed, or « No resetting »
+    expect(capabilityTags("Nothing", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("No function", "ResetAll")).to.not.include("reset");
+    expect(capabilityTags("Motor running speed (Slow to fast)", "ResetEffects")).to.not.include("reset");
+    expect(capabilityTags("No resetting")).to.not.include("reset");
+    expect(capabilityTags("XY motor resetting")).to.include("reset");
+    expect(capabilityTags("Resets the gobo wheel")).to.include("reset");
+    expect(capabilityTags("Home Color system", "ResetColor")).to.include("reset"); // a preset under a name that says something
+  });
+
+  it("goes back to the last value outside its Reset ranges, a lamp range included, and never into Lamp off", () => {
+    const lamp = oneChannel([[0, 127, "Lamp ON"], [128, 191, "Reset"], [192, 255, "Lamp OFF"]]);
+    expect(lamp.hold(0, 170)).to.deep.equal([0, 170 - 170]); // the show's 0 (Lamp on), remembered
+    expect(lamp.hold(200, 170)).to.deep.equal([200, 200]); // Lamp off written on purpose stays: the reset goes back to it
+    expect(lamp.hold(170)).to.deep.equal([127]); // no memory: the nearest Lamp on, not 192 (Lamp off)
+    expect(lamp.hold(190)).to.deep.equal([127]);
+    expect(unprotectable(lamp)).to.deep.equal([]); // it has somewhere to go
+  });
+
+  it("sends the range named as a reset of everything, else a ResetAll named reset, else the first named reset", () => {
+    const byName = (ranges: [number, number, string, string?][]) => resetChannels(oneChannel(ranges))[0]?.range;
+    // « 0–254 No function [ResetAll] / 255 Reset »: never the « No function » range
+    expect(byName([[0, 254, "No function", "ResetAll"], [255, 255, "Reset"]])).to.equal("Reset (255–255)");
+    const blackout: [number, number, string, string?] = [10, 19, "Enable blackout while pan/tilt move", "ResetAll"];
+    expect(byName([[0, 9, "No function"], blackout, [20, 29, "Reset pan", "ResetPan"], [30, 39, "Complete reset"]])).to.equal("Complete reset (30–39)");
+    expect(byName([[0, 9, "No function"], blackout, [20, 29, "Reset pan", "ResetPan"], [30, 39, "Reset", "ResetAll"]])).to.equal("Reset (30–39)");
+    expect(byName([[0, 9, "No function"], blackout, [20, 29, "XY motor resetting"]])).to.equal("XY motor resetting (20–29)");
+    expect(byName([[0, 9, "No function"], blackout])).to.equal("Enable blackout while pan/tilt move (10–19)"); // nothing named reset: the first
+  });
+
+  it("holds after every fixture's rules: a fixture sharing the slot cannot write the reset after the protection", async () => {
+    const { run, control } = await setup();
+    // the lamp's Pan lands on h1's Control (DMX 4); its rule raises it into h1's Reset range
+    await run("venue.fixture.put", { fixture: { id: "lamp", name: "Lamp", manufacturer: "Test", model: "Lamp", mode: "3 Channel", universe: 1, address: 4 } });
+    await run("rule.put", { rule: { id: "pan-haut", name: "Pan haut", level: "show", target: { channel: "Pan" }, min: 220 } });
+    expect(control(1)).to.equal(0);
+  });
+
+  it("is not prolonged nor kept from going out by a steady rule on the Reset channel", async () => {
+    const { run, control, advance } = await setup();
+    await run("rule.put", { rule: { id: "lent", name: "Lent", level: "show", target: { channel: "Control" }, steadySeconds: 15 } });
+    expect(control(1)).to.equal(0);
+    await run("fixture.reset", { id: "h1" });
+    expect(control(1)).to.equal(227); // at once, not 15 s later
+    advance(RESET_WINDOW_MS);
+    expect(control(1)).to.equal(0); // and over with its window, not 15 s more
+  });
+
+  it("refuses a Blackout before asking an AI client, and names a Reset channel past 512", async () => {
+    const { run, refusal } = await setup();
+    await run("blackout", { on: true });
+    const e = (await refusal("fixture.reset", { id: "h1" }, "mcp")) as Error;
+    expect(e.message).to.contain("Blackout").and.not.to.contain("confirm: true"); // no yes asked for nothing
+    await run("blackout", { on: false });
+    await run("venue.fixture.put", { fixture: { id: "late", name: "Late", manufacturer: "Test", model: "Head", mode: "4 Channel", universe: 1, address: 510 } });
+    const beyond = (await refusal("fixture.reset", { id: "late" })) as Error;
+    expect(beyond.message).to.contain("Control est au-delà du canal 512").and.not.to.contain("reste à 0");
+  });
+
+  it("says in show.lint which Reset range holds 0", async () => {
+    const { run, plugin } = await setup();
+    const fan = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Fan</Model><Type>Moving Head</Type><Channel Name="Fan"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="10">Reset to display fan setting</Capability><Capability Min="11" Max="255">Fans Off</Capability></Channel><Mode Name="1"><Channel Number="0">Fan</Channel></Mode></FixtureDefinition>`;
+    await run("fixture.definition.add", { name: "fan.qxf", xml: fan });
+    await run("venue.fixture.put", { fixture: { id: "fan", name: "Fan", manufacturer: "Test", model: "Fan", mode: "1", universe: 1, address: 100 } });
+    expect(plugin.engine.render()[0]![99]).to.equal(0);
+    const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
+    const note = lint.issues.find((i) => i.message.includes("Reset to display fan setting (0–10)"));
+    expect(note).to.deep.include({ level: "info" });
+    expect(note!.message).to.contain("commence à 0");
   });
 });

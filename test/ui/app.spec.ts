@@ -2193,6 +2193,7 @@ test("show check: notes come last, and a type group is created only on a click, 
     await expect(report.locator("li.hint").first()).toHaveCSS("color", muted);
     const proposal = report.getByRole("region", { name: "Groupes par type proposés" });
     await expect(proposal).toContainText("Les étiquettes restent en français"); // the help is written, not only hovered
+    await expect(proposal.locator("p.hint", { hasText: "Coché : le groupe suit l'étiquette" })).toHaveCount(1); // once, not under each group
     const lyres = proposal.locator("li", { has: page.locator("span.name", { hasText: /^Lyres$/ }) });
     await expect(lyres).toContainText("3 projecteur(s)");
     await expect(lyres).toContainText("head-a, head-b"); // the fixtures, by name, before the click
@@ -2832,7 +2833,7 @@ test("DMX console: « Pourquoi ce canal » names the zone or the halo and the lo
 test("DMX console: a Reset channel stays at rest, says why, and « Réinitialiser l'appareil » resets that fixture", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Reset Head</Model><Type>Moving Head</Type><Channel Name="Pan" Preset="PositionPan"/><Channel Name="Tilt" Preset="PositionTilt"/><Channel Name="Dimmer" Preset="IntensityDimmer"/><Channel Name="Control"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="199">No function</Capability><Capability Min="200" Max="255">Reset</Capability></Channel><Mode Name="4 Channel"><Channel Number="0">Pan</Channel><Channel Number="1">Tilt</Channel><Channel Number="2">Dimmer</Channel><Channel Number="3">Control</Channel></Mode></FixtureDefinition>`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>Reset Head</Model><Type>Moving Head</Type><Channel Name="Pan" Preset="PositionPan"/><Channel Name="Tilt" Preset="PositionTilt"/><Channel Name="Dimmer" Preset="IntensityDimmer"/><Channel Name="Control"><Group Byte="0">Maintenance</Group><Capability Min="0" Max="149">No function</Capability><Capability Min="150" Max="199">Reset pan/tilt</Capability><Capability Min="200" Max="255">Reset all</Capability></Channel><Mode Name="4 Channel"><Channel Number="0">Pan</Channel><Channel Number="1">Tilt</Channel><Channel Number="2">Dimmer</Channel><Channel Number="3">Control</Channel></Mode></FixtureDefinition>`;
   await api(page, "fixture.definition.add", { name: "test-reset-head.qxf", xml, replace: true });
   await api(page, "venue.fixture.put", { fixture: { id: "reset-head", name: "Tête reset", manufacturer: "Test", model: "Reset Head", mode: "4 Channel", universe: 1, address: 100 } });
   await api(page, "dmx.set", { universe: 1, channel: 103, value: 250 }); // forced into its Reset range
@@ -2852,7 +2853,8 @@ test("DMX console: a Reset channel stays at rest, says why, and « Réinitialise
     page.once("dialog", (d) => ((asked = d.message()), void d.accept()));
     await button.click();
     await expect(why.getByRole("status")).toContainText("Reset envoyé pendant 5 s");
-    expect(asked).toContain("Control : Reset (200–255)"); // the range sent, named
+    expect(asked).toContain("Control : Reset all (200–255)"); // the range sent, named
+    expect(asked).toContain("autres plages Reset, non envoyées : Reset pan/tilt (150–199)"); // and the one left alone
     await expect(button).toBeDisabled(); // once at a time
     await expect(why).toContainText("U1.103 = 227", { timeout: 3000 }); // the middle of its Reset range, for a few seconds
     await expect(why).toContainText("U1.103 = 0", { timeout: 10000 }); // then protected again
@@ -2865,6 +2867,7 @@ test("DMX console: a Reset channel stays at rest, says why, and « Réinitialise
     const late = page.getByRole("region", { name: "Tête tardive" });
     await expect(late.locator(".ch.unsent")).toHaveCount(1);
     await expect(late.locator(".ch.unsent")).toContainText("513");
+    await expect(late.locator(".ch.unsent .unsent-note")).toHaveText("non envoyé"); // written, not only hovered
     await expect(late.locator(".ch.unsent input")).toBeDisabled();
   } finally {
     await api(page, "dmx.release", {});
@@ -3787,6 +3790,7 @@ test("rules: a type limit, relaxed by the show, seen on the output and explained
   await expect(builtin).not.toContainText("{");
   await expect(builtin).not.toContainText("(intégrée)");
   await expect(builtin.locator(".badge.conflict")).toHaveCount(0);
+  await expect(builtin.locator(".rule-notes")).toContainText("Règle du moteur, ni supprimable ni modifiable"); // its notes written, not only hovered
   // type level: Bar 4 dimmer max 50 %
   await form.getByLabel("Niveau").selectOption("type");
   await form.getByLabel("Portée").first().selectOption("model");

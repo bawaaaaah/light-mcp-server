@@ -224,7 +224,7 @@ export class LightPlugin implements McpPlugin {
       this.definitionDirs(this.config.venue),
     );
     this.runtime = new ShowRuntime(this.show, this.venue, this.tempo, opts.now);
-    this.runtime.otherShowsGroups = () => groupsOfOtherShows(path.join(dataRoot, "shows"), this.config.show, this.config.venue);
+    this.runtime.otherShowsGroups = () => groupsOfOtherShows(dataRoot, this.config.show, this.config.venue);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());

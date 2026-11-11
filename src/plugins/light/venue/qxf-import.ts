@@ -138,6 +138,18 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
   return "other";
 }
 
+/**
+ * A range that resets the fixture: « reset », « resets » or « resetting » as a whole word (never
+ * « Preset 1 », « Colour presets » nor « No reset »), or a QLC+ Reset* preset under a name that says
+ * something. The preset alone is unreliable: QLC+ definitions put ResetAll on « No function »,
+ * « Nothing » or a blank range, and ResetEffects on a whole « Motor speed » channel.
+ */
+function isResetCapability(name: string, preset?: string): boolean {
+  if (/\breset(s|ting)?\b/i.test(name)) return !/\bno[ -]?reset(s|ting)?\b/i.test(name);
+  const n = name.trim();
+  return /^Reset/.test(preset ?? "") && !/^(no function|no effect|nothing|none|)$/i.test(n) && !/speed|slow|fast/i.test(n);
+}
+
 export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const haystack = `${name} ${preset ?? ""}`;
@@ -145,8 +157,7 @@ export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
   if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
   if (/macro|built-?in/i.test(haystack)) tags.add("builtinMacro");
   if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
-  // a whole word, or a QLC+ Reset* preset: never « Preset 1 » nor « Colour presets », never « No reset »
-  if (/^Reset/.test(preset ?? "") || (/\breset\b/i.test(name) && !/\bno[ -]?reset\b/i.test(name))) tags.add("reset");
+  if (isResetCapability(name, preset)) tags.add("reset");
   if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");
   return [...tags];
 }

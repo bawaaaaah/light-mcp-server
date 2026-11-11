@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
@@ -128,6 +128,11 @@ describe("type groups, on proposal", () => {
     mkdirSync(join(dataRoot, "shows", "autre", "groups"), { recursive: true });
     writeFileSync(join(dataRoot, "shows", "autre", "show.json"), JSON.stringify({ name: "Autre show", venue: "default" }));
     writeFileSync(join(dataRoot, "shows", "autre", "groups", "heads.json"), JSON.stringify({ id: "heads", name: "Têtes", selector: { tags: ["lyre"] } }));
+    // a show whose show.json does not read: left out, not taken for a show on the default venue; a dead link is no show
+    mkdirSync(join(dataRoot, "shows", "casse", "groups"), { recursive: true });
+    writeFileSync(join(dataRoot, "shows", "casse", "show.json"), "{");
+    writeFileSync(join(dataRoot, "shows", "casse", "groups", "heads.json"), JSON.stringify({ id: "heads2", name: "Têtes 2", selector: { tags: ["lyre"] } }));
+    symlinkSync(join(dataRoot, "nowhere"), join(dataRoot, "shows", "fantome"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());

@@ -170,6 +170,10 @@ export class ShowRuntime {
     this.snapshots = store.collection("snapshots", SnapshotSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
+    // a patch change may put another fixture's channel on a remembered slot: the Reset protection forgets
+    venue.store.onChange((e) => {
+      if (e.collection === "fixtures" || e.collection === "models") this.atRest.clear();
+    });
     store.onChange((e) => {
       // A look or palette edited while playing restarts with the new definition (effects stay editable live);
       // renamed, filed in a folder or annotated, it plays on untouched.
@@ -544,6 +548,7 @@ export class ShowRuntime {
     this.manualPositions.clear();
     this.activeProgram = undefined;
     this.resets.clear();
+    this.atRest.clear();
   }
 
   private restart(lookId: string): void {
@@ -759,7 +764,7 @@ export class ShowRuntime {
    * through whichever fixture shares it). Blackout and the output's standby are the caller's to
    * tell: they live in the engine and the router.
    */
-  resetOutcome(fixtureId: string, buffers: readonly Uint8Array[]): { name: string; value: number; sent: number; rules: string[] }[] {
+  resetOutcome(fixtureId: string, buffers: readonly Uint8Array[]): { name: string; value: number; sent: number; rules: string[]; beyond?: true }[] {
     const f = this.venue.fixtures.get(fixtureId);
     const r = this.venue.resolve(fixtureId);
     if (!f || "error" in r) return [];
@@ -773,6 +778,8 @@ export class ShowRuntime {
     };
     return resetChannels(r).map((c) => {
       const index = f.address - 1 + c.offset;
+      // past channel 512: the fixture runs off its universe, that channel is never sent
+      if (index >= 512) return { name: c.name, value: c.value, sent: 0, rules: [], beyond: true as const };
       const sent = buffers[f.universe - 1]?.[index] ?? 0;
       const rules = sent === c.value ? [] : [...new Set(this.lastClamps.filter((x) => slotOf(x) === index).map((x) => names.get(x.rule) ?? x.rule))];
       return { name: c.name, value: c.value, sent, rules };
@@ -1205,13 +1212,14 @@ export class ShowRuntime {
     const protect = ordinary.length !== rules.length;
     const lifted = protect ? this.resetSlots(now) : new Map<number, Map<number, number>>();
     // not the absent fixtures: their channel layout would bound an installed fixture sharing their addresses
-    for (const f of this.venue.installed()) {
+    const fixtures = this.venue.installed().flatMap((f) => {
       const r = this.venue.resolve(f.id);
       const buf = buffers[f.universe - 1];
-      if ("error" in r || !buf) continue;
-      clamps.push(...applyRules(ordinary, r, buf, zoneById), ...applyHolds(ordinary, r, buf, now, this.holdSince, zoneById));
-      if (protect) clamps.push(...holdAtRest(r, buf, this.atRest, (index) => lifted.get(f.universe)?.has(index) ?? false));
-    }
+      return "error" in r || !buf ? [] : [{ f, r, buf }];
+    });
+    for (const { r, buf } of fixtures) clamps.push(...applyRules(ordinary, r, buf, zoneById), ...applyHolds(ordinary, r, buf, now, this.holdSince, zoneById));
+    // after every ordinary rule of every fixture: one sharing the slot may write it after this one's turn
+    if (protect) for (const { f, r, buf } of fixtures) clamps.push(...holdAtRest(r, buf, this.atRest, (index) => lifted.get(f.universe)?.has(index) ?? false));
     return clamps;
   }
 }

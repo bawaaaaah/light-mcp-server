@@ -32,10 +32,8 @@ export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; 
     setBusy(tag);
     void cmd("venue.grouping.apply", args)
       .then(
-        () => {
-          load();
-          onApplied();
-        },
+        // onApplied checks the show again, which changes `checked`: the proposal is read once, then
+        () => onApplied(),
         (e: Error) => onError(e.message),
       )
       .finally(() => setBusy(null));
@@ -53,6 +51,7 @@ export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; 
     <section className="type-groups" aria-labelledby={title}>
       <h3 id={title}>{t.typeGroups}</h3>
       <p className="hint">{t.typeGroupsHelp}</p>
+      {proposal.groups.some((g) => !g.complete) && <p className="hint">{t.typeGroupLiveHelp}</p>}
       <ul>
         {proposal.groups.map((g) => {
           const live = !g.complete && !fixed[g.tag];
@@ -76,7 +75,6 @@ export function TypeGroups({ checked, onError, onApplied }: { checked: unknown; 
                 {g.names.join(", ")}
                 {g.complete && ` — ${t.typeGroupMissing.replace("{names}", g.complete.missing.join(", "))}`}
               </p>
-              {!g.complete && <p className="hint">{t.typeGroupLiveHelp}</p>}
               {live && affects(g.tag)}
             </li>
           );

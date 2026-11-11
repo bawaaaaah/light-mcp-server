@@ -224,9 +224,10 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       <table className="rules">
         <tbody>
           {listed.map((r) => (
-            <tr key={`${r.where}-${r.id}`} title={r.where === "builtin" ? r.notes : undefined}>
+            <tr key={`${r.where}-${r.id}`}>
               <td>
                 {r.name || r.id} {r.locked && <span className={r.where === "builtin" ? "badge builtin" : "badge conflict"}>{t.locked}</span>} {r.program && <span className="badge standby">{programs.programs.find((p) => p.id === r.program)?.name ?? r.program}</span>}
+                {r.where === "builtin" && r.notes && <p className="hint rule-notes">{r.notes}</p>}
               </td>
               <td>
                 <small>

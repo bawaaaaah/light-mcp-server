@@ -18,7 +18,7 @@ import { flashesPerSecond, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import { applyRules, ruleApplies } from "../rules/rules.js";
 import { zoneOf } from "../venue/stage.js";
 import { groupingMessage } from "../venue/grouping.js";
-import { holdAtRest, isBuiltinRule, unprotectable } from "../rules/reset-protection.js";
+import { holdAtRest, isBuiltinRule, powerOnResets, unprotectable } from "../rules/reset-protection.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { say } from "../../../core/lang.js";
 
@@ -167,7 +167,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const g of notes.gaps) note(say(`univers ${g.universe}`, `universe ${g.universe}`), g.message);
       for (const s of notes.sameNames) note(say(`projecteur ${s.ids.join(", ")}`, `fixture ${s.ids.join(", ")}`), s.message);
       for (const p of notes.noPosition) note(say(`projecteur ${p.id}`, `fixture ${p.id}`), p.message);
-      // a channel that is all maintenance (one 0–255 « Reset »): the built-in protection has no rest to hold it at
+      // a channel with nothing but Reset and Lamp off ranges: the built-in protection has nowhere to hold it
       for (const f of runtime.venue.installed()) {
         const r = runtime.venue.resolve(f.id);
         if ("error" in r) continue;
@@ -175,8 +175,17 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           warn(
             say(`projecteur ${f.id}`, `fixture ${f.id}`),
             say(
-              `« ${f.name} » · ${ch} n'a que des plages de maintenance (Reset, lampe) : la protection Reset ne peut pas le tenir au repos ; ne pas le piloter par un look ni un fader`,
-              `“${f.name}” · ${ch} has maintenance ranges only (Reset, lamp): the Reset protection cannot hold it at rest; do not drive it from a look or a fader`,
+              `« ${f.name} » · ${ch} n'a que des plages Reset et « Lamp off » : la protection Reset ne peut pas le tenir au repos ; ne pas le piloter par un look ni un fader`,
+              `“${f.name}” · ${ch} has Reset and « Lamp off » ranges only: the Reset protection cannot hold it at rest; do not drive it from a look or a fader`,
+            ),
+          );
+        // a Reset range holding 0: the channel sits there from power-on, so the protection takes it for no trigger
+        for (const p of powerOnResets(r))
+          note(
+            say(`projecteur ${f.id}`, `fixture ${f.id}`),
+            say(
+              `« ${f.name} » · ${p.channel} : la plage ${p.range} commence à 0, où le canal est à l'allumage ; la protection Reset ne la tient pas pour un reset et laisse le canal y rester (vérifier dans le manuel ce que fait cette plage)`,
+              `“${f.name}” · ${p.channel}: range ${p.range} starts at 0, where the channel sits from power-on; the Reset protection does not take it for a reset and lets the channel stay there (check in the manual what this range does)`,
             ),
           );
       }

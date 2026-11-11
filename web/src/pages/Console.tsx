@@ -64,7 +64,8 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
   const running = why.reset?.secondsLeft;
   /** A voluntary reset: the built-in protection is lifted on this fixture's Reset channels, a few seconds. */
   const reset = (fixture: { id: string; name: string }) => {
-    const ranges = (why.reset?.channels ?? []).map((c) => `${c.name}${t.colon} ${c.range}`).join(", ");
+    // the range sent, and the channel's other Reset ranges left alone: the user knows which reset goes out
+    const ranges = (why.reset?.channels ?? []).map((c) => `${c.name}${t.colon} ${c.range}${c.others.length ? ` — ${t.resetOthers.replace("{list}", c.others.join(", "))}` : ""}`).join(", ");
     if (!confirm(t.resetFixtureConfirm.replace("{name}", quoted(t, fixture.name)).replace("{ranges}", ranges))) return;
     setBusy(true);
     void cmd<{ seconds: number; warning?: string }>("fixture.reset", { id: fixture.id, confirm: true })
@@ -262,6 +263,7 @@ export function ConsolePage(): ReactElement {
           <span className="num">{ch}</span>
           <input type="range" min={0} max={255} value={0} disabled aria-label={`${ch} ${name ? `${name.fixture} ${name.channel} ` : ""}— ${t.channelNotSent}`} />
           <span className="val">—</span>
+          <span className="unsent-note">{t.channelNotSentShort}</span>
           {name && <span className="lbl">{name.channel}</span>}
         </div>
       );

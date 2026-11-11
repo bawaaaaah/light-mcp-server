@@ -57,15 +57,32 @@ function settingsOfShow(dataRoot: string, id: string): z.infer<typeof ShowSettin
   }
 }
 
-/** The show folders under <dataRoot>/shows. */
-function showIdsIn(dataRoot: string): string[] {
+/** The show folders under <dataRoot>/shows; a linked folder counts, a dead link or a stray file does not. */
+export function showIdsIn(dataRoot: string): string[] {
   const dir = path.join(dataRoot, "shows");
-  return existsSync(dir) ? readdirSync(dir).filter((id) => ID_RE.test(id) && statSync(path.join(dir, id)).isDirectory()) : [];
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((d) => ID_RE.test(d.name) && (d.isDirectory() || (d.isSymbolicLink() && (statSync(path.join(dir, d.name), { throwIfNoEntry: false })?.isDirectory() ?? false))))
+    .map((d) => d.name);
 }
 
-/** The shows that play on a venue, but `except`. */
-function showsOnVenue(dataRoot: string, venueId: string, except?: string): string[] {
-  return showIdsIn(dataRoot).filter((id) => id !== except && settingsOfShow(dataRoot, id).venue === venueId);
+/**
+ * The shows that play on a venue, but `except`, with their settings. A show.json that cannot be read
+ * is an error naming the show (`unreadable: "throw"`, where a write depends on it), or that show is
+ * left out (`"skip"`, for a notice): never taken for a show on the default venue.
+ */
+export function showsOnVenue(dataRoot: string, venueId: string, except?: string, unreadable: "throw" | "skip" = "throw"): { id: string; settings: z.infer<typeof ShowSettingsSchema> }[] {
+  return showIdsIn(dataRoot).flatMap((id) => {
+    if (id === except) return [];
+    let settings;
+    try {
+      settings = settingsOfShow(dataRoot, id);
+    } catch (e) {
+      if (unreadable === "throw") throw e;
+      return [];
+    }
+    return settings.venue === venueId ? [{ id, settings }] : [];
+  });
 }
 
 /**
@@ -74,7 +91,7 @@ function showsOnVenue(dataRoot: string, venueId: string, except?: string): strin
  */
 export function sharedWith(s: Pick<FileServices, "dataRoot" | "current">): string[] {
   const { show, venue } = s.current();
-  return showsOnVenue(s.dataRoot, venue, show).map((id) => settingsOfShow(s.dataRoot, id).name || id);
+  return showsOnVenue(s.dataRoot, venue, show).map(({ id, settings }) => settings.name || id);
 }
 
 /** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */
@@ -137,7 +154,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
 
   /** Venue folders, and the shows that play on each. */
   const venueIds = () => (existsSync(venuesDir) ? readdirSync(venuesDir).filter((id) => ID_RE.test(id) && statSync(path.join(venuesDir, id)).isDirectory()) : []);
-  const showsOn = (venueId: string, except?: string) => showsOnVenue(s.dataRoot, venueId, except);
+  const showsOn = (venueId: string, except?: string) => showsOnVenue(s.dataRoot, venueId, except).map((x) => x.id);
   const knownVenue = (id: string) => {
     if (!ID_RE.test(id) || !existsSync(path.join(venuesDir, id))) throw new Error(say(`lieu inconnu : ${id}`, `unknown venue: ${id}`));
   };

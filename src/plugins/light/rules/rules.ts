@@ -278,7 +278,8 @@ export function applySpeeds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Arr
 
 /**
  * Steady channels (`steadySeconds`): a value changes at most once every so many seconds; a change
- * asked sooner waits. `last` remembers each channel's value and when it last changed.
+ * asked sooner waits. `last` remembers each channel's value and when it last changed. A channel
+ * tagged reset is left out: the built-in Reset protection holds it (it runs before this, in guard).
  */
 export function applySteady(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, now: number, last: Map<string, { v: number; t: number }>, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
@@ -287,7 +288,9 @@ export function applySteady(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Arr
   fx.mode.channels.forEach((name, offset) => {
     const ch = fx.def.channels.get(name);
     const index = fx.patch.address - 1 + offset;
-    if (!ch || index < 0 || index >= 512) return;
+    // a Reset channel is the built-in protection's (reset-protection.ts): held at rest already, and a
+    // steady rule would keep a voluntary reset from going out, then prolong it past its window
+    if (!ch || ch.tags.includes("reset") || index < 0 || index >= 512) return;
     const rule = steady.filter((r) => ruleApplies(r, fx, ch, zoneOfFixture)).sort((a, b) => b.steadySeconds! - a.steadySeconds!)[0];
     if (!rule) return;
     const key = `${fx.patch.id}/${name}`;
