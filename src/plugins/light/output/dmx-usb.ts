@@ -3,7 +3,7 @@
  * computer, with its own DMX line, no network. Two kinds, as in QLC+'s « DMX USB » :
  * - « open » (Enttec Open DMX USB and the FTDI FT232R cables like it): the computer makes the DMX
  *   signal itself, 250 kbaud, 8 bits, 2 stop bits: a break, then the start code and 512 channels,
- *   again and again, since fixtures expect a steady signal (about 36 to 39 frames a second).
+ *   again and again, since fixtures expect a steady signal (about 30 frames a second, with room to spare).
  * - « pro » (Enttec DMX USB Pro and compatibles): a message to the interface (0x7E, label 6 « send
  *   DMX », the length, the start code and the channels, 0xE7), which makes the signal and repeats
  *   the last frame by itself; sent when it changes, and every second.
@@ -77,12 +77,27 @@ export function loadSerial(): { binding?: SerialBinding; error?: string } {
   }
 }
 
-const OPEN_PERIOD_MS = 25; // a full frame takes 23 ms at 250 kbaud
-const BREAK_MS = 1;
+/**
+ * Open DMX: at most one frame every 33 ms, about 30 a second (QLC+'s rate for these interfaces). A frame takes 22.6 ms
+ * on the line, so the line could take 44 a second, but the computer times the break itself and the margin between the
+ * end of a frame and the next break is what keeps a late byte from shifting a frame (a flash on every fixture).
+ */
+const OPEN_PERIOD_MS = 33;
+/** USB Pro: how often the loop looks for a new frame (the interface makes the signal itself). */
+const PRO_PERIOD_MS = 25;
+/**
+ * The break, held at least this long (DMX512-A: 92 µs to 1 s). The mark after it (MAB, at least 8 µs) is the time from
+ * letting the break go to the first byte: a call to the driver and the USB, tens of microseconds at the very least.
+ */
+const BREAK_MS = 2;
 /** The start code and 512 channels, 11 bits each (start, 8 data, 2 stop) at 250 kbaud: what a frame takes on the line. */
 const FRAME_MS = (513 * 11 * 1000) / 250_000;
-/** The next break comes at least this long after the end of a frame, whatever drain() said (it may return when the OS buffer is empty, not the chip's). */
-const FRAME_GUARD_MS = 2;
+/**
+ * The next break comes at least this long after the end of a frame, whatever drain() said (it may return when the OS
+ * buffer is empty, not the chip's), counted from the call to write(): room for the chip starting late (USB, a busy
+ * libuv thread). With the break and the frame, it sets the period: about 2 + 22.6 + 8 ≈ 33 ms.
+ */
+const FRAME_GUARD_MS = 8;
 const PRO_KEEPALIVE_MS = 1000;
 /** After an error the interface is opened again: soon the first time, then less and less often. */
 const RETRY_MIN_MS = 250;
@@ -104,7 +119,7 @@ export interface DmxUsbStatus {
   error?: string;
   /** Times the interface was closed after an error to be opened again. */
   reopens: number;
-  /** The last error and when (ms, the clock of the server): kept after the interface comes back, so that a glitch leaves a trace. */
+  /** The last error and when (ms since the epoch, the wall clock of the server): kept after the interface comes back, so that a glitch leaves a trace. */
   lastError?: string;
   lastErrorAt?: number;
   /** Open DMX: the longest time between two frames since the interface was opened, the last break and the last time from writing a frame to drain() returning (about 22.6 ms if drain waits for the line). */
@@ -146,10 +161,13 @@ export class DmxUsbDevice {
     readonly kind: DmxUsbKind,
     private readonly binding: SerialBinding,
     private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms).unref()),
-    private readonly now: () => number = Date.now,
+    /** Paces the frames: a monotonic clock in ms (setting the system time must not move a break). */
+    private readonly now: () => number = () => performance.now(),
     private readonly log: (message: string) => void = (message) => console.warn(message),
     /** What must have ended before this device opens the port: the device it replaces on the same port (another kind). */
     after: Promise<void> = Promise.resolve(),
+    /** The time of day, for lastErrorAt only. */
+    private readonly wallClock: () => number = Date.now,
   ) {
     this.loopDone = after;
   }
@@ -174,7 +192,7 @@ export class DmxUsbDevice {
     const message = (err as Error).message;
     const at = this.now();
     this.lastError = message;
-    this.lastErrorAt = at;
+    this.lastErrorAt = this.wallClock();
     const before = this.warned.get(message);
     if (before === undefined || at - before >= WARN_EVERY_MS) {
       this.warned.set(message, at);
@@ -188,6 +206,14 @@ export class DmxUsbDevice {
     this.note(err);
   }
 
+  /**
+   * Sleeps until the clock reaches `deadline`, reading it again on waking: a timer that fires early (Node's timers start
+   * from the loop's time, taken at the start of its turn, and count whole milliseconds) does not cut the wait short.
+   */
+  private async sleepUntil(deadline: number): Promise<void> {
+    for (let left = deadline - this.now(); left > 0; left = deadline - this.now()) await this.sleep(left);
+  }
+
   /** One frame on the line. DTR and RTS are named, at 0 as set() has always left them: the lines do not move with the break. */
   private async emit(port: SerialPortHandle, data: Uint8Array): Promise<void> {
     if (this.kind === "pro") {
@@ -196,7 +222,7 @@ export class DmxUsbDevice {
     }
     const began = this.now();
     await port.set({ brk: true, dtr: false, rts: false });
-    await this.sleep(BREAK_MS);
+    await this.sleepUntil(this.now() + BREAK_MS);
     await port.set({ brk: false, dtr: false, rts: false });
     const writing = this.now();
     this.breakMs = writing - began;
@@ -272,7 +298,8 @@ export class DmxUsbDevice {
         await retry();
         continue;
       }
-      await this.sleep(Math.max(1, OPEN_PERIOD_MS - (this.now() - began), this.frameEnd - this.now()));
+      if (this.kind === "pro") await this.sleep(Math.max(1, PRO_PERIOD_MS - (this.now() - began)));
+      else await this.sleepUntil(Math.max(began + OPEN_PERIOD_MS, this.frameEnd));
     }
     if (port && sent && this.blackoutOnExit) {
       this.blackoutOnExit = false;
@@ -286,10 +313,7 @@ export class DmxUsbDevice {
     try {
       await this.emit(port, new Uint8Array(512));
       if (this.kind === "pro") await port.drain();
-      else {
-        const wait = this.frameEnd - this.now();
-        if (wait > 0) await this.sleep(wait);
-      }
+      else await this.sleepUntil(this.frameEnd);
     } catch {
       // the line is going away anyway
     }

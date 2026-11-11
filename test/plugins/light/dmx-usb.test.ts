@@ -153,7 +153,8 @@ describe("DMX USB", () => {
       const serial = new FakeSerial();
       serial.unplugged.add(PORT);
       const waits: number[] = [];
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), await fast()), () => 5000, quiet);
+      let t = 0;
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet, undefined, () => 5000); // the time of day comes from the wall clock
       d.frame(zeros());
       d.start();
       await until(() => waits.filter((w) => w >= 250).length >= 6);
@@ -208,12 +209,12 @@ describe("DMX USB", () => {
       d.start();
       await until(() => d.status().framesSent >= 1);
       await d.stop();
-      // the frame starts at 5 ms (2 + the 1 ms break + 2) and takes 22.6 ms: the next break not before 29.6 ms
-      // (2 ms of margin), not at 25 ms as the period alone would say, although drain() returned at once
+      // the frame starts 6 ms after the loop began (2 + the 2 ms break + 2) and takes 22.6 ms: the next break not before
+      // 22.6 + 8 ms after the write began (8 ms of margin), more than the 33 ms period alone, although drain() returned at once
       const wait = waits.find((w) => w > 2)!;
-      expect(wait).to.be.closeTo(5 + 22.572 + 2 - 5, 0.01);
+      expect(wait).to.be.closeTo(22.572 + 8, 0.01);
       expect(d.status().drainMs).to.equal(0);
-      expect(d.status().breakMs).to.equal(5);
+      expect(d.status().breakMs).to.equal(6);
     });
 
     it("sets DTR and RTS low as soon as the port is open, not at the first break: the OS raises them at open", async () => {
@@ -442,6 +443,92 @@ describe("DMX USB", () => {
       await until(() => serial.calls.filter((c) => c.op === "brk").length >= 4);
       await d.stop();
       for (const c of serial.calls.filter((x) => x.op === "brk")) expect([c.dtr, c.rts]).to.deep.equal([false, false]);
+    });
+
+    /** The time of every call on the port (set, write, drain), next to what it was, from a clock the test moves. */
+    const timed = (serial: FakeSerial, clock: () => number) => {
+      const at: number[] = [];
+      serial.before = () => void at.push(clock());
+      return () => {
+        const ops = serial.calls.filter((c) => c.op !== "open" && c.op !== "close");
+        return ops.map((c, i) => ({ op: c.op === "brk" ? (c.on ? "brk+" : "brk-") : c.op, t: at[i]! }));
+      };
+    };
+    /** Per frame: when its break began and ended, when its write began. */
+    const frameTimes = (calls: { op: string; t: number }[]) => {
+      const out: { brk: number; brkOff: number; write: number }[] = [];
+      for (let i = 0; i + 2 < calls.length; i++) {
+        if (calls[i]!.op === "brk+" && calls[i + 1]!.op === "brk-" && calls[i + 2]!.op === "write") out.push({ brk: calls[i]!.t, brkOff: calls[i + 1]!.t, write: calls[i + 2]!.t });
+      }
+      return out;
+    };
+    const FRAME = (513 * 11) / 250; // ms on the line
+
+    it("Open DMX at about 30 frames a second, with 8 ms between the end of a frame and the next break", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      const calls = timed(serial, () => t);
+      const inner = serial.before!;
+      serial.before = (op) => (inner(op), void (t += 0.3)); // every call on the driver takes a little time
+      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 31);
+      await d.stop();
+      const f = frameTimes(calls()).slice(0, 31);
+      const rate = (1000 * (f.length - 1)) / (f.at(-1)!.brk - f[0]!.brk);
+      expect(rate).to.be.within(29, 30.5);
+      for (let i = 1; i < f.length; i++) {
+        expect(f[i]!.brk - f[i - 1]!.brk).to.be.at.least(33 - 1e-9);
+        expect(f[i]!.brk - (f[i - 1]!.write + FRAME)).to.be.at.least(8 - 1e-9);
+      }
+      for (const x of f) expect(x.brkOff - x.brk).to.be.at.least(2 - 1e-9);
+    });
+
+    it("a timer that fires early cuts short neither the break nor the guard: the clock is read again on waking", async () => {
+      const serial = new FakeSerial();
+      let t = 0;
+      const calls = timed(serial, () => t);
+      const asked: number[] = [];
+      // every timer fires 1 ms early (as Node's may, counting from the start of the loop's turn), down to half its time
+      const early = async (ms: number) => void (asked.push(ms), (t += Math.max(ms / 2, ms - 1)), await fast());
+      const d = new DmxUsbDevice(PORT, "open", serial, early, () => t, quiet);
+      d.frame(zeros());
+      d.start();
+      await until(() => d.status().framesSent >= 5);
+      await d.stop();
+      const f = frameTimes(calls());
+      expect(f.length).to.be.at.least(5);
+      for (const x of f) expect(x.brkOff - x.brk).to.be.at.least(2 - 1e-9);
+      for (let i = 1; i < f.length; i++) expect(f[i]!.brk - (f[i - 1]!.write + FRAME)).to.be.at.least(8 - 1e-9);
+      expect(asked.length).to.be.greaterThan(2 * f.length); // it did go back to sleep
+    });
+
+    it("setting the system clock forward or back moves neither a break nor the guard (the rhythm is on a monotonic clock)", async () => {
+      const serial = new FakeSerial();
+      const calls = timed(serial, () => performance.now());
+      const realNow = Date.now;
+      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet); // the real clocks, as in the server
+      try {
+        d.frame(zeros());
+        d.start();
+        await until(() => d.status().framesSent >= 2);
+        Date.now = () => realNow() + 3_600_000; // an hour forward
+        await until(() => d.status().framesSent >= 4);
+        Date.now = () => realNow() - 3_600_000; // and back
+        await until(() => d.status().framesSent >= 6);
+      } finally {
+        Date.now = realNow;
+        await d.stop();
+      }
+      const f = frameTimes(calls());
+      expect(f.length).to.be.at.least(6);
+      for (let i = 1; i < f.length; i++) {
+        const gap = f[i]!.brk - f[i - 1]!.brk;
+        expect(gap).to.be.within(32.5, 200); // no break early, no hour-long hole
+        expect(f[i]!.brk - (f[i - 1]!.write + FRAME)).to.be.at.least(7.9);
+      }
+      expect(d.status().maxGapMs).to.be.lessThan(200);
     });
 
     it("measures the longest gap between two frames", async () => {
