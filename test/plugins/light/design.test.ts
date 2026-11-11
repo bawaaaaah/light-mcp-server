@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
+import { inLang } from "../../../src/core/lang.js";
 import { deltaE, loadKnowledge, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
 import { checkCadence } from "../../../src/plugins/light/commands/selftest-commands.js";
 
@@ -28,6 +29,16 @@ describe("colour knowledge and design", () => {
     const party = proposeLook(kb, { mood: ["fête"] });
     expect(party.timing.order).to.equal("random");
     expect(proposeLook(kb, { mood: ["inconnu"] }).unknownMoods).to.deep.equal(["inconnu"]);
+  });
+
+  it("explains with the mood's accented label and in the interface language", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "light-kb-"));
+    writeFileSync(join(dir, "k.json"), JSON.stringify({ moods: { fete: { label: "Fête", colors: ["#ff0000", "#00ff00"], energy: "survolte" } } }));
+    const own = loadKnowledge(join(dir, "k.json"));
+    expect(proposeLook(own, { mood: ["fete"] }).explanation[0]).to.contain("« Fête »").and.to.contain("énergie survoltée");
+    const en = await inLang("en", async () => proposeLook(own, { mood: ["fete"] }).explanation);
+    expect(en[0]).to.contain("“Fête”").and.to.contain("high energy");
+    expect(en.join(" ")).to.not.match(/énergie|survolt/);
   });
 
   it("merges a private knowledge base keyword by keyword", () => {

@@ -654,6 +654,8 @@ export class LightPlugin implements McpPlugin {
   private resumeLive(): boolean {
     const snap = this.liveFile.load(this.config.show);
     if (!snap) return false;
+    // A clean stop with nothing playing saves an empty state: it must not win over the startup snapshot.
+    if (!snap.looks.length && !snap.blackout && !snap.song && !snap.section) return false;
     const looks = snap.looks.filter((id) => {
       try {
         return this.runtime.looks.get(id) !== undefined && (this.runtime.go(id), true);

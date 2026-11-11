@@ -29,9 +29,11 @@ import { patchSchema } from "../../../core/zod-patch.js";
 
 /** Puts a snapshot back the way `snapshot.recall` does: the runtime applies it, then the Blackout is set. */
 export function recallSnapshot(engine: DmxEngine, show: ShowRuntime, snap: Snapshot): { looks: string[]; skipped: string[] } {
-  const done = show.applySnapshot(snap);
-  engine.setBlackout(snap.blackout);
-  return done;
+  try {
+    return show.applySnapshot(snap);
+  } finally {
+    engine.setBlackout(snap.blackout);
+  }
 }
 
 /** Recalls the open show's startup snapshot, if it names one that exists; the output standby is not touched. */
@@ -61,6 +63,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     looks: show.looks.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     safeLook: show.settings.safeLook,
+    safeSnapshot: show.settings.safeSnapshot,
+    startupSnapshot: show.settings.startupSnapshot,
   });
   /** Deleting what is still used is refused (the error says where), unless `force`. */
   const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean) => {
@@ -68,7 +72,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if (uses.length && !force) throw new Error(inUseMessage(name ?? i, uses));
   };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
-  const canvasDeletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a look still plays on it") });
+  const canvasDeletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a look still uses it") });
 
   /** Raw channels (fixture + offset) must exist: refused otherwise. */
   const checkChannels = (channels: { fixture: string; offset: number }[]) => {
@@ -310,7 +314,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.canvas.delete",
     title: "Supprimer un canevas",
-    description: "Deletes a canvas. Refused while a look plays on it (the error names the looks), unless force.",
+    description: "Deletes a canvas. Refused while a look uses it (the error names the looks, the snapshots and the Panic or startup recall that rely on it), unless force. With force, the looks playing on it are stopped.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: canvasDeletable,
@@ -318,6 +322,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const canvas = venue.canvases.get(i);
       if (!canvas) throw new Error(say(`canevas inconnu : ${i}`, `unknown canvas: ${i}`));
       removable("canvas", i, canvas.name, force);
+      // Looks still playing on it would stay « active » as ghosts and could not be relaunched.
+      for (const l of show.looks.list()) if (l.canvas === i) show.stop(l.id);
       return { deleted: venue.canvases.delete(i) };
     },
   });
@@ -749,6 +755,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fader: ChannelFaderSchema }),
     run: ({ fader }) => {
       checkChannels(fader.channels);
+      if (fader.range && fader.range.min > fader.range.max) throw new Error(say(`plage du fader inversée : le minimum (${fader.range.min}) dépasse le maximum (${fader.range.max})`, `fader range reversed: the minimum (${fader.range.min}) is above the maximum (${fader.range.max})`));
       if (fader.dca && !show.groups.get(fader.dca)?.master) throw new Error(say(`DCA inconnu : ${fader.dca}`, `unknown DCA: ${fader.dca}`));
       return show.faders.put(fader);
     },
@@ -1252,6 +1259,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         startupSnapshot: z.string().min(1).nullable().optional().describe("the snapshot recalled when the application starts (a recent crash resume wins) and when the show is opened; null: none"),
       }),
     run: ({ grandMasterSmoothing, safeLook, safeSnapshot, startupSnapshot, ...rest }) => {
+      if (rest.folders) {
+        // the list is normalised like a folder command's path, and « Sans dossier » is refused as a name
+        rest.folders = [...new Set(rest.folders.map(normalizeFolder).filter(Boolean))];
+        const kept = show.settings.folders;
+        if (rest.folders.some((f) => isReservedFolder(f) && !kept.includes(f))) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
+      }
       const patch = {
         ...rest,
         ...(safeLook === undefined ? {} : { safeLook: safeLook ?? undefined }),

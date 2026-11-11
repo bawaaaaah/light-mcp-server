@@ -69,7 +69,7 @@ But : générer des **effets spatiaux** et permettre à **l'IA de comprendre la 
   - libre (positions 2D).
 - Le **rendu** fait correspondre canevas et fixtures, **par lieu**. Par exemple, un mur de 32 cellules en blocs de 4, chaque bloc attribué à un appareil de la salle. Le même show se **rejoue sur un autre kit** sans réécriture, avec la symétrie préservée.
 - Un lieu peut définir plusieurs canevas (fond de scène, parvis…). Un look ou une technique cible un canevas, ou un groupe ou rôle.
-- Un canevas se supprime par `venue.canvas.delete` (bouton ✕ de la page Lieu) : refusé tant qu'un look joue dessus, sauf `force`, et le refus nomme ces looks.
+- Un canevas se supprime par `venue.canvas.delete` (bouton ✕ de la page Lieu) : refusé tant qu'un look l'utilise, sauf `force`. Le refus (et `show.references`) nomme les looks, les instantanés dont un look l'utilise, et dit si le secours du Panic ou l'instantané de démarrage en fait partie. Avec `force`, les looks qui jouaient sur le canevas sont arrêtés ; un look orphelin est ensuite sauté au rappel d'un instantané (liste `skipped`), sans empêcher les autres looks ni le Blackout.
 
 ## UI
 - **Page Lieu** : fixtures, patch, nodes.

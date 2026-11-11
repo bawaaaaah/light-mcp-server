@@ -73,11 +73,14 @@ const modeSig = (def: FixtureDefinition, mode: FixtureDefinition["modes"][number
 const modeExtras = (m: FixtureDefinition["modes"][number]) => [m.panMax, m.tiltMax, m.beamAngle, m.beamAngleMin];
 const defExtras = (d: FixtureDefinition) => [d.panMax, d.tiltMax, d.beamAngle, d.beamAngleMin];
 
+/** The same modes in another order are the same definition: modes are compared sorted by name. */
+const sortedModes = <T extends { name: string }>(modes: T[]): T[] => [...modes].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
 /** Everything that can change what a fixture does, names of manufacturer and model aside. */
-const fingerprint = (d: FixtureDefinition): string => stable({ type: d.type, extras: defExtras(d), modes: d.modes.map((m) => ({ name: m.name, extras: modeExtras(m), ...modeSig(d, m, true) })) });
+const fingerprint = (d: FixtureDefinition): string => stable({ type: d.type, extras: defExtras(d), modes: sortedModes(d.modes).map((m) => ({ name: m.name, extras: modeExtras(m), ...modeSig(d, m, true) })) });
 
 /** Same modes (names), channels (meaning, ranges) and heads, whatever the channels are called. */
-const signature = (d: FixtureDefinition): string => stable(d.modes.map((m) => ({ name: m.name, ...modeSig(d, m, false) })));
+const signature = (d: FixtureDefinition): string => stable(sortedModes(d.modes).map((m) => ({ name: m.name, ...modeSig(d, m, false) })));
 
 const nameKey = (d: FixtureDefinition): string => `${d.manufacturer.toLowerCase().replace(/[^a-z0-9]/g, "")}|${d.model.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
 
@@ -164,22 +167,28 @@ export function describeDiff(d: DefinitionDiff): string {
     fr.push("autres réglages (débattement, ouverture)");
     en.push("other settings (travel, beam)");
   }
-  return say(fr.join(" ; "), en.join("; "));
+  return say(fr.join(" ; "), en.join(", "));
 }
 
 /** One sentence for a same-name group: which file wins and how the others differ. */
 export function sameNameMessage(g: SameNameGroup): string {
-  const others = g.others.map((o) => (o.identical ? say(`${o.source} (identique)`, `${o.source} (identical)`) : `${o.source} (${describeDiff(o.diff!)})`)).join(" ; ");
+  const others = g.others.map((o) => (o.identical ? say(`${o.source} (identique)`, `${o.source} (identical)`) : `${o.source} (${describeDiff(o.diff!)})`));
   return say(
-    `${g.others.length + 1} fichiers pour ${g.manufacturer} ${g.model} : ${g.winner} est utilisé (premier dans l'ordre de lecture), les autres sont ignorés : ${others}`,
-    `${g.others.length + 1} files for ${g.manufacturer} ${g.model}: ${g.winner} is used (first in reading order), the others are ignored: ${others}`,
+    `${g.others.length + 1} fichiers pour ${g.manufacturer} ${g.model} : ${g.winner} est utilisé (premier dans l'ordre de lecture), les autres sont ignorés : ${others.join(" ; ")}`,
+    `${g.others.length + 1} files for ${g.manufacturer} ${g.model}: ${g.winner} is used (first in reading order), the others are ignored: ${others.join(", ")}`,
   );
 }
 
 export function sameSignatureMessage(g: SameSignatureGroup): string {
-  const names = g.names.map((n) => `${n.manufacturer} ${n.model} (${n.sources.join(", ")})`).join(" ; ");
-  return say(`même structure (modes, canaux, plages) sous plusieurs noms : ${names} — doublon probable, à fusionner`, `same structure (modes, channels, ranges) under several names: ${names}: probably a duplicate, to merge`);
+  const names = g.names.map((n) => `${n.manufacturer} ${n.model} (${n.sources.join(", ")})`);
+  return say(`même structure (modes, canaux, plages) que : ${names.join(" ; ")} (gamme du même fabricant ?)`, `same structure (modes, channels, ranges) as: ${names.join(", ")} (same manufacturer's range?)`);
 }
+
+/**
+ * Only a structure shared by **different manufacturers** is worth a warning in show.lint: one maker's range
+ * (a Wash and a Wash Pro) legitimately shares channels. The report keeps every group.
+ */
+export const crossManufacturer = (g: SameSignatureGroup): boolean => new Set(g.names.map((n) => n.manufacturer.toLowerCase().replace(/[^a-z0-9]/g, ""))).size > 1;
 
 /** The groups that matter to a venue: those of a model it patches. */
 export function duplicatesUsedBy(report: DuplicateReport, patched: { manufacturer: string; model: string }[]): DuplicateReport {

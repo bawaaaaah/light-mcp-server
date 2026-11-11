@@ -110,4 +110,49 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     await run("snapshot.delete", { id: "secours" });
     expect(((await run("panic")) as { action: string }).action).to.equal("safe-look");
   });
+
+  it("an orphan look (its canvas force-deleted) does not break the recall: skipped, the rest plays, Blackout set, Panic too", async () => {
+    const cv = (id: string) => ({ id, name: id, cells: 2, render: [{ from: 0, to: 1, targets: [{ fixture: "bar-0", head: -1 }] }] });
+    for (const c of ["cv-a", "cv-b"]) {
+      await run("venue.canvas.put", { canvas: cv(c) });
+      await run("look.put", { look: { id: `l-${c}`, name: `L ${c}`, canvas: c, technique: { kind: "plat", color: "#ff0000" } } });
+      await run("look.go", { id: `l-${c}` });
+    }
+    await run("blackout", { on: true });
+    await run("snapshot.save", { name: "Duo" });
+    await run("show.settings.set", { safeSnapshot: "duo" });
+    await run("blackout", { on: false });
+    await run("look.stopall");
+    // the references name the snapshot, and the Panic fallback
+    expect(((await run("show.references", { kind: "canvas", id: "cv-a" })) as { uses: string[] }).uses).to.include("instantané « Duo » (secours du Panic)");
+    await run("venue.canvas.delete", { id: "cv-a", force: true });
+    const done = (await run("snapshot.recall", { id: "duo" })) as { looks: string[]; skipped: string[] };
+    expect(done.looks).to.deep.equal(["l-cv-b"]);
+    expect(done.skipped.join(" ")).to.contain("l-cv-a").and.to.contain("canevas inconnu");
+    expect(plugin.engine.isBlackout()).to.equal(true);
+    await run("blackout", { on: false });
+    await run("look.stopall");
+    expect(((await run("panic")) as { action: string }).action).to.equal("safe-snapshot");
+    expect(plugin.runtime.activeLooks()).to.deep.equal(["l-cv-b"]);
+    expect(plugin.engine.isBlackout()).to.equal(true);
+  });
+
+  it("force-deleting a canvas stops the looks that played on it", async () => {
+    await run("venue.canvas.put", { canvas: { id: "cv-x", name: "x", cells: 2, render: [{ from: 0, to: 1, targets: [{ fixture: "bar-0", head: -1 }] }] } });
+    await run("look.put", { look: { id: "l-x", name: "L x", canvas: "cv-x", technique: { kind: "plat", color: "#ff0000" } } });
+    await run("look.go", { id: "l-x" });
+    await run("venue.canvas.delete", { id: "cv-x", force: true });
+    expect(plugin.runtime.isActive("l-x")).to.equal(false);
+  });
+
+  it("show.settings.set refuses « Sans dossier » as a folder; fader.put refuses a reversed range", async () => {
+    let why = "";
+    await run("show.settings.set", { folders: ["Ok", " Sans  dossier "] }).catch((e: Error) => (why = e.message));
+    expect(why).to.contain("Sans dossier");
+    await run("show.settings.set", { folders: [" A / B ", "A/B"] });
+    expect(((await run("show.settings")) as { folders: string[] }).folders).to.deep.equal(["A/B"]);
+    why = "";
+    await run("fader.put", { fader: { id: "rev", name: "Rev", channels: [{ fixture: "bar-0", offset: 1 }], level: 0, range: { min: 200, max: 40 } } }).catch((e: Error) => (why = e.message));
+    expect(why).to.contain("plage du fader inversée");
+  });
 });

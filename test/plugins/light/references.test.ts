@@ -40,7 +40,7 @@ describe("references: what uses a look, a group, a fader or a canvas", () => {
     ]);
     expect(usesOf("look", "warm", show)).to.deep.equal(["groupe « Scènes »", "mapping MIDI « n-36 »", "dashboard « Principal »", "instantané « Accueil »", "chant « Chant A » (Intro)", "secours du Panic"]);
     expect(usesOf("fader", "uv", show)).to.deep.equal(["instantané « Accueil »"]);
-    expect(usesOf("canvas", "mur", show)).to.deep.equal(["look « Chaud »", "look « Froid »"]);
+    expect(usesOf("canvas", "mur", show)).to.deep.equal(["look « Chaud »", "look « Froid »", "instantané « Accueil »", "secours du Panic (look de secours)"]);
     expect(usesOf("canvas", "parvis", show)).to.deep.equal([]);
     expect(usesOf("group", "nobody", show)).to.deep.equal([]);
     expect(usesOf("look", "warm", empty)).to.deep.equal([]);

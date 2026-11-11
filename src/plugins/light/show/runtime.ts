@@ -308,8 +308,13 @@ export class ShowRuntime {
     this.selectProgram(s.program && this.programs.get(s.program) ? s.program : undefined);
     for (const g of this.groups.list()) if (g.playback) this.syncPlayback(g.id);
     for (const id of s.looks) {
-      if (this.looks.get(id)) this.go(id);
-      else skipped.push(id);
+      // A look whose canvas was force-deleted throws: it is skipped, the others still play.
+      try {
+        if (this.looks.get(id)) this.go(id);
+        else skipped.push(id);
+      } catch (e) {
+        skipped.push(`${id} (${e instanceof Error ? e.message : String(e)})`);
+      }
     }
     return { looks: this.activeLooks(), skipped };
   }

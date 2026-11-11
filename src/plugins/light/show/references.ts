@@ -23,6 +23,9 @@ export interface ShowParts {
   looks: { id: string; name: string; canvas: string }[];
   songs: { id: string; title: string; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
   safeLook?: string;
+  /** Snapshot recalled by the Panic, and the one recalled at startup. */
+  safeSnapshot?: string;
+  startupSnapshot?: string;
 }
 
 /** One line per place that uses the object (French, as the other server messages); empty when nothing does. */
@@ -33,13 +36,18 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string
     if (kind === "group" && g.id !== id && g.members.groups.includes(id)) uses.push(say(`groupe « ${g.name} » (sous-groupe)`, `group “${g.name}” (sub-group)`));
   }
   if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
+  const canvasLooks = new Set(kind === "canvas" ? show.looks.filter((l) => l.canvas === id).map((l) => l.id) : []);
   if (kind === "canvas") for (const l of show.looks) if (l.canvas === id) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
   const named = (args: Record<string, unknown>) => args.id === id;
   for (const m of show.mappings) if (m.on.command.startsWith(COMMAND_PREFIX[kind]) && named(m.on.args)) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
-    const inIt = kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : id in s.faders;
-    if (inIt) uses.push(say(`instantané « ${s.name} »`, `snapshot “${s.name}”`));
+    const inIt = kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : s.looks.some((l) => canvasLooks.has(l));
+    if (!inIt) continue;
+    // A snapshot the Panic or the startup recalls: the delete confirmation must say so.
+    const roles = [s.id === show.safeSnapshot ? say("secours du Panic", "the Panic's fallback") : "", s.id === show.startupSnapshot ? say("instantané de démarrage", "the startup snapshot") : ""].filter(Boolean);
+    const suffix = kind === "canvas" && roles.length ? ` (${roles.join(", ")})` : "";
+    uses.push(say(`instantané « ${s.name} »${suffix}`, `snapshot “${s.name}”${suffix}`));
   }
   for (const song of show.songs) {
     const sections = kind === "look" ? song.sections.filter((s) => s.look === id) : [];
@@ -48,6 +56,7 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string
     if (cues.length) uses.push(say(`chant « ${song.title} » (${cues.length} action${cues.length > 1 ? "s" : ""} de la piste)`, `song “${song.title}” (${cues.length} track cue${cues.length > 1 ? "s" : ""})`));
   }
   if (kind === "look" && show.safeLook === id) uses.push(say("secours du Panic", "the Panic's fallback"));
+  if (kind === "canvas" && show.safeLook && canvasLooks.has(show.safeLook)) uses.push(say("secours du Panic (look de secours)", "the Panic's fallback (safe look)"));
   return uses;
 }
 

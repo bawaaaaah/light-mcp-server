@@ -408,12 +408,15 @@ export class Venue {
     this.definitionStamp = stamp;
     this.definitions.length = 0;
     this.definitionSources = [];
+    const names = new Map<string, number>();
+    for (const f of files) names.set(path.basename(f), (names.get(path.basename(f)) ?? 0) + 1);
     this.store.loadErrors.splice(0, this.store.loadErrors.length, ...this.store.loadErrors.filter((e) => !this.definitionErrors.includes(e)));
     this.definitionErrors = [];
     for (const f of files) {
       try {
         this.definitions.push(parseQxf(readFileSync(f, "utf8")));
-        this.definitionSources.push(path.basename(f));
+        // two library folders may hold the same file name: then the message says the folder
+        this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));
       } catch (err) {
         this.definitionErrors.push(`définition ${path.basename(f)} : ${(err as Error).message}`);
       }

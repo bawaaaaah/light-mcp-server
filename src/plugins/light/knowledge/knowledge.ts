@@ -8,6 +8,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
+import { say } from "../../../core/lang.js";
 import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
 import { hexToColor } from "../engine/techniques.js";
@@ -59,6 +60,9 @@ export interface IntentProposal {
   unknownMoods: string[];
 }
 
+/** An energy said as people read it (the key is « pose », « survolte »…). */
+const energyWord = (e: Energy): string => (e === "pose" ? say("posée", "settled") : e === "survolte" ? say("survoltée", "high") : say("dynamique", "dynamic"));
+
 export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: Energy; colors?: string[]; cut?: boolean }): IntentProposal {
   const explanation: string[] = [];
   const unknown: string[] = [];
@@ -72,7 +76,7 @@ export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: En
     }
     for (const c of m.colors) if (!colors.includes(c)) colors.push(c);
     energies.push(m.energy);
-    explanation.push(`« ${word} » → ${m.colors.join(" ")} (${m.family || "—"}, énergie ${m.energy})`);
+    explanation.push(say(`« ${m.label ?? word} » → ${m.colors.join(" ")} (${m.family || "—"}, énergie ${energyWord(m.energy)})`, `“${m.label ?? word}” → ${m.colors.join(" ")} (${m.family || "—"}, ${energyWord(m.energy)} energy)`));
   }
   if (colors.length === 0) colors.push("#fff1d6");
   const energy: Energy = intent.energy ?? (energies.includes("survolte") ? "survolte" : energies.includes("dynamique") ? "dynamique" : energies.length ? "pose" : "dynamique");
@@ -81,22 +85,22 @@ export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: En
   if (energy === "pose") {
     technique = colors.length > 1 ? { kind: "respiration", colors, steps: 4, depth: 0.3 } : { kind: "plat", color: colors[0]! };
     timing = { every: { beats: 2 }, attack: 1, order: "loop", entryFade: 2, exitFade: 0 };
-    explanation.push("énergie posée : respiration lente, 2 temps par pas, fondu continu");
+    explanation.push(say("énergie posée : respiration lente, 2 temps par pas, fondu continu", "settled energy: slow breathing, 2 beats a step, continuous fade"));
   } else if (energy === "dynamique") {
     technique = colors.length >= 3 ? { kind: "palette", colors: colors.slice(0, 4), block: 4 } : { kind: "damier", colors: [colors[0]!, colors[1] ?? "#ffffff"], block: 4 };
     timing = { every: { beats: 1 }, attack: intent.cut === false ? 1 : 0.05, order: "loop", entryFade: 0.5, exitFade: 0 };
-    explanation.push(`énergie dynamique : ${technique.kind}, 1 temps par pas, ${intent.cut === false ? "respire" : "bord franc (claque)"}`);
+    explanation.push(say(`énergie dynamique : ${technique.kind}, 1 temps par pas, ${intent.cut === false ? "respire" : "bord franc (claque)"}`, `dynamic energy: ${technique.kind}, 1 beat a step, ${intent.cut === false ? "breathing" : "hard edge (snap)"}`));
   } else {
     technique =
       colors.length >= 3
         ? { kind: "palette", colors: colors.slice(0, 5), block: 2 }
         : { kind: "masques", colors: [colors[0]!, colors[1] ?? colors[0]!], block: 4, masks: ["####", "-##-", "#--#", "##--", "--##"], floor: 0 };
     timing = { every: { beats: 1 }, attack: 0.03, order: "random", entryFade: 0, exitFade: 0 };
-    explanation.push(`énergie survoltée : ${technique.kind} en ordre aléatoire, claque`);
+    explanation.push(say(`énergie survoltée : ${technique.kind} en ordre aléatoire, claque`, `high energy: ${technique.kind} in random order, snap`));
   }
   if (colors.length >= 2 && (technique.kind === "damier" || technique.kind === "masques")) {
     const d = deltaE(colors[0]!, colors[1]!);
-    if (d < 25) explanation.push(`attention : contraste faible entre ${colors[0]} et ${colors[1]} (ΔE ${d.toFixed(0)})`);
+    if (d < 25) explanation.push(say(`attention : contraste faible entre ${colors[0]} et ${colors[1]} (ΔE ${d.toFixed(0)})`, `warning: low contrast between ${colors[0]} and ${colors[1]} (ΔE ${d.toFixed(0)})`));
   }
   return { colors, energy, technique, timing, explanation, unknownMoods: unknown };
 }

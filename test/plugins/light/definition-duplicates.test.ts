@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { findDuplicateDefinitions, sameNameMessage, type LibraryEntry } from "../../../src/plugins/light/venue/definition-duplicates.js";
+import { findDuplicateDefinitions, sameNameMessage, sameSignatureMessage, type LibraryEntry } from "../../../src/plugins/light/venue/definition-duplicates.js";
+import { inLang } from "../../../src/core/lang.js";
 import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
 
 /** A synthetic RGB fixture; `extra` adds channels to the mode, `strobeMax` moves a capability range. */
@@ -58,6 +59,21 @@ describe("duplicate fixture definitions: detection", () => {
     expect(rep.sameSignature[0]!.names.map((n) => n.model)).to.deep.equal(["Wash", "Wash Pro"]);
   });
 
+  it("counts the same modes in another order as identical", () => {
+    const two = (order: [string, string]) => qxf("Acme", "Dual").replace(/ <Mode Name="Standard">([\s\S]*?)<\/Mode>/, (_m, body) => order.map((n) => ` <Mode Name="${n}">${body}</Mode>`).join("\n"));
+    const rep = findDuplicateDefinitions([entry("a.qxf", two(["A", "B"])), entry("b.qxf", two(["B", "A"]))]);
+    expect(rep.sameName[0]!.others).to.deep.equal([{ source: "b.qxf", identical: true }]);
+  });
+
+  it("words the same-structure message softly, in English with commas", () => {
+    const rep = findDuplicateDefinitions([entry("a.qxf", qxf("Acme", "Wash")), entry("b.qxf", qxf("Other", "Wash Pro"))]);
+    expect(sameSignatureMessage(rep.sameSignature[0]!)).to.contain("même structure").and.to.contain("gamme du même fabricant ?").and.to.not.contain("doublon");
+    const en = inLang("en", () => sameSignatureMessage(rep.sameSignature[0]!));
+    expect(en).to.contain("Acme Wash (a.qxf), Other Wash Pro (b.qxf)");
+    const differ = findDuplicateDefinitions([entry("old.qxf", qxf("Acme", "Wash")), entry("new.qxf", qxf("Acme", "Wash", { extra: 2, strobeMax: 100 }))]);
+    expect(inLang("en", () => sameNameMessage(differ.sameName[0]!))).to.not.contain("; ");
+  });
+
   it("reports nothing for a library of distinct fixtures", () => {
     const rep = findDuplicateDefinitions([entry("a.qxf", qxf("Acme", "A")), entry("b.qxf", qxf("Acme", "B", { extra: 1 })), entry("c.qxf", qxf("Zed", "C", { extra: 2 }))]);
     expect(rep).to.deep.equal({ sameName: [], sameSignature: [] });
@@ -96,6 +112,12 @@ describe("duplicate fixture definitions: the show check", () => {
     expect(await t.lint()).to.deep.equal([]);
     const check = (await t.run("venue.patch.check")) as { duplicateDefinitions: { sameName: unknown[] } };
     expect(check.duplicateDefinitions.sameName).to.have.length(2); // the whole library is still reported there
+  });
+
+  it("does not warn about one structure from one manufacturer (a range)", async () => {
+    const t = setup({ "a.qxf": qxf("Acme", "Wash"), "b.qxf": qxf("Acme", "Wash Pro") }, [["Acme", "Wash Pro"]]);
+    await t.patch();
+    expect(await t.lint()).to.deep.equal([]);
   });
 
   it("warns about one structure under two names when the venue patches one of them", async () => {

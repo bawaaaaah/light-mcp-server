@@ -48,6 +48,21 @@ describe("startup snapshot", () => {
     await second.stop();
   });
 
+  it("is recalled after a clean restart at once: an empty live state does not win over it", async () => {
+    await prepare();
+    const first = make();
+    await first.start(); // boots on the snapshot: stop everything, as an operator would
+    await runOn(first)("look.stopall");
+    await runOn(first)("blackout", { on: false });
+    await first.stop(); // nothing plays: stop() saves an empty live.json
+    const second = make();
+    await second.start();
+    expect(second.resumed).to.equal(undefined);
+    expect(second.runtime.isActive("rouge")).to.equal(true);
+    expect(second.engine.isBlackout()).to.equal(true);
+    await second.stop();
+  });
+
   it("lets a recent crash resume win over it", async () => {
     await prepare();
     const crashed = make();
