@@ -7,6 +7,7 @@ import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
+import { footprintOf } from "../definition-names";
 import { ZoneMenu } from "../components/ZoneMenu";
 import { confirmDelete } from "../components/confirmDelete";
 import { rectPolygon } from "../zone-shape";
@@ -149,7 +150,7 @@ export function VenuePage(): ReactElement {
   /** Rejects with the server's refusal: the menu shows it inside, the ✕ on the page. */
   const deleteFixture = (f: Fixture) => confirmDelete("fixture", f.id, f.name, t, sharedWarning()).then((done) => { if (done) refresh(); return done; });
   /** A fixture's footprint, from its mode in the library (unknown without its definition). */
-  const channelsOf = (f: Fixture) => library.find((d) => d.manufacturer === f.manufacturer && d.model === f.model)?.modes.find((m) => m.name === f.mode)?.channels;
+  const channelsOf = (f: Fixture) => footprintOf(library, f);
   // the fixture of the open menu deleted meanwhile (another device, the AI): said, and the menu closed
   useEffect(() => {
     if (menu && !fixtures.some((f) => f.id === menu.id)) {
@@ -208,7 +209,7 @@ export function VenuePage(): ReactElement {
               {[...fixtures]
                 .sort((a, b) => a.universe - b.universe || a.address - b.address || a.name.localeCompare(b.name)) /* as on a console: by address */
                 .map((f) => (
-                <tr key={f.id} className={[overlaps[f.id] ? "conflict" : "", f.absent ? "absent" : ""].filter(Boolean).join(" ") || undefined} title={t.fixtureMenuHint} tabIndex={0} aria-haspopup="dialog" onKeyDown={keyMenu(f.id)} {...rowMenu(f.id)}>
+                <tr key={f.id} className={[overlaps[f.id] ? "conflict" : "", f.absent ? "absent" : ""].filter(Boolean).join(" ") || undefined} title={t.fixtureMenuHint} tabIndex={0} onKeyDown={keyMenu(f.id)} {...rowMenu(f.id)}>
                   <td>
                     <input type="checkbox" aria-label={`${t.inNewCanvas} ${f.name}`} checked={canvasDraft.fixtures.includes(f.id)} onChange={(e) => setCanvasDraft((c) => ({ ...c, fixtures: e.target.checked ? [...c.fixtures, f.id] : c.fixtures.filter((x) => x !== f.id) }))} />
                   </td>

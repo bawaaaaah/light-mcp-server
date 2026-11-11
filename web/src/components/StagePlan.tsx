@@ -18,7 +18,7 @@
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
  * no moving head may point into is hatched.
  */
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type ReactElement } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
@@ -712,7 +712,16 @@ export function StagePlan({
                     ...menu,
                     tabIndex: 0,
                     "aria-haspopup": "dialog" as const,
+                    // no menu while a mode is on (as the long press): a right-click there is the browser's, not ours
+                    onContextMenu: (e: ReactMouseEvent) => (orienting || placing ? e.preventDefault() : menu.onContextMenu(e)),
                     onKeyDown: (e: ReactKeyboardEvent<SVGGElement>) => {
+                      // Enter and Space do what a click does: select it (one more chosen, or one less, while placing)
+                      if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        if (placing) setChosen(chosen.includes(f.id) ? chosen.filter((id) => id !== f.id) : [...chosen, f.id]);
+                        else select(f.id);
+                        return;
+                      }
                       if (!((e.shiftKey && e.key === "F10") || e.key === "ContextMenu")) return;
                       e.preventDefault();
                       const r = e.currentTarget.getBoundingClientRect();

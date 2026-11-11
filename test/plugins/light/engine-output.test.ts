@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { decodeDmx, decodePollReply, encodeDmx, encodePollReply, portAddress } from "../../../src/plugins/light/output/artnet.js";
 import { OutputRouter } from "../../../src/plugins/light/output/output-router.js";
 import { MISDIRECTED_GRACE_MS, NodeRegistry, artnetDestinations, coverage } from "../../../src/plugins/light/output/artnet-discovery.js";
-import { broadcastOf, isBroadcast, onSubnet } from "../../../src/plugins/light/output/subnet.js";
+import { broadcastOf, isBroadcast, onSubnet, outOfSubnet } from "../../../src/plugins/light/output/subnet.js";
 import { Ticker, type TickerClock } from "../../../src/plugins/light/engine/ticker.js";
 
 /** Manual clock: timers fire only when advance() passes their due time. */
@@ -177,6 +177,18 @@ describe("local subnets", () => {
     expect(onSubnet("not an ip", subnets)).to.equal(false);
   });
 
+  it("has no broadcast on a /31 or /32, and does not judge reach from a /32 interface", () => {
+    expect(broadcastOf({ address: "10.0.0.1", netmask: "255.255.255.254" })).to.equal(undefined);
+    expect(broadcastOf({ address: "10.0.0.1", netmask: "255.255.255.255" })).to.equal(undefined);
+    expect(isBroadcast("10.0.0.1", [{ address: "10.0.0.1", netmask: "255.255.255.255" }])).to.equal(false);
+    expect(outOfSubnet(["198.51.100.7"], [{ address: "10.0.0.1", netmask: "255.255.255.255" }])).to.deep.equal([]);
+    expect(outOfSubnet(["198.51.100.7"], [{ address: "10.0.0.1", netmask: "255.255.255.255" }, ...subnets])).to.deep.equal(["198.51.100.7"]);
+  });
+
+  it("never calls a broadcast address out of the subnet", () => {
+    expect(outOfSubnet(["192.0.2.255", "255.255.255.255", "198.51.100.255", "198.51.100.7", "198.51.100.7"], subnets)).to.deep.equal(["198.51.100.7"]);
+  });
+
   it("computes a subnet's broadcast address", () => {
     expect(broadcastOf({ address: "203.0.113.20", netmask: "255.255.255.128" })).to.equal("203.0.113.127");
     expect(broadcastOf({ address: "192.0.2.10", netmask: "255.255.255.0" })).to.equal("192.0.2.255");
@@ -278,5 +290,32 @@ describe("Ticker", () => {
     clock.advance(30);
     ticker.stop();
     expect(frames).to.deep.equal([0, 23, 50]);
+  });
+});
+
+describe("the router's nodes and clock", () => {
+  const node = (ip: string, swOut: number[], name = "node") => decodePollReply(encodePollReply({ ip, shortName: name, longName: name, swOut }))!;
+  it("gives seenAgoMs and a wall-clock lastSeen, not the monotonic one", () => {
+    let now = 5_000;
+    const router = new OutputRouter({ routes: [] }, undefined, () => now);
+    router.registry.seen(node("192.0.2.20", [0], "a"), 4_000);
+    const [n] = router.nodes(now, 1_000_000);
+    expect(n).to.include({ seenAgoMs: 1000, lastSeen: 999_000 });
+    expect(n).to.not.have.property("firstSeen");
+    now += 500;
+    expect(router.nodes(now, 1_000_500)[0]).to.include({ seenAgoMs: 1500, lastSeen: 999_000 });
+  });
+
+  it("does not take a reordered route for a changed one, and forgets a removed universe's date", () => {
+    let now = 0;
+    const router = new OutputRouter({ routes: [{ universe: 1, artnet: { portAddress: 0, send: "nodes", targets: ["192.0.2.31"] } }] }, undefined, () => now);
+    const dates = () => (router as unknown as { artnetChangedAt: Map<number, number> }).artnetChangedAt;
+    now = 100;
+    router.setRoutes([{ universe: 1, artnet: { targets: ["192.0.2.31"], send: "nodes", portAddress: 0 } }]);
+    expect(dates().has(1)).to.equal(false); // same route, keys in another order
+    router.setRoutes([{ universe: 1, artnet: { portAddress: 1 } }]);
+    expect(dates().get(1)).to.equal(100);
+    router.setRoutes([]);
+    expect(dates().has(1)).to.equal(false);
   });
 });

@@ -242,6 +242,17 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     expect(preview.moves.find((m) => m.id === placed.id)).to.deep.include({ changed: ["position"], skipped: ["target"] }); // no such zone here
   });
 
+  it("names a show whose settings are unreadable, and lets a forced fixture delete through anyway", async () => {
+    const id = ((await run("venue.fixture.list")) as { id: string }[])[0]!.id;
+    await run("show.create", { name: "Abîmé" });
+    await run("show.open", { id: "default" });
+    writeFileSync(join(dataRoot, "shows", "abime", "show.json"), "{ not json");
+    const refused = await run("venue.fixture.delete", { id }).then(() => "", (e: Error) => e);
+    expect(refused).to.be.instanceOf(CommandError);
+    expect((refused as Error).message).to.contain("abime");
+    expect(await run("venue.fixture.delete", { id, force: true })).to.deep.include({ deleted: true });
+  });
+
   it("keeps named backups on the server", async () => {
     const { file } = (await run("backup.create", { label: "Avant répétition" })) as { file: string };
     expect(file).to.match(/^default-.*-avant-repetition\.lightshow$/);

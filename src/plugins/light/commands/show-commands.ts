@@ -249,12 +249,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   // ---- heads and accent heads (venue/heads.ts): corrected per model, overridden per fixture (venue/overrides.ts)
   const headsScope = z.enum(["model", "fixture"]).default("model").describe("model: every fixture of its manufacturer and model follows; fixture: this one only, over its model's");
+  /** A fixture's model key, or undefined for a model named without a letter or digit (modelKey refuses it): such a model has no overrides. */
+  const keyOrUndefined = (f: { manufacturer: string; model: string }): string | undefined => {
+    try {
+      return modelKey(f.manufacturer, f.model);
+    } catch {
+      return undefined;
+    }
+  };
   const headsOfFixture = (fixtureId: string) => {
     const f = venue.fixtures.get(fixtureId);
     if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
     const r = venue.resolve(fixtureId);
     if ("error" in r) throw new Error(r.error);
-    const model = venue.models.get(modelKey(f.manufacturer, f.model))?.overrides.heads;
+    const key = keyOrUndefined(f);
+    const model = key ? venue.models.get(key)?.overrides.heads : undefined;
     const channel = (offset: number) => ({ offset, name: r.mode.channels[offset]!, color: r.def.channels.get(r.mode.channels[offset]!)?.color });
     return {
       fixture: f.id,
@@ -336,8 +345,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
     const r = venue.resolve(fixtureId);
     if ("error" in r || !r.wheel || !r.lampOnly) return undefined;
+    const key = keyOrUndefined(f);
+    if (!key) return undefined; // no key, nowhere to keep wheel settings: the wheel is left to raw channels
     const caps = r.def.channels.get(r.mode.channels[r.wheel.offset] ?? "")?.capabilities ?? [];
-    return { f, wheel: r.wheel, slots: wheelSlots(caps), key: modelKey(f.manufacturer, f.model) };
+    return { f, wheel: r.wheel, slots: wheelSlots(caps), key };
   };
   const wheelOfFixture = (fixtureId: string) => {
     const found = wheelOrNone(fixtureId);
@@ -583,7 +594,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const f = venue.fixtures.get(i);
       // not in the patch: nothing to delete, whatever may still name the id
       if (!f) return { deleted: false, usedBy: [] };
-      const usedBy = removable("fixture", i, f.name, force, sharedWith());
+      const others = force ? [] : sharedWith(); // forced: another show's damaged settings must not block the delete
+      const usedBy = removable("fixture", i, f.name, force, others);
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
       if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });

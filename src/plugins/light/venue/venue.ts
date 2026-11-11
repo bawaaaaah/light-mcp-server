@@ -394,6 +394,27 @@ export class Venue {
     this.canvases = store.collection("canvases", CanvasSchema);
     this.models = store.collection("models", ModelOverridesSchema);
     store.onChange(() => this.resolved.clear());
+    this.migrateModelKeys();
+  }
+
+  /**
+   * Re-keys the stored model overrides whose id is not what `modelKey` gives today (the key's format
+   * changed: manufacturer and model normalised apart, ß/ø/æ folded). When the right key already holds a
+   * record, that one stays (written by the current format, so the newer) and the old one is dropped.
+   * An id kept as it is when its names have no letter or digit (no key exists for it).
+   */
+  private migrateModelKeys(): void {
+    for (const m of this.models.list()) {
+      let key: string;
+      try {
+        key = modelKey(m.manufacturer, m.model);
+      } catch {
+        continue;
+      }
+      if (m.id === key) continue;
+      if (!this.models.get(key)) this.models.put({ ...m, id: key });
+      this.models.delete(m.id);
+    }
   }
 
   /**
@@ -412,6 +433,7 @@ export class Venue {
     this.definitionErrors = [];
     this.store.retarget(root, backupRoot);
     this.refreshDefinitions();
+    this.migrateModelKeys();
   }
 
   /**

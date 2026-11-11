@@ -34,12 +34,18 @@ function tabStops(box: HTMLElement): HTMLElement[] {
  * output has (a fixture already beyond them may stay there); `channels`: the fixture's footprint.
  */
 export function placeProblem(universe: string, address: string, current: { universe: number }, t: ReturnType<typeof useT>, universes?: number, channels?: number): string {
+  return placeIssue(universe, address, current, t, universes, channels)?.message ?? "";
+}
+
+/** The same check, with the field at fault: the universe, or the address (also when the fixture would end past 512). */
+export function placeIssue(universe: string, address: string, current: { universe: number }, t: ReturnType<typeof useT>, universes?: number, channels?: number): { field: "universe" | "address"; message: string } | undefined {
   const u = Number(universe);
   const a = Number(address);
-  if (universe.trim() === "" || !Number.isInteger(u) || u < 1 || (universes !== undefined && u > universes && u !== current.universe)) return t.fixtureUniverseBad.replace("{max}", String(universes ?? "…"));
-  if (address.trim() === "" || !Number.isInteger(a) || a < 1 || a > 512) return t.fixtureAddressBad;
-  if (channels !== undefined && a + channels - 1 > 512) return t.fixturePastEnd.replace("{n}", String(channels)).replace("{end}", String(a + channels - 1));
-  return "";
+  // the output's universes unknown: the sentence cannot give the bound, the server still checks
+  if (universe.trim() === "" || !Number.isInteger(u) || u < 1 || (universes !== undefined && u > universes && u !== current.universe)) return { field: "universe", message: universes === undefined ? t.fixtureUniverseBadNoMax : t.fixtureUniverseBad.replace("{max}", String(universes)) };
+  if (address.trim() === "" || !Number.isInteger(a) || a < 1 || a > 512) return { field: "address", message: t.fixtureAddressBad };
+  if (channels !== undefined && a + channels - 1 > 512) return { field: "address", message: t.fixturePastEnd.replace("{n}", String(channels)).replace("{end}", String(a + channels - 1)) };
+  return undefined;
 }
 
 /**
@@ -81,8 +87,13 @@ export function FixtureMenu({
   useEffect(() => {
     const back = opener.current;
     return () => {
-      if (back?.isConnected) back.focus();
+      // StrictMode runs this cleanup between two mounts in dev: the menu is back by the time the microtask runs, then focus stays
+      queueMicrotask(() => {
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- read on purpose after the cleanup: is the menu still (or again) in the page?
+        if (!box.current?.isConnected && back?.isConnected) back.focus();
+      });
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; `box` is a stable ref
   }, []);
   const [name, setName] = useState(fixture.name);
   const [color, setColor] = useState(fixture.color);
@@ -92,7 +103,8 @@ export function FixtureMenu({
   const [universe, setUniverse] = useState(String(fixture.universe));
   const [address, setAddress] = useState(String(fixture.address));
   const moved = Number(universe) !== fixture.universe || Number(address) !== fixture.address;
-  const problem = placeProblem(universe, address, fixture, t, universes, channels);
+  const issue = placeIssue(universe, address, fixture, t, universes, channels);
+  const problem = issue?.message ?? "";
   const mark = (args: { name?: string; color?: string | null }) => {
     setError("");
     void cmd("venue.fixture.mark", { id: fixture.id, ...args }).then(onSaved, (e: Error) => setError(e.message));
@@ -149,7 +161,11 @@ export function FixtureMenu({
     const stops = tabStops(box.current);
     if (!stops.length) return;
     const [first, last] = [stops[0]!, stops[stops.length - 1]!];
-    if (e.shiftKey && document.activeElement === first) {
+    const active = document.activeElement;
+    if (!active || active === box.current || !box.current.contains(active)) {
+      e.preventDefault(); // the box itself (a click on its background) or something outside it: back to a stop
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
@@ -161,7 +177,7 @@ export function FixtureMenu({
     if (e.key === "Enter") void move();
   };
   return (
-    <div ref={box} className="widget-menu" role="dialog" aria-modal="true" aria-label={t.fixtureSettings} style={style} onContextMenu={(e) => e.preventDefault()} onKeyDown={trap}>
+    <div ref={box} className="widget-menu" role="dialog" aria-modal="true" tabIndex={-1} aria-label={t.fixtureSettings} style={style} onContextMenu={(e) => e.preventDefault()} onKeyDown={trap}>
       <h3>
         {fixture.name} · U{fixture.universe}.{fixture.address}
       </h3>
@@ -233,11 +249,11 @@ export function FixtureMenu({
         <div className="row">
           <label>
             <span>{t.universe}</span>
-            <input type="number" min={1} max={universes} step={1} value={universe} aria-invalid={Boolean(problem)} onChange={(e) => setUniverse(e.target.value)} onKeyDown={onPlaceKey} />
+            <input type="number" min={1} max={universes} step={1} value={universe} aria-invalid={issue?.field === "universe"} onChange={(e) => setUniverse(e.target.value)} onKeyDown={onPlaceKey} />
           </label>
           <label>
             <span>{t.address}</span>
-            <input type="number" min={1} max={512} step={1} value={address} aria-invalid={Boolean(problem)} onChange={(e) => setAddress(e.target.value)} onKeyDown={onPlaceKey} />
+            <input type="number" min={1} max={512} step={1} value={address} aria-invalid={issue?.field === "address"} onChange={(e) => setAddress(e.target.value)} onKeyDown={onPlaceKey} />
           </label>
           <button disabled={!moved || Boolean(problem)} aria-describedby={problem ? `fixture-place-${fixture.id}` : undefined} onClick={() => void move()}>
             {t.fixtureMoveDo}

@@ -292,7 +292,10 @@ export function findMode(def: FixtureDefinition, name: string, channels?: number
  * « eclairage »), case, spaces and punctuation dropped (« Spot 200 » is « Spot200 »). Empty when the
  * name holds no letter or digit of the Latin alphabet.
  */
-export const normaliseName = (s: string): string => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+/** Letters NFD does not decompose, folded to their usual Latin spelling (« Straße » = « Strasse »). */
+const FOLDED: Record<string, string> = { ß: "ss", ø: "o", æ: "ae", œ: "oe", đ: "d", ł: "l" };
+export const normaliseName = (s: string): string =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[ßøæœđł]/g, (c) => FOLDED[c]!).replace(/[^a-z0-9]/g, "");
 
 export const sameName = (a: string, b: string): boolean => normaliseName(a) === normaliseName(b);
 

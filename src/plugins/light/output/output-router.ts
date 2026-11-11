@@ -16,7 +16,7 @@ import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { SendHealth, HEALTH_WINDOW_MS, type HostHealth } from "./send-health.js";
 import { NodeRegistry, artnetDestinations, coverage, type ArtnetRoute, type Coverage, type KnownNode } from "./artnet-discovery.js";
-import { broadcastOf, isBroadcast, onSubnet, subnetsOf, type Subnet } from "./subnet.js";
+import { broadcastOf, isBroadcast, outOfSubnet, subnetsOf, type Subnet } from "./subnet.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
 
@@ -72,7 +72,7 @@ const POLL_MS = 3000;
 /** Broadcast address of the interface owning `address`, or the limited broadcast. */
 export function broadcastFor(address?: string): string {
   const own = address && address !== "0.0.0.0" ? subnetsOf(networkInterfaces()).find((s) => s.address === address) : undefined;
-  return own ? broadcastOf(own) : "255.255.255.255";
+  return (own && broadcastOf(own)) || "255.255.255.255";
 }
 
 /** The subnets a node can be reached on directly: the bound interface's, or every interface's when none is bound. */
@@ -80,6 +80,16 @@ function reachableSubnets(bindAddress?: string): Subnet[] {
   const all = subnetsOf(networkInterfaces());
   const own = bindAddress && bindAddress !== "0.0.0.0" ? all.filter((s) => s.address === bindAddress) : [];
   return own.length ? own : all;
+}
+
+/** Deep equality of plain JSON values, whatever the order of an object's keys. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }
 
 export class OutputRouter {
@@ -134,9 +144,10 @@ export class OutputRouter {
 
   private noteArtnetChanges(routes: readonly UniverseRoute[]): void {
     const now = this.clock();
+    for (const u of this.artnetChangedAt.keys()) if (!routes.some((r) => r.universe === u)) this.artnetChangedAt.delete(u); // a removed universe forgets its date
     for (const r of routes) {
       const before = this.config.routes.find((x) => x.universe === r.universe)?.artnet;
-      if (JSON.stringify(before) !== JSON.stringify(r.artnet)) this.artnetChangedAt.set(r.universe, now);
+      if (!sameValue(before, r.artnet)) this.artnetChangedAt.set(r.universe, now);
     }
   }
 
@@ -232,7 +243,7 @@ export class OutputRouter {
   }
 
   /** Records an ArtDmx from another controller: any packet but the copies of our own. */
-  received(msg: Buffer, ip: string, port: number, nowMs = Date.now()): void {
+  received(msg: Buffer, ip: string, port: number, nowMs = this.clock()): void {
     const dmx = decodeDmx(msg);
     if (!dmx) return;
     const seen = this.recentlySent.get(fingerprint(msg));
@@ -252,7 +263,7 @@ export class OutputRouter {
   }
 
   /** Controllers seen sending Art-Net in the last seconds. */
-  foreignSources(nowMs = Date.now()): ForeignSource[] {
+  foreignSources(nowMs = this.clock()): ForeignSource[] {
     for (const [k, f] of this.foreign) if (nowMs - f.lastSeen > FOREIGN_EXPIRY_MS) this.foreign.delete(k);
     return [...this.foreign.values()];
   }
@@ -262,7 +273,7 @@ export class OutputRouter {
    * all-zero frame (3 times, UDP): a node merging two sources keeps a silent source's last frame
    * for ~10 s, and zeros are neutral in HTP (in LTP the other console's next frame wins at once).
    */
-  setStandby(on: boolean, nowMs = Date.now()): void {
+  setStandby(on: boolean, nowMs = this.clock()): void {
     if (on && !this.config.standby) {
       const zeros = Array.from({ length: Math.max(0, ...this.config.routes.map((r) => r.universe)) }, () => new Uint8Array(512));
       for (let i = 0; i < 3; i++) this.sendFrame(zeros, nowMs, true);
@@ -301,10 +312,14 @@ export class OutputRouter {
     return broadcastFor(this.config.bindAddress);
   }
 
-  /** Of these addresses, those on none of the subnets the output can reach directly: a node announcing one is out of reach without a router. */
+  /** The nodes seen, each with how long ago it answered (`seenAgoMs`) and that moment on the wall clock (`lastSeen`, epoch ms): the router's own clock is monotonic and means nothing outside it. */
+  nodes(nowMs = this.clock(), wallMs = Date.now()): (Omit<KnownNode, "firstSeen" | "lastSeen"> & { seenAgoMs: number; lastSeen: number })[] {
+    return this.registry.list().map(({ firstSeen: _first, lastSeen, ...rest }) => ({ ...rest, seenAgoMs: Math.max(0, Math.round(nowMs - lastSeen)), lastSeen: Math.round(wallMs - Math.max(0, nowMs - lastSeen)) }));
+  }
+
+  /** Of these addresses, those on none of the subnets the output can reach directly: a node announcing one is out of reach without a router. A broadcast address is never one (it goes out on the interface). */
   outOfSubnet(ips: readonly string[]): string[] {
-    const subnets = reachableSubnets(this.config.bindAddress);
-    return [...new Set(ips)].filter((ip) => !onSubnet(ip, subnets));
+    return outOfSubnet(ips, reachableSubnets(this.config.bindAddress));
   }
 
   /** Where each routed universe goes now, by protocol: node IPs, the broadcast or the multicast address. */
@@ -313,7 +328,7 @@ export class OutputRouter {
   }
 
   /** Sends every routed universe that changed, or that has not been sent for KEEPALIVE_MS. */
-  sendFrame(buffers: readonly Uint8Array[], nowMs = Date.now(), force = false): void {
+  sendFrame(buffers: readonly Uint8Array[], nowMs = this.clock(), force = false): void {
     if (this.config.standby) return;
     let sentAny = false;
     const usbPorts = new Set<string>();

@@ -25,8 +25,12 @@ export function subnetsOf(interfaces: Record<string, readonly { family: string |
   return Object.values(interfaces).flatMap((list) => (list ?? []).filter((a) => a.family === "IPv4" || a.family === 4).map((a) => ({ address: a.address, netmask: a.netmask })));
 }
 
-/** The broadcast address of a subnet. */
-export function broadcastOf(s: Subnet): string {
+/** The prefix length of a netmask (255.255.255.0 → 24). */
+const prefixOf = (netmask: string): number => (toInt(netmask) ?? 0).toString(2).split("1").length - 1;
+
+/** The broadcast address of a subnet; none for a /31 or /32 (point-to-point, host route): that address would be a host. */
+export function broadcastOf(s: Subnet): string | undefined {
+  if (prefixOf(s.netmask) >= 31) return undefined;
   const ip = toInt(s.address) ?? 0;
   const mask = toInt(s.netmask) ?? 0;
   return toIp(((ip & mask) | (~mask >>> 0)) >>> 0);
@@ -48,5 +52,16 @@ export function onSubnet(ip: string, subnets: readonly Subnet[]): boolean {
  * node that could fail to answer discovery.
  */
 export function isBroadcast(ip: string, subnets: readonly Subnet[] = []): boolean {
-  return ip === "255.255.255.255" || ip.endsWith(".255") || subnets.some((s) => broadcastOf(s) === ip);
+  return ip === "255.255.255.255" || ip.endsWith(".255") || subnets.some((s) => { const b = broadcastOf(s); return b !== undefined && b === ip; });
+}
+
+/**
+ * Of these addresses, those on none of the subnets (and no broadcast address): out of reach without a
+ * router. A /32 interface (host route, VPN end) holds one address and says nothing about the network
+ * beyond: with only those, nothing is judged.
+ */
+export function outOfSubnet(ips: readonly string[], subnets: readonly Subnet[]): string[] {
+  const judged = subnets.filter((s) => prefixOf(s.netmask) < 32);
+  if (!judged.length) return [];
+  return [...new Set(ips)].filter((ip) => !isBroadcast(ip, subnets) && !onSubnet(ip, judged));
 }

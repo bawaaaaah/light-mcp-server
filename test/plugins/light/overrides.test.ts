@@ -1,6 +1,11 @@
 import { expect } from "chai";
 import { mergeOverrides, modelKey } from "../../../src/plugins/light/venue/overrides.js";
 import { sameName } from "../../../src/plugins/light/venue/qxf-import.js";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FolderStore } from "../../../src/plugins/light/data/store.js";
+import { Venue } from "../../../src/plugins/light/venue/venue.js";
 
 describe("fixture overrides: a model's corrections, overridden by a fixture's own", () => {
   it("keys a model without case or punctuation", () => {
@@ -30,5 +35,40 @@ describe("fixture overrides: a model's corrections, overridden by a fixture's ow
     const merged = mergeOverrides({ wheel: { doubles: false }, heads: { accent: [] } }, { wheel: { change: "black" } });
     expect(merged).to.deep.equal({ wheel: { change: "black" }, heads: { accent: [] } });
     expect(mergeOverrides(undefined, undefined)).to.deep.equal({});
+  });
+});
+
+describe("model keys of a venue opened", () => {
+  const write = (root: string, id: string, manufacturer: string, model: string, overrides: unknown) => {
+    mkdirSync(join(root, "models"), { recursive: true });
+    writeFileSync(join(root, "models", `${id}.json`), JSON.stringify({ id, manufacturer, model, overrides }));
+  };
+  const open = (root: string) => new Venue(new FolderStore(root), []);
+
+  it("folds ß, ø and æ like the other letters", () => {
+    expect(sameName("Straße", "Strasse")).to.equal(true);
+    expect(sameName("Bjørn", "Bjorn")).to.equal(true);
+    expect(modelKey("Cæsar", "X")).to.equal(modelKey("Caesar", "X"));
+  });
+
+  it("re-keys a model stored under the old key format, on disk too", () => {
+    const root = mkdtempSync(join(tmpdir(), "light-models-"));
+    write(root, "acmespot200", "Acme", "Spot 200", { wheel: { doubles: false } }); // the old key: both names joined
+    const venue = open(root);
+    const key = modelKey("Acme", "Spot 200");
+    expect(venue.models.list().map((m) => m.id)).to.deep.equal([key]);
+    expect(venue.models.get(key)?.overrides.wheel).to.deep.equal({ doubles: false });
+    expect(readdirSync(join(root, "models"))).to.deep.equal([`${key}.json`]);
+  });
+
+  it("keeps the record already under the right key when both exist, and the fixture-less one is dropped", () => {
+    const root = mkdtempSync(join(tmpdir(), "light-models-"));
+    const key = modelKey("Acme", "Spot 200");
+    write(root, key, "Acme", "Spot 200", { heads: { follow: false } });
+    write(root, "acmespot200", "Acme", "Spot 200", { wheel: { doubles: false } });
+    write(root, "star", "★", "★", {}); // no key exists for it: left alone
+    const venue = open(root);
+    expect(venue.models.list().map((m) => m.id).sort()).to.deep.equal([key, "star"].sort());
+    expect(venue.models.get(key)?.overrides).to.deep.equal({ heads: { follow: false } });
   });
 });

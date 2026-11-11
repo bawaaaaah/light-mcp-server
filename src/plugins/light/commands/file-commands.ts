@@ -14,7 +14,7 @@ import { ShowSettingsSchema } from "../show/model.js";
 import { PatchedFixtureSchema, type PatchedFixture } from "../venue/venue.js";
 import { pairFixtures, placementChange } from "../venue/positions-import.js";
 import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
-import type { CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry } from "./registry.js";
 import { say } from "../../../core/lang.js";
 
 export interface FileServices {
@@ -47,6 +47,16 @@ function settingsOn(dataRoot: string, id: string): z.infer<typeof ShowSettingsSc
   return ShowSettingsSchema.parse(existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {});
 }
 
+/** Like settingsOn, but a show.json that cannot be read is a CommandError naming the show, not a raw parse error. */
+function settingsOfShow(dataRoot: string, id: string): z.infer<typeof ShowSettingsSchema> {
+  try {
+    return settingsOn(dataRoot, id);
+  } catch (e) {
+    const why = e instanceof z.ZodError ? e.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ") : e instanceof Error ? e.message : String(e);
+    throw new CommandError("invalid", say(`les réglages du show « ${id} » sont illisibles (show.json) : ${why}`, `the settings of show “${id}” cannot be read (show.json): ${why}`));
+  }
+}
+
 /** The show folders under <dataRoot>/shows. */
 function showIdsIn(dataRoot: string): string[] {
   const dir = path.join(dataRoot, "shows");
@@ -55,7 +65,7 @@ function showIdsIn(dataRoot: string): string[] {
 
 /** The shows that play on a venue, but `except`. */
 function showsOnVenue(dataRoot: string, venueId: string, except?: string): string[] {
-  return showIdsIn(dataRoot).filter((id) => id !== except && settingsOn(dataRoot, id).venue === venueId);
+  return showIdsIn(dataRoot).filter((id) => id !== except && settingsOfShow(dataRoot, id).venue === venueId);
 }
 
 /**
@@ -64,7 +74,7 @@ function showsOnVenue(dataRoot: string, venueId: string, except?: string): strin
  */
 export function sharedWith(s: Pick<FileServices, "dataRoot" | "current">): string[] {
   const { show, venue } = s.current();
-  return showsOnVenue(s.dataRoot, venue, show).map((id) => settingsOn(s.dataRoot, id).name || id);
+  return showsOnVenue(s.dataRoot, venue, show).map((id) => settingsOfShow(s.dataRoot, id).name || id);
 }
 
 /** Packs the current show and venue into <backups>/<show>-<date>[-label].lightshow. */

@@ -135,11 +135,13 @@ export function reachProblems(output: Pick<Output, "config" | "destinations" | "
 }
 
 /** Why a route reaches nobody, in words (the hosts, their counts, the likely cause). */
-function reachReasons(p: ReachProblem, t: ReturnType<typeof useT>): string {
+function reachReasons(p: ReachProblem, t: ReturnType<typeof useT>): { reason: string; counters: string } {
   const f = p.failing;
-  const failingText = f && (f.broadcast ? t.sendRefused : f.hosts.length > 1 ? t.sendFailingMany : t.sendFailing).replace("{hosts}", f.hosts.join(", ")).replace("{sends}", String(f.sends)).replace("{errors}", String(f.errors)).replace("{seconds}", String(f.seconds));
+  // the reason is stable from one poll to the next (it sits in a live region); the counters change at each one and stay out of it
+  const failingText = f && (f.broadcast ? t.sendRefused : f.hosts.length > 1 ? t.sendFailingMany : t.sendFailing).replace("{hosts}", f.hosts.join(", "));
   const misText = p.misdirected && t.sendMisdirected.replace("{targets}", p.misdirected.targets.join(", ")).replace("{nodes}", p.misdirected.nodes.join(", "));
-  return [failingText, misText].filter(Boolean).join(" ; ");
+  const counters = f ? t.sendCounters.replace("{sends}", String(f.sends)).replace("{errors}", String(f.errors)).replace("{seconds}", String(f.seconds)) : "";
+  return { reason: [failingText, misText].filter(Boolean).join(" ; "), counters };
 }
 
 /** What a route sends, in words. */
@@ -438,11 +440,18 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
               // broadcast first, the way out that needs no address; then the nodes found, those out of reach marked
               const offerBroadcast = routing && p.protocol === "artnet" && !p.broadcasting;
               const retarget = routing && p.protocol === "artnet" ? p.nodes : [];
+              const reasons = reachReasons(p, t);
               return (
                 <div key={`reach-${p.protocol}-${p.universe}`} className="warn reach" role="status">
                   <p>
                     ⚠ {t.universe} {p.universe} → {p.protocol === "artnet" ? "Art-Net" : "sACN"} {p.address}
-                    {t.colon} {reachReasons(p, t)}
+                    {t.colon} {reasons.reason}
+                    {reasons.counters && (
+                      <>
+                        {" "}
+                        <small aria-live="off">{reasons.counters}</small>
+                      </>
+                    )}
                   </p>
                   {(offerBroadcast || retarget.length > 0) && (
                     <div className="row reach-actions">

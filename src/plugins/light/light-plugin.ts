@@ -428,7 +428,7 @@ export class LightPlugin implements McpPlugin {
         this.publish("rules", { clamps });
       }
     });
-    this.router.onNodesChanged(() => this.publish("nodes", this.router.registry.list()));
+    this.router.onNodesChanged(() => this.publish("nodes", this.router.nodes()));
   }
 
   private definitionDirs(venue: string): string[] {

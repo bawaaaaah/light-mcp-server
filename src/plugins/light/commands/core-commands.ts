@@ -180,12 +180,12 @@ export function registerCoreCommands(
   reg.register({
     name: "nodes.list",
     title: "Nodes Art-Net",
-    description: "Art-Net nodes discovered on the network (ArtPollReply), with their output ports: port-address, DMX going out (data), Art-Net or sACN, merge mode.",
+    description: "Art-Net nodes discovered on the network (ArtPollReply), with their output ports: port-address, DMX going out (data), Art-Net or sACN, merge mode. `seenAgoMs`: how long ago the node last answered; `lastSeen`: that moment as epoch milliseconds.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => router.registry.list().map(({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, lastSeen }) => ({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, lastSeen })),
+    run: () => router.nodes().map(({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, seenAgoMs, lastSeen }) => ({ key, ip, shortName, longName, outputAddresses, ports, mac, nodeReport, seenAgoMs, lastSeen })),
   });
 
   reg.register({

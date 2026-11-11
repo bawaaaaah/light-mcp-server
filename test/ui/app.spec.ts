@@ -3204,7 +3204,8 @@ test("settings: a banner says when an Art-Net route reaches nobody, and offers b
   const banner = page.locator(".reach", { hasText: "Univers 1" }); // its two reasons in one banner
   await expect(banner).toHaveAttribute("role", "status");
   await expect(banner).toContainText("Univers 1 → Art-Net 0");
-  await expect(banner).toContainText("les envois vers 127.0.0.2 échouent (sur 100, 90 en erreur");
+  await expect(banner).toContainText("les envois vers 127.0.0.2 échouent");
+  await expect(banner.locator("small[aria-live=off]")).toContainText("(sur 100, 90 en erreur"); // the counters stay out of the live region
   await expect(banner).toContainText("cette adresse ne répond plus");
   await expect(banner).toContainText("la node répond peut-être depuis 198.51.100.7");
   await banner.screenshot({ path: "test-results/settings-reach.png" });
