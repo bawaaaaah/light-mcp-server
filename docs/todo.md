@@ -293,7 +293,7 @@ Questions en attente de l'utilisateur : voir `docs/plans/00-questions-en-attente
 - Halo peint explicitement ou halo suivi d'un look plus tardif : lequel l'emporte ?
 - Les canaux couleur à plages de fonction ne sont plus peints : les plafonner à la plage d'intensité plutôt ?
 - Le Blackout met à zéro les canaux de contrôle (lampe éteinte sur une décharge) ; correction proposée : garder les canaux de maintenance et de contrôle.
-- ~~Des tests figent le port 8799 en dur~~ : fait, `UI_PORT=<port> npm run test:ui` lance la suite sur un autre port.
+- ~~Des tests figent le port 8799 en dur~~ : fait, `UI_PORT=<port> npm run test:ui` lance la suite sur un autre port. Sa sortie Art-Net a son port à elle, `UI_ARTNET_PORT` (16455 par défaut), distinct du 16454 des tests unitaires et de bout en bout ; les tests RTP-MIDI du hub (155xx-156xx) ne croisent plus ceux de bout en bout (15304/15306).
 - Un composant `ScopeRadios` partagé entre `FixtureHeads` et `WheelEditor`.
 
 ## Du plus simple au plus dur (estimation du 2026-11-08)

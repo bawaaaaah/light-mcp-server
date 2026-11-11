@@ -171,11 +171,11 @@ describe("MIDI hub", () => {
   it("takes the next free port when its own is held, and says which", async () => {
     // On a Mac, the system's own network MIDI session usually holds 5004.
     const squatter = createSocket("udp4");
-    await new Promise<void>((res) => squatter.bind(15304, "0.0.0.0", res));
-    const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15304, name: "hub", advertise: false } }, { native: null });
+    await new Promise<void>((res) => squatter.bind(15504, "0.0.0.0", res));
+    const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15504, name: "hub", advertise: false } }, { native: null });
     try {
       await hub.start();
-      expect(hub.status().rtp).to.deep.include({ port: 15306, wanted: 15304, error: undefined });
+      expect(hub.status().rtp).to.deep.include({ port: 15506, wanted: 15504, error: undefined });
     } finally {
       hub.stop();
       squatter.close();
@@ -183,23 +183,23 @@ describe("MIDI hub", () => {
   });
 
   it("joins a session by address, leaves it, and joins again by itself one it keeps", async () => {
-    const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15404, name: "hub", advertise: false, connect: ["Régie"] } }, { native: null });
+    const hub = new MidiHub({ inputs: [], rtp: { enabled: true, port: 15604, name: "hub", advertise: false, connect: ["Régie"] } }, { native: null });
     await hub.start();
-    const remote = new RtpMidiSession({ name: "Régie", port: 15406, host: "127.0.0.1" });
+    const remote = new RtpMidiSession({ name: "Régie", port: 15606, host: "127.0.0.1" });
     await remote.start();
     const until = async (ok: () => boolean) => {
       for (let i = 0; i < 300 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
       expect(ok()).to.equal(true);
     };
     try {
-      expect(await hub.rtpConnect({ address: "127.0.0.1", port: 15406 })).to.deep.equal({ name: "Régie", address: "127.0.0.1", port: 15406 });
+      expect(await hub.rtpConnect({ address: "127.0.0.1", port: 15606 })).to.deep.equal({ name: "Régie", address: "127.0.0.1", port: 15606 });
       await until(() => remote.listPeers().length === 1);
       expect(hub.status().rtp.peers).to.deep.equal(["Régie (127.0.0.1)"]);
       expect(hub.rtpDisconnect("Régie")).to.equal(true);
       await until(() => remote.listPeers().length === 0);
       // found on the network (Bonjour stands in here), kept: joined again within seconds
-      (hub as unknown as { browser: object }).browser = { ask: () => undefined, list: () => [{ name: "Régie", host: "regie", port: 15406, addresses: ["127.0.0.1"] }], stop: async () => undefined };
-      expect(hub.rtpSessions()).to.deep.equal([{ name: "Régie", host: "regie", address: "127.0.0.1", port: 15406, connected: false, kept: true, self: false, local: false }]);
+      (hub as unknown as { browser: object }).browser = { ask: () => undefined, list: () => [{ name: "Régie", host: "regie", port: 15606, addresses: ["127.0.0.1"] }], stop: async () => undefined };
+      expect(hub.rtpSessions()).to.deep.equal([{ name: "Régie", host: "regie", address: "127.0.0.1", port: 15606, connected: false, kept: true, self: false, local: false }]);
       (hub as unknown as { joinKept: () => void }).joinKept();
       await until(() => hub.rtpSessions()[0]!.connected);
       await hub.rtpConnect({ name: "Nulle part" }).then(

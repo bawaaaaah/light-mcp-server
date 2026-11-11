@@ -2,7 +2,8 @@
  * Server for the browser tests: temporary data (Test Bar 4 fixtures, a synthetic wash with zones, synthetic QLC+ workspace
  * imported, one moving head on universe 2), PINs set (régisseur 1234, admin 9999, bénévole 5678, lecture 1357), auth token
  * "ui-test-token", built UI served on PORT. The output is bound to loopback (a broadcast or a multicast
- * never leaves the machine) on an Art-Net port of its own (the stage server never hears it), and DMX
+ * never leaves the machine) on an Art-Net port of its own, UI_ARTNET_PORT (16455 by default: neither the
+ * stage server nor the unit and end-to-end tests, on 16454, hear it), and DMX
  * USB goes to a fake serial port: the tests also run on the stage Mac, whose light must never receive
  * their frames.
  */
@@ -14,6 +15,7 @@ import { systemContext } from "../../src/plugins/light/commands/registry.js";
 import { FakeSerial } from "../fakes/serial.js";
 
 const port = Number(process.env.PORT ?? 8799);
+const artnetPort = Number(process.env.UI_ARTNET_PORT ?? 16455);
 const dir = mkdtempSync(join(tmpdir(), "light-ui-"));
 const dataRoot = join(dir, "data");
 mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
@@ -22,7 +24,7 @@ copyFileSync(new URL("../fixtures/spot.qxf", import.meta.url), join(dataRoot, "f
 copyFileSync(new URL("../fixtures/wash-zones.qxf", import.meta.url), join(dataRoot, "fixtures", "wash-zones.qxf"));
 writeFileSync(
   join(dir, "config.json"),
-  JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, ableset: { port: 39999 }, output: { bindAddress: "127.0.0.1", artnetPort: 16454, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
+  JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, ableset: { port: 39999 }, output: { bindAddress: "127.0.0.1", artnetPort, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),
 );
 const running = await bootstrap({ configPath: join(dir, "config.json"), port, host: "127.0.0.1", log: () => undefined, light: { dataRoot, midiNative: null, serial: new FakeSerial() } });
 await running.auth.setPin("regisseur", "1234");
