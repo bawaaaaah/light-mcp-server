@@ -6,13 +6,13 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
-import { FixtureOverridesSchema, mergeOverrides, modelKey, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
+import { FixtureOverridesSchema, mergeOverrides, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
 import { listQxfFiles } from "./definition-files.js";
-import { findDefinition, findMode, normaliseName, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { headsOf } from "./heads.js";
@@ -401,21 +401,31 @@ export class Venue {
   /**
    * Re-keys the stored model overrides whose id is not what `modelKey` gives today (the key's format
    * changed: manufacturer and model normalised apart, ß/ø/æ folded). When the right key already holds a
-   * record, that one stays (written by the current format, so the newer) and the old one is dropped.
-   * An id kept as it is when its names have no letter or digit (no key exists for it).
+   * record (written by the current format, or another old id re-keyed just before onto the same key), the
+   * two are merged: each part the kept record has stays, the old one only adds the parts it lacks. An id
+   * stays as it is when its names have no letter or digit (no key exists for it). A record that cannot be
+   * re-keyed (a key too long for an id) stays under its old id and is said in the store's load errors:
+   * opening the venue never fails on it.
    */
   private migrateModelKeys(): void {
     for (const m of this.models.list()) {
-      let key: string;
+      const key = modelKeyOrUndefined(m.manufacturer, m.model);
+      if (!key || m.id === key) continue;
       try {
-        key = modelKey(m.manufacturer, m.model);
-      } catch {
-        continue;
+        const kept = this.models.get(key);
+        this.models.put({ ...m, id: key, ...(kept ? { overrides: { ...m.overrides, ...kept.overrides } } : {}) });
+        this.models.delete(m.id);
+      } catch (err) {
+        this.store.loadErrors.push(say(`models/${m.id} : corrections du modèle non reprises (${(err as Error).message})`, `models/${m.id}: model corrections not carried over (${(err as Error).message})`));
       }
-      if (m.id === key) continue;
-      if (!this.models.get(key)) this.models.put({ ...m, id: key });
-      this.models.delete(m.id);
     }
+  }
+
+  /** Re-reads the venue folder and the definitions (an archive restored, a show reset), re-keying old model overrides as at opening. */
+  reload(): void {
+    this.store.reloadAll();
+    this.refreshDefinitions();
+    this.migrateModelKeys();
   }
 
   /**
@@ -433,8 +443,7 @@ export class Venue {
     this.definitionStamp = "";
     this.definitionErrors = [];
     this.store.retarget(root, backupRoot);
-    this.refreshDefinitions();
-    this.migrateModelKeys();
+    this.reload();
   }
 
   /**
@@ -504,9 +513,8 @@ export class Venue {
 
   /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
   overridesOf(patch: PatchedFixture): FixtureOverrides {
-    // a model named without a letter or digit has no key (modelKey refuses it), hence no model overrides
-    const keyed = normaliseName(patch.manufacturer) && normaliseName(patch.model);
-    return mergeOverrides(keyed ? this.models.get(modelKey(patch.manufacturer, patch.model))?.overrides : undefined, patch.overrides);
+    const key = modelKeyOrUndefined(patch.manufacturer, patch.model);
+    return mergeOverrides(key ? this.models.get(key)?.overrides : undefined, patch.overrides);
   }
 
   /** Fixtures ending past channel 512 (their last channels are dropped), said as people read it. */

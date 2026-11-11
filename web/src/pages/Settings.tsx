@@ -135,13 +135,13 @@ export function reachProblems(output: Pick<Output, "config" | "destinations" | "
 }
 
 /** Why a route reaches nobody, in words (the hosts, their counts, the likely cause). */
-function reachReasons(p: ReachProblem, t: ReturnType<typeof useT>): { reason: string; counters: string } {
+function reachReasons(p: ReachProblem, t: ReturnType<typeof useT>): { failing: string; counters: string; misdirected: string } {
   const f = p.failing;
-  // the reason is stable from one poll to the next (it sits in a live region); the counters change at each one and stay out of it
-  const failingText = f && (f.broadcast ? t.sendRefused : f.hosts.length > 1 ? t.sendFailingMany : t.sendFailing).replace("{hosts}", f.hosts.join(", "));
-  const misText = p.misdirected && t.sendMisdirected.replace("{targets}", p.misdirected.targets.join(", ")).replace("{nodes}", p.misdirected.nodes.join(", "));
+  // the reasons are stable from one poll to the next (they sit in a live region); the counters change at each one and stay out of it
+  const failing = f ? (f.broadcast ? t.sendRefused : f.hosts.length > 1 ? t.sendFailingMany : t.sendFailing).replace("{hosts}", f.hosts.join(", ")) : "";
+  const misdirected = p.misdirected ? t.sendMisdirected.replace("{targets}", p.misdirected.targets.join(", ")).replace("{nodes}", p.misdirected.nodes.join(", ")) : "";
   const counters = f ? t.sendCounters.replace("{sends}", String(f.sends)).replace("{errors}", String(f.errors)).replace("{seconds}", String(f.seconds)) : "";
-  return { reason: [failingText, misText].filter(Boolean).join(" ; "), counters };
+  return { failing, counters, misdirected };
 }
 
 /** What a route sends, in words. */
@@ -445,13 +445,16 @@ export function SettingsPage({ role }: { role: Role }): ReactElement {
                 <div key={`reach-${p.protocol}-${p.universe}`} className="warn reach" role="status">
                   <p>
                     ⚠ {t.universe} {p.universe} → {p.protocol === "artnet" ? "Art-Net" : "sACN"} {p.address}
-                    {t.colon} {reasons.reason}
+                    {t.colon} {reasons.failing}
+                    {/* the counters right after the failure they count, before the misdirection */}
                     {reasons.counters && (
                       <>
                         {" "}
                         <small aria-live="off">{reasons.counters}</small>
                       </>
                     )}
+                    {reasons.failing && reasons.misdirected ? " ; " : ""}
+                    {reasons.misdirected}
                   </p>
                   {(offerBroadcast || retarget.length > 0) && (
                     <div className="row reach-actions">

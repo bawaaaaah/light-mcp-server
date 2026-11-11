@@ -695,4 +695,16 @@ describe("a head driven by the command layer (the pad's path)", () => {
     expect(rows.find((r) => r.id === "cheap")!.movable).to.equal(true); // a head whose Pan/Tilt are named channels in groups, without a preset
     expect(rows.find((r) => r.id === "bar")).to.not.have.property("movable"); // a bar without pan/tilt
   });
+
+  it("gives each fixture's footprint as the server resolves its mode, none when its definition is missing", async () => {
+    await run("venue.fixture.put", { fixture: { id: "ghost", name: "Fantôme", manufacturer: "Test", model: "Not In Library", mode: "Standard", universe: 2, address: 1 } });
+    try {
+      const rows = (await run("venue.fixture.list")) as { id: string; channels?: number }[];
+      expect(rows.find((r) => r.id === "bar")!.channels).to.equal(15);
+      expect(rows.find((r) => r.id === "cheap")!.channels).to.equal(3);
+      expect(rows.find((r) => r.id === "ghost")).to.not.have.property("channels");
+    } finally {
+      await run("venue.fixture.delete", { id: "ghost" });
+    }
+  });
 });

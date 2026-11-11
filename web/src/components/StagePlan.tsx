@@ -698,7 +698,7 @@ export function StagePlan({
           // its name where it was laid out, following it while dragged; on hover only when there was no room
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
-          // its menu: right-click, a long press outside the modes (a drag must not open it), Shift+F10 once focused
+          // its menu: right-click, a long press or Shift+F10 once focused, all three outside the place and orient modes (a drag must not open it)
           const menu = onFixtureMenu ? fixtureMenu(f.id) : undefined;
           return (
             <g
@@ -711,8 +711,9 @@ export function StagePlan({
                 ? {
                     ...menu,
                     tabIndex: 0,
-                    "aria-haspopup": "dialog" as const,
-                    // no menu while a mode is on (as the long press): a right-click there is the browser's, not ours
+                    // a button that selects it: pressed while it is the selected one
+                    "aria-pressed": isSelected,
+                    // no menu while a mode is on (as the long press and Shift+F10): a right-click there does nothing, the browser's menu stays shut too
                     onContextMenu: (e: ReactMouseEvent) => (orienting || placing ? e.preventDefault() : menu.onContextMenu(e)),
                     onKeyDown: (e: ReactKeyboardEvent<SVGGElement>) => {
                       // Enter and Space do what a click does: select it (one more chosen, or one less, while placing)
@@ -724,6 +725,7 @@ export function StagePlan({
                       }
                       if (!((e.shiftKey && e.key === "F10") || e.key === "ContextMenu")) return;
                       e.preventDefault();
+                      if (orienting || placing) return; // no menu while a mode is on, as the right-click
                       const r = e.currentTarget.getBoundingClientRect();
                       onFixtureMenu?.(f, { x: r.right, y: r.bottom });
                     },

@@ -438,8 +438,7 @@ export class LightPlugin implements McpPlugin {
   /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
   private reloadFromDisk(): void {
     this.show.reloadAll();
-    this.venue.store.reloadAll();
-    this.venue.refreshDefinitions();
+    this.venue.reload(); // an archive restored may hold model overrides under an old key
     this.runtime.reloadSettings();
     this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
     this.engine.requestFrame();

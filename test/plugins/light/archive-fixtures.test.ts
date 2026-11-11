@@ -9,6 +9,7 @@ import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { applyRestore, MAX_ARCHIVE_BYTES, packArchive, previewRestore, readArchive, restoreBackupDir, restoreFolder, type RestoreTargets } from "../../../src/plugins/light/data/archive.js";
 import { MAX_DEFINITION_BYTES } from "../../../src/plugins/light/data/archive-fixtures.js";
 import { definitionFileName, listQxfFiles } from "../../../src/plugins/light/venue/definition-files.js";
+import { modelKey } from "../../../src/plugins/light/venue/overrides.js";
 
 const fixture = (name: string) => readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), "utf8");
 const BAR = fixture("bar4.qxf");
@@ -353,6 +354,18 @@ describe(".lightshow archives and the running library", () => {
     const res = (await run("backup.restore", { file })) as { fixtures: { wouldImport: string[] } };
     expect(res.fixtures.wouldImport).to.deep.equal(["bar4.qxf"]);
     expect(plugin.runtime.venue.missingDefinitions()).to.deep.equal([]); // the library re-read the new file
+  });
+
+  it("re-keys the model overrides of an archive with the old key, as opening the venue does", async () => {
+    const venue = plugin.runtime.venue;
+    mkdirSync(join(venue.store.root, "models"), { recursive: true });
+    // an archive made before the key changed: the model's corrections under « acme-spot-200 »
+    writeFileSync(join(venue.store.root, "models", "acme-spot-200.json"), JSON.stringify({ id: "acme-spot-200", manufacturer: "Acme", model: "Spot 200", overrides: { wheel: { doubles: false } } }));
+    const { file } = (await run("backup.create")) as { file: string };
+    await run("backup.restore", { file });
+    expect(venue.models.list().map((m) => m.id)).to.deep.equal([modelKey("Acme", "Spot 200")]);
+    expect(venue.models.get(modelKey("Acme", "Spot 200"))?.overrides.wheel).to.deep.equal({ doubles: false });
+    expect(readdirSync(join(venue.store.root, "models"))).to.deep.equal([`${modelKey("Acme", "Spot 200")}.json`]);
   });
 
   it("refuses an unknown policy", async () => {

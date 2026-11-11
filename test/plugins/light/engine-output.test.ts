@@ -185,8 +185,11 @@ describe("local subnets", () => {
     expect(outOfSubnet(["198.51.100.7"], [{ address: "10.0.0.1", netmask: "255.255.255.255" }, ...subnets])).to.deep.equal(["198.51.100.7"]);
   });
 
-  it("never calls a broadcast address out of the subnet", () => {
-    expect(outOfSubnet(["192.0.2.255", "255.255.255.255", "198.51.100.255", "198.51.100.7", "198.51.100.7"], subnets)).to.deep.equal(["198.51.100.7"]);
+  it("never calls the limited broadcast or a local subnet's broadcast out of the subnet, but a remote network's one is", () => {
+    expect(outOfSubnet(["192.0.2.255", "255.255.255.255", "198.51.100.255", "198.51.100.7", "198.51.100.7"], subnets)).to.deep.equal(["198.51.100.255", "198.51.100.7"]);
+    // a local /23's broadcast; a .255 inside it is an ordinary host address of that subnet
+    const wide = [{ address: "203.0.112.10", netmask: "255.255.254.0" }];
+    expect(outOfSubnet(["203.0.113.255", "203.0.112.255", "198.51.100.255"], wide)).to.deep.equal(["198.51.100.255"]);
   });
 
   it("computes a subnet's broadcast address", () => {
@@ -214,7 +217,8 @@ describe("sharing the nodes with another console", () => {
     expect(router.foreignSources(1200)).to.deep.equal([]);
     const twin = encodeDmx({ sequence: 1, physical: 0, portAddress: 0, data: new Uint8Array(512) });
     router.received(twin, "127.0.0.1", 6454, 1100); // another instance on this computer, same port
-    expect(router.foreignSources(1200)).to.deep.include({ ip: "127.0.0.1", port: 6454, portAddresses: [0], lastSeen: 1100, local: true });
+    // seen 100 ms ago on the router's clock; lastSeen on the wall clock, not the router's monotonic one
+    expect(router.foreignSources(1200, 1_000_000)).to.deep.include({ ip: "127.0.0.1", port: 6454, portAddresses: [0], seenAgoMs: 100, lastSeen: 999_900, local: true });
     router.received(ours, "127.0.0.1", 6454, 4000); // the same bytes long after: not an echo any more
     expect(router.foreignSources(4000).map((f) => f.ip)).to.deep.equal(["127.0.0.1"]);
   });

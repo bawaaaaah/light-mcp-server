@@ -56,12 +56,14 @@ export function isBroadcast(ip: string, subnets: readonly Subnet[] = []): boolea
 }
 
 /**
- * Of these addresses, those on none of the subnets (and no broadcast address): out of reach without a
- * router. A /32 interface (host route, VPN end) holds one address and says nothing about the network
- * beyond: with only those, nothing is judged.
+ * Of these addresses, those on none of the subnets: out of reach without a router. The limited
+ * broadcast and the broadcast of a local subnet are never out; any other x.x.x.255 is judged as an
+ * address (a remote network's broadcast is out of reach too). A /32 interface (host route, VPN end)
+ * holds one address and says nothing about the network beyond: with only those, nothing is judged.
  */
 export function outOfSubnet(ips: readonly string[], subnets: readonly Subnet[]): string[] {
   const judged = subnets.filter((s) => prefixOf(s.netmask) < 32);
   if (!judged.length) return [];
-  return [...new Set(ips)].filter((ip) => !isBroadcast(ip, subnets) && !onSubnet(ip, judged));
+  const reachable = new Set(["255.255.255.255", ...subnets.map(broadcastOf).filter((b) => b !== undefined)]);
+  return [...new Set(ips)].filter((ip) => !reachable.has(ip) && !onSubnet(ip, judged));
 }

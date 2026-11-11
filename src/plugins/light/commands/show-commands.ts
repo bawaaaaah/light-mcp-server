@@ -10,7 +10,7 @@ import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
-import { modelKey, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
+import { modelKey, modelKeyOrUndefined, WheelOverridesSchema, type FixtureOverrides, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
@@ -86,6 +86,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if ((uses.length || otherShows.length) && !force) throw new Error(inUseMessage(name ?? i, uses, otherShows));
     return uses;
   };
+  /**
+   * The other shows on the open venue, for a fixture's unforced delete. When one of their show.json
+   * cannot be read, the delete is refused (after what uses the fixture, said first), saying how to delete
+   * anyway: `detail.force` lets a screen offer that forced delete, `detail.reason` is what went wrong.
+   */
+  const sharedWithOrRefuse = (fixtureId: string, name: string): string[] => {
+    try {
+      return sharedWith();
+    } catch (err) {
+      removable("fixture", fixtureId, name, false);
+      const reason = (err as Error).message;
+      throw new CommandError("invalid", `${reason}. ${say("Le supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", "Delete it anyway, without checking the venue's other shows: force: true")}`, { force: true, reason });
+    }
+  };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
   const canvasDeletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a look still uses it") });
 
@@ -114,7 +128,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.list",
     title: "Patch",
-    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only).",
+    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only; channels its DMX footprint, the channel count of its mode, missing when its definition or mode is not found).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -124,7 +138,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         const r = venue.resolve(f.id);
         const facing = facingOf(f.orientation);
         const base = venue.absent.has(f.id) ? { ...f, absent: true } : f;
-        return { ...base, ...(!("error" in r) && (r.pan || r.tilt) ? { movable: true } : {}), ...(facing ? { facing } : {}) };
+        return { ...base, ...("error" in r ? {} : { channels: r.mode.channels.length, ...(r.pan || r.tilt ? { movable: true } : {}) }), ...(facing ? { facing } : {}) };
       }),
   });
   reg.register({
@@ -250,14 +264,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   // ---- heads and accent heads (venue/heads.ts): corrected per model, overridden per fixture (venue/overrides.ts)
   const headsScope = z.enum(["model", "fixture"]).default("model").describe("model: every fixture of its manufacturer and model follows; fixture: this one only, over its model's");
-  /** A fixture's model key, or undefined for a model named without a letter or digit (modelKey refuses it): such a model has no overrides. */
-  const keyOrUndefined = (f: { manufacturer: string; model: string }): string | undefined => {
-    try {
-      return modelKey(f.manufacturer, f.model);
-    } catch {
-      return undefined;
-    }
-  };
+  const keyOrUndefined = (f: { manufacturer: string; model: string }) => modelKeyOrUndefined(f.manufacturer, f.model);
   /** A fixture's heads as it resolves, and as its model's correction alone gives them (what « this model » edits). */
   const headsOfFixture = (fixtureId: string) => {
     const f = venue.fixtures.get(fixtureId);
@@ -287,15 +294,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   /** Writes (or, with undefined, removes) the heads part of a fixture's or its model's overrides. */
   const putHeads = (fixtureId: string, scope: "model" | "fixture", heads: HeadOverrides | undefined) => {
     const f = venue.fixtures.get(fixtureId)!;
-    const id = modelKey(f.manufacturer, f.model);
     // the other parts (the wheel, the tracks) stay as they are
-    const { heads: _old, ...rest } = (scope === "fixture" ? f.overrides : venue.models.get(id)?.overrides) ?? {};
-    const overrides = { ...rest, ...(heads ? { heads } : {}) };
-    const kept = Object.keys(overrides).length > 0;
+    const withHeads = (current: FixtureOverrides | undefined) => {
+      const { heads: _old, ...rest } = current ?? {};
+      return { ...rest, ...(heads ? { heads } : {}) };
+    };
     if (scope === "fixture") {
+      // a fixture's own settings need no model key
+      const own = withHeads(f.overrides);
       const { overrides: _o, ...bare } = f;
-      venue.fixtures.put(kept ? { ...bare, overrides } : bare);
-    } else if (kept) venue.models.put({ id, manufacturer: f.manufacturer, model: f.model, overrides });
+      venue.fixtures.put(Object.keys(own).length ? { ...bare, overrides: own } : bare);
+      return;
+    }
+    const id = modelKey(f.manufacturer, f.model); // refuses a model named without a letter or digit
+    const overrides = withHeads(venue.models.get(id)?.overrides);
+    if (Object.keys(overrides).length) venue.models.put({ id, manufacturer: f.manufacturer, model: f.model, overrides });
     else venue.models.delete(id);
   };
   reg.register({
@@ -364,10 +377,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
     const r = venue.resolve(fixtureId);
     if ("error" in r || !r.wheel || !r.lampOnly) return undefined;
-    const key = keyOrUndefined(f);
-    if (!key) return undefined; // no key, nowhere to keep wheel settings: the wheel is left to raw channels
     const caps = r.def.channels.get(r.mode.channels[r.wheel.offset] ?? "")?.capabilities ?? [];
-    return { f, wheel: r.wheel, slots: wheelCapabilities(caps), key };
+    // key undefined: a model named without a letter or digit, whose wheel is set per fixture only
+    return { f, wheel: r.wheel, slots: wheelCapabilities(caps), key: keyOrUndefined(f) };
   };
   const wheelOfFixture = (fixtureId: string) => {
     const found = wheelOrNone(fixtureId);
@@ -392,9 +404,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model },
         offset: wheel.offset + 1,
         slots: slots.map((s) => ({ min: s.min, max: s.max, value: slotValue(s), name: s.name, ...(s.color ? { color: displayHex(s.color) } : { colorless: true }), ...(s.color2 ? { color2: displayHex(s.color2) } : {}), ...(s.open ? { open: true } : {}) })),
-        model: venue.models.get(key)?.overrides.wheel ?? null,
+        model: (key && venue.models.get(key)?.overrides.wheel) ?? null,
         own: f.overrides?.wheel ?? null,
-        applies: f.overrides?.wheel ? "fixture" : venue.models.get(key)?.overrides.wheel ? "model" : "definition",
+        applies: f.overrides?.wheel ? "fixture" : key && venue.models.get(key)?.overrides.wheel ? "model" : "definition",
         doubles: wheel.doubles,
         change: wheel.change,
         changeMs: wheel.changeMs,
@@ -420,8 +432,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       };
       if (scope === "fixture") venue.fixtures.put({ ...f, overrides: { ...f.overrides, wheel: clean } });
       else {
-        const m = venue.models.get(key);
-        venue.models.put({ id: key, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides: { ...m?.overrides, wheel: clean } });
+        const id = key ?? modelKey(f.manufacturer, f.model); // refuses a model named without a letter or digit: its fixtures are set one by one
+        const m = venue.models.get(id);
+        venue.models.put({ id, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides: { ...m?.overrides, wheel: clean } });
       }
       return { scope, wheel: clean };
     },
@@ -442,11 +455,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         venue.fixtures.put(Object.keys(others).length ? { ...plain, overrides: others } : plain);
         return { cleared: true };
       }
-      const m = venue.models.get(key);
+      const m = key ? venue.models.get(key) : undefined;
       if (!m?.overrides.wheel) return { cleared: false };
       const { wheel: _, ...rest } = m.overrides;
       if (Object.keys(rest).length) venue.models.put({ ...m, overrides: rest });
-      else venue.models.delete(key);
+      else venue.models.delete(m.id);
       return { cleared: true };
     },
   });
@@ -606,7 +619,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.delete",
     title: "Dépatcher",
     description:
-      "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, rules scoped to it, MIDI mappings and song track actions naming it: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them). `usedBy` lists what was using it when forced. An id that is not in the patch: deleted false, nothing checked.",
+      "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, rules scoped to it, MIDI mappings and song track actions naming it: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them) or when one of the other shows' settings cannot be read (they are not checked). `usedBy` lists what was using it when forced. An id that is not in the patch: deleted false, nothing checked.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if the show uses it or the venue is shared with other shows") }),
@@ -614,7 +627,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const f = venue.fixtures.get(i);
       // not in the patch: nothing to delete, whatever may still name the id
       if (!f) return { deleted: false, usedBy: [] };
-      const others = force ? [] : sharedWith(); // forced: another show's damaged settings must not block the delete
+      const others = force ? [] : sharedWithOrRefuse(i, f.name); // forced: another show's damaged settings must not block the delete
       const usedBy = removable("fixture", i, f.name, force, others);
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed

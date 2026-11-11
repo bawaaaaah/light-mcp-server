@@ -73,9 +73,15 @@ export type ModelOverrides = z.infer<typeof ModelOverridesSchema>;
  * every such model alike: refused.
  */
 export const modelKey = (manufacturer: string, model: string): string => {
+  const key = modelKeyOrUndefined(manufacturer, model);
+  if (!key) throw new Error(say(`nom de modèle sans lettre ni chiffre : « ${manufacturer} » « ${model} »`, `model name without a letter or digit: “${manufacturer}” “${model}”`));
+  return key;
+};
+
+/** A model's key (`modelKey`), or undefined when one of its names has no letter or digit: such a model has no overrides. */
+export const modelKeyOrUndefined = (manufacturer: string, model: string): string | undefined => {
   const [m, n] = [normaliseName(manufacturer), normaliseName(model)];
-  if (!m || !n) throw new Error(say(`nom de modèle sans lettre ni chiffre : « ${manufacturer} » « ${model} »`, `model name without a letter or digit: “${manufacturer}” “${model}”`));
-  return `${m}_${n}`;
+  return m && n ? `${m}_${n}` : undefined;
 };
 
 /**

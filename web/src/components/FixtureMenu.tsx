@@ -13,14 +13,16 @@ export interface MarkedFixture {
   address: number;
   /** Pan or tilt channels in its definition (venue.fixture.list): the invert switches live on these only. */
   movable?: boolean;
+  /** How many DMX channels it takes, as the server resolves its mode (venue.fixture.list); unknown: its end is not checked. */
+  channels?: number;
   color?: string;
   /** A moving head's stored orientation; only the inversions are shown here. */
   orientation?: { invertPan?: boolean; invertTilt?: boolean };
 }
 
-/** Strips what venue.fixture.list adds to a patched fixture (absence, movable, facing), to write the rest back whole. */
+/** Strips what venue.fixture.list adds to a patched fixture (absence, movable, footprint, facing), to write the rest back whole. */
 function patched(listed: Record<string, unknown>): Record<string, unknown> {
-  const { absent: _absent, movable: _movable, facing: _facing, ...stored } = listed;
+  const { absent: _absent, movable: _movable, channels: _channels, facing: _facing, ...stored } = listed;
   return stored;
 }
 
@@ -62,7 +64,6 @@ export function FixtureMenu({
   overlaps,
   at,
   universes,
-  channels,
   onSaved,
   onDelete,
   onGone,
@@ -73,8 +74,6 @@ export function FixtureMenu({
   at: { x: number; y: number };
   /** How many universes the output has (lightState); unknown: not checked here, the server still is. */
   universes?: number;
-  /** How many DMX channels the fixture takes (its mode); unknown: its end is not checked. */
-  channels?: number;
   onSaved: () => void;
   onDelete: () => Promise<boolean>;
   onGone: () => void;
@@ -103,8 +102,10 @@ export function FixtureMenu({
   const [universe, setUniverse] = useState(String(fixture.universe));
   const [address, setAddress] = useState(String(fixture.address));
   const moved = Number(universe) !== fixture.universe || Number(address) !== fixture.address;
-  const issue = placeIssue(universe, address, fixture, t, universes, channels);
+  const issue = placeIssue(universe, address, fixture, t, universes, fixture.channels);
   const problem = issue?.message ?? "";
+  /** The sentence saying what is wrong with the place: described by the faulty field and the move button. */
+  const placeHint = `fixture-place-${fixture.id}`;
   const mark = (args: { name?: string; color?: string | null }) => {
     setError("");
     void cmd("venue.fixture.mark", { id: fixture.id, ...args }).then(onSaved, (e: Error) => setError(e.message));
@@ -161,9 +162,9 @@ export function FixtureMenu({
     const stops = tabStops(box.current);
     if (!stops.length) return;
     const [first, last] = [stops[0]!, stops[stops.length - 1]!];
-    const active = document.activeElement;
-    if (!active || active === box.current || !box.current.contains(active)) {
-      e.preventDefault(); // the box itself (a click on its background) or something outside it: back to a stop
+    // the key reaches this handler only from inside the box: the box itself (after a click on its background) goes back to a stop
+    if (document.activeElement === box.current) {
+      e.preventDefault();
       (e.shiftKey ? last : first).focus();
     } else if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
@@ -249,18 +250,18 @@ export function FixtureMenu({
         <div className="row">
           <label>
             <span>{t.universe}</span>
-            <input type="number" min={1} max={universes} step={1} value={universe} aria-invalid={issue?.field === "universe"} onChange={(e) => setUniverse(e.target.value)} onKeyDown={onPlaceKey} />
+            <input type="number" min={1} max={universes} step={1} value={universe} aria-invalid={issue?.field === "universe"} aria-describedby={issue?.field === "universe" ? placeHint : undefined} onChange={(e) => setUniverse(e.target.value)} onKeyDown={onPlaceKey} />
           </label>
           <label>
             <span>{t.address}</span>
-            <input type="number" min={1} max={512} step={1} value={address} aria-invalid={issue?.field === "address"} onChange={(e) => setAddress(e.target.value)} onKeyDown={onPlaceKey} />
+            <input type="number" min={1} max={512} step={1} value={address} aria-invalid={issue?.field === "address"} aria-describedby={issue?.field === "address" ? placeHint : undefined} onChange={(e) => setAddress(e.target.value)} onKeyDown={onPlaceKey} />
           </label>
-          <button disabled={!moved || Boolean(problem)} aria-describedby={problem ? `fixture-place-${fixture.id}` : undefined} onClick={() => void move()}>
+          <button disabled={!moved || Boolean(problem)} aria-describedby={problem ? placeHint : undefined} onClick={() => void move()}>
             {t.fixtureMoveDo}
           </button>
         </div>
         {problem && (
-          <small className="warn" id={`fixture-place-${fixture.id}`}>
+          <small className="warn" id={placeHint}>
             {problem}
           </small>
         )}

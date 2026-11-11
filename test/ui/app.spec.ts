@@ -2382,6 +2382,45 @@ test("venue: a fixture is deleted from its menu or the ✕ through the same conf
   expect(errors).toEqual([]);
 });
 
+test("venue: a fixture delete refused because another show cannot be read is offered forced, after a second yes", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "unchecked-del", name: "unchecked-del", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 2, address: 300 } });
+  // the server's refusal when another show.json of the venue is damaged (the test server has none such)
+  const sent: unknown[] = [];
+  await page.route("**/api/plugins/light/commands/venue.fixture.delete", async (route) => {
+    const args = route.request().postDataJSON() as { force?: boolean };
+    sent.push(args);
+    if (args.force) return route.continue();
+    await route.fulfill({ status: 400, json: { ok: false, error: "les réglages du show « abime » sont illisibles (show.json). Le supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", detail: { force: true, reason: "les réglages du show « abime » sont illisibles (show.json)" } } });
+  });
+  await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+  const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+  try {
+    await page.locator("tr", { hasText: "unchecked-del" }).click({ button: "right" });
+    const asked: string[] = [];
+    // first yes (the usual question), then a no to the second: nothing forced, the fixture stays
+    page.once("dialog", (d) => (asked.push(d.message()), void d.accept().then(() => page.once("dialog", (d2) => (asked.push(d2.message()), void d2.dismiss())))));
+    await menu.getByRole("button", { name: "Supprimer", exact: true }).click();
+    await expect.poll(() => asked.length).toBe(2);
+    expect(asked[1]).toContain("« abime » sont illisibles");
+    expect(asked[1]).toContain("n'ont pas pu être vérifiés");
+    expect(asked[1]).not.toContain("force: true"); // the AI's wording stays out of the question
+    await expect(page.locator("tr", { hasText: "unchecked-del" })).toHaveCount(1);
+    expect(sent).toEqual([{ id: "unchecked-del", force: false }]);
+    // yes twice: forced
+    page.once("dialog", (d) => void d.accept().then(() => page.once("dialog", (d2) => void d2.accept())));
+    await menu.getByRole("button", { name: "Supprimer", exact: true }).click();
+    await expect(page.locator("tr", { hasText: "unchecked-del" })).toHaveCount(0);
+    expect(sent.at(-1)).toEqual({ id: "unchecked-del", force: true });
+    await expect(menu).toHaveCount(0);
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/venue.fixture.delete");
+    await api(page, "venue.fixture.delete", { id: "unchecked-del", force: true });
+  }
+  expect(errors.filter((e) => !/Failed to load resource/.test(e))).toEqual([]);
+});
+
 test("venue: the fixture menu shows the zones deduced for a wash and corrects its halo", async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1400, height: 800 });
@@ -2475,6 +2514,8 @@ test("venue: the fixture menu checks a move before sending it, opens from the pl
   try {
     // from the stage plan: the same menu, on a fixture named for assistive technologies
     const onPlan = page.locator("#venue-stage").getByRole("button", { name: "Bar 1", exact: true });
+    await expect(onPlan).toHaveAttribute("aria-pressed", /^(true|false)$/); // a button that selects it, pressed while selected
+    await expect(onPlan).not.toHaveAttribute("aria-haspopup");
     await onPlan.click({ button: "right" });
     const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
     await expect(menu).toContainText("Bar 1 · U1.16");
@@ -2489,6 +2530,11 @@ test("venue: the fixture menu checks a move before sending it, opens from the pl
     await address.fill("510");
     await expect(move).toBeDisabled();
     await expect(menu).toContainText("finirait au canal 524");
+    // the faulty field points at the sentence saying why
+    const why = await address.getAttribute("aria-describedby");
+    expect(why).toBeTruthy();
+    await expect(menu.locator(`[id="${why}"]`)).toContainText("finirait au canal 524");
+    await expect(universe).not.toHaveAttribute("aria-describedby");
     await address.fill("0");
     await expect(menu).toContainText("L'adresse est un nombre entier de 1 à 512");
     await menu.screenshot({ path: "test-results/venue-fixture-move-check.png" });

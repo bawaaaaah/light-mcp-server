@@ -53,10 +53,15 @@ export interface ForeignSource {
   ip: string;
   port: number;
   portAddresses: number[];
+  /** How long ago its last packet came (ms). */
+  seenAgoMs: number;
+  /** That moment on the wall clock (epoch ms): the router's own clock is monotonic and means nothing outside it. */
   lastSeen: number;
   /** From one of this machine's addresses: another instance, or QLC+ on the same computer. */
   local: boolean;
 }
+/** A foreign source as the router keeps it: `at` on its own (monotonic) clock. */
+type HeardSource = Omit<ForeignSource, "seenAgoMs" | "lastSeen"> & { at: number };
 
 const FOREIGN_EXPIRY_MS = 3000;
 
@@ -103,7 +108,7 @@ export class OutputRouter {
   private readonly lastSent = new Map<number, { at: number; data: Uint8Array }>();
   private readonly cid = randomBytes(16);
   private nodeListener: ((change: { added?: KnownNode; lost?: KnownNode[] }) => void) | undefined;
-  private readonly foreign = new Map<string, ForeignSource>();
+  private readonly foreign = new Map<string, HeardSource>();
   /**
    * The ArtDmx packets this router sent in the last seconds, by fingerprint. A broadcast comes back
    * to its sender: a copy of one of these is our own; anything else is another console, even from
@@ -251,7 +256,7 @@ export class OutputRouter {
     const key = `${ip}:${port}`;
     const known = this.foreign.get(key);
     const portAddresses = known ? [...new Set([...known.portAddresses, dmx.portAddress])].sort((a, b) => a - b) : [dmx.portAddress];
-    this.foreign.set(key, { ip, port, portAddresses, lastSeen: nowMs, local: this.locals.has(ip) });
+    this.foreign.set(key, { ip, port, portAddresses, at: nowMs, local: this.locals.has(ip) });
   }
 
   private rememberSent(packet: Buffer, nowMs: number): void {
@@ -262,10 +267,13 @@ export class OutputRouter {
     this.recentlySent.set(fingerprint(packet), nowMs);
   }
 
-  /** Controllers seen sending Art-Net in the last seconds. */
-  foreignSources(nowMs = this.clock()): ForeignSource[] {
-    for (const [k, f] of this.foreign) if (nowMs - f.lastSeen > FOREIGN_EXPIRY_MS) this.foreign.delete(k);
-    return [...this.foreign.values()];
+  /** Controllers seen sending Art-Net in the last seconds, each with how long ago (`seenAgoMs`) and that moment on the wall clock (`lastSeen`), as `nodes()`. */
+  foreignSources(nowMs = this.clock(), wallMs = Date.now()): ForeignSource[] {
+    for (const [k, f] of this.foreign) if (nowMs - f.at > FOREIGN_EXPIRY_MS) this.foreign.delete(k);
+    return [...this.foreign.values()].map(({ at, ...rest }) => {
+      const ago = Math.max(0, nowMs - at);
+      return { ...rest, seenAgoMs: Math.round(ago), lastSeen: Math.round(wallMs - ago) };
+    });
   }
 
   /**
