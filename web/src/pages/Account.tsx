@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
+import { roleLabel } from "../i18n";
 
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
@@ -44,8 +45,8 @@ export function AccountPage({ role }: { role: Role }): ReactElement {
       <section>
         <h2>{t.account}</h2>
         <p className="who">
-          <strong>{role.name}</strong>
-          {role.role && role.role !== role.name && <span className="hint"> · {role.role}</span>}
+          <strong>{role.user ? role.name : roleLabel(t, role.id, role.name)}</strong>
+          {role.role && role.role !== role.name && <span className="hint"> · {roleLabel(t, role.id, role.role)}</span>}
         </p>
         {!me && <p className="hint">{t.signedInWithToken}</p>}
         {message && <p className="hint">✔ {message}</p>}

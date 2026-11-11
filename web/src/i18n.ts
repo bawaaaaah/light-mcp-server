@@ -20,7 +20,9 @@ const fr = {
   nodes: "Nodes Art-Net",
   noNodes: "Aucun node détecté.",
   discover: "Chercher les nodes",
+  colon: " :", // before a value; French puts a space before the colon
   roles: "Rôles et droits",
+  builtInRoles: { admin: "Administrateur du lieu", regisseur: "Régisseur", benevole: "Bénévole", lecture: "Lecture seule" } as Record<string, string>,
   adminOnly: "Réservé à l'administrateur.",
   venue: "Lieu",
   patch: "Patch",
@@ -1017,7 +1019,9 @@ const en: typeof fr = {
   nodes: "Art-Net nodes",
   noNodes: "No node found.",
   discover: "Discover nodes",
+  colon: ":",
   roles: "Roles and rights",
+  builtInRoles: { admin: "Venue administrator", regisseur: "Stage manager", benevole: "Volunteer", lecture: "Read-only" } as Record<string, string>,
   adminOnly: "Administrator only.",
   venue: "Venue",
   patch: "Patch",
@@ -1056,7 +1060,7 @@ const en: typeof fr = {
   song: "Song",
   follow: "Follow MIDI position",
   cuesheet: "Cue sheet",
-  noSongs: "No songs yet: « + New song », or ask the AI (song.put, song.grid_fill).",
+  noSongs: "No songs yet: “+ New song”, or ask the AI (song.put, song.grid_fill).",
   lint: "Check the show",
   fromIntent: "Create a look from an intention",
   name: "Name",
@@ -1162,8 +1166,8 @@ const en: typeof fr = {
   addStep: "Add a step",
   rangeName: "function",
   rawChannels: "Raw channels (machines, lamps)",
-  rawChannelsHelp: "Smoke, hazer, a lamp without colour, a bar's mode or colour preset…: one DMX value (0-255) per step, or a function picked by name, advancing with the look's cadence, without fade. With the « none » technique, it is a machine button.",
-  faderHelp: "Open a fixture (in address order, searched by name, type or address) and tick its channels, or its box for all of them; quick picks and « Same channel everywhere » tick on every fixture shown. The same fader sets every ticked channel. On a fixture's dimmer the fader doses it: at 0 it is dark, at full it follows the looks; on a colour or another channel it lights it. « Dosed by the DCA » puts the fader under a DCA.",
+  rawChannelsHelp: "Smoke, hazer, a lamp without colour, a bar's mode or colour preset…: one DMX value (0-255) per step, or a function picked by name, advancing with the look's cadence, without fade. With the “none” technique, it is a machine button.",
+  faderHelp: "Open a fixture (in address order, searched by name, type or address) and tick its channels, or its box for all of them; quick picks and “Same channel everywhere” tick on every fixture shown. The same fader sets every ticked channel. On a fixture's dimmer the fader doses it: at 0 it is dark, at full it follows the looks; on a colour or another channel it lights it. “Dosed by the DCA” puts the fader under a DCA.",
   faderChannels: "Channels to drive",
   faderManualOffset: "Channel # (fixtures without a definition)",
   faderNoChannel: "No channel chosen",
@@ -1204,14 +1208,14 @@ const en: typeof fr = {
   playback: "Playback",
   playbackHelp: "Like a QLC+ Playback slider: above 0, the DCA starts the looks it doses; at 0, it stops them (except those started by hand).",
   faderChannelCount: "channel(s) driven",
-  channelFadersHelp: "Like QLC+ « Level » sliders: they write channels directly (white, UV, strobe, machines), highest takes precedence with the show; on a dimmer they dose it. The rules still apply after them.",
+  channelFadersHelp: "Like QLC+ “Level” sliders: they write channels directly (white, UV, strobe, machines), highest takes precedence with the show; on a dimmer they dose it. The rules still apply after them.",
   channelsShort: "channels",
   dcaMode: "DCA limits",
   dcaClamp: "stop",
   dcaScale: "scaled travel",
   rulesTitle: "Rules and limits",
   programs: "Rule programs",
-  programsHelp: "A program groups rules for a moment of the service (« prayer »: nothing above 40 %, no strobe). One is active at a time; it is activated by a song section, a MIDI Program Change (number shown as in Live: #100) or here.",
+  programsHelp: "A program groups rules for a moment of the service (“prayer”: nothing above 40 %, no strobe). One is active at a time; it is activated by a song section, a MIDI Program Change (number shown as in Live: #100) or here.",
   programActive: "active",
   programActiveHelp: "Active rule program: its rules apply on top of the permanent ones",
   programOn: "Activate",
@@ -1289,10 +1293,10 @@ const en: typeof fr = {
   onViolationHint: "Bound it (and say so), ask before launching it (refused from MIDI, OSC or a song, where nobody can answer), or refuse to launch it",
   onViolations: { clamp: "bound", confirm: "ask", reject: "refuse" },
   forCallers: "only for:",
-  forCallersHint: "Nothing ticked: the rule bounds the output, for everyone. Ticked: it does not bound the output (which mixes every source) but checks the looks launched from these origins or by these roles, refusing them or asking first (« bound » refuses here)",
+  forCallersHint: "Nothing ticked: the rule bounds the output, for everyone. Ticked: it does not bound the output (which mixes every source) but checks the looks launched from these origins or by these roles, refusing them or asking first (“bound” refuses here)",
   holdSeconds: "for (s) at most",
   holdHint: "Bounded duration: above this level for this long at most (a blinder at full, a lamp heating up); after that the channel is held just under it until what drives it comes down",
-  maxHzHint: "Brings the strobe speed under this frequency, on fixtures whose definition gives it in Hz (« Check the show » flags the others)",
+  maxHzHint: "Brings the strobe speed under this frequency, on fixtures whose definition gives it in Hz (“Check the show” flags the others)",
   ruleTags: { soundActive: "sound-active", autoProgram: "auto programs", builtinMacro: "built-in macros", strobe: "strobe", reset: "reset", uv: "UV", machine: "machines" },
   locked: "locked",
   optional: "optional",
@@ -1582,9 +1586,9 @@ const en: typeof fr = {
   resetConfirmVenue: "Empty the whole open show AND its venue (patch, canvases, zones)? A backup is made first.",
   resetDone: "Show reset (backup made first)",
   safeState: "Safe state (Panic)",
-  safeStateHelp: "What « Neutral panic » recalls: a snapshot (the whole state saved ahead), else a look, else a Blackout.",
+  safeStateHelp: "What “Neutral panic” recalls: a snapshot (the whole state saved ahead), else a look, else a Blackout.",
   snapshots: "Snapshots",
-  snapshotsHelp: "A snapshot keeps the whole state of the moment: looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout. Recalling it sets everything at once; chosen as the safe state, « Neutral panic » recalls it.",
+  snapshotsHelp: "A snapshot keeps the whole state of the moment: looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout. Recalling it sets everything at once; chosen as the safe state, “Neutral panic” recalls it.",
   snapshotName: "Snapshot name",
   saveSnapshot: "Save the current state",
   safeBadge: "safe",
@@ -1636,7 +1640,7 @@ const en: typeof fr = {
   pinStageHelp: "Keeps the stage in view under the bar while the buttons scroll",
   pinTools: "Pin the tools",
   pinned: "Pinned",
-  foldStageHelp: "Folds the stage plan in place: its row stays, to open it again where it was (« Stage » in the bar removes the whole panel)",
+  foldStageHelp: "Folds the stage plan in place: its row stays, to open it again where it was (“Stage” in the bar removes the whole panel)",
   stageHeight: "Stage height",
   stageHeightHelp: "Drag to set the pinned stage's height (↑ ↓ arrows on the keyboard); double click: its own height",
   stageBeams: "Beams",
@@ -1664,7 +1668,7 @@ const en: typeof fr = {
   fixtureMenuHint: "Right-click (long press on a tablet): name, colour, inversions",
   invertPanLabel: "Invert X (pan)",
   invertTiltLabel: "Invert Y (tilt)",
-  invertAxisHelp: "Some makers wire pan (X) or tilt (Y) the other way round: the box flips the 0..1 value sent on its channels; the preview of where the head points, and « Aim », already undo it",
+  invertAxisHelp: "Some makers wire pan (X) or tilt (Y) the other way round: the box flips the 0..1 value sent on its channels; the preview of where the head points, and “Aim”, already undo it",
   panelMovement: "Movement",
   panelLight: "Light",
   closePanel: "Put the panel away",
@@ -1889,7 +1893,7 @@ const en: typeof fr = {
   whyFader: "Channel fader",
   whyRawLook: "Raw-channel look",
   whyLeaving: "fading out",
-  whyClamp: "Rule « {rule} »: {from} → {to}",
+  whyClamp: "Rule “{rule}”: {from} → {to}",
   parkedHelp: "Forced from the DMX console: they override the show until released (DMX console → Release all, or double-click a channel).",
   lintErrors: "error(s)",
   lintWarnings: "warning(s)",
@@ -1997,6 +2001,12 @@ const en: typeof fr = {
 export type Lang = "fr" | "en";
 export type Texts = typeof fr;
 export const TEXTS: Record<Lang, Texts> = { fr, en };
+
+/** A role's name as shown: a built-in role keeps its stored (French) name only if renamed; otherwise it is worded in the interface's language. */
+export function roleLabel(t: Texts, id: string, name: string | undefined): string {
+  const builtIn = TEXTS.fr.builtInRoles[id];
+  return builtIn !== undefined && (name === undefined || name === builtIn) ? t.builtInRoles[id]! : (name ?? id);
+}
 
 export function initialLang(): Lang {
   try {

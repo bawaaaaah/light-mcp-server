@@ -31,7 +31,7 @@ export function PreviewBeforeLaunch({ lookId, name, danger, manualOnly, onCancel
     };
   }, []);
   return (
-    <Modal label={`${t.previewBeforeLaunch} : ${name}`} className="sheet" onClose={onCancel}>
+    <Modal label={`${t.previewBeforeLaunch}${t.colon} ${name}`} className="sheet" onClose={onCancel}>
       <h3 className="sheet-name">
         {manualOnly && <span className="mark">✋</span>}
         {name}

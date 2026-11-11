@@ -16,6 +16,7 @@
  */
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import { say } from "../../../core/lang.js";
 import { parseMidi, type MidiMessage } from "./parse.js";
 import { RtpMidiSession } from "./rtp/session.js";
 import { advertise, browse, localHost, type FoundService } from "../../../core/mdns.js";
@@ -88,6 +89,9 @@ export interface PortStatus {
   lastMessageAt?: number;
 }
 
+/** Why local MIDI is off when the host passed no native layer; worded per request by `status()`. */
+const LOCAL_DISABLED = "MIDI local désactivé";
+
 export class MidiHub extends EventEmitter {
   private native: NativeMidi | undefined;
   readonly localError: string | undefined;
@@ -114,7 +118,7 @@ export class MidiHub extends EventEmitter {
   ) {
     super();
     if (options.native === null) {
-      this.localError = "MIDI local désactivé";
+      this.localError = LOCAL_DISABLED;
     } else if (options.native) {
       this.native = options.native;
     } else {
@@ -381,7 +385,7 @@ export class MidiHub extends EventEmitter {
     }
     return {
       localAvailable: this.localAvailable,
-      localError: this.localError,
+      localError: this.localError === LOCAL_DISABLED ? say(LOCAL_DISABLED, "local MIDI disabled") : this.localError,
       inputs,
       outputs: this.knownOutputs,
       feedback: this.feedbackPort?.name ?? (this.config.feedbackOutput === "rtp" ? "rtp" : undefined),

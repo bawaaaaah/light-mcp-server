@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, shareLink, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
+import { roleLabel } from "../i18n";
 import { CopyButton } from "./Copy";
 import { QrCode } from "./QrCode";
 
@@ -87,7 +88,7 @@ export function UsersPanel({ role }: { role: Role }): ReactElement {
                     <select aria-label={`${t.role} ${u.name}`} value={u.role} onChange={(e) => patch(u.id, { role: e.target.value })}>
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.name}
+                          {roleLabel(t, r.id, r.name)}
                         </option>
                       ))}
                     </select>
@@ -137,7 +138,7 @@ export function UsersPanel({ role }: { role: Role }): ReactElement {
             <select aria-label={t.role} value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.name}
+                  {roleLabel(t, r.id, r.name)}
                 </option>
               ))}
             </select>

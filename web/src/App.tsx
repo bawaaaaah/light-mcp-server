@@ -1,6 +1,6 @@
 import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode, type ReactElement } from "react";
 import { ApiError, can, keysUsableHere, lightState, login, loginUsers, loginWithKey, loginWithToken, logout, onSignedOut, rememberOnDevice, remembered, restoreSession, setApiLang, switchInProgress, unreachable, type Role } from "./api";
-import { initialLang, TEXTS, type Lang, type Texts } from "./i18n";
+import { initialLang, roleLabel, TEXTS, type Lang, type Texts } from "./i18n";
 import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
 import { DashboardsPage } from "./pages/Dashboards";
@@ -366,7 +366,7 @@ export function App(): ReactElement | null {
           )}
           {!output?.standby && output?.foreignSources?.length ? (
             <span className="badge conflict" title={t.otherSourceHelp}>
-              ⚠ {t.otherSource} : {output.foreignSources.map(sourceName).join(", ")}
+              ⚠ {t.otherSource}{t.colon} {output.foreignSources.map(sourceName).join(", ")}
             </span>
           ) : null}
           {output?.liveAi && (
@@ -381,14 +381,14 @@ export function App(): ReactElement | null {
           ) : null}
           {output?.program && (
             <span className="badge standby" title={t.programActiveHelp}>
-              {t.programLabel} : {output.program}
+              {t.programLabel}{t.colon} {output.program}
             </span>
           )}
         </div>
         <div className="right">
           <span className={up ? "dot ok" : "dot ko"} title={up ? t.connected : t.disconnected} />
-          <button className="role ghost" title={`${role.role ?? role.name} · ${t.account}`} onClick={() => setPage("account")}>
-            {role.name}
+          <button className="role ghost" title={`${roleLabel(t, role.id, role.role ?? role.name)} · ${t.account}`} onClick={() => setPage("account")}>
+            {role.user ? role.name : roleLabel(t, role.id, role.name)}
           </button>
           <select aria-label={t.language} value={lang} onChange={(e) => switchLang(e.target.value as Lang)}>
             <option value="fr">FR</option>

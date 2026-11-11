@@ -6,6 +6,8 @@ import type { ZodObject, ZodRawShape } from "zod";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { HINTS, toolHints } from "../../../src/plugins/light/commands/tool-hints.js";
+import { commandTitle, TITLES_EN } from "../../../src/plugins/light/commands/titles-en.js";
+import { inLang } from "../../../src/core/lang.js";
 
 /**
  * « Read-only » is a promise to AI clients (MCP readOnlyHint: some run such tools without asking)
@@ -26,6 +28,19 @@ describe("command contract", () => {
 
   it("never flags as read-only what plays the show or injects MIDI", () => {
     for (const name of ["selftest.run", "midi.in", "look.go", "panic", "output.standby"]) expect(plugin.commands.get(name)?.readOnly, name).to.not.equal(true);
+  });
+
+  describe("English titles", () => {
+    it("gives every command an English title (a new one must be added to TITLES_EN)", () => {
+      expect(commands.filter((c) => !(c.name in TITLES_EN)).map((c) => c.name)).to.deep.equal([]);
+      expect(Object.keys(TITLES_EN).filter((n) => !commands.some((c) => c.name === n))).to.deep.equal([]);
+    });
+
+    it("answers the French title by default and the English one on request", () => {
+      const def = commands.find((c) => c.name === "look.go")!;
+      expect(commandTitle(def)).to.equal(def.title);
+      expect(inLang("en", () => commandTitle(def))).to.equal(TITLES_EN["look.go"]);
+    });
   });
 
   describe("MCP tool annotations", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, cmd, grants } from "../api";
 import { useT } from "../App";
+import { roleLabel } from "../i18n";
 
 interface RoleRow {
   id: string;
@@ -67,9 +68,9 @@ export function RolesPanel(): ReactElement {
             <th />
             {roles.map((r) => (
               <th key={r.id}>
-                {r.name}
+                {roleLabel(t, r.id, r.name)}
                 {!BUILT_IN.includes(r.id) && (
-                  <button className="ghost" title={t.delete} onClick={() => confirm(`${t.delete} « ${r.name} » ?`) && void api(`/api/auth/roles/${r.id}`, "DELETE").then(load, (e: Error) => setError(e.message))}>
+                  <button className="ghost" title={t.delete} onClick={() => confirm(`${t.delete} « ${roleLabel(t, r.id, r.name)} » ?`) && void api(`/api/auth/roles/${r.id}`, "DELETE").then(load, (e: Error) => setError(e.message))}>
                     ✕
                   </button>
                 )}
@@ -89,7 +90,7 @@ export function RolesPanel(): ReactElement {
                   <td key={r.id} className="check">
                     <input
                       type="checkbox"
-                      aria-label={`${r.name} · ${t.rightNames[right as keyof typeof t.rightNames] ?? right}`}
+                      aria-label={`${roleLabel(t, r.id, r.name)} · ${t.rightNames[right as keyof typeof t.rightNames] ?? right}`}
                       checked={grants(r.rights, right)}
                       disabled={r.id === "admin"}
                       onChange={() => patch(r.id, { rights: toggle(r.rights, right) })}
@@ -109,7 +110,7 @@ export function RolesPanel(): ReactElement {
                 <td key={r.id} className="check">
                   <input
                     type="checkbox"
-                    aria-label={`${r.name} · ${d.name}`}
+                    aria-label={`${roleLabel(t, r.id, r.name)} · ${d.name}`}
                     checked={!r.dashboards?.length || r.dashboards.includes(d.id)}
                     disabled={r.id === "admin"}
                     onChange={(e) => {

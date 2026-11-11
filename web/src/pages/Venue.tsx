@@ -225,7 +225,7 @@ export function VenuePage(): ReactElement {
                       if (openVenue?.shared && !confirm(`${t.sharedVenue} ${sharedShows.join(", ")}\n${t.deleteSharedConfirm}`)) return;
                       void run("venue.fixture.delete", { id: f.id }).then((r) => {
                         const usedBy = (r as { usedBy?: string[] } | undefined)?.usedBy ?? [];
-                        if (usedBy.length) setError(`${f.name} : ${t.stillUsedBy} ${usedBy.join(", ")}`);
+                        if (usedBy.length) setError(`${f.name}${t.colon} ${t.stillUsedBy} ${usedBy.join(", ")}`);
                       });
                     }}>
                       ✕

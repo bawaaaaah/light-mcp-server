@@ -19,6 +19,7 @@ import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { registerShowCommands } from "./commands/show-commands.js";
+import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
 import { ActivityLog, commandNotice, undoOf } from "./activity.js";
@@ -308,7 +309,9 @@ export class LightPlugin implements McpPlugin {
         };
         return this.activity.list(limit).map((e) => {
           const undo = undoOf(e, designWrite);
-          return undo ? { ...e, undo } : e;
+          const def = this.commands.get(e.name);
+          const line = def ? { ...e, title: commandTitle(def) } : e;
+          return undo ? { ...line, undo } : line;
         });
       },
     });
@@ -941,7 +944,7 @@ export class LightPlugin implements McpPlugin {
     const credential = (req: Request) => this.opts.auth?.bearerOf(req);
     router.get("/openapi.json", (_req: Request, res: Response) => res.json(openApiDocument(this.commands.list(), getPackageVersion())));
     router.get("/commands", (_req: Request, res: Response) => {
-      res.json(this.commands.list().map((d) => ({ name: d.name, title: d.title, description: d.description, right: d.right, readOnly: Boolean(d.readOnly), schema: z.toJSONSchema(d.schema, { io: "input", reused: "inline", unrepresentable: "any" }) })));
+      res.json(this.commands.list().map((d) => ({ name: d.name, title: commandTitle(d), description: d.description, right: d.right, readOnly: Boolean(d.readOnly), schema: z.toJSONSchema(d.schema, { io: "input", reused: "inline", unrepresentable: "any" }) })));
     });
     router.post("/commands/:name", async (req: Request, res: Response) => {
       try {

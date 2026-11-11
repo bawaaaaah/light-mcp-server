@@ -446,7 +446,7 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
       )}
       {rules.clamps.length > 0 && (
         <p className="hint">
-          {t.lastClamps} : {rules.clamps.slice(0, 6).map((c) => `${c.fixture}/${c.channel} ${c.from}→${c.to}`).join(" · ")}
+          {t.lastClamps}{t.colon} {rules.clamps.slice(0, 6).map((c) => `${c.fixture}/${c.channel} ${c.from}→${c.to}`).join(" · ")}
         </p>
       )}
     </div>

@@ -75,7 +75,7 @@ export function ChannelTree({ fixtures, groups, selected, onChange }: { fixtures
       <div className="row tree-tools">
         <input type="search" placeholder={t.searchNameAddress} aria-label={t.searchNameAddress} value={query} onChange={(e) => setQuery(e.target.value)} />
         <select aria-label={t.byGroup} value={group} onChange={(e) => setGroup(e.target.value)}>
-          <option value="">{t.byGroup} : —</option>
+          <option value="">{t.byGroup}{t.colon} —</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
               {g.name}
@@ -105,7 +105,7 @@ export function ChannelTree({ fixtures, groups, selected, onChange }: { fixtures
         ))}
         {/* the same channel on every fixture shown that has it: « Strobe » on all the bars */}
         <select aria-label={t.sameChannel} value={sameName} onChange={(e) => setSameName(e.target.value)}>
-          <option value="">{t.sameChannel} : —</option>
+          <option value="">{t.sameChannel}{t.colon} —</option>
           {names.map((n) => (
             <option key={n} value={n}>
               {n} ({shown.filter((f) => f.channels.some((c) => c.name === n)).length})

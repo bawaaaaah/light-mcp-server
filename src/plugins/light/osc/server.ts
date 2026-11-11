@@ -7,6 +7,7 @@
 import { createSocket, type Socket } from "node:dgram";
 import type { z } from "zod";
 import type { CommandDef, CommandRegistry } from "../commands/registry.js";
+import { commandTitle } from "../commands/titles-en.js";
 import { decodeOsc, encodeOsc, type OscArg } from "./codec.js";
 
 export interface OscConfig {
@@ -30,7 +31,7 @@ export function oscRoutes(registry: CommandRegistry): OscRoute[] {
     address: oscAddress(d.name),
     command: d.name,
     params: Object.keys((d.schema as unknown as z.ZodObject).shape ?? {}),
-    description: d.title,
+    description: commandTitle(d),
   }));
 }
 

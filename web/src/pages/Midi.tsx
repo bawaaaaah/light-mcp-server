@@ -313,13 +313,13 @@ export function MidiPage(): ReactElement {
             ))}
           </select>
         </label>
-        {status && !status.localAvailable && <span className="warn">{t.localMidiMissing} : {status.localError}</span>}
+        {status && !status.localAvailable && <span className="warn">{t.localMidiMissing}{t.colon} {status.localError}</span>}
         {status?.rtp.enabled && !status.rtp.error && <span className="hint">RTP-MIDI :{status.rtp.port} {status.rtp.peers.join(", ")}</span>}
         {status?.rtp.error && <span className="warn">{t.rtpUnavailable} : {status.rtp.error}</span>}
         {status?.node && (
           <span className={status.node.max > 50 ? "warn" : "hint"} title={t.nodeDelay}>
             {t.nodeDelay} : {status.node.p99} ms
-            {status.node.worst && ` · ${t.nodeWorst} : ${Math.round(status.node.worst.ms)} ms (${new Date(status.node.worst.at).toLocaleTimeString().slice(0, 5)})`}
+            {status.node.worst && ` · ${t.nodeWorst}${t.colon} ${Math.round(status.node.worst.ms)} ms (${new Date(status.node.worst.at).toLocaleTimeString().slice(0, 5)})`}
           </span>
         )}
         <label className="row">
