@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Locator, type Page, type Route, type WebSocketRoute } from "@playwright/test";
 
+/** The UI test server's port, as playwright.config.ts starts it (UI_PORT, 8799 by default). */
+const PORT = Number(process.env.UI_PORT ?? 8799);
+
 /** Collects page errors and console errors; every test asserts there are none. */
 function watchErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -211,7 +214,7 @@ test("users: the administrator adds a user with a PIN and a security key, who th
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true } });
-  const origin = "http://localhost:8799";
+  const origin = `http://localhost:${PORT}`;
   await page.goto(`${origin}/#token=ui-test-token`);
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   const users = page.locator(".users");
@@ -576,7 +579,7 @@ test("an LED bar is one rectangle: glued heads on the plan and in a look's strip
 
 test("preview before launch: a tap on the backdrop closes the sheet and does not press what is under it", async ({ browser }) => {
   // a finger: the click that follows a tap goes to what is under the finger once the backdrop is gone
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -628,7 +631,7 @@ async function probeUnderLaunch(page: Page, panic = false): Promise<{ x: number;
 const probed = (page: Page) => page.evaluate<number>("window.probed");
 
 test("preview before launch: the second tap of a double tap on Lancer does not reach what is under it", async ({ browser }) => {
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -653,7 +656,7 @@ test("preview before launch: the second tap of a double tap on Lancer does not r
 });
 
 test("preview before launch: Panic is never swallowed after the sheet closes", async ({ browser }) => {
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -860,7 +863,7 @@ test("my account: signed in with the token, create my administrator account, the
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "usb", hasResidentKey: true, hasUserVerification: true, isUserVerified: true } });
-  await page.goto("http://localhost:8799/#token=ui-test-token");
+  await page.goto(`http://localhost:${PORT}/#token=ui-test-token`);
   await page.locator(".role").click(); // the name in the top bar leads to « Mon compte »
   const account = page.locator(".account");
   await expect(account).toContainText("Créer mon compte administrateur");
@@ -877,7 +880,7 @@ test("my account: signed in with the token, create my administrator account, the
   // clean up with the token
   await page.getByRole("button", { name: "Quitter" }).click();
   await page.goto("about:blank");
-  await page.goto("http://localhost:8799/#token=ui-test-token");
+  await page.goto(`http://localhost:${PORT}/#token=ui-test-token`);
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.locator(".users-table tr", { hasText: "Moi" }).getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".users-table")).not.toContainText("Moi");
@@ -964,7 +967,7 @@ test("a button to confirm: the first press arms it, the second plays; stopping n
 
 test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets still move", async ({ browser }) => {
   // a landscape tablet with the keyboard up: the page is always taller than the screen
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 480 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 480 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -1020,7 +1023,7 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
 });
 
 test("tablet: a long press opens the widget menu, without starting the look", async ({ browser }) => {
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
   await login(page);
@@ -4701,7 +4704,7 @@ test("preview before launch: « Voir avant de lancer » is pressed by default wi
   const errors = watchErrors(page);
   await login(page);
   await expect(page.getByRole("button", { name: "Voir avant de lancer" })).toHaveAttribute("aria-pressed", "false");
-  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: "http://127.0.0.1:8799", locale: "fr-FR" });
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 820, height: 1180 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const touchPage = await ctx.newPage();
   const touchErrors = watchErrors(touchPage);
   await login(touchPage);

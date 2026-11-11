@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const port = 8799;
+// UI_PORT: run on another port when 8799 is taken (the specs read the same variable)
+const port = Number(process.env.UI_PORT ?? 8799);
 export default defineConfig({
   testDir: "test/ui",
   testMatch: "*.spec.ts",
