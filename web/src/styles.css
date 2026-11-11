@@ -3138,6 +3138,15 @@ fieldset.checklist .checklist-search {
 }
 .cell .fader > .track-row {
   flex-shrink: 1;
+  max-width: 100%;
+}
+/* in a dashboard cell the column gives way first: the track keeps its width, the names shorten */
+.cell .fader .track-row .range-ladder {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.cell .fader .track-row .track {
+  flex: none;
 }
 .fixture-panel .panel-channels .fader .track-row {
   flex: none;
@@ -3151,7 +3160,7 @@ fieldset.checklist .checklist-search {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   max-width: 8.5em;
   min-width: 0;
 }
@@ -3178,15 +3187,22 @@ fieldset.checklist .checklist-search {
 .range-ladder small {
   font-variant-numeric: tabular-nums;
 }
+/* the mode's name shortens, its ▾ never goes (the whole text is in the title) */
 .fixture-panel .mode-button {
+  display: inline-flex;
+  align-items: center;
   max-width: 14em;
   min-height: 44px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fixture-panel .panel-mode-picker {
-  margin-top: 0.4em;
+.fixture-panel .mode-button .mode-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* a channel's modes, opened under its button */
+.mode-menu {
+  width: min(22em, calc(100vw - 16px));
 }
 
 /* the theme picker of « create a look by intention » (T14): chips, then the known themes as buttons that wrap */

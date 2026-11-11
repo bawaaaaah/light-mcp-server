@@ -761,6 +761,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               ranges={sharedRanges(fixtureChannels, f.channels)}
               travel={f.range}
               rangesLabel={t.fixtureMode.ranges.replace("{channel}", f.name)}
+              // one cell wide, the column would push the track out of its cell: the range input still says the range
+              ladder={w.w >= 2}
             />
             <span className="value">
               {Math.round(f.level * 100)}%<Sent level={glide.faders[f.id]} />

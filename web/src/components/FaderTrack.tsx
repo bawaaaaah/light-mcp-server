@@ -16,7 +16,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
   const { above, current, below } = rangeNeighbours(ranges, value);
   const row = (r: NamedRange) => (
     <li key={`${r.min}-${r.name}`}>
-      <span className="range-name">{r.name || `${r.min}–${r.max}`}</span>
+      <span className="range-name" title={r.name || undefined}>{r.name || `${r.min}–${r.max}`}</span>
       <small>{r.min}</small>
     </li>
   );
@@ -24,7 +24,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
     <ol className="range-ladder" aria-label={label}>
       {above.map(row)}
       <li className="now" aria-current="true">
-        <span className="range-name">{current ? current.name || `${current.min}–${current.max}` : "–"}</span>
+        <span className="range-name" title={current?.name || undefined}>{current ? current.name || `${current.min}–${current.max}` : "–"}</span>
         <small>{value}</small>
       </li>
       {below.map(row)}
@@ -36,7 +36,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
  *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
  *  (a channel cut into functions, T6) the ranges around its value show on its left and the range input names
  *  the one it is in; `travel` is the fader's own range of DMX values (the whole travel by default). */
-export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel }: {
+export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true }: {
   label: string;
   value: number;
   sent?: number;
@@ -47,6 +47,8 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
   ranges?: readonly NamedRange[];
   travel?: { min: number; max: number };
   rangesLabel?: string;
+  /** false: the ranges are said by the range input only, no column beside the track (a widget one cell wide). */
+  ladder?: boolean;
 }): ReactElement {
   const track = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -111,7 +113,7 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
       <span className="fader-thumb" aria-hidden style={{ bottom: `${value * 100}%` }} />
     </div>
   );
-  if (dmx === undefined) return body;
+  if (dmx === undefined || !ladder) return body;
   return (
     <div className="track-row">
       <RangeLadder ranges={ranges!} value={dmx} label={rangesLabel ?? label} />

@@ -6,7 +6,7 @@
  * T12), the current one marked by a sign and a word (`aria-current`), the values on the right. Each row
  * keeps room on its left for a thumbnail (T19).
  */
-import { useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { searchBy } from "../search-text";
 
@@ -23,17 +23,28 @@ export interface ModeItem {
 /** Lists longer than this get a search field. */
 export const SEARCH_FROM = 8;
 
-/** `heading` false: the title only names the list (a fieldset's legend already says it). */
-export function ModePicker({ title, items, onPick, disabled, heading = true }: { title: string; items: readonly ModeItem[]; onPick: (item: ModeItem) => void; disabled?: boolean; heading?: boolean }): ReactElement {
+/**
+ * `heading` false: the title only names the section (a fieldset's legend already says it); the list inside is not
+ * named again. `focusOnOpen`: the search, else the current row, else the first, takes the focus when it appears
+ * (a list opened from a button).
+ */
+export function ModePicker({ title, items, onPick, disabled, heading = true, focusOnOpen = false }: { title: string; items: readonly ModeItem[]; onPick: (item: ModeItem) => void; disabled?: boolean; heading?: boolean; focusOnOpen?: boolean }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
+  const box = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!focusOnOpen) return;
+    const el = box.current?.querySelector<HTMLElement>('input[type="search"], button[aria-current="true"], button');
+    el?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when it opens
+  }, []);
   const found = new Set(searchBy(items, query, (i) => [i.label, i.detail ?? ""]).map((i) => i.key));
   // a variant found keeps its mode in view above it, a mode found keeps its variants
   const shown = items.filter((i) => found.has(i.key) || (i.parent === undefined && items.some((v) => v.parent === i.key && found.has(v.key))) || (i.parent !== undefined && found.has(i.parent)));
   const picks = shown.filter((i) => found.has(i.key));
   return (
-    <section className="mode-picker" aria-labelledby={heading ? `${id}-title` : undefined} aria-label={heading ? undefined : title}>
+    <section ref={box} className="mode-picker" aria-labelledby={heading ? `${id}-title` : undefined} aria-label={heading ? undefined : title}>
       {heading && <h4 id={`${id}-title`}>{title}</h4>}
       {items.length > SEARCH_FROM && (
         <input
@@ -51,7 +62,7 @@ export function ModePicker({ title, items, onPick, disabled, heading = true }: {
           }}
         />
       )}
-      <ul className="mode-list" aria-label={title}>
+      <ul className="mode-list">
         {shown.map((i) => (
           <li key={i.key} className={i.parent !== undefined ? "variant" : undefined}>
             <button type="button" className={i.current ? "chosen" : undefined} aria-current={i.current ? "true" : undefined} disabled={disabled} onClick={() => onPick(i)}>
