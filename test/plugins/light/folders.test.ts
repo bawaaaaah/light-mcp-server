@@ -84,6 +84,21 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     await run("show.settings.set", { grandMaster: 1, folders: [], liveAi: false, name });
   });
 
+  it("clears the Panic fallback with null: from a snapshot back to a look, then to none", async () => {
+    type S = { safeSnapshot?: string; safeLook?: string };
+    const settings = async () => (await run("show.settings")) as S;
+    const snap = (await run("snapshot.save", { name: "Secours essai" })) as { id: string };
+    await run("show.settings.set", { safeSnapshot: snap.id });
+    expect((await settings()).safeSnapshot).to.equal(snap.id);
+    await run("show.settings.set", { safeSnapshot: null, safeLook: "checker" });
+    const toLook = await settings();
+    expect([toLook.safeSnapshot, toLook.safeLook]).to.deep.equal([undefined, "checker"]);
+    await run("show.settings.set", { safeSnapshot: null, safeLook: null });
+    const none = await settings();
+    expect([none.safeSnapshot, none.safeLook]).to.deep.equal([undefined, undefined]);
+    await run("snapshot.delete", { id: snap.id, force: true });
+  });
+
   it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {
     await run("show.folder.move", { ids: ["checker"], folder: "X/B" });
     await run("show.folder.move", { ids: ["palette"], folder: "B" });

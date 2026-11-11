@@ -3535,6 +3535,29 @@ test("venue plan: the selected fixture's pad keeps sending after its first gestu
   expect(errors).toEqual([]);
 });
 
+test("show page: the Panic fallback goes from a snapshot back to a look, then to none", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const snap = (await api(page, "snapshot.save", { name: "Secours essai" })) as { id: string };
+  type S = { safeSnapshot?: string; safeLook?: string };
+  const settings = async () => (await api(page, "show.settings")) as S;
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const fallback = page.locator("select").filter({ has: page.locator(`option[value="snapshot:${snap.id}"]`) }).first();
+    await fallback.selectOption(`snapshot:${snap.id}`);
+    await expect.poll(async () => (await settings()).safeSnapshot).toBe(snap.id);
+    await fallback.selectOption("look:checker");
+    await expect.poll(async () => { const s = await settings(); return [s.safeSnapshot ?? null, s.safeLook ?? null]; }).toEqual([null, "checker"]);
+    await fallback.selectOption("");
+    await expect.poll(async () => { const s = await settings(); return [s.safeSnapshot ?? null, s.safeLook ?? null]; }).toEqual([null, null]);
+    await expect(fallback).toHaveValue("");
+  } finally {
+    await api(page, "show.settings.set", { safeSnapshot: null, safeLook: null });
+    await api(page, "snapshot.delete", { id: snap.id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("faders on chosen fixtures and channels (found by address), dosing the dimmer, under one DCA", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

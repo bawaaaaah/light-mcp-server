@@ -1189,8 +1189,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "show:write",
     profiles: ["setup", "design"],
     // a patch: only the settings given change (partial() would reset the others to their defaults)
-    schema: patchSchema(ShowSettingsSchema).omit({ schemaVersion: true, kind: true }).extend({ grandMasterSmoothing: FaderSmoothingSchema.nullable().optional() }),
-    run: ({ grandMasterSmoothing, ...patch }) => {
+    // null clears a setting: JSON has no « undefined », so a cleared Panic fallback would otherwise never reach here
+    schema: patchSchema(ShowSettingsSchema)
+      .omit({ schemaVersion: true, kind: true })
+      .extend({
+        grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
+        safeLook: z.string().nullable().optional().describe("the look « Panic neutre » plays; null: none"),
+        safeSnapshot: z.string().nullable().optional().describe("the snapshot « Panic neutre » recalls (wins over safeLook); null: none"),
+      }),
+    run: ({ grandMasterSmoothing, safeLook, safeSnapshot, ...rest }) => {
+      const patch = {
+        ...rest,
+        ...(safeLook === undefined ? {} : { safeLook: safeLook ?? undefined }),
+        ...(safeSnapshot === undefined ? {} : { safeSnapshot: safeSnapshot ?? undefined }),
+      };
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
       if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(say(`instantané inconnu : ${patch.safeSnapshot}`, `unknown snapshot: ${patch.safeSnapshot}`));
       // null clears the grand master's smoothing (a partial patch cannot carry « absent »)
