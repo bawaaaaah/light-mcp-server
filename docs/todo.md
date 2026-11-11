@@ -102,6 +102,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 
 ### T16 — Instantané choisi au redémarrage
 - Pouvoir désigner l'instantané rappelé automatiquement au démarrage de l'application (réglage du show ; interaction à définir avec la reprise après plantage de moins de 5 min et avec la sortie en veille).
+- **Fait (2026-11-11)**, décisions prises avec l'utilisateur : réglage du show `startupSnapshot` (`show.settings.set`, `null` l'efface ; `snapshot.delete` l'efface) ; au démarrage, une **reprise après plantage récente l'emporte**, sinon l'instantané est rappelé comme `snapshot.recall` (`recallSnapshot`, état puis Blackout) ; **la veille tient** (rien n'est envoyé) ; `show.open` rappelle aussi celui du show ouvert. Interface : select « Instantané au démarrage » à côté du secours du Panic, badge « démarrage » dans la table des instantanés. Tests : [startup-snapshot.test.ts](../test/plugins/light/startup-snapshot.test.ts), un parcours UI dans [app.spec.ts](../test/ui/app.spec.ts).
 
 ### T17 — Dossiers de looks
 - Changer le dossier d'un look (éditeur et clic droit).
@@ -271,7 +272,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 |---|---|---|
 | 1 | T7 inverser pan/tilt | l'orientation sait déjà inverser (`invertPan`, `invertTilt`) : à exposer dans le patch |
 | 2 | T17 dossiers de looks | changement d'un champ + une vue groupée |
-| 3 | T16 instantané au démarrage | un réglage du show + un rappel au boot |
+| 3 | ~~T16 instantané au démarrage~~ fait | un réglage du show + un rappel au boot |
 | 4 | T12 canaux du type choisi | filtre d'affichage dans le sélecteur |
 | 5 | T14 thématiques en combobox | composant d'interface, données déjà là |
 | 6 | T4 fader DCA et lissage | bug d'affichage à reproduire, correctif probablement local |
@@ -311,7 +312,7 @@ Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les d�
 | Phase | Items | But | Fini quand |
 |---|---|---|---|
 | **0. Jouer proprement** | T2 ([plan-t2.md](plan-t2.md)), T4, T3 (avec sa précision sur les du groupe extérieur de l'utilisateur) | plus de flash en changeant de look, fader DCA juste, fondu respecté partout | un test moteur A → B → A passe ; le fader DCA garde sa course avec le lissage ; le fondu agit sur tous les projecteurs |
-| **1. Gains rapides** | T7 fait, T17 fait, T33 fait, T31 fait, T12, T16, T14 | inversion pan/tilt, dossiers de looks, gestion des dossiers, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
+| **1. Gains rapides** | T7 fait, T17 fait, T33 fait, T31 fait, T12, T16 faits, T14 | inversion pan/tilt, dossiers de looks, gestion des dossiers, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
 | **2. Définitions saines** | T20a (détecter les doublons et avertir), T21, T22, T18 | plus de définition choisie au hasard, le Wash allume ses 3 zones, patch contrôlé, roue de couleurs fiable | « Vérifier le show » signale un doublon ; les 10 couleurs du Spot tombent sur la bonne case ; Wash 29 canaux piloté sur toutes les zones |
 | **3. Réglage et mouvements des lyres** | T5, **T25 (conception, avec T29)**, T26, T11, T6, T9, T24, T32 (enregistrer et rappeler une position nommée), T27 | pistes fondables, couche Mouvement claire, verrou, menu de l'appareil, modes nommés, pad XY, cible 3D, presets de position, zones de visée | essai sur les vraies lyres ; T5 avant T6, T25 avant T24, T26 et T29, T24 avant T27 pour le pad |
 | **4. Confort et contenu** | T15, T13, T20b (fusion, duplication, éditeur de définition), T8, T23, T30, T28 | intentions exportées, canevas, bibliothèque complète, calibration manuelle, triangulation, placement par angles, looks par zone | archive `.lightshow` aller-retour ; fusion sans changer adresses ni modes ; T23 avant T30 ; T27 et T25 avant T28 |
@@ -323,7 +324,7 @@ Après chaque phase : lancer `npm test`, `npm run typecheck` et `npm run test:ui
 ## Questions à trancher avec l'utilisateur
 Ouvertes :
 - Quelle interface DMX USB exacte (Open DMX FTDI ou USB Pro) et quels univers y sont routés ? (T1, en attente)
-- T16 : l'instantané de démarrage doit-il passer outre la sortie en veille ? (par prudence : non, tant que l'utilisateur n'a pas répondu)
+- ~~T16 : l'instantané de démarrage passe-t-il outre la veille ?~~ tranché le 2026-11-11 : non, la veille tient.
 - T6 : une variante de mode (plusieurs valeurs voisines) se présente en sous-menu ou dans le même menu ?
 - T27 : formes de zones voulues (rectangle seulement, ou aussi ellipse et polygone) ?
 - **T25 : priorité entre position manuelle, cible et mouvement du look** : reportée par l'utilisateur, à trancher à l'attaque de T25 (proposition de départ : manuelle > cible > look).

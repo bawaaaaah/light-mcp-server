@@ -56,6 +56,7 @@ type Carry = { kind: "looks"; ids: string[] } | { kind: "folder"; path: string }
 interface Settings {
   safeLook?: string;
   safeSnapshot?: string;
+  startupSnapshot?: string;
   grandMaster: number;
   liveAi?: boolean;
   looksMerge?: "last" | "highest";
@@ -493,6 +494,22 @@ export function ShowPage(): ReactElement {
             </optgroup>
           </select>
         </label>
+        <label title={t.startupSnapshotHelp}>
+          {t.startupSnapshot}{" "}
+          <select
+            data-testid="startup-snapshot"
+            value={settings?.startupSnapshot ?? ""}
+            // null clears: a key set to undefined would vanish from the JSON and the server keep the old one
+            onChange={(e) => void run("show.settings.set", { startupSnapshot: e.target.value || null })}
+          >
+            <option value="">{t.none}</option>
+            {snapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label title={t.looksMergeHelp}>
           {t.looksMerge}{" "}
           <select value={settings?.looksMerge ?? "last"} onChange={(e) => void run("show.settings.set", { looksMerge: e.target.value })}>
@@ -564,6 +581,7 @@ export function ShowPage(): ReactElement {
                 <td>
                   {s.name}
                   {settings?.safeSnapshot === s.id && <span className="badge standby"> {t.safeBadge}</span>}
+                  {settings?.startupSnapshot === s.id && <span className="badge standby"> {t.startupBadge}</span>}
                 </td>
                 <td className="hint">
                   {s.looks.length} look(s) · {Object.keys(s.groups).length} DCA · {Object.keys(s.faders).length} fader(s){s.blackout ? " · Blackout" : ""}

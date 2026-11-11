@@ -11,7 +11,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema } from "../venue/venue.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
-import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look } from "../show/model.js";
+import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
@@ -26,6 +26,23 @@ import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
 import { say } from "../../../core/lang.js";
 import { patchSchema } from "../../../core/zod-patch.js";
+
+/** Puts a snapshot back the way `snapshot.recall` does: the runtime applies it, then the Blackout is set. */
+export function recallSnapshot(engine: DmxEngine, show: ShowRuntime, snap: Snapshot): { looks: string[]; skipped: string[] } {
+  const done = show.applySnapshot(snap);
+  engine.setBlackout(snap.blackout);
+  return done;
+}
+
+/** Recalls the open show's startup snapshot, if it names one that exists; the output standby is not touched. */
+export function recallStartupSnapshot(engine: DmxEngine, show: ShowRuntime): { id: string; name: string } | { missing: string } | undefined {
+  const id = show.settings.startupSnapshot;
+  if (!id) return undefined;
+  const snap = show.snapshots.get(id);
+  if (!snap) return { missing: id };
+  recallSnapshot(engine, show, snap);
+  return { id: snap.id, name: snap.name };
+}
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime): void {
   const venue = show.venue;
@@ -1217,11 +1234,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- show settings & safety
-  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
+  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », startup snapshot, grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
+    description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
     right: "show:write",
     profiles: ["setup", "design"],
     // a patch: only the settings given change (partial() would reset the others to their defaults)
@@ -1232,15 +1249,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
         safeLook: z.string().min(1).nullable().optional().describe("the look « Panic neutre » plays; null: none"),
         safeSnapshot: z.string().min(1).nullable().optional().describe("the snapshot « Panic neutre » recalls (wins over safeLook); null: none"),
+        startupSnapshot: z.string().min(1).nullable().optional().describe("the snapshot recalled when the application starts (a recent crash resume wins) and when the show is opened; null: none"),
       }),
-    run: ({ grandMasterSmoothing, safeLook, safeSnapshot, ...rest }) => {
+    run: ({ grandMasterSmoothing, safeLook, safeSnapshot, startupSnapshot, ...rest }) => {
       const patch = {
         ...rest,
         ...(safeLook === undefined ? {} : { safeLook: safeLook ?? undefined }),
         ...(safeSnapshot === undefined ? {} : { safeSnapshot: safeSnapshot ?? undefined }),
+        ...(startupSnapshot === undefined ? {} : { startupSnapshot: startupSnapshot ?? undefined }),
       };
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
-      if (patch.safeSnapshot && !show.snapshots.get(patch.safeSnapshot)) throw new Error(say(`instantané inconnu : ${patch.safeSnapshot}`, `unknown snapshot: ${patch.safeSnapshot}`));
+      for (const id of [patch.safeSnapshot, patch.startupSnapshot]) if (id && !show.snapshots.get(id)) throw new Error(say(`instantané inconnu : ${id}`, `unknown snapshot: ${id}`));
       // null clears the grand master's smoothing (a partial patch cannot carry « absent »)
       return show.saveSettings(grandMasterSmoothing === undefined ? patch : { ...patch, grandMasterSmoothing: grandMasterSmoothing ?? undefined });
     },
@@ -1270,20 +1289,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     run: ({ id: i }) => {
       const snap = show.snapshots.get(i);
       if (!snap) throw new Error(say(`instantané inconnu : ${i}`, `unknown snapshot: ${i}`));
-      const done = show.applySnapshot(snap);
-      engine.setBlackout(snap.blackout);
-      return { id: i, ...done };
+      return { id: i, ...recallSnapshot(engine, show, snap) };
     },
   });
   reg.register({
     name: "snapshot.delete",
     title: "Supprimer un instantané",
-    description: "Deletes a snapshot (and unsets it as the safe state).",
+    description: "Deletes a snapshot (and unsets it as the safe or startup snapshot).",
     right: "show:write",
     profiles: ["design"],
     schema: idSchema,
     run: ({ id: i }) => {
       if (show.settings.safeSnapshot === i) show.saveSettings({ safeSnapshot: undefined });
+      if (show.settings.startupSnapshot === i) show.saveSettings({ startupSnapshot: undefined });
       return { deleted: show.snapshots.delete(i) };
     },
   });
@@ -1295,8 +1313,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     engine.release();
     const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
     if (snap) {
-      const done = show.applySnapshot(snap);
-      engine.setBlackout(snap.blackout);
+      const done = recallSnapshot(engine, show, snap);
       return { action: "safe-snapshot", snapshot: snap.id, ...done };
     }
     const safe = show.settings.safeLook;

@@ -3609,6 +3609,27 @@ test("show page: the Panic fallback goes from a snapshot back to a look, then to
   expect(errors).toEqual([]);
 });
 
+test("show page: the startup snapshot is chosen, badged in the table, then cleared", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const snap = (await api(page, "snapshot.save", { name: "Demarrage essai" })) as { id: string };
+  const settings = async () => (await api(page, "show.settings")) as { startupSnapshot?: string };
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const select = page.getByTestId("startup-snapshot");
+    await select.selectOption(snap.id);
+    await expect.poll(async () => (await settings()).startupSnapshot).toBe(snap.id);
+    await expect(page.locator(".snapshots tr", { hasText: "Demarrage essai" })).toContainText("démarrage");
+    await select.selectOption("");
+    await expect.poll(async () => (await settings()).startupSnapshot).toBeUndefined();
+    await expect(page.locator(".snapshots tr", { hasText: "Demarrage essai" })).not.toContainText("démarrage");
+  } finally {
+    await api(page, "show.settings.set", { startupSnapshot: null });
+    await api(page, "snapshot.delete", { id: snap.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("faders on chosen fixtures and channels (found by address), dosing the dimmer, under one DCA", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

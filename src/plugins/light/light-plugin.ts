@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
-import { registerShowCommands } from "./commands/show-commands.js";
+import { recallStartupSnapshot, registerShowCommands } from "./commands/show-commands.js";
 import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, type FileServices } from "./commands/file-commands.js";
@@ -459,6 +459,7 @@ export class LightPlugin implements McpPlugin {
     await this.opts.config?.set(this.config);
     if (this.songs) Object.assign(this.songs.state, { setlist: undefined, song: undefined, section: undefined });
     this.reloadFromDisk();
+    this.recallStartup(); // the opened show's own startup snapshot
   }
 
   restoreTargets(): RestoreTargets {
@@ -650,9 +651,9 @@ export class LightPlugin implements McpPlugin {
   }
 
   /** Restores a recent live state (crash or quick restart during a service). */
-  private resumeLive(): void {
+  private resumeLive(): boolean {
     const snap = this.liveFile.load(this.config.show);
-    if (!snap) return;
+    if (!snap) return false;
     const looks = snap.looks.filter((id) => {
       try {
         return this.runtime.looks.get(id) !== undefined && (this.runtime.go(id), true);
@@ -665,11 +666,23 @@ export class LightPlugin implements McpPlugin {
     if (this.songs) Object.assign(this.songs.state, { setlist: snap.setlist, song: snap.song, section: snap.section });
     this.resumed = { looks, blackout: snap.blackout, song: snap.song, section: snap.section };
     console.warn(`Reprise après redémarrage : ${looks.length} look(s)${snap.blackout ? ", Blackout actif" : ""}${snap.song ? `, chant ${snap.song}` : ""}.`);
+    return true;
+  }
+
+  /** Recalls the open show's startup snapshot (output standby is not touched: the state is applied, nothing is sent on standby). */
+  private recallStartup(): void {
+    try {
+      const done = recallStartupSnapshot(this.engine, this.runtime);
+      if (!done) return;
+      console.warn("missing" in done ? `Instantané de démarrage introuvable, ignoré : ${done.missing}.` : `Instantané de démarrage rappelé : ${done.name}`);
+    } catch (err) {
+      console.warn("instantané de démarrage :", (err as Error).message);
+    }
   }
 
   async start(): Promise<void> {
     if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
-    this.resumeLive();
+    if (!this.resumeLive()) this.recallStartup(); // a recent crash resume wins over the startup snapshot
     this.loopDelay.start();
     await this.router.start({ discovery: this.config.discovery });
     if (this.router.isStandby()) console.warn("Sortie en veille : rien n'est envoyé aux nodes (Réglages → Reprendre la main, ou light serve --live).");

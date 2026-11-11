@@ -158,6 +158,8 @@ export const ShowSettingsSchema = z.object({
   safeLook: z.string().optional(),
   /** Snapshot recalled by « Panic neutre » (the whole state: looks, DCA, faders…); wins over safeLook. */
   safeSnapshot: z.string().optional(),
+  /** Snapshot recalled when the application starts (unless a recent crash-resume state wins) and when this show is opened. */
+  startupSnapshot: z.string().optional(),
   grandMaster: z.number().min(0).max(1).default(1),
   grandMasterSmoothing: FaderSmoothingSchema.optional(),
   defaultButtonMode: z.enum(["trigger", "latch", "momentary", "toggle"]).default("trigger"),
