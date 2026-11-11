@@ -29,7 +29,13 @@ export function XyPad({ group, fixture, label, onError, disabled = false, onPosi
         onPosition?.(manual);
       })
       .catch(() => undefined);
-    return () => window.clearTimeout(timer.current);
+    return () => {
+      // a resync (position.set itself bumps it through the panel) must not leave the send loop stuck:
+      // the timer is cleared *and* forgotten, and a gesture value not sent yet still goes
+      window.clearTimeout(timer.current);
+      timer.current = undefined;
+      if (pending.current) flush();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group, fixture, resync]);
 

@@ -3503,6 +3503,38 @@ test("channel fader editor: a function picked by name narrows the fader to it (T
   expect(errors).toEqual([]);
 });
 
+test("venue plan: the selected fixture's pad keeps sending after its first gesture", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Fx = { id: string; position?: { x: number; y: number; z: number } };
+  const spot = ((await api(page, "venue.fixture.list")) as Fx[]).find((f) => f.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 4 } } });
+  const manual = async () => ((await api(page, "position.list")) as { id: string; manual: { pan: number; tilt: number } | null }[]).find((h) => h.id === "spot")?.manual;
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
+    const body = page.locator('.stage-plan g.fixture[data-fixture="spot"] > g').first();
+    const box = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.85, 0.85], [0.15, 0.85], [0.85, 0.15], [0.15, 0.15]]) {
+      await body.click({ position: { x: box.width * fx!, y: box.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const pad = page.locator(".fixture-panel .xy .pad");
+    await pad.scrollIntoViewIfNeeded();
+    const p = (await pad.boundingBox())!;
+    expect(p.height).toBeGreaterThan(p.width * 0.8); // square: tilt as fine as pan
+    // three gestures in a row: each one reaches the head (only the first did, the send loop got stuck)
+    for (const [x, y] of [[0.2, 0.8], [0.8, 0.2], [0.5, 0.5]]) {
+      await page.mouse.click(p.x + p.width * x!, p.y + p.height * y!);
+      await expect.poll(async () => Math.round(((await manual())?.pan ?? -1) * 10)).toBe(Math.round(x! * 10));
+    }
+  } finally {
+    await api(page, "position.release", { fixtures: ["spot"] });
+    await api(page, "venue.fixture.put", { fixture: spot });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("faders on chosen fixtures and channels (found by address), dosing the dimmer, under one DCA", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

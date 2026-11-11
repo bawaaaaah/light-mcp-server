@@ -1114,6 +1114,12 @@ table.cues select {
   flex-direction: column;
   gap: 0.4em;
 }
+/* the selected fixture's pad: square, so pan and tilt are as fine as each other (it was a flat strip) */
+.fixture-panel .xy .pad {
+  flex: none;
+  width: min(100%, 18em);
+  aspect-ratio: 1;
+}
 .fixture-panel section h4 {
   margin: 0.2em 0;
 }
