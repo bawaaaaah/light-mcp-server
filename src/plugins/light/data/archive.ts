@@ -1,6 +1,7 @@
 /**
  * `.lightshow` archives (docs/specs/data-cli-sdk.md): a zip of the show folder (and optionally the
- * venue folder) plus a manifest. Never contains machine config, secrets or private files.
+ * venue folder) plus a manifest. Never contains machine config or secrets; of data/private, only the
+ * intentions the show uses, copied as the show's own (`show.extra`, T15).
  * Restoring first backs up the current folders, then writes the archive's files.
  */
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -39,12 +40,16 @@ function walk(dir: string): Record<string, Uint8Array> {
  * `definitionDirs`: the library folders (data/fixtures, then the venue's own), searched for the
  * definitions the packed venue's patch uses: they go under `fixtures/`, never the whole library.
  * Without a venue there is no patch, so no definitions. Two packs of the same folders differ only
- * by `createdAt` (sorted entries, fixed zip dates).
+ * by `createdAt` (sorted entries, fixed zip dates). `show.extra`: files added to the show's part
+ * (path → text) when its folder has none of that path.
  */
-export function packArchive(parts: { show?: { id: string; dir: string }; venue?: { id: string; dir: string }; definitionDirs?: string[] }): Uint8Array {
+export function packArchive(parts: { show?: { id: string; dir: string; extra?: Record<string, string> }; venue?: { id: string; dir: string }; definitionDirs?: string[] }): Uint8Array {
   const manifest: ArchiveManifest = { format: "lightshow", version: 1, createdAt: new Date().toISOString(), show: parts.show?.id, venue: parts.venue?.id };
   const files: Record<string, Uint8Array> = {};
   if (parts.show) for (const [p, d] of Object.entries(walk(parts.show.dir))) files[`show/${p}`] = d;
+  // files the show uses from elsewhere, packed as its own (the intentions of this machine it names, T15);
+  // what the folder holds wins, and the folder itself is never written
+  for (const [p, text] of Object.entries(parts.show?.extra ?? {})) files[`show/${p}`] ??= strToU8(text);
   let venueFiles: Record<string, Uint8Array> = {};
   if (parts.venue) {
     venueFiles = walk(parts.venue.dir);

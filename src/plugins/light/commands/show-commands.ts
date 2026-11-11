@@ -22,6 +22,7 @@ import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
 import { IntentionSchema } from "../knowledge/intentions.js";
+import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -1457,8 +1458,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- versions: the copy kept of an object at each change (FolderStore history), put back on demand
-  const VERSIONED = { looks: { coll: show.looks, put: "look.put", key: "look" }, groups: { coll: show.groups, put: "group.put", key: "group" }, faders: { coll: show.faders, put: "fader.put", key: "fader" }, dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" }, canvases: { coll: venue.canvases, put: "venue.canvas.put", key: "canvas" } } as const;
-  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases"]);
+  // the show's intentions too (T15): a version put back goes through intention.put, a mask stays a mask
+  const intentions = show.store.collection("intentions", IntentionSchema);
+  const VERSIONED = {
+    looks: { coll: show.looks, put: "look.put", key: "look" },
+    groups: { coll: show.groups, put: "group.put", key: "group" },
+    faders: { coll: show.faders, put: "fader.put", key: "fader" },
+    dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" },
+    canvases: { coll: venue.canvases, put: "venue.canvas.put", key: "canvas" },
+    intentions: { coll: intentions, put: "intention.put", key: "intention" },
+  } as const;
+  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions"]);
   /** Putting a canvas back is checked as any canvas put (looks of exact steps, a shared venue): `force` passes it on. */
   const restoreForce = z.boolean().default(false).describe("canvases: put it back even if looks of exact steps no longer line up with its cells (as venue.canvas.put)");
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
@@ -1471,7 +1481,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.list",
     title: "Versions",
-    description: "Earlier versions of a look, group, channel fader, dashboard or canvas (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
+    description: "Earlier versions of a look, group, channel fader, dashboard, canvas or intention of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1481,7 +1491,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.deleted",
     title: "Récemment supprimés",
-    description: "Looks, groups, channel faders, dashboards or canvases (of the venue) deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
+    description: "Looks, groups, channel faders, dashboards, canvases (of the venue) or intentions of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1552,7 +1562,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     venueRules: show.venueRules,
     fixtures: venue.fixtures,
     canvases: venue.canvases,
-    intentions: show.store.collection("intentions", IntentionSchema),
+    // a proposal of intention.put: the key made from the label when there is no id, as the command makes it
+    intentions: {
+      validate: (v: unknown) => {
+        const o = (v && typeof v === "object" ? v : {}) as { id?: unknown; label?: unknown };
+        return intentions.validate({ ...o, id: o.id ?? normalizeMood(typeof o.label === "string" ? o.label : "") });
+      },
+      get: (i: string) => intentions.get(i),
+      delete: (i: string) => intentions.delete(i),
+    },
   } as const;
   type Diffable = keyof typeof DIFFABLE;
   type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean };
@@ -1599,7 +1617,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // the show's intentions only: the personal library is not the show's to propose
     "intention.put": {
       collection: (a) => {
-        if (a.scope === "personal") throw new Error(say("pas de proposition pour une intention de la bibliothèque personnelle : seulement celles du show", "no proposal for an intention of the personal library: only the show's"));
+        if (a.scope === "personal") throw new CommandError("invalid", say("pas de proposition pour une intention de la bibliothèque personnelle : seulement celles du show", "no proposal for an intention of the personal library: only the show's"));
         return "intentions";
       },
       key: "intention",

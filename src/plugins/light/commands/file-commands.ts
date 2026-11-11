@@ -32,6 +32,8 @@ export interface FileServices {
   preview(bytes: Uint8Array, fixtures: FixturePolicy): RestorePreview;
   /** Imports a QLC+ workspace (.qxw text) into the open show. */
   importQxw(xml: string): Promise<unknown>;
+  /** Files the open show uses from this machine, packed as its own (its personal intentions, T15). */
+  showExtra?(): Record<string, string>;
 }
 
 /** Local date and time for file names, as the user reads them: 2026-10-15_23-01-52. */
@@ -67,7 +69,7 @@ export function writeBackup(s: FileServices, label?: string, now = new Date()): 
   const backupsDir = path.join(s.dataRoot, "backups");
   mkdirSync(backupsDir, { recursive: true });
   const name = `${show}-${stamp(now)}${label ? `-${slugify(label)}` : ""}.lightshow`;
-  writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: path.join(s.dataRoot, "shows", show) }, venue: { id: venue, dir: path.join(s.dataRoot, "venues", venue) }, definitionDirs: definitionDirsFor(s.dataRoot, venue) }));
+  writeFileSync(path.join(backupsDir, name), packArchive({ show: { id: show, dir: path.join(s.dataRoot, "shows", show), extra: s.showExtra?.() }, venue: { id: venue, dir: path.join(s.dataRoot, "venues", venue) }, definitionDirs: definitionDirsFor(s.dataRoot, venue) }));
   return name;
 }
 
@@ -82,7 +84,8 @@ export function runAutoBackup(s: FileServices, changedSince: boolean, now = new 
   const last = autoBackupsOf(files, show)[0];
   const written = autoBackupDue(now, last ? autoBackupTime(last, show) : undefined, changedSince) ? writeBackup(s, "auto", now) : undefined;
   for (const f of autoBackupsToPrune(written ? [...files, written] : files, show)) rmSync(path.join(backupsDir, f), { force: true });
-  for (const kind of ["shows", "venues"]) {
+  // the copies of shows, venues and the personal intentions library (backups/private/library)
+  for (const kind of ["shows", "venues", "private"]) {
     const root = path.join(backupsDir, kind);
     if (!existsSync(root)) continue;
     for (const store of readdirSync(root)) {

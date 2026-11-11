@@ -6,7 +6,7 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { CommandError, systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
-import { mergeKnowledge, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
+import { mergeKnowledge, namesIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
 import { intentionUses } from "../../../src/plugins/light/show/references.js";
 
 const intention = (id: string, colors: string[], more: Partial<Intention> = {}): Intention => ({ id, label: id, colors, energy: "pose", family: "", ...more });
@@ -20,6 +20,14 @@ describe("intentions (T15)", () => {
       expect(normalizeMood("Lever-de-rideau")).to.equal("lever-de-rideau");
       expect(normalizeMood("Intimité")).to.equal("intimite");
       expect(normalizeMood("?!")).to.equal("");
+      // ligatures spelt out, as people would type them
+      expect(normalizeMood("Cœur")).to.equal("coeur");
+      expect(normalizeMood("Ægir")).to.equal("aegir");
+      expect(normalizeMood("Straße")).to.equal("strasse");
+      expect(normalizeMood("Øre")).to.equal("ore");
+      // the empty key names nothing
+      expect(namesIntention("?!", "")).to.equal(false);
+      expect(proposeLook(mergeKnowledge(loadKnowledgeLayers(), [], []), { mood: ["?!"] }).unknownMoods).to.deep.equal(["?!"]);
       // every shipped key is already one
       for (const k of Object.keys(loadKnowledgeLayers().generic.moods)) expect(normalizeMood(k)).to.equal(k);
     });
@@ -69,12 +77,17 @@ describe("intentions (T15)", () => {
     type Kb = { moods: Record<string, { label?: string; colors: string[]; origin: string; over?: string; usedBy: string[] }>; hidden: { id: string; origin: string; over?: string }[] };
     const kb = async () => (await run("knowledge.get")) as Kb;
 
+    /** A server on the test's data (again: as after a restart, the files of data/private read anew). */
+    const start = () => {
+      let cfg: Record<string, unknown> = { discovery: false, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+      plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async (c) => void (cfg = c as Record<string, unknown>) }, dataRoot, midiNative: null });
+    };
+
     beforeEach(async () => {
       dataRoot = join(mkdtempSync(join(tmpdir(), "light-intent-")), "data");
       mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
       copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
-      let cfg: Record<string, unknown> = { discovery: false, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
-      plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async (c) => void (cfg = c as Record<string, unknown>) }, dataRoot, midiNative: null });
+      start();
       await run("venue.fixture.put", { fixture: { id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 } });
       await run("venue.canvas.put", { canvas: { id: "mur", name: "Mur", cells: 4, render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: [{ fixture: "bar", head: h }] })) } });
     });
@@ -153,15 +166,15 @@ describe("intentions (T15)", () => {
       expect((await kb()).moods.joie!.colors).to.not.deep.equal(["#010203"]);
     });
 
-    it("keeps personal intentions for every show of the machine, below the show's, never in the show folder", async () => {
+    it("keeps personal intentions for every show of the machine, below the show's, out of the show folder", async () => {
       const own = (await run("intention.put", { intention: { label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" })) as { origin: string; scope: string };
       expect(own).to.include({ origin: "personal", scope: "personal" });
       expect(existsSync(join(dataRoot, "private", "intentions", "douceur.json"))).to.equal(true);
       expect(existsSync(join(dataRoot, "shows", "default", "intentions"))).to.equal(false);
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur"], sections: [] } });
-      // the lint says it does not travel with the show
-      const lint = (await run("show.lint")) as { issues: { message: string }[] };
-      expect(lint.issues.some((i) => /« Douceur » de la bibliothèque personnelle : elle ne voyage pas/.test(i.message))).to.equal(true);
+      // the lint says where it lives, and that the show's backups carry a copy
+      const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
+      expect(lint.issues.find((i) => /« Douceur » de la bibliothèque personnelle : les sauvegardes du show en emportent une copie/.test(i.message))?.level).to.equal("info");
       // « copy into the show »: the same key put in the show, which wins
       await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#aabbcc"] } });
       expect((await kb()).moods.douceur).to.include({ origin: "show", over: "personal" });
@@ -178,9 +191,13 @@ describe("intentions (T15)", () => {
       const back = await kb();
       expect(back.moods.brume).to.equal(undefined);
       expect(back.moods.douceur).to.include({ origin: "show" });
-      // a personal one deleted (no show copy here): gone for every show
+      // a personal one deleted (no show copy here): refused while another show names it, then gone for every show
       await run("show.open", { id: "autre" });
-      expect(await run("intention.delete", { id: "douceur" })).to.deep.include({ action: "deleted" });
+      const refused = (await refusal(run("intention.delete", { id: "douceur" }))) as CommandError;
+      expect(refused.message).to.match(/sert encore dans d'autres shows de cette machine \(.+\)/);
+      expect(refused.detail).to.deep.include({ force: true });
+      expect((refused.detail as { otherShows: string[] }).otherShows).to.have.length(1);
+      expect(await run("intention.delete", { id: "douceur", force: true })).to.deep.include({ action: "deleted" });
       expect(existsSync(join(dataRoot, "private", "intentions", "douceur.json"))).to.equal(false);
     });
 
@@ -189,6 +206,8 @@ describe("intentions (T15)", () => {
       expect(p.technique.kind).to.equal("damier");
       expect(p.explanation[0]).to.contain("« Brume »");
       expect(p.contrast).to.be.below(25);
+      expect(p).to.include({ lowContrast: true });
+      expect(p.explanation[0]).to.not.contain("—"); // no family, nothing said of it
       expect(p.explanation.join(" ")).to.match(/contraste faible/);
       expect((await kb()).moods.brume).to.equal(undefined);
     });
@@ -223,6 +242,73 @@ describe("intentions (T15)", () => {
       await run("backup.restore", { file: withThem });
       await run("show.reset");
       expect((await kb()).moods.douceur).to.equal(undefined);
+    });
+
+    it("packs the intentions of this machine the show uses into its archives, as the show's own, and brings them back as such", async () => {
+      // the private file: one used by a look's tag, one nobody names
+      mkdirSync(join(dataRoot, "private"), { recursive: true });
+      writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { "Brume du matin": { label: "Brume du matin", colors: ["#AABBCC"], energy: "pose" }, inutile: { colors: ["#000000"] } } }));
+      await run("show.rename", { name: "Source" });
+      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"], family: "chaud", notes: "tendre" }, scope: "personal" });
+      await run("intention.put", { intention: { label: "Autre douceur", colors: ["#ffeedf"] }, scope: "personal" }); // not used: stays home
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["Douceur", "joie"], sections: [] } });
+      await run("look.put", { look: { id: "l", name: "Look", canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, tags: ["ambiance:brume du matin"] } });
+      const file = ((await run("backup.create", { label: "emporte" })) as { file: string }).file;
+      expect(existsSync(join(dataRoot, "shows", "default", "intentions"))).to.equal(false); // the show itself is left as it is
+      // another show, and this machine without its personal intention any more
+      await run("show.create", { name: "Ailleurs" });
+      await run("intention.delete", { id: "douceur", force: true });
+      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentions: { added: number; changed: number; removed: number }; show: { added: string[] } };
+      expect(preview.intentions).to.deep.equal({ added: 2, changed: 0, removed: 0 });
+      expect(preview.show.added).to.include.members(["intentions/brume-du-matin.json", "intentions/douceur.json"]);
+      await run("backup.restore", { file });
+      const back = await kb();
+      expect(back.moods.douceur).to.deep.include({ origin: "show", label: "Douceur", colors: ["#ffeedd"], family: "chaud", notes: "tendre" });
+      expect(back.moods["brume-du-matin"]).to.deep.include({ origin: "show", over: "private", colors: ["#aabbcc"] });
+      expect(back.moods["autre-douceur"]).to.include({ origin: "personal" });
+      expect(existsSync(join(dataRoot, "shows", "default", "intentions", "autre-douceur.json"))).to.equal(false);
+      expect(back.moods.inutile).to.include({ origin: "private" });
+    });
+
+    it("puts a mask back as a mask (versions, proposals), and keys proposals as the command does", async () => {
+      await run("intention.delete", { id: "paix" }); // a mask
+      await run("intention.delete", { id: "paix" }); // shown again: the mask is in the history
+      expect((await kb()).hidden).to.deep.equal([]);
+      const versions = (await run("history.list", { collection: "intentions", id: "paix" })) as { stamp: string }[];
+      expect(versions).to.have.length(1);
+      await run("history.restore", { collection: "intentions", id: "paix", stamp: versions[0]!.stamp });
+      expect((await kb()).hidden.map((h) => h.id)).to.deep.equal(["paix"]);
+      // a mask is the show's only, over something known below
+      expect((await refusal(run("intention.put", { intention: { id: "brume", label: "Brume", colors: ["#000000"], hidden: true } })))?.message).to.match(/masque/);
+      expect((await refusal(run("intention.put", { intention: { id: "joie", label: "Joie", colors: ["#000000"], hidden: true }, scope: "personal" })))?.message).to.match(/masque/);
+      // proposals: a creation without id is keyed from its label; a key that is not one is refused
+      expect(await run("show.diff", { command: "intention.put", args: { intention: { label: "Lever de rideau", colors: ["#ff0000"] } } })).to.include({ valid: true, new: true });
+      expect(await run("show.diff", { command: "intention.put", args: { intention: { id: "Lever de rideau", label: "x", colors: ["#ff0000"] } } })).to.include({ valid: false });
+      // a proposal taken back brings the mask back, not a visible touch-up
+      const proposal = (await run("show.propose", { title: "Retouche", changes: [{ command: "intention.put", args: { intention: { id: "paix", label: "Paix", colors: ["#123456"] } } }] })) as { id: string };
+      await run("show.apply", { id: proposal.id });
+      expect((await kb()).moods.paix).to.include({ origin: "show" });
+      await run("show.revert", { id: proposal.id });
+      expect((await kb()).hidden.map((h) => h.id)).to.deep.equal(["paix"]);
+    });
+
+    it("says in the check what the files of this machine got wrong: two private words for one key, a file left out", async () => {
+      mkdirSync(join(dataRoot, "private", "intentions"), { recursive: true });
+      writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { Cœur: { colors: ["#ff0000"] }, coeur: { colors: ["#00ff00"] }, "?!": { colors: ["#0000ff"] } } }));
+      writeFileSync(join(dataRoot, "private", "intentions", "Mal_Nommee.json"), JSON.stringify({ id: "Mal_Nommee", label: "x", colors: ["#000000"] }));
+      start(); // the library is read when the server starts
+      const lint = (await run("show.lint")) as { issues: { level: string; message: string }[] };
+      expect(lint.issues.some((i) => i.level === "attention" && /« Cœur », « coeur » donnent la même clé « coeur »/.test(i.message))).to.equal(true);
+      expect(lint.issues.some((i) => /bibliothèque personnelle : intentions\/Mal_Nommee\.json/.test(i.message))).to.equal(true);
+      const k = await kb();
+      expect(k.moods.coeur!.colors).to.deep.equal(["#00ff00"]);
+      expect(Object.keys(k.moods)).to.not.include(""); // a word without letters names nothing
+    });
+
+    it("refuses what is too long (label, family, notes)", async () => {
+      expect((await refusal(run("intention.put", { intention: { label: "x".repeat(81), colors: ["#000000"] } })))).to.be.instanceOf(Error);
+      expect((await refusal(run("intention.put", { intention: { label: "x", family: "f".repeat(41), colors: ["#000000"] } })))).to.be.instanceOf(Error);
+      expect((await refusal(run("intention.put", { intention: { label: "x", notes: "n".repeat(2001), colors: ["#000000"] } })))).to.be.instanceOf(Error);
     });
   });
 });

@@ -92,6 +92,19 @@ export function intentionUses(word: string, show: Pick<ShowParts, "songs" | "loo
   return uses;
 }
 
+/** Every intention key the show names, with what names it (one pass, the same lines as `intentionUses`). */
+export function intentionUsesByKey(show: Pick<ShowParts, "songs" | "looks">): Map<string, string[]> {
+  const uses = new Map<string, string[]>();
+  const add = (word: string, line: string) => {
+    const key = normalizeMood(word);
+    const lines = uses.get(key) ?? [];
+    if (key && !lines.includes(line)) uses.set(key, [...lines, line]);
+  };
+  for (const s of show.songs) for (const m of s.mood ?? []) add(m, say(`chant « ${s.title} »`, `song “${s.title}”`));
+  for (const l of show.looks) for (const t of l.tags ?? []) if (t.startsWith("ambiance:")) add(t.slice("ambiance:".length), say(`look « ${l.name} »`, `look “${l.name}”`));
+  return uses;
+}
+
 /** The refusal of a delete: what still uses the object, and how to delete it anyway. */
 export function inUseMessage(name: string, uses: string[], sharedWith: string[] = []): string {
   if (!uses.length) return say(`« ${name} » appartient à un lieu partagé avec d'autres shows (${sharedWith.join(", ")}) : le supprimer le supprime aussi pour eux. Le supprimer quand même : force: true`, `“${name}” belongs to a venue shared with other shows (${sharedWith.join(", ")}): deleting it deletes it for them too. Delete it anyway: force: true`);

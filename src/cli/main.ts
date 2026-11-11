@@ -314,7 +314,7 @@ async function pack(caller: Caller, file: string | undefined, withVenue: boolean
     name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "show.lightshow";
   } else {
     const p = caller.plugin!;
-    bytes = packArchive({ show: { id: path.basename(p.runtime.store.root), dir: p.runtime.store.root }, venue: withVenue ? { id: path.basename(p.venue.store.root), dir: p.venue.store.root } : undefined, definitionDirs: definitionDirsFor(DATA_ROOT, path.basename(p.venue.store.root)) });
+    bytes = packArchive({ show: { id: path.basename(p.runtime.store.root), dir: p.runtime.store.root, extra: p.showExtra() }, venue: withVenue ? { id: path.basename(p.venue.store.root), dir: p.venue.store.root } : undefined, definitionDirs: definitionDirsFor(DATA_ROOT, path.basename(p.venue.store.root)) });
     name = `${path.basename(p.runtime.store.root)}.lightshow`;
   }
   const out = file ?? name;

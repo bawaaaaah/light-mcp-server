@@ -25,9 +25,15 @@ export type Energy = z.infer<typeof EnergySchema>;
  * punctuation) one « - », none at either end. « Joie », « joie ! » and « JOIE » are « joie »;
  * « lever de rideau » is « lever-de-rideau », a valid collection id. Used for the base's keys, the
  * show's and the personal library's, the words of `song.mood` and the `ambiance:` tags alike.
+ * Ligatures are spelt out (\u0153 \u2192 oe, \u00e6 \u2192 ae, \u00df \u2192 ss, \u00f8 \u2192 o). A word without any letter or digit
+ * left has the empty key, which names nothing. web/src/intentions.ts `intentionKey` is the same.
  */
 export const normalizeMood = (word: string): string =>
   word
+    .replace(/\u0153/gi, "oe")
+    .replace(/\u00e6/gi, "ae")
+    .replace(/\u00df/g, "ss")
+    .replace(/\u00f8/gi, "o")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -38,13 +44,24 @@ export const normalizeMood = (word: string): string =>
 export interface KnowledgeLayers {
   generic: Knowledge;
   private?: Knowledge;
+  /** Keywords of the private file that came down to one key (the last one wins): worth a warning. */
+  privateMerged?: { key: string; words: string[] }[];
 }
 
 export function loadKnowledgeLayers(privatePath?: string): KnowledgeLayers {
   const generic = KnowledgeSchema.parse(JSON.parse(readFileSync(new URL("./generic.json", import.meta.url), "utf8")));
   if (!privatePath || !existsSync(privatePath)) return { generic };
   const own = KnowledgeSchema.parse(JSON.parse(readFileSync(privatePath, "utf8")));
-  return { generic, private: { ...own, moods: Object.fromEntries(Object.entries(own.moods).map(([k, v]) => [normalizeMood(k), v])) } };
+  const moods: Record<string, Mood> = {};
+  const words = new Map<string, string[]>();
+  for (const [word, mood] of Object.entries(own.moods)) {
+    const key = normalizeMood(word);
+    if (!key) continue; // nothing could ever name it
+    moods[key] = mood;
+    words.set(key, [...(words.get(key) ?? []), word]);
+  }
+  const privateMerged = [...words].filter(([, w]) => w.length > 1).map(([key, w]) => ({ key, words: w }));
+  return { generic, private: { ...own, moods }, ...(privateMerged.length ? { privateMerged } : {}) };
 }
 
 /** The generic base with the private one merged on top, keyword by keyword. */
@@ -56,6 +73,9 @@ export function flattenLayers({ generic, private: own }: KnowledgeLayers): Knowl
   if (!own) return generic;
   return { version: own.version, source: `${generic.source} + base personnelle`, moods: { ...generic.moods, ...own.moods }, rules: [...generic.rules, ...own.rules] };
 }
+
+/** Below this ΔE two colours read as one in a checker or masks. */
+export const LOW_CONTRAST = 25;
 
 /** Perceptual distance between two colours (CIE76 ΔE on Lab), for contrast checks. */
 export function deltaE(a: string, b: string): number {
@@ -92,14 +112,17 @@ export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: En
   const colors: string[] = [...(intent.colors ?? [])];
   const energies: Energy[] = [];
   for (const word of intent.mood) {
-    const m = kb.moods[normalizeMood(word)];
+    const key = normalizeMood(word);
+    const m = key ? kb.moods[key] : undefined;
     if (!m) {
       unknown.push(word);
       continue;
     }
     for (const c of m.colors) if (!colors.includes(c)) colors.push(c);
     energies.push(m.energy);
-    explanation.push(say(`« ${m.label ?? word} » → ${m.colors.join(" ")} (${m.family || "—"}, énergie ${energyWord(m.energy)})`, `“${m.label ?? word}” → ${m.colors.join(" ")} (${m.family || "—"}, ${energyWord(m.energy)} energy)`));
+    // no family: nothing said of it
+    const family = m.family ? `${m.family}, ` : "";
+    explanation.push(say(`« ${m.label ?? word} » → ${m.colors.join(" ")} (${family}énergie ${energyWord(m.energy)})`, `“${m.label ?? word}” → ${m.colors.join(" ")} (${family}${energyWord(m.energy)} energy)`));
   }
   if (colors.length === 0) colors.push("#fff1d6");
   const energy: Energy = intent.energy ?? (energies.includes("survolte") ? "survolte" : energies.includes("dynamique") ? "dynamique" : energies.length ? "pose" : "dynamique");
@@ -123,7 +146,7 @@ export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: En
   }
   if (colors.length >= 2 && (technique.kind === "damier" || technique.kind === "masques")) {
     const d = deltaE(colors[0]!, colors[1]!);
-    if (d < 25) explanation.push(say(`attention : contraste faible entre ${colors[0]} et ${colors[1]} (ΔE ${d.toFixed(0)})`, `warning: low contrast between ${colors[0]} and ${colors[1]} (ΔE ${d.toFixed(0)})`));
+    if (d < LOW_CONTRAST) explanation.push(say(`attention : contraste faible entre ${colors[0]} et ${colors[1]} (ΔE ${d.toFixed(0)})`, `warning: low contrast between ${colors[0]} and ${colors[1]} (ΔE ${d.toFixed(0)})`));
   }
   return { colors, energy, technique, timing, explanation, unknownMoods: unknown };
 }

@@ -29,14 +29,16 @@ import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
-import { registerDesignCommands } from "./commands/design-commands.js";
+import { registerDesignCommands, type IntentionStores } from "./commands/design-commands.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
-import { IntentionSchema } from "./knowledge/intentions.js";
+import { embeddedIntentions, IntentionSchema, stackIntentions } from "./knowledge/intentions.js";
+import { intentionUsesByKey } from "./show/references.js";
+import { otherShowsUsingIntention } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
-import { FolderStore, ID_RE } from "./data/store.js";
+import { FolderStore, ID_RE, stableStringify } from "./data/store.js";
 import { MidiHub, type HubMessage } from "./midi/hub.js";
 import { argText, MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
@@ -153,6 +155,8 @@ export class LightPlugin implements McpPlugin {
   readonly engine: DmxEngine;
   readonly router: OutputRouter;
   readonly show: FolderStore;
+  /** The layers of the colour knowledge base and the intentions of this machine and of the show (T15). */
+  readonly intentions: IntentionStores;
   readonly venue: Venue;
   readonly runtime: ShowRuntime;
   readonly hub: MidiHub;
@@ -275,14 +279,18 @@ export class LightPlugin implements McpPlugin {
     registerSongCommands(this.commands, this.songs);
     const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
     let kb: KnowledgeLayers | undefined;
-    // the intentions (T15): the files read once, the personal library (this machine, never exported)
-    // and the show's own (in its folder: archives and backups carry them) read at every call
-    const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private"));
-    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), {
+    // the intentions (T15): the files read once, the personal library (every show of this machine; its
+    // history pruned with the shows', backups/private/library) and the show's own (in its folder), read at every call
+    const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private", "library"));
+    const showIntentions = this.show.collection("intentions", IntentionSchema);
+    this.intentions = {
       base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
       personal: personal.collection("intentions", IntentionSchema),
-      show: this.show.collection("intentions", IntentionSchema),
-    });
+      show: showIntentions,
+      otherShows: (key) => otherShowsUsingIntention(dataRoot, this.config.show, key),
+      loadErrors: () => [...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)), ...this.show.loadErrors.filter((e) => e.startsWith("intentions/"))],
+    };
+    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     this.files = {
       dataRoot,
@@ -299,6 +307,7 @@ export class LightPlugin implements McpPlugin {
       restore: (bytes, fixtures) => this.restoreArchive(bytes, fixtures),
       preview: (bytes, fixtures) => this.previewArchive(bytes, fixtures),
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
+      showExtra: () => this.showExtra(),
     };
     registerFileCommands(this.commands, this.files);
     try {
@@ -472,6 +481,17 @@ export class LightPlugin implements McpPlugin {
     if (this.songs) Object.assign(this.songs.state, { setlist: undefined, song: undefined, section: undefined });
     this.reloadFromDisk();
     this.recallStartup(); // the opened show's own startup snapshot
+  }
+
+  /**
+   * The intentions of this machine (personal library, private file) the open show names, as files of
+   * its own: its archives carry them, so that a restore anywhere brings them back as the show's (T15).
+   */
+  showExtra(): Record<string, string> {
+    const i = this.intentions;
+    const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }).keys();
+    const stack = stackIntentions(i.base(), i.personal.list(), i.show.list());
+    return Object.fromEntries(embeddedIntentions(stack, used).map((x) => [`intentions/${x.id}.json`, stableStringify(x)]));
   }
 
   restoreTargets(): RestoreTargets {
@@ -988,7 +1008,7 @@ export class LightPlugin implements McpPlugin {
       if (!this.opts.auth?.can(credential(req), "show:write") && this.opts.auth) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));
       const withVenue = req.query.venue !== "0";
       this.show.flushLive(); // live levels not yet on disk
-      const zip = packArchive({ show: { id: this.config.show, dir: this.show.root }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined, definitionDirs: this.definitionDirs(this.config.venue) });
+      const zip = packArchive({ show: { id: this.config.show, dir: this.show.root, extra: this.showExtra() }, venue: withVenue ? { id: this.config.venue, dir: this.venue.store.root } : undefined, definitionDirs: this.definitionDirs(this.config.venue) });
       res.setHeader("content-type", "application/zip");
       res.setHeader("content-disposition", `attachment; filename="${this.config.show}.lightshow"`);
       res.send(Buffer.from(zip));
