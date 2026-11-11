@@ -132,6 +132,14 @@ describe("colour knowledge and design", () => {
       await run("rule.delete", { where: "show", id: "show-dim" });
     });
 
+    it("serves the themes with their accented labels (T14)", async () => {
+      const mk = (await run("knowledge.get", {})) as { moods: Record<string, { label?: string }> };
+      expect(mk.moods.intimite!.label).to.equal("Intimité");
+      expect(mk.moods.fete!.label).to.equal("Fête");
+      expect(mk.moods.majeste!.label).to.equal("Majesté");
+      expect(Object.values(mk.moods).every((m) => !!m.label)).to.equal(true);
+    });
+
     it("proposes then saves a look from an intention", async () => {
       const dry = (await run("look.from_intent", { name: "Adoration", canvas: "mur", mood: ["adoration"] })) as { saved: boolean };
       expect(dry.saved).to.equal(false);

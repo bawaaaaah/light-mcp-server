@@ -12,7 +12,7 @@ import type { Technique } from "../engine/techniques.js";
 import type { Timing } from "../engine/player.js";
 import { hexToColor } from "../engine/techniques.js";
 
-const MoodSchema = z.object({ colors: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).default("dynamique"), family: z.string().default("") });
+const MoodSchema = z.object({ label: z.string().optional(), colors: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).default("dynamique"), family: z.string().default("") });
 export const KnowledgeSchema = z.object({ version: z.number().default(1), source: z.string().default(""), moods: z.record(z.string(), MoodSchema).prefault({}), rules: z.array(z.string()).default([]) });
 export type Knowledge = z.infer<typeof KnowledgeSchema>;
 export type Energy = "pose" | "dynamique" | "survolte";

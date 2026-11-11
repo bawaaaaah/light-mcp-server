@@ -4507,3 +4507,44 @@ test("accessibility: icon buttons have names, empty lists and searches say so, t
   await expect(page.getByRole("checkbox", { name: /^Dans le nouveau canevas : / }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("create by intention: search themes, pick two, add a free one, dry run, remove a chip (T14)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  const section = page.locator("section", { has: page.getByRole("heading", { name: "Créer un look par intention" }) });
+  const picker = section.locator(".theme-picker");
+  const search = picker.getByRole("searchbox", { name: "Chercher une thématique (intimité, fête…)" });
+  const chips = picker.locator(".theme-chips .chip");
+  await expect(picker.locator(".theme-list button").first()).toBeVisible(); // the knowledge base is listed
+  await expect(section.getByRole("button", { name: "Proposition" })).toBeDisabled(); // nothing chosen yet
+  // an accent-free query finds the accented label; the list shows label, swatches and family
+  await search.fill("intimite");
+  await expect(picker.locator(".theme-list button")).toHaveCount(1);
+  const intimacy = picker.getByRole("button", { name: /^Intimité/ });
+  await expect(intimacy.locator(".theme-swatches i").first()).toBeVisible();
+  await expect(intimacy.locator(".theme-family")).toHaveText("froid");
+  await intimacy.click();
+  await expect(chips).toHaveText(["Intimité×"]);
+  await expect(intimacy).toHaveAttribute("aria-pressed", "true");
+  await search.fill("FETE");
+  await picker.getByRole("button", { name: /^Fête/ }).click();
+  await expect(chips).toHaveText(["Intimité×", "Fête×"]);
+  // a word no theme matches is offered as a free one
+  await search.fill("brume");
+  await expect(picker.locator(".theme-list button")).toHaveCount(0);
+  await picker.getByRole("button", { name: "Ajouter « brume »" }).click();
+  await expect(chips).toHaveText(["Intimité×", "Fête×", "brume×"]);
+  await expect(search).toHaveValue("");
+  // the dry run sends the keys and reports the unknown word
+  await section.getByRole("button", { name: "Proposition" }).click();
+  const result = section.locator("ul.hint").last();
+  await expect(result).toContainText("« intimite »");
+  await expect(result).toContainText("« fete »");
+  await expect(result.locator("li.warn")).toHaveText("? brume");
+  // a chip is removed by its cross
+  await picker.getByRole("button", { name: "Retirer Fête" }).click();
+  await expect(chips).toHaveText(["Intimité×", "brume×"]);
+  await expect(picker.getByRole("button", { name: /^Fête/ })).toHaveAttribute("aria-pressed", "false");
+  expect(errors).toEqual([]);
+});

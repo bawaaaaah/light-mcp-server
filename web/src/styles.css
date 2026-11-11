@@ -2882,3 +2882,64 @@ fieldset.checklist .checklist-search {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* the theme picker of « create a look by intention » (T14): chips, then the known themes as buttons that wrap */
+.theme-picker {
+  display: grid;
+  gap: 0.4em;
+  flex-basis: 100%;
+}
+.theme-picker h4 {
+  margin: 0;
+}
+.theme-picker ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.theme-picker .theme-list {
+  max-height: 14em;
+  overflow-y: auto;
+}
+.theme-picker .theme-list button.chosen {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.theme-picker .theme-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+.theme-picker .theme-swatches {
+  display: inline-flex;
+  gap: 2px;
+}
+.theme-picker .theme-swatches i {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  border: 1px solid rgb(128 128 128 / 0.5);
+}
+.theme-picker .theme-family {
+  opacity: 0.65;
+}
+.theme-picker .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.1em 0.2em 0.1em 0.6em;
+  border: 1px solid var(--accent);
+  border-radius: 1em;
+}
+.theme-picker .chip.free {
+  border-style: dashed;
+}
+.theme-picker .chip button {
+  border: 0;
+  background: none;
+  padding: 0 0.4em;
+  cursor: pointer;
+}

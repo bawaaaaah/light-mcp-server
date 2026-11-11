@@ -14,6 +14,8 @@ import { GroupEditor, newGroup, type GroupDraft } from "../components/GroupEdito
 import { FaderEditor, newFader, type FaderDraft } from "../components/FaderEditor";
 import { RecentlyDeleted } from "../components/Versions";
 import { Proposals } from "../components/Proposals";
+import { ThemePicker } from "../components/ThemePicker";
+import { themeLabel, themesOf, type KnowledgeMoods } from "../themes";
 
 interface Look {
   id: string;
@@ -83,7 +85,8 @@ export function ShowPage(): ReactElement {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [snapshotName, setSnapshotName] = useState("");
   const [lint, setLint] = useState<Lint | null>(null);
-  const [intent, setIntent] = useState({ name: "", mood: "", canvas: "", energy: "" });
+  const [intent, setIntent] = useState({ name: "", mood: [] as string[], canvas: "", energy: "" });
+  const [knowledge, setKnowledge] = useState<KnowledgeMoods | null>(null);
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<LookDraft | null>(null);
@@ -132,6 +135,7 @@ export function ShowPage(): ReactElement {
       setIntent((i) => (i.canvas || !c[0] ? i : { ...i, canvas: c[0].id }));
     });
     void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
+    void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined);
     void cmd<Snapshot[]>("snapshot.list").then(setSnapshots).catch(() => undefined);
     void cmd<{ id: string; name: string; channels: { offset: number; name: string }[] }[]>("venue.fixture.channels")
       .then((l) => setChannelNames(Object.fromEntries(l.map((f) => [f.id, { name: f.name, channels: f.channels.map((c) => c.name) }]))))
@@ -141,13 +145,11 @@ export function ShowPage(): ReactElement {
   useCommandEvents(["look.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
+  const themes = useMemo(() => themesOf(knowledge), [knowledge]);
   const intentArgs = (save: boolean) => ({
-    name: intent.name || intent.mood,
+    name: intent.name || intent.mood.map((m) => themeLabel(themes, m)).join(", "),
     canvas: intent.canvas,
-    mood: intent.mood
-      .split(/[,;]/)
-      .map((m) => m.trim())
-      .filter(Boolean),
+    mood: intent.mood,
     ...(intent.energy ? { energy: intent.energy } : {}),
     save,
   });
@@ -605,8 +607,8 @@ export function ShowPage(): ReactElement {
         <h2>{t.fromIntent}</h2>
         {canvases.length === 0 && <p className="hint">{t.needCanvas}</p>}
         <div className="editor">
+          <ThemePicker themes={themes} chosen={intent.mood} onChange={(mood) => setIntent((i) => ({ ...i, mood }))} />
           <input placeholder={t.name} value={intent.name} onChange={(e) => setIntent({ ...intent, name: e.target.value })} />
-          <input placeholder={t.moods} value={intent.mood} onChange={(e) => setIntent({ ...intent, mood: e.target.value })} />
           <select aria-label={t.energy} value={intent.energy} onChange={(e) => setIntent({ ...intent, energy: e.target.value })}>
             <option value="">
               {t.energy} {t.auto}
@@ -624,10 +626,10 @@ export function ShowPage(): ReactElement {
               </option>
             ))}
           </select>
-          <button disabled={!intent.mood || !intent.canvas} onClick={() => void cmd<{ explanation: string[]; unknownMoods: string[] }>("look.from_intent", intentArgs(false)).then(setProposal).catch((e: Error) => setError(e.message))}>
+          <button disabled={intent.mood.length === 0 || !intent.canvas} onClick={() => void cmd<{ explanation: string[]; unknownMoods: string[] }>("look.from_intent", intentArgs(false)).then(setProposal).catch((e: Error) => setError(e.message))}>
             {t.dryRun}
           </button>
-          <button className="primary" disabled={!intent.mood || !intent.canvas} onClick={() => void run("look.from_intent", intentArgs(true)).then(() => setProposal(null))}>
+          <button className="primary" disabled={intent.mood.length === 0 || !intent.canvas} onClick={() => void run("look.from_intent", intentArgs(true)).then(() => setProposal(null))}>
             {t.apply}
           </button>
         </div>

@@ -69,6 +69,8 @@ Chant {
 - **Le contenu personnel de l'utilisateur** se charge depuis un **plugin ou dossier privé** et n'est jamais versionné.
 - Règle par défaut : **la couleur ne touche pas la peau**. Le rôle `face` reste en blanc.
 - C'est la source de `light_look_from_intent` et de `light_song_grid_fill` ([mcp](mcp.md)).
+- **Libellés** : chaque ambiance porte une clé sans accent (`intimite`, ce qu'échangent `look.from_intent` et le tag `ambiance:<clé>`) et un `label` facultatif accentué (« Intimité ») que l'interface affiche, à défaut la clé. `knowledge.get` renvoie le tout, fichier privé fusionné.
+- **Création par intention (page Show, T14)** : un sélecteur à choix multiples avec recherche (sans casse ni accents, par libellé ou clé) liste les thématiques connues avec leurs couleurs et leur famille ; les choisies sont des puces retirables. Un mot libre reste permis (« Ajouter « mot » » quand aucune thématique ne correspond) : envoyé tel quel dans `mood`, il est signalé dans `unknownMoods`. La liste est une propriété du composant, pour que les intentions personnalisées (T15) s'y ajoutent.
 
 ## Notes partout
 - Champ `notes` (Markdown court, horodaté) sur **chaque objet** : fixture, zone, groupe, look, preset, palette, section, cue, mapping, dashboard, widget, node, univers.

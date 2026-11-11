@@ -5,6 +5,7 @@
  * whole travel stays inside that function — the value still moves there, often a speed. A fader has
  * one range for all its channels: the channels it does not fit are named (`unfitted`).
  */
+import { searchBy } from "./search-text.js";
 
 export interface ChannelFunctions {
   offset: number;
@@ -64,22 +65,9 @@ export function faderFunctions(fixtures: readonly FixtureFunctions[], picked: re
 /** The functions whose range the fader covers exactly (several when two functions share a range). */
 export const functionsOf = (list: readonly FaderFunction[], range: { min: number; max: number }): FaderFunction[] => list.filter((f) => f.min === range.min && f.max === range.max);
 
-/** Text compared without case, accents or dash kind: « gobo », « Gobo », « red (16-31) » find what they mean. */
-const fold = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2010-\u2015]/g, "-")
-    .toLowerCase();
-
 /** The functions a search keeps: the labels holding the whole phrase typed if any do (« gobo 3 » is not « Gobo 1 (16–31) »), else those holding every word of it. */
 export function searchFunctions(list: readonly FaderFunction[], query: string): FaderFunction[] {
-  const phrase = fold(query).trim().replace(/\s+/g, " ");
-  if (!phrase) return [...list];
-  const whole = list.filter((f) => fold(f.label).includes(phrase));
-  if (whole.length) return whole;
-  const words = phrase.split(" ");
-  return list.filter((f) => words.every((w) => fold(f.label).includes(w)));
+  return searchBy(list, query, (f) => [f.label]);
 }
 
 /**

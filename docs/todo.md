@@ -96,6 +96,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 
 ### T14 — Créer un look par intention : thématiques
 - Dans la création par intention, **rechercher et sélectionner une ou plusieurs thématiques** (combobox à choix multiples ou liste).
+- **Fait (2026-11-11)** : sélecteur [ThemePicker](../web/src/components/ThemePicker.tsx) (recherche sans casse ni accents, boutons `aria-pressed`, pastilles de couleurs et famille, puces retirables, « Ajouter « mot » » pour un mot libre, toujours accepté et signalé inconnu) alimenté par `knowledge.get` ; chaque ambiance a un `label` accentué (générique.json). Helpers purs [themes.ts](../web/src/themes.ts) et [search-text.ts](../web/src/search-text.ts) (repli de recherche partagé avec les fonctions de fader). Spec [presets-songs-notes](specs/presets-songs-notes.md) ; tests `test/themes.test.ts`, `knowledge.get` (design.test.ts) et un parcours UI. Le T15 s'y branchera en passant ses intentions dans la liste.
 
 ### T15 — Gérer les intentions
 - Ajout, suppression et édition des intentions depuis l'interface ; **export dans les `.lightshow`** (comme les définitions de projecteurs depuis d2f7844) ; vérifier l'import et l'archive aller-retour.
@@ -274,7 +275,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 | 2 | T17 dossiers de looks | changement d'un champ + une vue groupée |
 | 3 | ~~T16 instantané au démarrage~~ fait | un réglage du show + un rappel au boot |
 | 4 | T12 canaux du type choisi | filtre d'affichage dans le sélecteur |
-| 5 | T14 thématiques en combobox | composant d'interface, données déjà là |
+| 5 | T14 thématiques en combobox (fait 2026-11-11) | composant d'interface, données déjà là |
 | 6 | T4 fader DCA et lissage | bug d'affichage à reproduire, correctif probablement local |
 | 7 | T22 contrôles du patch | beaucoup de petites règles, chacune simple |
 | 8 | T11 menu clic droit complet | renommer et colorer existent ; reste déplacer, mode, suppression |
