@@ -1157,10 +1157,10 @@ export class ShowRuntime {
     return errors;
   }
 
-  /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's): a channel fader on it doses it. */
+  /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's, nor one no colour paints): a channel fader on it doses it. */
   dosesDimmer(fixtureId: string, offset: number): boolean {
     const r = this.venue.resolve(fixtureId);
-    return !("error" in r) && !r.lampOnly && r.dimmers.includes(offset);
+    return !("error" in r) && !r.levelDimmer && r.dimmers.includes(offset);
   }
 
   /**

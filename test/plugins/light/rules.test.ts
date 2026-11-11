@@ -20,6 +20,7 @@ const fx: ResolvedFixture = {
   tiltMax: 270,
   shutterOpen: new Map(),
   lampOnly: false,
+  levelDimmer: false,
 };
 const rule = (r: unknown) => RuleSchema.parse(r);
 

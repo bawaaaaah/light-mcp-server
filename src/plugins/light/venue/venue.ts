@@ -359,8 +359,17 @@ export interface ResolvedFixture {
   wheel?: Wheel;
   /** Shutter channels and their « open » value, written when nothing else drives them. */
   shutterOpen: Map<number, number>;
-  /** No colour mixing: the painted colour's level drives the dimmer (lamp + wheel, plain dimmer). */
+  /**
+   * No colour channel at all (lamp + wheel, plain dimmer): its colour wheel follows the painted colour. A fixture with
+   * colour channels never has its wheel driven so, even when none of them is a plain intensity.
+   */
   lampOnly: boolean;
+  /**
+   * No head takes a painted colour (no plain colour component): the painted colour's level drives the dimmer and the
+   * preview, as on a lamp. True for every `lampOnly` fixture, and for one whose colour channels all run functions
+   * (CMY split into functions, lasers): its dimmer is never held at full, a full white beam no look doses.
+   */
+  levelDimmer: boolean;
 }
 
 const levelOf = (c: Color) => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
@@ -654,7 +663,9 @@ export class Venue {
         // a lamp has no colour channel at all in its heads: one whose colour channels are no plain intensity (a laser, a
         // channel cut into functions) is a colour fixture no colour paints, and its wheel stays untouched
         const lampOnly = !found.mixes;
-        result = { patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly };
+        // no head with a component to paint: the dimmer follows the painted level, as on a lamp, or nothing would dose it
+        const levelDimmer = [...heads.values()].every((c) => Object.keys(c).length === 0);
+        result = { patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -737,7 +748,7 @@ export class Venue {
       // a mode channel); one that only writes machine channels (a wheel, a macro, an effect) cannot dose
       // itself, and its weight — once per look, however many channels it holds — doses the dimmer the
       // show holds (machineFade, with what doses itself by its colours). 1 without a machine look. A
-      // lamp-only fixture never takes it: its dimmer is its painted level, which carries the painting
+      // fixture whose dimmer follows its painted level (levelDimmer) never takes it: that level carries the painting
       // looks' weights already (dosing it again would fade it twice), and unpainted it stays dark anyway.
       const byColour = new Map(frame.painted.get(patch.id) ?? []);
       const byDimmer = new Set<string>();
@@ -753,12 +764,12 @@ export class Venue {
       let machine: number | undefined;
       for (const [look, w] of machines) if (!byColour.has(look) && !byDimmer.has(look)) machine = Math.min(1, (machine ?? 0) + w);
       const selfDosed = Math.min(1, [...byColour.values()].reduce((sum, w) => sum + w, 0));
-      const fade = machine === undefined || r.lampOnly ? 1 : machineFade(machine, selfDosed);
+      const fade = machine === undefined || r.levelDimmer ? 1 : machineFade(machine, selfDosed);
       const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
       for (const [off, v] of r.shutterOpen) write(off, v);
-      if (r.lampOnly) {
-        // Lamp-only fixtures are lit by what the looks paint on them, at its level (already dosed by
+      if (r.levelDimmer) {
+        // Lamp-only fixtures (and those no colour paints) are lit by what the looks paint on them, at its level (already dosed by
         // the painting looks' weights): a machine channel's weight does not reach their dimmer.
         // Its wheel follows the look whose colour wins there, never a mix of two (color-wheel.ts); « au noir »
         // (overrides) holds the dimmer at 0 while the wheel turns. `wheels` keeps the slot held (hysteresis) and
@@ -768,7 +779,8 @@ export class Venue {
         const body = painted && full(painted);
         const color = body?.get(-1) ?? body?.values().next().value;
         let dim = 1;
-        if (r.wheel) {
+        // the wheel of a fixture with colour channels (none of them paintable) stays with raw channels
+        if (r.lampOnly && r.wheel) {
           const paints: LookPaint[] = (frame.paintedBy.get(patch.id) ?? []).flatMap((p) => {
             const heads = full(p.heads);
             return heads.size ? [{ ...p, heads, ...(p.hues ? { hues: full(p.hues) } : {}) }] : [];
@@ -785,7 +797,7 @@ export class Venue {
       } else for (const d of r.dimmers) write(d, intensity * fade * 255);
       const colorScale = hasDimmer ? 1 : intensity;
       if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
-      if (painted && !r.lampOnly) {
+      if (painted && !r.levelDimmer) {
         // what follows the look on an accent head (a halo) is painted per look already (followAccents): a whole-fixture
         // colour reaches it here only when it follows
         for (const [h, comps] of r.heads) {
@@ -801,7 +813,7 @@ export class Venue {
         for (const offset of raws.keys()) held.set(offset, buf[base + offset] ?? 0);
         // Under a look that doses itself by its dimmer, only what else lights the fixture holds it up:
         // the machine weight and the looks dosing their colours (alone, it rises from black).
-        const underOwnDimmer = r.lampOnly ? undefined : intensity * 255 * Math.min(1, (machine ?? 0) + selfDosed);
+        const underOwnDimmer = r.levelDimmer ? undefined : intensity * 255 * Math.min(1, (machine ?? 0) + selfDosed);
         rawPass.push(() => {
           for (const [offset, writes] of raws) {
             const kept = held.get(offset) ?? 0;
@@ -847,10 +859,9 @@ export class Venue {
       const off = this.absent.has(patch.id);
       const at = (o: number) => (off ? 0 : (buf[patch.address - 1 + o] ?? 0) / 255);
       const dimmer = r.dimmers.length ? Math.max(...r.dimmers.map(at)) : 1;
-      if (r.lampOnly) {
-        if (!r.dimmers.length) continue;
+      if (r.levelDimmer && r.dimmers.length) {
         let color: Color = { white: 1 };
-        if (r.wheel) {
+        if (r.lampOnly && r.wheel) {
           // found by range: the value sent is the slot's middle, a raw look may write its edge
           const slot = slotAt(r.wheel.slots, off ? 0 : (buf[patch.address - 1 + r.wheel.offset] ?? 0));
           if (slot) color = slot.color;
@@ -858,6 +869,8 @@ export class Venue {
         out[patch.id] = [displayHex(Object.fromEntries(Object.entries(color).map(([k, x]) => [k, (x ?? 0) * dimmer])) as Color)];
         continue;
       }
+      // a lamp without a dimmer shows nothing; a fixture no colour paints, without a dimmer either, shows its dark heads
+      if (r.lampOnly) continue;
       // the full heads only: an accent head (a halo) is no visible colour of the fixture (venue/heads.ts)
       out[patch.id] = [...r.heads].filter(([h]) => !r.accent.has(h)).map(([, comps]) => {
         const c: Color = {};

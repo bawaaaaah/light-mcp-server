@@ -422,6 +422,55 @@ describe("heads: a cautious deduction", () => {
     expect(headsOf(lamp, lamp.modes[0]!).mixes).to.equal(false);
   });
 
+  it("doses a fixture whose colour channels all run functions by its dimmer, as a lamp: no full white beam no look doses", () => {
+    // a moving head whose CMY channels spin past their saturation range, with a dimmer and an open shutter (no wheel)
+    const cmy = (name: string) =>
+      `<Channel Name="${name}"><Group Byte="0">Intensity</Group><Colour>${name}</Colour><Capability Min="0" Max="0">Open white</Capability><Capability Min="1" Max="128">${name} (0% to 100% saturation)</Capability><Capability Min="129" Max="172">Media scan</Capability><Capability Min="173" Max="255">Forward spin (slow to fast)</Capability></Channel>`;
+    const shutter = `<Channel Name="Shutter"><Group Byte="0">Shutter</Group><Capability Min="0" Max="0" Preset="ShutterOpen">Open</Capability><Capability Min="1" Max="255" Preset="StrobeRandom">Random</Capability></Channel>`;
+    const xml = `<?xml version="1.0"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>CMY Beam</Model><Type>Moving Head</Type><Channel Name="Dim" Preset="IntensityDimmer"/>${shutter}${cmy("Cyan")}${cmy("Magenta")}${cmy("Yellow")}
+<Mode Name="M">${["Dim", "Shutter", "Cyan", "Magenta", "Yellow"].map((n, i) => `<Channel Number="${i}">${n}</Channel>`).join("")}</Mode></FixtureDefinition>`;
+    const dir = mkdtempSync(join(tmpdir(), "light-heads-cmy-"));
+    mkdirSync(join(dir, "fixtures"));
+    writeFileSync(join(dir, "fixtures", "cmy-beam.qxf"), xml);
+    const venue = new Venue(new FolderStore(join(dir, "venue")), [join(dir, "fixtures")]);
+    venue.fixtures.put({ id: "beam", name: "Beam", manufacturer: "Test", model: "CMY Beam", mode: "M", universe: 1, address: 1 });
+    const r = resolved(venue, "beam");
+    expect([...r.heads.entries()]).to.deep.equal([[-1, {}]]); // no plain colour
+    expect(r.lampOnly).to.equal(false); // colour channels: no lamp, no wheel driven by the painted colour
+    expect(r.levelDimmer).to.equal(true); // but nothing to paint: the dimmer follows the painted level
+    const out = (color?: { red: number; green: number; blue: number }) => {
+      const frame = emptyFrame();
+      if (color) frame.colors.set("beam", new Map([[-1, color]]));
+      const buf = new Uint8Array(512);
+      venue.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" });
+      return { dmx: [...buf.slice(0, 5)], display: venue.displayColors([buf]).beam };
+    };
+    const g = 32 / 255;
+    // before: Dim 255 whatever the looks, CMY 0 and the shutter open: a full white beam, shown black in the preview
+    expect(out({ red: g, green: g, blue: g })).to.deep.equal({ dmx: [32, 0, 0, 0, 0], display: ["#202020"] });
+    expect(out({ red: 0, green: 0, blue: 0 })).to.deep.equal({ dmx: [0, 0, 0, 0, 0], display: ["#000000"] });
+    expect(out()).to.deep.equal({ dmx: [0, 0, 0, 0, 0], display: ["#000000"] });
+  });
+
+  it("never takes a resolution for a part number: « Flower Effect 1 - Red (8bit) » is part 1, « Background - Red (8bit) » no number", () => {
+    expect(partOf("Flower Effect 1 - Red (8bit)")).to.deep.equal({ words: "flower effect", number: 1 });
+    expect(partOf("Background - Red (8bit)")).to.deep.equal({ words: "background" });
+    expect(partOf("Red 16 bit")).to.deep.equal({ words: "" });
+    expect(partOf("Spot 2 Red (16-bit)")).to.deep.equal({ words: "spot", number: 2 });
+    // a moving head with two flower effects and a background: the numbered effects first, then the background as
+    // patched; its « White … - all pixels » only qualifies the background and joins it
+    const rgbw = (part: string): [string, string][] => ["Red", "Green", "Blue", "White"].map((c) => [`${part} - ${c} (8bit)`, c]);
+    const bg: [string, string][] = [...rgbw("Background").slice(0, 3), ["Background - White (8bit) - all pixels", "White"]];
+    const xml = qxf("Flowers", [...bg, ...rgbw("Flower Effect 1"), ...rgbw("Flower Effect 2")]);
+    expect(headNames(xml)).to.deep.equal([
+      "0:Flower Effect 1 - Red (8bit)/Flower Effect 1 - Green (8bit)/Flower Effect 1 - Blue (8bit)/Flower Effect 1 - White (8bit)",
+      "1:Flower Effect 2 - Red (8bit)/Flower Effect 2 - Green (8bit)/Flower Effect 2 - Blue (8bit)/Flower Effect 2 - White (8bit)",
+      "2:Background - Red (8bit)/Background - Green (8bit)/Background - Blue (8bit)/Background - White (8bit) - all pixels",
+    ]);
+    const def = parseQxf(xml);
+    expect(headsOf(def, def.modes[0]!).escaped).to.deep.equal([]);
+  });
+
   it("names a part by its first number: « Spots 1+4 » comes before « Spots 2+3 »", () => {
     expect(partOf("Spots 2+3 Red")).to.deep.equal({ words: "spots", number: 2 });
     expect(partOf("Spots 1+4 Red")).to.deep.equal({ words: "spots", number: 1 });

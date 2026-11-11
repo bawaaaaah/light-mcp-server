@@ -62,10 +62,12 @@ const plain = (name: string) =>
 /**
  * A colour channel's part: the words left once the colour words are taken out, and the number left among them
  * (« Red 2 » → "", 2; « Rouge 2 » → "", 2; « LED 1 Red » → "", 1; « Spot 1 Red » → "spot", 1; « Halo Red » → "halo";
- * « Spots 2+3 Red » → "spots", 2: the first number).
+ * « Spots 2+3 Red » → "spots", 2: the first number; « Red (8bit) » → "", no number: a resolution is not one).
  */
 export function partOf(channelName: string): { words: string; number?: number } {
   const rest = plain(channelName)
+    // a resolution is no part number: « Flower Effect 1 (8bit) », « Dimmer 16 bit », « Pan 16-bit »
+    .replace(/\d+\s*-?bit\b/g, " ")
     .replace(/(\d+)/g, " $1 ")
     .replace(COLOUR_WORDS, " ");
   // the first number names the part: « Spots 2+3 » is part 2, after « Spots 1+4 »
@@ -150,6 +152,25 @@ function mostRepeated(offsets: readonly number[], colourAt: (offset: number) => 
   return Math.max(0, ...counts.values());
 }
 
+/**
+ * A lone unnumbered channel whose words only add to an unnumbered part's, with a component that part lacks, belongs to
+ * it: « Background - White (8bit) - all pixels » beside « Background - Red / Green / Blue (8bit) ».
+ */
+function joinQualified(parts: Part[], colourAt: (offset: number) => Component): Part[] {
+  const out = parts.map((p) => ({ ...p, offsets: [...p.offsets] }));
+  for (const p of [...out]) {
+    if (p.offsets.length !== 1 || p.number !== undefined) continue;
+    const c = colourAt(p.offsets[0]!);
+    const into = out.find((q) => q !== p && q.number === undefined && q.words !== "" && p.words.startsWith(`${q.words} `) && !q.comps.split("+").includes(c));
+    if (!into) continue;
+    into.offsets.push(...p.offsets);
+    into.offsets.sort((x, y) => x - y);
+    into.comps = [...into.comps.split("+"), c].sort().join("+");
+    out.splice(out.indexOf(p), 1);
+  }
+  return out;
+}
+
 /** The accent correction that applies to this mode: [] always (no accent); a list only when one of its names is in the mode. */
 function accentFor(mode: FixtureMode, overrides: HeadOverrides | undefined): readonly string[] | undefined {
   const accent = overrides?.accent;
@@ -183,10 +204,11 @@ function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: { offsets:
     groupBy(coarse, (off) => (partAt(off).number !== undefined ? `#${partAt(off).number}` : partAt(off).words), partAt, colourAt) ??
     groupBy(coarse, (off) => `${partAt(off).words}#${partAt(off).number ?? ""}`, partAt, colourAt);
   if (!found) return whole;
+  const joined = joinQualified(found, colourAt);
   // parts alike (the same components, twice at least) are zones: a lone colour beside them (a « UV Dimmer » beside
   // 4 RGBW spots) is left out of any head rather than making the whole fixture one colour
-  const alike = (p: Part) => found.some((q) => q !== p && q.comps === p.comps);
-  const parts = found.some(alike) ? found.filter((p) => p.offsets.length > 1 || alike(p)) : found;
+  const alike = (p: Part) => joined.some((q) => q !== p && q.comps === p.comps);
+  const parts = joined.some(alike) ? joined.filter((p) => p.offsets.length > 1 || alike(p)) : joined;
   if (parts.length <= 1) return whole;
   // zones of one fixture: no more parts than the most repeated component among them (« Red (Pixel 1) | Green (Pixel 2) … »
   // are single LEDs, not zones), and no lone colour beside full zones that are not alike (« Red / Fade Speed | Green / Blue »)
