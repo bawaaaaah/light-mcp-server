@@ -3,6 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
+import { DmxModeSection } from "./DmxModeSection";
 import { FixtureHeads } from "./FixtureHeads";
 import { WheelEntry } from "./WheelEditor";
 
@@ -16,6 +17,10 @@ export interface MarkedFixture {
   /** How many DMX channels it takes, as the server resolves its mode (venue.fixture.list); unknown: its end is not checked. */
   channels?: number;
   color?: string;
+  /** Its definition and DMX mode (venue.fixture.list): the mode list comes from the definition's (T6). */
+  manufacturer?: string;
+  model?: string;
+  mode?: string;
   /** A moving head's stored orientation; only the inversions are shown here. */
   orientation?: { invertPan?: boolean; invertTilt?: boolean };
 }
@@ -267,6 +272,7 @@ export function FixtureMenu({
         )}
         {warning && <small className="warn">{warning}</small>}
       </fieldset>
+      <DmxModeSection fixture={fixture} onSaved={onSaved} />
       {overlaps.length > 0 && (
         <div role="alert" className="overlap-alert">
           <strong>⚠ {t.fixtureOverlapTitle}</strong>

@@ -3058,6 +3058,137 @@ fieldset.checklist .checklist-search {
   color: var(--accent);
 }
 
+/* T6: a list of modes picked by name (a fixture's DMX modes, a channel's working modes): one row per mode,
+   variants indented under theirs, the values on the right, room on the left for a thumbnail (T19) */
+.mode-picker {
+  display: grid;
+  gap: 0.4em;
+}
+.mode-picker h4 {
+  margin: 0;
+}
+.mode-picker .mode-list {
+  display: grid;
+  gap: 0.2em;
+  max-height: 16em;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mode-picker .mode-list button {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: 100%;
+  min-height: 44px;
+  text-align: start;
+}
+.mode-picker .mode-list li.variant button {
+  padding-inline-start: 2em;
+}
+.mode-picker .mode-list .thumb {
+  flex: none;
+  width: 0;
+}
+.mode-picker .mode-list .name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mode-picker .mode-list .detail {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mode-picker .mode-list button.chosen {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.dmx-mode .mode-plan {
+  display: grid;
+  gap: 0.3em;
+  margin-top: 0.4em;
+  padding: 0.5em;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: 6px;
+}
+.dmx-mode .mode-plan ul {
+  margin: 0.2em 0;
+  padding-inline-start: 1.2em;
+}
+.mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.mode-actions button {
+  min-height: 44px;
+}
+
+/* T6: the ranges around a fader's value, on its left: the current one highlighted with its value, the
+   neighbours with their first value, high values on top as on the track */
+.fader .track-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.3em;
+  flex: 1;
+  min-height: 0;
+}
+.cell .fader > .track-row {
+  flex-shrink: 1;
+}
+.fixture-panel .panel-channels .fader .track-row {
+  flex: none;
+  height: 108px;
+}
+.range-ladder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.1em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72rem;
+  max-width: 8.5em;
+  min-width: 0;
+}
+.range-ladder li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4em;
+  color: var(--muted);
+}
+.range-ladder li.now {
+  color: var(--text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 3px;
+  padding-inline: 0.2em;
+}
+.range-ladder .range-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.range-ladder small {
+  font-variant-numeric: tabular-nums;
+}
+.fixture-panel .mode-button {
+  max-width: 14em;
+  min-height: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fixture-panel .panel-mode-picker {
+  margin-top: 0.4em;
+}
+
 /* the theme picker of « create a look by intention » (T14): chips, then the known themes as buttons that wrap */
 .theme-picker {
   display: grid;

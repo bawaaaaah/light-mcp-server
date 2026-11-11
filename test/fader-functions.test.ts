@@ -1,5 +1,49 @@
 import { expect } from "chai";
-import { faderFunctions, functionsOf, searchFunctions, unfitted } from "../web/src/fader-functions.js";
+import { dmxOf, faderFunctions, functionsOf, rangeAt, rangeNeighbours, searchFunctions, sharedRanges, unfitted } from "../web/src/fader-functions.js";
+
+describe("fader ranges (T6): the range a channel fader is in, and its neighbours", () => {
+  const ranges = [
+    { min: 0, max: 7, name: "No function" },
+    { min: 8, max: 39, name: "Auto 1" },
+    { min: 40, max: 71, name: "Auto 2" },
+    { min: 72, max: 103, name: "Auto 3" },
+    { min: 104, max: 135, name: "Sound 1" },
+    { min: 140, max: 255, name: "Color fade" },
+  ];
+
+  it("gives the range a value is in, two above (higher values, top first) and two below (nearest first)", () => {
+    const n = rangeNeighbours(ranges, 55);
+    expect(n.current!.name).to.equal("Auto 2");
+    expect(n.above.map((r) => r.name)).to.deep.equal(["Sound 1", "Auto 3"]);
+    expect(n.below.map((r) => r.name)).to.deep.equal(["Auto 1", "No function"]);
+    expect(rangeNeighbours(ranges, 0).below).to.deep.equal([]);
+    expect(rangeNeighbours(ranges, 255, 1).above).to.deep.equal([]);
+    // between two ranges: no current one, the neighbours around the value
+    const gap = rangeNeighbours(ranges, 137, 1);
+    expect(gap.current).to.equal(undefined);
+    expect([gap.above[0]!.name, gap.below[0]!.name]).to.deep.equal(["Color fade", "Sound 1"]);
+  });
+
+  it("reads the DMX value of a level over the fader's range", () => {
+    expect(dmxOf(0.5)).to.equal(128);
+    expect(dmxOf(1, { min: 16, max: 31 })).to.equal(31);
+    expect(rangeAt(ranges, dmxOf(0.2))!.name).to.equal("Auto 2");
+  });
+
+  it("shows the ranges of one channel, or of several cut exactly alike, else none", () => {
+    const program = { offset: 4, name: "Program", ranges };
+    const fixtures = [
+      { id: "a", name: "A", channels: [program, { offset: 0, name: "Dimmer" }] },
+      { id: "b", name: "B", channels: [program] },
+      { id: "c", name: "C", channels: [{ offset: 4, name: "Program", ranges: ranges.slice(1) }] },
+    ];
+    expect(sharedRanges(fixtures, [{ fixture: "a", offset: 4 }])).to.equal(ranges);
+    expect(sharedRanges(fixtures, [{ fixture: "a", offset: 4 }, { fixture: "b", offset: 4 }])).to.equal(ranges);
+    expect(sharedRanges(fixtures, [{ fixture: "a", offset: 4 }, { fixture: "c", offset: 4 }])).to.equal(undefined);
+    expect(sharedRanges(fixtures, [{ fixture: "a", offset: 0 }])).to.equal(undefined);
+    expect(sharedRanges(fixtures, [])).to.equal(undefined);
+  });
+});
 
 describe("fader functions (T12): a channel fader narrowed to a named function", () => {
   const wheel = { offset: 7, name: "Color Wheel", ranges: [{ min: 0, max: 15, name: "White" }, { min: 16, max: 31, name: "Red" }] };

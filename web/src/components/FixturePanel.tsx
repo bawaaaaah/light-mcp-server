@@ -12,18 +12,36 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { rangeAt, type NamedRange } from "../fader-functions";
+import { quoted } from "../typography";
+import { stream } from "../ws";
 import { FaderTrack } from "./FaderTrack";
+import { ModePicker, type ModeItem } from "./ModePicker";
 import { XyPad } from "./XyPad";
 
 interface Head {
   id: string;
   manual: { pan: number; tilt: number } | null;
 }
+interface ChannelMode {
+  name: string;
+  min: number;
+  max: number;
+  variants: NamedRange[];
+  continuous: boolean;
+}
 interface ChannelRow {
   offset: number;
   name: string;
   attribute: string;
   color?: string;
+  /** A channel cut into functions (venue.fixture.channels): its flat ranges, and the same read as modes (T6). */
+  ranges?: NamedRange[];
+  modes?: ChannelMode[];
+}
+/** What fixture.channel.mode answers: the look or faders holding the channel higher, when they do. */
+interface ModeSet {
+  heldBy?: { looks: { name: string }[]; faders: { name: string }[] };
 }
 interface FaderRow {
   id: string;
@@ -58,6 +76,12 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   const working = useRef(new Map<number, { pending?: number }>());
   /** Channel values read once (a channel shown before its fader exists starts at what the fixture has). */
   const explained = useRef(new Set<string>());
+  /** The fixture's universe as it goes out (light:dmx): the mode in force is read there, a look that wins shows (T6). */
+  const [out, setOut] = useState<Uint8Array | null>(null);
+  /** The channel whose mode list is open, by offset. */
+  const [picking, setPicking] = useState<number | null>(null);
+  /** By offset: the range last asked from the panel, and who held the channel higher then. */
+  const [asked, setAsked] = useState<Record<number, { min: number; max: number; heldBy: string }>>({});
 
   const read = useCallback(() => {
     void cmd<FaderRow[]>("fader.list").then(setFaders).catch(() => undefined);
@@ -79,6 +103,20 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   // opened, or the patch itself (a re-patch, a definition added)
   useCommandEvents(["position.", "panic", "show.", "fader.", "venue.fixture."], read);
   const glide = useTopic<Glide>("light:glide", { faders: {} });
+  // one universe followed, only while a channel has modes to show; left when the panel goes (a tablet keeps no stream)
+  const followsModes = channels.some((c) => c.modes?.length);
+  const universe = patch?.universe;
+  useEffect(() => {
+    if (!followsModes || universe === undefined) return;
+    return stream.subscribe(
+      "light:dmx",
+      (d) => {
+        const mine = (d as { universes: [number, Uint8Array][] }).universes.find(([u]) => u === universe);
+        if (mine) setOut(new Uint8Array(mine[1]));
+      },
+      { universes: [universe] },
+    );
+  }, [followsModes, universe]);
 
   /** The channel faders that drive one channel of this fixture over its whole travel, by channel offset (as fader.channel finds them). */
   const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !narrowed(f.range)).map((f) => [f.channels[0]!.offset, f]));
@@ -133,17 +171,86 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
       .finally(() => void working.current.delete(c.offset));
   };
 
+  /** What goes out on a channel now (light:dmx), once the stream has spoken. */
+  const outOf = (c: ChannelRow) => (out && patch ? out[patch.address - 1 + c.offset] : undefined);
+  /** The mode and variant a value is in, by their ranges. */
+  const modeOf = (c: ChannelRow, value: number | undefined) => {
+    if (value === undefined) return undefined;
+    for (const m of c.modes ?? []) {
+      const v = rangeAt(m.variants, value);
+      if (v) return { mode: m, variant: v };
+    }
+    return undefined;
+  };
+  /** A channel's mode by name (fixture.channel.mode), through its own fader; who holds it higher is kept to be said. */
+  const pickMode = (c: ChannelRow, mode: ChannelMode, variant?: NamedRange) => {
+    setPicking(null);
+    void cmd<ModeSet>("fixture.channel.mode", { fixture: fixture.id, offset: c.offset, mode: mode.name, ...(variant ? { variant: variant.name } : {}) })
+      .then((r) => {
+        const v = variant ?? mode.variants[0]!;
+        const heldBy = [...(r.heldBy?.looks ?? []), ...(r.heldBy?.faders ?? [])].map((x) => quoted(t, x.name)).join(", ");
+        setAsked((a) => ({ ...a, [c.offset]: { min: v.min, max: v.max, heldBy } }));
+      })
+      .catch((e: Error) => onError(e.message));
+  };
+  const modeItems = (c: ChannelRow): ModeItem[] => {
+    const now = modeOf(c, outOf(c));
+    const range = (r: { min: number; max: number }) => `${r.min}–${r.max}`;
+    return (c.modes ?? []).flatMap((m) => {
+      const row: ModeItem = { key: `m:${m.name}:${m.min}`, label: m.name, detail: range(m), current: m.variants.length < 2 && now?.mode === m };
+      if (m.variants.length < 2) return [row];
+      return [row, ...m.variants.map((v) => ({ key: `v:${v.name}:${v.min}`, label: v.name, detail: range(v), parent: row.key, current: now?.variant === v }))];
+    });
+  };
+  const onModePick = (c: ChannelRow, item: ModeItem) => {
+    for (const m of c.modes ?? []) {
+      if (item.key === `m:${m.name}:${m.min}`) return pickMode(c, m);
+      const v = m.variants.find((x) => item.key === `v:${x.name}:${x.min}`);
+      if (v) return pickMode(c, m, v);
+    }
+  };
+
   const faderRow = (c: ChannelRow) => {
     const f = byOffset.get(c.offset);
     const level = f ? f.level : levels[c.offset] ?? 0;
+    const now = c.modes?.length ? modeOf(c, outOf(c)) : undefined;
+    const shown = now ? (now.mode.variants.length > 1 ? now.variant.name : now.mode.name) : t.fixtureMode.between;
     return (
       <div key={c.offset} className="fader" style={c.color ? ({ "--wc": c.color } as CSSProperties) : undefined}>
-        <FaderTrack label={`${t.channelFader} ${c.name}`} value={level} sent={f ? glide.faders[f.id] : undefined} disabled={false} interactive={true} onChange={(v) => setChannelLevel(c, v)} />
+        {c.modes?.length ? (
+          <button
+            type="button"
+            className="mode-button"
+            title={t.fixtureMode.pickHelp}
+            aria-expanded={picking === c.offset}
+            aria-controls={picking === c.offset ? `mode-picker-${fixture.id}` : undefined}
+            onClick={() => setPicking((p) => (p === c.offset ? null : c.offset))}
+          >
+            {t.fixtureMode.pick.replace("{channel}", c.name).replace("{mode}", outOf(c) === undefined ? "…" : shown)} ▾
+          </button>
+        ) : null}
+        <FaderTrack
+          label={`${t.channelFader} ${c.name}`}
+          value={level}
+          sent={f ? glide.faders[f.id] : undefined}
+          disabled={false}
+          interactive={true}
+          onChange={(v) => setChannelLevel(c, v)}
+          ranges={c.ranges}
+          rangesLabel={t.fixtureMode.ranges.replace("{channel}", c.name)}
+        />
         <span className="value">{Math.round(level * 100)}%</span>
         <label title={c.name}>{c.name}</label>
       </div>
     );
   };
+  /** The channels whose asked mode does not go out: someone holds them higher (highest takes precedence, decision T6). */
+  const held = channels.flatMap((c) => {
+    const a = asked[c.offset];
+    const v = outOf(c);
+    return a && a.heldBy && v !== undefined && (v < a.min || v > a.max) ? [{ c, who: a.heldBy }] : [];
+  });
+  const open = channels.find((c) => c.offset === picking);
 
   return (
     <div className="fixture-panel">
@@ -173,7 +280,20 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
             <h4>{t.panelLight}</h4>
             {may("show:write") && may("commands:level") ? (
               channels.length ? (
-                <div className="panel-channels">{channels.map(faderRow)}</div>
+                <>
+                  <div className="panel-channels">{channels.map(faderRow)}</div>
+                  {open?.modes && (
+                    <div id={`mode-picker-${fixture.id}`} className="panel-mode-picker">
+                      <ModePicker title={`${open.name} — ${t.fixtureMode.pickHelp}`} items={modeItems(open)} onPick={(i) => onModePick(open, i)} />
+                    </div>
+                  )}
+                  {held.map(({ c, who }) => (
+                    <p key={c.offset} className="warn" role="status">
+                      {c.name}
+                      {t.colon} {t.fixtureMode.heldBy.replace("{who}", who)}
+                    </p>
+                  ))}
+                </>
               ) : (
                 <small className="hint">{t.panelNoDefinition}</small>
               )

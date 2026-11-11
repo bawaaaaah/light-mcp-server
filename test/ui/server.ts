@@ -22,6 +22,7 @@ mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
 copyFileSync(new URL("../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
 copyFileSync(new URL("../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
 copyFileSync(new URL("../fixtures/wash-zones.qxf", import.meta.url), join(dataRoot, "fixtures", "wash-zones.qxf"));
+copyFileSync(new URL("../fixtures/mode-par.qxf", import.meta.url), join(dataRoot, "fixtures", "mode-par.qxf")); // not patched: the T6 tests patch it themselves
 writeFileSync(
   join(dir, "config.json"),
   JSON.stringify({ version: 1, server: { authToken: "ui-test-token" }, plugins: { light: { universes: 2, discovery: false, osc: { enabled: false }, os2l: { port: 0, advertise: false }, ableset: { port: 39999 }, output: { bindAddress: "127.0.0.1", artnetPort, routes: [{ universe: 1, artnet: { portAddress: 0, targets: ["127.0.0.2"] } }, { universe: 2, artnet: { portAddress: 1, targets: ["127.0.0.2"] } }] }, midi: { active: "local", profiles: { local: { inputs: [], rtp: { enabled: false } } } } } } }),

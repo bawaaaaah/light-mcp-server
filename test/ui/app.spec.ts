@@ -2960,6 +2960,155 @@ test("venue: the fixture menu checks a move before sending it, opens from the pl
   expect(errors.filter((e) => !e.includes("status of 409"))).toEqual([]);
 });
 
+/** T6: the synthetic « Mode Par » (test/fixtures/mode-par.qxf, in the library of the UI server), patched by the test itself. */
+const modePar = (extra: Record<string, unknown> = {}) => ({ id: "mode-par", name: "Par à modes", manufacturer: "Test", model: "Mode Par", mode: "6 Channel", universe: 2, address: 200, ...extra });
+
+test("venue: the fixture menu changes the DMX mode with its plan, carries channels by name, asks before a loss, and undoes", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: modePar() });
+  await api(page, "fader.put", { fader: { id: "mode-prog", name: "Programme", channels: [{ fixture: "mode-par", offset: 4 }], level: 0 } });
+  const fader = async () => ((await api(page, "fader.list")) as { id: string; channels: { offset: number }[] }[]).find((f) => f.id === "mode-prog");
+  const mode = async () => ((await api(page, "venue.fixture.list")) as { id: string; mode: string }[]).find((f) => f.id === "mode-par")?.mode;
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    await page.locator("tr", { hasText: "Par à modes" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    const section = menu.locator("fieldset.dmx-mode");
+    // the definition's modes, the current one marked by a sign and a word
+    await expect(section.getByRole("button", { name: /6 Channel/ })).toHaveAttribute("aria-current", "true");
+    await expect(section.getByRole("button", { name: /6 Channel/ })).toContainText("en cours");
+    // 8 channels: the plan first (nothing written), then applied; the fader follows « Program » by its name
+    await section.getByRole("button", { name: /^8 Channel/ }).click();
+    const plan = section.getByRole("region", { name: "Passer en « 8 Channel »" });
+    await expect(plan).toContainText("6 → 8 canaux");
+    await expect(plan).toContainText("Reportés (1)");
+    expect(await mode()).toBe("6 Channel");
+    await menu.screenshot({ path: "test-results/fixture-mode-plan.png" });
+    await plan.getByRole("button", { name: "Appliquer" }).click();
+    await expect(section.getByRole("status")).toContainText("Mode changé : « 8 Channel »");
+    await expect.poll(async () => (await fader())?.channels[0]!.offset).toBe(6);
+    expect(await mode()).toBe("8 Channel");
+    // one undo takes the whole change back
+    await section.getByRole("button", { name: "↶ Défaire" }).click();
+    await expect.poll(mode).toBe("6 Channel");
+    expect((await fader())?.channels[0]!.offset).toBe(4);
+    // Pixel has no « Program »: lost, named, and asked again before it is forced
+    await section.getByRole("button", { name: /^Pixel 9/ }).click();
+    const lossy = section.getByRole("region", { name: "Passer en « Pixel »" });
+    await expect(lossy.getByRole("alert")).toContainText("Program");
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await lossy.getByRole("button", { name: "Appliquer" }).click();
+    await expect.poll(() => asked).toContain("Programme");
+    expect(await mode()).toBe("6 Channel"); // dismissed: nothing written
+    page.once("dialog", (d) => void d.accept());
+    await lossy.getByRole("button", { name: "Appliquer" }).click();
+    await expect.poll(mode).toBe("Pixel");
+    expect(await fader()).toBeUndefined(); // left with no channel: deleted
+    await section.getByRole("button", { name: "↶ Défaire" }).click();
+    await expect.poll(mode).toBe("6 Channel");
+    expect((await fader())?.channels[0]!.offset).toBe(4);
+  } finally {
+    await api(page, "fader.delete", { id: "mode-prog", force: true });
+    await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue: on a shared venue the DMX mode change offers a venue of this show's own, or the change for every show", async ({ page, request }) => {
+  const errors = watchErrors(page);
+  const call = async (name: string, args: unknown = {}) =>
+    ((await (await request.post(`/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+  const open = ((await call("show.list")) as { id: string; venue: string; active: boolean }[]).find((s) => s.active)!;
+  await call("venue.fixture.put", { fixture: modePar() });
+  const other = (await call("show.create", { name: "Show voisin", venue: "current", open: false })) as { id: string };
+  const modeIn = async (venue: string) => ((await call("venue.fixture.list")) as { id: string; mode: string }[]).find((f) => f.id === "mode-par")?.mode + `@${((await call("venue.list")) as { id: string; active: boolean }[]).find((v) => v.active)!.id === venue ? "open" : "other"}`;
+  await login(page);
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    await page.locator("tr", { hasText: "Par à modes" }).click({ button: "right" });
+    const section = page.getByRole("dialog", { name: "Réglages de l'appareil" }).locator("fieldset.dmx-mode");
+    await section.getByRole("button", { name: /^8 Channel/ }).click();
+    const plan = section.getByRole("region", { name: "Passer en « 8 Channel »" });
+    await expect(plan).toContainText("Show voisin");
+    await expect(plan.getByRole("button", { name: "Appliquer" })).toHaveCount(0);
+    // for every show: the venue stays shared, the mode changes for both
+    await plan.getByRole("button", { name: "Modifier pour tous les shows" }).click();
+    await expect(section.getByRole("status")).toContainText("Mode changé");
+    expect(await modeIn(open.venue)).toBe("8 Channel@open");
+    await section.getByRole("button", { name: "↶ Défaire" }).click();
+    await expect.poll(() => modeIn(open.venue)).toBe("6 Channel@open");
+    // a venue of its own: this show moves to a copy, the other keeps the old mode
+    await section.getByRole("button", { name: /^8 Channel/ }).click();
+    await section.getByRole("region", { name: "Passer en « 8 Channel »" }).getByRole("button", { name: "Créer un lieu pour ce show" }).click();
+    await expect(section.getByRole("status")).toContainText("propre lieu");
+    await expect.poll(() => modeIn(open.venue)).toBe("8 Channel@other");
+    const venues = (await call("venue.list")) as { id: string; shows: string[] }[];
+    expect(venues.find((v) => v.id === open.venue)!.shows).toEqual([other.id]);
+    await expect(page.locator(".venue p.hint", { hasText: "Ce lieu est partagé" })).toHaveCount(0);
+  } finally {
+    await call("show.venue.set", { venue: open.venue });
+    await call("show.delete", { id: other.id });
+    await call("venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue plan: the panel sets a channel's working mode by name, reads the one going out, names a look holding it higher, and shows the neighbouring ranges", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  await api(page, "venue.fixture.put", { fixture: modePar({ position: { x: 2, y: 1, z: 4 } }) });
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "look.put", { look: { id: "mode-hold", name: "Tient le programme", canvas, technique: { kind: "plat", color: "#000000" }, channels: { targets: [{ fixture: "mode-par", offset: 4 }], steps: [[230]] } } });
+  const program = async () => (await dmx(page, 2))[199 + 4];
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
+    const body = page.locator('.stage-plan g.fixture[data-fixture="mode-par"]').first();
+    const box = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.5, 0.5], [0.85, 0.85], [0.15, 0.15]]) {
+      await body.click({ position: { x: box.width * fx!, y: box.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const panel = page.locator(".fixture-panel");
+    // the mode going out now, read on the output: nothing asked yet, « No function »
+    const button = panel.getByRole("button", { name: /^Program : / });
+    await expect(button).toContainText("No function");
+    await button.click();
+    const list = panel.locator(".panel-mode-picker");
+    // variants indented under their mode, in one list
+    await expect(list.locator("li.variant", { hasText: "Auto 2" })).toBeVisible();
+    await list.getByRole("button", { name: /^Auto 2/ }).click();
+    await expect.poll(program).toBe(55); // the middle of 40–71
+    await expect(button).toContainText("Auto 2");
+    // the fader of that channel shows the range it is in, and its neighbours with their values
+    const ladder = panel.getByRole("list", { name: "Plages de Program" });
+    await expect(ladder.locator("li.now")).toContainText("Auto 2");
+    await expect(ladder.locator("li.now")).toContainText("55");
+    await expect(ladder).toContainText("Auto 3");
+    await expect(ladder).toContainText("Auto 1");
+    await panel.scrollIntoViewIfNeeded();
+    await panel.screenshot({ path: "test-results/fixture-panel-modes.png" });
+    // a look writing it higher wins (highest takes precedence): the panel names it
+    await api(page, "look.go", { id: "mode-hold" });
+    await expect.poll(program).toBe(230);
+    await button.click();
+    await list.getByRole("button", { name: /^Auto 1/ }).click();
+    await expect(panel.getByRole("status").filter({ hasText: "Tient le programme" })).toContainText("il l'emporte");
+    await expect(button).toContainText("Color fade fast");
+    await api(page, "look.stop", { id: "mode-hold" });
+    await expect.poll(program).toBe(23);
+    await expect(panel.getByRole("status").filter({ hasText: "Tient le programme" })).toHaveCount(0);
+  } finally {
+    await api(page, "look.stop", { id: "mode-hold" });
+    await api(page, "look.delete", { id: "mode-hold", force: true });
+    for (const f of (await api(page, "fader.list")) as { id: string; channels: { fixture: string }[] }[]) if (f.channels.some((c) => c.fixture === "mode-par")) await api(page, "fader.delete", { id: f.id, force: true });
+    await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("venue: the patch table names its columns", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

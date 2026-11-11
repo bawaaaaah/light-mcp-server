@@ -1,4 +1,5 @@
 import { useRef, type ReactNode, type ReactElement } from "react";
+import { dmxOf, rangeAt, rangeNeighbours, type NamedRange } from "../fader-functions";
 
 /** The level really sent by a smoothed fader on its way, over its track; nothing once arrived. */
 export function GhostBar({ level }: { level: number | undefined }): ReactElement | null {
@@ -6,9 +7,36 @@ export function GhostBar({ level }: { level: number | undefined }): ReactElement
   return <span className="ghost-bar" aria-hidden style={{ height: `${level * 100}%` }} />;
 }
 
+/**
+ * The ranges beside a fader whose channel is cut into functions (T6, « plages voisines »): the one its value is
+ * in, highlighted with its value, and two above and two below with their first value, in the direction of the
+ * travel (the top of the column is the high values).
+ */
+export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRange[]; value: number; label: string }): ReactElement {
+  const { above, current, below } = rangeNeighbours(ranges, value);
+  const row = (r: NamedRange) => (
+    <li key={`${r.min}-${r.name}`}>
+      <span className="range-name">{r.name || `${r.min}–${r.max}`}</span>
+      <small>{r.min}</small>
+    </li>
+  );
+  return (
+    <ol className="range-ladder" aria-label={label}>
+      {above.map(row)}
+      <li className="now" aria-current="true">
+        <span className="range-name">{current ? current.name || `${current.min}–${current.max}` : "–"}</span>
+        <small>{value}</small>
+      </li>
+      {below.map(row)}
+    </ol>
+  );
+}
+
 /** A vertical fader drawn entirely in DOM, with a native range kept for focus and assistive tools.
- *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). */
-export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children }: {
+ *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
+ *  (a channel cut into functions, T6) the ranges around its value show on its left and the range input names
+ *  the one it is in; `travel` is the fader's own range of DMX values (the whole travel by default). */
+export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel }: {
   label: string;
   value: number;
   sent?: number;
@@ -16,6 +44,9 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
   interactive: boolean;
   onChange: (level: number) => void;
   children?: ReactNode;
+  ranges?: readonly NamedRange[];
+  travel?: { min: number; max: number };
+  rangesLabel?: string;
 }): ReactElement {
   const track = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -33,7 +64,9 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
     pointer.current = null;
     if (track.current?.hasPointerCapture(e.pointerId)) track.current.releasePointerCapture(e.pointerId);
   };
-  return (
+  const dmx = ranges?.length ? dmxOf(value, travel) : undefined;
+  const inRange = dmx === undefined ? undefined : rangeAt(ranges!, dmx);
+  const body = (
     <div
       ref={track}
       className={`track${disabled ? " disabled" : ""}`}
@@ -60,6 +93,7 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
         step={1}
         aria-label={label}
         aria-orientation="vertical"
+        aria-valuetext={dmx === undefined ? undefined : `${dmx}${inRange?.name ? ` — ${inRange.name}` : ""}`}
         disabled={disabled}
         value={Math.round(value * 1000)}
         onChange={(e) => onChange(Number(e.currentTarget.value) / 1000)}
@@ -75,6 +109,13 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
       {children}
       <GhostBar level={sent} />
       <span className="fader-thumb" aria-hidden style={{ bottom: `${value * 100}%` }} />
+    </div>
+  );
+  if (dmx === undefined) return body;
+  return (
+    <div className="track-row">
+      <RangeLadder ranges={ranges!} value={dmx} label={rangesLabel ?? label} />
+      {body}
     </div>
   );
 }

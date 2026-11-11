@@ -82,3 +82,44 @@ export function unfitted(fixtures: readonly FixtureFunctions[], picked: readonly
     .filter((x): x is NonNullable<typeof x> => x !== undefined && !(x.channel.ranges ?? []).some((r) => r.min === range.min && r.max === range.max))
     .map(({ fixture, channel }) => `${fixture.name} · ${channel.name}`);
 }
+
+/** A named range of a channel cut into functions (venue.fixture.channels `ranges`). */
+export interface NamedRange {
+  min: number;
+  max: number;
+  name: string;
+}
+
+/** The DMX value a fader sends at a level, over its range (the whole travel by default), as the server composes it. */
+export const dmxOf = (level: number, range?: { min: number; max: number }): number => {
+  const { min, max } = range ?? { min: 0, max: 255 };
+  return Math.round(min + level * (max - min));
+};
+
+/** The range a DMX value falls in, if any. */
+export const rangeAt = (ranges: readonly NamedRange[], value: number): NamedRange | undefined => ranges.find((r) => value >= r.min && value <= r.max);
+
+/**
+ * The range a value is in and its neighbours (T6, « plages voisines »): `n` above (the higher values, the
+ * nearest last, so the list reads top to bottom as the fader's travel) and `n` below (the nearest first).
+ * Between two ranges, no current one: the neighbours are those around the value.
+ */
+export function rangeNeighbours(ranges: readonly NamedRange[], value: number, n = 2): { above: NamedRange[]; current?: NamedRange; below: NamedRange[] } {
+  const sorted = [...ranges].sort((a, b) => a.min - b.min);
+  const current = rangeAt(sorted, value);
+  const higher = sorted.filter((r) => r.min > value);
+  const lower = sorted.filter((r) => r.max < value);
+  return { above: higher.slice(0, n).reverse(), ...(current ? { current } : {}), below: lower.slice(-n).reverse() };
+}
+
+/**
+ * The ranges a channel fader can show beside its track: those of its one channel, or of all its channels when
+ * they are cut exactly alike (same min, max and name); none otherwise, or when a channel has none.
+ */
+export function sharedRanges(fixtures: readonly FixtureFunctions[], picked: readonly { fixture: string; offset: number }[]): NamedRange[] | undefined {
+  const lists = picked.map((p) => channelOf(fixtures, p)?.channel.ranges);
+  if (!lists.length || lists.some((l) => !l?.length)) return undefined;
+  const key = (l: readonly NamedRange[]) => JSON.stringify(l.map(({ min, max, name }) => [min, max, name]));
+  const first = key(lists[0]!);
+  return lists.every((l) => key(l!) === first) ? lists[0]! : undefined;
+}

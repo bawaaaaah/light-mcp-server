@@ -10,6 +10,7 @@ import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
 import { FaderTrack } from "../components/FaderTrack";
+import { sharedRanges, type FixtureFunctions } from "../fader-functions";
 import { LiveStage } from "../components/StagePlan";
 import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
 import { Modal } from "../components/Modal";
@@ -75,7 +76,8 @@ interface ChannelFader {
   id: string;
   name: string;
   level: number;
-  channels: unknown[];
+  channels: { fixture: string; offset: number }[];
+  range?: { min: number; max: number };
   smoothing?: unknown;
 }
 interface Tempo {
@@ -155,6 +157,11 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const [looks, setLooks] = useState<Look[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
+  /** The patch's channels and their named ranges: a channel fader on a channel cut into functions shows them beside its track (T6). */
+  const [fixtureChannels, setFixtureChannels] = useState<FixtureFunctions[]>([]);
+  const readChannels = useCallback(() => void cmd<FixtureFunctions[]>("venue.fixture.channels").then(setFixtureChannels, () => undefined), []);
+  useEffect(readChannels, [readChannels]);
+  useCommandEvents(["venue.fixture.", "show.open", "show.venue", "import."], readChannels);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
   /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
   const [namedFolders, setNamedFolders] = useState<string[]>([]);
@@ -751,6 +758,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
                 setFaders((fs) => fs.map((x) => (x.id === f.id ? { ...x, level } : x)));
                 void run("fader.level", { id: f.id, level });
               }}
+              ranges={sharedRanges(fixtureChannels, f.channels)}
+              travel={f.range}
+              rangesLabel={t.fixtureMode.ranges.replace("{channel}", f.name)}
             />
             <span className="value">
               {Math.round(f.level * 100)}%<Sent level={glide.faders[f.id]} />
