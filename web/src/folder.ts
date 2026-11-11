@@ -11,11 +11,11 @@ export const FOLDER = "dossier:";
 /** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
 export const SEPARATOR = "/";
 
-/** A folder path as stored: each segment trimmed, empty segments dropped (« A / B/ » is « A/B »), as the server does. */
+/** A folder path as stored: each segment trimmed with its inner runs of spaces made one, empty segments dropped (« A / B/ » is « A/B »), as the server does. */
 export function normalizeFolder(path: string): string {
   return path
     .split(SEPARATOR)
-    .map((p) => p.trim())
+    .map((p) => p.trim().replace(/\s+/g, " "))
     .filter(Boolean)
     .join(SEPARATOR);
 }

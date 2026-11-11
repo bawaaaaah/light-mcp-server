@@ -99,6 +99,28 @@ describe("show folders: the looks' dossier: tag moved, renamed, disbanded", () =
     await run("snapshot.delete", { id: snap.id, force: true });
   });
 
+  it("reads names the screen shows alike as one folder, drops end slashes, and keeps « Sans dossier » for the unfiled", async () => {
+    await run("show.folder.move", { ids: ["checker"], folder: "Mon  dossier" });
+    await run("show.folder.move", { ids: ["palette"], folder: "Mon dossier" });
+    expect(folderTags(await tags("checker"))).to.deep.equal(["dossier:Mon dossier"]); // two spaces show as one: one folder
+    expect(folderTags(await tags("palette"))).to.deep.equal(["dossier:Mon dossier"]);
+    await run("show.folder.rename", { from: "Mon dossier", to: "/X/" });
+    expect(folderTags(await tags("checker"))).to.deep.equal(["dossier:X"]); // the slashes at the ends are simply dropped
+    for (const reserved of ["Sans dossier", "no folder"]) {
+      let why = "";
+      await run("show.folder.rename", { from: "X", to: reserved }).catch((e: Error) => (why = e.message));
+      expect(why, reserved).to.match(/Sans dossier|No folder/);
+      expect(why).to.not.match(/a folder may nest/); // a sentence, not the schema's technical text
+    }
+    const look = (await run("look.get", { id: "hole" })) as Record<string, unknown>;
+    delete look.active;
+    delete look.swatch;
+    let refused = "";
+    await run("look.put", { look: { ...look, tags: ["dossier:Sans dossier"] } }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.match(/Sans dossier|No folder/);
+    await run("show.folder.delete", { folder: "X" });
+  });
+
   it("refuses to nest a folder where one of the same name already sits, rather than merge them unseen", async () => {
     await run("show.folder.move", { ids: ["checker"], folder: "X/B" });
     await run("show.folder.move", { ids: ["palette"], folder: "B" });

@@ -14,7 +14,7 @@ import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, Pale
 import { slugify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
-import { folderOf, inTree, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
+import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -376,6 +376,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
     }
     const folder = folderOf(look.tags);
+    if (folder !== undefined && isReservedFolder(folder)) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
     const tags = folder === undefined ? look.tags : withFolder(look.tags, folder);
     return sameTags(tags, look.tags) ? look : { ...look, tags };
   };
@@ -420,7 +421,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     .trim()
     .min(1)
     .max(100)
-    .refine((v) => !v.startsWith("/") && !v.endsWith("/") && normalizeFolder(v).split("/").length === v.split("/").length, { message: "a folder may nest by path (« Famille/Sous-dossier »): no slash at the ends, no empty segment" })
+    // slashes at the ends and empty segments are simply dropped (« /X/ » is « X »); what is left must name a folder
+    .refine((v) => normalizeFolder(v) !== "", { error: () => say("un nom de dossier ne peut pas être vide", "a folder name cannot be empty") })
+    .refine((v) => !isReservedFolder(normalizeFolder(v)), { error: () => say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom", "“No folder” already names the looks filed nowhere: choose another name") })
     .transform(normalizeFolder)
     .describe("a folder name or path (« Famille/Sous-dossier »), free to create");
   /** Every look in the folder `name`, its whole sub-tree included. */

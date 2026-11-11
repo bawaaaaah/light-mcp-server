@@ -25,7 +25,7 @@ describe("folder helpers: the web copy reads folders as the server does", () => 
   }
 
   it("normalises a path the same way", () => {
-    for (const p of ["A", " A ", "A / B/", "/A//B/", "  "]) expect(web.normalizeFolder(p)).to.equal(server.normalizeFolder(p));
+    for (const p of ["A", " A ", "A / B/", "/A//B/", "  ", "Mon  dossier", "A /  Grand   B"]) expect(web.normalizeFolder(p)).to.equal(server.normalizeFolder(p));
     expect(web.SEPARATOR).to.equal(server.SEPARATOR);
     expect(web.FOLDER).to.equal(server.FOLDER);
   });

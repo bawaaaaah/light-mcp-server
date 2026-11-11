@@ -29,14 +29,20 @@ export function withFolder(tags: string[], folder?: string): string[] {
 /** The nested folders: « Rigging/Trappe » nests « Trappe » under « Rigging », as the QLC+ import does. */
 export const SEPARATOR = "/";
 
-/** A folder path as stored: each segment trimmed, empty segments dropped (« A / B/ » is « A/B »). */
+/** A folder path as stored: each segment trimmed with its inner runs of spaces made one, empty segments dropped (« A / B/ » is « A/B », « Mon  dossier » is « Mon dossier »: the screen shows them alike). */
 export function normalizeFolder(path: string): string {
   return path
     .split(SEPARATOR)
-    .map((p) => p.trim())
+    .map((p) => p.trim().replace(/\s+/g, " "))
     .filter(Boolean)
     .join(SEPARATOR);
 }
+
+/** The names the list gives the looks without a folder (« Sans dossier », « No folder »): a folder may not take one. */
+export const RESERVED_FOLDERS = ["sans dossier", "no folder"];
+
+/** Whether a (normalised) folder path is one the list already uses for the looks without a folder. */
+export const isReservedFolder = (path: string): boolean => RESERVED_FOLDERS.includes(path.toLowerCase());
 
 /** True when a look sits in the folder `node` itself or nested under it. */
 export function inTree(tags: string[], node: string): boolean {
