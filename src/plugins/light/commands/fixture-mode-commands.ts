@@ -335,7 +335,9 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       // a fader whose level gives the output explains it: the looks writing the channel are named only when none does
       const fromFader = higherFaders.some((x) => Math.abs(x.effective * 255 - output) <= 1);
       const others = above ? { looks: fromFader ? [] : why.rawLooks, faders: higherFaders.map(({ id: fid, name }) => ({ id: fid, name })) } : undefined;
-      const dcaName = fader.dca ? (show.groups.get(fader.dca)?.name ?? fader.dca) : undefined;
+      // the DCAs that really dose this fader on this channel (its own, and on a light channel those covering the fixture), as explainChannel says them
+      const dosing = mine?.dcas.map((d) => d.name) ?? [];
+      const dcaName = dosing.length ? dosing.join(", ") : fader.dca ? (show.groups.get(fader.dca)?.name ?? fader.dca) : undefined;
       return {
         fixture,
         offset: at,
