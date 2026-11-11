@@ -13,6 +13,7 @@ import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../en
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
+import { motionOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
@@ -164,6 +165,12 @@ export class ShowRuntime {
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
+  /**
+   * When each player was (re)launched, in order: the layers of a fixture with tracks (T5) stack by it, so that a look
+   * leaving keeps its place among the others while it fades instead of dropping under the ones still playing.
+   */
+  private readonly launchOrder = new WeakMap<LookPlayer, number>();
+  private launches = 0;
   /** Looks stopped with an exit fade, still fading to black (not active). */
   private readonly releasing = new Map<string, ReleasingLook>();
   /** Looks coming in over the ones they replaced (by incoming look id); the leaving ones are not active. */
@@ -426,6 +433,7 @@ export class ShowRuntime {
       }
       player.start(this.now(), this.tempo.state().beats);
     }
+    this.launchOrder.set(player, ++this.launches);
     this.active.set(lookId, { look, player });
     if (crossfade) this.beginCrossfade(look, leaving, now, from);
     else fadeOut();
@@ -583,6 +591,7 @@ export class ShowRuntime {
       try {
         const player = this.build(look, !this.crossfades.has(lookId));
         player.start(this.now(), this.tempo.state().beats);
+        this.launchOrder.set(player, ++this.launches);
         this.active.set(lookId, { look, player });
         return;
       } catch (err) {
@@ -1107,6 +1116,7 @@ export class ShowRuntime {
       without = sample();
       const player = this.build(look);
       player.start(t0, b0);
+      this.launchOrder.set(player, ++this.launches);
       this.active.set(lookId, { look, player });
       withIt = sample();
     } finally {
@@ -1139,11 +1149,75 @@ export class ShowRuntime {
     const lookChannels = new Map<string, Map<number, RawWrite[]>>();
     // who doses what on this frame (show/dca.ts): one snapshot, dropped with the frame
     const doses = this.doses();
+    /**
+     * The fixtures whose tracks are enabled (T5, venue/tracks.ts), with their pan/tilt offsets: the looks reach them as
+     * layers (layerOf), not through the colours and raw channels below — but for pan/tilt, which stay raw and verbatim.
+     */
+    const trackFixtures = new Map<string, Set<number>>();
+    for (const f of this.venue.installed()) {
+      const r = this.venue.resolve(f.id);
+      if (!("error" in r) && r.tracks) trackFixtures.set(f.id, motionOffsets(r));
+    }
+    /** Removes the fixtures with tracks from a look's colours, in place (after `paints`, which must still see them: the wheel). */
+    const withoutTracks = <M extends Map<string, unknown>>(colors: M): M => {
+      if (trackFixtures.size) for (const f of trackFixtures.keys()) colors.delete(f);
+      return colors;
+    };
+    /** Whether a look's canvas reaches a fixture with tracks: only then is it painted at full for them. */
+    const reachesTracks = new Map<string, boolean>();
+    const touches = (canvas: string): boolean => {
+      let hit = reachesTracks.get(canvas);
+      if (hit === undefined) {
+        try {
+          hit = this.venue.cellTargets(canvas).some((cell) => cell.some((t) => trackFixtures.has(t.fixture)));
+        } catch {
+          hit = false; // an unknown canvas paints nothing (told by the look's own colours)
+        }
+        reachesTracks.set(canvas, hit);
+      }
+      return hit;
+    };
+    /**
+     * A look on the fixtures with tracks, as one layer each (venue/tracks.ts): what it paints there at full (atFull,
+     * its exclusions taken out), its raw channels but pan/tilt, the weight and sheet of its raw writes, and the level
+     * its groups give it per light channel (Doses.lookLevel, T35: not by those already dosing the fixture).
+     */
+    const ranks = new Map<TrackLayer, number>();
+    const layerOf = (look: Look, player: LookPlayer, weight: number, sheet: string, row: readonly number[] | undefined): void => {
+      const painted = touches(look.canvas) ? atFull(look, player) : undefined;
+      const excluded = painted ? this.excludedFrom(look) : new Set<string>();
+      const raw = new Map<string, Map<number, number>>();
+      look.channels?.targets.forEach((t, k) => {
+        const motion = trackFixtures.get(t.fixture);
+        if (!motion || motion.has(t.offset)) return;
+        raw.set(t.fixture, (raw.get(t.fixture) ?? new Map<number, number>()).set(t.offset, row?.[k] ?? 0));
+      });
+      const included = doses.isIncluded(look.id);
+      for (const f of trackFixtures.keys()) {
+        const colors = excluded.has(f) ? undefined : painted?.get(f);
+        const own = raw.get(f);
+        if (!colors && !own) continue;
+        let level: Map<number, number> | undefined;
+        const light = included ? doses.light(f) : undefined;
+        if (light)
+          for (const o of [...light.dimmers, ...light.colours]) {
+            const l = doses.lookLevel(look.id, f, o);
+            if (l !== 1) (level ??= new Map()).set(o, l);
+          }
+        const layer: TrackLayer = { look: look.id, sheet, weight, raw: own ?? new Map(), ...(colors ? { colors } : {}), ...(level ? { level } : {}) };
+        ranks.set(layer, this.launchOrder.get(player) ?? 0);
+        frame.tracks.set(f, [...(frame.tracks.get(f) ?? []), layer]);
+      }
+    };
     const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
-      if (!look.channels) return;
-      const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+      const row = look.channels ? (look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? []) : undefined;
+      if (trackFixtures.size) layerOf(look, player, weight, sheet, row);
+      if (!look.channels || !row) return;
       const included = doses.isIncluded(look.id);
       look.channels.targets.forEach((t, k) => {
+        // a fixture with tracks keeps only its raw pan/tilt here (verbatim): the rest rides on its layers
+        const motion = trackFixtures.get(t.fixture);
+        if (motion && !motion.has(t.offset)) return;
         const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
         const level = included ? doses.lookLevel(look.id, t.fixture, t.offset) : 1;
         byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet, ...(level === 1 ? {} : { level }) }]);
@@ -1228,7 +1302,7 @@ export class ShowRuntime {
       if (t >= 1) continue;
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
-      mergeColors(frame.colors, paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`), this.settings.looksMerge);
+      mergeColors(frame.colors, withoutTracks(paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`)), this.settings.looksMerge);
       rawOf(r.look, r.player, w, `exit:${id}`);
       moveOf(r.look, r.player);
     }
@@ -1246,7 +1320,7 @@ export class ShowRuntime {
       for (const o of x.outgoing) {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
-        leaving = addWeighted(leaving, weighted(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`), w));
+        leaving = addWeighted(leaving, weighted(withoutTracks(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`)), w));
         rawOf(o.look, o.player, w * o.player.entryWeight(now), `x:${key}`);
         moveOf(o.look, o.player);
       }
@@ -1262,7 +1336,7 @@ export class ShowRuntime {
       const inW = x ? this.inWeight(x, now) : 1;
       const w = inW * player.entryWeight(now);
       rawOf(look, player, w, x ? `x:${look.id}` : `look:${look.id}`);
-      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`), inW))) : paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`);
+      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(withoutTracks(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`)), inW))) : withoutTracks(paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`));
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);
     }
@@ -1271,6 +1345,8 @@ export class ShowRuntime {
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
     frame.raw = lookChannels;
+    // a fixture with tracks stacks its looks as they were launched: one leaving keeps its place while it fades
+    for (const layers of frame.tracks.values()) layers.sort((a, b) => ranks.get(a)! - ranks.get(b)!);
     errors.push(...this.venue.toDmx(frame, buffers, wheels, { now, merge: this.settings.looksMerge }));
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
     // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/

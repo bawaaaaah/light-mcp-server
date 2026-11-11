@@ -5,7 +5,8 @@
  * schema here: `wheel` the colour wheel's colour → slot correspondence (T18), `heads` the heads deduced
  * from a definition without <Head> and the accent (halo) one (T21), `tracks` which channels follow the
  * transitions (T5). A missing part means: the definition as it is. A fixture's own part replaces its
- * model's as a whole (mergeOverrides), except `heads`, merged field by field (`accent`, `follow`).
+ * model's as a whole (mergeOverrides), except `heads` (`accent`, `follow`) and `tracks` (`fade`; `enabled` is
+ * the fixture's only), merged field by field.
  */
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
@@ -47,8 +48,19 @@ export const HeadOverridesSchema = z.object({
   follow: z.boolean().optional(),
 });
 export type HeadOverrides = z.infer<typeof HeadOverridesSchema>;
-/** T5 — the channels that follow transitions (owned by the T5 work, later). */
-export const TrackOverridesSchema = z.record(z.string(), z.unknown());
+/**
+ * T5 — the channels that follow the transitions (venue/tracks.ts, docs/specs/engine-effects-timing.md, « Pistes
+ * fondables »). `enabled` is read on the fixture only: its channels then follow `fade` (absent or false: the engine
+ * as before, to the byte). `fade`: the channels that fade, by their name in the definition (the same in every mode;
+ * a fine channel follows its coarse one); every other channel jumps (at mid-fade in a crossfade).
+ */
+export const TrackOverridesSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    fade: z.array(z.string().min(1)).max(128).optional(),
+  })
+  .strict();
+export type TrackOverrides = z.infer<typeof TrackOverridesSchema>;
 
 export const FixtureOverridesSchema = z.object({
   wheel: WheelOverridesSchema.optional(),
@@ -87,10 +99,16 @@ export const modelKeyOrUndefined = (manufacturer: string, model: string): string
 /**
  * What applies to one fixture: the model's overrides, each part replaced as a whole by the fixture's own when it has
  * one, except `heads`, merged field by field (the fixture's `accent` or `follow` over the model's): a fixture that
- * only keeps its halo dark still has the model's accent. `wheel` and `tracks` stay whole (one slot table, one list).
+ * only keeps its halo dark still has the model's accent. `wheel` stays whole (one slot table). `tracks` is merged
+ * field by field too, but `enabled` comes from the fixture only (a model's, from an archive written by hand, is
+ * ignored): the fixture's `fade` list, else its model's.
  */
 export function mergeOverrides(model: FixtureOverrides | undefined, fixture: FixtureOverrides | undefined): FixtureOverrides {
   const merged: FixtureOverrides = { ...(model ?? {}), ...Object.fromEntries(Object.entries(fixture ?? {}).filter(([, v]) => v !== undefined)) };
   if (model?.heads && fixture?.heads) merged.heads = { ...model.heads, ...Object.fromEntries(Object.entries(fixture.heads).filter(([, v]) => v !== undefined)) };
+  const fade = fixture?.tracks?.fade ?? model?.tracks?.fade;
+  const enabled = fixture?.tracks?.enabled;
+  if (fade || enabled !== undefined) merged.tracks = { ...(enabled !== undefined ? { enabled } : {}), ...(fade ? { fade } : {}) };
+  else delete merged.tracks;
   return merged;
 }

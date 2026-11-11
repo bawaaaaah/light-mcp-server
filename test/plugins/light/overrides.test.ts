@@ -36,6 +36,15 @@ describe("fixture overrides: a model's corrections, overridden by a fixture's ow
     expect(merged).to.deep.equal({ wheel: { change: "black" }, heads: { accent: [] } });
     expect(mergeOverrides(undefined, undefined)).to.deep.equal({});
   });
+
+  it("merges the tracks field by field: the fixture's list over the model's, `enabled` from the fixture only (T5)", () => {
+    const model = { tracks: { enabled: true, fade: ["Dimmer"] } };
+    expect(mergeOverrides(model, undefined)).to.deep.equal({ tracks: { fade: ["Dimmer"] } }); // a model's `enabled` is ignored
+    expect(mergeOverrides(model, { tracks: { enabled: true } })).to.deep.equal({ tracks: { enabled: true, fade: ["Dimmer"] } });
+    expect(mergeOverrides(model, { tracks: { enabled: true, fade: ["R1"] } })).to.deep.equal({ tracks: { enabled: true, fade: ["R1"] } });
+    expect(mergeOverrides(undefined, { tracks: { enabled: false } })).to.deep.equal({ tracks: { enabled: false } });
+    expect(mergeOverrides({ tracks: { enabled: true } }, undefined)).to.deep.equal({});
+  });
 });
 
 describe("model keys of a venue opened", () => {

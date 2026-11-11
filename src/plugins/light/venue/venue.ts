@@ -38,7 +38,8 @@ import { pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
-import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelHeld } from "./color-wheel.js";
+import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelFrame, type WheelHeld } from "./color-wheel.js";
+import { composeTracks, motionOffsets, tracksOf, type ResolvedTracks, type TrackLayer } from "./tracks.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -194,6 +195,8 @@ export interface AttributeFrame {
   paintedBy: Map<string, LookPaint[]>;
   /** fixtureId → logical pan/tilt (0..1, 0.5 = centre); moving heads not listed rest at the centre. */
   positions: Map<string, Position>;
+  /** fixtureId → the looks on a fixture whose tracks are enabled (T5), as layers in paint order (bottom → top): composed channel by channel (tracks.ts). */
+  tracks: Map<string, TrackLayer[]>;
 }
 
 /** A placed moving head's geometry for aiming and reading back where it points (aim.ts). */
@@ -210,7 +213,7 @@ function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; op
   return offset < 0 ? undefined : { offset, opens: def.channels.get(mode.channels[offset]!)!.zoom === "opens" };
 }
 
-export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), painted: new Map(), paintedBy: new Map(), positions: new Map() });
+export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), painted: new Map(), paintedBy: new Map(), positions: new Map(), tracks: new Map() });
 
 /** How the colours of several looks playing on the same fixture combine (show setting `looksMerge`). */
 export type LooksMerge = "last" | "highest";
@@ -385,6 +388,8 @@ export interface ResolvedFixture {
    * (CMY split into functions, lasers): its dimmer is never held at full, a full white beam no look doses.
    */
   levelDimmer: boolean;
+  /** Enabled fadeable tracks (T5, tracks.ts): the offsets that follow the transitions; absent, the engine as before. */
+  tracks?: ResolvedTracks;
 }
 
 const levelOf = (c: Color) => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
@@ -680,7 +685,8 @@ export class Venue {
         const lampOnly = !found.mixes;
         // no head with a component to paint: the dimmer follows the painted level, as on a lamp, or nothing would dose it
         const levelDimmer = [...heads.values()].every((c) => Object.keys(c).length === 0);
-        result = { patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
+        const tracks = tracksOf(def, mode, this.overridesOf(patch).tracks);
+        result = { ...(tracks ? { tracks } : {}), patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -767,6 +773,22 @@ export class Venue {
         const i = base + offset;
         if (i >= 0 && i < 512) buf[i] = Math.max(0, Math.min(255, Math.round(value)));
       };
+      const intensity = frame.intensity.get(patch.id) ?? 1;
+      if (r.tracks) {
+        // Fadeable tracks (T5, tracks.ts): channel by channel from the looks' layers, none of the classes below. The
+        // wheel still follows wheelFrame (paints saw the fixture), the position frame.positions; the looks' raw pan/tilt
+        // stay verbatim, after every fixture like any raw channel (rawOf kept only those for this fixture).
+        for (const [off, v] of r.shutterOpen) write(off, v);
+        const wheel = r.lampOnly && r.wheel ? this.wheelOn(patch.id, r, r.wheel, undefined, frame, wheels, at) : undefined;
+        for (const [off, v] of composeTracks(r, r.tracks, frame.tracks.get(patch.id) ?? [], { merge: at.merge, intensity, ...(wheel ? { wheel } : {}) })) write(off, v);
+        if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
+        const motion = motionOffsets(r);
+        if (raws)
+          rawPass.push(() => {
+            for (const [offset, writes] of raws) if (motion.has(offset)) write(offset, rawValue(writes));
+          });
+        continue;
+      }
       // the full heads' colour offsets class a look; an accent head's (a halo) fade by their colours but class none
       const colorOffsets = new Set<number>();
       const accentOffsets = new Set<number>();
@@ -795,7 +817,6 @@ export class Venue {
       for (const [look, w] of machines) if (!byColour.has(look) && !byDimmer.has(look)) machine = Math.min(1, (machine ?? 0) + w);
       const selfDosed = Math.min(1, [...byColour.values()].reduce((sum, w) => sum + w, 0));
       const fade = machine === undefined || r.levelDimmer ? 1 : machineFade(machine, selfDosed);
-      const intensity = frame.intensity.get(patch.id) ?? 1;
       const hasDimmer = r.dimmers.length > 0;
       for (const [off, v] of r.shutterOpen) write(off, v);
       if (r.levelDimmer) {
@@ -811,16 +832,8 @@ export class Venue {
         let dim = 1;
         // the wheel of a fixture with colour channels (none of them paintable) stays with raw channels
         if (r.lampOnly && r.wheel) {
-          const paints: LookPaint[] = (frame.paintedBy.get(patch.id) ?? []).flatMap((p) => {
-            const heads = full(p.heads);
-            return heads.size ? [{ ...p, heads, ...(p.hues ? { hues: full(p.hues) } : {}) }] : [];
-          });
-          const w = wheelFrame(r.wheel, paints, color, wheels.get(patch.id), at);
-          if (w.pick) {
-            write(r.wheel.offset, w.pick.value);
-            // nothing asked (nothing painted, or black): the slot held stays, and no colour asked is told
-            wheels.set(patch.id, { slot: w.pick.slot.min, ...(w.changedAt === undefined ? {} : { changedAt: w.changedAt }), ...(w.asked ? { asked: w.asked, gap: w.pick.gap } : { gap: 0 }) });
-          }
+          const w = this.wheelOn(patch.id, r, r.wheel, color, frame, wheels, at);
+          if (w.pick) write(r.wheel.offset, w.pick.value);
           dim = w.dim;
         }
         for (const d of r.dimmers) write(d, color ? intensity * levelOf(color) * dim * 255 : 0);
@@ -868,6 +881,22 @@ export class Venue {
     }
     for (const pass of rawPass) pass();
     return errors;
+  }
+
+  /**
+   * The colour wheel of a lamp on this frame (wheelFrame): it follows the look whose colour wins there, on the full
+   * heads only (an accent head, a halo, chooses no slot). Keeps the slot held and when it changed in `wheels`.
+   */
+  private wheelOn(id: string, r: ResolvedFixture, wheel: Wheel, color: Color | undefined, frame: AttributeFrame, wheels: Map<string, WheelChoice>, at: { now: number; merge: LooksMerge }): WheelFrame {
+    const full = (heads: ReadonlyMap<number, Color>) => new Map([...heads].filter(([h]) => !r.accent.has(h)));
+    const paints: LookPaint[] = (frame.paintedBy.get(id) ?? []).flatMap((p) => {
+      const heads = full(p.heads);
+      return heads.size ? [{ ...p, heads, ...(p.hues ? { hues: full(p.hues) } : {}) }] : [];
+    });
+    const w = wheelFrame(wheel, paints, color, wheels.get(id), at);
+    // nothing asked (nothing painted, or black): the slot held stays, and no colour asked is told
+    if (w.pick) wheels.set(id, { slot: w.pick.slot.min, ...(w.changedAt === undefined ? {} : { changedAt: w.changedAt }), ...(w.asked ? { asked: w.asked, gap: w.pick.gap } : { gap: 0 }) });
+    return w;
   }
 
   /** Logical position → pan/tilt channels (inversion, swap, 16-bit). */
