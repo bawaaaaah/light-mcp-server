@@ -3469,6 +3469,40 @@ test("channel fader editor: one fader on the same channel of several fixtures", 
   expect(errors).toEqual([]);
 });
 
+test("channel fader editor: a function picked by name narrows the fader to it (T12)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
+  const editor = page.locator(".fader-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Roue lyre");
+  await expect(editor.getByLabel("Fonction", { exact: true })).toHaveCount(0); // no channel ticked yet: nothing to pick from
+  await editor.getByLabel("Chercher (nom ou adresse)").fill("Lyre");
+  await editor.getByLabel("Même canal partout").selectOption("Color Wheel");
+  await editor.getByRole("button", { name: "Cocher partout" }).click();
+  // the wheel's functions by name, searchable: picking one sets the travel to its range
+  const field = editor.getByLabel("Fonction", { exact: true });
+  await expect(editor.locator("datalist#fader-functions option")).toHaveCount(6);
+  await field.fill("Red (16–31)");
+  await expect(editor.getByLabel("Borne inférieure")).toHaveValue("16");
+  await expect(editor.getByLabel("Borne supérieure")).toHaveValue("31");
+  await expect(editor.getByText("le fader parcourt cette fonction seulement")).toBeVisible();
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const saved = ((await api(page, "fader.list")) as { id: string; range?: unknown }[]).find((f) => f.id === "roue-lyre")!;
+  expect(saved.range).toEqual({ min: 16, max: 31 });
+  // reopened, the field names the function; a limit moved by hand makes it a custom range
+  await page.getByRole("button", { name: "Modifier Roue lyre" }).click();
+  await expect(page.locator(".fader-editor").getByLabel("Fonction", { exact: true })).toHaveValue("Red (16–31)");
+  await page.locator(".fader-editor").getByLabel("Borne inférieure").fill("20");
+  await expect(page.locator(".fader-editor").getByLabel("Fonction", { exact: true })).toHaveValue("");
+  await expect(page.locator(".fader-editor").getByText("intervalle sur mesure")).toBeVisible();
+  page.once("dialog", (d) => void d.accept());
+  await page.locator(".fader-editor").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator("tr", { hasText: "Roue lyre" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("faders on chosen fixtures and channels (found by address), dosing the dimmer, under one DCA", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

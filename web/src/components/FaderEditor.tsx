@@ -11,6 +11,7 @@ import { ChannelTree, type PickedChannel } from "./ChannelTree";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
+import { faderFunctions, functionOf } from "../fader-functions";
 
 export interface FaderDraft {
   id: string;
@@ -54,6 +55,18 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   useEffect(() => void cmd<typeof groups>("group.list").then(setGroups), []);
   useEffect(() => void cmd<FixtureChannels[]>("venue.fixture.channels").then(setAll), []);
   const dcas = groups.filter((g) => g.master);
+  // the named functions of the ticked channels (a gobo wheel, a preset, a macro): one picked by name
+  // narrows the fader's travel to it, so the fader still moves inside it (a speed, often)
+  const functions = faderFunctions(all, channels);
+  const current = functionOf(functions, range);
+  const [functionDraft, setFunctionDraft] = useState<string | null>(null);
+  const pickFunction = (label: string) => {
+    setFunctionDraft(label);
+    const f = functions.find((x) => x.label === label);
+    if (!f) return;
+    setRange({ min: f.min, max: f.max });
+    setFunctionDraft(null);
+  };
 
   const save = () => {
     if (!name.trim()) return setError(t.nameRequired);
@@ -74,6 +87,25 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
           <input value={name} onChange={(e) => setName(e.target.value)} />
           {isNew && name && <small>id : {id}</small>}
         </label>
+        {functions.length > 0 && (
+          <label className="field" title={t.faderFunctionHelp}>
+            <span>{t.faderFunction}</span>
+            <input
+              aria-label={t.faderFunction}
+              list="fader-functions"
+              placeholder={t.faderFunctionSearch}
+              value={functionDraft ?? current?.label ?? ""}
+              onChange={(e) => pickFunction(e.target.value)}
+              onBlur={() => setFunctionDraft(null)}
+            />
+            <datalist id="fader-functions">
+              {functions.map((f) => (
+                <option key={f.label} value={f.label} />
+              ))}
+            </datalist>
+            <small>{current ? t.faderFunctionTravel : range.min > 0 || range.max < 255 ? t.faderFunctionCustom : t.faderFunctionWhole}</small>
+          </label>
+        )}
         {/* as QLC+'s value range: the fader's whole travel covers low..high only */}
         <label className="field" title={t.rangeHelp}>
           <span>{t.rangeLow}</span>
