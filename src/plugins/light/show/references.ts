@@ -6,7 +6,7 @@
  * cleaned up by mistake.
  */
 import { say } from "../../../core/lang.js";
-import { namesIntention } from "../knowledge/intentions.js";
+import { AMBIANCE } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention";
 
@@ -39,8 +39,8 @@ export interface ShowParts {
 }
 
 /** One line per place that uses the object (French, as the other server messages); empty when nothing does. */
-export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string[] {
-  if (kind === "intention") return intentionUses(id, show);
+export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intentionKey?: (word: string) => string): string[] {
+  if (kind === "intention") return intentionUses(id, show, intentionKey);
   const uses: string[] = [];
   for (const g of show.groups) {
     if (kind === "look" && (g.members.looks.includes(id) || g.presets?.included.includes(id) || g.presets?.excluded.includes(id))) uses.push(say(`groupe « ${g.name} »`, `group “${g.name}”`));
@@ -82,26 +82,29 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string
 
 /**
  * What names an intention (T15): the songs whose overall mood holds it and the looks tagged
- * `ambiance:<it>`, the words compared by the intention key (« Joie », « joie ! » are « joie »).
+ * `ambiance:<it>`. `keyOf` turns a word into the intention it names: its key by default (« Joie »,
+ * « joie ! » are « joie »); the commands pass `refKey` (T15b), which also finds one by its label or
+ * a former one, so a word written by name counts for the intention's id.
  */
-export function intentionUses(word: string, show: Pick<ShowParts, "songs" | "looks">): string[] {
-  const key = normalizeMood(word);
+export function intentionUses(word: string, show: Pick<ShowParts, "songs" | "looks">, keyOf: (word: string) => string = normalizeMood): string[] {
+  const key = keyOf(word);
+  const names = (w: string) => key !== "" && keyOf(w) === key;
   const uses: string[] = [];
-  for (const s of show.songs) if (s.mood?.some((m) => namesIntention(m, key))) uses.push(say(`chant « ${s.title} »`, `song “${s.title}”`));
-  for (const l of show.looks) if (l.tags?.some((t) => t.startsWith("ambiance:") && namesIntention(t.slice("ambiance:".length), key))) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
+  for (const s of show.songs) if (s.mood?.some(names)) uses.push(say(`chant « ${s.title} »`, `song “${s.title}”`));
+  for (const l of show.looks) if (l.tags?.some((t) => t.startsWith(AMBIANCE) && names(t.slice(AMBIANCE.length)))) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
   return uses;
 }
 
-/** Every intention key the show names, with what names it (one pass, the same lines as `intentionUses`). */
-export function intentionUsesByKey(show: Pick<ShowParts, "songs" | "looks">): Map<string, string[]> {
+/** Every intention the show names, by `keyOf` (its id, T15b), with what names it (one pass, the same lines as `intentionUses`). */
+export function intentionUsesByKey(show: Pick<ShowParts, "songs" | "looks">, keyOf: (word: string) => string = normalizeMood): Map<string, string[]> {
   const uses = new Map<string, string[]>();
   const add = (word: string, line: string) => {
-    const key = normalizeMood(word);
+    const key = keyOf(word);
     const lines = uses.get(key) ?? [];
     if (key && !lines.includes(line)) uses.set(key, [...lines, line]);
   };
   for (const s of show.songs) for (const m of s.mood ?? []) add(m, say(`chant « ${s.title} »`, `song “${s.title}”`));
-  for (const l of show.looks) for (const t of l.tags ?? []) if (t.startsWith("ambiance:")) add(t.slice("ambiance:".length), say(`look « ${l.name} »`, `look “${l.name}”`));
+  for (const l of show.looks) for (const t of l.tags ?? []) if (t.startsWith(AMBIANCE)) add(t.slice(AMBIANCE.length), say(`look « ${l.name} »`, `look “${l.name}”`));
   return uses;
 }
 

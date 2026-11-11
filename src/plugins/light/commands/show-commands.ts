@@ -23,7 +23,7 @@ import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
-import { IntentionSchema } from "../knowledge/intentions.js";
+import { IntentionSchema, newIntentionId } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
@@ -68,6 +68,8 @@ export interface ShowCommandOptions {
   standby?: () => boolean;
   /** Where an intention is used, other shows of this machine included (T15): what show.references says of one. */
   intentionReferences?: (id: string) => string[];
+  /** A look's tags as stored (T15b): `ambiance:` tags written by name become the id one intention only answers to. */
+  migrateTags?: (tags: string[]) => string[];
 }
 
 /** Writes a proposal carries beside its put commands (venue.fixture.mode: another show's looks, a fader emptied). */
@@ -87,7 +89,7 @@ export interface ShowCommandsApi {
 }
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, options: ShowCommandOptions = {}): ShowCommandsApi {
-  const { sharedWith = () => [], standby = () => false, intentionReferences } = options;
+  const { sharedWith = () => [], standby = () => false, intentionReferences, migrateTags } = options;
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
@@ -1001,7 +1003,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         LookSchema,
       ),
     }),
-    run: ({ look }) => show.looks.put(checkLook(look)),
+    run: ({ look }) => show.looks.put(checkLook(migrateTags ? { ...look, tags: migrateTags(look.tags) } : look)),
   });
   reg.register({
     name: "look.techniques",
@@ -1595,11 +1597,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     venueRules: show.venueRules,
     fixtures: venue.fixtures,
     canvases: venue.canvases,
-    // a proposal of intention.put: the key made from the label when there is no id, as the command makes it
+    // a creation of intention.put (no id) gets its generated id when proposed (show.propose pins it, T15b); a
+    // lone show.diff reads it as new. A label without a letter or a digit is refused, as the command does
     intentions: {
       validate: (v: unknown) => {
         const o = (v && typeof v === "object" ? v : {}) as { id?: unknown; label?: unknown };
-        return intentions.validate({ ...o, id: o.id ?? normalizeMood(typeof o.label === "string" ? o.label : "") });
+        return intentions.validate({ ...o, id: o.id ?? (normalizeMood(typeof o.label === "string" ? o.label : "") ? newIntentionId(0) : "") });
       },
       get: (i: string) => intentions.get(i),
       delete: (i: string) => intentions.delete(i),
@@ -1799,6 +1802,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: z.object({ changes: z.array(ChangeSchema).min(1).max(50), title: z.string().max(200).optional() }),
     run: ({ changes, title }, ctx) => {
+      // a new intention gets its id now (T15b): applied, taken back and applied again, it is that one
+      changes = changes.map((c) => {
+        const i = c.command === "intention.put" ? (c.args.intention as { id?: unknown; label?: unknown } | undefined) : undefined;
+        // an empty label stays without id: refused below as the command refuses it
+        return i && typeof i === "object" && i.id === undefined && normalizeMood(typeof i.label === "string" ? i.label : "") ? { ...c, args: { ...c.args, intention: { ...i, id: newIntentionId(Date.now()) } } } : c;
+      });
       const preview: ReturnType<typeof previewOf>[] = changes.map(previewOf);
       // one change per canvas: a second one would be read on a canvas the first has already changed (cell indices, the revision pinned below)
       const canvasesSeen = new Set<string>();

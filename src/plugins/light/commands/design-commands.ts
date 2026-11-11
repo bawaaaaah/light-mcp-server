@@ -11,7 +11,27 @@ import { slugify } from "../data/store.js";
 import { mappingInputKey, type Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
 import { deltaE, EnergySchema, LOW_CONTRAST, normalizeMood, proposeLook, type Energy, type Knowledge, type KnowledgeLayers } from "../knowledge/knowledge.js";
-import { embeddedIntentions, IntentionSchema, MAX_FAMILY, MAX_INTENTION_COLORS, MAX_LABEL, MAX_NOTES, mergeKnowledge, stackIntentions, type Intention, type IntentionEntry } from "../knowledge/intentions.js";
+import {
+  AMBIANCE,
+  duplicateLabels,
+  embeddedIntentions,
+  IntentionSchema,
+  MAX_ALIASES,
+  MAX_FAMILY,
+  MAX_INTENTION_COLORS,
+  MAX_LABEL,
+  MAX_NOTES,
+  mergeKnowledge,
+  migrateMood,
+  newIntentionId,
+  refKey,
+  resolveIntention,
+  stackIntentions,
+  type Intention,
+  type IntentionEntry,
+  type IntentionOrigin,
+  type ResolvedIntention,
+} from "../knowledge/intentions.js";
 import { inUseMessage, intentionUses, intentionUsesByKey } from "../show/references.js";
 import type { ShowRef } from "../show/other-shows.js";
 import type { Group, Look, Palette } from "../show/model.js";
@@ -65,7 +85,12 @@ export interface IntentionStores {
   current?: () => string;
   /** Files of the two collections their schema refused (left out): said by show.lint. */
   loadErrors?: () => string[];
+  /** The id of a new intention (T15b): `newIntentionId` at the time of the call by default (injectable). */
+  newId?: () => string;
 }
+
+/** The intentions the open show sees, every layer stacked (T15). */
+export const showStack = (stores: IntentionStores): Map<string, IntentionEntry> => stackIntentions(stores.base(), stores.personal.list(), stores.show.list());
 
 /** What `intention.put` and `intention.preview` take. */
 const IntentionInputSchema = z.object({
@@ -75,6 +100,8 @@ const IntentionInputSchema = z.object({
   energy: EnergySchema.default("dynamique"),
   family: z.string().max(MAX_FAMILY).default(""),
   notes: z.string().max(MAX_NOTES).optional(),
+  /** Former labels (T15b); absent, a rename adds the label it leaves to the ones it had. */
+  aliases: z.array(z.string().max(MAX_LABEL)).max(MAX_ALIASES).optional(),
   /** A mask (show only, a key known below): what intention.delete writes, put back by history.restore and proposals. */
   hidden: z.boolean().optional(),
 });
@@ -89,6 +116,12 @@ const parsedOr = <T>(parse: () => T): T => {
   }
 };
 
+/** Where an intention lives, as people say it (show.lint). */
+const originWord = (o: IntentionOrigin): string =>
+  ({ show: say("ce show", "this show"), personal: say("bibliothèque personnelle", "personal library"), private: say("fichier privé", "private file"), generic: say("livrée", "shipped") })[o];
+/** « celle … »: the one of that place. */
+const originOf = (o: IntentionOrigin): string => ({ show: "du show", personal: "de la bibliothèque personnelle", private: "du fichier privé", generic: "livrée" })[o];
+
 /** A line of the uses of an intention: another show of this machine names it. */
 const otherShowLine = (show: string): string => say(`show « ${show} » (autre show de cette machine)`, `show “${show}” (another show of this machine)`);
 
@@ -101,37 +134,72 @@ const othersOf = (stores: IntentionStores, key: string, entry: IntentionEntry | 
  * looks, and, for a personal one with nothing below (it serves every show), the other shows naming it.
  */
 export function intentionReferences(stores: IntentionStores, show: { songs: Song[]; looks: Look[] }, word: string): string[] {
-  const key = normalizeMood(word);
-  const entry = key ? stackIntentions(stores.base(), stores.personal.list(), stores.show.list()).get(key) : undefined;
-  return [...intentionUses(key, show), ...othersOf(stores, key, entry).map(otherShowLine)];
+  const stack = showStack(stores);
+  const keyOf = refKey(stack);
+  const key = keyOf(word);
+  return [...intentionUses(key, show, keyOf), ...othersOf(stores, key, stack.get(key)).map(otherShowLine)];
+}
+
+/**
+ * The former labels an intention keeps when it is renamed (T15b): the ones given (history, proposals
+ * and archives write them back as they were), else the ones it had plus the label it leaves. Without
+ * those that are now its label or its id (a word of that key finds it anyway), once each, the latest kept.
+ */
+export function aliasesAfter(id: string, label: string, before: { label?: string; aliases?: string[] } | undefined, given?: string[]): string[] | undefined {
+  const list = given ?? [...(before?.aliases ?? []), ...(before?.label ? [before.label] : [])];
+  const seen = new Set([normalizeMood(label), normalizeMood(id), ""]);
+  const kept: string[] = [];
+  for (const a of [...list].reverse()) {
+    const k = normalizeMood(a);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    kept.unshift(a.trim());
+  }
+  const out = kept.slice(-MAX_ALIASES);
+  return out.length ? out : undefined;
 }
 
 export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntime, songs: Collection<Song>, mappings: () => Mapping[], intentions: IntentionStores): void {
-  const stack = () => stackIntentions(intentions.base(), intentions.personal.list(), intentions.show.list());
+  const stack = () => showStack(intentions);
+  const machineStack = () => stackIntentions(intentions.base(), intentions.personal.list(), []);
   const knowledge = (): Knowledge => mergeKnowledge(intentions.base(), intentions.personal.list(), intentions.show.list());
   const showParts = () => ({ songs: songs.list(), looks: runtime.looks.list() });
-  const usesOfIntention = (key: string) => intentionUses(key, showParts());
-  /** The key of a new intention (from its label) or of one named (`given`: must already be a key). */
-  const keyOf = (word: string, given: boolean): string => {
+  const usesOfIntention = (key: string) => intentionUses(key, showParts(), refKey(stack()));
+  /** An id given (`intention.put` with id): must already be one (its own key). */
+  const givenId = (word: string): string => {
     const key = normalizeMood(word);
-    if (!key) throw new CommandError("invalid", say("libellé vide : une intention a besoin d'au moins une lettre ou un chiffre", "empty label: an intention needs at least a letter or a number"));
-    if (given && key !== word) throw new CommandError("invalid", say(`clé invalide : « ${word} » (attendu « ${key} »)`, `invalid key: “${word}” (expected “${key}”)`), { expected: key });
-    if (key.length > 64) throw new CommandError("invalid", say("libellé trop long : sa clé dépasse 64 caractères", "label too long: its key is over 64 characters"));
+    if (!key) throw new CommandError("invalid", say("id vide : une intention a besoin d'au moins une lettre ou un chiffre", "empty id: an intention needs at least a letter or a number"));
+    if (key !== word) throw new CommandError("invalid", say(`id invalide : « ${word} » (attendu « ${key} »)`, `invalid id: “${word}” (expected “${key}”)`), { expected: key });
+    if (key.length > 64) throw new CommandError("invalid", say("id trop long : plus de 64 caractères", "id too long: over 64 characters"));
     return key;
+  };
+  /** A new intention's id (T15b), never one already taken in a layer. */
+  const freshId = (): string => {
+    const taken = (id: string) => stack().has(id) || intentions.personal.has(id) || intentions.show.has(id);
+    for (let tries = 0; tries < 100; tries++) {
+      const id = intentions.newId?.() ?? newIntentionId(Date.now());
+      if (!taken(id)) return id;
+    }
+    throw new CommandError("failed", say("pas d'id libre pour une nouvelle intention", "no free id for a new intention"));
+  };
+  /** The other visible intentions of that label (T15b): allowed, said so. */
+  const sameLabel = (id: string, label: string) => {
+    const key = normalizeMood(label);
+    return [...stack().values()].filter((e) => !e.hidden && e.id !== id && key !== "" && normalizeMood(e.label || e.id) === key).map((e) => ({ id: e.id, label: e.label || e.id, origin: e.origin }));
   };
 
   reg.register({
     name: "knowledge.get",
     title: "Base de connaissances couleur",
     description:
-      "Mood keywords (intentions) → colours, energy and family, plus the design rules. Layers, the most specific winning key by key: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag); `hidden` lists the intentions the show masks. machine: true leaves the open show out (what this machine has, for the library section).",
+      "Mood intentions → colours, energy and family, plus the design rules, by id (moods: id → mood). Layers, the most specific winning id by id: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its label (what to show: a new intention's id is generated, i-…), its former labels (aliases), its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag, whether they name it by id or by name); `hidden` lists the intentions the show masks. A word names an intention by its id, else by its label or a former one (several may share a label: show > personal > private file > shipped). machine: true leaves the open show out (what this machine has, for the library section).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
     schema: z.object({ machine: z.boolean().default(false) }),
     run: ({ machine }) => {
-      const uses = machine ? new Map<string, string[]>() : intentionUsesByKey(showParts());
-      const layers = machine ? stackIntentions(intentions.base(), intentions.personal.list(), []) : stack();
+      const layers = machine ? machineStack() : stack();
+      const uses = machine ? new Map<string, string[]>() : intentionUsesByKey(showParts(), refKey(layers));
       const all = [...layers.values()].map((e) => ({ ...e, usedBy: uses.get(e.id) ?? [] }));
       return { ...knowledge(), moods: Object.fromEntries(all.filter((e) => !e.hidden).map(({ id, hidden: _h, ...e }) => [id, e])), hidden: all.filter((e) => e.hidden) };
     },
@@ -140,26 +208,37 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.put",
     title: "Intention",
-    description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, the key made from the label (« Lever de rideau » → lever-de-rideau), refused when that place already has the key (detail.exists); a key of the shipped base or the private file is not taken: the new one replaces it (for the show, or for every show from the personal library). With id: that key is written (an edit; the key never follows the label: songs and ambiance: tags name it). hidden: true (show only, a key known below) writes a mask as intention.delete does, but without its guard (history.restore and show.revert put a mask back this way): songs and looks still naming it are returned in usedBy, they now name an unknown intention. Precedence: show > personal > private file > shipped.`,
+    description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, with a generated id (i-…, returned): several intentions may share a label (the other ones are returned in duplicates; a word naming that label goes to the most specific: show > personal > private file > shipped). With id: that id is written: an edit, a touch-up of a shipped or private one for the show (or for every show from the personal library), a copy into the show or into the library; the id never follows the label, which is free to change (songs and ambiance: tags name the id). A renamed one keeps its former labels in aliases (given aliases replace them), so that a word typed before still finds it. hidden: true (show only, an id known below) writes a mask as intention.delete does, but without its guard (history.restore and show.revert put a mask back this way): songs and looks still naming it are returned in usedBy, they now name an unknown intention. Intentions of the private file (data/private/knowledge.json) have their keyword's key as id: renaming a keyword there breaks what names it.`,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ intention: IntentionInputSchema, scope: z.enum(["show", "personal"]).default("show") }),
     run: ({ intention: input, scope }) => {
       const target = scope === "personal" ? intentions.personal : intentions.show;
       const label = input.label.trim();
-      const id = input.id !== undefined ? keyOf(input.id, true) : keyOf(label, false);
+      if (input.id === undefined && !normalizeMood(label)) throw new CommandError("invalid", say("libellé vide : une intention a besoin d'au moins une lettre ou un chiffre", "empty label: an intention needs at least a letter or a number"));
+      const id = input.id !== undefined ? givenId(input.id) : freshId();
       if (input.hidden) {
         // only a mask of something below, in the show: what intention.delete wrote, coming back
-        const below = stackIntentions(intentions.base(), intentions.personal.list(), []).get(id);
+        const below = machineStack().get(id);
         if (scope !== "show" || !below) throw new CommandError("invalid", say(`un masque ne se pose que dans le show, sur une intention connue plus bas : ${id}`, `a mask goes in the show only, over an intention known below: ${id}`));
       }
-      const taken = input.id === undefined ? target.get(id) : undefined;
-      // a mask of the show is no intention: creating over it shows the key again, with these colours
-      if (taken && !taken.hidden) throw new CommandError("invalid", say(`l'intention « ${taken.label || id} » existe déjà (${id}) : choisir un autre libellé, ou la modifier`, `the intention “${taken.label || id}” already exists (${id}): choose another label, or edit it`), { exists: id });
-      const saved = parsedOr(() => target.put({ ...input, id, label: label || id, ...(input.hidden ? { hidden: true } : { hidden: undefined }) }));
+      // what it was before (its own place, else what it touches up or copies): a renamed one keeps its former label
+      const before = target.get(id) ?? stack().get(id);
+      const name = label || before?.label || id;
+      const aliases = aliasesAfter(id, name, before, input.aliases);
+      const saved = parsedOr(() => target.put({ ...input, id, label: name, aliases, ...(input.hidden ? { hidden: true } : { hidden: undefined }) }));
       const entry = stack().get(id);
+      const duplicates = input.hidden ? [] : sameLabel(id, name);
       // a mask is not refused while used (a version or a proposal taken back puts it back as it was): said instead
-      return { intention: saved, scope, ...(input.hidden ? { usedBy: usesOfIntention(id) } : {}), origin: entry?.origin, ...(entry?.over ? { over: entry.over } : {}), ...(scope === "personal" && entry?.origin === "show" ? { shadowedBy: "show" } : {}) };
+      return {
+        intention: saved,
+        scope,
+        ...(input.hidden ? { usedBy: usesOfIntention(id) } : {}),
+        origin: entry?.origin,
+        ...(entry?.over ? { over: entry.over } : {}),
+        ...(scope === "personal" && entry?.origin === "show" ? { shadowedBy: "show" } : {}),
+        ...(duplicates.length ? { duplicates } : {}),
+      };
     },
   });
 
@@ -167,15 +246,15 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "intention.delete",
     title: "Supprimer une intention",
     description:
-      "Removes an intention, by key. scope, as for intention.put: \"personal\" takes the personal library's, whatever the open show has of that key; \"show\" the show's own only; none, the one in use. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
+      "Removes an intention, by id (or by a name: the one that name goes to, as songs read it). scope, as for intention.put: \"personal\" takes the personal library's, whatever the open show has of that key; \"show\" the show's own only; none, the one in use. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string(), force: z.boolean().default(false), scope: z.enum(["show", "personal"]).optional() }),
     run: ({ id: word, force, scope }) => {
-      const key = normalizeMood(word);
-      // scope "personal": the library's own, whatever the open show has of that key (the library section)
-      const entry = !key ? undefined : scope === "personal" ? stackIntentions(intentions.base(), intentions.personal.list(), []).get(key) : stack().get(key);
+      // scope "personal": the library's own, whatever the open show has of that id (the library section)
+      const entry = resolveIntention(scope === "personal" ? machineStack() : stack(), word)?.entry;
       if (!entry || (scope !== undefined && entry.origin !== scope)) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
+      const key = entry.id;
       const name = entry.label || key;
       // only what would become unknown is guarded: a touch-up removed leaves the one below. A personal
       // one with nothing below serves the other shows of the machine too: named in the same question
@@ -202,7 +281,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       }
       // shipped or from the private file: not the show's to remove, masked for this show
       const usedBy = guard();
-      intentions.show.put({ id: key, label: entry.label ?? key, colors: entry.colors, energy: entry.energy, family: entry.family, hidden: true });
+      intentions.show.put({ id: key, label: entry.label ?? key, colors: entry.colors, energy: entry.energy, family: entry.family, ...(entry.aliases?.length ? { aliases: entry.aliases } : {}), hidden: true });
       return { id: key, action: "hidden" as const, origin: entry.origin, usedBy };
     },
   });
@@ -216,7 +295,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     profiles: ["design"],
     schema: z.object({}),
     run: () => {
-      const machine = stackIntentions(intentions.base(), intentions.personal.list(), []);
+      const machine = machineStack();
       const users = intentions.machineUsers?.() ?? new Map<string, ShowRef[]>();
       return [...machine.values()].filter((e) => e.origin === "personal").map((e) => ({ ...e, shows: (users.get(e.id) ?? []).map((s) => s.name) }));
     },
@@ -244,14 +323,15 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "look.from_intent",
     title: "Look par intention",
     description:
-      "Proposes a look from an intention: mood keywords (e.g. intimite, joie, victoire), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true.",
+      "Proposes a look from an intention: intentions by id or by name (e.g. intimite, joie, or a label as knowledge.get gives it), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true. Its ambiance: tags name each intention by id when one intention only answers to the name (an unknown word stays as typed).",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ name: z.string(), canvas: z.string(), mood: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).optional(), colors: z.array(z.string()).optional(), cut: z.boolean().optional(), id: z.string().optional(), save: z.boolean().default(false) }),
     run: ({ name, canvas, mood, energy, colors, cut, id, save }) => {
       if (!runtime.venue.canvases.get(canvas)) throw new Error(say(`canevas inconnu : ${canvas}`, `unknown canvas: ${canvas}`));
-      const p = proposeLook(knowledge(), { mood, energy, colors, cut });
-      const look = { id: id ?? slugify(name), name, canvas, technique: p.technique, timing: p.timing, manualOnly: false, noCut: false, danger: false, tags: mood.map((m) => `ambiance:${m}`), notes: p.explanation.join(" ; ") } as Look;
+      const st = stack();
+      const p = proposeLook(knowledge(), { mood, energy, colors, cut }, refKey(st));
+      const look = { id: id ?? slugify(name), name, canvas, technique: p.technique, timing: p.timing, manualOnly: false, noCut: false, danger: false, tags: migrateMood(st, mood).mood.map((m) => `${AMBIANCE}${m}`), notes: p.explanation.join(" ; ") } as Look;
       if (save) runtime.looks.put(look);
       return { saved: save, look, explanation: p.explanation, unknownMoods: p.unknownMoods };
     },
@@ -271,14 +351,16 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       if (!song.mood.length) throw new Error(say("le chant n'a pas d'ambiance globale (mood) : c'est le garde-fou de la grille", "the song has no overall mood: the grid relies on it"));
       const proposals: { section: string; look: Look; explanation: string[] }[] = [];
       let flip = false;
+      const st = stack();
+      const tags = migrateMood(st, song.mood).mood.map((m) => `${AMBIANCE}${m}`);
       for (const sec of song.sections) {
         if (sec.look) continue;
         const energy = energies[sec.id] ?? energyOfSection(sec.name);
-        const p = proposeLook(knowledge(), { mood: song.mood, energy });
+        const p = proposeLook(knowledge(), { mood: song.mood, energy }, refKey(st));
         const colors = flip ? [...p.colors].reverse() : p.colors; // neighbours swap dominant and accent
         flip = !flip;
         const again = proposeLook(knowledge(), { mood: [], energy, colors });
-        const look = { id: `${song.id}-${sec.id}`, name: `${song.title} · ${sec.name}`, canvas, technique: again.technique, timing: again.timing, manualOnly: false, noCut: false, danger: false, tags: [`chant:${song.id}`, ...song.mood.map((m) => `ambiance:${m}`)], notes: [...p.explanation, sec.idea ? `idée : ${sec.idea}` : ""].filter(Boolean).join(" ; ") } as Look;
+        const look = { id: `${song.id}-${sec.id}`, name: `${song.title} · ${sec.name}`, canvas, technique: again.technique, timing: again.timing, manualOnly: false, noCut: false, danger: false, tags: [`chant:${song.id}`, ...tags], notes: [...p.explanation, sec.idea ? `idée : ${sec.idea}` : ""].filter(Boolean).join(" ; ") } as Look;
         proposals.push({ section: sec.id, look, explanation: again.explanation });
       }
       if (save) {
@@ -295,7 +377,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -500,19 +582,55 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       // the intentions a song names: known; one of this machine is copied into the show's archives
       const intentionsNow = stack();
       // one of this machine the show names but the schema refuses: the backups go without it
-      for (const r of embeddedIntentions(intentionsNow, intentionUsesByKey(showParts()).keys()).refused)
+      const keyNow = refKey(intentionsNow);
+      for (const r of embeddedIntentions(intentionsNow, intentionUsesByKey(showParts(), keyNow).keys()).refused)
         warn(
           say(`intention ${r.id}`, `intention ${r.id}`),
           say(`« ${r.label} » vient de cette machine et ne sera pas emportée par les sauvegardes du show : ${r.why} ; la corriger`, `“${r.label}” comes from this machine and will not be carried by the show's backups: ${r.why}; fix it`),
         );
       for (const m of intentions.base().privateMerged ?? []) warn(say("fichier privé des intentions", "private intentions file"), say(`${m.words.map((w) => `« ${w} »`).join(", ")} donnent la même clé « ${m.key} » : seule la dernière compte ; renommer les autres`, `${m.words.map((w) => `“${w}”`).join(", ")} make the same key “${m.key}”: only the last one counts; rename the others`));
       for (const e of intentions.loadErrors?.() ?? []) warn("intentions", say(`fichier ignoré, illisible : ${e}`, `file left out, unreadable: ${e}`));
+      // several intentions of one label (T15b): allowed, but a word naming that label goes to one only
+      for (const d of duplicateLabels(intentionsNow)) {
+        const [first] = d.entries;
+        const list = d.entries.map((e) => `« ${e.label || e.id} » (${originWord(e.origin)}, ${e.id})`).join(", ");
+        const listEn = d.entries.map((e) => `“${e.label || e.id}” (${e.origin}, ${e.id})`).join(", ");
+        warn(
+          say(`intentions « ${first!.label || first!.id} »`, `intentions “${first!.label || first!.id}”`),
+          say(`${d.entries.length} intentions portent ce libellé : ${list} ; un mot qui le nomme va à la première. Renommer l'une, ou garder l'une ou l'autre`, `${d.entries.length} intentions have this label: ${listEn}; a word naming it goes to the first one. Rename one, or keep one or the other`),
+        );
+      }
+      /** A word that names nothing here: unknown, or masked; said once per place. */
+      const unknownWord = (where: string, word: string, e: IntentionEntry | undefined) =>
+        warn(
+          where,
+          say(`intention inconnue « ${word} »${e?.hidden ? " (masquée dans ce show)" : ""} : la grille ne sait pas quelles couleurs prendre`, `unknown intention “${word}”${e?.hidden ? " (hidden in this show)" : ""}: the grid does not know which colours to take`) +
+            // the private file's ids are its keywords: one renamed there no longer answers to the old word
+            (!e && intentions.base().private ? say(" (un mot-clé renommé dans le fichier privé des intentions casse les liaisons de l'ancien : le remettre, ou recréer l'intention dans le show ou la bibliothèque)", " (a keyword renamed in the private intentions file breaks what named the old one: put it back, or make the intention again in the show or the library)") : ""),
+        );
+      /** A word written by name that several intentions answer to: it goes to the first, said so. */
+      const ambiguous = (where: string, word: string, r: ResolvedIntention) =>
+        warn(
+          where,
+          say(
+            `« ${word} » nomme ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}`).join(", ")}) : elle va à celle ${originOf(r.entry.origin)} ; la choisir dans le sélecteur pour lever le doute`,
+            `“${word}” names ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id}: ${c.origin}`).join(", ")}): it goes to the ${r.entry.origin} one; pick it in the selector to settle it`,
+          ),
+        );
+      for (const l of runtime.looks.list())
+        for (const t of l.tags) {
+          if (!t.startsWith(AMBIANCE)) continue;
+          const r = resolveIntention(intentionsNow, t.slice(AMBIANCE.length));
+          if (r && r.by !== "id" && r.candidates.length > 1) ambiguous(`look ${l.id}`, t.slice(AMBIANCE.length), r);
+        }
       for (const s of songs.list()) {
         if (!s.mood.length) warn(say(`chant ${s.id}`, `song ${s.id}`), say("pas d'ambiance globale", "no overall mood"));
         for (const word of s.mood) {
-          const e = intentionsNow.get(normalizeMood(word));
-          if (!e || e.hidden) warn(say(`chant ${s.id}`, `song ${s.id}`), say(`intention inconnue « ${word} »${e?.hidden ? " (masquée dans ce show)" : ""} : la grille ne sait pas quelles couleurs prendre`, `unknown intention “${word}”${e?.hidden ? " (hidden in this show)" : ""}: the grid does not know which colours to take`));
-          else if (e.origin === "personal" || e.origin === "private") {
+          const r = resolveIntention(intentionsNow, word);
+          const e = r?.entry;
+          if (!e || e.hidden) unknownWord(say(`chant ${s.id}`, `song ${s.id}`), word, e);
+          else if (r.by !== "id" && r.candidates.length > 1) ambiguous(say(`chant ${s.id}`, `song ${s.id}`), word, r);
+          if (e && !e.hidden && (e.origin === "personal" || e.origin === "private")) {
             // worth knowing: it lives on this machine, the show's archives carry a copy of it
             const from = e.origin === "personal" ? say("de la bibliothèque personnelle", "of the personal library") : say("du fichier privé", "of the private file");
             note(say(`chant ${s.id}`, `song ${s.id}`), say(`intention « ${e.label ?? word} » ${from} : les sauvegardes du show en emportent une copie, rendue comme intention du show à la restauration`, `intention “${e.label ?? word}” ${from}: the show's backups carry a copy of it, restored as an intention of the show`));

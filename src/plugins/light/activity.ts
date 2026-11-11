@@ -48,7 +48,7 @@ const EntrySchema = z.object({
   error: z.string().optional(),
 });
 
-const TARGET_KEYS = ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture"];
+const TARGET_KEYS = ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture", "intention"];
 /**
  * The object a command acts on: an `id`, or the id of the object it carries (look.put { look }…). A `canvas`
  * is the object only for the canvas commands (venue.canvas.put { canvas }): elsewhere it is the canvas a

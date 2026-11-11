@@ -39,6 +39,10 @@ export interface SongServices {
   publish: (state: SongState) => void;
   /** Runs a timeline action through the command layer (origin "timeline"). */
   run?: (command: string, args: Record<string, unknown>) => Promise<unknown>;
+  /** What a word of a song's mood is shown as (T15b): the label of the intention it names, else the word. */
+  intentionLabel?: (word: string) => string;
+  /** A song's mood as stored (T15b): words written by name become the id one intention only answers to. */
+  migrateMood?: (mood: string[]) => string[];
   /** Last position seen, to fire the cues passed since (internal). */
   lastPosition?: { song: string; at: number };
 }
@@ -84,15 +88,29 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     return { song: sg.id, section: sec.id, look: sec.look };
   };
 
-  reg.register({ name: "song.list", title: "Chants", description: "Songs of the show with their sections (look, cue, idea, position in bars).", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => s.songs.list() });
+  /** A song's mood as people read it (T15b): the intentions' labels. */
+  const moodLabels = (mood: readonly string[]): string[] => mood.map((w) => s.intentionLabel?.(w) ?? w);
+  /** A song as an export shows it: its mood by the intentions' labels (cue sheet, board). */
+  const shown = (sg: Song): Song => ({ ...sg, mood: moodLabels(sg.mood) });
+  reg.register({
+    name: "song.list",
+    title: "Chants",
+    description: "Songs of the show with their sections (look, cue, idea, position in bars). mood holds intentions by id (or a word); moodLabels says them as people read them.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["design", "live"],
+    schema: z.object({}),
+    run: () => s.songs.list().map((sg) => ({ ...sg, moodLabels: moodLabels(sg.mood) })),
+  });
   reg.register({
     name: "song.put",
     title: "Chant",
-    description: "Creates or updates a song: title, key, BPM, mood keywords (guard rail), palette, sections (name, look, cue « repère », idea, bars, optional atBar), timeline actions (cues: any non-song command with its args, at a 0-based bar and beat, fired in playback), start position in the DAW (startBeat).",
+    description: "Creates or updates a song: title, key, BPM, mood (intentions: their id as knowledge.get gives it, or a name: a name one intention only answers to is stored as its id, an unknown word stays a word; guard rail), palette, sections (name, look, cue « repère », idea, bars, optional atBar), timeline actions (cues: any non-song command with its args, at a 0-based bar and beat, fired in playback), start position in the DAW (startBeat).",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ song: SongSchema }),
-    run: ({ song: sg }) => {
+    run: ({ song: given }) => {
+      const sg = s.migrateMood ? { ...given, mood: s.migrateMood(given.mood) } : given;
       for (const sec of sg.sections) {
         if (sec.look && !s.runtime.looks.get(sec.look)) throw new Error(say(`section ${sec.id} : look inconnu ${sec.look}`, `section ${sec.id}: unknown look ${sec.look}`));
         if (sec.program && !s.runtime.programs.get(sec.program)) throw new Error(say(`section ${sec.id} : programme inconnu ${sec.program}`, `section ${sec.id}: unknown program ${sec.program}`));
@@ -206,7 +224,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     profiles: ["design"],
     schema: z.object({ song: z.string().optional() }),
     run: ({ song: sid }) =>
-      songBoard(song(sid), (lookId) => {
+      songBoard(shown(song(sid)), (lookId) => {
         const look = s.runtime.looks.get(lookId);
         if (!look) return undefined;
         let steps: (string | null)[][] = [];
@@ -283,7 +301,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     run: ({ setlist }) => {
       const ids = setlist ? (s.setlists.get(setlist)?.songs ?? []) : s.songs.list().map((x) => x.id);
       const songs = ids.map((x) => s.songs.get(x)).filter((x): x is Song => Boolean(x));
-      return cueSheet(songs, (lookId) => s.runtime.looks.get(lookId)?.name, (lookId) => {
+      return cueSheet(songs.map(shown), (lookId) => s.runtime.looks.get(lookId)?.name, (lookId) => {
         const n = noteForLook(s.mappings(), lookId);
         return n ? `${n.note} (ch ${n.channel})` : undefined;
       });

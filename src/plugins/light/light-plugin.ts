@@ -30,9 +30,9 @@ import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
-import { intentionReferences, registerDesignCommands, type IntentionStores } from "./commands/design-commands.js";
+import { intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
-import { embeddedIntentions, IntentionSchema, stackIntentions } from "./knowledge/intentions.js";
+import { AMBIANCE, embeddedIntentions, IntentionSchema, labelOfRef, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
@@ -240,6 +240,7 @@ export class LightPlugin implements McpPlugin {
       sharedWith: otherShowsSharing,
       standby: () => this.router.isStandby(),
       intentionReferences: (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id),
+      migrateTags: (tags) => migrateTags(showStack(this.intentions), tags).tags,
     });
     // a fixture's DMX mode, and a channel's working mode (T6); a mode changed « for every show » rewrites their folders
     registerFixtureModeCommands(this.commands, this.engine, this.runtime, showApi, {
@@ -299,10 +300,17 @@ export class LightPlugin implements McpPlugin {
       base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
       personal: personal.collection("intentions", IntentionSchema),
       show: showIntentions,
-      machineUsers: () => machineIntentionUsers(dataRoot),
+      // each show reads the words of its songs and looks against this machine's intentions under its own (T15b)
+      machineUsers: () => machineIntentionUsers(dataRoot, (own) => stackIntentions(this.intentions.base(), this.intentions.personal.list(), own)),
       current: () => this.config.show,
       loadErrors: () => [...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)), ...this.show.loadErrors.filter((e) => e.startsWith("intentions/"))],
+      newId: () => newIntentionId(this.opts.now?.() ?? Date.now()),
     };
+    // what names an intention, read and written by id (T15b): a song's mood and a look's ambiance: tags
+    // written by name become the id one intention only answers to, shown by its label
+    this.songs.intentionLabel = (word) => labelOfRef(showStack(this.intentions), word);
+    this.songs.migrateMood = (mood) => migrateMood(showStack(this.intentions), mood).mood;
+    this.migrateIntentionRefs();
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     this.files = {
@@ -317,7 +325,7 @@ export class LightPlugin implements McpPlugin {
         this.runtime.resetLive();
         this.reloadFromDisk();
       },
-      restore: (bytes, fixtures) => this.restoreArchive(bytes, fixtures),
+      restore: (bytes, fixtures, keepMachine) => this.restoreArchive(bytes, fixtures, keepMachine),
       preview: (bytes, fixtures) => this.previewArchive(bytes, fixtures),
       importQxw: (xml) => this.commands.invoke("import.qxw", { xml, apply: true, force: true }, { origin: "ui", can: () => true }),
       showExtra: () => this.showExtra(),
@@ -332,7 +340,7 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
-      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader, dashboard or canvas: what history.undo takes (with the line's at and until) to put it back as it was. collection, on a history.restore or history.undo line: the collection it acted on (such a line on a canvas has an undo too).",
+      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on (targetLabel: an intention's label, its id being generated), and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader, dashboard or canvas: what history.undo takes (with the line's at and until) to put it back as it was. collection, on a history.restore or history.undo line: the collection it acted on (such a line on a canvas has an undo too).",
       right: "show:write",
       readOnly: true,
       profiles: ["setup", "design", "live"],
@@ -342,10 +350,13 @@ export class LightPlugin implements McpPlugin {
           const def = this.commands.get(name);
           return def?.right === "show:write" && !def.readOnly;
         };
+        const intentionsNow = showStack(this.intentions);
         return this.activity.list(limit).map((e) => {
           const undo = undoOf(e, designWrite);
           const def = this.commands.get(e.name);
-          const line = def ? { ...e, title: commandTitle(def) } : e;
+          // an intention acted on is said by its label (T15b: a new one's id is generated)
+          const label = e.target && e.name.startsWith("intention.") ? labelOfRef(intentionsNow, e.target) : undefined;
+          const line = { ...e, ...(def ? { title: commandTitle(def) } : {}), ...(label && label !== e.target ? { targetLabel: label } : {}) };
           return undo ? { ...line, undo } : line;
         });
       },
@@ -467,9 +478,31 @@ export class LightPlugin implements McpPlugin {
     return definitionDirsFor(this.dataRoot, venue);
   }
 
+  /**
+   * The words of the show's songs (mood) and looks (ambiance: tags) written by name become the id of
+   * the intention they name, where one intention only answers to the name (T15b): at the show's load,
+   * once (an id stays an id: loading again writes nothing), each change kept in the history as any put.
+   * An ambiguous name, a masked one or a free word stay as they are (show.lint says the ambiguous ones).
+   */
+  private migrateIntentionRefs(): void {
+    const songs = this.songs?.songs;
+    // nothing names an intention: the files of this machine are not read for nothing
+    if (!songs?.list().some((s) => s.mood.length) && !this.runtime.looks.list().some((l) => l.tags.some((t) => t.startsWith(AMBIANCE)))) return;
+    const stack = showStack(this.intentions);
+    for (const s of songs?.list() ?? []) {
+      const m = migrateMood(stack, s.mood);
+      if (m.changed) songs!.put({ ...s, mood: m.mood });
+    }
+    for (const l of this.runtime.looks.list()) {
+      const t = migrateTags(stack, l.tags);
+      if (t.changed) this.runtime.looks.put({ ...l, tags: t.tags });
+    }
+  }
+
   /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
   private reloadFromDisk(): void {
     this.show.reloadAll();
+    this.migrateIntentionRefs();
     this.venue.reload(); // an archive restored may hold model overrides under an old key
     this.runtime.reloadSettings();
     this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
@@ -504,8 +537,8 @@ export class LightPlugin implements McpPlugin {
    */
   showExtra(): Record<string, string> {
     const i = this.intentions;
-    const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }).keys();
-    const stack = stackIntentions(i.base(), i.personal.list(), i.show.list());
+    const stack = showStack(i);
+    const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, refKey(stack)).keys();
     return Object.fromEntries(embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)]));
   }
 
@@ -522,6 +555,11 @@ export class LightPlugin implements McpPlugin {
         const [own] = embeddedIntentions(stackIntentions(i.base(), i.personal.list(), []), [key]).intentions;
         return own && stableStringify(own);
       },
+      // what an intention the archive brings is compared with: one of the same label here is a twin (T15b)
+      machineIntentions: () => {
+        const i = this.intentions;
+        return [...stackIntentions(i.base(), i.personal.list(), []).values()].flatMap((e) => (e.hidden || e.origin === "show" ? [] : [{ id: e.id, label: e.label || e.id, origin: e.origin }]));
+      },
     };
   }
 
@@ -533,12 +571,13 @@ export class LightPlugin implements McpPlugin {
   /**
    * Replaces the current show (and venue, when the archive has one), after copying them to the
    * backups, and merges the archive's fixture definitions into the library as the policy says.
+   * `keepMachine`: intentions of the archive (ids) whose twin of this machine is kept instead (T15b).
    */
-  private restoreArchive(bytes: Uint8Array, fixtures: FixturePolicy = "missing"): RestoreResult & { manifest: ReturnType<typeof readArchive>["manifest"] } {
+  private restoreArchive(bytes: Uint8Array, fixtures: FixturePolicy = "missing", keepMachine: readonly string[] = []): RestoreResult & { manifest: ReturnType<typeof readArchive>["manifest"] } {
     const content = readArchive(bytes);
     this.runtime.stopAll();
     try {
-      return { manifest: content.manifest, ...applyRestore(content, this.restoreTargets(), fixtures, restoreBackupDir(this.dataRoot)) };
+      return { manifest: content.manifest, ...applyRestore(content, this.restoreTargets(), fixtures, restoreBackupDir(this.dataRoot), keepMachine) };
     } finally {
       this.reloadFromDisk(); // also re-reads the definitions that were added or replaced; after a failure, what is on disk now
     }
@@ -1052,7 +1091,9 @@ export class LightPlugin implements McpPlugin {
       }
       // preview: what restoring would change, nothing written
       if (req.query.dryRun === "1") return void res.json(this.previewArchive(bytes, policy.data));
-      res.json({ restored: true, ...this.restoreArchive(bytes, policy.data) });
+      // keepMachine: the archive's intentions (ids, comma separated) whose twin of this machine is kept (T15b)
+      const keep = typeof req.query.keepMachine === "string" ? req.query.keepMachine.split(",").filter(Boolean) : [];
+      res.json({ restored: true, ...this.restoreArchive(bytes, policy.data, keep) });
     });
     router.get("/backups/:file", (req: Request, res: Response) => {
       if (this.opts.auth && !this.opts.auth.can(credential(req), "show:write")) throw new HttpError(403, say("droit requis : show:write", "right required: show:write"));

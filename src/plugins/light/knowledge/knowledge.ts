@@ -14,7 +14,7 @@ import type { Timing } from "../engine/player.js";
 import { hexToColor } from "../engine/techniques.js";
 
 export const EnergySchema = z.enum(["pose", "dynamique", "survolte"]);
-const MoodSchema = z.object({ label: z.string().optional(), colors: z.array(z.string()).min(1), energy: EnergySchema.default("dynamique"), family: z.string().default(""), notes: z.string().optional() });
+const MoodSchema = z.object({ label: z.string().optional(), colors: z.array(z.string()).min(1), energy: EnergySchema.default("dynamique"), family: z.string().default(""), notes: z.string().optional(), aliases: z.array(z.string()).optional() });
 export const KnowledgeSchema = z.object({ version: z.number().default(1), source: z.string().default(""), moods: z.record(z.string(), MoodSchema).prefault({}), rules: z.array(z.string()).default([]) });
 export type Knowledge = z.infer<typeof KnowledgeSchema>;
 export type Mood = z.infer<typeof MoodSchema>;
@@ -106,13 +106,17 @@ export interface IntentProposal {
 /** An energy said as people read it (the key is « pose », « survolte »…). */
 const energyWord = (e: Energy): string => (e === "pose" ? say("posée", "settled") : e === "survolte" ? say("survoltée", "high") : say("dynamique", "dynamic"));
 
-export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: Energy; colors?: string[]; cut?: boolean }): IntentProposal {
+/**
+ * `keyOf`: the id a word names in `kb.moods` (T15b: the commands pass `refKey`, which also finds an
+ * intention by its label or a former one); its key by default.
+ */
+export function proposeLook(kb: Knowledge, intent: { mood: string[]; energy?: Energy; colors?: string[]; cut?: boolean }, keyOf: (word: string) => string = normalizeMood): IntentProposal {
   const explanation: string[] = [];
   const unknown: string[] = [];
   const colors: string[] = [...(intent.colors ?? [])];
   const energies: Energy[] = [];
   for (const word of intent.mood) {
-    const key = normalizeMood(word);
+    const key = keyOf(word);
     const m = key ? kb.moods[key] : undefined;
     if (!m) {
       unknown.push(word);

@@ -9,6 +9,7 @@ import path from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { say } from "../../../core/lang.js";
 import { stableStringify } from "./store.js";
+import { intentionTwins, keepMachineTwins, sameIntention, type IntentionTwin, type MachineIntention } from "./archive-intentions.js";
 import { applyFixtures, patchModels, planFixtures, summarizeFixtures, usedDefinitions, isPlainQxfName, MAX_DEFINITION_BYTES, type FixturePolicy, type FixtureSummary } from "./archive-fixtures.js";
 
 export interface ArchiveManifest {
@@ -241,6 +242,8 @@ export interface RestoreTargets {
   fixturesDir: string;
   /** The JSON this machine would pack for an intention of its own (personal library, private file), if it has it (T15). */
   machineIntention?: (key: string) => string | undefined;
+  /** The visible intentions of this machine (shipped, private file, personal library): what a twin is compared with (T15b). */
+  machineIntentions?: () => MachineIntention[];
 }
 
 /**
@@ -257,7 +260,7 @@ export function showToRestore(content: ArchiveContent, t: RestoreTargets): { sho
     const path_ = `intentions/${key}.json`;
     const ours = t.machineIntention?.(key);
     const text = show[path_];
-    if (text !== undefined && ours !== undefined && canonical(ours) === canonical(text)) {
+    if (text !== undefined && ours !== undefined && sameIntention(ours, text)) {
       delete show[path_];
       const label = (JSON.parse(text) as { label?: unknown }).label;
       known.push({ id: key, label: typeof label === "string" && label ? label : key });
@@ -279,6 +282,12 @@ export interface RestorePreview {
   intentions: CollectionCount | null;
   /** Intentions of the packing machine this one has as they are: left in its library, not copied into the show. */
   intentionsKnown: { id: string; label: string }[];
+  /**
+   * Intentions the archive brings whose label one of this machine's has under another id (T15b: two
+   * machines made « the same » apart): restored, they are a second intention of that label, unless the
+   * restore keeps this machine's (`keepMachine`).
+   */
+  intentionTwins: IntentionTwin[];
 }
 
 export interface CollectionCount {
@@ -319,6 +328,7 @@ export function previewRestore(content: ArchiveContent, t: RestoreTargets, polic
     fixtures: summarizeFixtures(plan, policy),
     intentions: show && countCollection(show, "intentions"),
     intentionsKnown: known,
+    intentionTwins: intentionTwins(files, t.machineIntentions?.() ?? []),
   };
 }
 
@@ -335,10 +345,13 @@ export interface RestoreResult {
  * definitions the policy allows are written (a replaced one is copied to `backups/fixtures` first).
  * The caller reloads the venue afterwards (its library re-reads changed .qxf files by itself).
  */
-export function applyRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy, backups: string): RestoreResult {
+export function applyRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy, backups: string, keepMachine: readonly string[] = []): RestoreResult {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
   if (Object.keys(content.show).length) {
-    restoreFolder(t.showDir, showToRestore(content, t).show, path.join(backups, "show"));
+    const { show } = showToRestore(content, t);
+    // a twin of one of this machine's (T15b): the archive's copy, unless this machine's is kept
+    const files = keepMachine.length ? keepMachineTwins(show, intentionTwins(show, t.machineIntentions?.() ?? []), keepMachine) : show;
+    restoreFolder(t.showDir, files, path.join(backups, "show"));
     pinShowVenue(t.showDir, t.venueId); // the show stays on the venue it was restored with
   }
   // the venue's own definitions (fixture-definitions/) are not JSON: restoreFolder keeps them

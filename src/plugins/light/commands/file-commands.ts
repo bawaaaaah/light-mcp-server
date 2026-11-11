@@ -27,7 +27,8 @@ export interface FileServices {
   /** Re-reads the current show and venue from disk (after a reset or a restore). */
   reload(): void;
   /** Replaces the current show (and venue) with an archive's content, after a backup copy, and merges its fixture definitions as `fixtures` says. */
-  restore(bytes: Uint8Array, fixtures: FixturePolicy): RestoreResult;
+  /** `keepMachine`: intentions of the archive (ids) whose twin of this machine is kept instead (T15b). */
+  restore(bytes: Uint8Array, fixtures: FixturePolicy, keepMachine?: string[]): RestoreResult;
   /** What restore would change; nothing is written. */
   preview(bytes: Uint8Array, fixtures: FixturePolicy): RestorePreview;
   /** Imports a QLC+ workspace (.qxw text) into the open show. */
@@ -438,13 +439,13 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     name: "backup.restore",
     title: "Restaurer une sauvegarde",
     description:
-      "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first. The backup's fixture definitions (.qxf) are merged into the library: fixtures \"missing\" (default) adds the ones the library lacks, \"replace\" also overwrites the ones that differ (the old file is kept in the restore's backup folder), \"none\" leaves the library alone. dryRun: true only reports what would change (show, venue, definitions missing/differing/invalid).",
+      "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first. The backup's fixture definitions (.qxf) are merged into the library: fixtures \"missing\" (default) adds the ones the library lacks, \"replace\" also overwrites the ones that differ (the old file is kept in the restore's backup folder), \"none\" leaves the library alone. dryRun: true only reports what would change (show, venue, definitions missing/differing/invalid), and intentionTwins: intentions the backup brings whose label one of this machine's has under another id (made apart on two machines); restored, they are a second intention of that label, unless their id is in keepMachine: then this machine's is kept, and what named the backup's names it.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ file: z.string(), fixtures: FixturePolicySchema.default("missing"), dryRun: z.boolean().default(false) }),
-    run: ({ file, fixtures, dryRun }) => {
+    schema: z.object({ file: z.string(), fixtures: FixturePolicySchema.default("missing"), dryRun: z.boolean().default(false), keepMachine: z.array(z.string()).default([]) }),
+    run: ({ file, fixtures, dryRun, keepMachine }) => {
       const bytes = new Uint8Array(readFileSync(backupFile(file)));
-      return dryRun ? s.preview(bytes, fixtures) : s.restore(bytes, fixtures);
+      return dryRun ? s.preview(bytes, fixtures) : s.restore(bytes, fixtures, keepMachine);
     },
   });
 }

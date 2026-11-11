@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { CommandError, systemContext } from "../../../src/plugins/light/commands/registry.js";
+import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge, namesIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
 import { intentionUses } from "../../../src/plugins/light/show/references.js";
@@ -95,43 +95,53 @@ describe("intentions (T15)", () => {
 
     it("creates an intention in the show, used at once by look.from_intent, and changes its proposal without a restart", async () => {
       const made = (await run("intention.put", { intention: { label: "Lever de rideau", colors: ["#FF0000", "#0000ff"], energy: "pose", family: "chaud" } })) as { intention: Intention; origin: string };
-      expect(made.intention).to.include({ id: "lever-de-rideau", label: "Lever de rideau" });
+      // a generated id (T15b), the label as typed
+      const id = made.intention.id;
+      expect(id).to.match(/^i-[a-z0-9]+-[a-z0-9]{4}$/);
+      expect(made.intention.label).to.equal("Lever de rideau");
       expect(made.intention.colors).to.deep.equal(["#ff0000", "#0000ff"]); // lower case
       expect(made.origin).to.equal("show");
-      expect(existsSync(join(dataRoot, "shows", "default", "intentions", "lever-de-rideau.json"))).to.equal(true);
-      expect((await kb()).moods["lever-de-rideau"]).to.include({ origin: "show", label: "Lever de rideau" });
-      const first = (await run("look.from_intent", { name: "Ouverture", canvas: "mur", mood: ["Lever de rideau"] })) as { look: { technique: { kind: string } }; unknownMoods: string[] };
+      expect(existsSync(join(dataRoot, "shows", "default", "intentions", `${id}.json`))).to.equal(true);
+      expect((await kb()).moods[id]).to.include({ origin: "show", label: "Lever de rideau" });
+      const first = (await run("look.from_intent", { name: "Ouverture", canvas: "mur", mood: ["Lever de rideau"] })) as { look: { technique: { kind: string }; tags: string[] }; unknownMoods: string[] };
       expect(first.unknownMoods).to.deep.equal([]);
       expect(first.look.technique.kind).to.equal("respiration");
-      // edited by its key: the label changes, the key stays, the proposal follows at once
-      await run("intention.put", { intention: { id: "lever-de-rideau", label: "Lever du rideau", colors: ["#ff0000", "#0000ff", "#00ff00"], energy: "survolte" } });
-      const second = (await run("look.from_intent", { name: "Ouverture", canvas: "mur", mood: ["lever-de-rideau"] })) as { look: { timing: { order: string } } };
+      expect(first.look.tags).to.deep.equal([`ambiance:${id}`]); // the name written as the id
+      // edited by its id: the label changes, the id stays, the proposal follows at once
+      await run("intention.put", { intention: { id, label: "Lever du rideau", colors: ["#ff0000", "#0000ff", "#00ff00"], energy: "survolte" } });
+      const second = (await run("look.from_intent", { name: "Ouverture", canvas: "mur", mood: [id] })) as { look: { timing: { order: string } } };
       expect(second.look.timing.order).to.equal("random");
-      expect((await kb()).moods["lever-de-rideau"]!.label).to.equal("Lever du rideau");
-      expect(readdirSync(join(dataRoot, "shows", "default", "intentions"))).to.deep.equal(["lever-de-rideau.json"]);
+      expect((await kb()).moods[id]!.label).to.equal("Lever du rideau");
+      expect(readdirSync(join(dataRoot, "shows", "default", "intentions"))).to.deep.equal([`${id}.json`]);
       // proposed before it is written, like a look (show.diff)
-      const diff = (await run("show.diff", { command: "intention.put", args: { intention: { id: "lever-de-rideau", label: "Rideau", colors: ["#ff0000"], energy: "pose" } } })) as { valid: boolean; new: boolean; changes: { path: string }[] };
+      const diff = (await run("show.diff", { command: "intention.put", args: { intention: { id, label: "Rideau", colors: ["#ff0000"], energy: "pose" } } })) as { valid: boolean; new: boolean; changes: { path: string }[] };
       expect(diff).to.include({ valid: true, new: false });
       expect(diff.changes.map((c) => c.path)).to.include("label");
       expect((await refusal(run("show.diff", { command: "intention.put", args: { scope: "personal", intention: { id: "x", label: "x", colors: ["#ff0000"] } } })))?.message).to.match(/bibliothèque personnelle/);
     });
 
-    it("refuses a key already taken, an empty label, a key that is not one, and a bad colour", async () => {
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] } });
-      const taken = await refusal(run("intention.put", { intention: { label: "douceur !", colors: ["#000000"] } }));
-      expect(taken).to.be.instanceOf(CommandError);
-      expect((taken as CommandError).detail).to.deep.equal({ exists: "douceur" });
+    it("allows two intentions of one label (T15b), refuses an empty label, an id that is not one, and a bad colour", async () => {
+      const a = ((await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] } })) as { intention: Intention }).intention.id;
+      // the same label again: a second intention, said in duplicates (decision of 2026-11-12)
+      const again = (await run("intention.put", { intention: { label: "douceur !", colors: ["#000000"] } })) as { intention: Intention; duplicates: { id: string; origin: string }[] };
+      expect(again.intention.id).to.not.equal(a);
+      expect(again.duplicates).to.deep.equal([{ id: a, label: "Douceur", origin: "show" }]);
       expect((await refusal(run("intention.put", { intention: { label: " ?! ", colors: ["#000000"] } })))?.message).to.match(/libellé vide/);
       expect((await refusal(run("intention.put", { intention: { id: "Douceur", label: "x", colors: ["#000000"] } })) as CommandError).detail).to.deep.equal({ expected: "douceur" });
       expect((await refusal(run("intention.put", { intention: { label: "Brume", colors: ["rouge"] } })))?.message).to.match(/#rrggbb/);
-      // a shipped key is not taken: the new one is a touch-up of it for this show
-      const joy = (await run("intention.put", { intention: { label: "Joie", colors: ["#123456"] } })) as { origin: string; over: string };
-      expect(joy).to.include({ origin: "show", over: "generic" });
+      // a new « Joie » is no touch-up any more: a second « Joie », the shipped one stays as it is
+      const joy = (await run("intention.put", { intention: { label: "Joie", colors: ["#123456"] } })) as { intention: Intention; origin: string; over?: string; duplicates: { id: string }[] };
+      expect(joy.origin).to.equal("show");
+      expect(joy.over).to.equal(undefined);
+      expect(joy.duplicates.map((d) => d.id)).to.deep.equal(["joie"]);
+      expect((await kb()).moods.joie!.colors).to.not.deep.equal(["#123456"]);
+      // a touch-up is an edit of the shipped one's id
+      expect(await run("intention.put", { intention: { id: "joie", label: "Joie", colors: ["#123456"] } })).to.include({ origin: "show", over: "generic" });
       expect((await kb()).moods.joie!.colors).to.deep.equal(["#123456"]);
     });
 
     it("refuses to delete an intention a song or a look uses, names them, and deletes on force", async () => {
-      await run("intention.put", { intention: { label: "Lever de rideau", colors: ["#112233"] } });
+      await run("intention.put", { intention: { id: "lever-de-rideau", label: "Lever de rideau", colors: ["#112233"] } });
       await run("song.put", { song: { id: "ouverture", title: "Ouverture", mood: ["Lever de rideau"], sections: [] } });
       await run("look.from_intent", { name: "Rideau", canvas: "mur", mood: ["lever de rideau"], save: true });
       expect((await kb()).moods["lever-de-rideau"]!.usedBy).to.deep.equal(["chant « Ouverture »", "look « Rideau »"]);
@@ -168,7 +178,7 @@ describe("intentions (T15)", () => {
     });
 
     it("keeps personal intentions for every show of the machine, below the show's, out of the show folder", async () => {
-      const own = (await run("intention.put", { intention: { label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" })) as { origin: string; scope: string };
+      const own = (await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" })) as { origin: string; scope: string };
       expect(own).to.include({ origin: "personal", scope: "personal" });
       expect(existsSync(join(dataRoot, "private", "intentions", "douceur.json"))).to.equal(true);
       expect(existsSync(join(dataRoot, "shows", "default", "intentions"))).to.equal(false);
@@ -187,7 +197,7 @@ describe("intentions (T15)", () => {
       expect(other.moods.douceur).to.include({ origin: "personal" });
       expect(other.moods.douceur!.colors).to.deep.equal(["#000001"]);
       expect(other.moods.joie).to.include({ origin: "generic" });
-      await run("intention.put", { intention: { label: "Brume", colors: ["#cccccc"] } });
+      await run("intention.put", { intention: { id: "brume", label: "Brume", colors: ["#cccccc"] } });
       await run("show.open", { id: "default" });
       const back = await kb();
       expect(back.moods.brume).to.equal(undefined);
@@ -200,7 +210,7 @@ describe("intentions (T15)", () => {
 
     it("names the other shows that still cite a personal intention in the same question as this show's uses", async () => {
       await run("show.rename", { name: "Premier" });
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#aabbcc"] }, scope: "personal" });
       await run("song.put", { song: { id: "a", title: "Ici", mood: ["douceur"], sections: [] } });
       await run("show.create", { name: "Second" });
       await run("song.put", { song: { id: "b", title: "Là-bas", mood: ["Douceur"], sections: [] } });
@@ -222,7 +232,7 @@ describe("intentions (T15)", () => {
       const again = (await run("intention.put", { intention: { id: "joie", label: "Joie", colors: ["#ffcc1a"], hidden: true } })) as { usedBy: string[] };
       expect(again.usedBy).to.deep.equal(["chant « Joyeux »"]);
       // the history names a deleted intention by its label
-      await run("intention.put", { intention: { label: "Brume", colors: ["#cccccc"] } });
+      await run("intention.put", { intention: { id: "brume", label: "Brume", colors: ["#cccccc"] } });
       await run("intention.delete", { id: "brume" });
       expect(((await run("history.deleted", { collection: "intentions" })) as { id: string; name?: string }[]).find((d) => d.id === "brume")?.name).to.equal("Brume");
       // the activity log's undo is for looks, groups, faders and dashboards only
@@ -240,7 +250,7 @@ describe("intentions (T15)", () => {
     });
 
     it("previews an unsaved intention: technique, explanation and contrast, nothing written", async () => {
-      const p = (await run("intention.preview", { intention: { label: "Brume", colors: ["#ff0000", "#ff1000"], energy: "dynamique" } })) as { technique: { kind: string }; explanation: string[]; contrast: number };
+      const p = (await run("intention.preview", { intention: { id: "brume", label: "Brume", colors: ["#ff0000", "#ff1000"], energy: "dynamique" } })) as { technique: { kind: string }; explanation: string[]; contrast: number };
       expect(p.technique.kind).to.equal("damier");
       expect(p.explanation[0]).to.contain("« Brume »");
       expect(p.contrast).to.be.below(25);
@@ -253,8 +263,8 @@ describe("intentions (T15)", () => {
     it("travels in a .lightshow: restored into another show as packed, counted in the preview; an archive without any replaces them", async () => {
       await run("show.rename", { name: "Principal" }); // a show with something to pack
       const without = ((await run("backup.create", { label: "sans" })) as { file: string }).file;
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] } });
-      await run("intention.put", { intention: { label: "Lever de rideau", colors: ["#112233", "#445566"], energy: "survolte", notes: "ouverture" } });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"] } });
+      await run("intention.put", { intention: { id: "lever-de-rideau", label: "Lever de rideau", colors: ["#112233", "#445566"], energy: "survolte", notes: "ouverture" } });
       await run("intention.delete", { id: "paix" }); // a mask travels too
       const withThem = ((await run("backup.create", { label: "avec" })) as { file: string }).file;
       const packed = await kb();
@@ -287,8 +297,8 @@ describe("intentions (T15)", () => {
       mkdirSync(join(dataRoot, "private"), { recursive: true });
       writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { "Brume du matin": { label: "Brume du matin", colors: ["#AABBCC"], energy: "pose" }, inutile: { colors: ["#000000"] } } }));
       await run("show.rename", { name: "Source" });
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"], family: "chaud", notes: "tendre" }, scope: "personal" });
-      await run("intention.put", { intention: { label: "Autre douceur", colors: ["#ffeedf"] }, scope: "personal" }); // not used: stays home
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"], family: "chaud", notes: "tendre" }, scope: "personal" });
+      await run("intention.put", { intention: { id: "autre-douceur", label: "Autre douceur", colors: ["#ffeedf"] }, scope: "personal" }); // not used: stays home
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["Douceur", "joie"], sections: [] } });
       await run("look.put", { look: { id: "l", name: "Look", canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, tags: ["ambiance:brume du matin"] } });
       const file = ((await run("backup.create", { label: "emporte" })) as { file: string }).file;
@@ -312,9 +322,9 @@ describe("intentions (T15)", () => {
 
     it("leaves in the library what this machine has as packed, copies into the show what differs or is missing (decision 2026-11-11)", async () => {
       await run("show.rename", { name: "Source" });
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
-      await run("intention.put", { intention: { label: "Brume", colors: ["#cccccc"] }, scope: "personal" });
-      await run("intention.put", { intention: { label: "Aube", colors: ["#ffaa00"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "brume", label: "Brume", colors: ["#cccccc"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "aube", label: "Aube", colors: ["#ffaa00"] }, scope: "personal" });
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur", "brume", "aube"], sections: [] } });
       const file = ((await run("backup.create", { label: "machine" })) as { file: string }).file;
       const manifest = readArchive(new Uint8Array(readFileSync(join(dataRoot, "backups", file)))).manifest;
@@ -335,7 +345,7 @@ describe("intentions (T15)", () => {
 
     it("lists the personal library whatever show is open, with the shows naming each, and deletes the library's own", async () => {
       await run("show.rename", { name: "Premier" });
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur"], sections: [] } });
       await run("intention.put", { intention: { id: "douceur", label: "Douceur du show", colors: ["#000000"] } }); // its own copy
       await run("show.create", { name: "Second" });
@@ -359,7 +369,7 @@ describe("intentions (T15)", () => {
 
     it("reads every show once for the library, leaves out a show that masks or copies the key, and deletes by scope", async () => {
       await run("show.rename", { name: "Premier" });
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"] }, scope: "personal" });
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["douceur"], sections: [] } });
       await run("show.create", { name: "Masque" });
       await run("song.put", { song: { id: "t", title: "Autre", mood: ["douceur"], sections: [] } });
@@ -373,7 +383,7 @@ describe("intentions (T15)", () => {
     });
 
     it("restores the same archive twice without announcing show.json removed, and reads a damaged manifest list", async () => {
-      await run("intention.put", { intention: { label: "Douceur", colors: ["#ffeedd"] } });
+      await run("intention.put", { intention: { id: "douceur", label: "Douceur", colors: ["#ffeedd"] } });
       const file = ((await run("backup.create", { label: "deux" })) as { file: string }).file;
       await run("backup.restore", { file });
       const again = (await run("backup.restore", { file, dryRun: true })) as { show: { removed: string[]; added: string[]; changed: string[] } };
