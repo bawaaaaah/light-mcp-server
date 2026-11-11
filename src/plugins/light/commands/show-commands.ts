@@ -30,7 +30,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
-   * What uses a look, a group or a fader (show/references.ts). Songs and mappings are opened on
+   * What uses a look, a group, a fader or a canvas (show/references.ts). Songs and mappings are opened on
    * call: a store collection keeps the schema of its first opening, and the plugin opens those two
    * with their own schemas after these commands are registered.
    */
@@ -40,6 +40,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     mappings: show.store.collection("mappings", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["mappings"],
     dashboards: dashboards.list(),
     snapshots: show.snapshots.list(),
+    looks: show.looks.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     safeLook: show.settings.safeLook,
   });
@@ -49,6 +50,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     if (uses.length && !force) throw new Error(inUseMessage(name ?? i, uses));
   };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
+  const canvasDeletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a look still plays on it") });
 
   /** Raw channels (fixture + offset) must exist: refused otherwise. */
   const checkChannels = (channels: { fixture: string; offset: number }[]) => {
@@ -279,6 +281,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup", "design"],
     schema: z.object({ canvas: CanvasSchema }),
     run: ({ canvas }) => venue.canvases.put(canvas),
+  });
+  reg.register({
+    name: "venue.canvas.delete",
+    title: "Supprimer un canevas",
+    description: "Deletes a canvas. Refused while a look plays on it (the error names the looks), unless force.",
+    right: "show:write",
+    profiles: ["setup", "design"],
+    schema: canvasDeletable,
+    run: ({ id: i, force }) => {
+      const canvas = venue.canvases.get(i);
+      if (!canvas) throw new Error(say(`canevas inconnu : ${i}`, `unknown canvas: ${i}`));
+      removable("canvas", i, canvas.name, force);
+      return { deleted: venue.canvases.delete(i) };
+    },
   });
 
   // ---- stage
@@ -622,11 +638,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA) or a channel fader is used: groups, channel faders, MIDI mappings, dashboards, snapshots, songs, safe state. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader or a canvas is used: groups, channel faders, MIDI mappings, dashboards, snapshots, songs, looks (canvas), safe state. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas"]), id: z.string() }),
     run: ({ kind, id: i }) => ({ uses: usesOf(kind, i, parts()) }),
   });
   const withMaster = (groupId: string, patch: { level?: number; mute?: boolean }) => {

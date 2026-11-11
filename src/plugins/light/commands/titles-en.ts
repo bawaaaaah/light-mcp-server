@@ -161,6 +161,7 @@ export const TITLES_EN: Record<string, string> = {
   "tempo.set": "Set the tempo",
   "tempo.tap": "Tap tempo",
   "venue.canvas.auto": "Automatic canvas",
+  "venue.canvas.delete": "Delete a canvas",
   "venue.canvas.list": "Canvases",
   "venue.canvas.put": "Define a canvas",
   "venue.fixture.arrange": "Arrange fixtures",

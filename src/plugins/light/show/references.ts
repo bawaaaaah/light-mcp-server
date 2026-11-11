@@ -1,17 +1,17 @@
 /**
- * Where a look, a group (DCA) or a channel fader is used in the show: groups, channel faders,
- * MIDI mappings, dashboards, snapshots, songs (sections and timeline cues) and the safe state.
+ * Where a look, a group (DCA), a channel fader or a canvas is used in the show: groups, channel faders,
+ * MIDI mappings, dashboards, snapshots, songs (sections and timeline cues), looks (a canvas) and the safe state.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
  * forced, so a QLC+ import's look-alike objects (three DCAs all named « Master ») cannot be
  * cleaned up by mistake.
  */
 import { say } from "../../../core/lang.js";
-export type ReferenceKind = "look" | "group" | "fader";
+export type ReferenceKind = "look" | "group" | "fader" | "canvas";
 
 /** A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). */
-const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader." };
+const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -19,6 +19,8 @@ export interface ShowParts {
   mappings: { id: string; label?: string; on: { command: string; args: Record<string, unknown> } }[];
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown> }[];
+  /** The looks play on a canvas (`look.canvas`). */
+  looks: { id: string; name: string; canvas: string }[];
   songs: { id: string; title: string; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
   safeLook?: string;
 }
@@ -31,6 +33,7 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts): string
     if (kind === "group" && g.id !== id && g.members.groups.includes(id)) uses.push(say(`groupe « ${g.name} » (sous-groupe)`, `group “${g.name}” (sub-group)`));
   }
   if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
+  if (kind === "canvas") for (const l of show.looks) if (l.canvas === id) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
   const named = (args: Record<string, unknown>) => args.id === id;
   for (const m of show.mappings) if (m.on.command.startsWith(COMMAND_PREFIX[kind]) && named(m.on.args)) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));

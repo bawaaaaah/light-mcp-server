@@ -7,11 +7,15 @@ import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { usesOf, type ShowParts } from "../../../src/plugins/light/show/references.js";
 
-describe("references: what uses a look, a group or a fader", () => {
-  const empty: ShowParts = { groups: [], faders: [], mappings: [], dashboards: [], snapshots: [], songs: [] };
+describe("references: what uses a look, a group, a fader or a canvas", () => {
+  const empty: ShowParts = { groups: [], faders: [], mappings: [], dashboards: [], snapshots: [], looks: [], songs: [] };
 
   it("finds every place, once per place", () => {
     const show: ShowParts = {
+      looks: [
+        { id: "warm", name: "Chaud", canvas: "mur" },
+        { id: "cold", name: "Froid", canvas: "mur" },
+      ],
       groups: [
         { id: "master", name: "Master", members: { looks: [], groups: ["front"] } },
         { id: "scenes", name: "Scènes", members: { looks: ["warm"], groups: [] } },
@@ -36,6 +40,8 @@ describe("references: what uses a look, a group or a fader", () => {
     ]);
     expect(usesOf("look", "warm", show)).to.deep.equal(["groupe « Scènes »", "mapping MIDI « n-36 »", "dashboard « Principal »", "instantané « Accueil »", "chant « Chant A » (Intro)", "secours du Panic"]);
     expect(usesOf("fader", "uv", show)).to.deep.equal(["instantané « Accueil »"]);
+    expect(usesOf("canvas", "mur", show)).to.deep.equal(["look « Chaud »", "look « Froid »"]);
+    expect(usesOf("canvas", "parvis", show)).to.deep.equal([]);
     expect(usesOf("group", "nobody", show)).to.deep.equal([]);
     expect(usesOf("look", "warm", empty)).to.deep.equal([]);
   });
@@ -63,6 +69,29 @@ describe("references: what uses a look, a group or a fader", () => {
       expect(plugin.runtime.groups.get("master-b")).to.not.equal(undefined);
       await run("group.delete", { id: "master-b", force: true });
       expect(plugin.runtime.groups.get("master-b")).to.equal(undefined);
+    });
+
+    it("refuses to delete a canvas a look plays on, names the look, deletes it once unused or forced", async () => {
+      const canvas = { id: "test-mur", name: "Mur test", cells: 2, render: [{ from: 0, to: 1, targets: [{ fixture: "bar-0", head: -1 }] }] };
+      await run("venue.canvas.put", { canvas });
+      await run("look.put", { look: { id: "test-look", name: "Look du mur", canvas: "test-mur", technique: { kind: "plat", color: "#ff0000" } } });
+      expect(await run("show.references", { kind: "canvas", id: "test-mur" })).to.deep.equal({ uses: ["look « Look du mur »"] });
+      let refused = "";
+      await run("venue.canvas.delete", { id: "test-mur" }).catch((e: Error) => (refused = e.message));
+      expect(refused).to.contain("look « Look du mur »");
+      expect(plugin.runtime.venue.canvases.get("test-mur")).to.not.equal(undefined);
+      await run("look.delete", { id: "test-look" });
+      expect(await run("venue.canvas.delete", { id: "test-mur" })).to.deep.equal({ deleted: true });
+      expect(plugin.runtime.venue.canvases.get("test-mur")).to.equal(undefined);
+      // forced: deleted although a look still names it
+      await run("venue.canvas.put", { canvas });
+      await run("look.put", { look: { id: "test-look", name: "Look du mur", canvas: "test-mur", technique: { kind: "plat", color: "#ff0000" } } });
+      expect(await run("venue.canvas.delete", { id: "test-mur", force: true })).to.deep.equal({ deleted: true });
+      expect(plugin.runtime.venue.canvases.get("test-mur")).to.equal(undefined);
+      // an unknown id is an error
+      refused = "";
+      await run("venue.canvas.delete", { id: "nulle-part" }).catch((e: Error) => (refused = e.message));
+      expect(refused).to.equal("canevas inconnu : nulle-part");
     });
 
     it("deletes what nothing uses, and the check flags names used twice", async () => {

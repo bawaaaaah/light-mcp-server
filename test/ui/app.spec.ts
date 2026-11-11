@@ -1569,6 +1569,34 @@ test("venue: right-click a zone to edit it, and move zones only once allowed", a
   expect(errors).toEqual([]);
 });
 
+test("venue: a canvas is deleted from its list after asking, and gone from venue.canvas.list", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.canvas.put", { canvas: { id: "test-canvas", name: "Canevas test", cells: 2, render: [{ from: 0, to: 1, targets: [{ fixture: "bar-0", head: -1 }] }] } });
+  const listed = async () => ((await api(page, "venue.canvas.list")) as { id: string }[]).some((c) => c.id === "test-canvas");
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    const del = page.getByRole("button", { name: "Supprimer Canevas test" });
+    const row = page.locator("li", { has: del });
+    await expect(row).toHaveCount(1);
+    // the question names the canvas; dismissed, it stays
+    let asked = "";
+    page.once("dialog", (d) => ((asked = d.message()), void d.dismiss()));
+    await del.click();
+    await expect.poll(() => asked).toContain("Canevas test");
+    expect(await listed()).toBe(true);
+    await expect(row).toHaveCount(1);
+    // accepted: gone from the page and from the venue
+    page.once("dialog", (d) => void d.accept());
+    await del.click();
+    await expect(row).toHaveCount(0);
+    expect(await listed()).toBe(false);
+  } finally {
+    if (await listed()) await api(page, "venue.canvas.delete", { id: "test-canvas", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

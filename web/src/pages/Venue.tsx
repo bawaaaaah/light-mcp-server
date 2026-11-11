@@ -8,6 +8,7 @@ import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
 import { ZoneMenu } from "../components/ZoneMenu";
+import { confirmDelete } from "../components/confirmDelete";
 import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
 
@@ -303,7 +304,10 @@ export function VenuePage(): ReactElement {
           <ul>
             {canvases.map((c) => (
               <li key={c.id}>
-                {c.name} <small>({labelOf(t.topologies, c.topology)}, {c.cells})</small>
+                {c.name} <small>({labelOf(t.topologies, c.topology)}, {c.cells})</small>{" "}
+                <button className="ghost" title={`${t.delete} ${c.name}`} aria-label={`${t.delete} ${c.name}`} onClick={() => void confirmDelete("canvas", c.id, c.name, t).then((done) => done && refresh(), (e: Error) => setError(e.message))}>
+                  ✕
+                </button>
               </li>
             ))}
           </ul>

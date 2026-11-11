@@ -134,6 +134,7 @@ export const HINTS: Record<string, string> = {
   "tempo.set": "IO",
   "tempo.tap": "",
   "venue.canvas.auto": "DI",
+  "venue.canvas.delete": "DI",
   "venue.canvas.put": "DI",
   "venue.fixture.arrange": "I",
   "venue.fixture.delete": "DI",
