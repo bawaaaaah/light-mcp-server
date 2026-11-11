@@ -12,14 +12,15 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import { movePosition, type Position } from "../engine/move.js";
 import { aimAt } from "../venue/aim.js";
-import type { FixtureChannel } from "../venue/qxf-import.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
+import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
 import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGrouping } from "../venue/grouping.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
+import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
 import { say } from "../../../core/lang.js";
 
@@ -101,7 +102,8 @@ export interface ChannelExplanation {
   /**
    * `dcas`: every DCA covering the fixture, each once — `own` is the factor really multiplied, `effective` its
    * level with the groups above it (display); `factor` = grand master × the `own` of each. `dosesRaw`: the channel
-   * is the fixture's light (its dimmer, or a colour of a fixture without one): a look writing it raw is dosed too.
+   * carries the fixture's light (its dimmer, or a colour of a fixture without one) and a look writes it raw: the
+   * intensity doses that write too.
    */
   intensity?: {
     grandMaster: number;
@@ -110,12 +112,19 @@ export interface ChannelExplanation {
     factor: number;
     dosesRaw?: true;
   };
+  /** Not a light channel (a machine channel, pan/tilt, an offset off the definition): neither the grand master nor any DCA doses it. */
+  undosed?: true;
   /** A light channel channel faders hold: the DCAs they are linked to (with the groups above, each once, but those in `intensity`) dose the looks writing it, by `factor`. */
   faderDcas?: { dcas: { id: string; name: string; own: number }[]; factor: number };
-  faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number }[];
+  /**
+   * The channel faders on it: `effective` is the fader's own value there as the frame computes it (Doses.faderValue):
+   * its travel × each DCA of `dcas` once × `grandMaster` when given; `doses` on a colour fixture's dimmer, which it doses.
+   */
+  faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
   /**
    * Looks writing the channel as a raw channel; `leaving` for one fading out (an exit fade, or under a crossfade): it
-   * still counts. `level`: what the groups including the look give it on this fixture (lookLevelOn), when below 1.
+   * still counts. `level`: what the groups including the look give it on this channel (lookLevelOn), when below 1 and
+   * venue.toDmx applies it there (rawLevelApplies).
    */
   rawLooks: { id: string; name: string; leaving?: true; level?: number }[];
   /** `name`: the rule's, when it is still in force (the built-in Reset protection's among them). */
@@ -651,16 +660,21 @@ export class ShowRuntime {
     return new DcaIndex({ groups: this.groups.list(), isDca: (g) => !!g.master || this.flashes.has(g.id), fixturesOf: (id) => this.fixturesOf(id), own: (g) => this.ownLevel(g) });
   }
 
+  /** What doses each light channel now (show/doses.ts), on a snapshot of the groups: one per frame, or one on demand. */
+  doses(index = this.dcaIndex()): Doses {
+    return new Doses({ index, faders: this.faders.list(), groups: this.groups.list(), light: (id) => this.lightOffsets(id), dosesDimmer: (f, o) => this.dosesDimmer(f, o), grandMaster: this.grandMasterLevel() });
+  }
+
   /** The DCAs covering a fixture (docs/specs/groups-masters.md, « Calcul »): holding it directly, by selector or through any sub-group. */
   dcasOf(fixtureId: string, index = this.dcaIndex()): Group[] {
-    return index.covering(fixtureId).map((id) => index.group(id)!);
+    return index.groups(index.covering(fixtureId));
   }
 
   /**
    * The light channels of a fixture: its dimmer(s) and the colour components of its heads (accent ones
    * included). Machine channels (a wheel, a macro, a speed), pan/tilt and offsets off the definition are not.
    */
-  private lightOffsets(fixtureId: string): { dimmers: readonly number[]; colours: ReadonlySet<number> } | undefined {
+  private lightOffsets(fixtureId: string): LightOffsets | undefined {
     const r = this.venue.resolve(fixtureId);
     if ("error" in r) return undefined;
     const colours = new Set<number>();
@@ -668,55 +682,56 @@ export class ShowRuntime {
     return { dimmers: r.dimmers, colours };
   }
 
-  /** A light channel of a fixture: a dimmer or a colour component (lightOffsets). */
-  private isLight(fixtureId: string, offset: number): boolean {
-    const light = this.lightOffsets(fixtureId);
-    return !!light && (light.dimmers.includes(offset) || light.colours.has(offset));
+  /**
+   * The level the groups including a look (`presets.included`) give it on a fixture, on one of its channels when
+   * given: those DCAs and every group above them, each once, but those already dosing that channel there — the
+   * DCAs covering the fixture, those of the channel faders on its dimmer and on that channel (Doses.lookLevel, T35).
+   */
+  lookLevelOn(look: Pick<Look, "id">, fixtureId: string, offset?: number, doses = this.doses()): number {
+    return doses.lookLevel(look.id, fixtureId, offset);
   }
 
   /**
-   * The DCAs dosing a fixture's whole light, each once: those covering it, and the DCAs (with their parents)
-   * of the channel faders on its dimmer — on its colours when it has no dimmer. A look one of them includes
-   * is not dosed again by it there (lookLevelOn).
+   * Doses what a look paints on one fixture (`heads`, its halo spelt out already) by the level its groups give it,
+   * channel by channel: one factor for the whole fixture in the usual case; when a channel fader linked to one of
+   * those groups holds only some of its colours, each component by the level on its own channel, a whole-fixture
+   * colour spelt out head by head first (as Venue.followAccents does). True when anything was dosed.
    */
-  private lightDcas(fixtureId: string, index: DcaIndex): ReadonlySet<string> {
-    return index.cache(`light:${fixtureId}`, () => {
-      const out = new Set(index.covering(fixtureId));
-      const light = this.lightOffsets(fixtureId);
-      if (!light) return out;
-      const carries = (offset: number) => (light.dimmers.length ? light.dimmers.includes(offset) : light.colours.has(offset));
-      const linked = this.faders.list().filter((f) => f.dca && index.group(f.dca) && f.channels.some((c) => c.fixture === fixtureId && carries(c.offset)));
-      for (const id of index.above(linked.map((f) => f.dca!))) out.add(id);
-      return out;
-    });
+  private doseLookColours(doses: Doses, lookId: string, fixtureId: string, heads: Map<number, Color>): boolean {
+    const light = doses.light(fixtureId);
+    const colours = light ? [...light.colours] : [];
+    const levels = new Map(colours.map((o) => [o, doses.lookLevel(lookId, fixtureId, o)]));
+    const values = [...levels.values()];
+    const uniform = values.every((v) => v === values[0]) ? (values[0] ?? doses.lookLevel(lookId, fixtureId, light?.dimmers[0])) : undefined;
+    if (uniform !== undefined) {
+      if (uniform === 1) return false;
+      for (const [h, c] of heads) heads.set(h, scaleColor(c, uniform));
+      return true;
+    }
+    const r = this.venue.resolve(fixtureId);
+    if ("error" in r) return false; // no definition: no light channel either (unreachable with levels to tell apart)
+    const whole = heads.get(-1);
+    if (whole) {
+      heads.delete(-1);
+      for (const h of r.heads.keys()) if (!heads.has(h) && (!r.accent.has(h) || r.follow)) heads.set(h, whole);
+    }
+    const lowest = Math.min(...values);
+    for (const [h, c] of heads) {
+      const comps = r.heads.get(h) ?? {};
+      const out: Color = {};
+      for (const [comp, v] of Object.entries(c) as [ColorComponent, number][]) {
+        const offset = comps[comp];
+        out[comp] = v * ((offset === undefined ? undefined : levels.get(offset)) ?? lowest);
+      }
+      heads.set(h, out);
+    }
+    return true;
   }
 
-  /**
-   * The level a look gets on one fixture from the groups that include it (`presets.included`): those DCAs
-   * and every group above them, each once, but those already dosing the fixture's light (lightDcas) — their
-   * level reaches the look there through the fixture, not twice (T35). 1 when no group includes the look.
-   */
-  lookLevelOn(look: Pick<Look, "id">, fixtureId: string, index = this.dcaIndex()): number {
-    const including = index.cache(`incl:${look.id}`, () => this.groups.list().filter((g) => g.presets.included.includes(look.id)).map((g) => g.id));
-    if (!including.length) return 1;
-    return index.product(index.above(including, this.lightDcas(fixtureId, index)));
-  }
-
-  /**
-   * What doses the show on a light channel (a dimmer, a colour) that channel faders hold by « highest takes
-   * precedence » (not a colour fixture's dimmer: the fader doses that one itself): the DCAs the faders there
-   * are linked to, with every group above them, each once, but those covering the fixture (its intensity
-   * carries them already). A look writing a channel of a fader linked to a DCA follows that DCA (T35).
-   */
-  private faderDcasOn(fixtureId: string, offset: number, index: DcaIndex): ReadonlySet<string> {
-    return index.cache(`fader:${fixtureId}\u0000${offset}`, () => {
-      if (!this.isLight(fixtureId, offset) || this.dosesDimmer(fixtureId, offset)) return new Set<string>();
-      const linked = this.faders.list().filter((f) => f.dca && index.group(f.dca) && f.channels.some((c) => c.fixture === fixtureId && c.offset === offset));
-      return index.above(
-        linked.map((f) => f.dca!),
-        new Set(index.covering(fixtureId)),
-      );
-    });
+  /** A channel fader's travel: its level within its range (a QLC+ slider limited to 0..200 never goes past 200), 0..1 of 255. */
+  private faderTravel(fader: ChannelFader): number {
+    const { min, max } = fader.range ?? { min: 0, max: 255 };
+    return (min + this.faderLevel(fader) * (max - min)) / 255;
   }
 
   /**
@@ -741,29 +756,41 @@ export class ShowRuntime {
     const head = "error" in r || r.heads.has(-1) ? undefined : this.venue.headOf(r, offset);
     // the same rule as the frame's (show/dca.ts), on a snapshot taken now
     const index = this.dcaIndex();
+    const doses = this.doses(index);
+    const named = (ids: Iterable<string>) => index.groups(ids).map((g) => ({ id: g.id, name: g.name, own: index.own(g.id) }));
     const dcas = this.dcasOf(fixture.id, index).map((g) => ({ id: g.id, name: g.name, own: index.own(g.id), effective: index.effective(g.id) }));
+    // each fader's own value here, by the very function the frame uses (Doses.faderValue)
     const faders = this.faders
       .list()
       .filter((f) => f.channels.some((c) => c.fixture === fixture.id && c.offset === offset))
-      .map((f) => ({ id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), dca: f.dca, effective: this.faderLevel(f) * (f.dca && this.groups.get(f.dca) ? index.effective(f.dca) : 1) }));
+      .map((f) => {
+        const v = doses.faderValue(f, this.faderTravel(f), fixture.id, offset);
+        return { id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), dca: f.dca, effective: v.level, dcas: named(v.dcas), ...(v.grandMaster ? { grandMaster: doses.grandMaster } : {}), ...(v.doses ? { doses: true as const } : {}) };
+      });
     const writes = (look: Look) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset) ?? false;
     const leaving = [...this.releasing.values(), ...[...this.crossfades.values()].flatMap((x) => x.outgoing)].map(({ look }) => look);
-    // the level the groups including a look give it here (lookLevelOn), told when it doses
-    const withLevel = <T extends { id: string }>(l: T): T & { level?: number } => {
-      const level = this.lookLevelOn(l, fixture.id, index);
-      return level === 1 ? l : { ...l, level };
-    };
-    const rawLooks = [
-      ...[...this.active.values()].filter(({ look }) => writes(look)).map(({ look }) => ({ id: look.id, name: look.name })),
-      ...leaving.filter((look) => writes(look) && !this.active.has(look.id)).map((look) => ({ id: look.id, name: look.name, leaving: true as const })),
-    ]
-      .filter((l, i, all) => all.findIndex((x) => x.id === l.id) === i)
-      .map(withLevel);
+    const light = doses.light(fixture.id);
+    // what this channel is to the doses: the fixture's dimmer, one of its colours, or a machine channel (not light: never dosed)
+    const kind = !light || !isLight(light, offset) ? ("machine" as const) : light.dimmers.includes(offset) ? ("dimmer" as const) : ("colour" as const);
+    const bodyColours = new Set(!("error" in r) ? [...r.heads].filter(([h]) => !r.accent.has(h)).flatMap(([, comps]) => Object.values(comps)) : []);
+    const raws = [
+      ...[...this.active.values()].filter(({ look }) => writes(look)).map(({ look }) => ({ look, leaving: false })),
+      ...leaving.filter((look) => writes(look) && !this.active.has(look.id)).map((look) => ({ look, leaving: true })),
+    ].filter((l, i, all) => all.findIndex((x) => x.look.id === l.look.id) === i);
+    // the looks dosing their light by their colours here (painting the body), as venue.toDmx classes them
+    const bodyPainters = raws.length && kind !== "machine" ? new Set(this.paintingLooks(fixture.id, (heads) => this.venue.lightsBody(fixture.id, heads)).map((l) => l.id)) : new Set<string>();
+    const rawLooks = raws.map(({ look, leaving: out }) => {
+      const mine = look.channels?.targets.filter((t) => t.fixture === fixture.id) ?? [];
+      const byColour = bodyPainters.has(look.id) || mine.some((t) => bodyColours.has(t.offset));
+      const byDimmer = mine.some((t) => light?.dimmers.includes(t.offset));
+      // the level is told only where venue.toDmx applies it (rawLevelApplies)
+      const level = kind !== "machine" && rawLevelApplies(kind, { byColour, byDimmer }) ? doses.lookLevel(look.id, fixture.id, offset) : 1;
+      return { id: look.id, name: look.name, ...(out ? { leaving: true as const } : {}), ...(level === 1 ? {} : { level }) };
+    });
     // a raw dimmer, or a raw colour of a fixture without a dimmer, is light: the intensity doses what a look writes there
-    const light = this.lightOffsets(fixture.id);
-    const rawDosed = !!light && (light.dimmers.includes(offset) || (!light.dimmers.length && light.colours.has(offset)));
+    const rawDosed = rawLooks.length > 0 && !!light && carriesLight(light, offset);
     // the DCAs a channel fader links to this light channel: they dose the looks writing it too
-    const viaFaders = [...this.faderDcasOn(fixture.id, offset, index)].map((id) => ({ id, name: index.group(id)!.name, own: index.own(id) }));
+    const viaFaders = named(doses.showDcas(fixture.id, offset));
     const ruleNames = new Map(this.rulesInForce().map((x) => [x.id, x.name]));
     const clamps = this.lastClamps.filter((c) => c.fixture === fixture.id && c.channel === name).map(({ rule, from, to }) => ({ rule, from, to, ...(ruleNames.get(rule) ? { name: ruleNames.get(rule)! } : {}) }));
     // a lamp's colour wheel: the slot held, its real colour, and how far it is from the colour asked
@@ -775,13 +802,20 @@ export class ShowRuntime {
     const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
     const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
-    const painting = isColour ? this.paintingLooks(fixture.id, paintsHere).map(withLevel) : [];
+    // a painting look's colour here carries the level its groups give it on this channel (colorsOf)
+    const painting = isColour
+      ? this.paintingLooks(fixture.id, paintsHere).map((l) => {
+          const level = doses.lookLevel(l.id, fixture.id, onWheel ? undefined : offset);
+          return level === 1 ? l : { ...l, level };
+        })
+      : [];
     return {
       ...(painting.length ? { paintingLooks: painting } : {}),
       ...(wheel ? { wheel } : {}),
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r), ...(head ? { head: head.head, ...(head.accent ? { accent: true as const } : {}) } : {}) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id, index), ...(rawDosed ? { dosesRaw: true as const } : {}) },
       ...(viaFaders.length ? { faderDcas: { dcas: viaFaders, factor: index.product(viaFaders.map((d) => d.id)) } } : {}),
+      ...(kind === "machine" ? { undosed: true as const } : {}),
       faders,
       rawLooks,
       clamps,
@@ -1100,13 +1134,14 @@ export class ShowRuntime {
      */
     const lookChannels = new Map<string, Map<number, RawWrite[]>>();
     // who doses what on this frame (show/dca.ts): one snapshot, dropped with the frame
-    const dcas = this.dcaIndex();
+    const doses = this.doses();
     const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
       if (!look.channels) return;
       const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+      const included = doses.isIncluded(look.id);
       look.channels.targets.forEach((t, k) => {
         const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
-        const level = this.lookLevelOn(look, t.fixture, dcas);
+        const level = included ? doses.lookLevel(look.id, t.fixture, t.offset) : 1;
         byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet, ...(level === 1 ? {} : { level }) }]);
         lookChannels.set(t.fixture, byOffset);
       });
@@ -1164,15 +1199,10 @@ export class ShowRuntime {
       for (const f of excluded) own.colors.delete(f);
       // the halo as this look shows it, before any merge or fade: it then fades and merges like any head
       this.venue.followAccents(own.colors);
-      // the groups including the look dose it per fixture, its halo with it: a uniform factor per fixture commutes with
-      // how paintCanvas merges the cells there (highest, mean), so it can come after the paint
+      // the groups including the look dose it per fixture, its halo with it: a factor per fixture (or per channel)
+      // commutes with how paintCanvas merges the cells there (highest, mean), so it can come after the paint
       let dosed = false;
-      for (const [f, heads] of own.colors) {
-        const level = this.lookLevelOn(look, f, dcas);
-        if (level === 1) continue;
-        dosed = true;
-        for (const [h, c] of heads) heads.set(h, scaleColor(c, level));
-      }
+      if (doses.isIncluded(look.id)) for (const [f, heads] of own.colors) dosed = this.doseLookColours(doses, look.id, f, heads) || dosed;
       if (fade >= 1 && !dosed) full1.add(own.colors);
       return own.colors;
     };
@@ -1233,7 +1263,7 @@ export class ShowRuntime {
       moveOf(look, player);
     }
     for (const [f, p] of this.manualPositions) frame.positions.set(f, p);
-    for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, dcas));
+    for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
     frame.raw = lookChannels;
@@ -1243,43 +1273,42 @@ export class ShowRuntime {
     // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on
     // one dimmer by the highest. A lamp's dimmer (a dimmer pack) is its light: the fader raises it.
     // On a light channel (a dimmer, a colour) held by the highest, what the show sends there first follows
-    // the DCAs the faders are linked to (a look writing a fader's channel follows its DCA, T35), and the
-    // fader's own value follows the grand master (« tout baisse »): each DCA once.
-    const doses = new Map<Uint8Array, Map<number, number>>();
+    // the DCAs the faders are linked to (a look writing a fader's channel follows its DCA, T35); the fader's
+    // own value follows its DCA, and on the channel carrying the light the grand master and the DCAs covering
+    // the fixture (« tout baisse »), each DCA once (Doses.faderValue, which dmx.explain reads too).
+    const dimmerDoses = new Map<Uint8Array, Map<number, number>>();
     const highest = new Map<Uint8Array, Map<number, number>>();
-    const showDosed = new Set<string>();
-    const gm = this.grandMasterLevel();
+    const showDosed = new Map<Uint8Array, Set<number>>();
     for (const fader of this.faders.list()) {
-      // its travel covers its range (a QLC+ slider limited to 0..200 never goes past 200), the DCA doses that
-      const { min, max } = fader.range ?? { min: 0, max: 255 };
-      const travel = (min + this.faderLevel(fader) * (max - min)) / 255;
-      const linked = fader.dca && dcas.group(fader.dca) ? fader.dca : undefined;
+      const travel = this.faderTravel(fader);
       for (const c of fader.channels) {
         const f = this.venue.fixtures.get(c.fixture);
         const buf = f && buffers[f.universe - 1];
         const index = f ? f.address - 1 + c.offset : -1;
         if (!buf || index < 0 || index >= 512 || this.venue.absent.has(c.fixture)) continue;
-        if (this.dosesDimmer(c.fixture, c.offset)) {
-          // the DCAs covering the fixture already dose this dimmer through its intensity: not twice
-          const level = travel * (linked ? dcas.product(dcas.above([linked], new Set(dcas.covering(c.fixture)))) : 1);
-          const dosed = doses.get(buf) ?? new Map<number, number>();
-          doses.set(buf, dosed.set(index, Math.max(dosed.get(index) ?? 0, level)));
+        const own = doses.faderValue(fader, travel, c.fixture, c.offset);
+        if (own.doses) {
+          const dosed = dimmerDoses.get(buf) ?? new Map<number, number>();
+          dimmerDoses.set(buf, dosed.set(index, Math.max(dosed.get(index) ?? 0, own.level)));
           continue;
         }
-        const key = `${c.fixture}\u0000${c.offset}`;
-        const light = this.isLight(c.fixture, c.offset);
-        if (light && !showDosed.has(key)) {
-          showDosed.add(key);
-          const k = dcas.product(this.faderDcasOn(c.fixture, c.offset, dcas));
+        // the show's byte is dosed once per slot, before any fader takes the highest there (twins on one address share it)
+        const done = showDosed.get(buf) ?? new Set<number>();
+        showDosed.set(buf, done);
+        if (!done.has(index)) {
+          done.add(index);
+          const k = doses.index.product(doses.showDcas(c.fixture, c.offset));
+          // a byte is whole: rounded here as toDmx rounds every byte it writes
           if (k !== 1) buf[index] = Math.round(buf[index]! * k);
         }
-        const value = Math.round(travel * (linked ? dcas.effective(linked) : 1) * (light ? gm : 1) * 255);
+        // rounded to a byte like any value sent; the highest is taken on bytes
+        const value = Math.round(own.level * 255);
         const top = highest.get(buf) ?? new Map<number, number>();
         highest.set(buf, top.set(index, Math.max(top.get(index) ?? 0, value)));
       }
     }
     for (const [buf, top] of highest) for (const [index, value] of top) if (buf[index]! < value) buf[index] = value;
-    for (const [buf, dosed] of doses) for (const [index, level] of dosed) buf[index] = Math.round(buf[index]! * level);
+    for (const [buf, dosed] of dimmerDoses) for (const [index, level] of dosed) buf[index] = Math.round(buf[index]! * level);
     return errors;
   }
 

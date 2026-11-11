@@ -1164,7 +1164,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({ name: "look.stopall", title: "Tout arrêter", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
 
   // ---- groups
-  reg.register({ name: "group.list", title: "Groupes", description: "Groups (members, sub-groups, selector, master, exclusive, limits) with their effective level and fixtureCount, the fixtures they gather now (a live selector and sub-groups included).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.groups.list().map((g) => ({ ...g, effectiveLevel: show.effectiveLevel(g.id), fixtureCount: show.fixturesOf(g.id).size })) });
+  reg.register({ name: "group.list", title: "Groupes", description: "Groups (members, sub-groups, selector, master, exclusive, limits) with their effective level and fixtureCount, the fixtures they gather now (a live selector and sub-groups included).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => {
+      const index = show.dcaIndex(); // one snapshot for every group's level
+      return show.groups.list().map((g) => ({ ...g, effectiveLevel: show.effectiveLevel(g.id, index), fixtureCount: show.fixturesOf(g.id).size }));
+    },
+  });
   reg.register({ name: "group.put", title: "Groupe", description: "Creates or updates a unified group: members (fixtures, looks, sub-groups), selector, optional master, exclusive, limits, included/excluded presets.", right: "show:write", profiles: ["setup", "design"], schema: z.object({ group: GroupSchema }), run: ({ group }) => show.groups.put(group) });
   reg.register({
     name: "group.delete",

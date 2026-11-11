@@ -79,9 +79,10 @@ describe("snapshots: the whole live state, and Panic's safe state", () => {
     await run("group.put", { group: { id: "barres", name: "Barres", master: { level: 0.5, mute: false } } });
     for (const id of ["bords", "centre"]) await run("fader.put", { fader: { ...plugin.runtime.faders.get(id)!, dca: "barres" } });
     expect(out()[0]).to.be.closeTo(64, 1); // 0.5 × 0.5
-    expect([out()[15], out()[18]].map((v) => Math.round(v / 2))).to.deep.equal([64, 64]);
+    // the DCA doses the second bar's light once, by its dimmer: its red stays at the fader's own 100 % (T35, not 25 %)
+    expect([out()[15], out()[18]].map((v) => Math.round(v / 2))).to.deep.equal([64, 128]);
     await run("group.mute", { id: "barres", mute: true });
-    expect([out()[0], out()[15], out()[18]]).to.deep.equal([0, 0, 0]);
+    expect([out()[0], out()[15], out()[18]]).to.deep.equal([0, 0, 255]); // both dimmers at 0: both bars dark (the red byte left to the dimmer)
     // a range, as a QLC+ slider's limits: its travel covers 40..200 only
     await run("fader.put", { fader: { id: "uv", name: "UV", channels: [{ fixture: "bar-0", offset: 1 }], level: 0, range: { min: 40, max: 200 } } });
     expect(out()[1]).to.equal(40);

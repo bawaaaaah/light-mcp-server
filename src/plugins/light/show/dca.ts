@@ -10,7 +10,7 @@ import type { Group } from "./model.js";
 
 export interface DcaSource {
   groups: readonly Group[];
-  /** A group doses now: it has a master, or a flash is held on it. */
+  /** A group doses now: it has a master, or a flash is held on it. A group that does not dose counts 1. */
   isDca(g: Group): boolean;
   /** Every fixture of a group: direct members, its selector, and its sub-groups' fixtures. */
   fixturesOf(groupId: string): ReadonlySet<string>;
@@ -23,23 +23,28 @@ export class DcaIndex {
   private readonly parents = new Map<string, string[]>();
   private readonly chains = new Map<string, ReadonlySet<string>>();
   private readonly levels = new Map<string, number>();
-  private covers?: Map<string, string[]>;
+  private covers: Map<string, string[]> | undefined;
 
   constructor(private readonly source: DcaSource) {
     this.byId = new Map(source.groups.map((g) => [g.id, g]));
-    for (const g of source.groups) for (const sub of g.members.groups) this.parents.set(sub, [...(this.parents.get(sub) ?? []), g.id]);
+    for (const g of source.groups) for (const sub of g.members.groups) pushTo(this.parents, sub, g.id);
   }
 
   group(id: string): Group | undefined {
     return this.byId.get(id);
   }
 
-  /** A group's own factor, read once per snapshot. */
+  /** The groups of these ids that exist, in the same order. */
+  groups(ids: Iterable<string>): Group[] {
+    return [...ids].flatMap((id) => this.byId.get(id) ?? []);
+  }
+
+  /** A group's own factor, read once per snapshot: 1 for a group that does not dose (no master, no flash). */
   own(id: string): number {
     let level = this.levels.get(id);
     if (level === undefined) {
       const g = this.byId.get(id);
-      level = g ? this.source.own(g) : 1;
+      level = g && this.source.isDca(g) ? this.source.own(g) : 1;
       this.levels.set(id, level);
     }
     return level;
@@ -64,16 +69,14 @@ export class DcaIndex {
   /** The DCAs covering a fixture: those holding it directly, by selector or through any sub-group (with or without a master). */
   covering(fixtureId: string): readonly string[] {
     if (!this.covers) {
-      this.covers = new Map();
-      for (const g of this.source.groups) {
-        if (!this.source.isDca(g)) continue;
-        for (const f of this.source.fixturesOf(g.id)) this.covers.set(f, [...(this.covers.get(f) ?? []), g.id]);
-      }
+      const covers = new Map<string, string[]>();
+      for (const g of this.source.groups) if (this.source.isDca(g)) for (const f of this.source.fixturesOf(g.id)) pushTo(covers, f, g.id);
+      this.covers = covers;
     }
     return this.covers.get(fixtureId) ?? [];
   }
 
-  /** The DCAs of a set of groups and of everything above them, each once, but those in `except`. */
+  /** The groups given and every group above them, each once, without those in `except`. */
   above(groupIds: Iterable<string>, except: ReadonlySet<string> = new Set()): Set<string> {
     const out = new Set<string>();
     for (const id of groupIds) for (const g of this.chain(id)) if (!except.has(g)) out.add(g);
@@ -87,16 +90,14 @@ export class DcaIndex {
     return level;
   }
 
-  private readonly memo = new Map<string, unknown>();
-
-  /** A value the caller derives from this snapshot, computed once (it never outlives the snapshot). */
-  cache<T>(key: string, make: () => T): T {
-    if (!this.memo.has(key)) this.memo.set(key, make());
-    return this.memo.get(key) as T;
-  }
-
   /** A group's effective level: its own factor × every group above it, each once. */
   effective(groupId: string): number {
     return this.byId.has(groupId) ? this.product(this.chain(groupId)) : 1;
   }
+}
+
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
 }

@@ -18,6 +18,7 @@ function setup() {
   copyFileSync(new URL("../../fixtures/machine.qxf", import.meta.url), join(defs, "machine.qxf"));
   copyFileSync(new URL("../../fixtures/wash-zones.qxf", import.meta.url), join(defs, "wash-zones.qxf"));
   copyFileSync(new URL("../../fixtures/par-rgb.qxf", import.meta.url), join(defs, "par-rgb.qxf"));
+  copyFileSync(new URL("../../fixtures/wheel-spot.qxf", import.meta.url), join(defs, "wheel-spot.qxf"));
   const venue = new Venue(new FolderStore(join(dir, "venue")), [defs]);
   venue.fixtures.put({ id: "bar-l", name: "Barre public", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1, role: "wash-public" });
   venue.fixtures.put({ id: "bar-r", name: "Barre fond", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 16, role: "contre" });
@@ -1655,6 +1656,151 @@ describe("DCA dose the intensity whoever writes it (T35)", () => {
     expect(e.faderDcas).to.deep.equal({ dcas: [{ id: "d", name: "d", own: 0.8 }], factor: 0.8 });
     expect(e.rawLooks).to.deep.equal([{ id: "scene", name: "scene" }]); // included in « parent », which holds the lamp: no level of its own
     expect(show.explainChannel(1, 80).intensity!.dosesRaw).to.equal(undefined); // a machine channel
+  });
+
+  it("applies the grand master to a fader's own value on the channel carrying the light only (a colour of a fixture with a dimmer: once, by the dimmer)", () => {
+    const { show, dmx } = rig();
+    show.faders.put({ id: "r1", name: "R1", channels: [{ fixture: "bar-l", offset: 3 }], level: 1 });
+    show.saveSettings({ grandMaster: 0.5 });
+    expect([dmx()[0], dmx()[3]]).to.deep.equal([128, 255]); // 50 % of light, not 25 %
+  });
+
+  it("doses a look included in a DCA once on every colour when a fader linked to that DCA holds one colour (no dimmer)", () => {
+    const { show, dmx, venue } = rig();
+    venue.fixtures.put({ id: "par", name: "Par", manufacturer: "Test", model: "Par RGB", mode: "3 Channel", universe: 1, address: 90 });
+    venue.canvases.put({ id: "pars", name: "Pars", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "par", head: -1 }] }] });
+    show.looks.put({ id: "w", name: "w", canvas: "pars", technique: { kind: "plat", color: "#ffffff" } });
+    show.groups.put(dca("d", 0.5, {}, ["w"]));
+    show.faders.put({ id: "red", name: "Rouge", channels: [{ fixture: "par", offset: 0 }], level: 0, dca: "d" });
+    show.go("w");
+    const b = dmx();
+    expect([b[89], b[90], b[91]]).to.deep.equal([128, 128, 128]);
+  });
+
+  it("doses a look included in a DCA once on every colour when a fader linked to that DCA holds one colour (with a dimmer)", () => {
+    const { show, dmx } = rig();
+    show.looks.put({ id: "w", name: "w", canvas: "mur", technique: { kind: "plat", color: "#ffffff" } });
+    show.groups.put(dca("d", 0.5, {}, ["w"]));
+    show.faders.put({ id: "red", name: "Rouge", channels: [{ fixture: "bar-l", offset: 3 }], level: 0, dca: "d" });
+    show.go("w");
+    const b = dmx();
+    expect([b[0], b[3], b[4], b[6]]).to.deep.equal([255, 128, 128, 128]); // dimmer at full; R1, G1, R2 at 50 %, R1 not at 25 %
+  });
+
+  it("tells a look's level in dmx.explain only where it is applied, says a machine channel is not dosed, and the raw dose only under a raw look", () => {
+    const { show, dmx } = rig();
+    show.looks.put(raw("scene", [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }, { fixture: "bar-l", offset: 3 }], [255, 200, 255]));
+    show.groups.put(dca("d", 0.5, {}, ["scene"]));
+    show.go("scene");
+    expect([dmx()[0], dmx()[2], dmx()[3]]).to.deep.equal([255, 200, 128]); // dosed by its colour, once; the mode channel verbatim
+    const program = show.explainChannel(1, 3);
+    expect(program.undosed).to.equal(true);
+    expect(program.rawLooks).to.deep.equal([{ id: "scene", name: "scene" }]);
+    expect(show.explainChannel(1, 1).rawLooks).to.deep.equal([{ id: "scene", name: "scene" }]); // a colour look: its dimmer carries no level
+    expect(show.explainChannel(1, 1).intensity!.dosesRaw).to.equal(true);
+    expect(show.explainChannel(1, 4).rawLooks).to.deep.equal([{ id: "scene", name: "scene", level: 0.5 }]);
+    expect(show.explainChannel(1, 4).intensity!.dosesRaw).to.equal(undefined); // a colour of a fixture with a dimmer: the dimmer carries it
+    expect(show.explainChannel(1, 16).intensity!.dosesRaw).to.equal(undefined); // no raw look writes bar-r's dimmer
+  });
+
+  it("explains a fader's own value as the frame computes it: its DCA, the grand master and the DCAs covering the fixture, each once", () => {
+    const { show, dmx } = rig();
+    show.groups.put(dca("d", 0.5));
+    show.faders.put({ id: "f", name: "Lampe", channels: [{ fixture: "lamp", offset: 0 }], level: 1, dca: "d" });
+    show.saveSettings({ grandMaster: 0.5 });
+    expect(dmx()[LAMP]).to.equal(64);
+    const [fader] = show.explainChannel(1, 40).faders;
+    expect(fader).to.deep.include({ effective: 0.25, grandMaster: 0.5, dcas: [{ id: "d", name: "d", own: 0.5 }] });
+    show.saveSettings({ grandMaster: 1 });
+    show.groups.put(dca("g", 0.5, { fixtures: ["lamp"] }));
+    expect(dmx()[LAMP]).to.equal(64); // the DCA covering the lamp doses the fader's light too
+    show.groups.put(dca("d", 0.5, { fixtures: ["lamp"] }));
+    show.groups.delete("g");
+    expect(dmx()[LAMP]).to.equal(128); // its own DCA covering the lamp as well: once
+  });
+
+  it("ignores a group without a master in the levels, its limits included, in the output and the display alike", () => {
+    const { show, dmx } = rig();
+    show.groups.put(dca("child", 1, { fixtures: ["bar-l"] }));
+    show.groups.put({ id: "parent", name: "parent", members: { fixtures: [], groups: ["child"], looks: [] }, limits: { max: 0.5 } });
+    expect(dmx()[0]).to.equal(255);
+    expect(show.effectiveLevel("child")).to.equal(1);
+  });
+
+  it("doses a look included in a DCA on a crossfade by its level, on the curve it follows without it", () => {
+    const sample = (level: number) => {
+      const { show, dmx, advance } = rig();
+      show.looks.put({ ...red("a"), timing: { exitFade: 2 } });
+      show.looks.put({ id: "b", name: "b", canvas: "solo", technique: { kind: "plat" as const, color: "#0000ff" }, timing: { entryFade: 3 } });
+      show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { fixtures: [], groups: [], looks: ["a", "b"] } });
+      show.groups.put(dca("g", level, {}, ["a", "b"]));
+      show.go("a");
+      advance(4);
+      show.go("b");
+      const out: number[][] = [];
+      for (let i = 0; i <= 35; i++) {
+        const b = dmx();
+        out.push([b[WASH + 2]!, b[WASH + 4]!]);
+        advance(0.2);
+      }
+      return out;
+    };
+    const full = sample(1);
+    const half = sample(0.5);
+    for (const [i, [r, bl]] of half.entries()) {
+      expect(r, `red at ${i * 100} ms`).to.be.closeTo(full[i]![0]! * 0.5, 1);
+      expect(bl, `blue at ${i * 100} ms`).to.be.closeTo(full[i]![1]! * 0.5, 1);
+    }
+  });
+
+  it("doses a lamp whose dimmer follows its painted level (a wheel spot) under an included look, once", () => {
+    const { show, dmx, venue, advance } = rig();
+    venue.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 100 });
+    venue.canvases.put({ id: "spots", name: "Spots", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "spot", head: -1 }] }] });
+    show.looks.put({ id: "w", name: "w", canvas: "spots", technique: { kind: "plat", color: "#ff0000" } });
+    show.groups.put(dca("g", 0.5, {}, ["w"]));
+    show.go("w");
+    dmx();
+    advance(2); // past a wheel change held dark (« au noir »)
+    expect(dmx()[102]).to.equal(128);
+    show.groups.put(dca("g", 0.5, { fixtures: ["spot"] }, ["w"]));
+    expect(dmx()[102]).to.equal(128); // also holding the spot: once
+  });
+
+  it("gives a raw scene under a DCA back at its dosed level after a Panic is undone (a snapshot)", () => {
+    const { show, dmx } = rig();
+    show.looks.put(raw("scene", [{ fixture: "lamp", offset: 0 }], [255]));
+    show.groups.put(dca("g", 0.5, { fixtures: ["lamp"] }));
+    show.go("scene");
+    expect(dmx()[LAMP]).to.equal(128);
+    const before = { id: "avant", name: "avant", ...show.captureSnapshot(false) };
+    show.resetLive();
+    show.groups.putLive({ ...show.groups.get("g")!, master: { level: 1, mute: false } });
+    expect(dmx()[LAMP]).to.equal(0);
+    show.applySnapshot(before);
+    expect(dmx()[LAMP]).to.equal(128);
+  });
+
+  it("follows a linked fader's DCA muted or flashed on a look writing the fader's channel", () => {
+    const { show, dmx } = rig();
+    show.looks.put(raw("scene", [{ fixture: "lamp", offset: 0 }], [255]));
+    show.groups.put({ ...dca("d", 0.5), master: { level: 0.5, mute: true } });
+    show.faders.put({ id: "f", name: "Lampe", channels: [{ fixture: "lamp", offset: 0 }], level: 0, dca: "d" });
+    show.go("scene");
+    expect(dmx()[LAMP]).to.equal(0);
+    show.setFlash("d", true);
+    expect(dmx()[LAMP]).to.equal(255);
+  });
+
+  it("checks a rule refusing a launch on the dosed output (strictBounds under a DCA)", () => {
+    const { show, dmx } = rig();
+    show.looks.put(raw("scene", [{ fixture: "lamp", offset: 0 }], [255]));
+    show.rules.put({ id: "max", name: "Max", level: "show", scope: { fixture: "lamp" }, target: { channel: "Dimmer 1" }, max: 200, onViolation: "reject" });
+    show.groups.put(dca("g", 0.5, { fixtures: ["lamp"] }));
+    expect(show.strictBounds("scene")).to.have.length(0); // 128 under the DCA: within the rule
+    show.groups.put(dca("g", 1, { fixtures: ["lamp"] }));
+    expect(show.strictBounds("scene")).to.have.length(1);
+    expect(dmx()[LAMP]).to.equal(0); // and checking played nothing
   });
 
   it("follows a DCA's mute and flash on a raw scene", () => {

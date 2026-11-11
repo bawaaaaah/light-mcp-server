@@ -166,6 +166,18 @@ export function machineFade(machine: number, selfDosed: number): number {
   return 1 - (1 - machine) * (1 - selfDosed) * (machine / (machine + selfDosed));
 }
 
+/**
+ * Whether a look's `level` (the groups including it, T35) doses its raw write on a channel, given how the look
+ * doses its light on that fixture — once, like its weight: on the dimmer of a look dosing itself by it (it writes
+ * the dimmer, no colour, paints nothing there), on the colours of any other; never on a machine channel.
+ * venue.toDmx and dmx.explain read this one rule.
+ */
+export function rawLevelApplies(channel: "dimmer" | "colour" | "machine", look: { byColour: boolean; byDimmer: boolean }): boolean {
+  if (channel === "dimmer") return !look.byColour;
+  if (channel === "colour") return look.byColour || !look.byDimmer;
+  return false;
+}
+
 /** The strongest value written on a raw channel: a machine channel holds it verbatim. */
 export const rawValue = (writes: readonly RawWrite[]): number => writes.reduce((top, x) => Math.max(top, x.value), 0);
 
@@ -836,19 +848,19 @@ export class Venue {
         // the intensity (grand master, DCAs) — the byte held under it carries it already, and rawOver and
         // heldUnderDimmer are linear in (values, held byte) —; and each look's `level` once, on what doses its
         // light: its dimmer when it doses itself by it, its colours otherwise (as its weight does).
-        const byOwnDimmer = (look: string) => byDimmer.has(look) && !byColour.has(look);
-        const dose = (writes: RawWrite[], k: (x: RawWrite) => number): RawWrite[] =>
+        const classOf = (look: string) => ({ byColour: byColour.has(look), byDimmer: byDimmer.has(look) });
+        const dose = (writes: RawWrite[], channel: "dimmer" | "colour", by: number): RawWrite[] =>
           writes.map((x) => {
-            const f = k(x);
+            const f = by * (rawLevelApplies(channel, classOf(x.look)) ? (x.level ?? 1) : 1);
             return f === 1 ? x : { ...x, value: x.value * f };
           });
         rawPass.push(() => {
           for (const [offset, writes] of raws) {
             const kept = held.get(offset) ?? 0;
             if (r.dimmers.includes(offset)) {
-              const dosed = dose(writes, (x) => intensity * (byColour.has(x.look) ? 1 : (x.level ?? 1)));
+              const dosed = dose(writes, "dimmer", intensity);
               write(offset, rawOver(dosed, heldUnderDimmer(dosed, kept, underOwnDimmer, (look) => byColour.has(look))));
-            } else if (colorOffsets.has(offset) || accentOffsets.has(offset)) write(offset, rawOver(dose(writes, (x) => (hasDimmer ? 1 : intensity) * (byOwnDimmer(x.look) ? 1 : (x.level ?? 1))), kept));
+            } else if (colorOffsets.has(offset) || accentOffsets.has(offset)) write(offset, rawOver(dose(writes, "colour", hasDimmer ? 1 : intensity), kept));
             else write(offset, rawValue(writes)); // a machine channel: verbatim, a machine never fades
           }
         });
