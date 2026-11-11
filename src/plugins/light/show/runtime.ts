@@ -144,6 +144,8 @@ export interface ChannelExplanation {
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its Reset channels (the range a voluntary reset sends), and the seconds left while one runs. */
   reset?: { channels: ResetChannel[]; secondsLeft?: number };
+  /** On a fixture whose tracks are enabled (T5): whether this channel follows the transitions or jumps (pan/tilt left out: the motion layer's). */
+  track?: "fade" | "jump";
 }
 
 export class ShowRuntime {
@@ -813,6 +815,8 @@ export class ShowRuntime {
     // the looks painting this colour channel's head (or the whole fixture) at their current step, read only when asked;
     // on a lamp's wheel, those lighting its body (a halo alone turns no wheel)
     const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
+    // fadeable tracks (T5): the wheel follows its own rule (T18), never faded; pan/tilt belong to the motion layer
+    const track = "error" in r || !r.tracks || motionOffsets(r).has(offset) ? undefined : r.tracks.fade.has(offset) && !onWheel ? ("fade" as const) : ("jump" as const);
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
     const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
     // a painting look's colour here carries the level its groups give it on this channel (colorsOf)
@@ -825,6 +829,7 @@ export class ShowRuntime {
     return {
       ...(painting.length ? { paintingLooks: painting } : {}),
       ...(wheel ? { wheel } : {}),
+      ...(track ? { track } : {}),
       fixture: { id: fixture.id, name: fixture.name, offset: offset + 1, channel: name, attribute, definition: !("error" in r), ...(head ? { head: head.head, ...(head.accent ? { accent: true as const } : {}) } : {}) },
       intensity: { grandMaster: this.settings.grandMaster, grandMasterSent: this.grandMasterLevel(), dcas, factor: this.intensityOf(fixture.id, index), ...(rawDosed ? { dosesRaw: true as const } : {}) },
       ...(viaFaders.length ? { faderDcas: { dcas: viaFaders, factor: index.product(viaFaders.map((d) => d.id)) } } : {}),

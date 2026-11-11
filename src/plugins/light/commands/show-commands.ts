@@ -13,7 +13,7 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
-import { modelKey, modelKeyOrUndefined, WheelOverridesSchema, type FixtureOverrides, type HeadOverrides } from "../venue/overrides.js";
+import { modelKeyOrUndefined, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
@@ -328,26 +328,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       },
     };
   };
-  /** Writes (or, with undefined, removes) the heads part of a fixture's or its model's overrides. */
-  const putHeads = (fixtureId: string, scope: "model" | "fixture", heads: HeadOverrides | undefined) => {
-    const f = venue.fixtures.get(fixtureId)!;
-    // the other parts (the wheel, the tracks) stay as they are
-    const withHeads = (current: FixtureOverrides | undefined) => {
-      const { heads: _old, ...rest } = current ?? {};
-      return { ...rest, ...(heads ? { heads } : {}) };
-    };
-    if (scope === "fixture") {
-      // a fixture's own settings need no model key
-      const own = withHeads(f.overrides);
-      const { overrides: _o, ...bare } = f;
-      venue.fixtures.put(Object.keys(own).length ? { ...bare, overrides: own } : bare);
-      return;
-    }
-    const id = modelKey(f.manufacturer, f.model); // refuses a model named without a letter or digit
-    const overrides = withHeads(venue.models.get(id)?.overrides);
-    if (Object.keys(overrides).length) venue.models.put({ id, manufacturer: f.manufacturer, model: f.model, overrides });
-    else venue.models.delete(id);
-  };
+  /** Writes (or, with undefined, removes) the heads part of a fixture's or its model's overrides; the other parts stay. */
+  const putHeads = (fixtureId: string, scope: "model" | "fixture", heads: HeadOverrides | undefined) => venue.putOverridePart(fixtureId, scope, "heads", heads);
   reg.register({
     name: "venue.fixture.heads",
     title: "Têtes d'une fixture",
@@ -467,7 +449,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     profiles: ["setup"],
     schema: z.object({ id: z.string(), scope: wheelScope, wheel: WheelOverridesSchema }),
     run: ({ id: fixtureId, scope, wheel: settings }) => {
-      const { f, slots, key } = wheelOfFixture(fixtureId);
+      const { f, slots } = wheelOfFixture(fixtureId);
       const unknown = Object.keys(settings.slots ?? {}).filter((k) => !slots.some((s) => String(s.min) === k));
       if (unknown.length) throw new Error(say(`case inconnue sur cette roue : ${unknown.join(", ")} (une case se nomme par la première valeur de sa plage)`, `no such slot on this wheel: ${unknown.join(", ")} (a slot is named by the first value of its range)`));
       const lower = (hex: string) => hex.toLowerCase();
@@ -475,12 +457,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...settings,
         ...(settings.slots ? { slots: Object.fromEntries(Object.entries(settings.slots).map(([k, s]) => [k, { ...s, ...(s.color ? { color: lower(s.color) } : {}), ...(s.answers ? { answers: s.answers.map(lower) } : {}) }])) } : {}),
       };
-      if (scope === "fixture") venue.fixtures.put({ ...f, overrides: { ...f.overrides, wheel: clean } });
-      else {
-        const id = key ?? modelKey(f.manufacturer, f.model); // refuses a model named without a letter or digit: its fixtures are set one by one
-        const m = venue.models.get(id);
-        venue.models.put({ id, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides: { ...m?.overrides, wheel: clean } });
-      }
+      // a model named without a letter or digit is refused (modelKey): its fixtures are set one by one
+      venue.putOverridePart(f.id, scope, "wheel", clean);
       return { scope, wheel: clean };
     },
   });
@@ -493,18 +471,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ id: z.string(), scope: wheelScope }),
     run: ({ id: fixtureId, scope }) => {
       const { f, key } = wheelOfFixture(fixtureId);
-      if (scope === "fixture") {
-        if (!f.overrides?.wheel) return { cleared: false };
-        const { wheel: _w, ...others } = f.overrides;
-        const { overrides: _o, ...plain } = f;
-        venue.fixtures.put(Object.keys(others).length ? { ...plain, overrides: others } : plain);
-        return { cleared: true };
-      }
-      const m = key ? venue.models.get(key) : undefined;
-      if (!m?.overrides.wheel) return { cleared: false };
-      const { wheel: _, ...rest } = m.overrides;
-      if (Object.keys(rest).length) venue.models.put({ ...m, overrides: rest });
-      else venue.models.delete(m.id);
+      const set = scope === "fixture" ? f.overrides?.wheel : key ? venue.models.get(key)?.overrides.wheel : undefined;
+      if (!set) return { cleared: false };
+      venue.putOverridePart(f.id, scope, "wheel", undefined);
       return { cleared: true };
     },
   });
@@ -535,7 +504,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "dmx.explain",
     title: "Pourquoi ce canal",
-    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks: those whose canvas reaches its head, in the order they compose; leaving for one fading out, covered for one a later look covers under looksMerge « last »).",
+    description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks: those whose canvas reaches its head, in the order they compose; leaving for one fading out, covered for one a later look covers under looksMerge « last »). track: on a fixture whose tracks are enabled (venue.tracks.get), \"fade\" when the channel follows the transitions, \"jump\" when it jumps (pan/tilt left out).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],

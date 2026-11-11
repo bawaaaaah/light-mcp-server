@@ -6,7 +6,7 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
-import { FixtureOverridesSchema, mergeOverrides, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
+import { FixtureOverridesSchema, mergeOverrides, modelKey, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -549,6 +549,33 @@ export class Venue {
   overridesOf(patch: PatchedFixture): FixtureOverrides {
     const key = modelKeyOrUndefined(patch.manufacturer, patch.model);
     return mergeOverrides(key ? this.models.get(key)?.overrides : undefined, patch.overrides);
+  }
+
+  /**
+   * Writes one part of the overrides (venue/overrides.ts) of a fixture (`scope` fixture) or of its model (`model`), or
+   * removes it with `undefined`; the other parts stay as they are. An empty fixture part leaves no `overrides`, an empty
+   * model is deleted. The model keeps the names it was stored under; a model named without a letter or digit is refused
+   * (modelKey): its fixtures are set one by one.
+   */
+  putOverridePart<K extends keyof FixtureOverrides>(fixtureId: string, scope: "model" | "fixture", part: K, value: FixtureOverrides[K] | undefined): void {
+    const f = this.fixtures.get(fixtureId);
+    if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
+    const withPart = (current: FixtureOverrides | undefined): FixtureOverrides => {
+      const rest: FixtureOverrides = { ...current };
+      delete rest[part];
+      return value === undefined ? rest : { ...rest, [part]: value };
+    };
+    if (scope === "fixture") {
+      const own = withPart(f.overrides);
+      const { overrides: _o, ...bare } = f;
+      this.fixtures.put(Object.keys(own).length ? { ...bare, overrides: own } : bare);
+      return;
+    }
+    const id = modelKey(f.manufacturer, f.model);
+    const m = this.models.get(id);
+    const overrides = withPart(m?.overrides);
+    if (Object.keys(overrides).length) this.models.put({ id, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides });
+    else this.models.delete(id);
   }
 
   /** Fixtures ending past channel 512 (their last channels are dropped), said as people read it. */

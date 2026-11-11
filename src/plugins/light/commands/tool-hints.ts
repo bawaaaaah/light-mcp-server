@@ -153,6 +153,8 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.put": "DI",
   "venue.grouping.apply": "",
   "venue.positions.import": "DI",
+  "venue.tracks.clear": "DI",
+  "venue.tracks.put": "I",
   "venue.wheel.clear": "DI",
   "venue.wheel.put": "DI",
   // read-only commands that look at the network, the hardware or another program
