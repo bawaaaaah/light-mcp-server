@@ -1603,10 +1603,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       },
       get: (i: string) => intentions.get(i),
       delete: (i: string) => intentions.delete(i),
+      put: (v: unknown) => intentions.put(v),
     },
   } as const;
   type Diffable = keyof typeof DIFFABLE;
-  type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean };
+  type Store = { validate(v: unknown): { id: string }; get(id: string): unknown; delete(id: string): boolean; put(v: unknown): unknown };
   /**
    * The write commands a proposal can hold (and light call … --check): their collection, the argument carrying the object, the arguments kept beside it.
    * An edit (venue.canvas.edit) carries operations, not the object: `plan` computes what it would write (and what it does to the looks, or why
@@ -1736,7 +1737,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const PROPOSAL_KEEP_MS = 24 * 3600_000;
   const proposalOf = (id: string) => {
     const p = proposals.get(id);
-    if (!p) throw new Error(say(`proposition inconnue : ${id}`, `unknown proposal: ${id}`));
+    // `gone`: nothing to act on any more (a screen may forget it), unlike a refusal it could pass
+    if (!p) throw new CommandError("failed", say(`proposition inconnue : ${id}`, `unknown proposal: ${id}`), { gone: true });
     return p;
   };
   const previewOf = (c: Change) => {
@@ -1780,9 +1782,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       }
     } catch (err) {
       for (const { a, was } of touched.reverse()) {
-        const coll = DIFFABLE[a.collection] as Store & { put?(v: unknown): unknown };
+        const coll = DIFFABLE[a.collection] as Store;
         if (was === undefined) coll.delete(a.id);
-        else coll.put?.(was); // every collection a take-back writes has put (the intentions' store goes through its command, never fails here)
+        else coll.put(was);
       }
       throw err;
     }
@@ -1876,7 +1878,20 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           }
         }
       } catch (err) {
-        await takeBack(done, ctx, { force: true, shared: true });
+        try {
+          await takeBack(done, ctx, { force: true, shared: true });
+        } catch (back) {
+          // the take-back itself failed: what it could not put back is said, never a bare error (the state is partial)
+          const left = done.map((a) => `${a.collection}/${a.id}`).join(", ");
+          throw new CommandError(
+            "failed",
+            say(
+              `proposition non appliquée, et la remise en état a échoué : l'état est PARTIEL. Écrit et peut-être pas remis : ${left}. Cause : ${(err as Error).message} ; remise : ${(back as Error).message}`,
+              `proposal not applied, and putting things back failed: the state is PARTIAL. Written and maybe not put back: ${left}. Cause: ${(err as Error).message}; take-back: ${(back as Error).message}`,
+            ),
+            { proposal: id, partial: done.map((a) => ({ collection: a.collection, id: a.id })) },
+          );
+        }
         throw new CommandError("failed", say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`), { proposal: id });
       }
       Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), appliedSeq: ++applySeq, ...(ctx.who ? { appliedBy: ctx.who } : {}) });
@@ -1898,7 +1913,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     }),
     run: async ({ id, force, overwrite, shared }, ctx) => {
       const p = proposalOf(id);
-      if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
+      if (p.status !== "applied") throw new CommandError("failed", say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"), { gone: true });
       p.hooks?.guard?.(); // made on another show or venue than the one open now: refused before anything moves
       if (p.hooks) {
         const storeOf = (a: Applied) => DIFFABLE[a.collection] as Store;

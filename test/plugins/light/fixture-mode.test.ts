@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
+import { LookSchema } from "../../../src/plugins/light/show/model.js";
 
 /**
  * T6: venue.fixture.mode (a fixture's DMX mode, its references carried over by channel name, one proposal
@@ -255,6 +256,27 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
       expect(results.map((r) => r.status)).to.deep.equal(["fulfilled", "rejected"]);
       expect(offsets()).to.deep.equal([6, 4]);
     });
+  });
+
+  it("an ordinary proposal's undo refused on its look puts its intention and its fader back too (nothing half undone)", async () => {
+    await run("venue.canvas.put", { canvas: { id: "other", name: "Autre", topology: "line", cells: 1, render: [] } });
+    await run("look.put", { look: { ...look("prog", [{ fixture: "par", offset: 4 }], [[23]]), canvas: "other" } });
+    await run("fader.put", { fader: { id: "dim", name: "Gradateur", channels: [{ fixture: "par", offset: 0 }], level: 0.5 } });
+    const proposed = (await run("show.propose", {
+      changes: [
+        { command: "look.put", args: { look: { ...plugin.runtime.looks.get("prog")!, name: "Programme bis" } } },
+        { command: "intention.put", args: { intention: { id: "rideau-essai", label: "Rideau essai", colors: ["#ff0000"], energy: "pose" } } },
+        { command: "fader.put", args: { fader: { ...plugin.runtime.faders.get("dim")!, name: "Gradateur bis" } } },
+      ],
+    })) as { id: string };
+    await run("show.apply", { id: proposed.id });
+    await run("venue.canvas.delete", { id: "other", force: true }); // the look cannot be put back as it was any more
+    await refusal(run("show.revert", { id: proposed.id }));
+    expect(plugin.runtime.looks.get("prog")!.name).to.equal("Programme bis");
+    expect(plugin.runtime.faders.get("dim")!.name).to.equal("Gradateur bis");
+    // the show's own intentions (the collection the proposal wrote)
+    const intentions = plugin.runtime.store.collection("intentions", LookSchema.pick({ id: true }).passthrough());
+    expect(intentions.get("rideau-essai")).to.not.equal(undefined);
   });
 
   it("puts everything back as it was when a put of the undo is refused midway (nothing half undone)", async () => {

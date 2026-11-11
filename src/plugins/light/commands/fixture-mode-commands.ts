@@ -107,7 +107,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
     }),
     run: async (args, ctx) => {
       if (args.dryRun) return changeMode(args, ctx);
-      // one change at a time per fixture: a second one would be planned on the mode the first is replacing
+      // one change at a time, whatever the fixture (a global lock): a second one would be planned on a look or a mode the first is rewriting
       if (changing !== undefined) throw new CommandError("invalid", say(`un changement de mode (${changing}) est déjà en cours : attendre sa fin`, `a mode change (${changing}) is already running: wait for it to end`));
       changing = args.id;
       try {
