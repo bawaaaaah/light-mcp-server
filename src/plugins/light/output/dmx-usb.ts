@@ -129,6 +129,19 @@ export interface DmxUsbStatus {
   drainMs?: number;
 }
 
+/** What a device takes from outside, injectable for tests. */
+export interface DmxUsbDeviceOptions {
+  /** Waits about this long (a timer; may fire early, the device reads the clock again). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Paces the frames: a monotonic clock in ms (setting the system time must not move a break). Default performance.now. */
+  now?: () => number;
+  /** The time of day, for lastErrorAt only. Default Date.now. */
+  wallClock?: () => number;
+  log?: (message: string) => void;
+  /** What must have ended before this device opens the port: the device it replaces on the same port (another kind). */
+  after?: Promise<void>;
+}
+
 /** One interface: opens it, sends the latest frame in its own rhythm, opens it again when it comes back. */
 export class DmxUsbDevice {
   private port: SerialPortHandle | undefined;
@@ -157,20 +170,22 @@ export class DmxUsbDevice {
   breakMs: number | undefined;
   drainMs: number | undefined;
 
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly now: () => number;
+  private readonly wallClock: () => number;
+  private readonly log: (message: string) => void;
+
   constructor(
     readonly path: string,
     readonly kind: DmxUsbKind,
     private readonly binding: SerialBinding,
-    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms).unref()),
-    /** Paces the frames: a monotonic clock in ms (setting the system time must not move a break). */
-    private readonly now: () => number = () => performance.now(),
-    private readonly log: (message: string) => void = (message) => console.warn(message),
-    /** What must have ended before this device opens the port: the device it replaces on the same port (another kind). */
-    after: Promise<void> = Promise.resolve(),
-    /** The time of day, for lastErrorAt only. */
-    private readonly wallClock: () => number = Date.now,
+    options: DmxUsbDeviceOptions = {},
   ) {
-    this.loopDone = after;
+    this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms).unref()));
+    this.now = options.now ?? (() => performance.now());
+    this.wallClock = options.wallClock ?? Date.now;
+    this.log = options.log ?? ((message) => console.warn(message));
+    this.loopDone = options.after ?? Promise.resolve();
   }
 
   /** The universe to send: taken at the next frame. */
@@ -390,7 +405,8 @@ export class DmxUsbOutputs {
     if (!this.binding) return;
     for (const [path, kind] of keep) {
       if (this.devices.has(path)) continue;
-      const d = new DmxUsbDevice(path, kind, this.binding, this.sleep, undefined, undefined, this.stopping.get(path));
+      const after = this.stopping.get(path);
+      const d = new DmxUsbDevice(path, kind, this.binding, { ...(this.sleep ? { sleep: this.sleep } : {}), ...(after ? { after } : {}) });
       this.stopping.delete(path);
       this.devices.set(path, d);
       if (this.active) d.start();

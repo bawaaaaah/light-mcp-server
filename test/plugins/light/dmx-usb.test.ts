@@ -47,7 +47,7 @@ describe("DMX USB", () => {
 
   it("Open DMX: makes the signal itself, a break before every frame, again and again", async () => {
     const serial = new FakeSerial();
-    const d = new DmxUsbDevice(PORT, "open", serial, fast);
+    const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast });
     const data = new Uint8Array(512);
     data[2] = 128;
     d.frame(data);
@@ -63,7 +63,7 @@ describe("DMX USB", () => {
   it("USB Pro: a message when the universe changes, and every second", async () => {
     const serial = new FakeSerial();
     let now = 0;
-    const d = new DmxUsbDevice(PORT, "pro", serial, fast, () => now);
+    const d = new DmxUsbDevice(PORT, "pro", serial, { sleep: fast, now: () => now });
     d.frame(new Uint8Array(512)); // nothing goes out before a real frame has come in
     d.start();
     await until(() => serial.writes(PORT).length === 1);
@@ -82,7 +82,7 @@ describe("DMX USB", () => {
 
   it("unplugged, says why and opens the interface again when it comes back", async () => {
     const serial = new FakeSerial();
-    const d = new DmxUsbDevice(PORT, "open", serial, fast);
+    const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast });
     d.frame(new Uint8Array(512));
     d.start();
     await until(() => d.status().open);
@@ -114,7 +114,7 @@ describe("DMX USB", () => {
 
     it("sends nothing before a real frame has come in, and after a stop starts again from a real one, never from the old buffer", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.start();
       await until(() => d.status().open);
       for (let i = 0; i < 20; i++) await fast();
@@ -138,7 +138,7 @@ describe("DMX USB", () => {
 
     it("on standby sends one last all-zero frame, then lets the line go", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       const lit = zeros();
       lit[0] = 200;
       d.frame(lit);
@@ -154,7 +154,7 @@ describe("DMX USB", () => {
       serial.unplugged.add(PORT);
       const waits: number[] = [];
       let t = 0;
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet, undefined, () => 5000); // the time of day comes from the wall clock
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void (waits.push(ms), (t += ms), await fast()), now: () => t, log: quiet, wallClock: () => 5000 }); // the time of day comes from the wall clock
       d.frame(zeros());
       d.start();
       await until(() => waits.filter((w) => w >= 250).length >= 6);
@@ -170,7 +170,7 @@ describe("DMX USB", () => {
     it("a hiccup on the line does not cut it for two seconds: closed, opened again at the first delay, counted", async () => {
       const serial = new FakeSerial();
       const waits: number[] = [];
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), await fast()), undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void (waits.push(ms), await fast()), log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => serial.writes(PORT).length >= 2);
@@ -190,7 +190,7 @@ describe("DMX USB", () => {
       serial.unplugged.add(PORT);
       const lines: string[] = [];
       let t = 0;
-      const d = new DmxUsbDevice(PORT, "open", serial, async () => void (t < 70_000 && (t += 1000), await fast()), () => t, (m) => lines.push(m)); // the clock stops at 70 s
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async () => void (t < 70_000 && (t += 1000), await fast()), now: () => t, log: (m) => lines.push(m) }); // the clock stops at 70 s
       d.frame(zeros());
       d.start();
       await until(() => t >= 70_000);
@@ -204,7 +204,7 @@ describe("DMX USB", () => {
       let t = 0;
       serial.before = (op) => void (op === "set" && (t += 2)); // a break signal takes 2 ms to reach the line
       const waits: number[] = [];
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void (waits.push(ms), (t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 1);
@@ -219,7 +219,7 @@ describe("DMX USB", () => {
 
     it("sets DTR and RTS low as soon as the port is open, not at the first break: the OS raises them at open", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.start();
       await until(() => d.status().open);
       await d.stop();
@@ -229,7 +229,7 @@ describe("DMX USB", () => {
 
     it("on standby the last frame, all zeros, is written before the port is closed, and nothing after the close", async () => {
       const serial = new FakeSerial(); // refuses anything after close(), as the real binding does
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       const lit = zeros();
       lit[0] = 200;
       d.frame(lit);
@@ -244,7 +244,7 @@ describe("DMX USB", () => {
 
     it("a stop that is followed at once by a start does not open the port while the old loop still holds it", async () => {
       const serial = new FakeSerial(); // an open that finds the port held fails, as flock does
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       const lit = zeros();
       lit[0] = 200;
       d.frame(lit);
@@ -264,7 +264,7 @@ describe("DMX USB", () => {
 
     it("a driver that hangs does not hold a stop, and the port is closed", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => serial.writes(PORT).length >= 2);
@@ -277,7 +277,7 @@ describe("DMX USB", () => {
     it("counts the longest gap since the interface was opened, not since the object was made", async () => {
       const serial = new FakeSerial();
       let t = 0;
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void ((t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 3);
@@ -292,7 +292,7 @@ describe("DMX USB", () => {
 
     it("after a driver that hung and a stop, a new start sends again once the old loop is given up on", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => serial.writes(PORT).length >= 2);
@@ -310,7 +310,7 @@ describe("DMX USB", () => {
 
     it("a second stop before the loop has ended does not cancel the last all-zero frame of the first", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       const lit = zeros();
       lit[0] = 200;
       d.frame(lit);
@@ -324,7 +324,7 @@ describe("DMX USB", () => {
 
     it("a standby before any frame writes nothing at all", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.start();
       await until(() => d.status().open);
       await d.stop(true);
@@ -336,7 +336,7 @@ describe("DMX USB", () => {
       let t = 0;
       const waits: number[] = [];
       open.before = (op) => void (op === "set" && (t += 2));
-      const d = new DmxUsbDevice(PORT, "open", open, async (ms) => void (waits.push(ms), (t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", open, { sleep: async (ms) => void (waits.push(ms), (t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 2);
@@ -344,7 +344,7 @@ describe("DMX USB", () => {
       await d.stop(true);
       expect(waits.some((w) => w > 20)).to.equal(true); // the 22.6 ms of the frame, not an instant
       const pro = new FakeSerial();
-      const p = new DmxUsbDevice(PORT, "pro", pro, fast, undefined, quiet);
+      const p = new DmxUsbDevice(PORT, "pro", pro, { sleep: fast, log: quiet });
       const lit = zeros();
       lit[0] = 9;
       p.frame(lit);
@@ -359,7 +359,7 @@ describe("DMX USB", () => {
       const serial = new FakeSerial();
       let opened!: () => void;
       serial.slowOpen = new Promise<void>((r) => (opened = r));
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.frame(zeros());
       d.start();
       for (let i = 0; i < 5; i++) await fast();
@@ -412,7 +412,7 @@ describe("DMX USB", () => {
     it("a refused DTR/RTS at open leaves the interface open, and leaves a trace", async () => {
       const serial = new FakeSerial();
       serial.fail = { op: "set", times: 1, message: "set refused" };
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 2);
@@ -437,7 +437,7 @@ describe("DMX USB", () => {
 
     it("names DTR and RTS with every break, at 0 as they have always been left", async () => {
       const serial = new FakeSerial();
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => serial.calls.filter((c) => c.op === "brk").length >= 4);
@@ -470,7 +470,7 @@ describe("DMX USB", () => {
       const calls = timed(serial, () => t);
       const inner = serial.before!;
       serial.before = (op) => (inner(op), void (t += 0.3)); // every call on the driver takes a little time
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void ((t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 31);
@@ -491,7 +491,7 @@ describe("DMX USB", () => {
       const calls = timed(serial, () => t);
       const inner = serial.before!;
       serial.before = (op) => (inner(op), void (op === "drain" && (t += 40))); // the driver holds drain() for 40 ms, past the frame's end
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void ((t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 3);
@@ -510,7 +510,7 @@ describe("DMX USB", () => {
       const asked: number[] = [];
       // every timer fires 1 ms early (as Node's may, counting from the start of the loop's turn), down to half its time
       const early = async (ms: number) => void (asked.push(ms), (t += Math.max(ms / 2, ms - 1)), await fast());
-      const d = new DmxUsbDevice(PORT, "open", serial, early, () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: early, now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 5);
@@ -526,7 +526,7 @@ describe("DMX USB", () => {
       const serial = new FakeSerial();
       const calls = timed(serial, () => performance.now());
       const realNow = Date.now;
-      const d = new DmxUsbDevice(PORT, "open", serial, fast, undefined, quiet); // the real clocks, as in the server
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: fast, log: quiet }); // the real clocks, as in the server
       try {
         d.frame(zeros());
         d.start();
@@ -551,7 +551,7 @@ describe("DMX USB", () => {
     it("measures the longest gap between two frames", async () => {
       const serial = new FakeSerial();
       let t = 0;
-      const d = new DmxUsbDevice(PORT, "open", serial, async (ms) => void ((t += ms), await fast()), () => t, quiet);
+      const d = new DmxUsbDevice(PORT, "open", serial, { sleep: async (ms) => void ((t += ms), await fast()), now: () => t, log: quiet });
       d.frame(zeros());
       d.start();
       await until(() => d.status().framesSent >= 5);
