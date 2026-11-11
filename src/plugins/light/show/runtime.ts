@@ -993,7 +993,7 @@ export class ShowRuntime {
         const byLook = frame.painted.get(f) ?? new Map<string, number>();
         frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
         // a lamp's colour wheel follows one look: which look paints what, on which sheet, and its colour at full
-        if (this.venue.hasWheel(f)) frame.paintedBy.set(f, [...(frame.paintedBy.get(f) ?? []), { look: look.id, sheet, heads, hues: atFull(look, player).get(f) ?? heads }]);
+        if (this.venue.hasWheel(f)) frame.paintedBy.set(f, [...(frame.paintedBy.get(f) ?? []), { look: look.id, sheet, heads, hues: (full1.has(colors) && weight >= 1 ? heads : (atFull(look, player).get(f) ?? heads)) }]);
       }
       return colors;
     };
@@ -1002,6 +1002,8 @@ export class ShowRuntime {
      * light is still dark. Painted once per look and frame, and only for a look that reaches a wheel.
      */
     const full = new Map<LookPlayer, AttributeFrame["colors"]>();
+    /** Colour maps painted at fade 1 and masters 1: already at full, no second paint needed. */
+    const full1 = new WeakSet<AttributeFrame["colors"]>();
     const atFull = (look: Look, player: LookPlayer): AttributeFrame["colors"] => {
       let own = full.get(player);
       if (!own) {
@@ -1036,6 +1038,7 @@ export class ShowRuntime {
       for (const f of excluded) own.colors.delete(f);
       // the halo as this look shows it, before any merge or fade: it then fades and merges like any head
       this.venue.followAccents(own.colors);
+      if (lookLevel >= 1) full1.add(own.colors);
       return own.colors;
     };
     const moveOf = (look: Look, player: LookPlayer): void => {

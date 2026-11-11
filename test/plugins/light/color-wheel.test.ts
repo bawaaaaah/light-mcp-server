@@ -115,8 +115,8 @@ describe("colour wheel (T18): which slot answers a painted colour", () => {
   });
 
   it("reads « Open » from the whole name only, and bounds the slot keys to DMX values", () => {
-    for (const name of ["Open", "White", "Blanc", "Open / White", "White (open)", "White 5600K", "No color", "Sans couleur"]) expect(isOpenName(name), name).to.equal(true);
-    for (const name of ["White + Red", "white/red split", "Red", "Rainbow", "Warm white", "Opening"]) expect(isOpenName(name), name).to.equal(false);
+    for (const name of ["Open", "White", "Blanc", "Open / White", "White (open)", "White 5600K", "No color", "Sans couleur", "Open 2"]) expect(isOpenName(name), name).to.equal(true);
+    for (const name of ["White + Red", "white/red split", "Red", "Rainbow", "Warm white", "Opening", "5600K", "3200K", "CTO 3200 K", "Open red"]) expect(isOpenName(name), name).to.equal(false);
     for (const key of ["0", "16", "255"]) expect(WheelOverridesSchema.safeParse({ slots: { [key]: { off: true } } }).success, key).to.equal(true);
     for (const key of ["256", "999", "016", "00", "-1", "1.5"]) expect(WheelOverridesSchema.safeParse({ slots: { [key]: { off: true } } }).success, key).to.equal(false);
   });
@@ -155,25 +155,26 @@ describe("colour wheel (T18): which slot answers a painted colour", () => {
     const at = (level: number, hex: string) => new Map([[-1, Object.fromEntries(Object.entries(hexToColor(hex)).map(([k, v]) => [k, (v ?? 0) * level]))]]);
     const full = (hex: string) => new Map([[-1, hexToColor(hex)]]);
     const paint = (look: string, sheet: string, level: number, hex: string) => ({ look, sheet, heads: at(level, hex), hues: full(hex) });
+    const at0 = { now: 0, merge: "last" as const };
     const name = (f: { pick: { slot: { name: string } } | undefined }) => f.pick?.slot.name;
 
     it("« last »: only the latest sheet counts, from its first dark frame, and its black keeps the slot held", () => {
       // B blue rising over A red, each on its own sheet: blue at once, the light is B's
-      expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#0000ff")], undefined, { slot: 10 }))).to.equal("Blue");
+      expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#0000ff")], undefined, { slot: 10 }, at0))).to.equal("Blue");
       // a chase over a red background, on its black step: the wheel stays on the chase's blue
-      expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#000000")], undefined, { slot: 60 }))).to.equal("Blue");
-      expect(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#000000")], undefined, { slot: 60 }).asked).to.equal(undefined);
+      expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#000000")], undefined, { slot: 60 }, at0))).to.equal("Blue");
+      expect(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#000000")], undefined, { slot: 60 }, at0).asked).to.equal(undefined);
     });
 
     it("inside a sheet (a crossfade) and with « highest »: the look painting the most light, the later one on equal levels", () => {
       const x = (a: number, b: number) => [paint("a", "x:b", a, "#ff0000"), paint("b", "x:b", b, "#0000ff")];
-      expect(name(wheelFrame(wheel, x(0.6, 0.4), undefined, undefined))).to.equal("Red");
-      expect(name(wheelFrame(wheel, x(0.5, 0.5), undefined, undefined))).to.equal("Blue");
+      expect(name(wheelFrame(wheel, x(0.6, 0.4), undefined, undefined, at0))).to.equal("Red");
+      expect(name(wheelFrame(wheel, x(0.5, 0.5), undefined, undefined, at0))).to.equal("Blue");
       const highest = { now: 0, merge: "highest" as const };
       expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0.3, "#0000ff")], undefined, undefined, highest))).to.equal("Red");
       expect(name(wheelFrame(wheel, [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 0, "#000000")], undefined, { slot: 60 }, highest))).to.equal("Red"); // black never darkens: red is what shows
-      expect(name(wheelFrame(wheel, [], { red: 0.5, blue: 0.5 }, undefined))).to.equal("Magenta"); // no looks: the colour painted
-      expect(name(wheelFrame(wheel, [], undefined, { slot: 60 }))).to.equal("Blue"); // nothing asked: the slot held stays
+      expect(name(wheelFrame(wheel, [], { red: 0.5, blue: 0.5 }, undefined, at0))).to.equal("Magenta"); // no looks: the colour painted
+      expect(name(wheelFrame(wheel, [], undefined, { slot: 60 }, at0))).to.equal("Blue"); // nothing asked: the slot held stays
     });
 
     it("« au noir »: dark for changeMs after a real change of slot, never while two looks merely paint the fixture", () => {
@@ -194,6 +195,22 @@ describe("colour wheel (T18): which slot answers a painted colour", () => {
       expect(wheelFrame({ ...dark, changeMs: 50 }, two, undefined, { slot: 60, changedAt: 1000 }, { now: 1060, merge: "last" }).dim).to.equal(1);
     });
 
+    it("« au noir »: a clock gone back ends the window; a short crossfade ramps back up instead of jumping", () => {
+      const dark = { ...wheel, change: "black" as const, changeMs: 300 };
+      const two = [paint("a", "look:a", 1, "#ff0000"), paint("b", "look:b", 1, "#0000ff")];
+      expect(wheelFrame(dark, two, undefined, { slot: 60, changedAt: 1000 }, { now: 500, merge: "last" }).dim).to.equal(1);
+      // a crossfade ending just after the window: the level the crossfade allows is 1, the ramp bounds it
+      const fade = [paint("a", "x:b", 0.9, "#ff0000"), paint("b", "x:b", 0.1, "#0000ff")];
+      const held = { slot: 10, changedAt: 1000 };
+      const dims = [1299, 1300, 1345, 1375, 1450, 1460].map((now) => wheelFrame(dark, fade, undefined, held, { now, merge: "last" }).dim);
+      expect(dims[0]).to.equal(0);
+      expect(dims[1]).to.equal(0);
+      expect(dims[2]).to.be.within(0.2, 0.4);
+      expect(dims[3]).to.be.within(0.45, 0.55);
+      expect(dims[4]).to.equal(1);
+      expect(dims[5]).to.equal(1);
+    });
+
     it("« au noir » in a crossfade: the light ramps down ahead of the change", () => {
       const dark = { ...wheel, change: "black" as const, changeMs: 300 };
       const dims = [0, 0.25, 0.45, 0.48, 0.5].map((t) => wheelFrame(dark, [paint("a", "x:b", 1 - t, "#ff0000"), paint("b", "x:b", t, "#0000ff")], undefined, { slot: 10 }, { now: 0, merge: "last" }).dim);
@@ -203,7 +220,7 @@ describe("colour wheel (T18): which slot answers a painted colour", () => {
       expect(dims[3]).to.be.below(dims[2]!);
       expect(dims[4]).to.equal(0); // the change
       // two looks leaving the same slot do not dim each other
-      expect(wheelFrame(dark, [paint("a", "x:b", 0.5, "#ff0000"), paint("b", "x:b", 0.5, "#ff0000")], undefined, { slot: 10 }).dim).to.equal(1);
+      expect(wheelFrame(dark, [paint("a", "x:b", 0.5, "#ff0000"), paint("b", "x:b", 0.5, "#ff0000")], undefined, { slot: 10 }, at0).dim).to.equal(1);
     });
   });
 });

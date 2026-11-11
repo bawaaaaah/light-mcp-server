@@ -55,7 +55,7 @@ describe("venue: patch, canvas and DMX conversion", () => {
     v.paintCanvas(frame, "mur", [red, red, blue, blue, blue, blue, red, red]);
     frame.intensity.set("bar-l", 0.5);
     const buffers = [new Uint8Array(512)];
-    expect(v.toDmx(frame, buffers)).to.deep.equal([]);
+    expect(v.toDmx(frame, buffers, new Map(), { now: 0, merge: "last" })).to.deep.equal([]);
     const b = buffers[0]!;
     expect(b[0]).to.equal(128); // bar-l dimmer at 50 %
     expect([b[3], b[4], b[5]]).to.deep.equal([255, 0, 0]); // cell 0 red
@@ -70,17 +70,17 @@ describe("venue: patch, canvas and DMX conversion", () => {
     frame.colors.set("par", new Map([[-1, { red: 1, green: 0.5 }]]));
     frame.intensity.set("par", 0.5);
     const buffers = [new Uint8Array(512)];
-    v.toDmx(frame, buffers);
+    v.toDmx(frame, buffers, new Map(), { now: 0, merge: "last" });
     expect([buffers[0]![99], buffers[0]![100], buffers[0]![101]]).to.deep.equal([128, 64, 0]);
   });
 
   it("reports a missing definition only when the fixture is used", () => {
     const v = makeVenue();
     v.fixtures.put({ id: "ghost", name: "?", manufacturer: "Nope", model: "X", mode: "1", universe: 1, address: 200 });
-    expect(v.toDmx(emptyFrame(), [new Uint8Array(512)])).to.deep.equal([]);
+    expect(v.toDmx(emptyFrame(), [new Uint8Array(512)], new Map(), { now: 0, merge: "last" })).to.deep.equal([]);
     const frame = emptyFrame();
     frame.colors.set("ghost", new Map([[-1, { red: 1 }]]));
-    expect(v.toDmx(frame, [new Uint8Array(512)])[0]).to.match(/définition manquante/);
+    expect(v.toDmx(frame, [new Uint8Array(512)], new Map(), { now: 0, merge: "last" })[0]).to.match(/définition manquante/);
   });
 
   it("sees a definition dropped into the folder while it runs, once refreshed", () => {
@@ -94,11 +94,11 @@ describe("venue: patch, canvas and DMX conversion", () => {
     v.fixtures.put({ id: "bar", name: "Barre", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1 });
     const frame = emptyFrame();
     frame.colors.set("bar", new Map([[-1, { red: 1 }]]));
-    expect(v.toDmx(frame, [new Uint8Array(512)])[0]).to.match(/définition manquante/);
+    expect(v.toDmx(frame, [new Uint8Array(512)], new Map(), { now: 0, merge: "last" })[0]).to.match(/définition manquante/);
     copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(defs, "bar4.qxf"));
     v.refreshDefinitions();
     expect(v.definitionFor("Test", "Bar 4")?.model).to.equal("Bar 4");
-    expect(v.toDmx(frame, [new Uint8Array(512)])).to.deep.equal([]);
+    expect(v.toDmx(frame, [new Uint8Array(512)], new Map(), { now: 0, merge: "last" })).to.deep.equal([]);
     v.refreshDefinitions(); // nothing changed: nothing reread, the broken file reported once
     expect(v.store.loadErrors).to.have.length(1);
   });
@@ -112,7 +112,7 @@ describe("venue: patch, canvas and DMX conversion", () => {
     frame.colors.set("par", new Map([[-1, { red: 1 }]]));
     frame.colors.set("par-2", new Map([[-1, { green: 1 }]]));
     const buffers = [new Uint8Array(512)];
-    v.toDmx(frame, buffers);
+    v.toDmx(frame, buffers, new Map(), { now: 0, merge: "last" });
     expect(buffers[0]![99]).to.equal(255); // the installed PAR is lit
     expect(buffers[0]![100]).to.equal(0); // the absent one wrote nothing
     expect(v.fixtures.get("par-2")).to.not.equal(undefined); // still in the patch

@@ -408,7 +408,7 @@ describe("moving heads", () => {
         t.sample(1);
         expect(t.show.explainChannel(1, 32).wheel).to.deep.equal({ slot: "Red", color: "#ff0000", gap: 0 }); // the slot held, no colour asked any more
         const held = new Map([["roue", { slot: 10, gap: 0 }], ["gone", { slot: 10, gap: 0 }]]);
-        t.venue.toDmx(emptyFrame(), [new Uint8Array(512)], held);
+        t.venue.toDmx(emptyFrame(), [new Uint8Array(512)], held, { now: 0, merge: "last" });
         expect([...held.keys()]).to.deep.equal(["roue"]);
       });
     });

@@ -4497,6 +4497,11 @@ test("venue patch: a lamp's colour wheel is corrected from its menu, for the mod
     await add.fill("#ff0000"); // the picker closes: `change`
     await expect.poll(async () => (await wheel()).model?.slots?.["64"]?.answers).toEqual(["#ff0000"]);
     await expect(editor).toContainText("S'applique : les réglages du modèle");
+    // an answer just removed can be added again (the picker went back to its start colour)
+    await editor.getByRole("button", { name: "Retirer #ff0000 · Amber" }).click();
+    await expect.poll(async () => (await wheel()).model?.slots?.["64"]?.answers).toBe(undefined);
+    await add.fill("#ff0000");
+    await expect.poll(async () => (await wheel()).model?.slots?.["64"]?.answers).toEqual(["#ff0000"]);
     // a slot's real colour: marked as modified, and ↺ brings back the definition's
     await editor.getByLabel("Couleur réelle de la case · Red").fill("#ee1111");
     await expect.poll(async () => (await wheel()).model?.slots?.["16"]?.color).toBe("#ee1111");
@@ -4506,12 +4511,22 @@ test("venue patch: a lamp's colour wheel is corrected from its menu, for the mod
     await expect.poll(async () => (await wheel()).model?.slots?.["16"]).toBe(undefined);
     await expect(red).not.toContainText("modifiée");
     // the rainbow given its real colour becomes a slot
+    // a range without colour can be given white (its picker starts on a neutral grey)
+    await editor.getByLabel("Couleur réelle de la case · Rainbow").fill("#ffffff");
+    await expect.poll(async () => (await wheel()).model?.slots?.["80"]?.color).toBe("#ffffff");
+    await editor.getByRole("button", { name: "Revenir à la couleur de la définition · Rainbow" }).click();
+    await expect.poll(async () => (await wheel()).model?.slots?.["80"]).toBe(undefined);
     await editor.getByLabel("Couleur réelle de la case · Rainbow").fill("#8000ff");
     await expect.poll(async () => (await wheel()).model?.slots?.["80"]?.color).toBe("#8000ff");
     await editor.getByRole("button", { name: "Revenir à la couleur de la définition · Rainbow" }).click();
     await expect.poll(async () => (await wheel()).model?.slots?.["80"]).toBe(undefined);
+    // the scope radios move with the arrow keys (roving tabindex)
+    await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toHaveAttribute("tabindex", "-1");
+    await scopes.getByRole("radio", { name: "Ce modèle" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused();
+    await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toHaveAttribute("aria-checked", "true");
     // this fixture only: said to start from the model's settings, and its own replace them
-    await scopes.getByRole("radio", { name: "Cet appareil seul" }).click();
     await expect(editor).toContainText("cet appareil ne suivra plus le modèle");
     const off = editor.getByRole("button", { name: "Jamais choisie depuis une couleur peinte · White" });
     await expect(off).toContainText("Exclue"); // a visible label, not a bare glyph
@@ -4526,6 +4541,7 @@ test("venue patch: a lamp's colour wheel is corrected from its menu, for the mod
     await editor.getByRole("button", { name: "Effacer ces réglages" }).click();
     const ask = editor.getByRole("group", { name: "Effacer ces réglages" });
     await expect(ask).toContainText("Effacer les réglages de cet appareil ?");
+    await expect(ask.getByRole("button", { name: "Annuler" })).toBeFocused(); // the safe answer holds the focus
     await ask.getByRole("button", { name: "Annuler" }).click();
     await expect(scopes.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused();
     expect((await wheel()).applies).toBe("fixture");

@@ -688,7 +688,7 @@ export class Venue {
    * verbatim — a machine never fades — and its look's weight doses (machineFade) the dimmer(s)
    * of the fixture no look wrote nor painted. Offsets off the definition stay verbatim, with no fade.
    */
-  toDmx(frame: AttributeFrame, buffers: Uint8Array[], wheels: Map<string, WheelChoice> = new Map(), at: { now: number; merge: LooksMerge } = { now: 0, merge: "last" }): string[] {
+  toDmx(frame: AttributeFrame, buffers: Uint8Array[], wheels: Map<string, WheelChoice>, at: { now: number; merge: LooksMerge }): string[] {
     const errors: string[] = [];
     for (const id of wheels.keys()) if (!this.fixtures.get(id)) wheels.delete(id); // a fixture deleted leaves no wheel held
     // The raw channels go down after every fixture's painted colours: an offset reaching past its

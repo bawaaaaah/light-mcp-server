@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 
@@ -38,21 +38,35 @@ type Scope = "model" | "fixture";
  * A colour picker that saves once the colour is chosen: the browser fires `input` on every move of the picker
  * (React's onChange), `change` when it closes. The moves only feed a local draft; the native `change` commits.
  */
-function ColorPick({ value, label, title, onPick }: { value: string; label: string; title?: string; onPick: (hex: string) => void }): ReactElement {
+function ColorPick({ value, label, title, onPick, resetAfter }: { value: string; label: string; title?: string; onPick: (hex: string) => void; resetAfter?: boolean }): ReactElement {
   const [draft, setDraft] = useState(value);
   const input = useRef<HTMLInputElement>(null);
   const pick = useRef(onPick);
   pick.current = onPick;
+  const base = useRef({ value, resetAfter });
+  base.current = { value, resetAfter };
   useEffect(() => setDraft(value), [value]);
   useEffect(() => {
     const el = input.current;
     if (!el) return;
-    const commit = () => pick.current(el.value.toLowerCase());
+    const commit = () => {
+      pick.current(el.value.toLowerCase());
+      // a picker that only adds goes back to its start colour, so choosing the same colour again fires a change
+      if (base.current.resetAfter) {
+        el.value = base.current.value;
+        setDraft(base.current.value);
+      }
+    };
     el.addEventListener("change", commit);
     return () => el.removeEventListener("change", commit);
   }, []);
   return <input ref={input} type="color" aria-label={label} title={title ?? label} value={draft} onChange={(e) => setDraft(e.target.value)} />;
 }
+
+/** The turn time in force when nothing sets one (color-wheel.ts WHEEL_CHANGE_MS: the web bundle does not import the server). */
+const DEFAULT_TURN_MS = 300;
+/** The start colour of a picker for a range without colour: neutral, so that choosing white fires a change. */
+const NEUTRAL_START = "#808080";
 
 /**
  * An entry of the fixture menu, shown only for a lamp with a colour wheel: it opens the editor of the
@@ -67,6 +81,11 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
   const [error, setError] = useState("");
   const [clearing, setClearing] = useState(false);
   const [turn, setTurn] = useState("");
+  // puts go one after the other, each built on the settings the one before sent (two quick edits never overwrite each other)
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
+  const latest = useRef<{ scope: Scope; settings: WheelSettings } | null>(null);
+  const inflight = useRef(0);
+  const sentTurn = useRef<number | null>(null);
   const scopeButtons = useRef<Record<Scope, HTMLButtonElement | null>>({ model: null, fixture: null });
   const load = useCallback(
     (first = false) =>
@@ -84,13 +103,33 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
   }, [load]);
   // what this scope holds now; a fixture without its own settings starts from its model's
   const current: WheelSettings = (info && (scope === "fixture" ? (info.own ?? info.model) : info.model)) ?? {};
-  const shownTurn = current.changeMs ?? info?.changeMs ?? 0;
-  useEffect(() => setTurn(String(shownTurn)), [shownTurn]);
+  // a model's own time or the default; a fixture without its own time takes the one in force (its model's)
+  const shownTurn = current.changeMs ?? (scope === "model" ? DEFAULT_TURN_MS : (info?.changeMs ?? DEFAULT_TURN_MS));
+  useEffect(() => {
+    sentTurn.current = null;
+    setTurn(String(shownTurn));
+  }, [shownTurn]);
   if (!info) return null;
   const saved = () => load().then(onSaved);
-  const save = (next: WheelSettings) => {
+  /** The settings of this scope as the last put left them, else as loaded. */
+  const base = (): WheelSettings => (latest.current?.scope === scope ? latest.current.settings : current);
+  const save = (edit: (c: WheelSettings) => WheelSettings) => {
     setError("");
-    void cmd("venue.wheel.put", { id: fixtureId, scope, wheel: next }).then(saved, (e: Error) => setError(e.message));
+    const wheel = edit(base());
+    const at = scope;
+    latest.current = { scope: at, settings: wheel };
+    inflight.current += 1;
+    chain.current = chain.current
+      .then(() => cmd("venue.wheel.put", { id: fixtureId, scope: at, wheel }).then(saved))
+      .catch((e: Error) => {
+        sentTurn.current = null;
+        latest.current = null;
+        setError(e.message);
+      })
+      .finally(() => {
+        inflight.current -= 1;
+        if (inflight.current === 0) latest.current = null;
+      });
   };
   /** Asked inline, never in a window; the focus goes back to the scope in force once answered. */
   const endClearing = (confirmed: boolean) => {
@@ -98,21 +137,39 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
     scopeButtons.current[scope]?.focus();
     if (!confirmed) return;
     setError("");
-    void cmd("venue.wheel.clear", { id: fixtureId, scope }).then(saved, (e: Error) => setError(e.message));
+    latest.current = null;
+    chain.current = chain.current.then(() => cmd("venue.wheel.clear", { id: fixtureId, scope }).then(saved)).catch((e: Error) => setError(e.message));
   };
   const slotOf = (s: Slot): SlotSettings => current.slots?.[String(s.min)] ?? {};
-  const setSlot = (s: Slot, patch: SlotSettings) => {
-    const merged = { ...slotOf(s), ...patch };
-    const tidy = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined && v !== false && !(Array.isArray(v) && !v.length))) as SlotSettings;
-    const slots = { ...current.slots };
-    if (Object.keys(tidy).length) slots[String(s.min)] = tidy;
-    else delete slots[String(s.min)];
-    save({ ...current, slots });
-  };
+  const setSlot = (s: Slot, patch: SlotSettings | ((own: SlotSettings) => SlotSettings)) =>
+    save((c) => {
+      const old = c.slots?.[String(s.min)] ?? {};
+      const merged = { ...old, ...(typeof patch === "function" ? patch(old) : patch) };
+      const tidy = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined && v !== false && !(Array.isArray(v) && !v.length))) as SlotSettings;
+      const slots = { ...c.slots };
+      if (Object.keys(tidy).length) slots[String(s.min)] = tidy;
+      else delete slots[String(s.min)];
+      return { ...c, slots };
+    });
   const saveTurn = () => {
     const ms = Math.round(Number(turn));
-    if (turn.trim() === "" || !Number.isFinite(ms) || ms === shownTurn) return setTurn(String(shownTurn));
-    save({ ...current, changeMs: Math.max(0, Math.min(5000, ms)) });
+    // Enter then blur: the second call finds the value already sent
+    if (turn.trim() === "" || !Number.isFinite(ms) || ms === (sentTurn.current ?? shownTurn)) return setTurn(String(sentTurn.current ?? shownTurn));
+    const bounded = Math.max(0, Math.min(5000, ms));
+    sentTurn.current = bounded;
+    setTurn(String(bounded));
+    save((c) => ({ ...c, changeMs: bounded }));
+  };
+  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
+    const keys: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+    const step = keys[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const order: Scope[] = ["model", "fixture"];
+    const next = order[(order.indexOf(from) + step + order.length) % order.length]!;
+    setScope(next);
+    setClearing(false);
+    scopeButtons.current[next]?.focus();
   };
   const held = scope === "fixture" ? info.own : info.model;
   return (
@@ -130,6 +187,8 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
                 className={`ghost${scope === s ? " on" : ""}`}
                 role="radio"
                 aria-checked={scope === s}
+                tabIndex={scope === s ? 0 : -1}
+                onKeyDown={(e) => moveScope(e, s)}
                 onClick={() => {
                   setScope(s);
                   setClearing(false);
@@ -164,7 +223,7 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
                       {s.open ? ` (${t.wheelOpen})` : ""} <small>{s.value}</small>
                     </span>
                     <span className="wheel-real">
-                      {!s.color2 && <ColorPick label={`${t.wheelSlotColor} · ${s.name}`} title={t.wheelSlotColor} value={real ?? "#ffffff"} onPick={(hex) => setSlot(s, { color: hex === s.color ? undefined : hex })} />}
+                      {!s.color2 && <ColorPick label={`${t.wheelSlotColor} · ${s.name}`} title={t.wheelSlotColor} value={real ?? NEUTRAL_START} onPick={(hex) => setSlot(s, { color: hex === s.color ? undefined : hex })} />}
                       {own.color && (
                         <>
                           <small className="wheel-modified">{t.wheelModified}</small>
@@ -176,16 +235,16 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
                     </span>
                     <span className="swatches">
                       {(own.answers ?? []).map((hex) => (
-                        <button key={hex} className="swatch" style={{ background: hex }} title={`${t.wheelAnswers} ${hex} · ${t.wheelRemoveAnswer}`} aria-label={`${t.wheelRemoveAnswer} ${hex} · ${s.name}`} onClick={() => setSlot(s, { answers: (own.answers ?? []).filter((x) => x !== hex) })} />
+                        <button key={hex} className="swatch" style={{ background: hex }} title={`${t.wheelAnswers} ${hex} · ${t.wheelRemoveAnswer}`} aria-label={`${t.wheelRemoveAnswer} ${hex} · ${s.name}`} onClick={() => setSlot(s, (o) => ({ answers: (o.answers ?? []).filter((x) => x !== hex) }))} />
                       ))}
                       {!s.color2 && real && (own.answers ?? []).length < 16 && (
                         <label className="wheel-add" title={t.wheelAddAnswer}>
                           +
-                          <ColorPick label={`${t.wheelAddAnswer} · ${s.name}`} value={real} onPick={(hex) => setSlot(s, { answers: [...new Set([...(own.answers ?? []), hex])] })} />
+                          <ColorPick label={`${t.wheelAddAnswer} · ${s.name}`} value={real} resetAfter onPick={(hex) => setSlot(s, (o) => ({ answers: [...new Set([...(o.answers ?? []), hex])] }))} />
                         </label>
                       )}
                     </span>
-                    <button className={`ghost wheel-off${own.off ? " on" : ""}`} disabled={!real} aria-pressed={Boolean(own.off)} aria-label={`${t.wheelSlotOff} · ${s.name}`} title={t.wheelSlotOff} onClick={() => setSlot(s, { off: !own.off })}>
+                    <button className={`ghost wheel-off${own.off ? " on" : ""}`} disabled={!real} aria-pressed={Boolean(own.off)} aria-label={`${t.wheelSlotOff} · ${s.name}`} title={t.wheelSlotOff} onClick={() => setSlot(s, (o) => ({ off: !o.off }))}>
                       {own.off ? "⊘" : "○"} {t.wheelColOff}
                     </button>
                     {!real && <small className="hint wheel-colorless">{t.wheelColorless}</small>}
@@ -197,14 +256,14 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
           {info.slots.some((s) => s.color2) && (
             <div className="invert-row">
               <span>{t.wheelDoubles}</span>
-              <button className={`ghost${current.doubles !== false ? " on" : ""}`} aria-pressed={current.doubles !== false} aria-label={t.wheelDoubles} onClick={() => save({ ...current, doubles: current.doubles === false })}>
+              <button className={`ghost${current.doubles !== false ? " on" : ""}`} aria-pressed={current.doubles !== false} aria-label={t.wheelDoubles} onClick={() => save((c) => ({ ...c, doubles: c.doubles === false }))}>
                 {current.doubles !== false ? "◉" : "○"}
               </button>
             </div>
           )}
           <label className="field">
             <span>{t.wheelChange}</span>
-            <select value={current.change ?? "mid"} onChange={(e) => save({ ...current, change: e.target.value as "mid" | "black" })}>
+            <select value={current.change ?? "mid"} onChange={(e) => save((c) => ({ ...c, change: e.target.value as "mid" | "black" }))}>
               <option value="mid">{t.wheelChangeMid}</option>
               <option value="black">{t.wheelChangeBlack}</option>
             </select>
@@ -220,10 +279,10 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
             (clearing ? (
               <div className="row wheel-confirm" role="group" aria-label={t.wheelReset}>
                 <span>{scope === "model" ? t.wheelResetAskModel : t.wheelResetAskFixture}</span>
-                <button className="danger" autoFocus onClick={() => endClearing(true)}>
+                <button className="danger" onClick={() => endClearing(true)}>
                   {t.wheelResetConfirm}
                 </button>
-                <button className="ghost" onClick={() => endClearing(false)}>
+                <button className="ghost" autoFocus onClick={() => endClearing(false)}>
                   {t.cancel}
                 </button>
               </div>

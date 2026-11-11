@@ -78,14 +78,14 @@ describe("heads: deduced from the channel names, and the accent head", () => {
     const frame = emptyFrame();
     frame.colors.set("wash", new Map([[-1, { red: 1, blue: 0.5 }]]));
     const buf = new Uint8Array(512);
-    expect(v.toDmx(frame, [buf])).to.deep.equal([]);
+    expect(v.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" })).to.deep.equal([]);
     for (const z of [1, 2, 3]) expect([buf[ZONE(z).red], buf[ZONE(z).blue], buf[ZONE(z).white]]).to.deep.equal([255, 128, 0]);
     expect([buf[HALO.red], buf[HALO.blue]]).to.deep.equal([255, 128]);
     // zone 2 alone, another colour on the halo
     const own = emptyFrame();
     own.colors.set("wash", new Map([[1, { green: 1 }], [3, { blue: 1 }]]));
     const out = new Uint8Array(512);
-    v.toDmx(own, [out]);
+    v.toDmx(own, [out], new Map(), { now: 0, merge: "last" });
     expect([out[ZONE(1).green], out[ZONE(2).green], out[HALO.green], out[HALO.blue]]).to.deep.equal([0, 255, 0, 255]);
   });
 
@@ -98,7 +98,7 @@ describe("heads: deduced from the channel names, and the accent head", () => {
     const frame = emptyFrame();
     frame.colors = look;
     const buf = new Uint8Array(512);
-    v.toDmx(frame, [buf]);
+    v.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" });
     expect([buf[HALO.red], buf[HALO.green], buf[HALO.blue]]).to.deep.equal([255, 128, 0]);
     // a whole-fixture colour is spelt out on every head, the halo included
     const whole = new Map([["wash", new Map([[-1, { blue: 1 }]])]]);
@@ -115,7 +115,7 @@ describe("heads: deduced from the channel names, and the accent head", () => {
     const raw = emptyFrame(); // a whole-fixture colour straight to the output does not reach it either
     raw.colors.set("wash", new Map([[-1, { blue: 1 }]]));
     const dark = new Uint8Array(512);
-    v.toDmx(raw, [dark]);
+    v.toDmx(raw, [dark], new Map(), { now: 0, merge: "last" });
     expect([dark[ZONE(1).blue], dark[HALO.blue]]).to.deep.equal([255, 0]);
   });
 
@@ -137,19 +137,19 @@ describe("heads: deduced from the channel names, and the accent head", () => {
     const frame = emptyFrame();
     frame.raw.set("wash", new Map([[ZONE(2).red, [{ value: 200, weight: 0.5, look: "scene", sheet: "scene" }]]]));
     const buf = new Uint8Array(512);
-    v.toDmx(frame, [buf]);
+    v.toDmx(frame, [buf], new Map(), { now: 0, merge: "last" });
     expect(buf[ZONE(2).red]).to.equal(100); // from black to 200 with the look's weight
     expect(buf[0]).to.equal(255); // the look doses itself by its colours: the dimmer is left alone
     // the halo's colour fades the same way but doses nothing; its effect channel stays a machine
     const halo = emptyFrame();
     halo.raw.set("wash", new Map([[HALO.red, [{ value: 200, weight: 0.5, look: "halo", sheet: "halo" }]]]));
     const hb = new Uint8Array(512);
-    v.toDmx(halo, [hb]);
+    v.toDmx(halo, [hb], new Map(), { now: 0, merge: "last" });
     expect([hb[HALO.red], hb[0]]).to.deep.equal([100, 255]);
     const effect = emptyFrame();
     effect.raw.set("wash", new Map([[17, [{ value: 200, weight: 0.5, look: "rainbow", sheet: "rainbow" }]]]));
     const eb = new Uint8Array(512);
-    v.toDmx(effect, [eb]);
+    v.toDmx(effect, [eb], new Map(), { now: 0, merge: "last" });
     expect([eb[17], eb[0]]).to.deep.equal([200, 128]); // verbatim, and its weight doses the dimmer
   });
 

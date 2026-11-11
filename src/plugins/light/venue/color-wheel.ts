@@ -79,6 +79,8 @@ export const WHEEL_CHANGE_MS = 300;
  * paints within this share of the look still on top (0.25: from 75 % of its level), and back up after it.
  */
 export const BLACK_RAMP = 0.25;
+/** « Au noir », in a crossfade: the light comes back up over this long (ms) from the end of the black window, never in one frame. */
+export const BLACK_RAMP_MS = 150;
 
 const hexColor = (hex: string): Color => ({ red: parseInt(hex.slice(1, 3), 16) / 255, green: parseInt(hex.slice(3, 5), 16) / 255, blue: parseInt(hex.slice(5, 7), 16) / 255 });
 const WHITE: Color = { red: 1, green: 1, blue: 1 };
@@ -88,8 +90,9 @@ const OPEN_WORDS = /open|white|blanc|ouvert|clear|no colou?r|sans couleur/gi;
  * often gives it no colour). The whole name must say so: « White + Red » or « white/red split » are no open slot.
  */
 export function isOpenName(name: string): boolean {
-  const rest = name.replace(OPEN_WORDS, "").replace(/\d+\s*k\b/gi, "");
-  return rest !== name && !/\p{L}/u.test(rest);
+  const noWords = name.replace(OPEN_WORDS, "");
+  // a colour temperature alone (« 5600K ») is a tint, not an open slot: it only goes with an open word
+  return noWords !== name && !/\p{L}/u.test(noWords.replace(/\d+\s*k\b/gi, ""));
 }
 
 /** The value sent for a slot: the middle of its range. */
@@ -289,7 +292,7 @@ const wants = (wheel: Wheel, p: LookPaint, opts: { doubles: boolean }): number |
  * crossfade the light ramps down ahead of it (`BLACK_RAMP`). Without looks (a frame built by hand), `fallback`
  * (the colour painted) is asked. Nothing asked: the slot held stays, the lamp is dark anyway.
  */
-export function wheelFrame(wheel: Wheel, paints: readonly LookPaint[], fallback: Color | undefined, held: WheelHeld | undefined, at: { now: number; merge: LooksMerge } = { now: 0, merge: "last" }): WheelFrame {
+export function wheelFrame(wheel: Wheel, paints: readonly LookPaint[], fallback: Color | undefined, held: WheelHeld | undefined, at: { now: number; merge: LooksMerge }): WheelFrame {
   const opts = { doubles: wheel.doubles };
   const sheet = paints[paints.length - 1]?.sheet;
   const counting = at.merge === "last" ? paints.filter((p) => p.sheet === sheet) : paints;
@@ -300,12 +303,18 @@ export function wheelFrame(wheel: Wheel, paints: readonly LookPaint[], fallback:
   const changedAt = held && pick && pick.slot.min !== held.slot ? at.now : held?.changedAt;
   let dim = 1;
   if (wheel.change === "black" && pick) {
-    if (changedAt !== undefined && at.now >= changedAt && at.now - changedAt < wheel.changeMs) dim = 0;
+    // a clock gone back (now < changedAt): the window is over, no delayed black
+    const since = changedAt !== undefined && at.now >= changedAt ? at.now - changedAt : undefined;
+    if (since !== undefined && since < wheel.changeMs) dim = 0;
     else if (top) {
       // in a crossfade: the brightest look of the same sheet wanting another slot, closing in or moving away
       const mine = levels.get(top)!;
       const other = Math.max(0, ...counting.filter((p) => p !== top && p.sheet === top.sheet && wants(wheel, p, opts) !== pick.slot.min).map((p) => levels.get(p)!));
-      if (mine > BLACK && other > 0) dim = Math.max(0, Math.min(1, (mine - other) / (mine * BLACK_RAMP)));
+      if (mine > BLACK && other > 0) {
+        dim = Math.max(0, Math.min(1, (mine - other) / (mine * BLACK_RAMP)));
+        // the ramp back up is anchored at the end of the black window: a short crossfade does not jump from 0 to its level
+        if (since !== undefined && wheel.changeMs > 0) dim = Math.min(dim, (since - wheel.changeMs) / BLACK_RAMP_MS);
+      }
     }
   }
   return { pick, asked: ask.length ? ask.map(fullHex).join("+") : undefined, dim, changedAt };
