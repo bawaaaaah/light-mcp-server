@@ -121,12 +121,13 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T12 (2026-11-11) | **fait** (tests verts, commité) | précisé par l'utilisateur : fonction d'un canal choisie par son nom (recherche) dans l'éditeur de fader, qui règle l'intervalle du fader sur cette fonction ; [fader-functions.ts](../web/src/fader-functions.ts) |
 | T16 (2026-11-11) | **fait** (tests verts) | **Instantané de démarrage** : réglage `startupSnapshot` (`show.settings.set`, `null` l'efface, effacé par `snapshot.delete`) ; rappelé au démarrage si aucune reprise après plantage récente ne l'emporte, et à `show.open`, par `recallSnapshot` (commun avec `snapshot.recall` et le Panic) ; la veille tient ; select « Instantané au démarrage » + badge « démarrage » dans la page Show ; tests [startup-snapshot.test.ts](../test/plugins/light/startup-snapshot.test.ts) et un parcours UI |
 | T14 (2026-11-11) | **fait** (tests verts, commité) | thématiques de la création par intention : sélecteur à recherche et puces ([ThemePicker.tsx](../web/src/components/ThemePicker.tsx), [themes.ts](../web/src/themes.ts)), mot libre toujours permis, `label` accentué par ambiance dans la base de connaissances ; le T15 ajoutera ses intentions à la liste |
+| T15 (2026-11-11) | **fait** (tests verts, commité) | intentions créées, retouchées, masquées depuis la page Show ([IntentionsManager.tsx](../web/src/components/IntentionsManager.tsx)) ; rangées dans le show (voyagent dans les `.lightshow`) ou la bibliothèque personnelle (`data/private/intentions/`, jamais exportée) ; une seule clé (`normalizeMood`) ; voir [todo.md](todo.md) T15 |
 | T20a (2026-11-11) | **fait** (tests verts) | doublons de définitions détectés ([definition-duplicates.ts](../src/plugins/light/venue/definition-duplicates.ts)), avertissement dans « Vérifier le show » pour les modèles patchés dont les copies diffèrent, bibliothèque entière dans `venue.patch.check` |
 | T21, T22, T18 | à faire | |
 | T5, T11, T6, T9 | à faire | |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |
 | T13 (2026-11-11) | **fait** (tests verts, commité) | édition des canevas : `venue.canvas.edit`, refus ou adaptation des looks de pas, même contrôle pour put / versions, éditeur en fenêtre de la page Lieu ; voir [todo.md](todo.md) T13 et [decisions.md](decisions.md) |
-| T15, T20b, T8 | à faire | |
+| T20b, T8 | à faire | |
 | T23, T30, T28 | à faire | T23 avant T30 ; T27 et T25 avant T28 |
 | T19 | à faire | |
 | T10 | à faire | en fin de parcours |
