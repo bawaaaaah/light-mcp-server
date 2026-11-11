@@ -48,7 +48,7 @@ const EntrySchema = z.object({
 export function targetOf(args: unknown): string | undefined {
   if (!args || typeof args !== "object") return undefined;
   const a = args as Record<string, unknown>;
-  for (const key of ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture"]) {
+  for (const key of ["id", "look", "group", "fader", "dashboard", "song", "setlist", "mapping", "snapshot", "fixture", "canvas"]) {
     const v = a[key];
     if (typeof v === "string" && v) return v;
     if (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") return (v as { id: string }).id;
@@ -56,17 +56,18 @@ export function targetOf(args: unknown): string | undefined {
   return undefined;
 }
 
-/** The collections whose changes history.undo takes back, by command prefix (look.put → looks). */
-const UNDOABLE = { look: "looks", group: "groups", fader: "faders", dashboard: "dashboards" } as const;
+/** The collections whose changes history.undo takes back, by command prefix (look.put → looks, venue.canvas.edit → canvases). */
+const UNDOABLE = { look: "looks", group: "groups", fader: "faders", dashboard: "dashboards", "venue.canvas": "canvases" } as const;
 export type UndoableCollection = (typeof UNDOABLE)[keyof typeof UNDOABLE];
 
 /**
  * What history.undo would take back for an activity line: a design change that worked, on a named
- * look, group, channel fader or dashboard (`designWrite` tells a design command from a live one:
+ * look, group, channel fader, dashboard or canvas (`designWrite` tells a design command from a live one:
  * a fader moved is state, not a change to undo).
  */
 export function undoOf(e: ActivityEntry, designWrite: (name: string) => boolean): { collection: UndoableCollection; id: string } | undefined {
-  const collection = UNDOABLE[e.name.split(".")[0] as keyof typeof UNDOABLE];
+  const prefix = e.name.startsWith("venue.canvas.") ? "venue.canvas" : e.name.split(".")[0];
+  const collection = UNDOABLE[prefix as keyof typeof UNDOABLE];
   return collection && e.ok && e.target && designWrite(e.name) ? { collection, id: e.target } : undefined;
 }
 

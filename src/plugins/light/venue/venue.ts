@@ -672,6 +672,19 @@ export class Venue {
     return result;
   }
 
+  /**
+   * A patched fixture's heads as a canvas sees them (venue/canvas-edit.ts): `full` get a cell of their own
+   * (venue.canvas.auto), `all` adds the accent heads (a halo); undefined when it is not in the patch. A fixture
+   * whose definition cannot be read says why (`error`): its heads are not known.
+   */
+  canvasHeads(fixtureId: string): { full: number[]; all: number[]; error?: string } | undefined {
+    if (!this.fixtures.get(fixtureId)) return undefined;
+    const r = this.resolve(fixtureId);
+    if ("error" in r) return { full: [], all: [], error: r.error };
+    const all = [...r.heads.keys()];
+    return { full: all.filter((h) => !r.accent.has(h)), all };
+  }
+
   /** Targets of each cell of a canvas (index → targets). */
   cellTargets(canvasId: string): { fixture: string; head: number }[][] {
     const canvas = this.canvases.get(canvasId);

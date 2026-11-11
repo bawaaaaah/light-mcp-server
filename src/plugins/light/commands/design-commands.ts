@@ -20,6 +20,7 @@ import { zoneOf } from "../venue/stage.js";
 import { groupingMessage } from "../venue/grouping.js";
 import { holdAtRest, isBuiltinRule, powerOnResets, unprotectable } from "../rules/reset-protection.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
+import { canvasIssues } from "../venue/canvas-edit.js";
 import { say } from "../../../core/lang.js";
 
 /**
@@ -110,7 +111,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest). Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -130,6 +131,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           if (d < 25 && t.colors[0] !== t.colors[1]) warn(`look ${l.id}`, say(`contraste faible entre ${t.colors[0]} et ${t.colors[1]} (ΔE ${d.toFixed(0)})`, `low contrast between ${t.colors[0]} and ${t.colors[1]} (ΔE ${d.toFixed(0)})`));
         }
       }
+      issues.push(...canvasIssues(runtime.venue.canvases.list(), runtime.looks.list(), { headsOf: (f) => runtime.venue.canvasHeads(f) }));
       const seen = new Map<string, string>();
       for (const m of mappings()) {
         const key = mappingInputKey(m);
