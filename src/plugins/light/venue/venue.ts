@@ -6,6 +6,7 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
+import { FixtureOverridesSchema, mergeOverrides, modelKey, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -55,6 +56,8 @@ export const PatchedFixtureSchema = z.object({
   notes: z.string().optional(),
   /** A colour to tell the fixture at a glance (patch, stage, channel trees); never sent to it. */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  /** This fixture's own corrections of its definition, over its model's (venue/overrides.ts). */
+  overrides: FixtureOverridesSchema.optional(),
 });
 export type PatchedFixture = z.infer<typeof PatchedFixtureSchema>;
 
@@ -356,6 +359,8 @@ export class Venue {
   private definitionSources: string[] = [];
   readonly fixtures: Collection<PatchedFixture>;
   readonly canvases: Collection<Canvas>;
+  /** Per-model corrections of the definitions (venue/overrides.ts), overridden by a fixture's own. */
+  readonly models: Collection<ModelOverrides>;
   private resolved = new Map<string, ResolvedFixture | { error: string }>();
   /** Fixtures not installed for the open show (set from its settings): no DMX, no address conflicts. */
   absent: ReadonlySet<string> = new Set();
@@ -370,6 +375,7 @@ export class Venue {
     this.refreshDefinitions();
     this.fixtures = store.collection("fixtures", PatchedFixtureSchema);
     this.canvases = store.collection("canvases", CanvasSchema);
+    this.models = store.collection("models", ModelOverridesSchema);
     store.onChange(() => this.resolved.clear());
   }
 
@@ -454,6 +460,11 @@ export class Venue {
     return patchOverlaps(this.patchRanges())
       .filter((o) => !onlyFor || o.a === onlyFor || o.b === onlyFor)
       .map((o) => ({ ...o, message: overlapMessage(o, name) }));
+  }
+
+  /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
+  overridesOf(patch: PatchedFixture): FixtureOverrides {
+    return mergeOverrides(this.models.get(modelKey(patch.manufacturer, patch.model))?.overrides, patch.overrides);
   }
 
   /** Duplicate definitions of the library: one model in several files, one structure under two names. */
