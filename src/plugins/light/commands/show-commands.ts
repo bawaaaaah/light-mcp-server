@@ -1705,7 +1705,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   // field by field, applied all or nothing by someone who may write, taken back together. In
   // memory: a proposal is for the session at hand, not for the show.
   type Change = { command: string; args: Record<string, unknown> };
-  type Applied = Change & { collection: Diffable; id: string; before?: unknown };
+  /** `wrote`: a fingerprint of what the apply left (live levels aside), to tell a later edit before taking it back. */
+  type Applied = Change & { collection: Diffable; id: string; before?: unknown; wrote?: string };
+  /** An object as an undo compares it: a fader's level and a group's master move live, they are no edit. */
+  const fingerprint = (collection: string, obj: unknown): string => {
+    if (obj === undefined) return "";
+    const o = obj as Record<string, unknown>;
+    const { level: _l, ...noLevel } = o;
+    const { master: _m, ...noMaster } = o;
+    return stableStringify(collection === "faders" ? noLevel : collection === "groups" ? noMaster : o);
+  };
   interface Proposal {
     id: string;
     title?: string;
@@ -1839,7 +1848,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           const target = coll.validate(object).id;
           const before = coll.get(target);
           await reg.invoke(c.command, c.args, ctx);
-          done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}) });
+          done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}), wrote: fingerprint(collection, coll.get(target)) });
         }
         // the writes beside the puts belong to the all or nothing: on their failure everything goes back
         if (p.hooks) {
@@ -1864,11 +1873,22 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     description: "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed. show.apply applies it again (redo). A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells"), shared: sharedFlag }),
+    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells; take a mode change back over objects edited since"), shared: sharedFlag }),
     run: async ({ id, force, shared }, ctx) => {
       const p = proposalOf(id);
       if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
       p.hooks?.guard?.(); // made on another show or venue than the one open now: refused before anything moves
+      // a proposal with writes beside its puts (a mode change) is taken back only knowingly over what was edited since
+      if (p.hooks && !force) {
+        const changed = p.applied!.filter((a) => a.wrote !== undefined && fingerprint(a.collection, (DIFFABLE[a.collection] as Store).get(a.id)) !== a.wrote);
+        if (changed.length) {
+          const names = changed.map((a) => {
+            const now = (DIFFABLE[a.collection] as Store).get(a.id) as { name?: string } | undefined;
+            return `${now?.name ?? a.id} (${a.collection})`;
+          });
+          throw new CommandError("invalid", say(`changé depuis : ${names.join(", ")}. Le défaire remettrait leur état d'avant et perdrait ces modifications : force: true`, `changed since: ${names.join(", ")}. Taking it back would put their earlier state back and lose these edits: force: true`), { changed: names, force: true });
+        }
+      }
       await takeBack(p.applied!, ctx, { force, shared });
       const warnings = (await p.hooks?.revert()) ?? [];
       p.status = "reverted";

@@ -208,6 +208,38 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
     });
   });
 
+  it("refuses an undo over what was edited since, naming it, unless forced; a live fader level is no edit", async () => {
+    await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
+    await run("look.put", { look: look("prog", [{ fixture: "par", offset: 4 }], [[23]]) });
+    await run("fader.put", { fader: { id: "dim", name: "Gradateur", channels: [{ fixture: "par", offset: 0 }], level: 0.5 } });
+    const done = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel" })) as Plan;
+    await run("fader.level", { id: "dim", level: 0.9 });
+    await run("look.put", { look: { ...plugin.runtime.looks.get("prog")!, name: "Programme renommé" } });
+    await run("venue.fixture.put", { fixture: { ...par(), address: 50 } });
+    const e = await refusal(run("show.revert", { id: done.proposal }));
+    expect((e.detail as { changed: string[] }).changed).to.deep.equal(["Par (fixtures)", "Programme renommé (looks)"]);
+    expect(par().mode).to.equal("8 Channel");
+    await run("show.revert", { id: done.proposal, force: true });
+    expect(par()).to.include({ mode: "6 Channel", address: 1 });
+  });
+
+  it("refuses a second change of the same fixture while one is running", async () => {
+    await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
+    const results = await Promise.allSettled([run("venue.fixture.mode", { id: "par", mode: "8 Channel" }), run("venue.fixture.mode", { id: "par", mode: "Pixel", force: true })]);
+    expect(results.map((r) => r.status)).to.deep.equal(["fulfilled", "rejected"]);
+    expect(String(((results[1] as PromiseRejectedResult).reason as Error).message)).to.contain("déjà en cours");
+    expect(par().mode).to.equal("8 Channel");
+  });
+
+  it("says in the preview that the venue's other shows cannot be read, instead of refusing it", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const other = ((await run("show.create", { name: "Abîmé", venue: "current", open: false })) as { id: string }).id;
+    writeFileSync(join(dataRoot, "shows", other, "show.json"), "{ not json");
+    const preview = (await run("venue.fixture.mode", { id: "par", mode: "Pixel reversed", dryRun: true })) as Plan & { othersUnreadable?: string };
+    expect(preview.othersUnreadable).to.contain(other);
+    expect((await refusal(run("venue.fixture.mode", { id: "par", mode: "Pixel reversed" }))).message).to.contain("force: true");
+  });
+
   it("is not redone after its undo (its plan is read again by running it again)", async () => {
     await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
     const done = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel" })) as Plan;
@@ -239,6 +271,17 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
       expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 246 })).to.include({ value: 250, output: 250, min: 246 });
       expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 0 })).to.include({ value: 4 });
       expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 5 }))).message).to.contain("ne commence à 5");
+    });
+
+    it("names the fader holding the channel, not the look under it", async () => {
+      await run("look.put", { look: look("low", [{ fixture: "par", offset: 4 }], [[150]]) });
+      await run("look.go", { id: "low" });
+      // two channels: not the panel's own fader of this channel
+      await run("fader.put", { fader: { id: "high", name: "Haut", channels: [{ fixture: "par", offset: 4 }, { fixture: "bar", offset: 0 }], level: 220 / 255 } });
+      const r = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 1" })) as { output: number; heldBy: { looks: unknown[]; faders: { id: string }[] } };
+      expect(r.output).to.equal(220);
+      expect(r.heldBy.looks).to.deep.equal([]);
+      expect(r.heldBy.faders.map((x) => x.id)).to.deep.equal(["high"]);
     });
 
     it("under a blackout says the output is below, not that someone holds it", async () => {

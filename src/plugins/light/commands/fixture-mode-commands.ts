@@ -58,6 +58,8 @@ const quote = (s: string) => say(`« ${s} »`, `“${s}”`);
 export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, api: ShowCommandsApi, options: FixtureModeOptions = {}): void {
   const venue = show.venue;
   const { sharedWith = () => [], otherShows = () => [], place } = options;
+  /** The fixtures whose mode is being changed now (venue.fixture.mode awaits between its plan and its writes). */
+  const changing = new Set<string>();
 
   const layoutOf = (def: FixtureDefinition, mode: FixtureMode | undefined, overrides: Parameters<typeof headsOf>[2]): ModeLayout =>
     mode ? { channels: mode.channels, heads: new Map([...headsOf(def, mode, overrides).heads].map(([h, comps]) => [h, Object.values(comps)])) } : { channels: [], heads: new Map() };
@@ -100,7 +102,21 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       force: z.boolean().default(false).describe("change it even if references are lost, another show cannot be read, or the new footprint shares channels with another fixture"),
       shared: z.enum(["copy", "all"]).optional().describe("the venue is shared with other shows: « copy » = a venue of its own for this show, « all » = for every show, their looks and faders carried over too"),
     }),
-    run: async ({ id, mode, dryRun, force, shared }, ctx) => {
+    run: async (args, ctx) => {
+      if (args.dryRun) return changeMode(args, ctx);
+      // one change at a time per fixture: a second one would be planned on the mode the first is replacing
+      if (changing.has(args.id)) throw new CommandError("invalid", say(`un changement de mode de ${args.id} est déjà en cours : attendre sa fin`, `a mode change of ${args.id} is already running: wait for it to end`));
+      changing.add(args.id);
+      try {
+        return await changeMode(args, ctx);
+      } finally {
+        changing.delete(args.id);
+      }
+    },
+  });
+
+  async function changeMode({ id, mode, dryRun, force, shared }: { id: string; mode: string; dryRun: boolean; force: boolean; shared?: "copy" | "all" }, ctx: CommandContext) {
+    {
       const f = venue.fixtures.get(id);
       if (!f) throw new CommandError("invalid", say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`));
       const def = venue.definitionFor(f.manufacturer, f.model);
@@ -113,11 +129,13 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
 
       // the other shows on the venue: their looks would keep the old offsets, so the user chooses
       let others: string[] = [];
+      /** Why the venue's other shows could not be read: said in the plan, refused unless forced (they are not carried over then). */
+      let othersUnreadable: string | undefined;
       try {
         others = sharedWith();
       } catch (err) {
-        const reason = (err as Error).message;
-        if (!force) throw new CommandError("invalid", `${reason}. ${say("Changer le mode quand même, sans les autres shows de ce lieu : force: true", "Change the mode anyway, without the venue's other shows: force: true")}`, { force: true, reason });
+        othersUnreadable = (err as Error).message;
+        if (!force && !dryRun) throw new CommandError("invalid", `${othersUnreadable}. ${say("Changer le mode quand même, sans les autres shows de ce lieu : force: true", "Change the mode anyway, without the venue's other shows: force: true")}`, { force: true, reason: othersUnreadable });
       }
       if (others.length && !dryRun && !shared) {
         throw new CommandError(
@@ -189,6 +207,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         lost: lost.map((c) => ({ ...c, message: sentence(c) })),
         emptied,
         unreadable,
+        ...(othersUnreadable ? { othersUnreadable } : {}),
         cellsWithoutRender: here.cellsWithoutRender,
         overlaps: overlaps.map((o) => overlapMessage(o, name)),
         beyond: beyond.map((b) => beyondMessage(b, name)),
@@ -230,6 +249,11 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       ];
       const proposed = (await reg.invoke("show.propose", { changes, title: say(`Mode DMX de ${f.name} : ${f.mode} → ${target.name}`, `DMX mode of ${f.name}: ${f.mode} → ${target.name}`) }, ctx)) as { valid: boolean; id?: string; preview: { valid: boolean; issues?: string[] }[] };
       if (!proposed.valid || !proposed.id) throw new CommandError("failed", proposed.preview.flatMap((p) => p.issues ?? []).join(" ; "));
+      // planned on f.mode: another change of this fixture finished during the awaits above makes the plan stale
+      if (venue.fixtures.get(id)?.mode !== f.mode) {
+        await reg.invoke("show.discard", { id: proposed.id }, ctx).catch(() => undefined);
+        throw new CommandError("invalid", say(`le mode de ${f.name} a changé pendant ce changement : le relancer`, `the mode of ${f.name} changed meanwhile: run it again`));
+      }
       api.hookProposal(proposed.id, elsewhere(rewrites, show, reg, ctx, place));
       try {
         await reg.invoke("show.apply", { id: proposed.id }, ctx);
@@ -239,8 +263,8 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         throw err;
       }
       return { ...plan, proposal: proposed.id, ...(copying ? { detached: true } : {}) };
-    },
-  });
+    }
+  }
 
   reg.register({
     name: "fixture.channel.mode",
@@ -257,10 +281,11 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         mode: z.string().min(1),
         min: z.number().int().min(0).max(255).optional().describe("the mode's first DMX value, to tell apart two modes of one name"),
         variant: z.string().optional(),
+        variantMin: z.number().int().min(0).max(255).optional().describe("the variant's first DMX value, to tell apart two variants of one name"),
         value: z.number().int().min(0).max(255).optional().describe("a continuous mode's value (DMX, inside its range)"),
       })
       .refine((a) => a.offset !== undefined || a.channel !== undefined, { error: () => say("donner offset ou channel", "give offset or channel") }),
-    run: async ({ fixture, offset, channel, mode, min, variant, value }, ctx) => {
+    run: async ({ fixture, offset, channel, mode, min, variant, variantMin, value }, ctx) => {
       // a level is set too (the panel's « Lumière » asks both rights): checked here, a fader created at its level needs no fader.level
       if (!ctx.can("commands:level")) throw new CommandError("forbidden", say("droit requis : commands:level", "right required: commands:level"));
       const r = venue.resolve(fixture);
@@ -286,7 +311,10 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
           min !== undefined ? say(`aucun mode ${quote(mode)} ne commence à ${min} : ${listed(named)}`, `no mode ${quote(mode)} starts at ${min}: ${listed(named)}`) : say(`plusieurs modes s'appellent ${quote(mode)} : ${listed(named)}. Donner min`, `several modes are called ${quote(mode)}: ${listed(named)}. Give min`),
           { modes: named.map((x) => ({ name: x.name, min: x.min, max: x.max })) },
         );
-      const v = variant === undefined ? undefined : (m.variants.find((x) => x.name === variant) ?? m.variants.find((x) => x.name.toLowerCase() === variant.toLowerCase()));
+      const sameName = variant === undefined ? [] : m.variants.filter((x) => x.name === variant).length ? m.variants.filter((x) => x.name === variant) : m.variants.filter((x) => x.name.toLowerCase() === variant.toLowerCase());
+      if (sameName.length > 1 && variantMin === undefined)
+        throw new CommandError("invalid", say(`plusieurs variantes s'appellent ${quote(variant!)} : ${sameName.map((x) => `${x.min}–${x.max}`).join(", ")}. Donner variantMin`, `several variants are called ${quote(variant!)}: ${sameName.map((x) => `${x.min}–${x.max}`).join(", ")}. Give variantMin`));
+      const v = variantMin !== undefined ? sameName.find((x) => x.min === variantMin) : sameName[0];
       if (variant !== undefined && !v) throw new CommandError("invalid", say(`variante inconnue de ${quote(m.name)} : ${variant}. Variantes : ${m.variants.map((x) => x.name).join(", ")}`, `unknown variant of ${quote(m.name)}: ${variant}. Variants: ${m.variants.map((x) => x.name).join(", ")}`));
       if (value !== undefined && !m.continuous) throw new CommandError("invalid", say(`${quote(m.name)} n'est pas un mode continu : choisir une variante, pas une valeur`, `${quote(m.name)} is no continuous mode: choose a variant, not a value`));
       const dmx = valueOf(m, v?.name, value);
@@ -303,7 +331,10 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       const mine = why?.faders.find((x) => x.id === fader.id);
       // above the range: another writer, unless this very fader is still gliding down from higher (smoothing)
       const above = why !== undefined && output > range.max && (mine?.sent ?? level) * 255 <= range.max + 0.5;
-      const others = above ? { looks: why.rawLooks, faders: why.faders.filter((x) => x.id !== fader.id && x.effective * 255 > range.max).map(({ id: fid, name }) => ({ id: fid, name })) } : undefined;
+      const higherFaders = above ? why.faders.filter((x) => x.id !== fader.id && x.effective * 255 > range.max) : [];
+      // a fader whose level gives the output explains it: the looks writing the channel are named only when none does
+      const fromFader = higherFaders.some((x) => Math.abs(x.effective * 255 - output) <= 1);
+      const others = above ? { looks: fromFader ? [] : why.rawLooks, faders: higherFaders.map(({ id: fid, name }) => ({ id: fid, name })) } : undefined;
       const dcaName = fader.dca ? (show.groups.get(fader.dca)?.name ?? fader.dca) : undefined;
       return {
         fixture,
