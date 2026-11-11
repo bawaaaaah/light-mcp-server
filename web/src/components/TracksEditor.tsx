@@ -9,7 +9,8 @@ interface TracksInfo {
   applies: "fixture" | "model" | "none";
   channels: { name: string; kind: Kind; fade: boolean }[];
   own: string[] | null;
-  model: { fade: string[] | null; ids: string[] };
+  /** `ids`: the patched fixtures of its model; `enabled`: those of them whose tracks are on. */
+  model: { fade: string[] | null; ids: string[]; enabled: string[] };
 }
 type Scope = "model" | "fixture";
 /** The groups of the editor, in this order; the wheel sits with the colour. */
@@ -23,7 +24,7 @@ const GROUPS: { key: "light" | "colour" | "position" | "other"; kinds: Kind[] }[
 /**
  * « Transitions… » in a fixture's menu (docs/specs/engine-effects-timing.md, « Pistes fondables », T5): the switch of
  * its tracks (on the fixture only), and per channel whether it follows the transitions, for its model or for this
- * fixture only. Nothing is ticked at first; the shortcuts tick a whole kind. Pan and tilt are saved for the motion
+ * fixture only. Nothing is ticked at first; the shortcuts tick (or untick) a whole kind. Pan and tilt are saved for the motion
  * layer, which does not exist yet: the editor says so. The colour wheel has no box: it follows its own setting.
  */
 export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved: () => void }): ReactElement | null {
@@ -73,7 +74,13 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
     run("venue.tracks.put", { fixtures: [fixtureId], scope, fade });
   };
   const tick = (name: string, on: boolean) => put(on ? [...list.filter((n) => n !== name), name] : list.filter((n) => n !== name));
-  const tickKind = (kinds: Kind[]) => put([...new Set([...list, ...info.channels.filter((c) => kinds.includes(c.kind) && c.kind !== "wheel").map((c) => c.name)])]);
+  const namesOf = (kinds: Kind[]) => info.channels.filter((c) => kinds.includes(c.kind) && c.kind !== "wheel").map((c) => c.name);
+  const allTicked = (kinds: Kind[]) => namesOf(kinds).every((n) => ticked.has(n));
+  /** Ticks every channel of a kind, or unticks them all when they all are. */
+  const tickKind = (kinds: Kind[]) => {
+    const names = namesOf(kinds);
+    put(allTicked(kinds) ? list.filter((n) => !names.includes(n)) : [...new Set([...list, ...names])]);
+  };
   const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
     const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Record<string, number>)[e.key];
     if (!step) return;
@@ -83,6 +90,7 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
     scopeButtons.current[next]?.focus();
   };
   const others = info.model.ids.length;
+  const allOn = info.model.enabled.length === others;
   const nothing = !info.channels.some((c) => c.kind !== "wheel" && ticked.has(c.name));
   return (
     <div className="field tracks-entry">
@@ -100,8 +108,8 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
           </div>
           {!info.enabled && <small className="hint">{t.tracksOffHint}</small>}
           {others > 1 && (
-            <button className="ghost" onClick={() => run("venue.tracks.put", { fixtures: info.model.ids, enabled: true })}>
-              {t.tracksEnableModel.replace("{n}", String(others))}
+            <button className="ghost" onClick={() => run("venue.tracks.put", { fixtures: info.model.ids, enabled: !allOn })}>
+              {(allOn ? t.tracksDisableModel : t.tracksEnableModel).replace("{n}", String(others))}
             </button>
           )}
           <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
@@ -125,8 +133,17 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
             {t.tracksAppliesNames[info.applies]}
           </small>
           {scope === "fixture" && !info.own && <small className="hint">{t.tracksScopeCopies}</small>}
+          {scope === "model" && others > 1 && <small className="hint">{t.headsModelCount.replace("{n}", String(others))}</small>}
+          {scope === "model" && info.own && <small className="hint">{t.tracksOwnList}</small>}
           {info.own && (
-            <button className="ghost" onClick={() => run("venue.tracks.clear", { fixture: fixtureId })}>
+            <button
+              className="ghost"
+              onClick={() => {
+                // the button goes once the list is back to the model's: the focus waits on the scope in force
+                scopeButtons.current[scope]?.focus();
+                run("venue.tracks.clear", { fixture: fixtureId });
+              }}
+            >
               {t.tracksBackToModel}
             </button>
           )}
@@ -153,7 +170,7 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
                   {key === "position" && <small className="hint">{t.tracksPositionHint}</small>}
                   {key !== "other" && tickable && (
                     <button className="ghost" onClick={() => tickKind(kinds)}>
-                      {t.tracksTickKind[key]}
+                      {allTicked(kinds) ? t.tracksUntickKind[key] : t.tracksTickKind[key]}
                     </button>
                   )}
                 </fieldset>

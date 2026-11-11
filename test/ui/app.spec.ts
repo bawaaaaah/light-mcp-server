@@ -5381,6 +5381,7 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
     await editor.getByRole("button", { name: "Cocher l'intensité" }).click();
     await expect.poll(async () => (await tracks()).model.fade).toEqual(["Dimmer"]);
     await expect(editor.getByRole("checkbox", { name: "Dimmer" })).toBeChecked();
+    await expect(editor.getByRole("button", { name: "Décocher l'intensité" })).toBeVisible(); // the shortcut now unticks
     await expect(editor).toContainText("S'applique : la liste du modèle");
     await expect(editor.getByRole("status")).toContainText("Les canaux cochés suivent les fondus");
     // for this fixture only: it starts from the model's list, then keeps its own
@@ -5394,6 +5395,7 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
     await editor.getByRole("button", { name: "Revenir au modèle" }).click();
     await expect.poll(async () => [(await tracks()).own, (await tracks()).applies, (await tracks()).enabled]).toEqual([null, "model", true]);
     await expect(editor.getByRole("checkbox", { name: "Shutter" })).not.toBeChecked();
+    await expect(editor.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused(); // the keyboard is not lost
     // switched off: the list stays, greyed
     await editor.getByRole("button", { name: "Pistes activées sur cet appareil" }).click();
     await expect.poll(async () => (await tracks()).enabled).toBe(false);
@@ -5402,6 +5404,24 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
   } finally {
     await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: false, fade: null });
     await api(page, "venue.tracks.clear", { fixture: "spot", scope: "model" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("DMX console: a channel of a fixture with tracks says whether it follows the fades or jumps (T5)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: true, fade: ["Dimmer"] });
+  try {
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    await page.locator("section.bar select").first().selectOption("2");
+    // the spot sits at 2.1: Pan, Pan fine, Tilt, Tilt fine, Color Wheel, Dimmer (6), Shutter (7)
+    await page.getByRole("button", { name: "Pourquoi ce canal 6", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Pourquoi ce canal 6", exact: true }).locator("li.why-track")).toHaveText("Pistes de l'appareil : suit les fondus");
+    await page.getByRole("button", { name: "Pourquoi ce canal 7", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Pourquoi ce canal 7", exact: true }).locator("li.why-track")).toHaveText("Pistes de l'appareil : saute à mi-fondu");
+  } finally {
+    await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: false, fade: null });
   }
   expect(errors).toEqual([]);
 });

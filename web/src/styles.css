@@ -1761,6 +1761,10 @@ table.rules td {
   align-items: center;
   gap: 0.3em;
 }
+.widget-menu .tracks-channel input {
+  width: 16px;
+  height: 16px;
+}
 @media (pointer: coarse) {
   .widget-menu .tracks-editor button,
   .widget-menu .tracks-channel {

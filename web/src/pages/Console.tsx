@@ -34,6 +34,8 @@ interface Explain {
   /** `level`: what the groups including the look give it on this fixture, when below 100 %. */
   rawLooks: { id: string; name: string; leaving?: true; level?: number }[];
   clamps: { rule: string; name?: string; from: number; to: number }[];
+  /** On a fixture whose tracks are enabled (T5): whether this channel follows the fades or jumps at mid-fade. */
+  track?: "fade" | "jump";
   /** A lamp's colour wheel: the slot held (its real colour, two joined by « + » for a split slot), the colour asked and the gap between them (OKLab). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its fixture has Reset channels, held at rest by the built-in protection: fixture.reset resets it on purpose. */
@@ -130,6 +132,7 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
             )}
           </li>
         )}
+        {why.track && <li className="why-track">{why.track === "fade" ? t.whyTrackFade : t.whyTrackJump}</li>}
         {why.undosed && !why.wheel && <li className="why-undosed">{t.whyUndosed}</li>}
         {why.intensity && !why.wheel && !why.undosed && (
           <li>

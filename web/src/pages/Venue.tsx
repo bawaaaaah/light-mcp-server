@@ -239,7 +239,7 @@ export function VenuePage(): ReactElement {
                       );
                     })()}
                     {f.overrides?.tracks?.enabled && (
-                      <span className="badge tracks" title={t.tracksBadge} aria-label={t.tracksBadge}>
+                      <span className="badge tracks" role="img" title={t.tracksBadge} aria-label={t.tracksBadge}>
                         ∿
                       </span>
                     )}
