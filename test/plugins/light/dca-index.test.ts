@@ -31,10 +31,9 @@ describe("DCA index: each DCA once (T35)", () => {
     expect(index.effective("a")).to.be.closeTo(0.4, 1e-9);
   });
 
-  it("leaves out the groups asked and stops on a cycle", () => {
+  it("stops on a cycle, and counts a missing group as 1", () => {
     const index = indexOf([group("a", [], ["b"], 0.5), group("b", [], ["a"], 0.5)]);
     expect([...index.chain("a")].sort()).to.deep.equal(["a", "b"]);
-    expect([...index.above(["a"], new Set(["b"]))]).to.deep.equal(["a"]);
     expect(index.effective("missing")).to.equal(1);
   });
 });

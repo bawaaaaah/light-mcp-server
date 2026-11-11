@@ -1687,6 +1687,18 @@ describe("DCA dose the intensity whoever writes it (T35)", () => {
     expect([b[0], b[3], b[4], b[6]]).to.deep.equal([255, 128, 128, 128]); // dimmer at full; R1, G1, R2 at 50 %, R1 not at 25 %
   });
 
+  it("known limit: a look dosed by its raw dimmer, included in a DCA with a fader linked to it on one colour, gets that DCA twice there", () => {
+    const { show, dmx } = rig();
+    show.looks.put(red("p", "mur")); // what lights R1, outside the DCA
+    show.looks.put(raw("dim", [{ fixture: "bar-l", offset: 0 }], [255]));
+    show.groups.put(dca("d", 0.5, {}, ["dim"]));
+    show.faders.put({ id: "red", name: "Rouge", channels: [{ fixture: "bar-l", offset: 3 }], level: 0, dca: "d" });
+    show.go("p");
+    show.go("dim");
+    const b = dmx();
+    expect([b[0], b[3]]).to.deep.equal([128, 128]); // 25 % of light on R1: one dimmer cannot be dosed per channel (docs/specs/groups-masters.md)
+  });
+
   it("tells a look's level in dmx.explain only where it is applied, says a machine channel is not dosed, and the raw dose only under a raw look", () => {
     const { show, dmx } = rig();
     show.looks.put(raw("scene", [{ fixture: "bar-l", offset: 0 }, { fixture: "bar-l", offset: 2 }, { fixture: "bar-l", offset: 3 }], [255, 200, 255]));

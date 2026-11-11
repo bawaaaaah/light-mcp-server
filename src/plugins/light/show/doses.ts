@@ -53,6 +53,8 @@ export class Doses {
   private readonly coveringSets = new Map<string, ReadonlySet<string>>();
   private readonly dimmerSets = new Map<string, ReadonlySet<string>>();
   private readonly includingByLook = new Map<string, ReadonlySet<string>>();
+  /** look → fixture → its level there, for fixtures no linked fader touches (the same on every channel). */
+  private readonly levelsByLook = new Map<string, Map<string, number>>();
 
   constructor(private readonly source: DosesSource) {
     for (const f of source.faders) {
@@ -138,10 +140,21 @@ export class Doses {
   lookLevel(lookId: string, fixtureId: string, offset?: number): number {
     const including = this.including(lookId);
     if (!including.size) return 1;
+    // no linked fader on the fixture: one level for all its channels, computed once per look and fixture
+    const unlinked = !this.linkedDcas.has(fixtureId);
+    const byFixture = unlinked ? this.levelsByLook.get(lookId) : undefined;
+    const known = byFixture?.get(fixtureId);
+    if (known !== undefined) return known;
     const covering = this.covering(fixtureId);
     const viaDimmer = this.dimmerLinked(fixtureId);
-    const viaChannel = offset === undefined ? new Set<string>() : this.source.index.above(this.linked(fixtureId, offset));
-    return this.source.index.product([...including].filter((g) => !covering.has(g) && !viaDimmer.has(g) && !viaChannel.has(g)));
+    const viaChannel = offset === undefined || unlinked ? undefined : this.source.index.above(this.linked(fixtureId, offset));
+    let level = 1;
+    for (const g of including) if (!covering.has(g) && !viaDimmer.has(g) && !viaChannel?.has(g)) level *= this.source.index.own(g);
+    if (unlinked) {
+      const levels = this.levelsByLook.get(lookId) ?? new Map<string, number>();
+      this.levelsByLook.set(lookId, levels.set(fixtureId, level));
+    }
+    return level;
   }
 
   /**

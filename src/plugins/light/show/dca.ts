@@ -76,10 +76,10 @@ export class DcaIndex {
     return this.covers.get(fixtureId) ?? [];
   }
 
-  /** The groups given and every group above them, each once, without those in `except`. */
-  above(groupIds: Iterable<string>, except: ReadonlySet<string> = new Set()): Set<string> {
+  /** The groups given and every group above them, each once. */
+  above(groupIds: Iterable<string>): Set<string> {
     const out = new Set<string>();
-    for (const id of groupIds) for (const g of this.chain(id)) if (!except.has(g)) out.add(g);
+    for (const id of groupIds) for (const g of this.chain(id)) out.add(g);
     return out;
   }
 

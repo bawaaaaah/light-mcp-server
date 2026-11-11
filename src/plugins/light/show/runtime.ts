@@ -117,10 +117,11 @@ export interface ChannelExplanation {
   /** A light channel channel faders hold: the DCAs they are linked to (with the groups above, each once, but those in `intensity`) dose the looks writing it, by `factor`. */
   faderDcas?: { dcas: { id: string; name: string; own: number }[]; factor: number };
   /**
-   * The channel faders on it: `effective` is the fader's own value there as the frame computes it (Doses.faderValue):
-   * its travel × each DCA of `dcas` once × `grandMaster` when given; `doses` on a colour fixture's dimmer, which it doses.
+   * The channel faders on it: `travel` is the level sent within its range (0..1 of 255); `effective` is the fader's own
+   * value there as the frame computes it (Doses.faderValue): `travel` × each DCA of `dcas` once × `grandMaster` when
+   * given; `doses` on a colour fixture's dimmer, which it doses.
    */
-  faders: { id: string; name: string; level: number; sent: number; dca: string | undefined; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
+  faders: { id: string; name: string; level: number; sent: number; travel: number; dca: string | undefined; effective: number; dcas: { id: string; name: string; own: number }[]; grandMaster?: number; doses?: true }[];
   /**
    * Looks writing the channel as a raw channel; `leaving` for one fading out (an exit fade, or under a crossfade): it
    * still counts. `level`: what the groups including the look give it on this channel (lookLevelOn), when below 1 and
@@ -686,6 +687,8 @@ export class ShowRuntime {
    * The level the groups including a look (`presets.included`) give it on a fixture, on one of its channels when
    * given: those DCAs and every group above them, each once, but those already dosing that channel there — the
    * DCAs covering the fixture, those of the channel faders on its dimmer and on that channel (Doses.lookLevel, T35).
+   * No caller yet: this signature is the contract T35 keeps for T5, which doses its layers' `level` with it
+   * (docs/todo.md, T5); the frame and dmx.explain call Doses.lookLevel on their own snapshot.
    */
   lookLevelOn(look: Pick<Look, "id">, fixtureId: string, offset?: number, doses = this.doses()): number {
     return doses.lookLevel(look.id, fixtureId, offset);
@@ -764,8 +767,9 @@ export class ShowRuntime {
       .list()
       .filter((f) => f.channels.some((c) => c.fixture === fixture.id && c.offset === offset))
       .map((f) => {
-        const v = doses.faderValue(f, this.faderTravel(f), fixture.id, offset);
-        return { id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), dca: f.dca, effective: v.level, dcas: named(v.dcas), ...(v.grandMaster ? { grandMaster: doses.grandMaster } : {}), ...(v.doses ? { doses: true as const } : {}) };
+        const travel = this.faderTravel(f);
+        const v = doses.faderValue(f, travel, fixture.id, offset);
+        return { id: f.id, name: f.name, level: f.level, sent: this.faderLevel(f), travel, dca: f.dca, effective: v.level, dcas: named(v.dcas), ...(v.grandMaster ? { grandMaster: doses.grandMaster } : {}), ...(v.doses ? { doses: true as const } : {}) };
       });
     const writes = (look: Look) => look.channels?.targets.some((t) => t.fixture === fixture.id && t.offset === offset) ?? false;
     const leaving = [...this.releasing.values(), ...[...this.crossfades.values()].flatMap((x) => x.outgoing)].map(({ look }) => look);
