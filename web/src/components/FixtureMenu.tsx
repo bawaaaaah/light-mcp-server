@@ -251,7 +251,7 @@ export function FixtureMenu({
       )}
       <FixtureHeads fixture={fixture.id} onSaved={onSaved} />
       <WheelEntry fixtureId={fixture.id} onSaved={onSaved} />
-      <TracksEntry fixtureId={fixture.id} onSaved={onSaved} />
+      <TracksEntry fixtureId={fixture.id} mode={fixture.mode} onSaved={onSaved} />
       <fieldset className="fixture-place">
         <legend>{t.fixtureMove}</legend>
         <div className="row">

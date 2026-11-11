@@ -83,6 +83,20 @@ describe("fadeable tracks: commands (T5)", () => {
     await refused({ fixtures: ["bar-l", "spot"], scope: "model", fade: ["Dimmer"] }, /même modèle|one model/);
   });
 
+  it("keeps the list by name through a change of DMX mode (T6): names the new mode has still fade, the others wait", async () => {
+    const { run, get } = await patched();
+    await run("venue.tracks.put", { fixtures: ["spot"], enabled: true, fade: ["Pan", "Dimmer", "Shutter"] });
+    await run("venue.fixture.mode", { id: "spot", mode: "Basic", force: true }); // Pan, Tilt, Dimmer
+    const t = await get("spot");
+    expect([t.enabled, t.own, ticked(t)]).to.deep.equal([true, ["Pan", "Dimmer", "Shutter"], ["Pan", "Dimmer"]]);
+    expect(t.motion).to.deep.equal({ pan: "glide", tilt: "cut" });
+    const explain = async (channel: number) => ((await run("dmx.explain", { universe: 1, channel })) as { track?: string }).track;
+    expect(await explain(102)).to.equal("fade"); // Dimmer, now at offset 2
+    await run("venue.fixture.mode", { id: "spot", mode: "Standard", force: true });
+    expect(ticked(await get("spot"))).to.deep.equal(["Pan", "Dimmer", "Shutter"]); // Shutter back with its mode
+    expect(await explain(106)).to.equal("fade");
+  });
+
   it("tells the motion layer, per axis, what to do with pan and tilt", async () => {
     const { run, get } = await patched();
     await run("venue.tracks.put", { fixtures: ["spot"], enabled: true, fade: ["Pan", "Dimmer"] });

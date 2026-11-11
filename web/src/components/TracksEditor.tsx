@@ -27,7 +27,7 @@ const GROUPS: { key: "light" | "colour" | "position" | "other"; kinds: Kind[] }[
  * fixture only. Nothing is ticked at first; the shortcuts tick (or untick) a whole kind. Pan and tilt are saved for the motion
  * layer, which does not exist yet: the editor says so. The colour wheel has no box: it follows its own setting.
  */
-export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved: () => void }): ReactElement | null {
+export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /** Its DMX mode (T6): the channels listed are read again when it changes. */ mode?: string | undefined; onSaved: () => void }): ReactElement | null {
   const t = useT();
   const [info, setInfo] = useState<TracksInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -48,7 +48,9 @@ export function TracksEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved
         },
         () => setInfo(null),
       ),
-    [fixtureId],
+    // the mode is not sent: a new one (venue.fixture.mode) lists other channels, read again
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mode` only says when to read again
+    [fixtureId, mode],
   );
   useEffect(() => {
     void load(true);
