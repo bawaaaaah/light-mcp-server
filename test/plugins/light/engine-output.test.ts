@@ -100,6 +100,28 @@ describe("Art-Net destinations", () => {
   });
 });
 
+describe("a route aimed at a node that discovery has not seen", () => {
+  const node = (ip: string, swOut: number[], name = "node") => decodePollReply(encodePollReply({ ip, shortName: name, longName: name, swOut }))!;
+  const known = (...replies: ReturnType<typeof node>[]) => {
+    const registry = new NodeRegistry();
+    for (const r of replies) registry.seen(r, 0);
+    return registry.list();
+  };
+  const route = { universe: 1, artnet: { portAddress: 0, send: "nodes" as const, targets: ["192.0.2.30"] } };
+
+  it("reports the node that outputs the address when no target answers discovery", () => {
+    const c = coverage([route], known(node("198.51.100.7", [0], "lyre")));
+    expect(c.misdirected).to.deep.equal([{ universe: 1, portAddress: 0, targets: ["192.0.2.30"], nodes: [{ key: "198.51.100.7#1", ip: "198.51.100.7", shortName: "lyre" }] }]);
+  });
+
+  it("stays quiet when a target is seen, when no node outputs the address, or in another mode", () => {
+    expect(coverage([route], known(node("192.0.2.30", [0]))).misdirected).to.deep.equal([]);
+    expect(coverage([route], known(node("198.51.100.7", [5]))).misdirected).to.deep.equal([]);
+    expect(coverage([{ universe: 1, artnet: { portAddress: 0, send: "auto" as const } }], known(node("198.51.100.7", [0]))).misdirected).to.deep.equal([]);
+    expect(coverage([route], []).misdirected).to.deep.equal([]);
+  });
+});
+
 describe("sharing the nodes with another console", () => {
   const dmx = (pa: number) => encodeDmx({ sequence: 1, physical: 0, portAddress: pa, data: new Uint8Array(512) });
 

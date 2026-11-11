@@ -79,6 +79,7 @@ describe("routing a universe to the nodes", () => {
     const status = await run("output.status");
     expect(status.coverage).to.deep.equal({
       unheard: [{ universe: 1, portAddress: 0 }],
+      misdirected: [],
       unfed: [
         { key: "192.0.2.50#1", ip: "192.0.2.50", shortName: "Port 1", portAddress: 1 },
         { key: "192.0.2.50#2", ip: "192.0.2.50", shortName: "Port 2", portAddress: 2 },
@@ -89,7 +90,7 @@ describe("routing a universe to the nodes", () => {
   it("points a universe at a node's port, adds one in sACN, keeps it in the config", async () => {
     const { plugin, run, saved } = make();
     let r = await run("output.route", { universe: 1, artnet: { portAddress: 1 } });
-    expect(r.coverage).to.deep.equal({ unheard: [], unfed: [{ key: "192.0.2.50#2", ip: "192.0.2.50", shortName: "Port 2", portAddress: 2 }] });
+    expect(r.coverage).to.deep.equal({ unheard: [], misdirected: [], unfed: [{ key: "192.0.2.50#2", ip: "192.0.2.50", shortName: "Port 2", portAddress: 2 }] });
     r = await run("output.route", { universe: 2, artnet: { portAddress: 2 }, sacn: { universe: 2 } });
     expect(r.routes).to.deep.equal([
       { universe: 1, artnet: { portAddress: 1 } },

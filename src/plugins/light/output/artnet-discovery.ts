@@ -91,6 +91,11 @@ export interface Coverage {
   unheard: { universe: number; portAddress: number }[];
   /** Art-Net output ports of the nodes seen that no route feeds. */
   unfed: { key: string; ip: string; shortName: string; portAddress: number }[];
+  /**
+   * Routes sent to chosen nodes (`send: "nodes"`), none of which was seen, while nodes seen do output
+   * the route's port-address: the node probably answers from another address. One entry per route.
+   */
+  misdirected: { universe: number; portAddress: number; targets: string[]; nodes: { key: string; ip: string; shortName: string }[] }[];
 }
 
 /**
@@ -99,11 +104,19 @@ export interface Coverage {
  * seen (discovery off, or an empty network), there is nothing to say.
  */
 export function coverage(routes: readonly { universe: number; artnet?: ArtnetRoute }[], nodes: readonly KnownNode[]): Coverage {
-  if (!nodes.length) return { unheard: [], unfed: [] };
+  if (!nodes.length) return { unheard: [], unfed: [], misdirected: [] };
+  const seenIps = new Set(nodes.map((n) => n.ip));
   const heard = new Set(nodes.flatMap((n) => n.ports.filter((p) => !p.sacn).map((p) => p.portAddress)));
   const fed = new Set(routes.flatMap((r) => (r.artnet ? [r.artnet.portAddress] : [])));
   return {
     unheard: routes.flatMap((r) => (r.artnet && artnetSend(r.artnet) !== "nodes" && !heard.has(r.artnet.portAddress) ? [{ universe: r.universe, portAddress: r.artnet.portAddress }] : [])),
+    misdirected: routes.flatMap((r) => {
+      const a = r.artnet;
+      const targets = a && artnetSend(a) === "nodes" ? [...new Set(a.targets ?? [])] : [];
+      if (!a || !targets.length || targets.some((ip) => seenIps.has(ip))) return [];
+      const outputs = new Map(nodes.filter((n) => n.ports.some((p) => !p.sacn && p.portAddress === a.portAddress)).map((n) => [n.ip, { key: n.key, ip: n.ip, shortName: n.shortName }]));
+      return outputs.size ? [{ universe: r.universe, portAddress: a.portAddress, targets, nodes: [...outputs.values()] }] : [];
+    }),
     unfed: nodes.flatMap((n) => n.ports.filter((p) => !p.sacn && !fed.has(p.portAddress)).map((p) => ({ key: n.key, ip: n.ip, shortName: n.shortName, portAddress: p.portAddress }))),
   };
 }

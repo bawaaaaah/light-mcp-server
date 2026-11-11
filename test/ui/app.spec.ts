@@ -2902,6 +2902,42 @@ test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ p
   expect(errors).toEqual([]);
 });
 
+test("settings: a banner says when an Art-Net route reaches nobody, and offers to retarget it or broadcast", async ({ page }) => {
+  const errors = watchErrors(page);
+  // output.status is given what a dead target looks like (the test server has no node, and loopback sends never fail)
+  await page.route("**/api/plugins/light/commands/output.status", async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { result: { coverage: object } };
+    body.result.coverage = { ...body.result.coverage, misdirected: [{ universe: 1, portAddress: 0, targets: ["127.0.0.2"], nodes: [{ key: "198.51.100.7#0", ip: "198.51.100.7", shortName: "Node scène" }] }] };
+    Object.assign(body.result, { sendHealth: { windowSeconds: 10, hosts: [{ host: "127.0.0.2", sends: 100, errors: 90, failing: true }] } });
+    await route.fulfill({ response: res, json: body });
+  });
+  const routed: unknown[] = [];
+  await page.route("**/api/plugins/light/commands/output.route", async (route) => {
+    routed.push(route.request().postDataJSON());
+    await route.fulfill({ json: { ok: true, result: {} } }); // the machine config stays as it is
+  });
+  const asked: string[] = [];
+  page.on("dialog", (d) => (asked.push(d.message()), void d.accept()));
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Réglages" }).click();
+  await expect(page.locator("p.reach")).toHaveCount(2); // both routes target the failing host
+  await expect(page.locator("p.reach", { hasText: "Univers 2" })).not.toContainText("que la découverte n'a pas vue"); // only universe 1 is misdirected
+  const banner = page.locator("p.reach", { hasText: "Univers 1" }); // its two reasons in one banner
+  await expect(banner).toContainText("Univers 1 → Art-Net 0");
+  await expect(banner).toContainText("les envois vers 127.0.0.2 échouent (sur 100, 90 en erreur");
+  await expect(banner).toContainText("que la découverte n'a pas vue");
+  await banner.screenshot({ path: "test-results/settings-reach.png" });
+  await banner.getByRole("button", { name: /Recibler vers la node trouvée : Node scène \(198\.51\.100\.7\)/ }).click();
+  await expect.poll(() => routed.length).toBe(1);
+  expect(routed[0]).toEqual({ universe: 1, artnet: { portAddress: 0, send: "nodes", targets: ["198.51.100.7"] } });
+  await banner.getByRole("button", { name: "Passer en broadcast" }).click();
+  await expect.poll(() => routed.length).toBe(2);
+  expect(routed[1]).toEqual({ universe: 1, artnet: { portAddress: 0, send: "broadcast" } });
+  expect(asked.length).toBe(2); // each change of the machine config is confirmed first
+  expect(errors).toEqual([]);
+});
+
 test("automatic presets light a venue in one click", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());

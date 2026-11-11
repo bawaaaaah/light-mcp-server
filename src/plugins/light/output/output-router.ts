@@ -14,6 +14,7 @@ import { createSocket, type Socket } from "node:dgram";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
+import { SendHealth, HEALTH_WINDOW_MS, type HostHealth } from "./send-health.js";
 import { NodeRegistry, artnetDestinations, type ArtnetRoute, type KnownNode } from "./artnet-discovery.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
@@ -85,6 +86,7 @@ export function broadcastFor(address?: string): string {
 
 export class OutputRouter {
   readonly registry = new NodeRegistry();
+  private readonly health = new SendHealth();
   readonly stats: OutputStats = { framesSent: 0, packetsSent: 0, errors: 0, discovery: "off" };
   private artnet: Socket | undefined;
   private sacn: Socket | undefined;
@@ -208,6 +210,7 @@ export class OutputRouter {
     if (!sock) return;
     sock.send(buf, port, host, (err) => {
       if (err) this.stats.errors += 1;
+      this.health.record(host, !err, Date.now());
     });
     this.stats.packetsSent += 1;
   }
@@ -259,6 +262,11 @@ export class OutputRouter {
 
   private artnetHosts(route: ArtnetRoute): string[] {
     return artnetDestinations(route, this.registry.outputsFor(route.portAddress), broadcastFor(this.config.bindAddress));
+  }
+
+  /** Sends and errors per target host over the last HEALTH_WINDOW_MS, with the hosts that mostly fail. */
+  sendHealth(nowMs = Date.now()): { windowSeconds: number; hosts: HostHealth[] } {
+    return { windowSeconds: HEALTH_WINDOW_MS / 1000, hosts: this.health.hosts(nowMs) };
   }
 
   /** Where each routed universe goes now, by protocol: node IPs, the broadcast or the multicast address. */

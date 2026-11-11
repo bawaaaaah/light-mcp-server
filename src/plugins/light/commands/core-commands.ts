@@ -84,7 +84,7 @@ export function registerCoreCommands(
     name: "output.status",
     title: "État de la sortie",
     description:
-      "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed), and the DMX USB interfaces in use (open, frames sent, error).",
+      "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed; routes sent to chosen nodes none of which answered discovery while another node outputs their address: misdirected, with the nodes that do), sendHealth (sends and errors per target host over the last windowSeconds; failing = most sends failed, i.e. that host does not answer), and the DMX USB interfaces in use (open, frames sent, error).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -97,6 +97,7 @@ export function registerCoreCommands(
       foreignSources: router.foreignSources(),
       merging: router.registry.list().filter((n) => n.merging.length).map((n) => ({ ip: n.ip, shortName: n.shortName, portAddresses: n.merging })),
       coverage: routeCoverage(),
+      sendHealth: router.sendHealth(),
       destinations: router.destinations(),
       universes: engine.output.count,
       usb: { available: router.usb.binding !== undefined, ...(router.usb.error ? { error: router.usb.error } : {}), devices: router.usb.status() },
