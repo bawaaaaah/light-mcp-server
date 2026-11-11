@@ -134,8 +134,9 @@ export function modeAt(modes: readonly ChannelMode[], value: number): { mode: Ch
  * DMX step or two, as the middle of a wheel slot does — decision T6, question 3), the first variant
  * when none is named. A continuous mode takes `value` when given, kept inside its range.
  */
-export function valueOf(mode: ChannelMode, variant?: string, value?: number): number {
+export function valueOf(mode: ChannelMode, variant?: string | ModeVariant, value?: number): number {
   if (mode.continuous && value !== undefined) return Math.min(mode.max, Math.max(mode.min, Math.round(value)));
-  const v = (variant === undefined ? undefined : mode.variants.find((x) => x.name === variant)) ?? mode.variants[0]!;
+  // a variant given itself: two of one name are told apart by their range, not their name
+  const v = (typeof variant === "object" ? variant : variant === undefined ? undefined : mode.variants.find((x) => x.name === variant)) ?? mode.variants[0]!;
   return Math.floor((v.min + v.max) / 2);
 }

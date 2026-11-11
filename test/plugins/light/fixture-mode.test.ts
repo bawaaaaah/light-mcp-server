@@ -217,10 +217,59 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
     await run("look.put", { look: { ...plugin.runtime.looks.get("prog")!, name: "Programme renommé" } });
     await run("venue.fixture.put", { fixture: { ...par(), address: 50 } });
     const e = await refusal(run("show.revert", { id: done.proposal }));
-    expect((e.detail as { changed: string[] }).changed).to.deep.equal(["Par (fixtures)", "Programme renommé (looks)"]);
+    expect(e.message).to.contain("appareil « Par »").and.contain("look « Programme renommé »").and.contain("overwrite: true");
+    expect((e.detail as { changed: { collection: string; id: string; name: string }[] }).changed).to.deep.equal([
+      { collection: "fixtures", id: "par", name: "Par" },
+      { collection: "looks", id: "prog", name: "Programme renommé" },
+    ]);
     expect(par().mode).to.equal("8 Channel");
-    await run("show.revert", { id: done.proposal, force: true });
+    await run("show.revert", { id: done.proposal, overwrite: true });
     expect(par()).to.include({ mode: "6 Channel", address: 1 });
+  });
+
+  describe("two fixtures sharing a look", () => {
+    beforeEach(async () => {
+      await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
+      await run("venue.fixture.put", { fixture: { ...par(), id: "par2", name: "Par 2", address: 20 } });
+      await run("look.put", { look: look("prog", [{ fixture: "par", offset: 4 }, { fixture: "par2", offset: 4 }], [[23, 55]]) });
+    });
+    const offsets = () => plugin.runtime.looks.get("prog")!.channels!.targets.map((t) => t.offset);
+
+    it("refuses to take the first change back while a later one rewrote the look, even overwriting; in order, both go back", async () => {
+      const a = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel" })) as Plan;
+      const b = (await run("venue.fixture.mode", { id: "par2", mode: "8 Channel" })) as Plan;
+      expect(offsets()).to.deep.equal([6, 6]);
+      const e = await refusal(run("show.revert", { id: a.proposal }));
+      expect(e.message).to.contain("défaire d'abord").and.contain("Par 2");
+      expect((e.detail as { blockedBy: { id: string }[] }).blockedBy.map((x) => x.id)).to.deep.equal([b.proposal]);
+      expect((await refusal(run("show.revert", { id: a.proposal, overwrite: true }))).detail).to.have.property("blockedBy");
+      expect(offsets()).to.deep.equal([6, 6]); // nothing moved
+      await run("show.revert", { id: b.proposal });
+      await run("show.revert", { id: a.proposal });
+      expect(offsets()).to.deep.equal([4, 4]);
+      expect(par().mode).to.equal("6 Channel");
+    });
+
+    it("runs one mode change at a time, even on two different fixtures", async () => {
+      const results = await Promise.allSettled([run("venue.fixture.mode", { id: "par", mode: "8 Channel" }), run("venue.fixture.mode", { id: "par2", mode: "8 Channel" })]);
+      expect(results.map((r) => r.status)).to.deep.equal(["fulfilled", "rejected"]);
+      expect(offsets()).to.deep.equal([6, 4]);
+    });
+  });
+
+  it("puts everything back as it was when a put of the undo is refused midway (nothing half undone)", async () => {
+    await run("venue.fixture.put", { fixture: { ...plugin.runtime.venue.fixtures.get("bar")!, address: 100 } });
+    await run("venue.canvas.put", { canvas: { id: "other", name: "Autre", topology: "line", cells: 1, render: [] } });
+    await run("look.put", { look: { ...look("prog", [{ fixture: "par", offset: 4 }], [[23]]), canvas: "other" } });
+    const done = (await run("venue.fixture.mode", { id: "par", mode: "8 Channel" })) as Plan;
+    // the look's canvas goes meanwhile: the look cannot be put back as it was
+    await run("venue.canvas.delete", { id: "other", force: true });
+    const e = await refusal(run("show.revert", { id: done.proposal, overwrite: true }));
+    expect(e.message).to.be.a("string");
+    expect(par().mode).to.equal("8 Channel"); // the fixture taken back first is put back too
+    expect(plugin.runtime.looks.get("prog")!.channels!.targets[0]!.offset).to.equal(6);
+    const proposals = (await run("show.proposals")) as { id: string; status: string }[];
+    expect(proposals.find((p) => p.id === done.proposal)!.status).to.equal("applied");
   });
 
   it("refuses a second change of the same fixture while one is running", async () => {
@@ -271,6 +320,30 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
       expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 246 })).to.include({ value: 250, output: 250, min: 246 });
       expect(await run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 0 })).to.include({ value: 4 });
       expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Macro", mode: "No function", min: 5 }))).message).to.contain("ne commence à 5");
+    });
+
+    it("tells two variants of one name apart by their first value", async () => {
+      await run("venue.fixture.put", { fixture: { ...par(), mode: "Pixel reversed", address: 30 } });
+      expect((await refusal(run("fixture.channel.mode", { fixture: "par", channel: "Pulse", mode: "Pulse", variant: "Pulse slow" }))).message).to.contain("variantMin");
+      expect(await run("fixture.channel.mode", { fixture: "par", channel: "Pulse", mode: "Pulse", variant: "Pulse slow", variantMin: 121 })).to.include({ value: 150, output: 150 });
+      expect(await run("fixture.channel.mode", { fixture: "par", channel: "Pulse", mode: "Pulse", variant: "Pulse slow", variantMin: 10 })).to.include({ value: 35 });
+    });
+
+    it("says which DCA below full doses the channel's fader, never one at full, and which rule bounds it", async () => {
+      const dca = (level: number) => ({ id: "doseur", name: "Doseur", members: { fixtures: [], groups: [], looks: [] }, master: { level, mute: false }, presets: { included: [], excluded: [] } });
+      await run("group.put", { group: dca(1) });
+      await run("fader.put", { fader: { id: "own-prog", name: "Programme", channels: [{ fixture: "par", offset: 4 }], level: 0, dca: "doseur" } });
+      const atFull = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 2" })) as Record<string, unknown>;
+      expect(atFull).to.include({ output: 55 });
+      expect(atFull.dcas).to.equal(undefined);
+      await run("group.put", { group: dca(0.5) });
+      const half = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 2" })) as Record<string, unknown>;
+      expect(half).to.deep.include({ output: 28, below: true, dcas: ["Doseur"] });
+      await run("group.put", { group: dca(1) });
+      await run("rule.put", { where: "show", rule: { id: "cap", name: "Plafond programme", scope: { fixture: "par" }, target: { channel: "Program" }, max: 30 } });
+      const capped = (await run("fixture.channel.mode", { fixture: "par", channel: "Program", mode: "Auto", variant: "Auto 2" })) as { output: number; below: boolean; clamps: { name?: string }[] };
+      expect(capped).to.include({ output: 30, below: true });
+      expect(capped.clamps.map((c) => c.name)).to.deep.equal(["Plafond programme"]);
     });
 
     it("names the fader holding the channel, not the look under it", async () => {

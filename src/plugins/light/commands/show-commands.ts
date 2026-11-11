@@ -1726,10 +1726,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     applied?: Applied[];
     appliedAt?: number;
     appliedBy?: string;
+    /** Order of the applies (two can share a millisecond): which of two proposals came last. */
+    appliedSeq?: number;
     /** Writes made with it outside the put commands (another show's looks, a fader emptied): done once it applies, taken back once it is reverted. */
     hooks?: ProposalHooks;
   }
   const proposals = new Map<string, Proposal>();
+  let applySeq = 0;
   const PROPOSAL_KEEP_MS = 24 * 3600_000;
   const proposalOf = (id: string) => {
     const p = proposals.get(id);
@@ -1761,14 +1764,27 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // newest first, the fixtures before anything else: looks, faders and canvases are checked against a fixture's
     // mode (checkChannels, its heads), so a mode change (venue.fixture.mode) must be undone before what it carried
     const newestFirst = [...done].reverse();
-    for (const a of [...newestFirst.filter((x) => x.collection === "fixtures"), ...newestFirst.filter((x) => x.collection !== "fixtures")]) {
-      const coll = DIFFABLE[a.collection] as Store;
-      if (a.before === undefined) coll.delete(a.id);
-      else if (a.collection === "canvases") await putCanvas(a.before, { ...pass, how: "restore" });
-      else {
-        const p = putOf(a.command);
-        await reg.invoke(p.restore ?? a.command, { ...Object.fromEntries((p.keep ?? []).map((k) => [k, a.args[k]])), [p.key]: keepLive(a.collection, a.before, coll.get(a.id)) }, ctx);
+    // what each object was just before it went back: a put refused midway (a look whose channels the restored mode
+    // no longer has) puts these back as they were, written directly, so the take-back is all or nothing too
+    const touched: { a: Applied; was: unknown }[] = [];
+    try {
+      for (const a of [...newestFirst.filter((x) => x.collection === "fixtures"), ...newestFirst.filter((x) => x.collection !== "fixtures")]) {
+        const coll = DIFFABLE[a.collection] as Store;
+        touched.push({ a, was: coll.get(a.id) });
+        if (a.before === undefined) coll.delete(a.id);
+        else if (a.collection === "canvases") await putCanvas(a.before, { ...pass, how: "restore" });
+        else {
+          const p = putOf(a.command);
+          await reg.invoke(p.restore ?? a.command, { ...Object.fromEntries((p.keep ?? []).map((k) => [k, a.args[k]])), [p.key]: keepLive(a.collection, a.before, coll.get(a.id)) }, ctx);
+        }
       }
+    } catch (err) {
+      for (const { a, was } of touched.reverse()) {
+        const coll = DIFFABLE[a.collection] as Store & { put?(v: unknown): unknown };
+        if (was === undefined) coll.delete(a.id);
+        else coll.put?.(was); // every collection a take-back writes has put (the intentions' store goes through its command, never fails here)
+      }
+      throw err;
     }
   };
   const ChangeSchema = z.object({ command: z.enum(Object.keys(PUT_COMMANDS) as [string, ...string[]]), args: z.record(z.string(), z.unknown()) });
@@ -1848,7 +1864,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           const target = coll.validate(object).id;
           const before = coll.get(target);
           await reg.invoke(c.command, c.args, ctx);
-          done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}), wrote: fingerprint(collection, coll.get(target)) });
+          done.push({ ...c, collection, id: target, ...(before !== undefined ? { before } : {}), ...(p.hooks ? { wrote: fingerprint(collection, coll.get(target)) } : {}) });
         }
         // the writes beside the puts belong to the all or nothing: on their failure everything goes back
         if (p.hooks) {
@@ -1863,30 +1879,43 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         await takeBack(done, ctx, { force: true, shared: true });
         throw new CommandError("failed", say(`proposition non appliquée, rien n'a changé : ${(err as Error).message}`, `proposal not applied, nothing changed: ${(err as Error).message}`), { proposal: id });
       }
-      Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), ...(ctx.who ? { appliedBy: ctx.who } : {}) });
+      Object.assign(p, { status: "applied", applied: done, appliedAt: Date.now(), appliedSeq: ++applySeq, ...(ctx.who ? { appliedBy: ctx.who } : {}) });
       return { id, applied: done.length };
     },
   });
   reg.register({
     name: "show.revert",
     title: "Défaire une proposition",
-    description: "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed. show.apply applies it again (redo). A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows).",
+    description:
+      "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed; a put refused midway puts everything back as it was (nothing half undone). show.apply applies it again (redo), except a mode change (venue.fixture.mode), which is run again instead. A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows). A mode change is taken back only over objects unchanged since (`detail.changed` lists the others; overwrite: true takes it back over them), and never while a later mode change still applied wrote the same objects (`detail.blockedBy`: take that one back first).",
     right: "show:write",
     profiles: ["setup", "design"],
-    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells; take a mode change back over objects edited since"), shared: sharedFlag }),
-    run: async ({ id, force, shared }, ctx) => {
+    schema: z.object({
+      id: z.string(),
+      force: z.boolean().default(false).describe("put a canvas back even if looks of exact steps no longer line up with its cells"),
+      overwrite: z.boolean().default(false).describe("take a mode change back over objects edited since it"),
+      shared: sharedFlag,
+    }),
+    run: async ({ id, force, overwrite, shared }, ctx) => {
       const p = proposalOf(id);
       if (p.status !== "applied") throw new Error(say("proposition non appliquée : rien à défaire", "proposal not applied: nothing to take back"));
       p.hooks?.guard?.(); // made on another show or venue than the one open now: refused before anything moves
-      // a proposal with writes beside its puts (a mode change) is taken back only knowingly over what was edited since
-      if (p.hooks && !force) {
-        const changed = p.applied!.filter((a) => a.wrote !== undefined && fingerprint(a.collection, (DIFFABLE[a.collection] as Store).get(a.id)) !== a.wrote);
-        if (changed.length) {
-          const names = changed.map((a) => {
-            const now = (DIFFABLE[a.collection] as Store).get(a.id) as { name?: string } | undefined;
-            return `${now?.name ?? a.id} (${a.collection})`;
-          });
-          throw new CommandError("invalid", say(`changé depuis : ${names.join(", ")}. Le défaire remettrait leur état d'avant et perdrait ces modifications : force: true`, `changed since: ${names.join(", ")}. Taking it back would put their earlier state back and lose these edits: force: true`), { changed: names, force: true });
+      if (p.hooks) {
+        const storeOf = (a: Applied) => DIFFABLE[a.collection] as Store;
+        const changed = p.applied!.filter((a) => a.wrote !== undefined && fingerprint(a.collection, storeOf(a).get(a.id)) !== a.wrote);
+        const same = (a: Applied, b: Applied) => a.collection === b.collection && a.id === b.id;
+        // a later mode change still applied wrote these objects: taking this one back first would put back offsets of a
+        // mode the other fixture no longer has. Never forced: the later one goes back first
+        const later = [...proposals.values()].filter((q) => q !== p && q.status === "applied" && q.hooks && (q.appliedSeq ?? 0) > (p.appliedSeq ?? 0) && q.applied!.some((b) => changed.some((a) => same(a, b))));
+        if (later.length) {
+          const titles = later.map((q) => say(`« ${q.title ?? q.id} »`, `“${q.title ?? q.id}”`)).join(", ");
+          throw new CommandError("invalid", say(`défaire d'abord ${titles} : il a réécrit les mêmes objets depuis`, `take back ${titles} first: it rewrote the same objects since`), { blockedBy: later.map((q) => ({ id: q.id, title: q.title ?? q.id })) });
+        }
+        if (changed.length && !overwrite) {
+          const kind: Record<string, string> = { fixtures: say("appareil", "fixture"), looks: "look", faders: "fader", canvases: say("canevas", "canvas"), groups: say("groupe", "group") };
+          const list = changed.map((a) => ({ collection: a.collection, id: a.id, name: (storeOf(a).get(a.id) as { name?: string } | undefined)?.name ?? a.id }));
+          const said = list.map((c) => `${kind[c.collection] ?? c.collection} ${say(`« ${c.name} »`, `“${c.name}”`)}`).join(", ");
+          throw new CommandError("invalid", say(`changé depuis : ${said}. Le défaire remettrait leur état d'avant et perdrait ces modifications : overwrite: true`, `changed since: ${said}. Taking it back would put their earlier state back and lose these edits: overwrite: true`), { changed: list, overwrite: true });
         }
       }
       await takeBack(p.applied!, ctx, { force, shared });

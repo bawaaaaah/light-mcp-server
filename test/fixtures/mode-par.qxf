@@ -45,6 +45,14 @@
   <Capability Min="128" Max="245">Chase</Capability>
   <Capability Min="246" Max="255">No function</Capability>
  </Channel>
+ <Channel Name="Pulse">
+  <Group Byte="0">Effect</Group>
+  <Capability Min="0" Max="9">No function</Capability>
+  <Capability Min="10" Max="60">Pulse slow</Capability>
+  <Capability Min="61" Max="120">Pulse fast</Capability>
+  <Capability Min="121" Max="180">Pulse slow</Capability>
+  <Capability Min="181" Max="255">Pulse fast</Capability>
+ </Channel>
  <Mode Name="6 Channel">
   <Channel Number="0">Dimmer</Channel>
   <Channel Number="1">Red</Channel>
@@ -83,5 +91,6 @@
   <Channel Number="5">Green 1</Channel>
   <Channel Number="6">Blue 1</Channel>
   <Channel Number="7">Macro</Channel>
+  <Channel Number="8">Pulse</Channel>
  </Mode>
 </FixtureDefinition>

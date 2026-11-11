@@ -58,8 +58,11 @@ const quote = (s: string) => say(`« ${s} »`, `“${s}”`);
 export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, api: ShowCommandsApi, options: FixtureModeOptions = {}): void {
   const venue = show.venue;
   const { sharedWith = () => [], otherShows = () => [], place } = options;
-  /** The fixtures whose mode is being changed now (venue.fixture.mode awaits between its plan and its writes). */
-  const changing = new Set<string>();
+  /**
+   * A mode change running now (venue.fixture.mode awaits between its plan and its writes): one at a time, whatever
+   * the fixture — two fixtures may share a look, whose plan the second would read before the first writes it.
+   */
+  let changing: string | undefined;
 
   const layoutOf = (def: FixtureDefinition, mode: FixtureMode | undefined, overrides: Parameters<typeof headsOf>[2]): ModeLayout =>
     mode ? { channels: mode.channels, heads: new Map([...headsOf(def, mode, overrides).heads].map(([h, comps]) => [h, Object.values(comps)])) } : { channels: [], heads: new Map() };
@@ -105,12 +108,12 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
     run: async (args, ctx) => {
       if (args.dryRun) return changeMode(args, ctx);
       // one change at a time per fixture: a second one would be planned on the mode the first is replacing
-      if (changing.has(args.id)) throw new CommandError("invalid", say(`un changement de mode de ${args.id} est déjà en cours : attendre sa fin`, `a mode change of ${args.id} is already running: wait for it to end`));
-      changing.add(args.id);
+      if (changing !== undefined) throw new CommandError("invalid", say(`un changement de mode (${changing}) est déjà en cours : attendre sa fin`, `a mode change (${changing}) is already running: wait for it to end`));
+      changing = args.id;
       try {
         return await changeMode(args, ctx);
       } finally {
-        changing.delete(args.id);
+        changing = undefined;
       }
     },
   });
@@ -270,7 +273,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
     name: "fixture.channel.mode",
     title: "Mode de fonctionnement d'un canal",
     description:
-      "Sets a fixture channel cut into named functions to one of its working modes (venue.fixture.channels `modes`: « Auto », « Sound »…) and, when it has several, a variant (« Auto 2 »), by name: the value sent is the middle of the variant's range (the first variant when none is given; `value` inside the range for a continuous mode, a speed). The channel is given by offset or by name; `min` (the mode's first value) tells apart two modes of one name (« No function » at both ends): required then. Sent through the channel's own fader (created at its first touch, as fader.channel), highest takes precedence with the looks: when the output goes above the asked range at once, heldBy names the looks and other faders writing the channel higher; below it, blackout or clamps (the rules) say why. dca: the fader is dosed by a DCA, which scales the value sent.",
+      "Sets a fixture channel cut into named functions to one of its working modes (venue.fixture.channels `modes`: « Auto », « Sound »…) and, when it has several, a variant (« Auto 2 »), by name: the value sent is the middle of the variant's range (the first variant when none is given; `value` inside the range for a continuous mode, a speed). The channel is given by offset or by name; `min` (the mode's first value) tells apart two modes of one name (« No function » at both ends): required then. Sent through the channel's own fader (created at its first touch, as fader.channel), highest takes precedence with the looks: when the output goes above the asked range at once, heldBy names the looks and other faders writing the channel higher; below it, blackout or clamps (the rules) say why. dcas: the DCAs below full that dose the fader on this channel (its own; on a light channel, those covering the fixture), which scale the value sent; grandMaster when it holds the output below.",
     right: "show:write",
     profiles: ["setup", "design", "live"],
     schema: z
@@ -317,7 +320,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       const v = variantMin !== undefined ? sameName.find((x) => x.min === variantMin) : sameName[0];
       if (variant !== undefined && !v) throw new CommandError("invalid", say(`variante inconnue de ${quote(m.name)} : ${variant}. Variantes : ${m.variants.map((x) => x.name).join(", ")}`, `unknown variant of ${quote(m.name)}: ${variant}. Variants: ${m.variants.map((x) => x.name).join(", ")}`));
       if (value !== undefined && !m.continuous) throw new CommandError("invalid", say(`${quote(m.name)} n'est pas un mode continu : choisir une variante, pas une valeur`, `${quote(m.name)} is no continuous mode: choose a variant, not a value`));
-      const dmx = valueOf(m, v?.name, value);
+      const dmx = valueOf(m, v, value);
       const level = dmx / 255;
       // the channel's own fader, found or created by fader.channel (one logic), then set
       const fader = (await reg.invoke("fader.channel", { fixture, offset: at, name: `${r.patch.name} · ${chName}`, level }, ctx)) as { id: string; created: boolean; dca?: string };
@@ -327,17 +330,19 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       const universe = r.patch.universe;
       const output = engine.output.get(universe)[r.patch.address - 1 + at] ?? 0;
       const range = m.continuous && value !== undefined ? { min: dmx, max: dmx } : (v ?? m.variants[0]!);
-      const why = output < range.min || output > range.max ? show.explainChannel(universe, r.patch.address + at) : undefined;
-      const mine = why?.faders.find((x) => x.id === fader.id);
+      // read always: what doses this fader is said even when the output is in range (it may leave it at the next move of a DCA)
+      const why = show.explainChannel(universe, r.patch.address + at);
+      const mine = why.faders.find((x) => x.id === fader.id);
       // above the range: another writer, unless this very fader is still gliding down from higher (smoothing)
-      const above = why !== undefined && output > range.max && (mine?.sent ?? level) * 255 <= range.max + 0.5;
+      const above = output > range.max && (mine?.sent ?? level) * 255 <= range.max + 0.5;
       const higherFaders = above ? why.faders.filter((x) => x.id !== fader.id && x.effective * 255 > range.max) : [];
       // a fader whose level gives the output explains it: the looks writing the channel are named only when none does
       const fromFader = higherFaders.some((x) => Math.abs(x.effective * 255 - output) <= 1);
       const others = above ? { looks: fromFader ? [] : why.rawLooks, faders: higherFaders.map(({ id: fid, name }) => ({ id: fid, name })) } : undefined;
-      // the DCAs that really dose this fader on this channel (its own, and on a light channel those covering the fixture), as explainChannel says them
-      const dosing = mine?.dcas.map((d) => d.name) ?? [];
-      const dcaName = dosing.length ? dosing.join(", ") : fader.dca ? (show.groups.get(fader.dca)?.name ?? fader.dca) : undefined;
+      // the DCAs that really dose this fader on this channel (its own, and on a light channel those covering the fixture), as
+      // explainChannel says them: only those below full scale it down (a DCA at 100 % is not blamed)
+      const dcas = (mine?.dcas ?? []).filter((d) => d.own < 1).map((d) => d.name);
+      const below = output < range.min;
       return {
         fixture,
         offset: at,
@@ -349,8 +354,8 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         fader: fader.id,
         output,
         ...(others && (others.looks.length || others.faders.length) ? { heldBy: others } : {}),
-        ...(why && output < range.min ? { below: true, ...(engine.isBlackout() ? { blackout: true } : {}), ...(why.clamps.length ? { clamps: why.clamps } : {}) } : {}),
-        ...(dcaName ? { dca: dcaName } : {}),
+        ...(below ? { below: true, ...(engine.isBlackout() ? { blackout: true } : {}), ...(why.clamps.length ? { clamps: why.clamps } : {}), ...(mine?.grandMaster !== undefined && mine.grandMaster < 1 ? { grandMaster: mine.grandMaster } : {}) } : {}),
+        ...(dcas.length ? { dcas } : {}),
       };
     },
   });
