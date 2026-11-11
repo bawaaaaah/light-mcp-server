@@ -5,12 +5,12 @@
  * Hidden while there is nothing to decide.
  */
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { ApiError, cmd } from "../api";
+import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
 import { quoted } from "../typography";
-import { changedSince } from "./DmxModeSection";
+import { revertPass } from "./DmxModeSection";
 
 interface Preview {
   command: string;
@@ -48,10 +48,10 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
   const load = useCallback(() => void cmd<Proposal[]>("show.proposals").then(setList, () => setList([])), []);
   useEffect(load, [load]);
   useCommandEvents(["show.propose", "show.apply", "show.revert", "show.discard"], load);
-  const act = (name: string, id: string, overwrite = false) => {
+  const act = (name: string, id: string, pass: { overwrite?: true; force?: true; shared?: true } = {}) => {
     setError("");
     setNotice("");
-    void cmd<{ warnings?: string[] }>(name, { id, ...(overwrite ? { overwrite } : {}) }).then(
+    void cmd<{ warnings?: string[] }>(name, { id, ...pass }).then(
       (r) => {
         if (r?.warnings?.length) setNotice(t.fixtureMode.undoWarnings.replace("{list}", r.warnings.join(" ; ")));
         load();
@@ -59,10 +59,11 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
       },
       (e: Error) => {
         // a mode change edited since: taken back only on a yes that names what would be lost
-        const detail = e instanceof ApiError ? e.detail : undefined;
-        if (name === "show.revert" && !overwrite && Array.isArray(detail?.changed) && !detail.blockedBy) {
-          if (confirm(t.fixtureMode.revertChanged.replace("{list}", changedSince(t, detail.changed as { collection: string; name: string }[])))) return act(name, id, true);
-          return;
+        // a revert refused over edits made since or over a canvas: asked, then passed on a yes
+        if (name === "show.revert") {
+          const next = revertPass(t, e, pass);
+          if (next) return act(name, id, next);
+          if (next === null) return;
         }
         setError(e.message);
       },

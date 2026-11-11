@@ -3225,6 +3225,41 @@ test("show page: undoing a mode change edited since names what was edited and as
   expect(errors.filter((e) => !e.includes("commands/show.revert"))).toEqual([]); // the first undo is refused on purpose
 });
 
+test("venue: the menu's undo over a canvas enlarged since asks for each refusal, then goes through", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: modePar({ mode: "Pixel" }) });
+  await api(page, "venue.canvas.put", { canvas: { id: "mode-pix", name: "Pixels essai", topology: "line", cells: 2, render: [{ from: 0, to: 0, targets: [{ fixture: "mode-par", head: 0 }] }, { from: 1, to: 1, targets: [{ fixture: "mode-par", head: 1 }] }] } });
+  const mode = async () => ((await api(page, "venue.fixture.list")) as { id: string; mode: string }[]).find((f) => f.id === "mode-par")?.mode;
+  const asked: string[] = [];
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    await page.locator("tr", { hasText: "Par à modes" }).click({ button: "right" });
+    const section = page.getByRole("dialog", { name: "Réglages de l'appareil" }).locator("fieldset.dmx-mode");
+    // to 6 channels: the canvas loses its heads (forced on a yes)
+    page.once("dialog", (d) => void d.accept());
+    await section.getByRole("button", { name: /^6 Channel/ }).click();
+    await section.getByRole("region", { name: "Passer en « 6 Channel »" }).getByRole("button", { name: "Appliquer" }).click();
+    await expect.poll(mode).toBe("6 Channel");
+    // the canvas enlarged since, and a look of exact steps written on its three cells
+    await api(page, "venue.canvas.put", { canvas: { id: "mode-pix", name: "Pixels essai", topology: "line", cells: 3, render: [] }, force: true });
+    await api(page, "look.put", { look: { id: "mode-steps", name: "Pas exacts", canvas: "mode-pix", technique: { kind: "pas", steps: [["#ff0000", "#00ff00", "#0000ff"]] } } });
+    // the undo: edited since (one yes), then a canvas whose look no longer lines up (a second yes), then done
+    page.on("dialog", (d) => void (asked.push(d.message()), d.accept()));
+    await section.getByRole("button", { name: "↶ Défaire" }).click();
+    await expect.poll(mode).toBe("Pixel");
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toContain("Pixels essai");
+    expect(asked[1]).toContain("Défaire quand même ?");
+    await expect(section.getByRole("status")).toContainText("Changement de mode défait");
+  } finally {
+    await api(page, "look.delete", { id: "mode-steps", force: true });
+    await api(page, "venue.canvas.delete", { id: "mode-pix", force: true });
+    await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("commands/show.revert"))).toEqual([]); // the first two undos are refused on purpose
+});
+
 test("venue: the patch table names its columns", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

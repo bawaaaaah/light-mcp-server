@@ -55,6 +55,21 @@ export function changedSince(t: Texts, changed: readonly { collection: string; n
   return changed.map((c) => `${t.fixtureMode.kinds[c.collection] ?? c.collection} ${quoted(t, c.name)}`).join(", ");
 }
 
+/**
+ * Whether a refused show.revert can be passed on a yes, and how: edits made since (`changed`) by overwrite, a canvas
+ * whose looks of exact steps would no longer line up (`broken`, `shared`) by force. undefined: not one to pass (say
+ * the refusal); null: asked and declined (say nothing). A later mode change to undo first (`blockedBy`) is never passed.
+ */
+export function revertPass(t: Texts, e: unknown, pass: { overwrite?: true; force?: true; shared?: true }): { overwrite?: true; force?: true; shared?: true } | null | undefined {
+  const detail = e instanceof ApiError ? e.detail : undefined;
+  if (!detail || detail.blockedBy) return undefined;
+  if (Array.isArray(detail.changed) && !pass.overwrite) return confirm(t.fixtureMode.revertChanged.replace("{list}", changedSince(t, detail.changed as { collection: string; name: string }[]))) ? { ...pass, overwrite: true } : null;
+  const broken = Array.isArray(detail.broken) && detail.broken.length > 0;
+  const shared = Array.isArray(detail.shared) && detail.shared.length > 0;
+  if ((broken || shared) && !pass.force) return confirm(t.fixtureMode.revertBroken.replace("{reason}", (e as Error).message)) ? { ...pass, force: true, ...(shared ? { shared: true } : {}) } : null;
+  return undefined;
+}
+
 /** The last change made from a fixture's menu in this page, so that reopening the menu still offers its undo. */
 const lastChange = new Map<string, Done>();
 
@@ -151,29 +166,27 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     setPlan(null);
     setChoice(undefined);
   };
-  const undo = async (overwrite = false): Promise<void> => {
+  /** What show.revert may be told to pass: edits made since (overwrite), a canvas check (force, shared). */
+  type Pass = { overwrite?: true; force?: true; shared?: true };
+  const undo = async (pass: Pass = {}): Promise<void> => {
     if (!done?.proposal) return;
     setError("");
     try {
-      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal, ...(overwrite ? { overwrite } : {}) });
+      const r = await cmd<{ warnings?: string[] }>("show.revert", { id: done.proposal, ...pass });
       lastChange.delete(fixture.id);
       focusNext.current = "status";
       setNote([done.detached ? tm.undoneCopy : tm.undone, r.warnings?.length ? tm.undoWarnings.replace("{list}", r.warnings.join(" ; ")) : ""].filter(Boolean).join(" "));
       setDone(null);
       onSaved();
     } catch (e) {
-      // edited since the change: taken back only on a yes that names what would be lost
-      const detail = e instanceof ApiError ? e.detail : undefined;
-      if (!overwrite && Array.isArray(detail?.changed) && !detail.blockedBy) {
-        if (confirm(tm.revertChanged.replace("{list}", changedSince(t, detail.changed as { collection: string; name: string }[])))) return undo(true);
-        return;
-      }
-      // a later change to undo first is said as the server words it; any other refusal (gone, applied elsewhere): nothing left to undo here
-      if (!detail?.blockedBy) {
+      const next = revertPass(t, e, pass);
+      if (next) return undo(next);
+      // only a proposal the server no longer has applied is forgotten: a network error, a right, a refusal keep it to undo
+      if (e instanceof ApiError && e.detail?.gone) {
         lastChange.delete(fixture.id);
         setDone(null);
       }
-      setError((e as Error).message);
+      if (next !== null) setError((e as Error).message);
     }
   };
 
