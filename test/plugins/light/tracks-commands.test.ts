@@ -11,9 +11,9 @@ import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/ve
 type Tracks = {
   enabled: boolean;
   applies: "fixture" | "model" | "none";
-  channels: { name: string; kind: string; fade: boolean; from: string }[];
+  channels: { name: string; kind: string; fade: boolean }[];
   own: string[] | null;
-  model: { fade: string[] | null; ids: string[] };
+  model: { fade: string[] | null; ids: string[]; enabled: string[] };
   motion: { pan?: string; tilt?: string } | null;
 };
 
@@ -40,7 +40,7 @@ describe("fadeable tracks: commands (T5)", () => {
   it("reads a fixture's channels by kind, nothing enabled nor ticked at first", async () => {
     const { get } = await patched();
     const t = await get("bar-l");
-    expect([t.enabled, t.applies, t.own, t.model, t.motion]).to.deep.equal([false, "none", null, { fade: null, ids: ["bar-l", "bar-r"] }, null]);
+    expect([t.enabled, t.applies, t.own, t.model, t.motion]).to.deep.equal([false, "none", null, { fade: null, ids: ["bar-l", "bar-r"], enabled: [] }, null]);
     expect(t.channels.slice(0, 4).map((c) => [c.name, c.kind, c.fade])).to.deep.equal([
       ["Dimmer", "dimmer", false],
       ["Strobe", "other", false],
@@ -56,6 +56,7 @@ describe("fadeable tracks: commands (T5)", () => {
     // several fixtures enabled in one command
     await run("venue.tracks.put", { fixtures: ["bar-l", "bar-r"], enabled: true });
     expect([(await get("bar-l")).enabled, (await get("bar-r")).enabled]).to.deep.equal([true, true]);
+    expect((await get("bar-l")).model.enabled).to.deep.equal(["bar-l", "bar-r"]);
     const own = (await run("venue.tracks.put", { fixtures: ["bar-l"], fade: ["Dimmer"] })) as Tracks;
     expect([own.applies, ticked(own), own.own]).to.deep.equal(["fixture", ["Dimmer"], ["Dimmer"]]);
     expect(ticked(await get("bar-r"))).to.deep.equal(["Dimmer", "R1"]); // the other still follows the model

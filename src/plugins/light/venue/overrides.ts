@@ -59,7 +59,7 @@ export const TrackOverridesSchema = z
     enabled: z.boolean().optional(),
     fade: z.array(z.string().min(1)).max(128).optional(),
   })
-  .strict();
+  .strip();
 export type TrackOverrides = z.infer<typeof TrackOverridesSchema>;
 
 export const FixtureOverridesSchema = z.object({

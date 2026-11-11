@@ -22,6 +22,12 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     if ("error" in r) throw new Error(r.error);
     return r;
   };
+  /** The patched fixtures of a fixture's model (itself alone for a model without a key), and those whose tracks are enabled. */
+  const siblings = (f: { id: string; manufacturer: string; model: string }) => {
+    const key = keyOf(f);
+    const all = key ? venue.fixtures.list().filter((x) => keyOf(x) === key) : [venue.fixtures.get(f.id)!];
+    return { ids: all.map((x) => x.id), enabled: all.filter((x) => x.overrides?.tracks?.enabled).map((x) => x.id) };
+  };
   /** What a fixture's tracks are: the switch, each channel ticked or not and where the list comes from, and what the motion layer will read. */
   const view = (fixtureId: string) => {
     const r = resolved(fixtureId);
@@ -29,17 +35,19 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     const key = keyOf(f);
     const own = f.overrides?.tracks;
     const model = key ? venue.models.get(key)?.overrides.tracks : undefined;
-    const enabled = own?.enabled === true;
-    const fade = own?.fade ?? model?.fade;
+    // the merged part (venue/overrides.ts mergeOverrides): the fixture's switch, its list or its model's
+    const merged = venue.overridesOf(f).tracks;
+    const enabled = merged?.enabled === true;
+    const fade = merged?.fade;
     const applies = own?.fade ? ("fixture" as const) : model?.fade ? ("model" as const) : ("none" as const);
     const ticked = new Set(fade ?? []);
     return {
       fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode },
       enabled,
       applies,
-      channels: trackChannels(r).map((c) => ({ name: c.name, attribute: c.attribute, kind: c.kind, fade: ticked.has(c.name), from: applies })),
+      channels: trackChannels(r).map((c) => ({ name: c.name, attribute: c.attribute, kind: c.kind, fade: ticked.has(c.name) })),
       own: own?.fade ?? null,
-      model: { fade: model?.fade ?? null, ids: key ? venue.fixtures.list().filter((x) => keyOf(x) === key).map((x) => x.id) : [f.id] },
+      model: { fade: model?.fade ?? null, ...siblings(f) },
       motion: enabled ? (tracksOf(r.def, r.mode, { enabled: true, ...(fade ? { fade } : {}) })?.motion ?? {}) : null,
     };
   };
@@ -60,7 +68,7 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     name: "venue.tracks.get",
     title: "Pistes d'une fixture",
     description:
-      "A fixture's fadeable tracks (docs/specs/engine-effects-timing.md, « Pistes fondables »): enabled (on the fixture only: off, the engine works as it always did), each channel of its mode a user ticks (fine channels follow their coarse one and are left out) with its kind (dimmer, colour, position, wheel, other), whether it follows the transitions (fade; the others jump: at once on entry, at mid-fade in a crossfade, at the end on exit) and where the list comes from (applies: fixture, model or none), the fixture's own list and its model's (with the patched fixtures sharing the model, ids), and motion: per axis, what the motion layer will read (glide or cut, null while disabled; no effect until that layer exists). The colour wheel of a lamp always changes slot as venue.wheel.put says (at mid-fade or through black).",
+      "A fixture's fadeable tracks (docs/specs/engine-effects-timing.md, « Pistes fondables »): enabled (on the fixture only: off, the engine works as it always did), each channel of its mode a user ticks (fine channels follow their coarse one and are left out) with its kind (dimmer, colour, position, wheel, other), whether it follows the transitions (fade; the others jump: at once on entry, at mid-fade in a crossfade, at the end on exit) and where the list comes from (applies: fixture, model or none), the fixture's own list and its model's (with the patched fixtures sharing the model, ids, and those of them whose tracks are enabled), and motion: per axis, what the motion layer will read (glide or cut, null while disabled; no effect until that layer exists). The colour wheel of a lamp always changes slot as venue.wheel.put says (at mid-fade or through black).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
