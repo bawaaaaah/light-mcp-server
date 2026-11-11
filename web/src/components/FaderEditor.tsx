@@ -11,7 +11,8 @@ import { ChannelTree, type PickedChannel } from "./ChannelTree";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
-import { faderFunctions, functionOf } from "../fader-functions";
+import { faderFunctions, unfitted } from "../fader-functions";
+import { FunctionPicker } from "./FunctionPicker";
 
 export interface FaderDraft {
   id: string;
@@ -32,6 +33,8 @@ export interface FixtureChannels {
   type?: string;
   /** The fixture's marker colour (venue.fixture.mark). */
   color?: string;
+  /** Manufacturer and model (two models may cut a channel of the same name differently). */
+  model?: string;
   /** ranges: the named functions of a channel cut into several (a mode, a colour preset, a macro). */
   channels: { offset: number; name: string; attribute: string; color?: string; ranges?: { min: number; max: number; name: string }[] }[];
 }
@@ -58,15 +61,18 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
   // the named functions of the ticked channels (a gobo wheel, a preset, a macro): one picked by name
   // narrows the fader's travel to it, so the fader still moves inside it (a speed, often)
   const functions = faderFunctions(all, channels);
-  const current = functionOf(functions, range);
-  const [functionDraft, setFunctionDraft] = useState<string | null>(null);
-  const pickFunction = (label: string) => {
-    setFunctionDraft(label);
-    const f = functions.find((x) => x.label === label);
-    if (!f) return;
-    setRange({ min: f.min, max: f.max });
-    setFunctionDraft(null);
-  };
+  /** A limit being typed: kept as text until it is a number (an emptied field must not read 0, nor « 40 » become « 040 »). */
+  const [typing, setTyping] = useState<{ min?: string; max?: string }>({});
+  const limit = (key: "min" | "max") => ({
+    value: typing[key] ?? String(range[key]),
+    onChange: (e: { target: { value: string } }) => {
+      const text = e.target.value;
+      setTyping((d) => ({ ...d, [key]: text }));
+      const n = Number(text);
+      if (text.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 255) setRange((r) => ({ ...r, [key]: n }));
+    },
+    onBlur: () => setTyping((d) => ({ ...d, [key]: undefined })),
+  });
 
   const save = () => {
     if (!name.trim()) return setError(t.nameRequired);
@@ -87,33 +93,14 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
           <input value={name} onChange={(e) => setName(e.target.value)} />
           {isNew && name && <small>id : {id}</small>}
         </label>
-        {functions.length > 0 && (
-          <label className="field" title={t.faderFunctionHelp}>
-            <span>{t.faderFunction}</span>
-            <input
-              aria-label={t.faderFunction}
-              list="fader-functions"
-              placeholder={t.faderFunctionSearch}
-              value={functionDraft ?? current?.label ?? ""}
-              onChange={(e) => pickFunction(e.target.value)}
-              onBlur={() => setFunctionDraft(null)}
-            />
-            <datalist id="fader-functions">
-              {functions.map((f) => (
-                <option key={f.label} value={f.label} />
-              ))}
-            </datalist>
-            <small>{current ? t.faderFunctionTravel : range.min > 0 || range.max < 255 ? t.faderFunctionCustom : t.faderFunctionWhole}</small>
-          </label>
-        )}
         {/* as QLC+'s value range: the fader's whole travel covers low..high only */}
         <label className="field" title={t.rangeHelp}>
           <span>{t.rangeLow}</span>
-          <input type="number" min={0} max={255} value={range.min} onChange={(e) => setRange({ ...range, min: Math.max(0, Math.min(255, Number(e.target.value) || 0)) })} />
+          <input type="number" min={0} max={255} {...limit("min")} />
         </label>
         <label className="field" title={t.rangeHelp}>
           <span>{t.rangeHigh}</span>
-          <input type="number" min={0} max={255} value={range.max} onChange={(e) => setRange({ ...range, max: Math.max(0, Math.min(255, Number(e.target.value) || 0)) })} />
+          <input type="number" min={0} max={255} {...limit("max")} />
         </label>
         <label className="field">
           <span>{t.faderDca}</span>
@@ -130,6 +117,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
       </div>
       <p className="hint">{t.faderHelp}</p>
       <ChannelTree fixtures={all} groups={groups} selected={channels} onChange={setChannels} />
+      {channels.length > 0 && <FunctionPicker functions={functions} range={range} unfitted={unfitted(all, channels, range)} onPick={setRange} />}
       <p className="hint">
         {channels.length} {t.faderChannelCount}
       </p>

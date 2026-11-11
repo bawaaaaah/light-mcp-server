@@ -30,6 +30,8 @@ interface FaderRow {
   name: string;
   channels: { fixture: string; offset: number }[];
   level: number;
+  /** Set on a fader narrowed to part of the travel (a function, T12): not this panel's. */
+  range?: { min: number; max: number };
 }
 /** Levels of the smoothed faders still on their way (topic light:glide). */
 interface Glide {
@@ -75,8 +77,8 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   useCommandEvents(["position.", "panic", "show.", "fader.", "venue.fixture."], read);
   const glide = useTopic<Glide>("light:glide", { faders: {} });
 
-  /** The channel faders that drive this fixture only, by channel offset. */
-  const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id).map((f) => [f.channels[0]!.offset, f]));
+  /** The channel faders that drive one channel of this fixture over its whole travel, by channel offset (as fader.channel finds them). */
+  const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !f.range).map((f) => [f.channels[0]!.offset, f]));
   const head = heads.find((h) => h.id === fixture.id);
   const may = (right: string) => (me ? can(me, right) : false);
 
@@ -99,7 +101,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
     if (fixture.absent || !patch) return;
     setLevels((l) => ({ ...l, [c.offset]: level }));
     // the gesture shows at once on this channel's fader, like the dashboards
-    setFaders((fs) => fs.map((x) => (x.channels.length === 1 && x.channels[0]!.fixture === fixture.id && x.channels[0]!.offset === c.offset ? { ...x, level } : x)));
+    setFaders((fs) => fs.map((x) => (x.channels.length === 1 && x.channels[0]!.fixture === fixture.id && x.channels[0]!.offset === c.offset && !x.range ? { ...x, level } : x)));
     const created = working.current.get(c.offset);
     if (created) {
       created.pending = level;

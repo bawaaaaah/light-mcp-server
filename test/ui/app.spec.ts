@@ -3475,28 +3475,45 @@ test("channel fader editor: a function picked by name narrows the fader to it (T
   await page.locator("nav.pages button", { hasText: "Show" }).click();
   await page.getByRole("button", { name: "+ Nouveau fader de canaux" }).click();
   const editor = page.locator(".fader-editor");
+  const picker = editor.locator(".function-picker");
   await editor.getByLabel("Nom", { exact: true }).fill("Roue lyre");
-  await expect(editor.getByLabel("Fonction", { exact: true })).toHaveCount(0); // no channel ticked yet: nothing to pick from
+  await expect(picker).toHaveCount(0); // no channel ticked yet: nothing to pick from
   await editor.getByLabel("Chercher (nom ou adresse)").fill("Lyre");
   await editor.getByLabel("Même canal partout").selectOption("Color Wheel");
   await editor.getByRole("button", { name: "Cocher partout" }).click();
-  // the wheel's functions by name, searchable: picking one sets the travel to its range
-  const field = editor.getByLabel("Fonction", { exact: true });
-  await expect(editor.locator("datalist#fader-functions option")).toHaveCount(6);
-  await field.fill("Red (16–31)");
+  // the wheel's functions as buttons, found by a search that ignores case and dash kind
+  await expect(picker.getByRole("status")).toHaveText("toute la course (0–255)");
+  await picker.getByRole("searchbox", { name: "Chercher une fonction (gobo, macro…)" }).fill("red (16-31)");
+  await expect(picker.locator(".function-list button")).toHaveCount(2); // the whole travel, and Red
+  await picker.getByRole("button", { name: "Red (16–31)" }).click();
   await expect(editor.getByLabel("Borne inférieure")).toHaveValue("16");
   await expect(editor.getByLabel("Borne supérieure")).toHaveValue("31");
-  await expect(editor.getByText("le fader parcourt cette fonction seulement")).toBeVisible();
+  await expect(picker.getByRole("status")).toHaveText("Red (16–31) — le fader parcourt cette fonction seulement");
+  await expect(picker.getByRole("button", { name: "Red (16–31)" })).toHaveAttribute("aria-pressed", "true");
+  // a limit typed by hand: an emptied field stays empty, « 20 » is not « 020 », the range becomes custom
+  const low = editor.getByLabel("Borne inférieure");
+  await low.fill("");
+  await expect(low).toHaveValue("");
+  await low.fill("20");
+  await expect(low).toHaveValue("20");
+  await expect(picker.getByRole("status")).toHaveText("intervalle sur mesure");
+  await picker.getByRole("button", { name: "Red (16–31)" }).click();
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
   const saved = ((await api(page, "fader.list")) as { id: string; range?: unknown }[]).find((f) => f.id === "roue-lyre")!;
   expect(saved.range).toEqual({ min: 16, max: 31 });
-  // reopened, the field names the function; a limit moved by hand makes it a custom range
+  // reopened it names the function; « the whole travel » takes it back off
   await page.getByRole("button", { name: "Modifier Roue lyre" }).click();
-  await expect(page.locator(".fader-editor").getByLabel("Fonction", { exact: true })).toHaveValue("Red (16–31)");
-  await page.locator(".fader-editor").getByLabel("Borne inférieure").fill("20");
-  await expect(page.locator(".fader-editor").getByLabel("Fonction", { exact: true })).toHaveValue("");
-  await expect(page.locator(".fader-editor").getByText("intervalle sur mesure")).toBeVisible();
+  const again = page.locator(".fader-editor .function-picker");
+  await expect(again.getByRole("status")).toHaveText("Red (16–31) — le fader parcourt cette fonction seulement");
+  await again.getByRole("button", { name: "Toute la course (0–255)" }).click();
+  await expect(page.locator(".fader-editor").getByLabel("Borne supérieure")).toHaveValue("255");
+  // a second channel without that function: the single range would bound it too, and it is named
+  await again.getByRole("button", { name: "Red (16–31)" }).click();
+  await page.locator(".fader-editor").getByLabel("Chercher (nom ou adresse)").fill("bar");
+  await page.locator(".fader-editor").getByLabel("Même canal partout").selectOption("Strobe");
+  await page.locator(".fader-editor").getByRole("button", { name: "Cocher partout" }).click();
+  await expect(page.locator(".fader-editor .function-picker").getByRole("alert")).toContainText("Bar 0 · Strobe");
   page.once("dialog", (d) => void d.accept());
   await page.locator(".fader-editor").getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator("tr", { hasText: "Roue lyre" })).toHaveCount(0);

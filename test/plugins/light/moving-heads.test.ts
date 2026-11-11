@@ -451,6 +451,11 @@ describe("a head driven by the command layer (the pad's path)", () => {
     expect(made.level).to.be.closeTo(now, 0.001); // created at what the channel has now: nothing switches off
     const again = (await run("fader.channel", { fixture: "cheap", offset: 2, level: 0.2 })) as { id: string; level: number; created: boolean };
     expect([again.id, again.created, again.level]).to.deep.equal([made.id, false, made.level]); // found, left as it is
+    // a fader narrowed to a function of the channel (T12) is not the channel's own: another one is made
+    await run("fader.put", { fader: { id: "roue-verte", name: "Roue verte", channels: [{ fixture: "spot", offset: 4 }], level: 0, range: { min: 32, max: 47 } } });
+    const free = (await run("fader.channel", { fixture: "spot", offset: 4 })) as { id: string; created: boolean };
+    expect([free.id, free.created]).to.deep.equal(["panel-spot-4", true]);
+    for (const id of ["roue-verte", "panel-spot-4"]) await run("fader.delete", { id, force: true });
     const asked = (await run("fader.channel", { fixture: "cheap", offset: 1, level: 0.4 })) as { level: number };
     expect(asked.level).to.equal(0.4);
     let refused = "";

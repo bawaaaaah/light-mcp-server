@@ -87,7 +87,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ### T12 — Choix du type de projecteur : canaux disponibles
 - À la sélection d'un type, n'afficher que les **modes et canaux de ce type** (pas tous les canaux de toutes les définitions).
 - **Précisé (2026-11-11)** : il s'agit de placer un **fader** sur un canal à fonctions (gobos, macros, presets) : chercher la fonction par son nom dans une liste, et que le fader reste dans cette fonction pour régler la valeur à l'intérieur (souvent une vitesse).
-- **Fait (2026-11-11)** : champ « Fonction » à recherche dans l'éditeur de fader de canaux ; choisir une fonction règle l'intervalle (`range`) sur sa plage, bornes encore modifiables. Spec [groups-masters](specs/groups-masters.md), « Fader de canaux » ; tests `test/fader-functions.test.ts` et parcours UI.
+- **Fait (2026-11-11)** : section « Fonction » dans l'éditeur de fader de canaux (recherche + liste en boutons, « Toute la course » pour revenir, modèle en préfixe, avertissement pour les canaux que l'intervalle ne recouvre pas) ; choisir une fonction règle l'intervalle (`range`) sur sa plage, bornes encore modifiables. Reprise après une revue Fable et un essai d'interface Opus le même jour. Spec [groups-masters](specs/groups-masters.md), « Fader de canaux » ; tests `test/fader-functions.test.ts` et parcours UI.
 
 ### T13 — Gestion des canevas
 - Éditer un canevas existant, y ajouter ou en retirer des éléments, plus facilement (sélection multiple, glisser, suppression directe, annuler/rétablir).

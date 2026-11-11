@@ -115,7 +115,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
     description:
-      "Channels of each patched fixture (with its universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
+      "Channels of each patched fixture (with its model, universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -131,7 +131,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
                 const caps = ch?.capabilities ?? [];
                 return { offset, name, attribute: ch?.attribute ?? "other", ...(ch?.color ? { color: ch.color } : {}), ...(caps.length > 1 ? { ranges: caps.map(({ min, max, name: n }) => ({ min, max, name: n })) } : {}) };
               });
-        return { id: f.id, name: f.name, universe: f.universe, address: f.address, ...(f.color ? { color: f.color } : {}), ...("error" in r ? {} : { type: r.def.type }), channels };
+        return { id: f.id, name: f.name, model: `${f.manufacturer} ${f.model}`, universe: f.universe, address: f.address, ...(f.color ? { color: f.color } : {}), ...("error" in r ? {} : { type: r.def.type }), channels };
       }),
   });
   reg.register({
@@ -709,12 +709,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
-    description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else, or creates one (id panel-<fixture>-<offset>, at `level`; without one, so that creating it switches nothing off: at 1 on the master dimmer of a colour fixture, which such a fader doses, else at the value the channel has on the output now). An existing one is left as it is: move it with fader.level.",
+    description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else over its whole travel (one narrowed to a function is not reused), or creates one (id panel-<fixture>-<offset>, at `level`; without one, so that creating it switches nothing off: at 1 on the master dimmer of a colour fixture, which such a fader doses, else at the value the channel has on the output now). An existing one is left as it is: move it with fader.level.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
     run: ({ fixture, offset, name, level }) => {
-      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset);
+      // only a fader over the whole travel is this channel's: one narrowed to a function (T12) is something else
+      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset && !f.range);
       if (own) return { ...own, created: false };
       checkChannels([{ fixture, offset }]);
       const patch = venue.fixtures.get(fixture)!;

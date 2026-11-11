@@ -2854,3 +2854,31 @@ fieldset.checklist .checklist-search {
 
 /* An absent fixture on the stage plan: dimmed, but still selectable and draggable. */
 .stage-plan .fixture.absent { opacity: 0.45; }
+
+/* the channel fader's function picker (T12): a search, then the functions as buttons that wrap */
+.function-picker {
+  display: grid;
+  gap: 0.4em;
+  margin-block: 0.6em;
+}
+.function-picker h4 {
+  margin: 0;
+}
+.function-picker .status {
+  margin: 0;
+  font-weight: 600;
+}
+.function-picker .function-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  max-height: 14em;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.function-picker .function-list button.chosen {
+  border-color: var(--accent);
+  color: var(--accent);
+}
