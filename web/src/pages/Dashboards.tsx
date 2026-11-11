@@ -401,7 +401,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `mine` is a new closure on every render; the list is filtered once, when the page opens (the role does not change under it)
   }, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets", "show.settings", "show.folder"], refresh);
+  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets", "show.settings", "show.folder", "show.apply", "show.revert"], refresh);
   // an effective level read while the group still glided is stale (a fader left at 5 % kept showing
   // the 43 % it had half-way there): the topic announces the gliders still running, so a group that
   // leaves it has landed — read its effective level then, not once the last glide of the page ended

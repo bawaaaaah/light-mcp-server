@@ -302,7 +302,7 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
-      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader or dashboard: what history.undo takes (with the line's at and until) to put it back as it was.",
+      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on, and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader, dashboard or canvas: what history.undo takes (with the line's at and until) to put it back as it was. collection, on a history.restore or history.undo line: the collection it acted on (such a line on a canvas has an undo too).",
       right: "show:write",
       readOnly: true,
       profiles: ["setup", "design", "live"],

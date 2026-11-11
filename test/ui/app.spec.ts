@@ -90,7 +90,7 @@ test("signs in with the token by default, and the menu bar's token link signs in
   await page.goto("/#token=ui-test-token");
   await expect(page.locator(".role")).toHaveText("Administrateur du lieu");
   expect(page.url()).not.toContain("ui-test-token");
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("share link: Settings builds it from a user and a PIN, and it signs in as that user", async ({ page }) => {
@@ -133,7 +133,7 @@ test("share link: Settings builds it from a user and a PIN, and it signs in as t
   await page.goto("about:blank");
   await page.goto(link.replace("5678", "0001"));
   await expect(page.getByText(/PIN incorrect/)).toBeVisible();
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("AI connection page: the token holder gets ready-to-paste snippets, a volunteer has no such page", async ({ page }) => {
@@ -150,7 +150,7 @@ test("AI connection page: the token holder gets ready-to-paste snippets, a volun
   await expect(page.locator("form.token-login")).toBeVisible();
   await login(page, "5678");
   await expect(page.locator("nav.pages button", { hasText: "Connexion IA" })).toHaveCount(0);
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("files: a new show opens on every screen, keeps backups, resets, and the first show comes back", async ({ page }) => {
@@ -246,7 +246,7 @@ test("users: the administrator adds a user with a PIN and a security key, who th
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.locator(".users-table tr", { hasText: "Régie test" }).getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".users-table")).not.toContainText("Régie test");
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("guided import: a .qxf added from the browser, then a QLC+ workspace into a new show of its own", async ({ page }) => {
@@ -279,7 +279,7 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   await reloaded;
   await expect(page.locator("header .show-name")).toHaveText("Show");
   await api(page, "show.delete", { id: "autre-salle" });
-  const refused = errors.findIndex((e) => e.includes("422")); // the refused duplicate is one 422 on purpose
+  const refused = errors.findIndex((e) => e.includes("status of 422")); // the refused duplicate is one 422 on purpose
   expect(errors.filter((_, i) => i !== refused)).toEqual([]);
 });
 
@@ -859,7 +859,7 @@ test("roles: a volunteer sees only Live and their account; a right taken away gr
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.getByLabel("Bénévole · Panic").check();
   await expect(page.getByLabel("Bénévole · Panic")).toBeChecked();
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("my account: signed in with the token, create my administrator account, then add my security key", async ({ page }) => {
@@ -889,7 +889,7 @@ test("my account: signed in with the token, create my administrator account, the
   await page.locator("nav.pages button", { hasText: "Réglages" }).click();
   await page.locator(".users-table tr", { hasText: "Moi" }).getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".users-table")).not.toContainText("Moi");
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("colours: a button gets a colour from its menu, or its look's own (auto), and lights up in it", async ({ page }) => {
@@ -936,7 +936,7 @@ test("a rule that asks first: pressing a look it would bound asks, and plays on 
     await api(page, "rule.delete", { where: "show", id: "demande" });
     await api(page, "look.stopall");
   }
-  expect(errors.filter((e) => !e.includes("422"))).toEqual([]); // the question comes as a 422: the browser logs it
+  expect(errors.filter((e) => !e.includes("status of 422"))).toEqual([]); // the question comes as a 422: the browser logs it
 });
 
 test("a button to confirm: the first press arms it, the second plays; stopping never asks", async ({ page }) => {
@@ -1253,7 +1253,7 @@ test("refuses a wrong PIN, then logs in", async ({ page }) => {
   await page.locator("form.pin-login button").click();
   await expect(page.locator(".role")).toHaveText("Régisseur");
   await expect(page.locator(".dot.ok")).toBeVisible(); // WebSocket connected
-  expect(errors.filter((e) => !e.includes("401"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401"))).toEqual([]);
 });
 
 test("live dashboard: a look button lights the fixtures, panic blacks out", async ({ page }) => {
@@ -1737,7 +1737,7 @@ test("canvas editor: keyboard alone picks and moves; a drag moves; a look of exa
     await api(page, "look.delete", { id: "test-edit-look", force: true });
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
   }
-  expect(errors.filter((e) => !e.includes("400"))).toEqual([]); // the refusals that ask about the look come as a 400: the browser logs them
+  expect(errors.filter((e) => !e.includes("status of 400"))).toEqual([]); // the refusals that ask about the look come as a 400: the browser logs them
 });
 
 test("canvas editor: a drag let go away from the strip or ended by Escape moves nothing; a burst of keys loses no gesture", async ({ page }) => {
@@ -1844,7 +1844,7 @@ test("canvas editor: a canvas deleted elsewhere is said gone and never comes bac
   } finally {
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true }).catch(() => undefined);
   }
-  expect(errors.filter((e) => !e.includes("422"))).toEqual([]); // the read of a canvas that is gone is refused: the browser logs it
+  expect(errors.filter((e) => !e.includes("status of 422"))).toEqual([]); // the read of a canvas that is gone is refused: the browser logs it
 });
 
 test("canvas editor: a mirrored mask cannot follow its squares; adapting the others then forcing it keeps them adapted", async ({ page }) => {
@@ -1874,7 +1874,7 @@ test("canvas editor: a mirrored mask cannot follow its squares; adapting the oth
     await api(page, "look.delete", { id: "test-edit-mirror", force: true });
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
   }
-  expect(errors.filter((e) => !e.includes("400"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 400"))).toEqual([]);
 });
 
 test("canvas editor on a phone: the question about the looks shows on screen, takes the focus, and Escape cancels it", async ({ page }) => {
@@ -1920,7 +1920,7 @@ test("canvas editor on a phone: the question about the looks shows on screen, ta
     await api(page, "look.delete", { id: "test-edit-look", force: true });
     await api(page, "venue.canvas.delete", { id: "test-edit", force: true });
   }
-  expect(errors.filter((e) => !e.includes("400"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 400"))).toEqual([]);
 });
 
 test("show page: between buttons, the last one started covers, or the highest value", async ({ page }) => {
@@ -2957,7 +2957,7 @@ test("venue: the fixture menu checks a move before sending it, opens from the pl
     await api(page, "venue.fixture.put", { fixture: { ...f, universe: 1, address: 16 } });
     await api(page, "venue.fixture.delete", { id: "gone-fx", force: true });
   }
-  expect(errors.filter((e) => !e.includes("409"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 409"))).toEqual([]);
 });
 
 test("venue: the patch table names its columns", async ({ page }) => {
@@ -3021,7 +3021,7 @@ test("a session closed on the server sends the page back to sign-in, with the re
   await expect(page.locator("form.pin-login")).toBeVisible();
   await expect(page.getByText(/Session terminée/)).toBeVisible();
   // the browser itself logs the refused requests and a socket whose ticket predates the sign-out
-  expect(errors.filter((e) => !e.includes("401") && !e.includes("WebSocket connection"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 401") && !e.includes("WebSocket connection"))).toEqual([]);
 });
 
 test("a Panic pressed by mistake is undone with « Revenir », within the minute", async ({ page }) => {
@@ -5427,7 +5427,7 @@ test("preview before launch: a confirm rule shows its native dialog after Lancer
     await api(page, "rule.delete", { where: "show", id: "demande" });
     await api(page, "look.stopall");
   }
-  expect(errors.filter((e) => !e.includes("422"))).toEqual([]);
+  expect(errors.filter((e) => !e.includes("status of 422"))).toEqual([]);
 });
 
 test("preview before launch: the preview toggle is absent for a read-only role", async ({ page }) => {

@@ -148,7 +148,7 @@ export function ShowPage(): ReactElement {
       .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "song.grid_fill", "snapshot."], refresh);
+  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot."], refresh);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
 
   const themes = useMemo(() => themesOf(knowledge), [knowledge]);

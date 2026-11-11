@@ -362,7 +362,7 @@ describe("canvas commands: edit, checked put, versions", () => {
     const p = (await run("show.propose", { changes: [edit([{ op: "set", name: "Mur" }]), edit([{ op: "set", notes: "n" }])] })) as { valid: boolean; preview: { valid: boolean; issues?: string[] }[] };
     expect(p.valid).to.equal(false);
     expect(p.preview.map((x) => x.valid)).to.deep.equal([true, false]);
-    expect(p.preview[1]!.issues![0]).to.contain("regrouper dans une seule édition");
+    expect(p.preview[1]!.issues![0]).to.contain("un seul changement par canevas");
     const mixed = (await run("show.propose", { changes: [{ command: "venue.canvas.put", args: { canvas: { ...canvas(), name: "Mur" } } }, edit([{ op: "set", notes: "n" }])] })) as { valid: boolean };
     expect(mixed.valid).to.equal(false);
     // grouped in one edit, it applies

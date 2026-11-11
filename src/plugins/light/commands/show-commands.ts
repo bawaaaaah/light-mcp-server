@@ -1700,7 +1700,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "show.propose",
     title: "Proposer des changements",
     description:
-      "Holds several changes (put commands and their arguments, as show.diff takes them) as one proposal, nothing written: each is checked and described field by field. Someone who may write applies it all or nothing (show.apply, or the Show page), show.revert takes it back together. For an AI client: propose, show the user what it does, apply on their yes — or leave it for them in the interface.",
+      "Holds several changes (put commands and their arguments, as show.diff takes them) as one proposal, nothing written: each is checked and described field by field. One change per canvas (a whole put, or one venue.canvas.edit with several operations). Someone who may write applies it all or nothing (show.apply, or the Show page), show.revert takes it back together. For an AI client: propose, show the user what it does, apply on their yes — or leave it for them in the interface.",
     right: "show:propose",
     profiles: ["setup", "design"],
     schema: z.object({ changes: z.array(ChangeSchema).min(1).max(50), title: z.string().max(200).optional() }),
@@ -1711,7 +1711,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       changes.forEach((c, k) => {
         const p = preview[k]!;
         if (!p.valid || p.collection !== "canvases") return;
-        if (canvasesSeen.has(p.id)) preview[k] = { command: c.command, valid: false, collection: "canvases", issues: [say(`le canevas ${p.id} est déjà changé par cette proposition : regrouper dans une seule édition (venue.canvas.edit prend plusieurs opérations)`, `canvas ${p.id} is already changed by this proposal: group it in one edit (venue.canvas.edit takes several operations)`)] };
+        if (canvasesSeen.has(p.id)) preview[k] = { command: c.command, valid: false, collection: "canvases", issues: [say(`un seul changement par canevas (${p.id} est déjà changé par cette proposition) : un put complet ou une édition à plusieurs opérations`, `one change per canvas (${p.id} is already changed by this proposal): a whole put or one edit with several operations`)] };
         canvasesSeen.add(p.id);
       });
       const invalid = preview.filter((x) => !x.valid);

@@ -104,7 +104,8 @@ export class ActivityLog {
     const target = targetOf(e.args, e.name);
     const of = e.name.startsWith("history.") ? (e.args as { collection?: unknown } | undefined)?.collection : undefined;
     const collection = typeof of === "string" ? of : undefined;
-    for (let i = this.entries.length - 1; i >= Math.max(0, this.entries.length - BURST_LOOKBACK); i--) {
+    // a restore or an undo is a line of its own: each one names the version it replaced, by its time
+    for (let i = this.entries.length - 1; !e.name.startsWith("history.") && i >= Math.max(0, this.entries.length - BURST_LOOKBACK); i--) {
       const x = this.entries[i]!;
       if (e.at - x.until > BURST_MS) break;
       if (x.name === e.name && x.who === e.who && x.origin === e.origin && x.target === target && x.collection === collection && x.ok === e.ok) {
