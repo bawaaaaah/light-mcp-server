@@ -128,6 +128,7 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
         </label>
         <SmoothingField value={smoothing} onChange={setSmoothing} />
       </div>
+      {dca && <p className="hint fader-dca">{t.faderDcaHelp}</p>}
       {range.min > range.max && (
         <p className="warn" role="alert">
           {t.rangeOrder}

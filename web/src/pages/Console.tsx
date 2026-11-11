@@ -22,10 +22,14 @@ interface Explain {
   /** `head`: the colour head it drives on a fixture with several (0-based); `accent`: that head is the halo. */
   fixture?: { id: string; name: string; offset: number; channel?: string; attribute?: string; definition: boolean; head?: number; accent?: true };
   /** A colour channel: the looks painting its head (or the whole fixture) now. */
-  paintingLooks?: { id: string; name: string }[];
-  intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number };
+  paintingLooks?: { id: string; name: string; level?: number }[];
+  /** Every DCA covering the fixture, each once: `own` is the factor multiplied; `dosesRaw` on its light channel (a raw write there is dosed). */
+  intensity?: { grandMaster: number; dcas: { id: string; name: string; own: number; effective: number }[]; factor: number; dosesRaw?: true };
+  /** The DCAs channel faders link to this light channel: they dose the looks writing it too. */
+  faderDcas?: { dcas: { id: string; name: string; own: number }[]; factor: number };
   faders: { id: string; name: string; level: number; dca?: string; effective: number }[];
-  rawLooks: { id: string; name: string; leaving?: true }[];
+  /** `level`: what the groups including the look give it on this fixture, when below 100 %. */
+  rawLooks: { id: string; name: string; leaving?: true; level?: number }[];
   clamps: { rule: string; name?: string; from: number; to: number }[];
   /** A lamp's colour wheel: the slot held (its real colour, two joined by « + » for a split slot), the colour asked and the gap between them (OKLab). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
@@ -118,7 +122,13 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         {why.intensity && !why.wheel && (
           <li>
             {t.whyIntensity}{t.colon} {t.grandMasterShort} {pct(why.intensity.grandMaster)}
-            {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.effective)}${d.effective !== d.own ? ` (${t.whyOwn} ${pct(d.own)})` : ""}`).join("")} = {pct(why.intensity.factor)}
+            {why.intensity.dcas.map((d) => ` × ${d.name} ${pct(d.own)}`).join("")} = {pct(why.intensity.factor)}
+            {why.intensity.dosesRaw ? ` (${t.whyRawDosed})` : ""}
+          </li>
+        )}
+        {why.faderDcas && (
+          <li className="why-fader-dcas">
+            {t.whyFaderDcas}{t.colon} {why.faderDcas.dcas.map((d) => `${d.name} ${pct(d.own)}`).join(" × ")} = {pct(why.faderDcas.factor)}
           </li>
         )}
         {why.faders.map((x) => (
@@ -129,12 +139,14 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         ))}
         {why.paintingLooks?.length ? (
           <li>
-            {t.whyPainting} {why.paintingLooks.map((l) => quoted(t, l.name)).join(", ")}
+            {t.whyPainting} {why.paintingLooks.map((l) => quoted(t, l.name) + (l.level !== undefined ? ` ${t.whyLookLevel.replace("{pct}", pct(l.level))}` : "")).join(", ")}
           </li>
         ) : null}
         {why.rawLooks.map((l) => (
           <li key={l.id}>
-            {t.whyRawLook} {quoted(t, l.name)}{l.leaving ? ` (${t.whyLeaving})` : ""}
+            {t.whyRawLook} {quoted(t, l.name)}
+            {l.leaving ? ` (${t.whyLeaving})` : ""}
+            {l.level !== undefined ? ` ${t.whyLookLevel.replace("{pct}", pct(l.level))}` : ""}
           </li>
         ))}
         {why.clamps.map((c, i) => (

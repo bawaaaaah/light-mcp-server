@@ -3226,6 +3226,76 @@ test("DMX console: « Pourquoi ce canal » names the zone or the halo and the lo
   expect(errors).toEqual([]);
 });
 
+// ---- DCAs dose a raw scene, through a parent reached twice, a linked fader and the grand master (T35)
+test("DCA: a raw scene follows its DCA once, a fader's DCA and the grand master, and the console says why", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  // a generic dimmer (a lamp, no .qxf) at 450, lit by a raw scene at 255
+  await api(page, "venue.fixture.put", { fixture: { id: "t35-lamp", name: "Lampe DCA", manufacturer: "Generic", model: "Generic", mode: "1 Channel", universe: 1, address: 450 } });
+  await api(page, "venue.canvas.put", { canvas: { id: "t35", name: "T35", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "t35-lamp", head: -1 }] }] } });
+  await api(page, "look.put", { look: { id: "t35-scene", name: "Scène lampe", canvas: "t35", technique: { kind: "aucune" }, channels: { targets: [{ fixture: "t35-lamp", offset: 0 }], steps: [[255]] } } });
+  const group = (id: string, name: string, level: number, members: { fixtures?: string[]; groups?: string[] }) =>
+    api(page, "group.put", { group: { id, name, members: { fixtures: members.fixtures ?? [], groups: members.groups ?? [], looks: [] }, master: { level, mute: false } } });
+  const lamp = async () => (await dmx(page))[449];
+  try {
+    await api(page, "look.go", { id: "t35-scene" });
+    await expect.poll(lamp).toBe(255);
+    // two sub-groups holding the lamp under one parent DCA at 50 %: the parent counts once (128, not 64)
+    await group("t35-a", "Sous A", 1, { fixtures: ["t35-lamp"] });
+    await group("t35-b", "Sous B", 1, { fixtures: ["t35-lamp"] });
+    await group("t35-parent", "DCA lampes", 0.5, { groups: ["t35-a", "t35-b"] });
+    await expect.poll(lamp).toBe(128);
+    // the grand master lowers it too
+    await api(page, "grandmaster.set", { level: 0.5 });
+    await expect.poll(lamp).toBe(64);
+    await api(page, "grandmaster.set", { level: 1 });
+    // a fader on the lamp, linked to another DCA at 50 %: the look writing the fader's channel follows that DCA
+    await group("t35-fader-dca", "DCA du fader", 0.5, {});
+    await api(page, "fader.put", { fader: { id: "t35-fader", name: "Fader lampe", channels: [{ fixture: "t35-lamp", offset: 0 }], level: 0, dca: "t35-fader-dca" } });
+    await expect.poll(lamp).toBe(64);
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    const fixture = page.getByRole("region", { name: "Lampe DCA" });
+    await fixture.getByRole("button", { name: "Pourquoi ce canal 450" }).click();
+    const why = page.getByRole("region", { name: "Pourquoi ce canal 450" });
+    await expect(why).toContainText("U1.450 = 64");
+    await expect(why).toContainText("grand master 100 % × Sous A 100 % × Sous B 100 % × DCA lampes 50 % = 50 %");
+    await expect(why).toContainText("gradateur ou couleur bruts : dosés par cette intensité");
+    await expect(why).toContainText("Looks sur ce canal, dosés aussi par le DCA lié à son fader : DCA du fader 50 % = 50 %");
+    await expect(why).toContainText("Look à canaux bruts « Scène lampe »");
+    await page.screenshot({ path: "test-results/t35-console-why.png" });
+  } finally {
+    await api(page, "grandmaster.set", { level: 1 });
+    await api(page, "look.stop", { id: "t35-scene" });
+    await api(page, "fader.delete", { id: "t35-fader", force: true });
+    for (const id of ["t35-parent", "t35-a", "t35-b", "t35-fader-dca"]) await api(page, "group.delete", { id, force: true });
+    await api(page, "look.delete", { id: "t35-scene", force: true });
+    await api(page, "venue.canvas.delete", { id: "t35" });
+    await api(page, "venue.fixture.delete", { id: "t35-lamp" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("DCA: the group editor, the fader editor and the raw channels say what a DCA doses (T35)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Show" }).click();
+  await page.getByRole("button", { name: "+ Nouveau groupe" }).click();
+  const editor = page.locator(".group-editor");
+  await editor.getByLabel("DCA", { exact: true }).check();
+  await expect(editor.locator(".dca-doses")).toContainText("Il compte une seule fois, même atteint par deux chemins");
+  await editor.screenshot({ path: "test-results/t35-group-editor.png" });
+  await editor.getByLabel("DCA", { exact: true }).uncheck();
+  await expect(editor.locator(".dca-doses")).toHaveCount(0); // said only where it applies
+  await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  // the raw channels of a look say which of them follow the DCAs
+  await page.getByRole("button", { name: "+ Nouveau look" }).click();
+  const look = page.locator(".look-editor").last();
+  await look.getByLabel("Canaux bruts (machines, lampes)").check();
+  await expect(look.locator(".raw-dca")).toContainText("Un gradateur ou une couleur bruts suivent le grand master et les DCA de leur projecteur");
+  expect(errors).toEqual([]);
+});
+
 // ---- DMX console: the built-in Reset protection and a voluntary reset (T22)
 test("DMX console: a Reset channel stays at rest, says why, and « Réinitialiser l'appareil » resets that fixture", async ({ page }) => {
   const errors = watchErrors(page);

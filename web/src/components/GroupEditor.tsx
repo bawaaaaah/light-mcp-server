@@ -139,6 +139,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           </>
         )}
       </div>
+      {g.master && <p className="hint dca-doses">{t.dcaDosesHelp}</p>}
       <textarea placeholder={t.notes} value={g.notes ?? ""} onChange={(e) => setG({ ...g, notes: e.target.value || undefined })} />
       <div className="row actions">
         <button className="primary" onClick={save}>

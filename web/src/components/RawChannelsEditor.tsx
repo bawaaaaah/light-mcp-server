@@ -46,6 +46,7 @@ export function RawChannelsEditor({ value, onChange }: { value?: LookChannelsDra
   return (
     <div className="raw-channels">
       <p className="hint">{t.rawChannelsHelp}</p>
+      <p className="hint raw-dca">{t.rawChannelsDcaHelp}</p>
       <div className="fields">
         <label className="field">
           <span>{t.fixture}</span>
