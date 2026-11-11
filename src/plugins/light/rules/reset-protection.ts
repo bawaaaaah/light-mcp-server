@@ -57,8 +57,10 @@ export function resetProtectionRule(): Rule {
 export const isBuiltinRule = (id: string): boolean => id === RESET_RULE_ID;
 
 /**
- * A maintenance range: a reset (its tag, which already weighs a QLC+ Reset* preset against the name:
- * qxf-import.ts, isResetCapability), the lamp switched on or off (its QLC+ preset or its name).
+ * A maintenance range: a range tagged `reset` (qxf-import.ts, isResetCapability, which weighs a QLC+
+ * Reset* preset against the range's and the channel's names: never « No reset » nor « Tilt reset
+ * off »), or the lamp switched on or off (its QLC+ preset or its name). The tag is checked first:
+ * capabilityKind would name a reset « Zoom preset » a beam range.
  */
 export function isMaintenance(c: Pick<FixtureCapability, "name" | "preset" | "color" | "tags">): boolean {
   return c.tags.includes("reset") || /^Lamp/.test(c.preset ?? "") || capabilityKind(c) === "maintenance";

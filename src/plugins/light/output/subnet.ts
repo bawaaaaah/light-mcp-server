@@ -47,15 +47,22 @@ export function onSubnet(ip: string, subnets: readonly Subnet[]): boolean {
 }
 
 /**
- * A broadcast address: the limited broadcast; on one of this machine's subnets, that subnet's
- * broadcast only (on a /8, 2.3.4.255 is an ordinary node); elsewhere, any x.x.x.255 (the usual /24
- * one of a network this machine is not on): a route given one sends to everybody, never to a node
- * that could fail to answer discovery. A /31 or /32 interface has no broadcast and decides nothing.
+ * A broadcast address: the limited broadcast or one of these subnets' broadcasts (on a /8,
+ * 2.3.4.255 is an ordinary node); else an x.x.x.255 out of these subnets (the usual /24 one of a
+ * network this machine is not on): a route given one sends to everybody, never to a node that could
+ * fail to answer discovery. A .255 on a /31 is that link's other end, a host. With no subnet that
+ * judges reach (none known, or only /32 interfaces), any x.x.x.255. Built on `localBroadcasts` and
+ * `outOfSubnet`, what output.status publishes (`outOfSubnet` left out when nothing judges), so the
+ * interface (web/src/broadcast.ts) judges exactly the same.
  */
 export function isBroadcast(ip: string, subnets: readonly Subnet[] = []): boolean {
-  if (ip === "255.255.255.255") return true;
-  const local = subnets.filter((s) => broadcastOf(s) !== undefined && onSubnet(ip, [s]));
-  return local.length ? local.some((s) => broadcastOf(s) === ip) : ip.endsWith(".255");
+  if (localBroadcasts(subnets).includes(ip)) return true;
+  return ip.endsWith(".255") && (!judgesReach(subnets) || outOfSubnet([ip], subnets).length > 0);
+}
+
+/** Whether these subnets say anything about reach: a /32 interface (host route, VPN end) holds one address and says nothing about the network beyond. */
+export function judgesReach(subnets: readonly Subnet[]): boolean {
+  return subnets.some((s) => prefixOf(s.netmask) < 32);
 }
 
 /** The broadcast addresses of these subnets, the limited broadcast first (what output.status publishes). */
@@ -67,7 +74,8 @@ export function localBroadcasts(subnets: readonly Subnet[]): string[] {
  * Of these addresses, those on none of the subnets: out of reach without a router. The limited
  * broadcast and the broadcast of a local subnet are never out; any other x.x.x.255 is judged as an
  * address (a remote network's broadcast is out of reach too). A /32 interface (host route, VPN end)
- * holds one address and says nothing about the network beyond: with only those, nothing is judged.
+ * holds one address and says nothing about the network beyond: with only those, nothing is judged
+ * (judgesReach).
  */
 export function outOfSubnet(ips: readonly string[], subnets: readonly Subnet[]): string[] {
   const judged = subnets.filter((s) => prefixOf(s.netmask) < 32);

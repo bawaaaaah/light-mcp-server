@@ -16,7 +16,7 @@ import { networkInterfaces } from "node:os";
 import { ARTNET_PORT, decodeDmx, decodePollReply, encodeDmx, encodePoll, encodeSync } from "./artnet.js";
 import { SendHealth, HEALTH_WINDOW_MS, type HostHealth } from "./send-health.js";
 import { NodeRegistry, artnetDestinations, coverage, type ArtnetRoute, type Coverage, type KnownNode } from "./artnet-discovery.js";
-import { broadcastOf, isBroadcast, localBroadcasts, outOfSubnet, subnetsOf, type Subnet } from "./subnet.js";
+import { broadcastOf, isBroadcast, judgesReach, localBroadcasts, outOfSubnet, subnetsOf, type Subnet } from "./subnet.js";
 import { SACN_PORT, encodeSacnData, multicastGroup } from "./sacn.js";
 import { DmxUsbOutputs, portPath, type DmxUsbKind } from "./dmx-usb.js";
 
@@ -75,14 +75,13 @@ const KEEPALIVE_MS = 1000;
 const POLL_MS = 3000;
 
 /** Broadcast address of the interface owning `address`, or the limited broadcast. */
-export function broadcastFor(address?: string): string {
-  const own = address && address !== "0.0.0.0" ? subnetsOf(networkInterfaces()).find((s) => s.address === address) : undefined;
+export function broadcastFor(address?: string, all: readonly Subnet[] = subnetsOf(networkInterfaces())): string {
+  const own = address && address !== "0.0.0.0" ? all.find((s) => s.address === address) : undefined;
   return (own && broadcastOf(own)) || "255.255.255.255";
 }
 
 /** The subnets a node can be reached on directly: the bound interface's, or every interface's when none is bound. */
-function reachableSubnets(bindAddress?: string): Subnet[] {
-  const all = subnetsOf(networkInterfaces());
+function reachableSubnets(all: readonly Subnet[], bindAddress?: string): readonly Subnet[] {
   const own = bindAddress && bindAddress !== "0.0.0.0" ? all.filter((s) => s.address === bindAddress) : [];
   return own.length ? own : all;
 }
@@ -127,7 +126,22 @@ export class OutputRouter {
     readonly usb: DmxUsbOutputs = new DmxUsbOutputs(null),
     /** Monotonic milliseconds for the send health, node expiry and the misdirected delay: a wall clock set back would freeze them. */
     private readonly clock: () => number = () => performance.now(),
+    /** This machine's IPv4 subnets (os.networkInterfaces() by default): a test gives its own. */
+    private readonly interfaces: () => readonly Subnet[] = () => subnetsOf(networkInterfaces()),
   ) {}
+
+  /**
+   * The subnets the output reaches directly (the bound interface's, else every interface's): coverage,
+   * `localBroadcasts` and `outOfSubnet` all judge on them, so the interface (web/src/broadcast.ts)
+   * tells a broadcast from a host as the server does.
+   */
+  private subnets(): readonly Subnet[] {
+    return reachableSubnets(this.interfaces(), this.config.bindAddress);
+  }
+
+  private broadcast(): string {
+    return broadcastFor(this.config.bindAddress, this.interfaces());
+  }
 
   private get artnetPort(): number {
     return this.config.artnetPort ?? ARTNET_PORT;
@@ -227,7 +241,7 @@ export class OutputRouter {
 
   poll(): void {
     if (!this.artnet || this.stats.discovery !== "active") return;
-    this.artnet.send(encodePoll(), this.artnetPort, broadcastFor(this.config.bindAddress));
+    this.artnet.send(encodePoll(), this.artnetPort, this.broadcast());
     const lost = this.registry.expire(this.clock());
     if (lost.length) this.nodeListener?.({ lost });
   }
@@ -296,7 +310,7 @@ export class OutputRouter {
   }
 
   private artnetHosts(route: ArtnetRoute): string[] {
-    return artnetDestinations(route, this.registry.outputsFor(route.portAddress), broadcastFor(this.config.bindAddress));
+    return artnetDestinations(route, this.registry.outputsFor(route.portAddress), this.broadcast());
   }
 
   /** Sends and errors per target host over the last HEALTH_WINDOW_MS, with the hosts that mostly fail. */
@@ -306,7 +320,7 @@ export class OutputRouter {
 
   /** Do the routes reach the nodes seen (artnet-discovery.ts coverage), with the delays and broadcast targets this router knows. */
   coverage(nowMs = this.clock()): Coverage {
-    const subnets = subnetsOf(networkInterfaces());
+    const subnets = this.subnets();
     return coverage(this.config.routes, this.registry.list(), {
       nowMs,
       ...(this.discoverySince === undefined ? {} : { discoverySince: this.discoverySince }),
@@ -315,14 +329,19 @@ export class OutputRouter {
     });
   }
 
-  /** The broadcast addresses of this machine's subnets (every interface, as coverage judges them), the limited broadcast first. */
+  /** Whether coverage takes this host for a broadcast (a broadcast target is never misdirected). */
+  isBroadcast(ip: string): boolean {
+    return isBroadcast(ip, this.subnets());
+  }
+
+  /** The broadcast addresses of the subnets the output reaches (as coverage judges them), the limited broadcast first. */
   localBroadcasts(): string[] {
-    return localBroadcasts(subnetsOf(networkInterfaces()));
+    return localBroadcasts(this.subnets());
   }
 
   /** The broadcast address Art-Net goes to from the bound interface. */
   broadcastAddress(): string {
-    return broadcastFor(this.config.bindAddress);
+    return this.broadcast();
   }
 
   /** The nodes seen, each with how long ago it answered (`seenAgoMs`) and that moment on the wall clock (`lastSeen`, epoch ms): the router's own clock is monotonic and means nothing outside it. */
@@ -330,9 +349,15 @@ export class OutputRouter {
     return this.registry.list().map(({ firstSeen: _first, lastSeen, ...rest }) => ({ ...rest, seenAgoMs: Math.max(0, Math.round(nowMs - lastSeen)), lastSeen: Math.round(wallMs - Math.max(0, nowMs - lastSeen)) }));
   }
 
-  /** Of these addresses, those on none of the subnets the output can reach directly: a node announcing one is out of reach without a router. A broadcast address is never one (it goes out on the interface). */
-  outOfSubnet(ips: readonly string[]): string[] {
-    return outOfSubnet(ips, reachableSubnets(this.config.bindAddress));
+  /**
+   * Of these addresses, those on none of the subnets the output can reach directly: a node announcing
+   * one is out of reach without a router. A broadcast address is never one (it goes out on the
+   * interface). Undefined when those subnets judge nothing (a bound /32): the interface then takes
+   * any x.x.x.255 for a broadcast, as coverage does.
+   */
+  outOfSubnet(ips: readonly string[]): string[] | undefined {
+    const subnets = this.subnets();
+    return judgesReach(subnets) ? outOfSubnet(ips, subnets) : undefined;
   }
 
   /** Where each routed universe goes now, by protocol: node IPs, the broadcast or the multicast address. */
@@ -379,7 +404,7 @@ export class OutputRouter {
     }
     if (sentAny) {
       this.stats.framesSent += 1;
-      if (this.config.artSync) this.send(this.artnet, encodeSync(), this.artnetPort, broadcastFor(this.config.bindAddress));
+      if (this.config.artSync) this.send(this.artnet, encodeSync(), this.artnetPort, this.broadcast());
     }
   }
 }

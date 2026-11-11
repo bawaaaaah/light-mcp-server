@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError, type Origin } from "../../../src/plugins/light/commands/registry.js";
-import { capabilityTags, parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
-import { holdAtRest, powerOnResets, RESET_ORIGINS, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, restValue, unprotectable } from "../../../src/plugins/light/rules/reset-protection.js";
+import { capabilityKind, capabilityTags, parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
+import { holdAtRest, isMaintenance, powerOnResets, RESET_ORIGINS, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, restValue, unprotectable } from "../../../src/plugins/light/rules/reset-protection.js";
 import type { ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
 /** A synthetic moving head: pan, tilt, dimmer, and a control channel whose top range resets it. */
@@ -31,9 +31,9 @@ const LAMP = `<?xml version="1.0" encoding="UTF-8"?>
 </FixtureDefinition>`;
 
 /** A one-channel definition from its ranges, as [min, max, name, preset?]: synthetic, shaped on real QLC+ cases. */
-function oneChannel(ranges: [number, number, string, string?][]) {
+function oneChannel(ranges: [number, number, string, string?][], channel = "Ctl") {
   const caps = ranges.map(([min, max, name, preset]) => `<Capability Min="${min}" Max="${max}"${preset ? ` Preset="${preset}"` : ""}>${name}</Capability>`).join("");
-  const def = parseQxf(`<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>One</Model><Type>Moving Head</Type><Channel Name="Ctl"><Group Byte="0">Maintenance</Group>${caps}</Channel><Mode Name="1"><Channel Number="0">Ctl</Channel></Mode></FixtureDefinition>`);
+  const def = parseQxf(`<?xml version="1.0" encoding="UTF-8"?><FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition"><Manufacturer>Test</Manufacturer><Model>One</Model><Type>Moving Head</Type><Channel Name="${channel}"><Group Byte="0">Maintenance</Group>${caps}</Channel><Mode Name="1"><Channel Number="0">${channel}</Channel></Mode></FixtureDefinition>`);
   const mode = def.modes[0]!;
   const fx = { def, mode, patch: { id: "x", universe: 1, address: 1 } } as unknown as ResolvedFixture;
   /** What the protection sends for each value written in turn, with one memory. */
@@ -46,7 +46,7 @@ function oneChannel(ranges: [number, number, string, string?][]) {
       return buf[0];
     });
   };
-  return { def, mode, fx, hold, ch: def.channels.get("Ctl")! };
+  return { def, mode, fx, hold, ch: def.channels.get(channel)! };
 }
 
 /** Two heads (control channels at DMX 4 and 24) on a plugin whose clock the test moves. */
@@ -264,6 +264,37 @@ describe("Reset channel protection (built-in locked rule)", () => {
     expect(capabilityTags("Reset P/T Fade Off")).to.not.include("reset");
     expect(capabilityTags("Reset LED Fade On")).to.not.include("reset");
     expect(capabilityTags("Reset / Lamp Off")).to.include("reset");
+  });
+
+  it("takes a Reset preset for a reset when the channel's name says so, and forgives a typo under the preset", () => {
+    // a channel « Reset » or « Special functions, reset »: its Reset* ranges are resets, whatever they are called
+    const reset = oneChannel([[0, 190, "No function"], [191, 205, "Zoom preset", "ResetZoom"], [206, 255, "(Above 200 Shortly)", "ResetAll"]], "Reset");
+    expect(reset.ch.capabilities.map((c) => c.tags.includes("reset"))).to.deep.equal([false, true, true]);
+    const special = oneChannel([[0, 20, "No function"], [21, 100, "PAN/TILT movement", "ResetPanTilt"], [101, 255, "Motor speed", "ResetAll"]], "Special functions, reset");
+    expect(special.ch.capabilities.map((c) => c.tags.includes("reset"))).to.deep.equal([false, true, false]); // never its rest nor a speed
+    expect(capabilityTags("PAN/TILT movement", "ResetPanTilt", "Special functions, reset")).to.include("reset");
+    expect(capabilityTags("No function", "ResetAll", "Reset")).to.not.include("reset");
+    expect(capabilityTags("", "ResetAll", "Reset")).to.not.include("reset");
+    expect(capabilityTags("PAN/TILT movement", "ResetPanTilt", "Control")).to.not.include("reset"); // the channel says nothing
+    expect(capabilityTags("PAN/TILT movement", undefined, "Reset")).to.not.include("reset"); // nor without the preset
+    expect(capabilityTags("Zoom preset", "ResetZoom", "Control")).to.not.include("reset"); // « preset » is no « reset »
+    // typos the preset vouches for
+    expect(capabilityTags("Resest All Functions", "ResetAll")).to.include("reset");
+    expect(capabilityTags("Rest pan/tilt", "ResetPanTilt")).to.include("reset");
+    expect(capabilityTags("Rest pan/tilt")).to.not.include("reset");
+    expect(capabilityTags("Rest", "Rotation")).to.not.include("reset");
+    expect(capabilityTags("Restaurant mode", "ResetAll")).to.not.include("reset");
+  });
+
+  it("keeps « No reset » and a reset switched off out of the maintenance ranges: the channel may rest there", () => {
+    expect(capabilityKind({ name: "Tilt reset off" })).to.not.equal("maintenance");
+    expect(capabilityKind({ name: "No reset" })).to.not.equal("maintenance");
+    expect(capabilityKind({ name: "XY motor resetting" })).to.equal("maintenance");
+    expect(capabilityKind({ name: "PAN movement", preset: "ResetPan", tags: ["reset"] })).to.equal("maintenance"); // as tagged by its channel
+    const ch = oneChannel([[0, 9, "No reset"], [10, 19, "Reset"], [20, 255, "Sound control"]]);
+    expect(isMaintenance(ch.ch.capabilities[0]!)).to.equal(false);
+    expect(restValue(ch.ch)).to.equal(0); // not 20: « Sound control » would start the sound mode
+    expect(ch.hold(15)).to.deep.equal([0]);
   });
 
   it("finds the neutral rest under a Reset preset that is no reset", () => {

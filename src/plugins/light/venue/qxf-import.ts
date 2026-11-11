@@ -103,7 +103,6 @@ const NAME_COLORS: [RegExp, ColorComponent][] = [
   [/\blime\b/i, "lime"],
 ];
 
-/** Deduces capability tags from names and presets; the user can correct them later. */
 /** The strobe frequency (Hz) a value sets, when its capability says; undefined otherwise. */
 export function strobeHz(v: number, ch: FixtureChannel): number | undefined {
   const cap = ch.capabilities.find((c) => c.hz && v >= c.min && v <= c.max);
@@ -121,10 +120,10 @@ export type CapabilityKind = (typeof CAPABILITY_KINDS)[number];
  * stop, off) is what a channel rests on: an allowlist never forbids it. Unknown ranges are « other »,
  * which an allowlist does not let through.
  */
-export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "color">): CapabilityKind | "neutral" | "other" {
+export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "color"> & { tags?: readonly CapabilityTag[] }): CapabilityKind | "neutral" | "other" {
   const p = c.preset ?? "";
   const n = c.name.trim();
-  if (/^(NoFunction|ShutterOpen|ShutterClose|PrismEffectOff|RotationStop|LampOn|LampOff)$/.test(p) || /^(no function|nothing|off|open|closed?|blackout|stop)$/i.test(n)) return "neutral";
+  if (isNeutral(n, p)) return "neutral";
   if (/^Color/.test(p) || c.color) return "colour";
   if (/^Intensity/.test(p)) return "intensity";
   if (/Strobe|Pulse|Ramp/.test(p) || /strobe/i.test(n)) return "strobe";
@@ -132,38 +131,52 @@ export function capabilityKind(c: Pick<FixtureCapability, "name" | "preset" | "c
   if (/^Prism/.test(p) || /prism/i.test(n)) return "prism";
   if (/^Beam/.test(p) || /zoom|focus|iris|frost/i.test(n)) return "beam";
   if (/^Rotation/.test(p)) return "rotation";
-  if (/^Lamp/.test(p) || (/^Reset/.test(p) && isResetCapability(n, p)) || /\b(reset|lamps?)\b/i.test(n)) return "maintenance";
+  // a reset as tagged (its channel's name weighed in), else as its own name and preset say: never « No reset » nor « Tilt reset off »
+  if (/^Lamp/.test(p) || (c.tags ? c.tags.includes("reset") : isResetCapability(n, p)) || /\blamps?\b/i.test(n)) return "maintenance";
   if (/Macro|Effect/.test(p) || /macro|effect|program|sound|auto/i.test(n)) return "effect";
   if (/Speed|SlowToFast|FastToSlow/.test(p) || /speed/i.test(n)) return "speed";
   return "other";
 }
 
+/** A range a channel rests on (no function, open, closed, stop, off), by its QLC+ preset or its name. */
+const isNeutral = (name: string, preset: string) =>
+  /^(NoFunction|ShutterOpen|ShutterClose|PrismEffectOff|RotationStop|LampOn|LampOff)$/.test(preset) || /^(no function|nothing|off|open|closed?|blackout|stop)$/i.test(name);
+
 /**
  * A range that resets the fixture: « reset », « resets » or « resetting » as a whole word (never
  * « Preset 1 », « Colour presets », « No reset », nor a setting switched off: « Tilt reset off »,
- * « Reset P/T fade off »), or a QLC+ Reset* preset under a name that says so too. The preset alone is
+ * « Reset P/T fade off »), or a QLC+ Reset* preset the names confirm. The preset alone is
  * unreliable: QLC+ definitions put ResetAll on « No function », « Nothing », « Shutdown », « Adjust
  * motor » or « Enable blackout while pan/tilt move », and ResetEffects on a whole « Motor speed »
- * channel. With a preset, the name must say reset (« Resetall » glued included), home, restore or
- * init, or be nothing but what is reset (« All », « Pan/Tilt », « Motors »). A wrong tag the name
- * cannot tell is a limit (docs/specs/rules-limits.md).
+ * channel. With a preset, the range's name must say reset (« Resetall » glued included, and typos
+ * the preset vouches for: « Resest all », « Rest pan/tilt »), home, restore or init, or be nothing
+ * but what is reset (« All », « Pan/Tilt », « Motors »); or the channel's name says reset (« Reset »,
+ * « Special functions, reset ») and the range is neither a resting one nor a speed (« (Above 200
+ * Shortly) », « PAN/TILT movement »). A wrong tag the names cannot tell is a limit
+ * (docs/specs/rules-limits.md).
  */
-function isResetCapability(name: string, preset?: string): boolean {
+function isResetCapability(name: string, preset?: string, channel?: string): boolean {
   if (/\breset\s*off\b|\breset\b.*\bfade\s*(off|on)\b/i.test(name)) return false;
   if (/\breset(s|ting)?\b/i.test(name)) return !/\bno[ -]?reset(s|ting)?\b/i.test(name);
-  if (!/^Reset/.test(preset ?? "")) return false;
+  const p = preset ?? "";
+  if (!/^Reset/.test(p)) return false;
   const n = name.trim();
-  return /reset|\bhome\b|\brestor|\binit/i.test(n) || /^(all|pan|tilt|motors?|all motors|pan\s*[/&,]?\s*tilt|p\s*\/\s*t)$/i.test(n);
+  if (/\breset|\bres+e?s?t\b|\bhome\b|\brestor|\binit/i.test(n) || /^(all|pan|tilt|motors?|all motors|pan\s*[/&,]?\s*tilt|p\s*\/\s*t)$/i.test(n)) return true;
+  return channel !== undefined && /\breset/i.test(channel) && n !== "" && !isNeutral(n, p) && !/speed/i.test(n);
 }
 
-export function capabilityTags(name: string, preset?: string): CapabilityTag[] {
+/**
+ * Deduces a range's tags from its name and QLC+ preset (and its channel's name, for a Reset*
+ * preset); the user can correct them later.
+ */
+export function capabilityTags(name: string, preset?: string, channel?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const haystack = `${name} ${preset ?? ""}`;
   if (/sound|music|audio/i.test(haystack)) tags.add("soundActive");
   if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
   if (/macro|built-?in/i.test(haystack)) tags.add("builtinMacro");
   if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
-  if (isResetCapability(name, preset)) tags.add("reset");
+  if (isResetCapability(name, preset, channel)) tags.add("reset");
   if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");
   return [...tags];
 }
@@ -215,7 +228,7 @@ function channelFrom(node: Record<string, unknown>): FixtureChannel {
     const res = (k: string) => (c[k] === undefined || c[k] === "" ? Number.NaN : Number(c[k]));
     const hz: [number, number] | undefined =
       capPreset === "StrobeFreqRange" && Number.isFinite(res("@_Res1")) && Number.isFinite(res("@_Res2")) ? [res("@_Res1"), res("@_Res2")] : capPreset === "StrobeFrequency" && Number.isFinite(res("@_Res1")) ? [res("@_Res1"), res("@_Res1")] : undefined;
-    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, ...(hex ? { color: hex.toLowerCase() } : {}), ...(hex2 ? { color2: hex2.toLowerCase() } : {}), ...(hz ? { hz } : {}), tags: capabilityTags(capName, capPreset) };
+    return { min: Number(c["@_Min"]), max: Number(c["@_Max"]), name: capName, preset: capPreset, ...(hex ? { color: hex.toLowerCase() } : {}), ...(hex2 ? { color2: hex2.toLowerCase() } : {}), ...(hz ? { hz } : {}), tags: capabilityTags(capName, capPreset, name) };
   });
 
   let attribute: FixtureChannel["attribute"] = "other";
