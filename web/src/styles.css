@@ -3346,6 +3346,7 @@ fieldset.checklist .checklist-search {
   .canvas-gap {
     box-shadow: none;
   }
+}
 
 /* the intentions of the Show page (T15): one line each, swatches, name, origin, uses, actions that wrap */
 .theme-picker .theme-origin {
