@@ -3149,8 +3149,8 @@ test("settings: choose a universe's outputs, Art-Net, sACN, DMX USB", async ({ p
   await row.getByRole("checkbox", { name: "sACN" }).check();
   await expect(page.getByLabel("Univers 2 · sACN")).toHaveValue("2"); // offered: the same number
   // a route saved with targets is sent to the chosen nodes only; the one chosen is listed, even unseen
-  await expect(row.getByRole("radio", { name: "nodes choisis" })).toBeChecked();
-  await expect(row.locator(".send-nodes li", { hasText: "127.0.0.2" })).toContainText("pas vu sur le réseau");
+  await expect(row.getByRole("radio", { name: "nodes choisies" })).toBeChecked();
+  await expect(row.locator(".send-nodes li", { hasText: "127.0.0.2" })).toContainText("pas vue sur le réseau");
   await expect(row.getByRole("checkbox", { name: /127\.0\.0\.2/ })).toBeChecked();
   await row.screenshot({ path: "test-results/settings-route-nodes.png" });
   const asked: string[] = [];
