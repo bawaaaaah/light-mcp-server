@@ -358,6 +358,8 @@ async function unpack(caller: Caller, file: string, check = false, fixtures = "m
     printDiff("Show", diff.show);
     const i = diff.intentions; // an older server's preview has none
     if (i && i.added + i.changed + i.removed) console.log(`Intentions du show : ${i.added} ajoutée(s), ${i.changed} modifiée(s), ${i.removed} supprimée(s)`);
+    const known = diff.intentionsKnown ?? []; // an older server's preview has none
+    if (known.length) console.log(`Intentions déjà dans la bibliothèque de cette machine, non recopiées dans le show : ${known.join(", ")}`);
     printDiff("Lieu", diff.venue);
     printFixtures(diff.fixtures);
     console.error("(rien n'a été écrit : relancer sans --check pour restaurer)");

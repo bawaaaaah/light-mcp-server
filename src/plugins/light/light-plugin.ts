@@ -499,7 +499,19 @@ export class LightPlugin implements McpPlugin {
   }
 
   restoreTargets(): RestoreTargets {
-    return { showDir: this.show.root, venueDir: this.venue.store.root, venueId: this.config.venue, definitionDirs: this.definitionDirs(this.config.venue), fixturesDir: path.join(this.dataRoot, "fixtures") };
+    return {
+      showDir: this.show.root,
+      venueDir: this.venue.store.root,
+      venueId: this.config.venue,
+      definitionDirs: this.definitionDirs(this.config.venue),
+      fixturesDir: path.join(this.dataRoot, "fixtures"),
+      // an intention of this machine as an archive would carry it: one restored as it is stays in the library
+      machineIntention: (key) => {
+        const i = this.intentions;
+        const [own] = embeddedIntentions(stackIntentions(i.base(), i.personal.list(), []), [key]).intentions;
+        return own && stableStringify(own);
+      },
+    };
   }
 
   /** What restoring an archive would change (show, venue, definitions); nothing is written. */

@@ -35,7 +35,10 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
                 if (folders && p.fixtures.missing.length + p.fixtures.differs.length === 0) return onError(t.restoreSame);
                 // the show's intentions, apart: an older backup without any removes them (T15)
                 const i = p.intentions;
-                const intentions = i && i.added + i.changed + i.removed ? `\n${t.restoreIntentions}${t.colon} +${i.added} / ~${i.changed} / -${i.removed}${i.removed && !i.added && !i.changed ? ` (${t.restoreIntentionsGone})` : ""}` : "";
+                const known = p.intentionsKnown ?? [];
+                const intentions =
+                  (i && i.added + i.changed + i.removed ? `\n${t.restoreIntentions}${t.colon} +${i.added} / ~${i.changed} / -${i.removed}${i.removed && !i.added && !i.changed ? ` (${t.restoreIntentionsGone})` : ""}` : "") +
+                  (known.length ? `\n${t.restoreIntentionsKnown.replace("{n}", String(known.length))}${t.colon} ${known.join(", ")}` : "");
                 const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}${intentions}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;
                 if (!confirm(summary)) return;
                 // the policy: missing definitions are added; the differing ones only when asked

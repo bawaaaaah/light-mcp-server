@@ -19,6 +19,11 @@ export interface ArchiveManifest {
   venue?: string;
   /** Names of the fixture definitions carried under `fixtures/` (absent in older archives). */
   fixtures?: string[];
+  /**
+   * Keys of the intentions copied from the packing machine (personal library, private file) under
+   * `show/intentions/` (T15): a restore on a machine that has them as they are leaves them there.
+   */
+  intentions?: string[];
 }
 
 /** Relative paths ("looks/joie.json") of the files of a folder, sorted; `json` picks JSON or the rest. */
@@ -49,7 +54,14 @@ export function packArchive(parts: { show?: { id: string; dir: string; extra?: R
   if (parts.show) for (const [p, d] of Object.entries(walk(parts.show.dir))) files[`show/${p}`] = d;
   // files the show uses from elsewhere, packed as its own (the intentions of this machine it names, T15);
   // what the folder holds wins, and the folder itself is never written
-  for (const [p, text] of Object.entries(parts.show?.extra ?? {})) files[`show/${p}`] ??= strToU8(text);
+  const fromMachine: string[] = [];
+  for (const [p, text] of Object.entries(parts.show?.extra ?? {})) {
+    if (files[`show/${p}`]) continue;
+    files[`show/${p}`] = strToU8(text);
+    const key = /^intentions\/(.+)\.json$/.exec(p)?.[1];
+    if (key) fromMachine.push(key);
+  }
+  if (fromMachine.length) manifest.intentions = fromMachine.sort();
   let venueFiles: Record<string, Uint8Array> = {};
   if (parts.venue) {
     venueFiles = walk(parts.venue.dir);
@@ -227,6 +239,27 @@ export interface RestoreTargets {
   /** Library folders in resolution order, and the one new definitions are written to. */
   definitionDirs: string[];
   fixturesDir: string;
+  /** The JSON this machine would pack for an intention of its own (personal library, private file), if it has it (T15). */
+  machineIntention?: (key: string) => string | undefined;
+}
+
+/**
+ * The show part of an archive without the intentions the packing machine copied in (manifest
+ * `intentions`) that this machine has as they are: they stay in its library, not copied into the show
+ * (decision of 2026-11-11). Another machine, or one whose version differs, gets them as the show's.
+ */
+export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: string[] } {
+  const show = { ...content.show };
+  const known: string[] = [];
+  for (const key of content.manifest.intentions ?? []) {
+    const path_ = `intentions/${key}.json`;
+    const ours = t.machineIntention?.(key);
+    if (show[path_] !== undefined && ours !== undefined && canonical(ours) === canonical(show[path_]!)) {
+      delete show[path_];
+      known.push(key);
+    }
+  }
+  return { show, known };
 }
 
 export interface RestorePreview {
@@ -240,6 +273,8 @@ export interface RestorePreview {
    * show, so an archive without any removes the show's own. Null when the show is left untouched.
    */
   intentions: CollectionCount | null;
+  /** Intentions of the packing machine this one has as they are: left in its library, not copied into the show. */
+  intentionsKnown: string[];
 }
 
 export interface CollectionCount {
@@ -257,7 +292,8 @@ export function countCollection(diff: FolderDiff, name: string): CollectionCount
 /** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
 export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
-  const show = Object.keys(content.show).length ? diffFolder(t.showDir, content.show) : null;
+  const { show: files, known } = showToRestore(content, t);
+  const show = Object.keys(content.show).length ? diffFolder(t.showDir, files) : null;
   return {
     dryRun: true,
     manifest: content.manifest,
@@ -265,6 +301,7 @@ export function previewRestore(content: ArchiveContent, t: RestoreTargets, polic
     venue: Object.keys(content.venue).length ? diffFolder(t.venueDir, content.venue) : null,
     fixtures: summarizeFixtures(plan, policy),
     intentions: show && countCollection(show, "intentions"),
+    intentionsKnown: known,
   };
 }
 
@@ -284,7 +321,7 @@ export interface RestoreResult {
 export function applyRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy, backups: string): RestoreResult {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
   if (Object.keys(content.show).length) {
-    restoreFolder(t.showDir, content.show, path.join(backups, "show"));
+    restoreFolder(t.showDir, showToRestore(content, t).show, path.join(backups, "show"));
     pinShowVenue(t.showDir, t.venueId); // the show stays on the venue it was restored with
   }
   // the venue's own definitions (fixture-definitions/) are not JSON: restoreFolder keeps them

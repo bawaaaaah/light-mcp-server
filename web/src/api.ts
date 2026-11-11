@@ -322,7 +322,7 @@ export interface FixtureSummary {
 }
 
 /** What restoring this backup would change; nothing is written. */
-export async function previewArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null; fixtures: FixtureSummary; intentions?: { added: number; changed: number; removed: number } | null }> {
+export async function previewArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null; fixtures: FixtureSummary; intentions?: { added: number; changed: number; removed: number } | null; intentionsKnown?: string[] }> {
   return json(await fetch(`/api/plugins/light/archive?dryRun=1&fixtures=${fixtures}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
 }
 
