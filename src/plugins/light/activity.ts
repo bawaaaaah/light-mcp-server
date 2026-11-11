@@ -69,7 +69,7 @@ export function targetOf(args: unknown, command = ""): string | undefined {
 const UNDOABLE = { look: "looks", group: "groups", fader: "faders", dashboard: "dashboards", "venue.canvas": "canvases" } as const;
 export type UndoableCollection = (typeof UNDOABLE)[keyof typeof UNDOABLE];
 /** The collections history.undo takes (its schema): the same as the activity log offers. */
-export const UNDOABLE_COLLECTIONS = ["looks", "groups", "faders", "dashboards", "canvases"] as const satisfies readonly UndoableCollection[];
+export const UNDOABLE_COLLECTIONS = Object.values(UNDOABLE) as [UndoableCollection, ...UndoableCollection[]];
 
 /**
  * What history.undo would take back for an activity line: a design change that worked, on a named

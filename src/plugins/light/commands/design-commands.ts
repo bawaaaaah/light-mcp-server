@@ -124,14 +124,15 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "knowledge.get",
     title: "Base de connaissances couleur",
     description:
-      "Mood keywords (intentions) → colours, energy and family, plus the design rules. Layers, the most specific winning key by key: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag); `hidden` lists the intentions the show masks.",
+      "Mood keywords (intentions) → colours, energy and family, plus the design rules. Layers, the most specific winning key by key: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag); `hidden` lists the intentions the show masks. machine: true leaves the open show out (what this machine has, for the library section).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
-    schema: z.object({}),
-    run: () => {
-      const uses = intentionUsesByKey(showParts());
-      const all = [...stack().values()].map((e) => ({ ...e, usedBy: uses.get(e.id) ?? [] }));
+    schema: z.object({ machine: z.boolean().default(false) }),
+    run: ({ machine }) => {
+      const uses = machine ? new Map<string, string[]>() : intentionUsesByKey(showParts());
+      const layers = machine ? stackIntentions(intentions.base(), intentions.personal.list(), []) : stack();
+      const all = [...layers.values()].map((e) => ({ ...e, usedBy: uses.get(e.id) ?? [] }));
       return { ...knowledge(), moods: Object.fromEntries(all.filter((e) => !e.hidden).map(({ id, hidden: _h, ...e }) => [id, e])), hidden: all.filter((e) => e.hidden) };
     },
   });

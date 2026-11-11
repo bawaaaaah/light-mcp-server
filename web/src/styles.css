@@ -3458,7 +3458,9 @@ fieldset.checklist .checklist-search {
 @media (max-width: 700px) {
   /* 44 px tall, keeping its disclosure triangle (a flex summary loses it) */
   .intention-uses summary {
-    line-height: 44px;
+    min-height: 44px;
+    padding-block: 0.8em;
+    box-sizing: border-box;
   }
   .intentions-bar input[type="search"],
   .intentions-bar button {

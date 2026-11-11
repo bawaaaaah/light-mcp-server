@@ -64,7 +64,7 @@ export function SongsPage(): ReactElement {
   const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
   const readKnowledge = useCallback(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
   useEffect(readKnowledge, [readKnowledge]);
-  useCommandEvents(["intention.put", "intention.delete"], readKnowledge);
+  useCommandEvents(["intention.put", "intention.delete", "show.open", "show.create", "show.reset", "backup.restore"], readKnowledge);
   const moodsOf = (mood: string[]): string =>
     knowledge ? originsOf(knowledge, mood).map((o) => `${o.label} (${o.origin === "unknown" ? t.intentionUnknown : o.hidden ? t.intentionHidden : t.intentionOrigins[o.origin]})`).join(", ") : mood.join(", ");
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));

@@ -7,6 +7,7 @@
 import path from "node:path";
 import { readCollection, settingsOn, showIdsIn } from "../data/show-folders.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
+import { IntentionSchema } from "../knowledge/intentions.js";
 import { intentionUsesByKey } from "./references.js";
 
 const record = (raw: unknown): Record<string, unknown> | undefined => (raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined);
@@ -29,8 +30,9 @@ export function machineIntentionUsers(dataRoot: string): Map<string, ShowRef[]> 
     const dir = path.join(dataRoot, "shows", id);
     const own = new Set(
       readCollection(path.join(dir, "intentions"), (raw) => {
-        const o = record(raw);
-        return o && typeof o.id === "string" ? normalizeMood(o.id) : undefined;
+        // only what the show itself would load (the schema checks the key)
+        const o = IntentionSchema.safeParse(raw);
+        return o.success ? normalizeMood(o.data.id) : undefined;
       }),
     );
     const songs = readCollection(path.join(dir, "songs"), (raw) => {

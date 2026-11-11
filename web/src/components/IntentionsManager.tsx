@@ -57,14 +57,17 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
   }, [library, onError]);
   useEffect(readLibrary, [readLibrary]);
   // what changes which shows use it too: songs, looks, another show opened, created, reset or restored
-  useCommandEvents(["intention.put", "intention.delete", "song.put", "song.delete", "look.put", "look.delete", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"], readLibrary);
+  useCommandEvents(
+    ["intention.put", "intention.delete", "song.put", "song.delete", "look.put", "look.delete", "look.from_intent", "history.restore", "history.undo", "show.apply", "show.revert", "show.rename", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"],
+    readLibrary,
+  );
   // the library section also reads the whole base: what a new key replaces (shipped, private file), what a show overrides
   const [context, setContext] = useState<KnowledgeIntentions | null>(null);
   const readContext = useCallback(() => {
-    if (library) void cmd<KnowledgeIntentions>("knowledge.get").then(setContext).catch(() => undefined);
+    if (library) void cmd<KnowledgeIntentions>("knowledge.get", { machine: true }).then(setContext).catch(() => undefined);
   }, [library]);
   useEffect(readContext, [readContext]);
-  useCommandEvents(["intention.put", "intention.delete", "show.open", "show.create", "backup.restore"], readContext);
+  useCommandEvents(["intention.put", "intention.delete", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"], readContext);
   const list = useMemo(() => (library ? (own ?? []) : intentionsOf(kb)), [library, own, kb]);
   const everything = useMemo(() => (library ? intentionsOf(context) : list), [library, context, list]);
   const loaded = library ? own !== null : Boolean(kb);
@@ -78,7 +81,7 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
     if (action === "edit" || action === "touchUp") return setDraft({ ...draftOf(row), ...(library ? { scope: "personal" as const } : {}) });
     if (library) {
       // one replacing a shipped or private one: removing it gives that one back, nothing is lost
-      if (action === "revert") return confirm(fill(t.intentionRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void cmd("intention.delete", { id: row.key, scope: "personal" }).catch(fail);
+      if (action === "revert") return confirm(fill(t.intentionLibraryRevertAsk, { name, origin: origin(row.over ?? "generic") })) && void cmd("intention.delete", { id: row.key, scope: "personal" }).catch(fail);
       // the library's own: the shows still naming it are said first, and lose it on the yes
       const question = row.usedBy.length ? `${fill(t.intentionLibraryDeleteUsed, { name })}\n\n• ${row.usedBy.join("\n• ")}\n\n${t.intentionLibraryDeleteAnyway}` : fill(t.intentionLibraryDelete, { name });
       return confirm(question) && void cmd("intention.delete", { id: row.key, scope: "personal", force: true }).catch(fail);
@@ -199,7 +202,7 @@ function IntentionEditor({
   initial: IntentionDraft;
   /** the rows of the section: a key taken in its place */
   list: IntentionRow[];
-  /** every intention the show sees (the library section reads it too): what a new key replaces, what the show overrides */
+  /** every intention the show sees, or this machine's alone in the library section: what a new key replaces, what the show overrides */
   context: IntentionRow[];
   t: Texts;
   onClose: () => void;

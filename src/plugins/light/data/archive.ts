@@ -294,18 +294,23 @@ export function countCollection(diff: FolderDiff, name: string): CollectionCount
 }
 
 /**
- * A show.json the archive lacks is not removed by a restore: pinShowVenue writes it again (the show
- * stays on the venue in place). Without this, restoring the same archive twice announced « -1 show.json ».
+ * A show.json the archive lacks is not removed by a restore: pinShowVenue writes it again, with the
+ * venue in place only (the show's name and settings back to their defaults). So it is unchanged when
+ * the current one is just that, changed otherwise — never « removed » (restoring the same archive twice
+ * announced « -1 show.json »), and never silent about settings it loses.
  */
-function withoutPinnedSettings(diff: FolderDiff, files: Record<string, string>): FolderDiff {
-  return "show.json" in files ? diff : { ...diff, removed: diff.removed.filter((p) => p !== "show.json") };
+function withPinnedSettings(diff: FolderDiff, files: Record<string, string>, t: RestoreTargets): FolderDiff {
+  if ("show.json" in files || !diff.removed.includes("show.json")) return diff;
+  const removed = diff.removed.filter((p) => p !== "show.json");
+  const same = canonical(readFileSync(path.join(t.showDir, "show.json"), "utf8")) === canonical(stableStringify({ venue: t.venueId }));
+  return same ? { ...diff, removed, unchanged: diff.unchanged + 1 } : { ...diff, removed, changed: [...diff.changed, "show.json"].sort() };
 }
 
 /** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
 export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
   const { show: files, known } = showToRestore(content, t);
-  const show = Object.keys(content.show).length ? withoutPinnedSettings(diffFolder(t.showDir, files), files) : null;
+  const show = Object.keys(content.show).length ? withPinnedSettings(diffFolder(t.showDir, files), files, t) : null;
   return {
     dryRun: true,
     manifest: content.manifest,

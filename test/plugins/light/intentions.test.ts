@@ -8,7 +8,7 @@ import { CommandError, systemContext } from "../../../src/plugins/light/commands
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../../../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge, namesIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
 import { intentionUses } from "../../../src/plugins/light/show/references.js";
-import { readArchive, showToRestore } from "../../../src/plugins/light/data/archive.js";
+import { packArchive, readArchive, showToRestore } from "../../../src/plugins/light/data/archive.js";
 
 const intention = (id: string, colors: string[], more: Partial<Intention> = {}): Intention => ({ id, label: id, colors, energy: "pose", family: "", ...more });
 
@@ -344,6 +344,10 @@ describe("intentions (T15)", () => {
       const lib = (await run("intention.library")) as { id: string; label: string; origin: string; shows: string[] }[];
       expect(lib.map((x) => [x.id, x.label, x.origin])).to.deep.equal([["douceur", "Douceur", "personal"]]); // the library's, not the show's copy
       expect(lib[0]!.shows).to.deep.equal(["Second"]); // the first has its own
+      // what this machine has, the open show left out (the library section's view)
+      const machine = (await run("knowledge.get", { machine: true })) as Kb;
+      expect(machine.moods.douceur).to.include({ origin: "personal", label: "Douceur" });
+      expect((await kb()).moods.douceur).to.include({ origin: "show" });
       // from the library: the library's goes, the open show keeps its copy (it loses nothing: not asked)
       const refused = (await refusal(run("intention.delete", { id: "douceur", scope: "personal" }))) as CommandError;
       expect(refused.detail).to.deep.equal({ uses: [], otherShows: ["Second"] });
@@ -374,6 +378,14 @@ describe("intentions (T15)", () => {
       await run("backup.restore", { file });
       const again = (await run("backup.restore", { file, dryRun: true })) as { show: { removed: string[]; added: string[]; changed: string[] } };
       expect(again.show.removed).to.deep.equal([]);
+      // an archive without show.json: the show's name and settings go back to their defaults, said as a change
+      const bare = join(mkdtempSync(join(tmpdir(), "light-bare-")), "show");
+      mkdirSync(join(bare, "intentions"), { recursive: true });
+      writeFileSync(join(bare, "intentions", "douceur.json"), JSON.stringify({ id: "douceur", label: "Douceur", colors: ["#ffeedd"], energy: "dynamique", family: "" }));
+      await run("show.rename", { name: "Renommé" });
+      const preview = plugin.previewArchive(packArchive({ show: { id: "nu", dir: bare } }));
+      expect(preview.show!.changed).to.include("show.json");
+      expect(preview.show!.removed).to.not.include("show.json");
       const content = readArchive(new Uint8Array(readFileSync(join(dataRoot, "backups", file))));
       const damaged = { ...content, manifest: { ...content.manifest, intentions: "douceur" as unknown as string[] } };
       expect(showToRestore(damaged, plugin.restoreTargets()).known).to.deep.equal([]);
