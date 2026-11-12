@@ -149,8 +149,12 @@ interface Carried {
 /**
  * Sheets laid from `held` (docs/specs/engine-effects-timing.md, « Pistes fondables »). Inside a sheet the weights
  * add up (opacity min(1, Σw)) and the value is their weighted mean, as in a crossfade. Between sheets: « last »
- * lays each over the ones below in paint order (v = below × (1 − op) + v × op); « highest » keeps the highest value
- * weighed by its opacity (rawOver, the raw channels' own rule). `opacity` is the combined one, 1 − Π(1 − op).
+ * lays every layer at its own place in paint order (v = below × (1 − op) + v × op), the layers of one sheet sharing
+ * its opacity: op = w ÷ (1 − the weights of the later layers of that sheet), the weights brought back to 1 when they
+ * pass it. Laid next to each other they give the sheet's weighted mean exactly; with another look launched in
+ * between, a look leaving through a crossfade stays under it instead of being lifted over it with the incoming one.
+ * « highest » keeps the highest value weighed by its opacity (rawOver, the raw channels' own rule). `opacity` is the
+ * combined one, 1 − Π(1 − op).
  */
 export function overSheets(carried: readonly Carried[], merge: LooksMerge, held: number): { value: number; opacity: number } {
   const sheets = new Map<string, { dosed: number; weight: number; order: number }>();
@@ -165,11 +169,20 @@ export function overSheets(carried: readonly Carried[], merge: LooksMerge, held:
   const layers = [...sheets.values()].filter((s) => s.weight > 0).sort((a, b) => a.order - b.order);
   const opacity = 1 - layers.reduce((clear, s) => clear * (1 - Math.min(1, s.weight)), 1);
   if (merge === "highest") return { value: rawOver(carried.map((c) => ({ value: c.value, weight: c.weight, look: "", sheet: c.sheet })), held), opacity };
-  let value = held;
-  for (const s of layers) {
-    const op = Math.min(1, s.weight);
-    value = value * (1 - op) + (s.dosed / s.weight) * op;
+  const inOrder = [...carried].sort((a, b) => a.order - b.order);
+  const later = new Map<string, number>();
+  const ops: number[] = [];
+  for (let i = inOrder.length - 1; i >= 0; i--) {
+    const c = inOrder[i]!;
+    const w = Math.max(0, c.weight) / Math.max(1, sheets.get(c.sheet)!.weight);
+    const above = later.get(c.sheet) ?? 0;
+    later.set(c.sheet, above + w);
+    ops[i] = above >= 1 ? 0 : Math.min(1, w / (1 - above));
   }
+  let value = held;
+  inOrder.forEach((c, i) => {
+    value = value * (1 - ops[i]!) + c.value * ops[i]!;
+  });
   return { value, opacity };
 }
 
@@ -177,13 +190,26 @@ export function overSheets(carried: readonly Carried[], merge: LooksMerge, held:
  * The layer whose value a jumping channel takes — the colour wheel's rule (T18 wheelFrame), so that one behaviour
  * explains both: with « last » only the latest sheet carrying the channel counts (a look started over another takes
  * its jumping channels at once); inside that sheet, or among all with « highest », the heaviest, the later one on
- * equal weights. So a crossfade switches at mid-fade, an entry at once, an exit at its very end. composeTracks adds, in the
- * sheets carrying the channel, the layers lighting the fixture without it, at the channel's rest value.
+ * equal weights. So a crossfade switches at mid-fade, an entry at once, an exit at its very end. With « last », while
+ * the heaviest of the latest sheet is a look leaving under looks of other sheets launched after it, those still
+ * cover it (overSheets): the channel stays theirs until the incoming look outweighs it — one jump, not two.
+ * composeTracks adds, in the sheets carrying the channel, the layers lighting the fixture without it, at the
+ * channel's rest value.
  */
 export function dominantLayer<T extends { sheet: string; weight: number; order: number }>(carried: readonly T[], merge: LooksMerge): T | undefined {
+  const heavier = (x: T | undefined, y: T): T => {
+    if (!x) return y;
+    const wx = Math.max(0, x.weight);
+    const wy = Math.max(0, y.weight);
+    if (wy !== wx) return wy > wx ? y : x;
+    return y.order >= x.order ? y : x;
+  };
+  if (merge !== "last") return carried.reduce<T | undefined>(heavier, undefined);
   const last = carried.reduce<T | undefined>((x, y) => (!x || y.order >= x.order ? y : x), undefined);
-  const counting = merge === "last" && last ? carried.filter((c) => c.sheet === last.sheet) : carried;
-  return counting.reduce<T | undefined>((x, y) => (!x || Math.max(0, y.weight) >= Math.max(0, x.weight) ? y : x), undefined);
+  if (!last) return undefined;
+  const top = carried.filter((c) => c.sheet === last.sheet).reduce<T | undefined>(heavier, undefined)!;
+  const over = carried.filter((c) => c.sheet !== last.sheet && c.order > top.order);
+  return over.length ? dominantLayer(over, merge) : top;
 }
 
 const levelOf = (c: Color): number => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
