@@ -26,7 +26,7 @@ export interface ResolvedTracks {
   fade: ReadonlySet<number>;
   /** A coarse channel's fine one (offsets), when the mode has it: a ticked pair glides as one 16-bit value. */
   fine: ReadonlyMap<number, number>;
-  /** Read by the motion layer (T25): « glide » for a ticked axis, « cut » for an unticked one. No effect before T25. */
+  /** Read by the motion layer (T25): « glide » for a ticked axis, « cut » for an unticked one, at a change of owner. */
   motion: { pan?: "glide" | "cut"; tilt?: "glide" | "cut" };
 }
 

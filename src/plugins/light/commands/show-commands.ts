@@ -2086,6 +2086,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
 
   /** Panic's second half: everything stopped, then the show's safe state. */
   const safeState = () => {
+    // no head moves by itself (T25, question 4): they hold where they are until the safe state claims them, gliding
+    show.holdPositions();
     show.stopAll();
     show.releasePositions();
     engine.release();

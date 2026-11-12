@@ -27,6 +27,8 @@ function setup() {
   let beats = 0;
   let now = 0;
   const show = new ShowRuntime(new FolderStore(join(dir, "show")), venue, { state: () => ({ beats }) }, () => now);
+  // these tests read where the heads are asked to be: the glide from one owner to the next is cut (motion-runtime.test.ts plays it)
+  show.saveSettings({ moveFade: { seconds: 0 } });
   const advance = (b: number) => {
     beats += b;
     now += b * 500;
@@ -497,7 +499,7 @@ describe("moving heads", () => {
       show.looks.put({ id: "fixe", name: "Fixe", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", center: { pan: 0.25, tilt: 0.25 } } });
       show.go("fixe");
       show.setPosition(["spot-l"], { tilt: 1 });
-      expect(pos(dmx(), 1)).to.deep.equal([32768, 65535]); // pan defaults to the centre
+      expect(pos(dmx(), 1)).to.deep.equal([16384, 65535]); // the tilt alone is claimed: the pan stays the look's
       expect(show.releasePositions()).to.deep.equal(["spot-l"]);
       expect(pos(dmx(), 1)).to.deep.equal([16384, 16384]);
     });
@@ -631,8 +633,10 @@ describe("a head driven by the command layer (the pad's path)", () => {
     await run("venue.fixture.orient", { id: "spot", invertTilt: false });
     expect(at(render(), 3)).to.be.closeTo(0.75 * 65535, 1);
     expect(pointed()).to.deep.equal(whileInverted);
+    plugin.runtime.saveSettings({ moveFade: { seconds: 0 } }); // the release glides to rest: cut here, to read where it lands
     await run("position.release", { fixtures: ["spot"] });
-    expect(at(render(), 1)).to.be.closeTo(0.5 * 65535, 1); // back to the centre
+    expect(at(render(), 1)).to.be.closeTo(0.5 * 65535, 1); // back to its rest, the centre
+    plugin.runtime.saveSettings({ moveFade: { seconds: 1 } });
   });
 
   it("doses a fixture's dimmer through fader.put then fader.level, one channel, never a DCA", async () => {

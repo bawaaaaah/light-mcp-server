@@ -175,7 +175,7 @@ describe("fadeable tracks in the engine (T5)", () => {
     expect([end[0], end[3]]).to.deep.equal([255, 128]);
   });
 
-  it("never touches pan/tilt, coarse or fine: the same bytes as a spot without tracks", () => {
+  it("leaves pan/tilt to the motion layer: a ticked axis glides like a spot without tracks, an unticked one cuts", () => {
     const run = (tracks?: { fade: string[] }) => {
       const t = setup(tracks ? { tracks, on: ["spot"] } : {});
       t.show.looks.put({ id: "a", name: "A", canvas: "spot", technique: { kind: "plat", color: "#ffffff" }, timing: { entryFade: 1 }, move: { shape: "fixe", center: { pan: 0.25, tilt: 0.75 } } });
@@ -188,7 +188,20 @@ describe("fadeable tracks in the engine (T5)", () => {
     };
     const plain = run();
     expect(run({ fade: ["Pan", "Tilt", "Dimmer"] })).to.deep.equal(plain);
-    expect(run({ fade: [] })).to.deep.equal(plain);
+    // from rest towards A, then on to B from where the head is: never a jump, and there once the glide (1 s) is over
+    const [pan, tilt] = [(row: number[]) => row[0]! * 256 + row[1]!, (row: number[]) => row[2]! * 256 + row[3]!];
+    const steps = (rows: number[][], of: (row: number[]) => number) => Math.max(...rows.slice(1).map((r, i) => Math.abs(of(r) - of(rows[i]!))));
+    expect([pan(plain[0]!), tilt(plain[0]!)]).to.deep.equal([32768, 32768]);
+    expect(Math.max(steps(plain, pan), steps(plain, tilt))).to.be.below(0.02 * 65535);
+    expect([pan(plain.at(-1)!), tilt(plain.at(-1)!)]).to.deep.equal([Math.round(0.7 * 65535), Math.round(0.3 * 65535)]);
+    // unticked: the axis jumps to its new owner, on the frame of the launch
+    const cut = run({ fade: [] });
+    expect([pan(cut[0]!), tilt(cut[0]!)]).to.deep.equal([16384, 49151]);
+    expect([pan(cut[40]!), tilt(cut[40]!)]).to.deep.equal([Math.round(0.7 * 65535), Math.round(0.3 * 65535)]);
+    // one axis ticked: it glides while the other cuts
+    const mixed = run({ fade: ["Pan"] });
+    expect(tilt(mixed[40]!)).to.equal(Math.round(0.3 * 65535));
+    expect(steps(mixed, pan)).to.be.below(0.02 * 65535);
   });
 
   it("turns a lamp's wheel at mid-fade, or through black with « au noir »", () => {

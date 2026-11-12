@@ -101,6 +101,7 @@ describe("QLC+ EFX → Move FX", () => {
     const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     await run("import.qxw", { xml: fixture("efx.qxw"), apply: true });
+    plugin.runtime.saveSettings({ moveFade: { seconds: 0 } }); // no glide to the shape: the heads are on it at once
     await run("look.go", { id: "cercle-lent" });
     expect(plugin.runtime.movedBy(plugin.runtime.looks.get("cercle-lent")!)).to.deep.equal(["spot-a", "spot-b"]);
     const pan = () => {

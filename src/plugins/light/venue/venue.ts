@@ -39,7 +39,7 @@ import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
 import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelFrame, type WheelHeld } from "./color-wheel.js";
-import { composeTracks, tracksOf, verbatimOffsets, type ResolvedTracks, type TrackLayer } from "./tracks.js";
+import { composeTracks, motionOffsets, tracksOf, verbatimOffsets, type ResolvedTracks, type TrackLayer } from "./tracks.js";
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -812,9 +812,10 @@ export class Venue {
         for (const [off, v] of composeTracks(r, r.tracks, frame.tracks.get(patch.id) ?? [], { merge: at.merge, intensity, lit: frame.lit.has(patch.id), ...(wheel ? { wheel } : {}) })) write(off, v);
         if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
         const verbatim = verbatimOffsets(r);
+        const placed = frame.positions.has(patch.id) ? motionOffsets(r) : undefined;
         if (raws)
           rawPass.push(() => {
-            for (const [offset, writes] of raws) if (verbatim(offset)) write(offset, rawValue(writes));
+            for (const [offset, writes] of raws) if (verbatim(offset) && !placed?.has(offset)) write(offset, rawValue(writes));
           });
         continue;
       }
@@ -891,6 +892,9 @@ export class Venue {
         // heldUnderDimmer are linear in (values, held byte) —; and each look's `level` once, on what doses its
         // light: its dimmer when it doses itself by it, its colours otherwise (as its weight does).
         const classOf = (look: string) => ({ byColour: byColour.has(look), byDimmer: byDimmer.has(look) });
+        // A head the frame places is placed by the motion layer alone (T25): a look's raw pan/tilt reached it as a
+        // claim of that layer (show/runtime.ts), so the bytes are not written here — the look is still classed above.
+        const placed = frame.positions.has(patch.id) ? motionOffsets(r) : undefined;
         const dose = (writes: RawWrite[], channel: "dimmer" | "colour", by: number): RawWrite[] =>
           writes.map((x) => {
             const f = by * (rawLevelApplies(channel, classOf(x.look)) ? (x.level ?? 1) : 1);
@@ -898,6 +902,7 @@ export class Venue {
           });
         rawPass.push(() => {
           for (const [offset, writes] of raws) {
+            if (placed?.has(offset)) continue;
             const kept = held.get(offset) ?? 0;
             if (r.dimmers.includes(offset)) {
               const dosed = dose(writes, "dimmer", intensity);
@@ -1039,15 +1044,35 @@ export class Venue {
     return Math.round(r.beamAngleMin + (r.zoom.opens ? v : 1 - v) * (r.beamAngle - r.beamAngleMin));
   }
 
-  /** Where a moving head points from the pan/tilt in the output (inversions and swap undone). */
-  pointingOf(r: ResolvedFixture, buf: Uint8Array): { x: number; y: number; z: number } {
-    const at = r.patch.address - 1;
-    const read = (ch?: CoarseFine) => (ch ? ((buf[at + ch.coarse] ?? 0) * 256 + (ch.fine !== undefined ? (buf[at + ch.fine] ?? 0) : 0)) / (ch.fine !== undefined ? 65535 : 255 * 256) : 0.5);
+  /**
+   * Pan/tilt channel bytes → logical position: the exact inverse of writePosition (16-bit, swap, inversion) — what is
+   * read here then written again gives the same bytes. `byteAt` gives the byte at an offset of the fixture's mode,
+   * undefined when it is not known: an axis without its coarse byte is left out, a fine byte not given counts as 0
+   * (a scene that writes the coarse channel alone).
+   */
+  readPosition(r: ResolvedFixture, byteAt: (offset: number) => number | undefined): Partial<Position> {
+    const read = (ch?: CoarseFine): number | undefined => {
+      const coarse = ch && byteAt(ch.coarse);
+      if (!ch || coarse === undefined) return undefined;
+      return ch.fine !== undefined ? (coarse * 256 + (byteAt(ch.fine) ?? 0)) / 65535 : coarse / 255;
+    };
     let [pan, tilt] = [read(r.pan), read(r.tilt)];
     const o = r.patch.orientation;
     if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
-    if (o?.invertPan) pan = 1 - pan;
-    if (o?.invertTilt) tilt = 1 - tilt;
+    if (o?.invertPan && pan !== undefined) pan = 1 - pan;
+    if (o?.invertTilt && tilt !== undefined) tilt = 1 - tilt;
+    return { ...(pan === undefined ? {} : { pan }), ...(tilt === undefined ? {} : { tilt }) };
+  }
+
+  /** The logical position a moving head has in the output; an axis it does not have is left out. */
+  sentPosition(r: ResolvedFixture, buf: Uint8Array): Partial<Position> {
+    const at = r.patch.address - 1;
+    return this.readPosition(r, (offset) => buf[at + offset] ?? 0);
+  }
+
+  /** Where a moving head points from the pan/tilt in the output (inversions and swap undone). */
+  pointingOf(r: ResolvedFixture, buf: Uint8Array): { x: number; y: number; z: number } {
+    const { pan = 0.5, tilt = 0.5 } = this.sentPosition(r, buf);
     return pointing(aimSetupOf(r)!, { pan, tilt });
   }
 

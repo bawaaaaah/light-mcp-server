@@ -5366,8 +5366,8 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
     await expect(editor.getByRole("status")).toContainText("Rien de coché : tous les canaux sautent");
     await expect(editor).toContainText("comportement habituel du moteur");
     await expect(editor.getByRole("checkbox", { name: "Dimmer" })).not.toBeChecked();
-    // pan and tilt can be ticked, but say they do nothing yet; the wheel has no box
-    await expect(editor.getByRole("group", { name: "Position" })).toContainText("sans effet pour l'instant");
+    // pan and tilt can be ticked, and say what the box does (the motion layer reads it); the wheel has no box
+    await expect(editor.getByRole("group", { name: "Position" })).toContainText("coché, l'axe glisse");
     await expect(editor.getByRole("checkbox", { name: "Pan", exact: true })).toBeVisible();
     await expect(editor.getByRole("checkbox", { name: "Color Wheel" })).toHaveCount(0);
     await expect(editor).toContainText("la roue change de case à mi-fondu, ou au noir");
