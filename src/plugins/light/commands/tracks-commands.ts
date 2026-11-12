@@ -8,7 +8,7 @@ import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { ResolvedFixture } from "../venue/venue.js";
 import { modelKeyOrUndefined, type TrackOverrides } from "../venue/overrides.js";
-import { trackChannels, tracksOf } from "../venue/tracks.js";
+import { trackChannels, trackNamesProblem, tracksOf } from "../venue/tracks.js";
 import { say } from "../../../core/lang.js";
 
 const Scope = z.enum(["model", "fixture"]).describe("model: every fixture of its manufacturer and model follows the list; fixture: this one only, over its model's");
@@ -53,15 +53,8 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
   };
   /** Refuses a name the definition does not have, or a fine channel (it follows its coarse one). */
   const checkNames = (r: ResolvedFixture, names: readonly string[]) => {
-    const coarse = [...r.def.channels.values()].filter((c) => !c.fine).map((c) => c.name);
-    const unknown = names.filter((n) => !coarse.includes(n));
-    if (unknown.length)
-      throw new Error(
-        say(
-          `pas un canal de ${r.patch.manufacturer} ${r.patch.model} (ou un canal fin, qui suit son canal) : ${unknown.join(", ")} ; canaux : ${coarse.join(", ")}`,
-          `not a channel of ${r.patch.manufacturer} ${r.patch.model} (or a fine channel, which follows its coarse one): ${unknown.join(", ")}; channels: ${coarse.join(", ")}`,
-        ),
-      );
+    const problem = trackNamesProblem(r.def, names);
+    if (problem) throw new Error(problem);
   };
 
   reg.register({

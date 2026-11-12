@@ -19,6 +19,7 @@ import type { ColorComponent, FixtureDefinition, FixtureMode } from "./qxf-impor
 import type { TrackOverrides } from "./overrides.js";
 import type { WheelFrame } from "./color-wheel.js";
 import { rawOver, type Color, type CoarseFine, type LooksMerge } from "./venue.js";
+import { say } from "../../../core/lang.js";
 
 /** What the engine reads of a fixture's enabled tracks: the offsets that fade (coarse and fine) and, per axis, what the motion layer does. */
 export interface ResolvedTracks {
@@ -52,6 +53,20 @@ export function tracksOf(def: FixtureDefinition, mode: FixtureMode, tracks: Trac
     if (ch && !ch.fine && (ch.attribute === "pan" || ch.attribute === "tilt")) motion[ch.attribute] ??= names.has(name) ? "glide" : "cut";
   });
   return { fade, fine, motion };
+}
+
+/**
+ * Why a list of channel names cannot be ticked on a model, in words, or undefined: a name its definition does not have,
+ * or a fine channel (it follows its coarse one). venue.tracks.put and venue.fixture.put refuse it alike.
+ */
+export function trackNamesProblem(def: FixtureDefinition, names: readonly string[]): string | undefined {
+  const coarse = [...def.channels.values()].filter((c) => !c.fine).map((c) => c.name);
+  const unknown = names.filter((n) => !coarse.includes(n));
+  if (!unknown.length) return undefined;
+  return say(
+    `pas un canal de ${def.manufacturer} ${def.model} (ou un canal fin, qui suit son canal) : ${unknown.join(", ")} ; canaux : ${coarse.join(", ")}`,
+    `not a channel of ${def.manufacturer} ${def.model} (or a fine channel, which follows its coarse one): ${unknown.join(", ")}; channels: ${coarse.join(", ")}`,
+  );
 }
 
 /** What a channel is to the tracks editor: the light (dimmer, colour), the position, the colour wheel, or anything else. */

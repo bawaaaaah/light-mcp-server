@@ -81,11 +81,21 @@ describe("fadeable tracks: commands (T5)", () => {
     await refused({ fixtures: ["bar-l"], fade: ["Nope"] }, /Nope.*(canaux|channels).*Dimmer/);
     await refused({ fixtures: ["spot"], fade: ["Pan fine"] }, /fin|fine/);
     await refused({ fixtures: ["bar-l", "spot"], scope: "model", fade: ["Dimmer"] }, /même modèle|one model/);
+    // the same names refused when the fixture is written whole
+    let refusal = "";
+    try {
+      await run("venue.fixture.put", { fixture: { id: "bar-l", name: "bar-l", manufacturer: "Test", model: "Bar 4", mode: "15 Channel", universe: 1, address: 1, overrides: { tracks: { enabled: true, fade: ["Nope"] } } } });
+    } catch (err) {
+      refusal = (err as Error).message;
+    }
+    expect(refusal).to.match(/Nope.*(canaux|channels).*Dimmer/);
   });
 
   it("keeps the list by name through a change of DMX mode (T6): names the new mode has still fade, the others wait", async () => {
     const { run, get } = await patched();
     await run("venue.tracks.put", { fixtures: ["spot"], enabled: true, fade: ["Pan", "Dimmer", "Shutter"] });
+    const plan = (await run("venue.fixture.mode", { id: "spot", mode: "Basic", dryRun: true })) as { info?: string[] };
+    expect(plan.info?.join(" ")).to.match(/Shutter/).and.not.match(/Dimmer/); // the plan says which ticked channels wait
     await run("venue.fixture.mode", { id: "spot", mode: "Basic", force: true }); // Pan, Tilt, Dimmer
     const t = await get("spot");
     expect([t.enabled, t.own, ticked(t)]).to.deep.equal([true, ["Pan", "Dimmer", "Shutter"], ["Pan", "Dimmer"]]);

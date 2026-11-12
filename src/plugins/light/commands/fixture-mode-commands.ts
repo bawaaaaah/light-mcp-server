@@ -184,6 +184,9 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       // the model's corrections never move (no offset in them), but may no longer act
       const info: string[] = [];
       if (overrides.wheel && !target.channels.some((n) => def.channels.get(n)?.attribute === "colorWheel")) info.push(say("la correspondance de roue ne s'applique pas : ce mode n'a pas de roue de couleurs", "the wheel correspondence does not apply: this mode has no colour wheel"));
+      // ticked tracks the new mode does not have wait for a mode that has them (kept by name, venue/tracks.ts)
+      const away = overrides.tracks?.enabled ? (overrides.tracks.fade ?? []).filter((n) => !target.channels.includes(n)) : [];
+      if (away.length) info.push(say(`canaux cochés pour les transitions absents de ce mode (gardés pour un autre mode) : ${away.join(", ")}`, `channels ticked to follow the transitions that this mode does not have (kept for another mode): ${away.join(", ")}`));
       if (overrides.heads?.accent?.length && !overrides.heads.accent.some((n) => target.channels.includes(n))) info.push(say("aucun canal d'halo listé n'est dans ce mode : la détection par nom s'applique", "none of the listed halo channels is in this mode: the detection by name applies"));
 
       // the show names its references only when several shows are carried over

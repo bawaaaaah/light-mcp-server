@@ -15,6 +15,7 @@ import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessag
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKeyOrUndefined, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
+import { trackNamesProblem } from "../venue/tracks.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
@@ -237,6 +238,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const before = venue.fixtures.get(fixture.id);
       if (fixture.universe > engine.output.count && fixture.universe !== before?.universe)
         throw new CommandError("invalid", say(`univers ${fixture.universe} hors de 1..${engine.output.count} (les univers de la sortie, Réglages)`, `universe ${fixture.universe} out of 1..${engine.output.count} (the output's universes, Settings)`));
+      // ticked tracks (T5) named as venue.tracks.put accepts them
+      const def = fixture.overrides?.tracks?.fade && venue.definitionFor(fixture.manufacturer, fixture.model);
+      const tracksProblem = def ? trackNamesProblem(def, fixture.overrides!.tracks!.fade!) : undefined;
+      if (tracksProblem) throw new CommandError("invalid", tracksProblem);
       const saved = venue.fixtures.put(fixture);
       const r = venue.resolve(saved.id);
       // patched anyway (two lamps on one address can be wanted), but said at once
