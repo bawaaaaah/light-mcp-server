@@ -152,7 +152,7 @@ export interface ResolvedIntention {
   entry: IntentionEntry;
   /** `id`: the reference is its id (or its key, typed with case, accents, spaces); `label` or `alias`: by a name. */
   by: "id" | "label" | "alias";
-  /** Every intention the name fits, best first (one for an id): more than one is an ambiguous name. */
+  /** Every intention the name fits, best first (one for an id; the visible only, when one is): more than one is an ambiguous name. */
   candidates: IntentionEntry[];
 }
 
@@ -162,29 +162,48 @@ export const namesOf = (e: Pick<IntentionEntry, "id" | "label" | "aliases">): { 
   aliases: (e.aliases ?? []).map(normalizeMood).filter(Boolean),
 });
 
+/** A generated id (`newIntentionId`): typed as such, it names that intention whatever its label. */
+export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
+
 /**
- * The one way a word of a song's mood or a look's `ambiance:` tag finds its intention (T15b):
- * first as an id (the word itself, or its key: « Joie » is `joie`, what songs wrote before ids were
- * generated); else by name, the labels before the former labels (aliases), the visible before the
- * masked, then by layer, the most specific first (show > personal library > private file > shipped:
- * decision of 2026-11-12, several intentions may share a label), then by id for a stable answer.
+ * The one way a word of a song's mood or a look's `ambiance:` tag finds its intention (T15b,
+ * decisions of 2026-11-12):
+ *   - a generated id typed as such (`i-…`) names that intention;
+ *   - a key-id (the word, or its key: « Joie » is `joie`, what songs wrote before ids were generated,
+ *     the shipped and private file ones) names it only while no visible intention of a more specific
+ *     layer bears that label, and, masked, only while no visible one answers to the word at all;
+ *   - otherwise by name, the key-id among the candidates: the visible before the masked, then the most
+ *     specific layer (show > personal library > private file > shipped: several intentions may share a
+ *     label), the labels before the former labels (aliases), then by id for a stable answer.
  * Undefined for a word nothing answers to (a free word stays a word).
  */
 export function resolveIntention(stack: ReadonlyMap<string, IntentionEntry>, ref: string): ResolvedIntention | undefined {
   const key = normalizeMood(ref);
   if (!key) return undefined;
-  const byId = stack.get(ref) ?? stack.get(key);
-  if (byId) return { entry: byId, by: "id", candidates: [byId] };
+  const exact = stack.get(ref);
+  if (exact && GENERATED_ID.test(ref)) return { entry: exact, by: "id", candidates: [exact] };
+  const byKey = exact ?? stack.get(key);
   const labels: IntentionEntry[] = [];
   const aliases: IntentionEntry[] = [];
   for (const e of stack.values()) {
+    if (e === byKey) continue;
     const names = namesOf(e);
     if (names.label === key) labels.push(e);
     else if (names.aliases.includes(key)) aliases.push(e);
   }
+  if (byKey) {
+    const nearer = byKey.hidden ? [...labels, ...aliases].some((e) => !e.hidden) : labels.some((e) => !e.hidden && LAYER_RANK[e.origin] < LAYER_RANK[byKey.origin]);
+    if (!nearer) return { entry: byKey, by: "id", candidates: [byKey] };
+    labels.push(byKey);
+  }
   const best = (a: IntentionEntry, b: IntentionEntry) => Number(a.hidden) - Number(b.hidden) || LAYER_RANK[a.origin] - LAYER_RANK[b.origin] || a.id.localeCompare(b.id);
-  const candidates = [...labels.sort(best), ...aliases.sort(best)];
-  return candidates.length ? { entry: candidates[0]!, by: labels.length ? "label" : "alias", candidates } : undefined;
+  // the visible first, whatever named them (a label or a former one)
+  const all = [...labels.sort(best), ...aliases.sort(best)].sort((a, b) => Number(a.hidden) - Number(b.hidden));
+  // a masked one competes with nothing visible: only the visible are candidates when there is one
+  const candidates = all.some((e) => !e.hidden) ? all.filter((e) => !e.hidden) : all;
+  if (!candidates.length) return undefined;
+  const entry = candidates[0]!;
+  return { entry, by: labels.includes(entry) ? "label" : "alias", candidates };
 }
 
 /** A word as the id it names (T15b), or its key when nothing answers: what every use is counted by. */
@@ -200,9 +219,26 @@ export const refKey =
  */
 export function migratedRef(stack: ReadonlyMap<string, IntentionEntry>, word: string): string | undefined {
   const r = resolveIntention(stack, word);
-  if (!r || r.by === "id") return undefined;
-  const visible = r.candidates.filter((e) => !e.hidden);
-  return visible.length === 1 && r.candidates.length === 1 ? visible[0]!.id : undefined;
+  return r && r.by !== "id" && r.candidates.length === 1 && !r.entry.hidden ? r.entry.id : undefined;
+}
+
+/** A word several intentions answer to (T15b): which one it goes to, and the others (what a write warns of). */
+export interface AmbiguousRef {
+  word: string;
+  chosen: { id: string; label: string; origin: IntentionOrigin };
+  candidates: { id: string; label: string; origin: IntentionOrigin; hidden: boolean }[];
+}
+
+/** The words of a mood (or of `ambiance:` tags, without the prefix) that are ambiguous names. */
+export function ambiguousRefs(stack: ReadonlyMap<string, IntentionEntry>, words: readonly string[]): AmbiguousRef[] {
+  const out: AmbiguousRef[] = [];
+  for (const word of new Set(words)) {
+    const r = resolveIntention(stack, word);
+    if (!r || r.by === "id" || r.candidates.length < 2) continue;
+    const brief = (e: IntentionEntry) => ({ id: e.id, label: e.label || e.id, origin: e.origin });
+    out.push({ word, chosen: brief(r.entry), candidates: r.candidates.map((e) => ({ ...brief(e), hidden: e.hidden })) });
+  }
+  return out;
 }
 
 /** A song's mood with its names turned into ids where that is unambiguous (`changed` when one was). */

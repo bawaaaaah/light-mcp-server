@@ -23,7 +23,7 @@ import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
-import { IntentionSchema, newIntentionId } from "../knowledge/intentions.js";
+import { IntentionSchema, newIntentionId, type AmbiguousRef } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
 import type { ShowRuntime } from "../show/runtime.js";
@@ -70,6 +70,10 @@ export interface ShowCommandOptions {
   intentionReferences?: (id: string) => string[];
   /** A look's tags as stored (T15b): `ambiance:` tags written by name become the id one intention only answers to. */
   migrateTags?: (tags: string[]) => string[];
+  /** The `ambiance:` tags of a look several intentions answer to (T15b): warned of by look.put. */
+  ambiguousTags?: (tags: string[]) => AmbiguousRef[];
+  /** A new intention's id, free in every layer (T15b): a proposed creation gets it when proposed. */
+  newIntentionId?: () => string;
 }
 
 /** Writes a proposal carries beside its put commands (venue.fixture.mode: another show's looks, a fader emptied). */
@@ -89,7 +93,7 @@ export interface ShowCommandsApi {
 }
 
 export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, show: ShowRuntime, options: ShowCommandOptions = {}): ShowCommandsApi {
-  const { sharedWith = () => [], standby = () => false, intentionReferences, migrateTags } = options;
+  const { sharedWith = () => [], standby = () => false, intentionReferences, migrateTags, ambiguousTags, newIntentionId: freshIntentionId = () => newIntentionId(Date.now()) } = options;
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
@@ -1003,7 +1007,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         LookSchema,
       ),
     }),
-    run: ({ look }) => show.looks.put(checkLook(migrateTags ? { ...look, tags: migrateTags(look.tags) } : look)),
+    run: ({ look }) => {
+      const saved = show.looks.put(checkLook(migrateTags ? { ...look, tags: migrateTags(look.tags) } : look));
+      // an ambiance: tag several intentions answer to stays a name (T15b): said, with which one it goes to
+      const ambiguous = ambiguousTags?.(saved.tags) ?? [];
+      return ambiguous.length ? { ...saved, ambiguous } : saved;
+    },
   });
   reg.register({
     name: "look.techniques",
@@ -1508,6 +1517,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
   const keepLive = (collection: string, old: unknown, now: unknown) => {
     const [o, n] = [old as { master?: unknown; level?: unknown }, now as { master?: unknown; level?: unknown } | undefined];
+    if (collection === "intentions") return { ...(old as object), aliases: (old as { aliases?: unknown }).aliases ?? [] }; // put back as it was: a rename it took back leaves no former label (T15b)
     return collection === "groups" && o.master && n?.master ? { ...o, master: n.master } : collection === "faders" && n ? { ...o, level: n.level } : old;
   };
   /** How long after its activity line a change's history copy may be stamped. */
@@ -1806,7 +1816,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       changes = changes.map((c) => {
         const i = c.command === "intention.put" ? (c.args.intention as { id?: unknown; label?: unknown } | undefined) : undefined;
         // an empty label stays without id: refused below as the command refuses it
-        return i && typeof i === "object" && i.id === undefined && normalizeMood(typeof i.label === "string" ? i.label : "") ? { ...c, args: { ...c.args, intention: { ...i, id: newIntentionId(Date.now()) } } } : c;
+        return i && typeof i === "object" && i.id === undefined && normalizeMood(typeof i.label === "string" ? i.label : "") ? { ...c, args: { ...c.args, intention: { ...i, id: freshIntentionId() } } } : c;
       });
       const preview: ReturnType<typeof previewOf>[] = changes.map(previewOf);
       // one change per canvas: a second one would be read on a canvas the first has already changed (cell indices, the revision pinned below)

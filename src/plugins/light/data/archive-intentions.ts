@@ -51,6 +51,7 @@ export interface MachineIntention {
   id: string;
   label: string;
   origin: "generic" | "private" | "personal";
+  colors: string[];
 }
 
 /** An intention the archive brings whose label one of this machine's has under another id. */
@@ -58,6 +59,8 @@ export interface IntentionTwin {
   /** The archive's (the show's after the restore). */
   id: string;
   label: string;
+  /** The archive's colours, to tell the two apart. */
+  colors: string[];
   /** This machine's of that label (the most specific when several: personal > private file > shipped). */
   machine: MachineIntention;
 }
@@ -65,20 +68,27 @@ export interface IntentionTwin {
 const RANK = { personal: 0, private: 1, generic: 2 } as const;
 
 /**
- * The intentions of the show part to restore (`intentions/<id>.json`, masks left out) whose label one
- * of this machine's has under another id: two machines made « the same » apart (T15b).
+ * The intentions of the show part to restore whose label one of this machine's has under another id:
+ * two machines made « the same » apart (T15b). Only those the packing machine copied in (`fromMachine`,
+ * the manifest's `intentions`): an intention of the show itself is the show's, never a twin. A machine
+ * intention the archive masks is not one to keep either. Masks are left out.
  */
-export function intentionTwins(show: Readonly<Record<string, string>>, machine: readonly MachineIntention[]): IntentionTwin[] {
+export function intentionTwins(show: Readonly<Record<string, string>>, machine: readonly MachineIntention[], fromMachine: readonly string[]): IntentionTwin[] {
   const twins: IntentionTwin[] = [];
   const ids = new Set(machine.map((m) => m.id));
-  for (const [p, text] of Object.entries(show)) {
+  const files = Object.entries(show).flatMap(([p, text]) => {
     const id = /^intentions\/(.+)\.json$/.exec(p)?.[1];
     const o = id === undefined ? undefined : objectOf(text);
-    if (!id || !o || o.hidden === true || ids.has(id)) continue;
+    return id && o ? [{ id, o }] : [];
+  });
+  const masked = new Set(files.filter((f) => f.o.hidden === true).map((f) => f.id));
+  const candidates = machine.filter((m) => !masked.has(m.id));
+  for (const { id, o } of files) {
+    if (o.hidden === true || ids.has(id) || !fromMachine.includes(id)) continue;
     const label = typeof o.label === "string" && o.label ? o.label : id;
     const key = normalizeMood(label);
-    const same = key ? machine.filter((m) => normalizeMood(m.label || m.id) === key).sort((a, b) => RANK[a.origin] - RANK[b.origin] || a.id.localeCompare(b.id)) : [];
-    if (same[0]) twins.push({ id, label, machine: same[0] });
+    const same = key ? candidates.filter((m) => normalizeMood(m.label || m.id) === key).sort((a, b) => RANK[a.origin] - RANK[b.origin] || a.id.localeCompare(b.id)) : [];
+    if (same[0]) twins.push({ id, label, colors: strings(o.colors), machine: same[0] });
   }
   return twins.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 }

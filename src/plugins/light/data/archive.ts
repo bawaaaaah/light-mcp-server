@@ -231,6 +231,9 @@ export function pinShowVenue(showDir: string, venue: string): string | undefined
   return typeof settings.venue === "string" ? settings.venue : "default";
 }
 
+/** The intentions the packing machine copied into the show part (manifest `intentions`); a hand-made or damaged manifest: only its strings count. */
+export const listedIntentions = (manifest: ArchiveManifest): string[] => (Array.isArray(manifest.intentions) ? manifest.intentions.filter((k): k is string => typeof k === "string") : []);
+
 /** The folders a restore reads and writes. */
 export interface RestoreTargets {
   showDir: string;
@@ -254,8 +257,7 @@ export interface RestoreTargets {
 export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: { id: string; label: string }[] } {
   const show = { ...content.show };
   const known: { id: string; label: string }[] = [];
-  // a hand-made or damaged manifest: only its strings count
-  const listed = Array.isArray(content.manifest.intentions) ? content.manifest.intentions.filter((k): k is string => typeof k === "string") : [];
+  const listed = listedIntentions(content.manifest);
   for (const key of listed) {
     const path_ = `intentions/${key}.json`;
     const ours = t.machineIntention?.(key);
@@ -328,7 +330,7 @@ export function previewRestore(content: ArchiveContent, t: RestoreTargets, polic
     fixtures: summarizeFixtures(plan, policy),
     intentions: show && countCollection(show, "intentions"),
     intentionsKnown: known,
-    intentionTwins: intentionTwins(files, t.machineIntentions?.() ?? []),
+    intentionTwins: intentionTwins(files, t.machineIntentions?.() ?? [], listedIntentions(content.manifest)),
   };
 }
 
@@ -350,7 +352,7 @@ export function applyRestore(content: ArchiveContent, t: RestoreTargets, policy:
   if (Object.keys(content.show).length) {
     const { show } = showToRestore(content, t);
     // a twin of one of this machine's (T15b): the archive's copy, unless this machine's is kept
-    const files = keepMachine.length ? keepMachineTwins(show, intentionTwins(show, t.machineIntentions?.() ?? []), keepMachine) : show;
+    const files = keepMachine.length ? keepMachineTwins(show, intentionTwins(show, t.machineIntentions?.() ?? [], listedIntentions(content.manifest)), keepMachine) : show;
     restoreFolder(t.showDir, files, path.join(backups, "show"));
     pinShowVenue(t.showDir, t.venueId); // the show stays on the venue it was restored with
   }

@@ -16,6 +16,7 @@ import { writeMidiFile, type MidiFileEvent } from "../ableton/midi-file.js";
 import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
 import { say } from "../../../core/lang.js";
+import type { AmbiguousRef } from "../knowledge/intentions.js";
 
 export interface SongState {
   setlist?: string;
@@ -39,8 +40,10 @@ export interface SongServices {
   publish: (state: SongState) => void;
   /** Runs a timeline action through the command layer (origin "timeline"). */
   run?: (command: string, args: Record<string, unknown>) => Promise<unknown>;
-  /** What a word of a song's mood is shown as (T15b): the label of the intention it names, else the word. */
-  intentionLabel?: (word: string) => string;
+  /** What the words of a song's mood are shown as (T15b): the labels of the intentions they name, else the words (read once per call). */
+  intentionLabels?: () => (word: string) => string;
+  /** The words of a mood several intentions answer to (T15b): warned of by song.put. */
+  ambiguousMood?: (mood: string[]) => AmbiguousRef[];
   /** A song's mood as stored (T15b): words written by name become the id one intention only answers to. */
   migrateMood?: (mood: string[]) => string[];
   /** Last position seen, to fire the cues passed since (internal). */
@@ -89,9 +92,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   };
 
   /** A song's mood as people read it (T15b): the intentions' labels. */
-  const moodLabels = (mood: readonly string[]): string[] => mood.map((w) => s.intentionLabel?.(w) ?? w);
+  const labeller = () => s.intentionLabels?.() ?? ((w: string) => w);
   /** A song as an export shows it: its mood by the intentions' labels (cue sheet, board). */
-  const shown = (sg: Song): Song => ({ ...sg, mood: moodLabels(sg.mood) });
+  const shownWith = (label: (w: string) => string) => (sg: Song): Song => ({ ...sg, mood: sg.mood.map(label) });
+  const shown = (sg: Song): Song => shownWith(labeller())(sg);
   reg.register({
     name: "song.list",
     title: "Chants",
@@ -100,7 +104,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     readOnly: true,
     profiles: ["design", "live"],
     schema: z.object({}),
-    run: () => s.songs.list().map((sg) => ({ ...sg, moodLabels: moodLabels(sg.mood) })),
+    run: () => {
+      const label = labeller();
+      return s.songs.list().map((sg) => ({ ...sg, moodLabels: sg.mood.map(label) }));
+    },
   });
   reg.register({
     name: "song.put",
@@ -122,7 +129,10 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
         const parsed = def.schema.safeParse(c.args);
         if (!parsed.success) throw new Error(say(`action ${c.id} (${c.command}) : ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", ")}`, `cue ${c.id} (${c.command}): ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join(", ")}`));
       }
-      return s.songs.put(sg);
+      const saved = s.songs.put(sg);
+      // a name several intentions answer to stays a name (T15b): said, with which one it goes to
+      const ambiguous = s.ambiguousMood?.(saved.mood) ?? [];
+      return ambiguous.length ? { ...saved, ambiguous } : saved;
     },
   });
   reg.register({ name: "song.delete", title: "Supprimer un chant", description: "Deletes a song.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => ({ deleted: s.songs.delete(i) }) });
@@ -301,7 +311,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     run: ({ setlist }) => {
       const ids = setlist ? (s.setlists.get(setlist)?.songs ?? []) : s.songs.list().map((x) => x.id);
       const songs = ids.map((x) => s.songs.get(x)).filter((x): x is Song => Boolean(x));
-      return cueSheet(songs.map(shown), (lookId) => s.runtime.looks.get(lookId)?.name, (lookId) => {
+      return cueSheet(songs.map(shownWith(labeller())), (lookId) => s.runtime.looks.get(lookId)?.name, (lookId) => {
         const n = noteForLook(s.mappings(), lookId);
         return n ? `${n.note} (ch ${n.channel})` : undefined;
       });

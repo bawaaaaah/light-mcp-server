@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { systemContext } from "../../../src/plugins/light/commands/registry.js";
+import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
 import { aliasesAfter } from "../../../src/plugins/light/commands/design-commands.js";
 import { loadKnowledgeLayers } from "../../../src/plugins/light/knowledge/knowledge.js";
 import { duplicateLabels, migratedRef, migrateMood, migrateTags, newIntentionId, refKey, resolveIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
@@ -77,17 +77,23 @@ describe("intentions by generated id (T15b)", () => {
         "intentions/i-b.json": JSON.stringify({ id: "i-b", label: "douceur", colors: ["#ffeedd"] }),
         "intentions/joie.json": JSON.stringify({ id: "joie", label: "Joie", colors: ["#ffeedd"] }), // a touch-up: same id, no twin
         "intentions/i-m.json": JSON.stringify({ id: "i-m", label: "Brume", colors: ["#000000"], hidden: true }),
+        // the show's own: never a twin, even of the same label (not in the manifest)
+        "intentions/i-own.json": JSON.stringify({ id: "i-own", label: "Douceur", colors: ["#123456"] }),
+        // a machine one the archive masks: not a twin to keep
+        "intentions/i-y.json": JSON.stringify({ id: "i-y", label: "Aube", colors: ["#123456"], hidden: true }),
+        "intentions/i-c.json": JSON.stringify({ id: "i-c", label: "Aube", colors: ["#654321"] }),
         "songs/s.json": JSON.stringify({ id: "s", title: "S", mood: ["i-b", "joie"] }),
         "looks/l.json": JSON.stringify({ id: "l", name: "L", tags: ["ambiance:i-b", "dossier:x"] }),
         "looks/m.json": JSON.stringify({ id: "m", name: "M", tags: ["ambiance:joie"] }),
       };
       const machine = [
-        { id: "i-a", label: "Douceur", origin: "personal" as const },
-        { id: "joie", label: "Joie", origin: "generic" as const },
-        { id: "i-z", label: "Brume", origin: "personal" as const },
+        { id: "i-a", label: "Douceur", origin: "personal" as const, colors: ["#ffeedd"] },
+        { id: "joie", label: "Joie", origin: "generic" as const, colors: ["#ffcc1a"] },
+        { id: "i-z", label: "Brume", origin: "personal" as const, colors: ["#000000"] },
+        { id: "i-y", label: "Aube", origin: "personal" as const, colors: ["#000000"] },
       ];
-      const twins = intentionTwins(show, machine);
-      expect(twins).to.deep.equal([{ id: "i-b", label: "douceur", machine: { id: "i-a", label: "Douceur", origin: "personal" } }]);
+      const twins = intentionTwins(show, machine, ["i-b", "joie", "i-c"]);
+      expect(twins).to.deep.equal([{ id: "i-b", label: "douceur", colors: ["#ffeedd"], machine: { id: "i-a", label: "Douceur", origin: "personal", colors: ["#ffeedd"] } }]);
       const kept = keepMachineTwins(show, twins, ["i-b"]);
       expect(kept["intentions/i-b.json"]).to.equal(undefined);
       expect((JSON.parse(kept["songs/s.json"]!) as { mood: string[] }).mood).to.deep.equal(["i-a", "joie"]);
@@ -118,6 +124,11 @@ describe("intentions by generated id (T15b)", () => {
       await run("venue.canvas.put", { canvas: { id: "mur", name: "Mur", cells: 4, render: [0, 1, 2, 3].map((h) => ({ from: h, to: h, targets: [{ fixture: "bar", head: h }] })) } }, p);
       return { root, p };
     };
+    const refusal = (p: Promise<unknown>) =>
+      p.then(
+        () => undefined,
+        (e: Error) => e,
+      );
     const created = async (label: string, scope: "show" | "personal" = "show", p: LightPlugin = plugin) => ((await run("intention.put", { intention: { label, colors: ["#ffeedd"] }, scope }, p)) as { intention: Intention }).intention.id;
     const look = (id: string, tags: string[]) => ({ look: { id, name: id.toUpperCase(), canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, tags } });
 
@@ -146,6 +157,11 @@ describe("intentions by generated id (T15b)", () => {
       // the activity log says it by its label
       const lines = (await run("activity.list")) as { name: string; target?: string; targetLabel?: string }[];
       expect(lines.find((l) => l.name === "intention.put")).to.deep.include({ target: id, targetLabel: "Tendresse" });
+      expect(lines.filter((l) => l.name === "intention.put").at(-1)).to.deep.include({ targetLabel: "Douceur" }); // the creation: no id given
+      // deleted: its line keeps the label it bore
+      await run("intention.delete", { id, force: true });
+      const after = (await run("activity.list")) as { name: string; target?: string; targetLabel?: string }[];
+      expect(after.find((l) => l.name === "intention.delete")).to.deep.include({ target: id, targetLabel: "Tendresse" });
     });
 
     it("lets two intentions share a label: a name goes to the most specific, the check says both and the ambiguous names", async () => {
@@ -159,7 +175,7 @@ describe("intentions by generated id (T15b)", () => {
       expect((await kb()).moods[mine]!.usedBy).to.deep.equal([]);
       const issues = await lint();
       expect(issues.find((i) => /2 intentions portent ce libellé/.test(i.message))).to.deep.include({ level: "attention" });
-      expect(issues.find((i) => i.where === "chant s" && /« Douceur » nomme 2 intentions/.test(i.message))!.message).to.match(/elle va à celle du show/);
+      expect(issues.find((i) => i.where === "chant s" && /« Douceur » nomme 2 intentions/.test(i.message))!.message).to.match(new RegExp(`il va à « Douceur » \\(ce show, ${show}\\), la plus proche`));
       // picked by id, it is settled
       await run("song.put", { song: { id: "s", title: "Chant", mood: [mine], sections: [] } });
       expect((await lint()).some((i) => i.where === "chant s" && /nomme 2 intentions/.test(i.message))).to.equal(false);
@@ -177,12 +193,17 @@ describe("intentions by generated id (T15b)", () => {
       writeFileSync(join(dir, "songs", "s.json"), JSON.stringify({ id: "s", title: "Chant", mood: ["aube", "Brume", "joie", "mot libre"], sections: [] }));
       writeFileSync(join(dir, "looks", "l.json"), JSON.stringify({ id: "l", name: "L", canvas: "mur", technique: { kind: "plat", color: "#ffffff" }, tags: ["ambiance:Aube"] }));
       plugin = make(dataRoot);
+      // not served (the offline CLI, a read): nothing written
+      await run("song.list");
+      expect((JSON.parse(readFileSync(join(dir, "songs", "s.json"), "utf8")) as { mood: string[] }).mood).to.deep.equal(["aube", "Brume", "joie", "mot libre"]);
+      plugin.migrateIntentionRefs(); // what start() does
       expect((JSON.parse(readFileSync(join(dir, "songs", "s.json"), "utf8")) as { mood: string[] }).mood).to.deep.equal([id, "Brume", "joie", "mot libre"]);
       expect((JSON.parse(readFileSync(join(dir, "looks", "l.json"), "utf8")) as { tags: string[] }).tags).to.deep.equal([`ambiance:${id}`]);
       const versions = (await run("history.list", { collection: "looks", id: "l" })) as { stamp: string }[];
       expect(versions).to.have.length(1); // the look as it was, by name
       // loaded again: nothing more to write
       plugin = make(dataRoot);
+      plugin.migrateIntentionRefs(); // what start() does
       expect(await run("history.list", { collection: "looks", id: "l" })).to.have.length(1);
       expect(readdirSync(join(dataRoot, "backups", "shows", "default")).length).to.be.greaterThan(0);
     });
@@ -221,8 +242,8 @@ describe("intentions by generated id (T15b)", () => {
       const b = await created("Douceur", "personal", other.p);
       mkdirSync(join(other.root, "backups"), { recursive: true });
       copyFileSync(join(dataRoot, "backups", file), join(other.root, "backups", file));
-      const preview = (await run("backup.restore", { file, dryRun: true }, other.p)) as { intentionTwins: { id: string; label: string; machine: { id: string; origin: string } }[] };
-      expect(preview.intentionTwins).to.deep.equal([{ id: a, label: "Douceur", machine: { id: b, label: "Douceur", origin: "personal" } }]);
+      const preview = (await run("backup.restore", { file, dryRun: true }, other.p)) as { intentionTwins: { id: string; label: string; colors: string[]; machine: { id: string; origin: string } }[] };
+      expect(preview.intentionTwins).to.deep.equal([{ id: a, label: "Douceur", colors: ["#ffeedd"], machine: { id: b, label: "Douceur", origin: "personal", colors: ["#ffeedd"] } }]);
       // restored as it is: a second « Douceur » (the show's), said by the check
       await run("backup.restore", { file }, other.p);
       expect((await kb(other.p)).moods[a]).to.include({ origin: "show" });
@@ -240,15 +261,18 @@ describe("intentions by generated id (T15b)", () => {
       mkdirSync(join(dataRoot, "private"), { recursive: true });
       writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { brume: { label: "Brume", colors: ["#aabbcc"] } } }));
       plugin = make(dataRoot);
+      plugin.migrateIntentionRefs(); // what start() does
       await run("song.put", { song: { id: "s", title: "Chant", mood: ["brume"], sections: [] } });
       expect((await lint()).some((i) => /inconnue/.test(i.message))).to.equal(false);
       // the keyword and its label renamed by hand: its id is the keyword's key, the song no longer finds it
       writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { brouillard: { label: "Brouillard", colors: ["#aabbcc"] } } }));
       plugin = make(dataRoot);
+      plugin.migrateIntentionRefs(); // what start() does
       expect((await lint()).find((i) => i.where === "chant s" && /inconnue « brume »/.test(i.message))!.message).to.match(/mot-clé renommé dans le fichier privé/);
       // the keyword renamed, its label kept: the song finds it by name, and names it by its new id from the load on
       writeFileSync(join(dataRoot, "private", "knowledge.json"), JSON.stringify({ moods: { brouillard: { label: "Brume", colors: ["#aabbcc"] } } }));
       plugin = make(dataRoot);
+      plugin.migrateIntentionRefs(); // what start() does
       expect((await lint()).some((i) => /inconnue/.test(i.message))).to.equal(false);
       expect(((await run("song.list")) as { mood: string[] }[])[0]!.mood).to.deep.equal(["brouillard"]);
     });
@@ -266,6 +290,82 @@ describe("intentions by generated id (T15b)", () => {
       expect((await kb()).moods[id]).to.include({ label: "Aube" });
       // an empty label is still refused
       expect(((await run("show.propose", { changes: [{ command: "intention.put", args: { intention: { label: "?!", colors: ["#ffaa00"] } } }] })) as { valid: boolean }).valid).to.equal(false);
+    });
+
+    it("starts with an unreadable private file: the shipped base serves, the check says it, nothing migrates", async () => {
+      const id = await created("Aube");
+      mkdirSync(join(dataRoot, "private"), { recursive: true });
+      writeFileSync(join(dataRoot, "private", "knowledge.json"), "{ pas du json");
+      const dir = join(dataRoot, "shows", "default");
+      mkdirSync(join(dir, "songs"), { recursive: true });
+      writeFileSync(join(dir, "songs", "s.json"), JSON.stringify({ id: "s", title: "Chant", mood: ["aube"], sections: [] }));
+      plugin = make(dataRoot);
+      plugin.migrateIntentionRefs();
+      expect((JSON.parse(readFileSync(join(dir, "songs", "s.json"), "utf8")) as { mood: string[] }).mood).to.deep.equal(["aube"]);
+      expect((await kb()).moods.joie).to.include({ origin: "generic" });
+      expect((await lint()).find((i) => /fichier privé des intentions : private\/knowledge\.json/.test(i.message))).to.deep.include({ level: "attention" });
+      // a write does not migrate either, and song.list still answers
+      expect(((await run("song.put", { song: { id: "t", title: "Autre", mood: ["Aube"], sections: [] } })) as { mood: string[] }).mood).to.deep.equal(["Aube"]);
+      expect(((await run("song.list")) as { moodLabels: string[] }[]).map((x) => x.moodLabels)).to.deep.include(["Aube"]);
+      expect(id).to.match(/^i-/);
+    });
+
+    it("lets a show intention with a shipped one's label take its name, the key included (decision of 2026-11-12)", async () => {
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["joie"], sections: [] } });
+      const id = await created("Joie");
+      // the song wrote « joie », the shipped one's key: the show's « Joie » is nearer, it wins, and it is said
+      const k = await kb();
+      expect(k.moods[id]!.usedBy).to.deep.equal(["chant « Chant »"]);
+      expect(k.moods.joie!.usedBy).to.deep.equal([]);
+      expect((await lint()).find((i) => i.where === "chant s")!.message).to.match(/« joie » nomme 2 intentions/);
+      // not migrated (ambiguous); a write warns with the candidates
+      const put = (await run("song.put", { song: { id: "s", title: "Chant", mood: ["joie"], sections: [] } })) as { mood: string[]; ambiguous: { chosen: { id: string }; candidates: { id: string }[] }[] };
+      expect(put.mood).to.deep.equal(["joie"]);
+      expect(put.ambiguous[0]!.chosen.id).to.equal(id);
+      expect(put.ambiguous[0]!.candidates.map((c) => c.id)).to.deep.equal([id, "joie"]);
+      const lk = (await run("look.put", look("l", ["ambiance:Joie"]))) as { ambiguous?: unknown[] };
+      expect(lk.ambiguous).to.have.length(1);
+      // the shipped one's row is still deleted (masked) by its id, and a name several answer to is refused
+      expect(((await refusal(run("intention.delete", { id: "Joie" }))) as CommandError).detail).to.deep.include({ candidates: [{ id, label: "Joie", origin: "show" }, { id: "joie", label: "Joie", origin: "generic" }] });
+      expect(await run("intention.delete", { id: "joie", force: true })).to.include({ action: "hidden" });
+      // a generated id typed as such always names its own
+      expect(((await run("look.from_intent", { name: "x", canvas: "mur", mood: [id] })) as { look: { tags: string[] } }).look.tags).to.deep.equal([`ambiance:${id}`]);
+    });
+
+    it("never lets a masked id take a word a visible intention answers to", async () => {
+      await run("intention.delete", { id: "paix" }); // masked
+      const id = await created("Paix");
+      await run("song.put", { song: { id: "s", title: "Chant", mood: [id], sections: [] } });
+      const lk = (await run("look.from_intent", { name: "x", canvas: "mur", mood: ["paix"] })) as { unknownMoods: string[]; look: { tags: string[] } };
+      expect(lk.unknownMoods).to.deep.equal([]);
+      expect(lk.look.tags).to.deep.equal([`ambiance:${id}`]); // the visible one only answers: migrated
+    });
+
+    it("takes a rename back exactly: apply then revert, or a version put back, give the file as it was", async () => {
+      const id = await created("Aube");
+      const file = join(dataRoot, "shows", "default", "intentions", `${id}.json`);
+      const before = readFileSync(file, "utf8");
+      const p = (await run("show.propose", { changes: [{ command: "intention.put", args: { intention: { id, label: "Aurore", colors: ["#ffeedd"] } } }] })) as { id: string };
+      await run("show.apply", { id: p.id });
+      expect((JSON.parse(readFileSync(file, "utf8")) as Intention).aliases).to.deep.equal(["Aube"]);
+      await run("show.revert", { id: p.id });
+      expect(readFileSync(file, "utf8")).to.equal(before);
+      await run("intention.put", { intention: { id, label: "Aurore", colors: ["#ffeedd"] } });
+      const versions = (await run("history.list", { collection: "intentions", id })) as { stamp: string }[];
+      await run("history.restore", { collection: "intentions", id, stamp: versions.at(-1)!.stamp });
+      expect(readFileSync(file, "utf8")).to.equal(before);
+    });
+
+    it("never takes the show's own intention of an archive for one of another machine", async () => {
+      await created("Douceur", "personal");
+      const own = await created("Douceur");
+      await run("song.put", { song: { id: "s", title: "Chant", mood: [own], sections: [] } });
+      const file = ((await run("backup.create", { label: "propre" })) as { file: string }).file;
+      const preview = (await run("backup.restore", { file, dryRun: true })) as { intentionTwins: unknown[] };
+      expect(preview.intentionTwins).to.deep.equal([]);
+      await run("backup.restore", { file, keepMachine: [own] }); // even asked: not a twin, kept
+      expect(((await run("song.list")) as { mood: string[] }[])[0]!.mood).to.deep.equal([own]);
+      expect((await kb()).moods[own]).to.include({ origin: "show" });
     });
   });
 });

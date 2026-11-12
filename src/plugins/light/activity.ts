@@ -19,6 +19,8 @@ export interface ActivityEntry {
   who?: string;
   /** The object acted on (its id), when the arguments name one. */
   target?: string;
+  /** How people read that object, when its id says nothing (an intention's label, T15b): kept as it was then. */
+  targetLabel?: string;
   /** The collection a history.restore / history.undo acted on. */
   collection?: string;
   ok: boolean;
@@ -42,6 +44,7 @@ const EntrySchema = z.object({
   origin: z.enum(["ui", "midi", "osc", "os2l", "ableset", "mcp", "timeline", "cli", "system"]),
   who: z.string().optional(),
   target: z.string().optional(),
+  targetLabel: z.string().optional(),
   /** The collection a history.restore / history.undo acted on: its line is undone in that collection. */
   collection: z.string().optional(),
   ok: z.boolean(),
@@ -102,7 +105,7 @@ export class ActivityLog {
   private readonly entries: ActivityEntry[] = [];
   private changed = false;
 
-  record(e: CommandEvent, title: string): void {
+  record(e: CommandEvent, title: string, targetLabel?: string): void {
     const target = targetOf(e.args, e.name);
     const of = e.name.startsWith("history.") ? (e.args as { collection?: unknown } | undefined)?.collection : undefined;
     const collection = typeof of === "string" ? of : undefined;
@@ -117,7 +120,7 @@ export class ActivityLog {
         return;
       }
     }
-    this.entries.push({ at: e.at, until: e.at, count: 1, name: e.name, title, origin: e.origin, ...(e.who ? { who: e.who } : {}), ...(target ? { target } : {}), ...(collection ? { collection } : {}), ok: e.ok, ...(e.error ? { error: e.error } : {}) });
+    this.entries.push({ at: e.at, until: e.at, count: 1, name: e.name, title, origin: e.origin, ...(e.who ? { who: e.who } : {}), ...(target ? { target } : {}), ...(targetLabel && targetLabel !== target ? { targetLabel } : {}), ...(collection ? { collection } : {}), ok: e.ok, ...(e.error ? { error: e.error } : {}) });
     if (this.entries.length > ACTIVITY_MAX) this.entries.splice(0, this.entries.length - ACTIVITY_MAX);
     this.changed = true;
   }

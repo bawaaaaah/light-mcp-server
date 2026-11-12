@@ -86,8 +86,9 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
  * « joie ! » are « joie »); the commands pass `refKey` (T15b), which also finds one by its label or
  * a former one, so a word written by name counts for the intention's id.
  */
-export function intentionUses(word: string, show: Pick<ShowParts, "songs" | "looks">, keyOf: (word: string) => string = normalizeMood): string[] {
-  const key = keyOf(word);
+export function intentionUses(id: string, show: Pick<ShowParts, "songs" | "looks">, keyOf: (word: string) => string = normalizeMood): string[] {
+  // the intention's id (or, without keyOf, a word made a key): what the words of the show are compared to
+  const key = normalizeMood(id);
   const names = (w: string) => key !== "" && keyOf(w) === key;
   const uses: string[] = [];
   for (const s of show.songs) if (s.mood?.some(names)) uses.push(say(`chant « ${s.title} »`, `song “${s.title}”`));

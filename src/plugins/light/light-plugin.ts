@@ -30,9 +30,9 @@ import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
-import { intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
+import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
-import { AMBIANCE, embeddedIntentions, IntentionSchema, labelOfRef, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
+import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
@@ -240,7 +240,12 @@ export class LightPlugin implements McpPlugin {
       sharedWith: otherShowsSharing,
       standby: () => this.router.isStandby(),
       intentionReferences: (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id),
-      migrateTags: (tags) => migrateTags(showStack(this.intentions), tags).tags,
+      migrateTags: (tags) => {
+        const stack = migratable();
+        return stack ? migrateTags(stack, tags).tags : tags;
+      },
+      newIntentionId: () => freshIntentionId(this.intentions),
+      ambiguousTags: (tags) => ambiguousRefs(showStack(this.intentions), tags.filter((t) => t.startsWith(AMBIANCE)).map((t) => t.slice(AMBIANCE.length))),
     });
     // a fixture's DMX mode, and a channel's working mode (T6); a mode changed « for every show » rewrites their folders
     registerFixtureModeCommands(this.commands, this.engine, this.runtime, showApi, {
@@ -292,25 +297,48 @@ export class LightPlugin implements McpPlugin {
     registerSongCommands(this.commands, this.songs);
     const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
     let kb: KnowledgeLayers | undefined;
+    // an unreadable private file: the shipped base alone, said by show.lint; nothing migrates meanwhile (T15b)
+    let privateError: string | undefined;
+    const readBase = (): KnowledgeLayers => {
+      try {
+        return loadKnowledgeLayers(knowledgePath);
+      } catch (err) {
+        privateError = `${path.relative(dataRoot, knowledgePath)} : ${(err as Error).message.split("\n")[0]}`;
+        return loadKnowledgeLayers();
+      }
+    };
     // the intentions (T15): the files read once, the personal library (every show of this machine; its
     // history pruned with the shows', backups/private/library) and the show's own (in its folder), read at every call
     const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private", "library"));
     const showIntentions = this.show.collection("intentions", IntentionSchema);
     this.intentions = {
-      base: () => (kb ??= loadKnowledgeLayers(knowledgePath)),
+      base: () => (kb ??= readBase()),
+      privateUnreadable: () => (this.intentions.base(), privateError),
       personal: personal.collection("intentions", IntentionSchema),
       show: showIntentions,
       // each show reads the words of its songs and looks against this machine's intentions under its own (T15b)
       machineUsers: () => machineIntentionUsers(dataRoot, (own) => stackIntentions(this.intentions.base(), this.intentions.personal.list(), own)),
       current: () => this.config.show,
-      loadErrors: () => [...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)), ...this.show.loadErrors.filter((e) => e.startsWith("intentions/"))],
+      loadErrors: () => [
+        ...(privateError ? [say(`fichier privé des intentions : ${privateError} (seules les intentions livrées, de la bibliothèque et du show servent ; rien n'est migré tant qu'il est illisible)`, `private intentions file: ${privateError} (only the shipped, library and show intentions serve; nothing is migrated while it is unreadable)`)] : []),
+        ...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)),
+        ...this.show.loadErrors.filter((e) => e.startsWith("intentions/")),
+      ],
       newId: () => newIntentionId(this.opts.now?.() ?? Date.now()),
     };
+    /** The intentions a write may migrate against: none while the private file is unreadable (a name could go astray). */
+    const migratable = () => (this.intentions.privateUnreadable?.() ? undefined : showStack(this.intentions));
     // what names an intention, read and written by id (T15b): a song's mood and a look's ambiance: tags
     // written by name become the id one intention only answers to, shown by its label
-    this.songs.intentionLabel = (word) => labelOfRef(showStack(this.intentions), word);
-    this.songs.migrateMood = (mood) => migrateMood(showStack(this.intentions), mood).mood;
-    this.migrateIntentionRefs();
+    this.songs.intentionLabels = () => {
+      const stack = showStack(this.intentions);
+      return (word) => labelOfRef(stack, word);
+    };
+    this.songs.migrateMood = (mood) => {
+      const stack = migratable();
+      return stack ? migrateMood(stack, mood).mood : mood;
+    };
+    this.songs.ambiguousMood = (mood) => ambiguousRefs(showStack(this.intentions), mood);
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     this.files = {
@@ -336,7 +364,7 @@ export class LightPlugin implements McpPlugin {
     } catch {
       /* an unreadable log only loses the past lines */
     }
-    this.commands.onCommand((e) => this.activity.record(e, this.commands.get(e.name)?.title ?? e.name));
+    this.commands.onCommand((e) => this.activity.record(e, this.commands.get(e.name)?.title ?? e.name, e.name.startsWith("intention.") ? this.intentionLineLabel(e.args) : undefined));
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
@@ -350,13 +378,10 @@ export class LightPlugin implements McpPlugin {
           const def = this.commands.get(name);
           return def?.right === "show:write" && !def.readOnly;
         };
-        const intentionsNow = showStack(this.intentions);
         return this.activity.list(limit).map((e) => {
           const undo = undoOf(e, designWrite);
           const def = this.commands.get(e.name);
-          // an intention acted on is said by its label (T15b: a new one's id is generated)
-          const label = e.target && e.name.startsWith("intention.") ? labelOfRef(intentionsNow, e.target) : undefined;
-          const line = { ...e, ...(def ? { title: commandTitle(def) } : {}), ...(label && label !== e.target ? { targetLabel: label } : {}) };
+          const line = { ...e, ...(def ? { title: commandTitle(def) } : {}) };
           return undo ? { ...line, undo } : line;
         });
       },
@@ -479,15 +504,41 @@ export class LightPlugin implements McpPlugin {
   }
 
   /**
-   * The words of the show's songs (mood) and looks (ambiance: tags) written by name become the id of
-   * the intention they name, where one intention only answers to the name (T15b): at the show's load,
-   * once (an id stays an id: loading again writes nothing), each change kept in the history as any put.
-   * An ambiguous name, a masked one or a free word stay as they are (show.lint says the ambiguous ones).
+   * An intention command's line said by the intention's label (T15b: a new one's id is generated), read
+   * when it is recorded: the label given, else the one it bears, else the one its last copy bore (deleted).
    */
-  private migrateIntentionRefs(): void {
+  private intentionLineLabel(args: unknown): string | undefined {
+    const a = (args && typeof args === "object" ? args : {}) as { id?: unknown; intention?: { id?: unknown; label?: unknown } };
+    if (typeof a.intention?.label === "string" && a.intention.label.trim()) return a.intention.label.trim();
+    const id = typeof a.id === "string" ? a.id : typeof a.intention?.id === "string" ? a.intention.id : undefined;
+    if (!id) return undefined;
+    const label = labelOfRef(showStack(this.intentions), id);
+    if (label !== id) return label;
+    return [...this.intentions.show.deleted(), ...this.intentions.personal.deleted()].find((d) => d.id === id)?.name;
+  }
+
+  /** Set by start(): the show's loads migrate its intention references from then on (never offline, T15b). */
+  private serving = false;
+
+  /**
+   * The words of the show's songs (mood) and looks (ambiance: tags) written by name become the id of
+   * the intention they name, where one intention only answers to the name (T15b): at the show's load
+   * by the server (start, open, restore, reset; never the offline CLI), once (an id stays an id: loading
+   * again writes nothing), each change kept in the history as any put. An ambiguous name, a masked one
+   * or a free word stay as they are (show.lint says the ambiguous ones). Nothing while the private
+   * intentions file is unreadable. Public for the tests: start() calls it.
+   */
+  migrateIntentionRefs(): void {
+    this.serving = true;
+    this.migrateLoaded();
+  }
+
+  private migrateLoaded(): void {
+    if (!this.serving) return;
     const songs = this.songs?.songs;
     // nothing names an intention: the files of this machine are not read for nothing
     if (!songs?.list().some((s) => s.mood.length) && !this.runtime.looks.list().some((l) => l.tags.some((t) => t.startsWith(AMBIANCE)))) return;
+    if (this.intentions.privateUnreadable?.()) return;
     const stack = showStack(this.intentions);
     for (const s of songs?.list() ?? []) {
       const m = migrateMood(stack, s.mood);
@@ -502,7 +553,7 @@ export class LightPlugin implements McpPlugin {
   /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
   private reloadFromDisk(): void {
     this.show.reloadAll();
-    this.migrateIntentionRefs();
+    this.migrateLoaded();
     this.venue.reload(); // an archive restored may hold model overrides under an old key
     this.runtime.reloadSettings();
     this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
@@ -558,7 +609,7 @@ export class LightPlugin implements McpPlugin {
       // what an intention the archive brings is compared with: one of the same label here is a twin (T15b)
       machineIntentions: () => {
         const i = this.intentions;
-        return [...stackIntentions(i.base(), i.personal.list(), []).values()].flatMap((e) => (e.hidden || e.origin === "show" ? [] : [{ id: e.id, label: e.label || e.id, origin: e.origin }]));
+        return [...stackIntentions(i.base(), i.personal.list(), []).values()].flatMap((e) => (e.hidden || e.origin === "show" ? [] : [{ id: e.id, label: e.label || e.id, origin: e.origin, colors: e.colors }]));
       },
     };
   }
@@ -781,6 +832,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   async start(): Promise<void> {
+    this.migrateIntentionRefs(); // the show's words by name become ids, now and at each load (T15b)
     if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
     if (!this.resumeLive()) this.recallStartup(); // a recent crash resume wins over the startup snapshot
     this.loopDelay.start();

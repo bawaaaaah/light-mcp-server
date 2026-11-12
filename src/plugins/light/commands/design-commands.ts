@@ -87,6 +87,19 @@ export interface IntentionStores {
   loadErrors?: () => string[];
   /** The id of a new intention (T15b): `newIntentionId` at the time of the call by default (injectable). */
   newId?: () => string;
+  /** Why the private file could not be read (its layer left out, T15b): nothing migrates meanwhile. */
+  privateUnreadable?: () => string | undefined;
+}
+
+/** A new intention's id (T15b), never one already taken in a layer (intention.put, show.propose). */
+export function freshIntentionId(stores: IntentionStores): string {
+  const st = showStack(stores);
+  const taken = (id: string) => st.has(id) || stores.personal.has(id) || stores.show.has(id);
+  for (let tries = 0; tries < 100; tries++) {
+    const id = stores.newId?.() ?? newIntentionId(Date.now());
+    if (!taken(id)) return id;
+  }
+  throw new CommandError("failed", say("pas d'id libre pour une nouvelle intention", "no free id for a new intention"));
 }
 
 /** The intentions the open show sees, every layer stacked (T15). */
@@ -119,8 +132,6 @@ const parsedOr = <T>(parse: () => T): T => {
 /** Where an intention lives, as people say it (show.lint). */
 const originWord = (o: IntentionOrigin): string =>
   ({ show: say("ce show", "this show"), personal: say("bibliothèque personnelle", "personal library"), private: say("fichier privé", "private file"), generic: say("livrée", "shipped") })[o];
-/** « celle … »: the one of that place. */
-const originOf = (o: IntentionOrigin): string => ({ show: "du show", personal: "de la bibliothèque personnelle", private: "du fichier privé", generic: "livrée" })[o];
 
 /** A line of the uses of an intention: another show of this machine names it. */
 const otherShowLine = (show: string): string => say(`show « ${show} » (autre show de cette machine)`, `show “${show}” (another show of this machine)`);
@@ -136,7 +147,8 @@ const othersOf = (stores: IntentionStores, key: string, entry: IntentionEntry | 
 export function intentionReferences(stores: IntentionStores, show: { songs: Song[]; looks: Look[] }, word: string): string[] {
   const stack = showStack(stores);
   const keyOf = refKey(stack);
-  const key = keyOf(word);
+  // an id given as such is that one (a row of the list); a word, the one it names
+  const key = stack.has(word) ? word : keyOf(word);
   return [...intentionUses(key, show, keyOf), ...othersOf(stores, key, stack.get(key)).map(otherShowLine)];
 }
 
@@ -174,14 +186,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     return key;
   };
   /** A new intention's id (T15b), never one already taken in a layer. */
-  const freshId = (): string => {
-    const taken = (id: string) => stack().has(id) || intentions.personal.has(id) || intentions.show.has(id);
-    for (let tries = 0; tries < 100; tries++) {
-      const id = intentions.newId?.() ?? newIntentionId(Date.now());
-      if (!taken(id)) return id;
-    }
-    throw new CommandError("failed", say("pas d'id libre pour une nouvelle intention", "no free id for a new intention"));
-  };
+  const freshId = (): string => freshIntentionId(intentions);
   /** The other visible intentions of that label (T15b): allowed, said so. */
   const sameLabel = (id: string, label: string) => {
     const key = normalizeMood(label);
@@ -252,7 +257,14 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     schema: z.object({ id: z.string(), force: z.boolean().default(false), scope: z.enum(["show", "personal"]).optional() }),
     run: ({ id: word, force, scope }) => {
       // scope "personal": the library's own, whatever the open show has of that id (the library section)
-      const entry = resolveIntention(scope === "personal" ? machineStack() : stack(), word)?.entry;
+      const layers = scope === "personal" ? machineStack() : stack();
+      // an id given as such is that one (a row of the list); a word, the one it names
+      const exact = layers.get(word);
+      const found = exact ? { entry: exact, by: "id" as const, candidates: [exact] } : resolveIntention(layers, word);
+      // a name several intentions answer to: which one is not guessed (T15b)
+      if (found && found.by !== "id" && found.candidates.length > 1)
+        throw new CommandError("invalid", say(`« ${word} » nomme ${found.candidates.length} intentions (${found.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}, ${c.id}`).join(" ; ")}) : la désigner par son id`, `“${word}” names ${found.candidates.length} intentions (${found.candidates.map((c) => `${c.label || c.id}: ${originWord(c.origin)}, ${c.id}`).join("; ")}): name it by its id`), { candidates: found.candidates.map((c) => ({ id: c.id, label: c.label || c.id, origin: c.origin })) });
+      const entry = found?.entry;
       if (!entry || (scope !== undefined && entry.origin !== scope)) throw new CommandError("unknown", say(`intention inconnue : ${word}`, `unknown intention: ${word}`));
       const key = entry.id;
       const name = entry.label || key;
@@ -594,10 +606,15 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const d of duplicateLabels(intentionsNow)) {
         const [first] = d.entries;
         const list = d.entries.map((e) => `« ${e.label || e.id} » (${originWord(e.origin)}, ${e.id})`).join(", ");
-        const listEn = d.entries.map((e) => `“${e.label || e.id}” (${e.origin}, ${e.id})`).join(", ");
+        const listEn = d.entries.map((e) => `“${e.label || e.id}” (${originWord(e.origin)}, ${e.id})`).join(", ");
+        // the nearest wins a name, even over the key of a shipped or private one (decision of 2026-11-12)
+        const won = `${first!.label || first!.id} (${originWord(first!.origin)}, ${first!.id})`;
         warn(
           say(`intentions « ${first!.label || first!.id} »`, `intentions “${first!.label || first!.id}”`),
-          say(`${d.entries.length} intentions portent ce libellé : ${list} ; un mot qui le nomme va à la première. Renommer l'une, ou garder l'une ou l'autre`, `${d.entries.length} intentions have this label: ${listEn}; a word naming it goes to the first one. Rename one, or keep one or the other`),
+          say(
+            `${d.entries.length} intentions portent ce libellé : ${list} ; un mot qui le nomme par son nom va à la plus proche, ${won}, même s'il était la clé d'une autre. Renommer l'une, ou n'en garder qu'une`,
+            `${d.entries.length} intentions have this label: ${listEn}; a word naming it by its name goes to the nearest, ${won}, even when it was another one's key. Rename one, or keep only one`,
+          ),
         );
       }
       /** A word that names nothing here: unknown, or masked; said once per place. */
@@ -613,8 +630,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         warn(
           where,
           say(
-            `« ${word} » nomme ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}`).join(", ")}) : elle va à celle ${originOf(r.entry.origin)} ; la choisir dans le sélecteur pour lever le doute`,
-            `“${word}” names ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id}: ${c.origin}`).join(", ")}): it goes to the ${r.entry.origin} one; pick it in the selector to settle it`,
+            `« ${word} » nomme ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}, ${c.id}`).join(" ; ")}) : il va à « ${r.entry.label || r.entry.id} » (${originWord(r.entry.origin)}, ${r.entry.id}), la plus proche ; la choisir dans le sélecteur pour la fixer par son id`,
+            `“${word}” names ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id}: ${originWord(c.origin)}, ${c.id}`).join("; ")}): it goes to “${r.entry.label || r.entry.id}” (${originWord(r.entry.origin)}, ${r.entry.id}), the nearest; pick it in the selector to pin it by its id`,
           ),
         );
       for (const l of runtime.looks.list())
