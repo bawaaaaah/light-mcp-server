@@ -3652,3 +3652,81 @@ fieldset.checklist .checklist-search {
 .intention-origins .chip.origin-unknown {
   border-style: dashed;
 }
+/* T15b: a label several intentions bear, the song's intentions, former labels, the restore's choice */
+.intention-origins .chip.shared {
+  border-color: var(--warn);
+}
+.intention-origins .chip select {
+  margin-left: 0.3em;
+  font-size: inherit;
+}
+.intention-editor .intention-duplicate {
+  display: block;
+  padding: 0.3em 0.5em;
+  border-left: 3px solid var(--warn);
+}
+.intention-editor .intention-aliases ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin: 0.2em 0;
+  padding: 0;
+  list-style: none;
+}
+.intention-editor .intention-aliases .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.1em 0.2em 0.1em 0.6em;
+  border: 1px solid rgb(128 128 128 / 0.5);
+  border-radius: 1em;
+}
+.intention-editor .intention-aliases .chip button {
+  border: 0;
+  background: none;
+  min-width: 32px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.song-editor .song-moods {
+  grid-column: 1 / -1;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.song-editor .song-moods .theme-picker h4 {
+  margin: 0 0 0.2em;
+}
+.restore-twins fieldset {
+  display: grid;
+  gap: 0.4em;
+  margin: 0 0 0.8em;
+}
+.restore-twins label {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-height: 32px;
+}
+.restore-twins .intention-swatches {
+  display: inline-flex;
+  gap: 2px;
+}
+.restore-twins .intention-swatches i {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 50%;
+  border: 1px solid rgb(128 128 128 / 0.5);
+}
+@media (pointer: coarse) {
+  .theme-picker .theme-list button,
+  .theme-picker .chip button,
+  .theme-picker input[type="search"],
+  .intention-editor .intention-aliases .chip button,
+  .restore-twins label {
+    min-height: 44px;
+  }
+  .theme-picker .chip button,
+  .intention-editor .intention-aliases .chip button {
+    min-width: 44px;
+  }
+}

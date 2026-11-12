@@ -153,7 +153,7 @@ export function ActivityPanel(): ReactElement {
                   <td className="hint">{t.origins[e.origin]}</td>
                   <td>
                     {e.title}
-                    {e.target && <small className="hint" title={e.targetLabel ? e.target : undefined}> · {e.targetLabel ?? e.target}</small>}
+                    {(e.targetLabel ?? e.target) && <small className="hint" title={e.targetLabel ? e.target : undefined}> · {e.targetLabel ?? e.target}</small>}
                   </td>
                   <td title={e.error}>{e.ok ? "✔" : `✖ ${e.error ?? ""}`}</td>
                   <td>

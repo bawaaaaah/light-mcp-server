@@ -6062,7 +6062,8 @@ test("intentions: create one in the show, use it by intention, rename it, allow 
     // opened again: the label it left is kept as a former one
     await row("Lever du rideau").getByRole("button", { name: "Modifier · Lever du rideau" }).click();
     const again = page.getByRole("dialog", { name: "Lever du rideau" });
-    await expect(again.getByText("Anciens libellés (la retrouvent encore) : Lever de rideau")).toBeVisible();
+    await expect(again.getByRole("list", { name: "Anciens libellés (la retrouvent encore) : Lever de rideau" })).toBeVisible();
+    await expect(again.getByRole("button", { name: "Retirer l'ancien libellé « Lever de rideau »" })).toBeVisible();
     await again.getByRole("button", { name: "Annuler" }).click();
     // a new one of the same label is allowed, and said before it is sent
     await section.getByRole("button", { name: "➕ Nouvelle intention" }).click();
@@ -6286,7 +6287,7 @@ test("restore: an intention made apart on another machine is said, and this mach
   const asked: string[] = [];
   page.on("dialog", (d) => {
     asked.push(d.message());
-    void d.accept(); // the summary, then « keep this machine's »
+    void d.accept(); // the summary
   });
   await login(page);
   const first = ((await api(page, "intention.put", { intention: { label: "Crépuscule", colors: ["#552266"], energy: "pose" }, scope: "personal" })) as { intention: { id: string } }).intention.id;
@@ -6302,9 +6303,16 @@ test("restore: an intention made apart on another machine is said, and this mach
     second = ((await api(page, "intention.put", { intention: { label: "Crépuscule", colors: ["#552266"], energy: "pose" }, scope: "personal" })) as { intention: { id: string } }).intention.id;
     await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
     await page.locator('input[type=file][accept*="lightshow"]').setInputFiles({ name: "show.lightshow", mimeType: "application/zip", buffer: Buffer.from(backup) });
-    await expect.poll(() => asked.length).toBeGreaterThanOrEqual(2);
-    expect(asked[0]).toContain("« Crépuscule » : cette machine a déjà une intention de ce libellé (personnelle), créée à part sous un autre id");
-    expect(asked[1]).toContain("OK : garder celle de cette machine");
+    await expect.poll(() => asked.length).toBeGreaterThanOrEqual(1);
+    expect(asked[0]).toContain(`« Crépuscule » (${first}) : cette machine en a une de ce libellé (personnelle, ${second}), créée à part`);
+    // one choice per intention, in a dialog: the backup's by default, this machine's picked
+    const dialog = page.getByRole("dialog", { name: "Intentions créées à part sur une autre machine" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: new RegExp(`Celle de la sauvegarde \\(${first}\\)`) })).toBeChecked();
+    await page.screenshot({ path: "test-results/t15b/restore-twins.png" });
+    await dialog.getByRole("radio", { name: new RegExp(`Celle de cette machine \\(personnelle, ${second}\\)`) }).check();
+    await dialog.getByRole("button", { name: "Restaurer" }).click();
+    await expect(dialog).toHaveCount(0);
     // kept this machine's: the restored song names it, the backup's copy is not in the show
     await expect.poll(async () => ((await api(page, "song.list")) as { id: string; mood: string[] }[]).find((s) => s.id === "t15b-r")?.mood).toEqual([second]);
     const kb = (await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }> };
@@ -6314,5 +6322,80 @@ test("restore: an intention made apart on another machine is said, and this mach
     await api(page, "song.delete", { id: "t15b-r" });
     for (const id of [first, second].filter(Boolean)) if (((await api(page, "intention.library")) as { id: string }[]).some((x) => x.id === id)) await api(page, "intention.delete", { id, scope: "personal", force: true });
   }
+  expect(errors).toEqual([]);
+});
+
+test("a label shared by the show and the library: the restore keeps the show's own, the song editor pins the one picked (T15b, review)", async ({ page }) => {
+  const errors = watchErrors(page);
+  const asked: string[] = [];
+  page.on("dialog", (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
+  await login(page);
+  const mine = ((await api(page, "intention.put", { intention: { label: "Brise", colors: ["#88ccee"], energy: "pose" }, scope: "personal" })) as { intention: { id: string } }).intention.id;
+  const own = ((await api(page, "intention.put", { intention: { label: "Brise", colors: ["#2266aa"], energy: "pose" } })) as { intention: { id: string } }).intention.id;
+  try {
+    await api(page, "song.put", { song: { id: "t15b-p", title: "Essai brise", mood: [own], sections: [] } });
+    const backup = await page.evaluate(async () => {
+      const res = await fetch("/api/plugins/light/archive", { headers: { authorization: `Bearer ${sessionStorage.getItem("token")}` } });
+      return Array.from(new Uint8Array(await res.arrayBuffer()));
+    });
+    await api(page, "song.delete", { id: "t15b-p" });
+    // the show's own « Brise » is no twin of the library's: no question, the song still names it
+    await page.locator("nav.pages button", { hasText: "Fichiers" }).click();
+    await page.locator('input[type=file][accept*="lightshow"]').setInputFiles({ name: "show.lightshow", mimeType: "application/zip", buffer: Buffer.from(backup) });
+    await expect.poll(async () => ((await api(page, "song.list")) as { id: string; mood: string[] }[]).find((s) => s.id === "t15b-p")?.mood).toEqual([own]);
+    expect(asked.join("\n")).not.toContain("créée à part");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(((await api(page, "knowledge.get")) as { moods: Record<string, { origin: string }> }).moods[own]?.origin).toBe("show");
+    // the song editor: Enter on the shared label picks nothing, each is offered with where it lives
+    await page.locator("nav.pages button", { hasText: "Chants" }).click();
+    await page.getByRole("button", { name: "Modifier Essai brise" }).click();
+    const editor = page.locator(".song-editor");
+    await expect(editor.getByRole("textbox", { name: "Titre" })).toBeFocused(); // the keyboard goes to it
+    await expect(editor.locator(".theme-chips .chip")).toHaveText([/^Brise · ce show/]);
+    const search = editor.locator(".theme-picker").getByRole("searchbox");
+    await search.fill("brise");
+    await search.press("Enter");
+    await expect(editor.locator(".theme-chips .chip")).toHaveCount(1);
+    await expect(editor.locator(".theme-list button", { hasText: "Brise" })).toHaveCount(2);
+    // ArrowDown goes into the list
+    await search.press("ArrowDown");
+    await expect(editor.locator(".theme-list button").first()).toBeFocused();
+    // the label is said shared, and the other one can be picked: the song names it by its id
+    const origins = editor.locator(".intention-origins");
+    await expect(origins).toContainText("2 intentions portent ce libellé");
+    await origins.getByRole("combobox", { name: "Laquelle « Brise » désigne" }).selectOption(mine);
+    await expect(editor.locator(".theme-chips .chip")).toHaveText([/^Brise · personnelle/]);
+    await page.screenshot({ path: "test-results/t15b/song-shared.png", fullPage: true });
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "song.list")) as { id: string; mood: string[] }[]).find((s) => s.id === "t15b-p")!.mood).toEqual([mine]);
+    // Escape closes an editor left unchanged
+    await page.getByRole("button", { name: "Modifier Essai brise" }).click();
+    await expect(editor).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editor).toHaveCount(0);
+  } finally {
+    await api(page, "song.delete", { id: "t15b-p" });
+    await api(page, "intention.delete", { id: own, force: true });
+    await api(page, "intention.delete", { id: mine, scope: "personal", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("the song editor on a phone: the intentions' picker fits, finger-sized (T15b, review)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "Chants" }).click();
+  await page.getByRole("button", { name: "Modifier Chant test" }).click();
+  const picker = page.locator(".song-editor .theme-picker");
+  await expect(picker).toBeVisible();
+  const box = (await picker.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await picker.screenshot({ path: "test-results/t15b/song-picker-phone.png" });
+  await page.locator(".song-editor").getByRole("button", { name: "Fermer" }).first().click();
   expect(errors).toEqual([]);
 });

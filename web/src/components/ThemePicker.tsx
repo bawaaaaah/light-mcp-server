@@ -10,12 +10,13 @@ import { useT } from "../App";
 import { quoted } from "../typography";
 import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, toggleTheme, type Theme } from "../themes";
 
-export function ThemePicker({ themes, chosen, onChange, title, help }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void; title?: string; help?: string }): ReactElement {
+export function ThemePicker({ themes, chosen, onChange, title, help, loading = false }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void; title?: string; help?: string; /** the list is not there yet: chosen ids are not shown raw */ loading?: boolean }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
   const shown = searchThemes(themes, query);
   const search = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const free = canAddFree(themes, chosen, query);
   const isOn = (theme: Theme) => chosen.some((c) => themeOf(themes, c)?.key === theme.key);
   const addFree = () => {
@@ -25,6 +26,7 @@ export function ThemePicker({ themes, chosen, onChange, title, help }: { themes:
 
   /** A chosen one by its label; one of a label shared by several says where it comes from (T15b). */
   const chipLabel = (c: string): string => {
+    if (loading) return "…";
     const theme = themeOf(themes, c);
     return theme?.duplicate && theme.origin ? `${theme.label} · ${t.intentionOrigins[theme.origin]}` : themeLabel(themes, c);
   };
@@ -60,6 +62,12 @@ export function ThemePicker({ themes, chosen, onChange, title, help }: { themes:
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
+          // down into the list, as in any list of choices
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            list.current?.querySelector<HTMLButtonElement>("button")?.focus();
+            return;
+          }
           if (e.key !== "Enter") return;
           e.preventDefault();
           // Enter only ever adds (removing a theme is the chip's ×): the theme typed, the one the text
@@ -71,7 +79,21 @@ export function ThemePicker({ themes, chosen, onChange, title, help }: { themes:
           } else if (free) addFree();
         }}
       />
-      <ul className="theme-list" aria-label={t.themeList}>
+      <ul
+        ref={list}
+        className="theme-list"
+        aria-label={t.themeList}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          const items = [...(list.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+          const at = items.indexOf(document.activeElement as HTMLButtonElement);
+          if (at < 0) return;
+          e.preventDefault();
+          // up from the first one goes back to the search field
+          if (e.key === "ArrowUp" && at === 0) search.current?.focus();
+          else items[Math.min(items.length - 1, Math.max(0, at + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
+        }}
+      >
         {shown.map((theme) => {
           const on = isOn(theme);
           return (

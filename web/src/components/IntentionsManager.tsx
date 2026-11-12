@@ -230,7 +230,7 @@ function IntentionEditor({
   // one of the private file: its id is its keyword's key (T15b), renaming the keyword by hand breaks its links
   const fromPrivate = d.id !== undefined && context.some((r) => r.key === d.id && (r.origin === "private" || r.over === "private"));
   // the label it leaves on a rename is kept as a former one (said before it is saved)
-  const formerLabels = creating ? [] : (context.find((r) => r.key === d.id)?.aliases ?? []);
+  const formerLabels = d.aliases ?? (creating ? [] : (context.find((r) => r.key === d.id)?.aliases ?? []));
   const set = (patch: Partial<IntentionDraft>) => setD((x) => ({ ...x, ...patch }));
   const title = creating ? t.intentionNewTitle : initial.label || (d.id ?? "");
 
@@ -264,7 +264,7 @@ function IntentionEditor({
 
   const save = () => {
     setSaving(true);
-    void cmd("intention.put", putArgs(draft))
+    void cmd("intention.put", putArgs(draft, initial))
       .then(onClose)
       .catch((e: Error) => {
         setError(e.message);
@@ -287,7 +287,22 @@ function IntentionEditor({
           <input value={d.label} maxLength={120} onChange={(e) => set({ label: e.target.value })} aria-invalid={problems.includes("label") || problems.includes("long")} />
         </label>
         <small className="hint">{d.id === undefined ? t.intentionNewId : fill(t.intentionKey, { key: d.id })}</small>
-        {formerLabels.length > 0 && <small className="hint">{fill(t.intentionAliases, { names: formerLabels.join(", ") })}</small>}
+        {formerLabels.length > 0 && (
+          <div className="intention-aliases">
+            <small className="hint">{fill(t.intentionAliases, { names: "" }).trim()}</small>
+            {/* a former label no longer wanted (it would keep finding this one): removed */}
+            <ul aria-label={fill(t.intentionAliases, { names: formerLabels.join(", ") })}>
+              {formerLabels.map((a) => (
+                <li key={a} className="chip">
+                  <span>{a}</span>
+                  <button type="button" aria-label={fill(t.intentionAliasRemove, { name: a })} onClick={() => set({ aliases: formerLabels.filter((x) => x !== a) })}>
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {fromPrivate && <small className="hint">{t.intentionPrivateKeyword}</small>}
         {problems.includes("label") && d.label.trim() !== "" && <small className="warn">{t.intentionNoLabel}</small>}
         {problems.includes("long") && <small className="warn">{t.intentionTooLong}</small>}

@@ -3,7 +3,7 @@
  * metre, mood = guard rail, palette, start in the DAW), sections (look, cue, idea, length, optional
  * fixed position) with a proportional timeline, and « remplir la grille » (song.grid_fill).
  */
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ThemePicker } from "./ThemePicker";
 import { themesOf, type KnowledgeMoods } from "../themes";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -153,8 +153,19 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   const spans = placed(song.sections);
   const total = Math.max(1, ...spans.map((p) => p.end), ...cues.map((c) => c.atBar + 1));
 
+  // opened: the keyboard goes to it; Escape closes it while nothing changed (nothing to lose)
+  const box = useRef<HTMLElement>(null);
+  useEffect(() => box.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true }), []);
+  const unchanged = JSON.stringify(song) === JSON.stringify(initial);
+
   return (
-    <section className="song-editor look-editor">
+    <section
+      ref={box}
+      className="song-editor look-editor"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.defaultPrevented && unchanged) onClose();
+      }}
+    >
       <h2>{isNew ? t.newSong : `${t.editLook} · ${initial.title}`}</h2>
       <div className="fields">
         <label className="field">
@@ -185,8 +196,9 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
         </label>
         {/* the song's intentions picked by label, stored by id (T15b); a free word stays a word */}
         <div className="song-moods">
-          <ThemePicker themes={themes} chosen={song.mood} onChange={(mood) => set({ mood })} title={t.moods} />
-          <IntentionOrigins words={song.mood} />
+          <ThemePicker themes={themes} chosen={song.mood} onChange={(mood) => set({ mood })} title={t.moods} help={t.songMoodsHelp} loading={!knowledge} />
+          {/* a label several bear (T15b): the song names the one picked, by its id */}
+          <IntentionOrigins kb={knowledge} words={song.mood} onPick={(word, picked) => set({ mood: song.mood.map((m) => (m === word ? picked : m)) })} />
         </div>
         <label className="field">
           <span>{t.palette}</span>

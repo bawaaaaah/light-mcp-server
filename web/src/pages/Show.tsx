@@ -5,7 +5,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../folder";
-import { tagsShown } from "../intentions";
+import { tagNames, tagsShown } from "../intentions";
 import { pick } from "../selection";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
@@ -181,7 +181,7 @@ export function ShowPage(): ReactElement {
         (l) =>
           // the filter follows the tree: a folder shows its looks and the ones of its sub-folders
           (!actifFolder || inTree(l.tags, actifFolder)) &&
-          (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags, ...tagsShown(knowledge, l.tags)].some((s) => s.toLowerCase().includes(needle))),
+          (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags, ...tagNames(knowledge, l.tags)].some((s) => s.toLowerCase().includes(needle))),
       ),
     [looks, actifFolder, needle, t, knowledge],
   );

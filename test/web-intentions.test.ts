@@ -5,7 +5,7 @@ import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../src/plugins/
 import { mergeKnowledge } from "../src/plugins/light/knowledge/intentions.js";
 import { inLang } from "../src/core/lang.js";
 import { TEXTS } from "../web/src/i18n.js";
-import { themeOf, themesOf } from "../web/src/themes.js";
+import { enterPick, themeOf, themesOf } from "../web/src/themes.js";
 
 describe("intentions (T15): the Show page's list and editor", () => {
   const kb: KnowledgeIntentions = {
@@ -158,6 +158,31 @@ describe("intentions (T15): the Show page's list and editor", () => {
       { word: "brouillard", label: "brouillard", origin: "unknown", hidden: false },
       { word: "joie", label: "Joie", origin: "generic", hidden: false },
     ]);
+  });
+
+  it("lets a nearer intention take a shipped one's key, never a masked one, keeps homonym tags apart (T15b, review)", () => {
+    const k: KnowledgeIntentions = {
+      moods: {
+        joie: { label: "Joie", colors: ["#ffcc1a"], origin: "generic" },
+        "i-mx1-aaaa": { label: "Joie", colors: ["#1"], origin: "show" },
+        "i-mx1-bbbb": { label: "Paix", colors: ["#2"], origin: "show" },
+        "i-mx1-cccc": { label: "Calme", colors: ["#3"], origin: "personal" },
+        "i-mx1-dddd": { label: "Calme", colors: ["#4"], origin: "show" },
+      },
+      hidden: [{ id: "paix", label: "Paix", colors: ["#4a90e2"], origin: "show", over: "generic" }],
+    };
+    expect(resolveWord(k, "joie")).to.deep.include({ id: "i-mx1-aaaa", by: "label", candidates: 2 });
+    expect(resolveWord(k, "joie")!.others.map((o) => o.id)).to.deep.equal(["i-mx1-aaaa", "joie"]);
+    expect(resolveWord(k, "i-mx1-aaaa")).to.deep.include({ by: "id" });
+    expect(resolveWord(k, "paix")).to.deep.include({ id: "i-mx1-bbbb", hidden: false, candidates: 1 });
+    // two tags of one label keep their own id; a new name is pinned to the nearest
+    expect(tagsTyped(k, ["ambiance:Calme", "ambiance:Calme"], ["ambiance:i-mx1-cccc", "ambiance:i-mx1-dddd"])).to.deep.equal(["ambiance:i-mx1-cccc", "ambiance:i-mx1-dddd"]);
+    expect(tagsTyped(k, ["ambiance:joie", "ambiance:libre"], [])).to.deep.equal(["ambiance:i-mx1-aaaa", "ambiance:libre"]);
+    // the picker: the nearest by name, nothing picked on Enter for a shared label
+    const themes = themesOf(k);
+    expect(themeOf(themes, "joie")?.key).to.equal("i-mx1-aaaa");
+    expect(enterPick(themes, "Calme")).to.equal(undefined);
+    expect(enterPick(themes, "Paix")).to.equal("i-mx1-bbbb");
   });
 
   it("names the energies in English as the server's proposals do (« high-energy » for « high energy »)", async () => {

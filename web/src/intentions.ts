@@ -113,6 +113,8 @@ export interface IntentionDraft {
   family: string;
   notes: string;
   scope: Scope;
+  /** Former labels kept (T15b), set once one is removed in the editor; absent, the server keeps them (and adds the one a rename leaves). */
+  aliases?: string[];
 }
 
 export const newDraft = (scope: Scope = "show"): IntentionDraft => ({ label: "", colors: ["#ffb000"], energy: "pose", family: "", notes: "", scope });
@@ -175,14 +177,19 @@ export const plural = (n: number, one: string, many: string): string => fill(n =
 
 export interface PutArgs {
   scope: Scope;
-  intention: { id?: string; label: string; colors: string[]; energy: Energy; family: string; notes?: string };
+  intention: { id?: string; label: string; colors: string[]; energy: Energy; family: string; notes?: string; aliases?: string[] };
 }
 
 /** The arguments of `intention.put` for a draft. */
-export const putArgs = (d: IntentionDraft): PutArgs => ({
-  scope: d.scope,
-  intention: { ...(d.id !== undefined ? { id: d.id } : {}), label: d.label.trim(), colors: d.colors.map((c) => normalizeHex(c) ?? c), energy: d.energy, family: d.family.trim(), ...(d.notes.trim() ? { notes: d.notes.trim() } : {}) },
-});
+export const putArgs = (d: IntentionDraft, before?: IntentionDraft): PutArgs => {
+  // former labels edited (one removed): sent whole, with the label a rename leaves (the server then takes them as given)
+  const renamed = before && intentionKey(before.label) !== intentionKey(d.label) ? [before.label] : [];
+  const aliases = d.aliases === undefined ? undefined : [...d.aliases, ...renamed];
+  return {
+    scope: d.scope,
+    intention: { ...(d.id !== undefined ? { id: d.id } : {}), label: d.label.trim(), colors: d.colors.map((c) => normalizeHex(c) ?? c), energy: d.energy, family: d.family.trim(), ...(d.notes.trim() ? { notes: d.notes.trim() } : {}), ...(aliases ? { aliases } : {}) },
+  };
+};
 
 /** Moves a colour one place (`by` −1 up, +1 down); the first one leads. */
 export function moveColor<T>(colors: readonly T[], index: number, by: -1 | 1): T[] {
@@ -220,39 +227,81 @@ export function actionsOf(row: IntentionRow, library = false): RowAction[] {
 /** The layers in the order a name looks them up (T15b): the most specific first. */
 export const ORIGIN_RANK: Record<IntentionOrigin, number> = { show: 0, personal: 1, private: 2, generic: 3 };
 
-/** What a word names here (T15b), as the server reads it (`resolveIntention`). */
-export interface ResolvedWord {
+/** One intention a word may name, as people read it. */
+export interface WordCandidate {
   id: string;
   label: string;
   /** Where it comes from; a masked one says what it masks. */
   origin: IntentionOrigin;
   hidden: boolean;
+}
+
+/** What a word names here (T15b), as the server reads it (`resolveIntention`). */
+export interface ResolvedWord extends WordCandidate {
   by: "id" | "label" | "alias";
   /** How many intentions answer to it (more than one: an ambiguous name). */
   candidates: number;
+  /** Those intentions, best first (the chosen one first). */
+  others: WordCandidate[];
 }
+
+/** A generated id (the server's `newIntentionId`): typed as such, it names that intention whatever its label. */
+export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
+
+type Entry = { id: string; m: KnowledgeMood; hidden: boolean; rank: number; label: string; aliases: string[] };
+/** The intentions of a reply, read once (the keys of their names computed once per reply). */
+const indexes = new WeakMap<KnowledgeIntentions, { all: Entry[]; byId: Map<string, Entry> }>();
+const indexOf = (kb: KnowledgeIntentions) => {
+  let x = indexes.get(kb);
+  if (!x) {
+    const entry = (id: string, m: KnowledgeMood, hidden: boolean): Entry => ({ id, m, hidden, rank: ORIGIN_RANK[m.origin ?? "generic"], label: intentionKey(m.label || id), aliases: (m.aliases ?? []).map(intentionKey).filter(Boolean) });
+    const all = [...Object.entries(kb.moods).map(([id, m]) => entry(id, m, false)), ...(kb.hidden ?? []).map((h) => entry(h.id, h, true))];
+    x = { all, byId: new Map(all.map((e) => [e.id, e])) };
+    indexes.set(kb, x);
+  }
+  return x;
+};
 
 /**
  * The intention a word (a song's mood, a look's `ambiance:` tag) names, exactly as the server finds it
- * (knowledge/intentions.ts `resolveIntention`): its id (or its key, typed with case and accents), else
- * a label before a former label, the visible before the masked, the show > personal > private file >
- * shipped. Undefined for a word nothing answers to (a free word).
+ * (knowledge/intentions.ts `resolveIntention`): a generated id typed as such names its own; a key-id
+ * (the word or its key: shipped, private file, or made before ids were generated) only while no visible
+ * intention of a nearer layer bears that label, and, masked, only while no visible one answers; else by
+ * name: the visible before the masked, the nearest layer (show > personal > private file > shipped),
+ * a label before a former label. Undefined for a word nothing answers to (a free word).
  */
 export function resolveWord(kb: KnowledgeIntentions | null | undefined, word: string): ResolvedWord | undefined {
   if (!kb) return undefined;
   const key = intentionKey(word);
   if (!key) return undefined;
-  type Entry = { id: string; m: KnowledgeMood; hidden: boolean };
-  const all: Entry[] = [...Object.entries(kb.moods).map(([id, m]) => ({ id, m, hidden: false })), ...(kb.hidden ?? []).map((h) => ({ id: h.id, m: h, hidden: true }))];
-  const out = (e: Entry, by: ResolvedWord["by"], candidates: number): ResolvedWord => ({ id: e.id, label: e.m.label || e.id, origin: (e.hidden ? e.m.over : e.m.origin) ?? "generic", hidden: e.hidden, by, candidates });
-  const byId = all.find((e) => e.id === word) ?? all.find((e) => e.id === key);
-  if (byId) return out(byId, "id", 1);
-  const origin = (e: Entry): IntentionOrigin => e.m.origin ?? "generic";
-  const best = (a: Entry, b: Entry) => Number(a.hidden) - Number(b.hidden) || ORIGIN_RANK[origin(a)] - ORIGIN_RANK[origin(b)] || a.id.localeCompare(b.id);
-  const labels = all.filter((e) => intentionKey(e.m.label || e.id) === key).sort(best);
-  const aliases = all.filter((e) => intentionKey(e.m.label || e.id) !== key && (e.m.aliases ?? []).some((a) => intentionKey(a) === key)).sort(best);
-  const first = labels[0] ?? aliases[0];
-  return first ? out(first, labels.length ? "label" : "alias", labels.length + aliases.length) : undefined;
+  const { all, byId } = indexOf(kb);
+  const brief = (e: Entry): WordCandidate => ({ id: e.id, label: e.m.label || e.id, origin: (e.hidden ? e.m.over : e.m.origin) ?? "generic", hidden: e.hidden });
+  const exact = byId.get(word);
+  if (exact && GENERATED_ID.test(word)) return { ...brief(exact), by: "id", candidates: 1, others: [brief(exact)] };
+  const byKey = exact ?? byId.get(key);
+  const labels = all.filter((e) => e !== byKey && e.label === key);
+  const aliases = all.filter((e) => e !== byKey && e.label !== key && e.aliases.includes(key));
+  if (byKey) {
+    const nearer = byKey.hidden ? [...labels, ...aliases].some((e) => !e.hidden) : labels.some((e) => !e.hidden && e.rank < byKey.rank);
+    if (!nearer) return { ...brief(byKey), by: "id", candidates: 1, others: [brief(byKey)] };
+    labels.push(byKey);
+  }
+  const best = (a: Entry, b: Entry) => Number(a.hidden) - Number(b.hidden) || a.rank - b.rank || a.id.localeCompare(b.id);
+  const ordered = [...labels.sort(best), ...aliases.sort(best)].sort((a, b) => Number(a.hidden) - Number(b.hidden));
+  // a masked one competes with nothing visible
+  const found = ordered.some((e) => !e.hidden) ? ordered.filter((e) => !e.hidden) : ordered;
+  const first = found[0];
+  return first ? { ...brief(first), by: labels.includes(first) ? "label" : "alias", candidates: found.length, others: found.map(brief) } : undefined;
+}
+
+/** The visible intentions that bear a label (T15b), the nearest first: more than one, the label is shared. */
+export function bearersOf(kb: KnowledgeIntentions | null | undefined, label: string): WordCandidate[] {
+  const key = intentionKey(label);
+  if (!kb || !key) return [];
+  return indexOf(kb)
+    .all.filter((e) => !e.hidden && e.label === key)
+    .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id))
+    .map((e) => ({ id: e.id, label: e.m.label || e.id, origin: e.m.origin ?? "generic", hidden: false }));
 }
 
 /** What a word is shown as (T15b): the label of the intention it names, the word itself otherwise. */
@@ -265,13 +314,35 @@ export const tagsShown = (kb: KnowledgeIntentions | null | undefined, tags: read
 
 /**
  * Tags typed in the look editor back as they are stored (T15b): an `ambiance:` tag shown by its label
- * (`tagsShown`) gets back the id it had, so that a label shared with another intention never moves
- * the link; a new one is sent as typed (the server stores it by id when one intention only answers).
+ * (`tagsShown`) gets back the id it had (two tags of one label keep theirs, in order); a new name is
+ * pinned to the id of the intention it goes to (the nearest: the editor says when others bear it), so
+ * that the link never moves later; a word nothing answers to is sent as typed.
  */
 export function tagsTyped(kb: KnowledgeIntentions | null | undefined, typed: readonly string[], before: readonly string[]): string[] {
-  const back = new Map<string, string>();
-  for (const t of before) if (t.startsWith(AMBIANCE)) back.set(intentionKey(wordLabel(kb, t.slice(AMBIANCE.length))), t);
-  return typed.map((t) => (t.startsWith(AMBIANCE) ? (back.get(intentionKey(t.slice(AMBIANCE.length))) ?? t) : t));
+  const back = new Map<string, string[]>();
+  for (const t of before) {
+    if (!t.startsWith(AMBIANCE)) continue;
+    const k = intentionKey(wordLabel(kb, t.slice(AMBIANCE.length)));
+    back.set(k, [...(back.get(k) ?? []), t]);
+  }
+  return typed.map((t) => {
+    if (!t.startsWith(AMBIANCE)) return t;
+    const word = t.slice(AMBIANCE.length);
+    const kept = back.get(intentionKey(word))?.shift();
+    if (kept) return kept;
+    const r = resolveWord(kb, word);
+    return r && !r.hidden ? `${AMBIANCE}${r.id}` : t;
+  });
+}
+
+/** Every name a look's tags answer to (T15b): an `ambiance:` tag by its intention's label and former labels, for a search. */
+export function tagNames(kb: KnowledgeIntentions | null | undefined, tags: readonly string[]): string[] {
+  return tags.flatMap((t) => {
+    if (!t.startsWith(AMBIANCE)) return [];
+    const r = resolveWord(kb, t.slice(AMBIANCE.length));
+    const m = r ? (kb?.moods[r.id] ?? kb?.hidden?.find((h) => h.id === r.id)) : undefined;
+    return r ? [r.label, ...(m?.aliases ?? [])] : [];
+  });
 }
 
 /** What each word (a song's mood, a look's `ambiance:` tag) names here: its label and where it comes from, or unknown. */

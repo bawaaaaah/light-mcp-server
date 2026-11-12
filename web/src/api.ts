@@ -330,7 +330,9 @@ export async function previewArchive(file: File, fixtures: FixturePolicy = "miss
 export interface IntentionTwin {
   id: string;
   label: string;
-  machine: { id: string; label: string; origin: "generic" | "private" | "personal" };
+  /** The backup's colours (an older server sends none). */
+  colors: string[];
+  machine: { id: string; label: string; origin: "generic" | "private" | "personal"; colors?: string[] };
 }
 
 /** `keepMachine`: the backup's intentions (ids) whose twin of this machine is kept instead (T15b). */

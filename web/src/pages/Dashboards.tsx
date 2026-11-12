@@ -16,6 +16,7 @@ import { putInSet, SetSelect, WidgetMenu, type ExclusiveSet } from "../component
 import { Modal } from "../components/Modal";
 import type { LookDraft } from "../components/LookEditor";
 import { foldersOf, withParents } from "../folder";
+import { tagsShown, type KnowledgeIntentions } from "../intentions";
 // the editor only when a look is opened from the Live: the Live page stays light to load
 const LookEditor = lazy(() => import("../components/LookEditor").then((m) => ({ default: m.LookEditor })));
 const GroupEditor = lazy(() => import("../components/GroupEditor").then((m) => ({ default: m.GroupEditor })));
@@ -155,6 +156,11 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [current, setCurrent] = useState(0);
   const [looks, setLooks] = useState<Look[]>([]);
+  // the intentions, to say a look's ambiance: tags by label (T15b)
+  const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
+  const readKnowledge = useCallback(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
+  useEffect(readKnowledge, [readKnowledge]);
+  useCommandEvents(["intention.put", "intention.delete", "show.open", "backup.restore"], readKnowledge);
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   /** The patch's channels and their named ranges: a channel fader on a channel cut into functions shows them beside its track (T6). */
@@ -571,7 +577,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
   // a look's colours in a tooltip, under the mouse; not while arranging the widgets
   const hoverPeek = useHoverPeek(!edit && hoverPeekOn);
-  const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet}${t.colon} ${setOf(l.id)!.name}`] : []), ...l.tags].join(" · ");
+  const lookTitle = (w: Widget, l: Look) => [w.label ?? l.name, t.modes[w.mode ?? "latch"], ...(setOf(l.id) ? [`${t.exclusiveSet}${t.colon} ${setOf(l.id)!.name}`] : []), ...tagsShown(knowledge, l.tags)].join(" · ");
 
   const press = (mode: ButtonMode, active: boolean, on: () => void, off: () => void, confirm?: string) =>
     mode === "momentary"

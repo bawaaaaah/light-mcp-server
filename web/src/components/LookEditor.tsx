@@ -108,6 +108,8 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   // the intentions, to show an ambiance: tag by its label (T15b)
   const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
   useEffect(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
+  /** The tags as typed, while the field has the focus (null: shown from the look, by label). */
+  const [tagsText, setTagsText] = useState<string | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
   const tempo = useTopic<{ bpm: number } | null>("light:tempo", null);
 
@@ -421,13 +423,21 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
           {/* the folder has its own field above: a folder tag typed here is dropped on blur, the dedicated field keeps its folder */}
           {/* an ambiance: tag shown by its intention's label, given back its id on blur (T15b); read again once the intentions are known */}
           <input
-            key={knowledge ? "known" : "loading"}
-            defaultValue={tagsShown(knowledge, withoutFolderTag(look.tags)).join(", ")}
-            onBlur={(e) => set({ tags: withFolder(tagsTyped(knowledge, splitList(e.target.value), look.tags), folderOf(look.tags)) })}
+            value={tagsText ?? tagsShown(knowledge, withoutFolderTag(look.tags)).join(", ")}
+            onChange={(e) => setTagsText(e.target.value)}
+            onBlur={(e) => {
+              set({ tags: withFolder(tagsTyped(knowledge, splitList(e.target.value), look.tags), folderOf(look.tags)) });
+              setTagsText(null);
+            }}
           />
         </label>
         {/* the intentions its ambiance: tags name, and where each comes from (T15) */}
-        <IntentionOrigins words={look.tags.filter((x) => x.startsWith("ambiance:")).map((x) => x.slice("ambiance:".length))} />
+        <IntentionOrigins
+          kb={knowledge}
+          words={look.tags.filter((x) => x.startsWith("ambiance:")).map((x) => x.slice("ambiance:".length))}
+          // a label several bear (T15b): the tag names the one picked, by its id
+          onPick={(word, picked) => set({ tags: look.tags.map((x) => (x === `ambiance:${word}` ? `ambiance:${picked}` : x)) })}
+        />
       </div>
       <textarea placeholder={t.notes} value={look.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />
 

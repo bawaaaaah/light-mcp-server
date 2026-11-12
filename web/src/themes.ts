@@ -6,7 +6,7 @@
  * the server). Shown by its label everywhere.
  */
 import { fold, searchBy, searchPhrase } from "./search-text.js";
-import { intentionKey, ORIGIN_RANK, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
+import { GENERATED_ID, intentionKey, ORIGIN_RANK, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
 
 export interface Theme {
   /** The intention's id. */
@@ -45,10 +45,14 @@ export const searchThemes = (list: readonly Theme[], query: string): Theme[] => 
 export const themeOf = (list: readonly Theme[], value: string): Theme | undefined => {
   const key = intentionKey(value);
   if (!key) return undefined;
-  const byId = list.find((t) => t.key === value) ?? list.find((t) => t.key === key);
-  if (byId) return byId;
+  const exact = list.find((t) => t.key === value);
+  if (exact && GENERATED_ID.test(value)) return exact;
+  const byKey = exact ?? list.find((t) => t.key === key);
+  const labels = list.filter((t) => t !== byKey && intentionKey(t.label) === key);
+  // a key-id names its own unless a nearer intention bears that label (decision of 2026-11-12)
+  if (byKey && !labels.some((t) => rank(t) < rank(byKey))) return byKey;
   const best = (a: Theme, b: Theme) => rank(a) - rank(b) || a.key.localeCompare(b.key);
-  return [...list].filter((t) => intentionKey(t.label) === key).sort(best)[0] ?? [...list].filter((t) => (t.aliases ?? []).some((a) => intentionKey(a) === key)).sort(best)[0];
+  return [...labels, ...(byKey ? [byKey] : [])].sort(best)[0] ?? [...list].filter((t) => (t.aliases ?? []).some((a) => intentionKey(a) === key)).sort(best)[0];
 };
 
 /** What a chosen value is shown as: the label of a known theme, the word itself otherwise. */
@@ -82,6 +86,8 @@ export const canAddFree = (list: readonly Theme[], chosen: readonly string[], qu
  */
 export function enterPick(list: readonly Theme[], query: string): string | undefined {
   const exact = themeOf(list, query);
+  // a label several bear: nothing picked for the user, the list shows them with where each comes from
+  if (exact?.duplicate && intentionKey(exact.label) === intentionKey(query)) return undefined;
   if (exact) return exact.key;
   const phrase = searchPhrase(query);
   const starts = phrase ? list.filter((t) => fold(t.label).startsWith(phrase) || fold(t.key).startsWith(phrase)) : [];
