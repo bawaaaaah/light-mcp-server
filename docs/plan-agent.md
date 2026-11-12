@@ -130,6 +130,7 @@ Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (re
 | T11, T9 | à faire | T11 : le changement de mode est fait par T6 |
 | T5 (2026-11-11) | **codé** (tests verts, commité sur `feat/t5-fadeable-tracks`, pas fusionné) | pistes fondables par appareil : composition canal par canal ([venue/tracks.ts](../src/plugins/light/venue/tracks.ts)), `venue.tracks.*`, « Transitions… » au menu de l'appareil ; voir [todo.md](todo.md) T5 et [decisions.md](decisions.md). Essai sur le matériel à faire |
 | T25 (+ T29), T26, T24, T27 | à faire | T25 et T29 : conception à discuter avec l'utilisateur avant tout code |
+| T25 lot 2 (2026-11-12) | **codé** (tests verts, commité sur `feat/t25-2-runtime`, pas fusionné) | couche Mouvement dans le moteur : réclamations dans `compose` (looks, pan/tilt bruts, manuel), `venue.readPosition`, position envoyée relue après la garde, `strictBounds` sans effet, Panic en tenue, points d'ancrage `releaseTop` / `homePositions` / `motionStatus` / `motionLock` pour les lots 4 à 6 et T26 ; ce qui change sur la sortie est listé dans la [spec moteur](specs/engine-effects-timing.md), « Couche Mouvement ». **Pas encore essayé sur les vraies lyres** |
 | T13 (2026-11-11) | **fait** (tests verts, commité) | édition des canevas : `venue.canvas.edit`, refus ou adaptation des looks de pas, même contrôle pour put / versions, éditeur en fenêtre de la page Lieu ; voir [todo.md](todo.md) T13 et [decisions.md](decisions.md) |
 | T20b, T8 | à faire | |
 | T23, T30, T28 | à faire | T23 avant T30 ; T27 et T25 avant T28 |
