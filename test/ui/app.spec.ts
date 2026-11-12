@@ -5396,7 +5396,7 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
     await expect.poll(async () => [(await tracks()).own, (await tracks()).applies, (await tracks()).enabled]).toEqual([null, "model", true]);
     await expect(editor.getByRole("checkbox", { name: "Shutter" })).not.toBeChecked();
     await expect(editor.getByRole("radio", { name: "Cet appareil seul" })).toBeFocused(); // the keyboard is not lost
-    // switched off: the list stays, greyed
+    // switched off: the list stays, and can still be ticked
     await editor.getByRole("button", { name: "Pistes activées sur cet appareil" }).click();
     await expect.poll(async () => (await tracks()).enabled).toBe(false);
     await expect(row.locator(".badge.tracks")).toHaveCount(0);
@@ -5411,6 +5411,60 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
   } finally {
     await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: false, fade: null });
     await api(page, "venue.tracks.clear", { fixture: "spot", scope: "model" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue patch: the tracks editor warns of a colour a channel fader holds, and its switches follow what was asked (T5)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  const ids = ["tracks-par-a", "tracks-par-b"];
+  type Tracks = { enabled: boolean; model: { enabled: string[] } };
+  const tracks = async (fixture: string) => (await api(page, "venue.tracks.get", { fixture })) as Tracks;
+  for (const [i, id] of ids.entries()) await api(page, "venue.fixture.put", { fixture: modePar({ id, name: i ? "Par pistes B" : "Par pistes A", address: 300 + 10 * i }) });
+  // a channel fader on the red of the first one
+  await api(page, "fader.put", { fader: { id: "tracks-red", name: "Rouge", channels: [{ fixture: ids[0], offset: 1 }], level: 0 } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    const row = page.locator("tr", { hasText: "Par pistes A" }).filter({ has: page.locator("td") }).first();
+    await row.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
+    await menu.getByRole("button", { name: "Transitions…" }).click();
+    const editor = menu.getByRole("group", { name: "Transitions…" });
+    const own = editor.getByRole("button", { name: "Pistes activées sur cet appareil" });
+    // off, the boxes are not dimmed: they still work
+    await expect(editor.locator(".tracks-groups.off")).toHaveCSS("opacity", "1");
+    // the dimmer fades and the colours jump: the fader's red would go dark as a look comes in — said, with its channel
+    await expect(editor.getByRole("note")).toHaveCount(0);
+    await editor.getByRole("button", { name: "Cocher l'intensité" }).click();
+    await expect(editor.getByRole("note")).toContainText("Un fader de canal tient Red");
+    await expect(editor.getByRole("note")).toContainText("Cocher toutes les couleurs l'évite");
+    await page.screenshot({ path: "test-results/venue-tracks-fader-warning.png" });
+    await editor.getByRole("button", { name: "Cocher la couleur" }).click();
+    await expect(editor.getByRole("note")).toHaveCount(0);
+    // the whole model switched on, then this fixture at once: it goes off (the model's switch asked it on), the other stays on
+    const asked: unknown[] = [];
+    page.on("request", (r) => void (r.url().endsWith("/commands/venue.tracks.put") && asked.push((r.postDataJSON() as { enabled?: boolean }).enabled)));
+    await editor.getByRole("button", { name: "Activer sur les 2 appareils de ce modèle" }).click();
+    await own.click();
+    await expect.poll(() => asked.filter((x) => x !== undefined)).toEqual([true, false]);
+    await expect.poll(async () => [(await tracks(ids[0]!)).enabled, (await tracks(ids[1]!)).enabled]).toEqual([false, true]);
+    await expect(own).toHaveAttribute("aria-pressed", "false");
+    await expect(editor.getByRole("button", { name: "Activer sur les 2 appareils de ce modèle" })).toBeVisible();
+    // the switch shows what was asked before the answer is back
+    await page.route("**/commands/venue.tracks.put", async (route) => {
+      await new Promise((r) => setTimeout(r, 600));
+      await route.continue();
+    });
+    await own.click();
+    await expect(own).toHaveAttribute("aria-pressed", "true", { timeout: 400 });
+    await expect.poll(async () => (await tracks(ids[0]!)).enabled).toBe(true);
+    await expect(own).toHaveAttribute("aria-pressed", "true");
+    await page.unroute("**/commands/venue.tracks.put");
+  } finally {
+    await api(page, "venue.tracks.clear", { fixture: ids[0], scope: "model" }).catch(() => undefined);
+    await api(page, "fader.delete", { id: "tracks-red" }).catch(() => undefined);
+    for (const id of ids) await api(page, "venue.fixture.delete", { id, force: true }).catch(() => undefined);
   }
   expect(errors).toEqual([]);
 });

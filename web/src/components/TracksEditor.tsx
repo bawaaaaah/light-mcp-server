@@ -7,7 +7,8 @@ type Kind = "dimmer" | "colour" | "position" | "wheel" | "other";
 interface TracksInfo {
   enabled: boolean;
   applies: "fixture" | "model" | "none";
-  channels: { name: string; kind: Kind; fade: boolean }[];
+  /** `fader`: a colour channel a channel fader drives. */
+  channels: { name: string; kind: Kind; fade: boolean; fader?: true }[];
   own: string[] | null;
   /** `ids`: the patched fixtures of its model; `enabled`: those of them whose tracks are on. */
   model: { fade: string[] | null; ids: string[]; enabled: string[] };
@@ -39,8 +40,10 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
   // the list a tick just asked for, shown (and built on by the next tick) until every put has come back
   const [asked, setAsked] = useState<{ scope: Scope; list: string[] } | null>(null);
   const inflight = useRef(0);
-  // the switches asked for while their put is on its way: a second click toggles what was asked, not what is still shown
+  // the switches asked for while their put is on its way: they show what was asked, and a second click toggles that,
+  // not what the last answer said (the ref is read by clicks coming faster than a render)
   const wanted = useRef<{ own?: boolean; model?: boolean }>({});
+  const [pending, setPending] = useState<{ own?: boolean; model?: boolean }>({});
   const load = useCallback(
     (first = false) =>
       cmd<TracksInfo>("venue.tracks.get", { fixture: fixtureId }).then(
@@ -58,8 +61,16 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
     void load(true);
   }, [load]);
   if (!info) return null;
-  /** Flips a switch from what was last asked of it (else from what is shown), and remembers it until the puts are back. */
-  const flip = (which: "own" | "model", shown: boolean): boolean => (wanted.current[which] = !(wanted.current[which] ?? shown));
+  /**
+   * Flips a switch from what was last asked of it (else from what is shown), and remembers it until the puts are back.
+   * The model's switch asks the same of this fixture; this fixture switched off, its model is no longer all on.
+   */
+  const flip = (which: "own" | "model", shown: boolean): boolean => {
+    const next = !(wanted.current[which] ?? shown);
+    wanted.current = which === "model" ? { own: next, model: next } : { ...wanted.current, own: next, ...(next ? {} : { model: false }) };
+    setPending(wanted.current);
+    return next;
+  };
   const run = (name: string, args: object) => {
     setError("");
     inflight.current += 1;
@@ -72,6 +83,7 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
         if (inflight.current === 0) {
           setAsked(null);
           wanted.current = {};
+          setPending({});
         }
       });
   };
@@ -100,25 +112,32 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
   };
   const others = info.model.ids.length;
   const allOn = info.model.enabled.length === others;
+  // what the switches show: what was just asked, until the answers are back
+  const shownOn = pending.own ?? info.enabled;
+  const modelOn = pending.model ?? allOn;
+  // a channel fader on a colour, the dimmer fading and a colour that does not: the dimmer starts every look from black
+  const colours = info.channels.filter((c) => c.kind === "colour");
+  const held = colours.filter((c) => c.fader).map((c) => c.name);
+  const faderDark = held.length > 0 && info.channels.some((c) => c.kind === "dimmer" && ticked.has(c.name)) && colours.some((c) => !ticked.has(c.name));
   const nothing = !info.channels.some((c) => c.kind !== "wheel" && ticked.has(c.name));
   return (
     <div className="field tracks-entry">
       <button className="ghost" aria-expanded={open} title={t.tracksHelp} onClick={() => setOpen(!open)}>
         {t.tracksMenu}
-        {info.enabled ? ` · ${t.tracksOnShort}` : ""}
+        {shownOn ? ` · ${t.tracksOnShort}` : ""}
       </button>
       {open && (
         <div className="tracks-editor" role="group" aria-label={t.tracksMenu}>
           <div className="invert-row">
             <span>{t.tracksEnabled}</span>
-            <button className={`ghost${info.enabled ? " on" : ""}`} aria-pressed={info.enabled} aria-label={t.tracksEnabled} onClick={() => run("venue.tracks.put", { fixtures: [fixtureId], enabled: flip("own", info.enabled) })}>
-              {info.enabled ? "◉" : "○"}
+            <button className={`ghost${shownOn ? " on" : ""}`} aria-pressed={shownOn} aria-label={t.tracksEnabled} onClick={() => run("venue.tracks.put", { fixtures: [fixtureId], enabled: flip("own", info.enabled) })}>
+              {shownOn ? "◉" : "○"}
             </button>
           </div>
-          {!info.enabled && <small className="hint">{t.tracksOffHint}</small>}
+          {!shownOn && <small className="hint">{t.tracksOffHint}</small>}
           {others > 1 && (
             <button className="ghost" onClick={() => run("venue.tracks.put", { fixtures: info.model.ids, enabled: flip("model", allOn) })}>
-              {(allOn ? t.tracksDisableModel : t.tracksEnableModel).replace("{n}", String(others))}
+              {(modelOn ? t.tracksDisableModel : t.tracksEnableModel).replace("{n}", String(others))}
             </button>
           )}
           <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
@@ -156,7 +175,7 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
               {t.tracksBackToModel}
             </button>
           )}
-          <div className={`tracks-groups${info.enabled ? "" : " off"}`}>
+          <div className={`tracks-groups${shownOn ? "" : " off"}`}>
             {GROUPS.map(({ key, kinds }) => {
               const channels = info.channels.filter((c) => kinds.includes(c.kind));
               if (!channels.length) return null;
@@ -189,6 +208,11 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
           <small className="hint" role="status">
             {nothing ? t.tracksNothing : t.tracksSome}
           </small>
+          {faderDark && (
+            <small className="warn" role="note">
+              {t.tracksFaderDark.replace("{names}", held.join(", "))}
+            </small>
+          )}
         </div>
       )}
       {error && (

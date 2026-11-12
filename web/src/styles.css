@@ -1732,7 +1732,7 @@ table.rules td {
     min-height: 44px;
   }
 }
-/* Fadeable tracks (TracksEditor.tsx): one box per channel, grouped by kind; greyed while the tracks are off */
+/* Fadeable tracks (TracksEditor.tsx): one box per channel, grouped by kind */
 .widget-menu .tracks-editor {
   display: grid;
   gap: 0.4em;
@@ -1741,8 +1741,9 @@ table.rules td {
   display: grid;
   gap: 0.4em;
 }
-.widget-menu .tracks-groups.off {
-  opacity: 0.55;
+/* off, the boxes still work (the list is kept for later): told by a dashed frame and the hint above, never dimmed like a disabled control */
+.widget-menu .tracks-groups.off fieldset {
+  border-style: dashed;
 }
 .widget-menu .tracks-groups fieldset {
   display: flex;
