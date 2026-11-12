@@ -41,11 +41,13 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     const fade = merged?.fade;
     const applies = own?.fade ? ("fixture" as const) : model?.fade ? ("model" as const) : ("none" as const);
     const ticked = new Set(fade ?? []);
+    // the colour channels a channel fader drives here: unticked, they go dark as a look fades (composeTracks, `lit`)
+    const onFader = new Set(show.faders.list().flatMap((x) => x.channels.filter((c) => c.fixture === f.id).map((c) => c.offset)));
     return {
       fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode },
       enabled,
       applies,
-      channels: trackChannels(r).map((c) => ({ name: c.name, attribute: c.attribute, kind: c.kind, fade: ticked.has(c.name) })),
+      channels: trackChannels(r).map((c) => ({ name: c.name, attribute: c.attribute, kind: c.kind, fade: ticked.has(c.name), ...(c.kind === "colour" && onFader.has(c.offset) ? { fader: true as const } : {}) })),
       own: own?.fade ?? null,
       model: { fade: model?.fade ?? null, ...siblings(f) },
       motion: enabled ? (tracksOf(r.def, r.mode, { enabled: true, ...(fade ? { fade } : {}) })?.motion ?? {}) : null,
@@ -61,7 +63,7 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     name: "venue.tracks.get",
     title: "Pistes d'une fixture",
     description:
-      "A fixture's fadeable tracks (docs/specs/engine-effects-timing.md, « Pistes fondables »): enabled (on the fixture only: off, the engine works as it always did), each channel of its mode a user ticks (fine channels follow their coarse one and are left out) with its kind (dimmer, colour, position, wheel, other), whether it follows the transitions (fade; the others jump: at once on entry, at mid-fade in a crossfade, at the end on exit) and where the list comes from (applies: fixture, model or none), the fixture's own list and its model's (with the patched fixtures sharing the model, ids, and those of them whose tracks are enabled), and motion: per axis, what the motion layer will read (glide or cut, null while disabled; no effect until that layer exists). The colour wheel of a lamp always changes slot as venue.wheel.put says (at mid-fade or through black).",
+      "A fixture's fadeable tracks (docs/specs/engine-effects-timing.md, « Pistes fondables »): enabled (on the fixture only: off, the engine works as it always did), each channel of its mode a user ticks (fine channels follow their coarse one and are left out) with its kind (dimmer, colour, position, wheel, other), whether it follows the transitions (fade; the others jump: at once on entry, at mid-fade in a crossfade, at the end on exit; fader: true on a colour channel a channel fader drives — while the fixture's dimmer fades and one of its colours does not, that colour goes dark when a look comes in and is back when the last one is gone: tick every colour) and where the list comes from (applies: fixture, model or none), the fixture's own list and its model's (with the patched fixtures sharing the model, ids, and those of them whose tracks are enabled), and motion: per axis, what the motion layer will read (glide or cut, null while disabled; no effect until that layer exists). The colour wheel of a lamp always changes slot as venue.wheel.put says (at mid-fade or through black).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],

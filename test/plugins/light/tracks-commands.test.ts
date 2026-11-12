@@ -11,7 +11,7 @@ import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/ve
 type Tracks = {
   enabled: boolean;
   applies: "fixture" | "model" | "none";
-  channels: { name: string; kind: string; fade: boolean }[];
+  channels: { name: string; kind: string; fade: boolean; fader?: true }[];
   own: string[] | null;
   model: { fade: string[] | null; ids: string[]; enabled: string[] };
   motion: { pan?: string; tilt?: string } | null;
@@ -47,6 +47,14 @@ describe("fadeable tracks: commands (T5)", () => {
       ["Program", "other", false],
       ["R1", "colour", false],
     ]);
+  });
+
+  it("tells the colour channels a channel fader drives, and no other channel of it", async () => {
+    const { run, get } = await patched();
+    // R1 (a colour), the dimmer and the mode channel of one bar
+    await run("fader.put", { fader: { id: "f", name: "F", channels: [0, 2, 3].map((offset) => ({ fixture: "bar-l", offset })), level: 0 } });
+    expect((await get("bar-l")).channels.filter((c) => c.fader).map((c) => c.name)).to.deep.equal(["R1"]);
+    expect((await get("bar-r")).channels.some((c) => c.fader)).to.equal(false);
   });
 
   it("sets the list on the model, enables per fixture, overrides it on one and goes back to the model", async () => {
