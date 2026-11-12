@@ -415,9 +415,10 @@ export class ShowRuntime {
     // A look that starts again while it still leaves resumes from the level it is at; read what it has on
     // stage before letting go of it below (docs/specs/engine-effects-timing.md, « Fondu enchaîné »).
     const resume = this.queueOf(lookId, now);
-    // the crossfade tail it leaves beside others, if any (tracks: it keeps sharing their sheet)
-    // the looks it was crossing with (it was leaving under them): released now, they go on sharing its sheet
-    const partners = new Set([...this.crossfades].filter(([, c]) => c.outgoing.some((o) => o.look.id === lookId)).map(([key]) => key));
+    // The crossfades it was leaving in, by key. A crossfade still running is kept under the id of its incoming look:
+    // one of these keys that is a look released below is a look it was crossing with (released, it goes on sharing its sheet).
+    const leftIn = new Set([...this.crossfades].filter(([, c]) => c.outgoing.some((o) => o.look.id === lookId)).map(([key]) => key));
+    // the tail of a stopped crossfade it leaves beside others, if any (tracks: it keeps sharing their sheet)
     const beside = [...this.crossfades].find(([key, c]) => key !== lookId && !this.active.has(key) && c.outgoing.length > 1 && c.outgoing.some((o) => o.look.id === lookId))?.[0] ?? this.releasing.get(lookId)?.shared;
     this.releasing.delete(lookId);
     this.leaveCrossfades(lookId);
@@ -462,7 +463,9 @@ export class ShowRuntime {
     this.launchOrder.set(player, ++this.launches);
     this.active.set(lookId, { look, player });
     if (crossfade) {
-      this.beginCrossfade(look, leaving, now, from, rank, leaving.length > 0 && !leaving.some((l) => partners.has(l.look.id)));
+      // it releases looks it was not crossing with: what it still had keeps a sheet of its own
+      const apart = leaving.length > 0 && !leaving.some((l) => leftIn.has(l.look.id));
+      this.beginCrossfade(look, leaving, now, from, rank === undefined ? undefined : { rank, apart });
       // alone to come back (nothing released): it goes on sharing the sheet of the tail it left
       if (beside !== undefined && !leaving.length && this.crossfades.has(beside)) this.sharedSheet.set(lookId, beside);
     } else fadeOut();
@@ -571,9 +574,10 @@ export class ShowRuntime {
    * `look` has just started over the `leaving` looks it released, from the weight `from` it already had when
    * it starts again. Each leaves over its own exit fade, or over the entry fade of the incoming look when it
    * has none. A leaving look that was itself coming in leaves from the weight it had, and what was leaving
-   * under it keeps going, from the weight it has now.
+   * under it keeps going, from the weight it has now. `back`: it starts again while it was leaving — the rank it had
+   * and whether what it still had keeps a sheet of its own (Crossfade.rank, Crossfade.apart; fixtures with tracks).
    */
-  private beginCrossfade(look: Look, leaving: ActiveLook[], now: number, from: number, rank?: number, apart = false): void {
+  private beginCrossfade(look: Look, leaving: ActiveLook[], now: number, from: number, back?: { rank: number; apart: boolean }): void {
     const outgoing: Leaving[] = [];
     this.sharedSheet.delete(look.id);
     for (const l of leaving) {
@@ -588,7 +592,7 @@ export class ShowRuntime {
       const left = was ? this.leftOf(was, start, l.look.id) : undefined;
       outgoing.push({ look: l.look, player: l.player, start, t: now, dur: exit > 0 ? exit : look.timing.entryFade, rev: this.lookRev(l.look), ...(left ? { left } : {}) });
     }
-    this.crossfades.set(look.id, { t0: now, tIn: look.timing.entryFade, from: Math.min(1, Math.max(0, from)), outgoing, ...(rank === undefined ? {} : { rank, apart }) });
+    this.crossfades.set(look.id, { t0: now, tIn: look.timing.entryFade, from: Math.min(1, Math.max(0, from)), outgoing, ...back });
   }
 
   /** A crossfade goes on under another key: the sheet it shared on the fixtures with tracks follows it. */
@@ -601,6 +605,7 @@ export class ShowRuntime {
   /** The sheet of a crossfade on the fixtures with tracks: its own, or the one it shares (sharedSheet). */
   private trackSheet(key: string): string {
     let k = key;
+    // a shared sheet may itself share another's (a tail moved under a new key); bounded, so that a cycle cannot hang the frame
     for (let i = 0; i < 8; i++) {
       const next = this.sharedSheet.get(k);
       if (next === undefined) break;
@@ -639,6 +644,7 @@ export class ShowRuntime {
     this.active.clear();
     this.releasing.clear();
     this.crossfades.clear();
+    this.sharedSheet.clear();
     return ids;
   }
 
@@ -647,6 +653,7 @@ export class ShowRuntime {
     this.active.clear();
     this.releasing.clear();
     this.crossfades.clear();
+    this.sharedSheet.clear();
     this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();

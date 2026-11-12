@@ -157,24 +157,19 @@ interface Carried {
  * combined one, 1 − Π(1 − op).
  */
 export function overSheets(carried: readonly Carried[], merge: LooksMerge, held: number): { value: number; opacity: number } {
-  const sheets = new Map<string, { dosed: number; weight: number; order: number }>();
-  for (const c of carried) {
-    const w = Math.max(0, c.weight);
-    const s = sheets.get(c.sheet) ?? { dosed: 0, weight: 0, order: c.order };
-    s.dosed += c.value * w;
-    s.weight += w;
-    s.order = Math.max(s.order, c.order);
-    sheets.set(c.sheet, s);
-  }
-  const layers = [...sheets.values()].filter((s) => s.weight > 0).sort((a, b) => a.order - b.order);
-  const opacity = 1 - layers.reduce((clear, s) => clear * (1 - Math.min(1, s.weight)), 1);
+  // the weights of each sheet, added up
+  const weights = new Map<string, number>();
+  for (const c of carried) weights.set(c.sheet, (weights.get(c.sheet) ?? 0) + Math.max(0, c.weight));
+  let clear = 1;
+  for (const w of weights.values()) clear *= 1 - Math.min(1, w);
+  const opacity = 1 - clear;
   if (merge === "highest") return { value: rawOver(carried.map((c) => ({ value: c.value, weight: c.weight, look: "", sheet: c.sheet })), held), opacity };
   const inOrder = [...carried].sort((a, b) => a.order - b.order);
   const later = new Map<string, number>();
   const ops: number[] = [];
   for (let i = inOrder.length - 1; i >= 0; i--) {
     const c = inOrder[i]!;
-    const w = Math.max(0, c.weight) / Math.max(1, sheets.get(c.sheet)!.weight);
+    const w = Math.max(0, c.weight) / Math.max(1, weights.get(c.sheet)!);
     const above = later.get(c.sheet) ?? 0;
     later.set(c.sheet, above + w);
     ops[i] = above >= 1 ? 0 : Math.min(1, w / (1 - above));
