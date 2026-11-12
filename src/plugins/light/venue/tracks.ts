@@ -100,6 +100,23 @@ export function motionOffsets(r: Pick<TrackFixture, "pan" | "tilt">): Set<number
 }
 
 /**
+ * What raw writes at `offsets` do to a moving head's pan/tilt channels (T25, question 6): the channels placed (the
+ * coarse one written: the motion layer takes them as a look's claim) and those whose fine channel alone is written
+ * (it places nothing since the layer writes coarse and fine together). Channel axes, before any swap.
+ */
+export function rawMotionAxes(r: Pick<TrackFixture, "pan" | "tilt">, offsets: ReadonlySet<number>): { placed: ("pan" | "tilt")[]; fineOnly: ("pan" | "tilt")[] } {
+  const placed: ("pan" | "tilt")[] = [];
+  const fineOnly: ("pan" | "tilt")[] = [];
+  for (const axis of ["pan", "tilt"] as const) {
+    const ch = r[axis];
+    if (!ch) continue;
+    if (offsets.has(ch.coarse)) placed.push(axis);
+    else if (ch.fine !== undefined && offsets.has(ch.fine)) fineOnly.push(axis);
+  }
+  return { placed, fineOnly };
+}
+
+/**
  * The raw writes a fixture with tracks keeps verbatim, outside its layers: pan/tilt (the motion layer's) and offsets past
  * its mode (a neighbour's addresses: written as on any fixture, never composed here).
  */

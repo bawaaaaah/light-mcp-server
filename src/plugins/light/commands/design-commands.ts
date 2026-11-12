@@ -47,6 +47,7 @@ import { groupingMessage } from "../venue/grouping.js";
 import { holdAtRest, isBuiltinRule, powerOnResets, unprotectable } from "../rules/reset-protection.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
 import { canvasIssues } from "../venue/canvas-edit.js";
+import { rawMotionAxes } from "../venue/tracks.js";
 import { say } from "../../../core/lang.js";
 
 /**
@@ -390,7 +391,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, and the type tags and groups venue.grouping.propose proposes.",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer). Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -473,6 +474,42 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
             say(
               `« ${f.name} » · ${p.channel} : la plage ${p.range} commence à 0, où le canal est à l'allumage ; la protection Reset ramène à 0 toute valeur de cette plage : un look ou un fader ne peut pas l'envoyer (vérifier dans le manuel ce que fait cette plage)`,
               `“${f.name}” · ${p.channel}: range ${p.range} starts at 0, where the channel sits from power-on; the Reset protection brings any value of this range back to 0: a look or a fader cannot send it (check in the manual what this range does)`,
+            ),
+          );
+      }
+      // Raw pan/tilt of a look (an imported scene) on an installed moving head: since the motion layer (T25, question 6)
+      // they glide, go under the XY pad, and the last look launched wins instead of the highest byte. A fine channel
+      // written alone places nothing any more.
+      const heads = new Set(runtime.movingHeads());
+      for (const l of runtime.looks.list()) {
+        if (!l.channels) continue;
+        const offsets = new Map<string, Set<number>>();
+        for (const t of l.channels.targets) if (heads.has(t.fixture)) offsets.set(t.fixture, (offsets.get(t.fixture) ?? new Set<number>()).add(t.offset));
+        const placed: string[] = [];
+        const fineOnly: string[] = [];
+        for (const [id, offs] of offsets) {
+          const r = runtime.venue.resolve(id);
+          if ("error" in r) continue;
+          const axes = rawMotionAxes(r, offs);
+          const channel = (axis: "pan" | "tilt", fine: boolean) => r.mode.channels[fine ? r[axis]!.fine! : r[axis]!.coarse] ?? axis;
+          if (axes.placed.length) placed.push(`« ${r.patch.name} » (${axes.placed.map((a) => channel(a, false)).join(", ")})`);
+          if (axes.fineOnly.length) fineOnly.push(`« ${r.patch.name} » (${axes.fineOnly.map((a) => channel(a, true)).join(", ")})`);
+        }
+        const en = (list: string[]) => list.map((x) => x.replace(/« (.*?) »/, "“$1”")).join(", ");
+        if (placed.length)
+          note(
+            `look ${l.id}`,
+            say(
+              `« ${l.name} » écrit le pan/tilt en canaux bruts sur ${placed.join(", ")} : ces lyres passent désormais par la couche Mouvement — elles glissent vers la position (temps de déplacement du show) au lieu d'y sauter, le pad XY passe devant, et entre deux looks c'est le dernier lancé qui gagne (avant : l'octet le plus haut, par-dessus le pad). Pour régler ce mouvement dans l'éditeur, le convertir en mouvement « fixe » du look`,
+              `“${l.name}” writes pan/tilt as raw channels on ${en(placed)}: these heads now go through the motion layer — they glide to the position (the show's move time) instead of jumping, the XY pad wins over them, and between two looks the last one launched wins (before: the highest byte, over the pad). To set this move in the editor, turn it into a “fixed” move of the look`,
+            ),
+          );
+        if (fineOnly.length)
+          warn(
+            `look ${l.id}`,
+            say(
+              `« ${l.name} » n'écrit que le canal fin du pan/tilt sur ${fineOnly.join(", ")} : depuis la couche Mouvement, un canal fin seul ne place plus la lyre (le look n'en fait rien) ; écrire aussi le canal gros, ou un mouvement du look`,
+              `“${l.name}” writes only the fine pan/tilt channel on ${en(fineOnly)}: since the motion layer, a fine channel alone no longer places the head (the look does nothing with it); write the coarse channel too, or a move of the look`,
             ),
           );
       }

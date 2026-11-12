@@ -7,12 +7,13 @@ import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import type { AxisStatus, HeadStatus } from "../../../src/plugins/light/engine/motion.js";
 import { headMotion, lookNamer, motionKey, type HeadMotionEntry } from "../../../src/plugins/light/show/motion-report.js";
+import { rawMotionAxes } from "../../../src/plugins/light/venue/tracks.js";
 
 /**
- * The motion layer through its commands and its topic (T25, lot 4; docs/specs/engine-effects-timing.md,
+ * The motion layer through its commands and its topic (T25, lots 4 and 5; docs/specs/engine-effects-timing.md,
  * « Couche Mouvement »): position.list says why each head is where it is, position.releaseTop hands a head back one
  * layer at a time, light:motion is sent on a change only, calibration.record reads the position really sent, the Panic
- * moves nothing by itself.
+ * moves nothing by itself, and « Vérifier le show » names the looks whose raw pan/tilt now go through the layer.
  */
 describe("motion layer: the commands of lot 4", () => {
   let plugin: LightPlugin;
@@ -207,5 +208,44 @@ describe("motion layer: the report and its change key", () => {
     expect(key(status({ layer: "look", owner: "look:b", moving: true }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { lock: "soft" }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { released: ["manual#2"] }))).to.not.equal(base);
+  });
+});
+
+describe("motion layer: raw pan/tilt in « Vérifier le show » (lot 5)", () => {
+  it("tells the axes a look's raw channels place, and those written by their fine channel alone", () => {
+    const r = { pan: { coarse: 0, fine: 1 }, tilt: { coarse: 2, fine: 3 } };
+    expect(rawMotionAxes(r, new Set([0, 1, 2]))).to.deep.equal({ placed: ["pan", "tilt"], fineOnly: [] });
+    expect(rawMotionAxes(r, new Set([1, 2, 5]))).to.deep.equal({ placed: ["tilt"], fineOnly: ["pan"] });
+    expect(rawMotionAxes({ pan: { coarse: 0 } }, new Set([1]))).to.deep.equal({ placed: [], fineOnly: [] });
+  });
+
+  it("names the looks writing raw pan/tilt (info) and warns on a fine channel alone", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-motion-lint-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    for (const f of ["spot.qxf", "par-rgb.qxf"]) copyFileSync(new URL(`../../fixtures/${f}`, import.meta.url), join(dataRoot, "fixtures", f));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    try {
+      plugin.venue.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 0, y: 0, z: 4 } });
+      plugin.venue.fixtures.put({ id: "par", name: "Par", manufacturer: "Test", model: "Par RGB", mode: "3 Channel", universe: 1, address: 21, position: { x: 1, y: 0, z: 4 } });
+      plugin.venue.canvases.put({ id: "c", name: "C", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "par", head: -1 }] }] });
+      const raw = (id: string, name: string, targets: { fixture: string; offset: number }[]) =>
+        plugin.runtime.looks.put({ id, name, canvas: "c", technique: { kind: "aucune" }, channels: { targets, steps: [targets.map(() => 100)] } } as never);
+      raw("scene", "Scène", [{ fixture: "spot", offset: 0 }, { fixture: "spot", offset: 2 }, { fixture: "spot", offset: 5 }]);
+      raw("fine", "Fin", [{ fixture: "spot", offset: 1 }]);
+      raw("par", "Par seul", [{ fixture: "par", offset: 0 }]);
+      const { issues } = (await plugin.commands.invoke("show.lint", {}, systemContext())) as { issues: { level: string; where: string; message: string }[] };
+      const of = (where: string) => issues.filter((i) => i.where === where && /pan\/tilt/.test(i.message));
+      const scene = of("look scene");
+      expect(scene).to.have.length(1);
+      expect(scene[0]!.level).to.equal("info");
+      expect(scene[0]!.message).to.contain("« Spot » (Pan, Tilt)").and.contain("glissent").and.contain("dernier lancé");
+      const fine = of("look fine");
+      expect(fine.map((i) => i.level)).to.deep.equal(["attention"]);
+      expect(fine[0]!.message).to.contain("« Spot » (Pan fine)").and.contain("ne place plus");
+      expect(of("look par")).to.deep.equal([]); // no moving head written
+    } finally {
+      await plugin.stop();
+    }
   });
 });
