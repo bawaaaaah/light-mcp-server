@@ -7,7 +7,7 @@
  * names this machine's. Pure: texts in, texts out.
  */
 import { normalizeMood } from "../knowledge/knowledge.js";
-import { AMBIANCE } from "../knowledge/intentions.js";
+import { AMBIANCE, STRICT } from "../knowledge/intentions.js";
 import { stableStringify } from "./store.js";
 
 /** A JSON object of a show's folder, or undefined when the text is not one. */
@@ -102,7 +102,8 @@ export function keepMachineTwins(show: Readonly<Record<string, string>>, twins: 
   const to = new Map(twins.filter((t) => keep.includes(t.id)).map((t) => [t.id, t.machine.id]));
   if (!to.size) return { ...show };
   const out: Record<string, string> = {};
-  const swap = (w: string) => to.get(w) ?? w;
+  // a strict form (`=id`) of the archive's names this machine's the same way
+  const swap = (w: string) => to.get(w) ?? (w.startsWith(STRICT) && to.has(w.slice(STRICT.length)) ? `${STRICT}${to.get(w.slice(STRICT.length))!}` : w);
   for (const [p, text] of Object.entries(show)) {
     const id = /^intentions\/(.+)\.json$/.exec(p)?.[1];
     if (id !== undefined && to.has(id)) continue;

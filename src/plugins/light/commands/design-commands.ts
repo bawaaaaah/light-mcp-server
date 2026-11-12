@@ -24,6 +24,7 @@ import {
   mergeKnowledge,
   migrateMood,
   newIntentionId,
+  refFor,
   refKey,
   resolveIntention,
   stackIntentions,
@@ -608,7 +609,9 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const list = d.entries.map((e) => `« ${e.label || e.id} » (${originWord(e.origin)}, ${e.id})`).join(", ");
         const listEn = d.entries.map((e) => `“${e.label || e.id}” (${originWord(e.origin)}, ${e.id})`).join(", ");
         // the nearest wins a name, even over the key of a shipped or private one (decision of 2026-11-12)
-        const won = `${first!.label || first!.id} (${originWord(first!.origin)}, ${first!.id})`;
+        // the one a word of that label goes to, as songs read it (not merely the first listed)
+        const winner = resolveIntention(intentionsNow, first!.label || first!.id)?.entry ?? first!;
+        const won = `${winner.label || winner.id} (${originWord(winner.origin)}, ${winner.id})`;
         warn(
           say(`intentions « ${first!.label || first!.id} »`, `intentions “${first!.label || first!.id}”`),
           say(
@@ -630,8 +633,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         warn(
           where,
           say(
-            `« ${word} » nomme ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}, ${c.id}`).join(" ; ")}) : il va à « ${r.entry.label || r.entry.id} » (${originWord(r.entry.origin)}, ${r.entry.id}), la plus proche ; la choisir dans le sélecteur pour la fixer par son id`,
-            `“${word}” names ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id}: ${originWord(c.origin)}, ${c.id}`).join("; ")}): it goes to “${r.entry.label || r.entry.id}” (${originWord(r.entry.origin)}, ${r.entry.id}), the nearest; pick it in the selector to pin it by its id`,
+            `« ${word} » nomme ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id} : ${originWord(c.origin)}, ${c.id}`).join(" ; ")}) : il va à « ${r.entry.label || r.entry.id} » (${originWord(r.entry.origin)}, ${r.entry.id}), la plus proche ; la choisir dans le sélecteur (une plus lointaine s'écrit « =id », sa forme stricte) pour la fixer`,
+            `“${word}” names ${r.candidates.length} intentions (${r.candidates.map((c) => `${c.label || c.id}: ${originWord(c.origin)}, ${c.id}`).join("; ")}): it goes to “${r.entry.label || r.entry.id}” (${originWord(r.entry.origin)}, ${r.entry.id}), the nearest; pick it in the selector (a farther one is written “=id”, its strict form) to pin it`,
           ),
         );
       for (const l of runtime.looks.list())
@@ -677,14 +680,17 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const canvas = canvasId ? runtime.venue.canvases.get(canvasId) : runtime.venue.canvases.list()[0];
       if (!canvas) throw new Error(canvasId ? say(`canevas inconnu : ${canvasId}`, `unknown canvas: ${canvasId}`) : say("aucun canevas : définir d'abord le patch et un canevas (venue.canvas.auto)", "no canvas: set up the patch and a canvas first (venue.canvas.auto)"));
       const kb = knowledge();
+      const autoStack = stack();
       const palettes: Palette[] = [];
       const looks: Look[] = [];
       for (const a of AUTO) {
         const mood = kb.moods[a.mood];
+        // the tag names the intention whose colours were taken, even when a nearer one bears its label (T15b)
+        const named = refFor(autoStack, a.mood);
         const technique = a.technique(canvas.cells);
         const base = "colors" in technique ? technique.colors : "color" in technique ? [technique.color] : [];
         const colors = mood?.colors.length ? (mood.colors.length >= base.length ? mood.colors : [...mood.colors, ...base.slice(mood.colors.length)]) : base;
-        palettes.push({ id: `auto-${a.id}`, name: a.name, colors, tags: ["auto", `ambiance:${a.mood}`] });
+        palettes.push({ id: `auto-${a.id}`, name: a.name, colors, tags: ["auto", `ambiance:${named}`] });
         looks.push({
           id: `auto-${a.id}`,
           name: a.name,
@@ -695,7 +701,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           manualOnly: false,
           noCut: false,
           danger: false,
-          tags: ["auto", `technique:${technique.kind}`, `ambiance:${a.mood}`],
+          tags: ["auto", `technique:${technique.kind}`, `ambiance:${named}`],
         });
       }
       const group: Group = { id: "auto", name: "Presets automatiques", members: { fixtures: [], looks: looks.map((l) => l.id), groups: [] }, exclusive: true, presets: { included: [], excluded: [] } };

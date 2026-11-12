@@ -166,8 +166,23 @@ export const namesOf = (e: Pick<IntentionEntry, "id" | "label" | "aliases">): { 
 export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
 
 /**
+ * The strict form of an id (T15b, decision of 2026-11-12, review round 2): `=` then the id. A key-id
+ * (shipped, private file, made before ids were generated) is the word itself, which reads by name, so
+ * a nearer intention bearing its label takes it; `=joie` always names the shipped « joie ». No label
+ * can make it (a key has no `=`). Written only by an explicit choice (the picker, « Laquelle »), never
+ * by a migration.
+ */
+export const STRICT = "=";
+
+/** How a song or a look names an intention for sure: its id, or its strict form when the plain id would read as another one. */
+export function refFor(stack: ReadonlyMap<string, IntentionEntry>, id: string): string {
+  return resolveIntention(stack, id)?.entry.id === id ? id : `${STRICT}${id}`;
+}
+
+/**
  * The one way a word of a song's mood or a look's `ambiance:` tag finds its intention (T15b,
  * decisions of 2026-11-12):
+ *   - the strict form (`=<id>`, `STRICT`) names that id, or nothing;
  *   - a generated id typed as such (`i-…`) names that intention;
  *   - a key-id (the word, or its key: « Joie » is `joie`, what songs wrote before ids were generated,
  *     the shipped and private file ones) names it only while no visible intention of a more specific
@@ -178,6 +193,11 @@ export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
  * Undefined for a word nothing answers to (a free word stays a word).
  */
 export function resolveIntention(stack: ReadonlyMap<string, IntentionEntry>, ref: string): ResolvedIntention | undefined {
+  // the strict form: that id or nothing
+  if (ref.startsWith(STRICT)) {
+    const strict = stack.get(ref.slice(STRICT.length));
+    return strict ? { entry: strict, by: "id", candidates: [strict] } : undefined;
+  }
   const key = normalizeMood(ref);
   if (!key) return undefined;
   const exact = stack.get(ref);

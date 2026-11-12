@@ -7,7 +7,7 @@ import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
 import { aliasesAfter } from "../../../src/plugins/light/commands/design-commands.js";
 import { loadKnowledgeLayers } from "../../../src/plugins/light/knowledge/knowledge.js";
-import { duplicateLabels, migratedRef, migrateMood, migrateTags, newIntentionId, refKey, resolveIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
+import { duplicateLabels, migratedRef, migrateMood, migrateTags, newIntentionId, refFor, refKey, resolveIntention, stackIntentions, type Intention } from "../../../src/plugins/light/knowledge/intentions.js";
 import { intentionTwins, keepMachineTwins, sameIntention } from "../../../src/plugins/light/data/archive-intentions.js";
 import { readArchive } from "../../../src/plugins/light/data/archive.js";
 
@@ -371,6 +371,45 @@ describe("intentions by generated id (T15b)", () => {
       await run("backup.restore", { file, keepMachine: [own] }); // even asked: not a twin, kept
       expect(((await run("song.list")) as { mood: string[] }[])[0]!.mood).to.deep.equal([own]);
       expect((await kb()).moods[own]).to.include({ origin: "show" });
+    });
+
+    it("names a farther key-id for sure by its strict form (=id): through migration, archive, revert and the check", async () => {
+      const show = await created("Joie");
+      const st = () => stackIntentions(loadKnowledgeLayers(), [], [{ id: show, label: "Joie", colors: ["#123456"], energy: "pose", family: "" }]);
+      // pure: the plain word goes to the nearest, the strict form to the shipped one; refFor writes it only when needed
+      expect(resolveIntention(st(), "joie")!.entry.id).to.equal(show);
+      expect(resolveIntention(st(), "=joie")).to.deep.include({ by: "id" });
+      expect(resolveIntention(st(), "=joie")!.entry.origin).to.equal("generic");
+      expect(resolveIntention(st(), "=inconnue")).to.equal(undefined);
+      expect(refFor(st(), "joie")).to.equal("=joie");
+      expect(refFor(st(), show)).to.equal(show);
+      expect(refFor(st(), "paix")).to.equal("paix");
+      expect(migratedRef(st(), "=joie")).to.equal(undefined);
+      // commands: kept as written, counted for the shipped one, no ambiguity said
+      const song = (await run("song.put", { song: { id: "s", title: "Chant", mood: ["=joie"], sections: [] } })) as { mood: string[]; ambiguous?: unknown };
+      expect(song.mood).to.deep.equal(["=joie"]);
+      expect(song.ambiguous).to.equal(undefined);
+      await run("look.put", look("l", ["ambiance:=joie"]));
+      const k = await kb();
+      expect(k.moods.joie!.usedBy).to.deep.equal(["chant « Chant »", "look « L »"]);
+      expect(k.moods[show]!.usedBy).to.deep.equal([]);
+      expect(((await run("song.list")) as { moodLabels: string[] }[])[0]!.moodLabels).to.deep.equal(["Joie"]);
+      expect((await lint()).some((i) => i.where === "chant s" || i.where === "look l")).to.equal(false);
+      expect(((await run("look.from_intent", { name: "x", canvas: "mur", mood: ["=joie"] })) as { look: { tags: string[] }; unknownMoods: string[] }).look.tags).to.deep.equal(["ambiance:=joie"]);
+      // autopresets: the tag names the intention whose colours it took
+      await run("show.autopresets", { canvas: "mur", apply: true });
+      expect(((await run("palette.list")) as { id: string; tags: string[] }[]).find((x) => x.id === "auto-joie")!.tags).to.include("ambiance:=joie");
+      // an archive: as written, and still the shipped one once restored elsewhere
+      const file = ((await run("backup.create", { label: "strict" })) as { file: string }).file;
+      await run("show.create", { name: "Ailleurs" });
+      await run("backup.restore", { file });
+      expect(((await run("song.list")) as { mood: string[] }[])[0]!.mood).to.deep.equal(["=joie"]);
+      expect((await kb()).moods.joie!.usedBy).to.include.members(["chant « Chant »", "look « L »"]);
+      // a proposal taken back puts the strict form back
+      const p = (await run("show.propose", { changes: [{ command: "look.put", args: look("l", [`ambiance:${show}`]) }] })) as { id: string };
+      await run("show.apply", { id: p.id });
+      await run("show.revert", { id: p.id });
+      expect(((await run("look.get", { id: "l" })) as { tags: string[] }).tags).to.deep.equal(["ambiance:=joie"]);
     });
   });
 });
