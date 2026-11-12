@@ -39,6 +39,8 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
   // the list a tick just asked for, shown (and built on by the next tick) until every put has come back
   const [asked, setAsked] = useState<{ scope: Scope; list: string[] } | null>(null);
   const inflight = useRef(0);
+  // the switches asked for while their put is on its way: a second click toggles what was asked, not what is still shown
+  const wanted = useRef<{ own?: boolean; model?: boolean }>({});
   const load = useCallback(
     (first = false) =>
       cmd<TracksInfo>("venue.tracks.get", { fixture: fixtureId }).then(
@@ -56,6 +58,8 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
     void load(true);
   }, [load]);
   if (!info) return null;
+  /** Flips a switch from what was last asked of it (else from what is shown), and remembers it until the puts are back. */
+  const flip = (which: "own" | "model", shown: boolean): boolean => (wanted.current[which] = !(wanted.current[which] ?? shown));
   const run = (name: string, args: object) => {
     setError("");
     inflight.current += 1;
@@ -65,7 +69,10 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
       .catch((e: Error) => setError(e.message))
       .finally(() => {
         inflight.current -= 1;
-        if (inflight.current === 0) setAsked(null);
+        if (inflight.current === 0) {
+          setAsked(null);
+          wanted.current = {};
+        }
       });
   };
   // what this scope holds now; a fixture without its own list starts from its model's
@@ -104,13 +111,13 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
         <div className="tracks-editor" role="group" aria-label={t.tracksMenu}>
           <div className="invert-row">
             <span>{t.tracksEnabled}</span>
-            <button className={`ghost${info.enabled ? " on" : ""}`} aria-pressed={info.enabled} aria-label={t.tracksEnabled} onClick={() => run("venue.tracks.put", { fixtures: [fixtureId], enabled: !info.enabled })}>
+            <button className={`ghost${info.enabled ? " on" : ""}`} aria-pressed={info.enabled} aria-label={t.tracksEnabled} onClick={() => run("venue.tracks.put", { fixtures: [fixtureId], enabled: flip("own", info.enabled) })}>
               {info.enabled ? "◉" : "○"}
             </button>
           </div>
           {!info.enabled && <small className="hint">{t.tracksOffHint}</small>}
           {others > 1 && (
-            <button className="ghost" onClick={() => run("venue.tracks.put", { fixtures: info.model.ids, enabled: !allOn })}>
+            <button className="ghost" onClick={() => run("venue.tracks.put", { fixtures: info.model.ids, enabled: flip("model", allOn) })}>
               {(allOn ? t.tracksDisableModel : t.tracksEnableModel).replace("{n}", String(others))}
             </button>
           )}

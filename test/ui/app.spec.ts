@@ -5401,6 +5401,13 @@ test("venue patch: fadeable tracks are enabled on a fixture and ticked for its m
     await expect.poll(async () => (await tracks()).enabled).toBe(false);
     await expect(row.locator(".badge.tracks")).toHaveCount(0);
     await expect(editor.getByRole("checkbox", { name: "Dimmer" })).toBeChecked();
+    // two quick clicks switch on then off: the second one flips what the first asked, not what the page still shows
+    const asked: unknown[] = [];
+    page.on("request", (r) => void (r.url().endsWith("/commands/venue.tracks.put") && asked.push((r.postDataJSON() as { enabled?: boolean }).enabled)));
+    await editor.getByRole("button", { name: "Pistes activées sur cet appareil" }).dblclick();
+    await expect.poll(() => asked).toEqual([true, false]);
+    await expect.poll(async () => (await tracks()).enabled).toBe(false);
+    await expect(editor.getByRole("button", { name: "Pistes activées sur cet appareil" })).toHaveAttribute("aria-pressed", "false");
   } finally {
     await api(page, "venue.tracks.put", { fixtures: ["spot"], enabled: false, fade: null });
     await api(page, "venue.tracks.clear", { fixture: "spot", scope: "model" });
