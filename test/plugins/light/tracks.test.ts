@@ -299,6 +299,54 @@ describe("fadeable tracks in the engine (T5)", () => {
     expect([b[0], b[2]]).to.deep.equal([60, 200]);
   });
 
+  it("fades a look writing machine channels only in and out, and never lets it make the dimmer jump", () => {
+    /** bar-l with `m` (Program only) and `p` (painted red), fades of 2 s; samples Dimmer and R1, `at(i)` run before sample i. */
+    const run = (exclusive: boolean, ms: number, at: (t: Setup, i: number) => void) => {
+      const t = setup({ tracks: { fade: LIGHT } });
+      t.show.looks.put(look("m", undefined, { entryFade: 2, exitFade: 2 }, [[2, 200]]));
+      t.show.looks.put(look("p", "#ff0000", { entryFade: 2, exitFade: 2 }));
+      if (exclusive) t.show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: ["m", "p"] } });
+      return sample(t, ms, [0, 3], (i) => at(t, i));
+    };
+    const dimAndLight = (rows: number[][]) => rows.map((r) => [r[0]!, (r[0]! * r[1]!) / 255]);
+    /** A look started and left to settle before sample 0. */
+    const settled = (t: Setup, id: string) => {
+      t.show.go(id);
+      t.advance(6);
+    };
+    // alone: its dimmer rises from black with its entry and falls with its exit (not held at 255)
+    const alone = run(false, 4400, (t, i) => (i === 0 ? t.show.go("m") : i === 125 ? t.show.stop("m") : undefined));
+    expect([alone[0]![0], alone[120]![0]]).to.deep.equal([0, 255]);
+    expect(alone[175]![0]).to.be.within(120, 136); // mid exit
+    expect(alone[220]![0]).to.be.at.most(8); // 1.9 s of its 2 s exit
+    expect(steepest(alone)[0]).to.be.at.most(bound(2));
+    // launched over a painted look, which then leaves: the dimmer stays with the machine look, the colour fades
+    const under = run(false, 5200, (t, i) => (i === 0 ? settled(t, "p") : i === 1 ? t.show.go("m") : i === 130 ? t.show.stop("p") : undefined));
+    expect(new Set(under.map((r) => r[0]))).to.deep.equal(new Set([255]));
+    expect(under[259]).to.deep.equal([255, 0]);
+    expect(steepest(dimAndLight(under))[1]).to.be.at.most(bound(2));
+    // crossfades between the painted look and the machine one: no dip to black, no jump back at the end
+    const toMachine = run(true, 2600, (t, i) => (i === 0 ? settled(t, "p") : i === 1 ? t.show.go("m") : undefined));
+    expect(Math.min(...toMachine.map((r) => r[0]!))).to.equal(255);
+    expect(toMachine[129]).to.deep.equal([255, 0]);
+    expect(steepest(dimAndLight(toMachine))[1]).to.be.at.most(bound(2));
+    const toPainted = run(true, 2600, (t, i) => (i === 0 ? settled(t, "m") : i === 1 ? t.show.go("p") : undefined));
+    expect(Math.min(...toPainted.map((r) => r[0]!))).to.equal(255);
+    expect(toPainted[129]).to.deep.equal([255, 255]);
+    expect(steepest(dimAndLight(toPainted))[1]).to.be.at.most(bound(2));
+  });
+
+  it("lets a look's raw dimmer glide to full under a machine look when it leaves, and takes it back when it enters", () => {
+    const t = setup({ tracks: { fade: LIGHT } });
+    t.show.looks.put(look("d", "#ff0000", { entryFade: 2, exitFade: 2 }, [[0, 60]]));
+    t.show.looks.put(look("m", undefined, {}, [[2, 200]]));
+    t.show.go("m");
+    t.advance(2);
+    const rows = sample(t, 5200, [0], (i) => (i === 1 ? t.show.go("d") : i === 130 ? t.show.stop("d") : undefined));
+    expect([rows[0]![0], rows[125]![0], rows[259]![0]]).to.deep.equal([255, 60, 255]);
+    expect(steepest(rows)[0]).to.be.at.most(bound(2));
+  });
+
   it("doses a colour a channel fader linked to the look's group holds once, as without tracks (T35)", () => {
     const lit = (tracks?: { fade: string[] }) => {
       const t = setup(tracks ? { tracks } : {});

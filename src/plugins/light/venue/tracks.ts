@@ -207,9 +207,11 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   const own = (o: number) => o < size && !motion.has(o);
   const levelAt = (l: TrackLayer, o: number) => l.level?.get(o) ?? 1;
   /**
-   * A layer lights the fixture when it paints it or writes one of its light channels (a dimmer, a colour): machine
-   * channels (a mode, a gobo, a speed) and a position light nothing, and never raise the dimmer over another look's.
-   * It is there at all (`present`) when it paints or writes any channel of this path: a jumping channel's rest counts it.
+   * A layer lights the fixture by itself (`lit`) when it paints it or writes one of its light channels (a dimmer, a
+   * colour): only such a layer carries the dimmer. A layer writing machine channels only (a mode, a gobo, a speed) is
+   * there too (`present`): it counts in what the colours are shared against and in a jumping channel's rest, and on a
+   * fading dimmer it fills, at full, what the lighting layers leave uncovered (below) — it fades in and out like any
+   * look, and never raises the dimmer over another look's. A position alone is no layer.
    */
   const lightChannel = (o: number) => dimmers.includes(o) || colourOf.has(o);
   const lits = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some(lightChannel)]));
@@ -259,8 +261,13 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   for (const l of layers) for (const o of l.raw.keys()) if (own(o)) offsets.add(o);
   if (wheelOffset !== undefined) offsets.add(wheelOffset);
   const ordered = layers.map((l, order) => ({ l, order }));
-  // the combined opacity of the layers lighting the fixture: what a colour under a fading dimmer is shared against
-  const intensity = overSheets(ordered.filter(({ l }) => lit(l)).map(({ l, order }) => ({ sheet: l.sheet, weight: l.weight, value: 1, order })), opts.merge, 0).opacity;
+  const opacityOf = (keep: (l: TrackLayer) => boolean) => overSheets(ordered.filter(({ l }) => keep(l)).map(({ l, order }) => ({ sheet: l.sheet, weight: l.weight, value: 1, order })), opts.merge, 0).opacity;
+  // the combined opacity of the layers on the fixture, machine ones included: what a colour under a fading dimmer is shared against
+  const intensity = opacityOf(present);
+  // what the layers writing machine channels only add to it: the share of a fading dimmer they hold at full. Never on a
+  // lamp (its dimmer is its painted level). In a crossfade the sheet is shared, so the dimmer does not dip between a
+  // machine look and a painted one; between sheets it is (1 − the lighting layers' opacity) × the machine layers' own
+  const machineFill = r.levelDimmer ? 0 : Math.max(0, intensity - opacityOf(lit));
   const dimmerFades = dimmers.some((d) => tracks.fade.has(d));
   // a ticked 16-bit pair (a zoom, a focus): the coarse channel glides with its fine one as one value, written by the coarse
   const glides = (o: number) => tracks.fade.has(o) && !dimmers.includes(o) && !colourOf.has(o) && o !== wheelOffset;
@@ -295,8 +302,9 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       continue;
     }
     if (!carried.length) {
-      // at rest: a colour fixture's dimmer held at full (dark under black colours), a lamp's dark, a shutter open
-      if (isDimmer) out.set(o, r.levelDimmer ? 0 : 255);
+      // at rest: a colour fixture's dimmer held at full (dark under black colours), a lamp's dark, a shutter open; under
+      // machine layers only, a fading dimmer follows them from black (a jumping one is at full at once)
+      if (isDimmer) out.set(o, r.levelDimmer ? 0 : tracks.fade.has(o) && layers.some(present) ? machineFill * 255 : 255);
       else if (isColour) out.set(o, 0);
       else if (r.shutterOpen.has(o)) out.set(o, r.shutterOpen.get(o)!);
       continue;
@@ -311,7 +319,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       continue;
     }
     const { value, opacity } = overSheets(carried, opts.merge, 0);
-    if (isDimmer) out.set(o, value);
+    if (isDimmer) out.set(o, value + machineFill * 255);
     else if (isColour) out.set(o, hasDimmer && dimmerFades ? (intensity > 0 ? Math.min(255, value / intensity) : 0) : value);
     else if (opacity > 0) out.set(o, value / opacity);
     else if (r.shutterOpen.has(o)) out.set(o, r.shutterOpen.get(o)!);
