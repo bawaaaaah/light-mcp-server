@@ -93,6 +93,7 @@ export const HINTS: Record<string, string> = {
   "position.aim": "I",
   "position.home": "I",
   "position.release": "I",
+  "position.releaseTop": "",
   "position.rest.clear": "DI",
   "position.rest.set": "DI",
   "position.set": "I",

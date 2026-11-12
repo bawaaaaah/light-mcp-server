@@ -37,6 +37,7 @@ import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRe
 import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
+import { motionEntries, motionKey, type HeadMotionEntry } from "./show/motion-report.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
@@ -483,6 +484,10 @@ export class LightPlugin implements McpPlugin {
     const publishGlide = throttleMerge<ReturnType<ShowRuntime["gliding"]>>(40, (xs) => xs[xs.length - 1]!, (g) => this.publish("glide", g));
     let wasGliding = false;
     let lastClampKey = "";
+    // why each moving head is where it is (T25): on a change of layer, owner, lock, glide start or end, never every
+    // frame; a burst (a look launched on every head, then its glide ending) leaves at most one message per 100 ms
+    const publishMotion = throttleMerge<HeadMotionEntry[]>(100, (xs) => xs[xs.length - 1]!, (heads) => this.publish("motion", { heads }));
+    let lastMotionKey = "";
     this.engine.onFrame((buffers, now) => {
       if (this.songs) followPosition(this.songs);
       this.router.sendFrame(buffers);
@@ -491,6 +496,13 @@ export class LightPlugin implements McpPlugin {
       const gliding = !!glide && (glide.gm !== undefined || Object.keys(glide.groups).length > 0 || Object.keys(glide.faders).length > 0);
       if (glide && (gliding || wasGliding)) publishGlide(glide);
       wasGliding = gliding;
+      if (this.runtime) {
+        const motion = motionKey(this.runtime.motionStatus());
+        if (motion !== lastMotionKey) {
+          lastMotionKey = motion;
+          publishMotion(motionEntries(this.runtime));
+        }
+      }
       const clamps = this.runtime?.lastClamps ?? [];
       const key = clamps.map((c) => `${c.fixture}/${c.channel}/${c.to}`).join("|");
       if (key !== lastClampKey) {
@@ -1200,6 +1212,8 @@ export class LightPlugin implements McpPlugin {
       rules: { channel: "control" },
       /** Smoothed faders on their way: the level each one sends (groups-masters.md, « Lissage »). */
       glide: { channel: "control" },
+      /** Why each moving head is where it is (position.list's report), on a change of layer, owner, lock or glide start/end (engine-effects-timing.md, « Couche Mouvement »). */
+      motion: { channel: "control" },
       song: { channel: "control" },
     };
   }

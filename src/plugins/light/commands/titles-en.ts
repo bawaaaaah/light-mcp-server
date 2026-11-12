@@ -106,6 +106,7 @@ export const TITLES_EN: Record<string, string> = {
   "position.rest.clear": "Clear the rest position",
   "position.rest.set": "Rest position",
   "position.release": "Release the moving heads",
+  "position.releaseTop": "Hand back",
   "position.set": "Moving head position",
   "program.delete": "Delete a program",
   "program.list": "Rule programs",

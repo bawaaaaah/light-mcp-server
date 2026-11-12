@@ -133,6 +133,7 @@ describe("fixture orientation", () => {
     for (const target of [{ x: 0, y: 1, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 2, y: 5.5, z: 0 }]) {
       const a = aimAt(truth, target) as { pan: number; tilt: number };
       await run("position.set", { fixtures: ["lyre"], pan: 1 - a.pan, tilt: a.tilt }); // what the hand saw: pan inverted
+      plugin.engine.render(); // the mark is the position really sent
       await run("calibration.record", { fixture: "lyre", point: target });
     }
     const result = (await run("calibration.solve", { fixture: "lyre", apply: true })) as { yaw: number; tiltOffset: number; invertPan: boolean; invertTilt: boolean };

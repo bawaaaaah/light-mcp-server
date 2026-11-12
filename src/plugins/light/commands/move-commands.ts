@@ -8,6 +8,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import { calibrate, type CalibrationSample } from "../venue/aim.js";
 import { isHung } from "../venue/orientation.js";
 import { say } from "../../../core/lang.js";
+import { motionEntries } from "../show/motion-report.js";
 
 /** Fixtures given directly or through a group, kept to the moving heads. */
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
@@ -24,22 +25,23 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
   reg.register({
     name: "position.list",
     title: "Lyres",
-    description: "Moving heads of the venue with their pan/tilt travel (degrees) and current manual position, if any (normalised 0..1, 0.5 = centre).",
+    description:
+      "Moving heads of the venue with their pan/tilt travel (degrees), their manual position if any, and why each is where it is (positions normalised 0..1, 0.5 = centre): sent = the position really sent on the last frame (after the rules and the guard); rest = where it goes when nothing claims it (set: false = the centre); motion = per axis the layer that holds it (manual, target, look, hold = held after a Panic, rest, lock), its owner (manual, look:<id> with the look's name), a glide under way (moving, from, to, remainingMs) and an error, then the claims it masks (masked: « the look X would move it ») and those « rendre la main » released (released). The same report is pushed on the light:motion topic when it changes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
     run: () =>
-      show.movingHeads().map((id) => {
+      motionEntries(show).map(({ id, ...why }) => {
         const r = show.venue.resolve(id);
         const f = show.venue.fixtures.get(id)!;
-        return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null };
+        return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null, ...why };
       }),
   });
   reg.register({
     name: "position.set",
     title: "Position des lyres",
-    description: "Sets a manual pan/tilt (normalised 0..1, 0.5 = centre) on moving heads (fixtures, a group, or all heads); it wins over the looks' moves until released. Pan or tilt alone keeps the other.",
+    description: "Sets a manual pan/tilt (normalised 0..1, 0.5 = centre) on moving heads (fixtures, a group, or all heads); it wins over the looks' moves until released. Direct, as a gesture: no glide. Pan or tilt alone claims that axis only, the other stays with the layer below.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ pan: z.number().min(0).max(1).optional(), tilt: z.number().min(0).max(1).optional() }),
@@ -96,6 +98,16 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
     },
   });
   reg.register({
+    name: "position.releaseTop",
+    title: "Rendre la main",
+    description:
+      "« Rendre la main »: releases what holds moving heads now (fixtures, a group, or all) — on each axis the winning claim (the manual position, the look that moves it, a Panic hold) — and the layer below takes over, gliding: the look under it, else the rest position. Pressed again it goes one layer down. A released look keeps playing and claims the heads again once started again. Respects a lock (T26): under a hard lock nothing is released, under a soft one only the manual position. Returns, per head, the owners released (manual, look:<id>, hold).",
+    right: "commands:position",
+    profiles: ["live", "design", "setup"],
+    schema: Target,
+    run: (t) => ({ fixtures: show.releaseTop(t.fixtures || t.group ? targets(t) : undefined) }),
+  });
+  reg.register({
     name: "position.home",
     title: "Lyres au repos",
     description: "Sends moving heads (fixtures, a group, or all) to their rest position, gliding: every claim on them is released — the manual position, the looks' moves (a look started again claims them again), a Panic hold. Returns, per head, what was released.",
@@ -107,7 +119,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
   reg.register({
     name: "position.aim",
     title: "Viser",
-    description: "Points moving heads at a stage zone (its centre, at `height` metres above its floor; default 1.5 = a standing person's face) or at a point {x,y,z} in metres. Needs the fixtures' position, mount and orientation (yaw, calibration). Sets a manual position; out-of-reach fixtures are reported.",
+    description: "Points moving heads at a stage zone (its centre, at `height` metres above its floor; default 1.5 = a standing person's face) or at a point {x,y,z} in metres. Needs the fixtures' position, mount and orientation (yaw, calibration). Sets a manual position, direct like the XY pad (no glide: the heads go there at once, bounded by the speed rules only); out-of-reach fixtures are reported.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(1.5) }),
@@ -146,18 +158,24 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
     name: "calibration.record",
     title: "Enregistrer un repère",
     description:
-      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's centre on its floor, or a point {x,y,z} in metres — records that spot with the head's current output position.",
+      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's centre on its floor, or a point {x,y,z} in metres — records that spot with the position really sent to the head (after the speed rules, the DMX console). Refused while a look or a target moves the head, or while it still glides.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0) }),
     run: ({ fixture, zone, point, height }) => {
       const { f } = head(fixture);
-      const manual = show.manualPosition(fixture);
-      if (!manual) throw new Error(say(`${f.name} : la viser d'abord à la main (pad XY), puis enregistrer`, `${f.name}: aim it by hand first (XY pad), then record`));
+      // where the head really points: the position sent (after the speed rules, the DMX console, a fader on pan/tilt)
+      const sent = show.sentPosition(fixture);
+      if (!sent) throw new Error(say(`${f.name} : aucune position envoyée pour l'instant (sortie arrêtée ?)`, `${f.name}: no position sent yet (output stopped?)`));
+      const status = show.motionStatus().get(fixture);
+      const axes = status ? [status.pan, status.tilt] : [];
+      if (axes.some((a) => a.layer === "look" || a.layer === "target"))
+        throw new Error(say(`${f.name} : un look la déplace ; la viser d'abord à la main (pad XY), puis enregistrer`, `${f.name}: a look moves it; aim it by hand first (XY pad), then record`));
+      if (axes.some((a) => a.moving)) throw new Error(say(`${f.name} : elle glisse encore ; attendre qu'elle soit arrêtée`, `${f.name}: it is still gliding; wait until it stops`));
       const o = f.orientation;
       // the output values, as the fixture really receives them (current inversion and swap)
-      let pan = o?.invertPan ? 1 - manual.pan : manual.pan;
-      let tilt = o?.invertTilt ? 1 - manual.tilt : manual.tilt;
+      let pan = o?.invertPan ? 1 - sent.pan : sent.pan;
+      let tilt = o?.invertTilt ? 1 - sent.tilt : sent.tilt;
       if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
       const list = samples.get(fixture) ?? [];
       list.push({ target: pointOf(zone, point, height), pan, tilt });

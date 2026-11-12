@@ -2109,7 +2109,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "panic",
     title: "Panic neutre",
     description:
-      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout.",
+      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
