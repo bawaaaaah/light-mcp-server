@@ -24,13 +24,15 @@ import {
   mergeKnowledge,
   migrateMood,
   newIntentionId,
+  INTENTION_REFS_HELP,
+  originWord,
   refFor,
   refKey,
+  strictHint,
   resolveIntention,
   stackIntentions,
   type Intention,
   type IntentionEntry,
-  type IntentionOrigin,
   type ResolvedIntention,
 } from "../knowledge/intentions.js";
 import { inUseMessage, intentionUses, intentionUsesByKey } from "../show/references.js";
@@ -131,8 +133,6 @@ const parsedOr = <T>(parse: () => T): T => {
 };
 
 /** Where an intention lives, as people say it (show.lint). */
-const originWord = (o: IntentionOrigin): string =>
-  ({ show: say("ce show", "this show"), personal: say("bibliothèque personnelle", "personal library"), private: say("fichier privé", "private file"), generic: say("livrée", "shipped") })[o];
 
 /** A line of the uses of an intention: another show of this machine names it. */
 const otherShowLine = (show: string): string => say(`show « ${show} » (autre show de cette machine)`, `show “${show}” (another show of this machine)`);
@@ -198,7 +198,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "knowledge.get",
     title: "Base de connaissances couleur",
     description:
-      "Mood intentions → colours, energy and family, plus the design rules, by id (moods: id → mood). Layers, the most specific winning id by id: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its label (what to show: a new intention's id is generated, i-…), its former labels (aliases), its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag, whether they name it by id or by name); `hidden` lists the intentions the show masks. A word names an intention by its id, else by its label or a former one (several may share a label: show > personal > private file > shipped). machine: true leaves the open show out (what this machine has, for the library section).",
+      "Mood intentions → colours, energy and family, plus the design rules, by id (moods: id → mood). Layers, the most specific winning id by id: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its label (what to show: a new intention's id is generated, i-…), its former labels (aliases), its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag, whether they name it by id or by name); `hidden` lists the intentions the show masks. A word names an intention by its id, else by its label or a former one (several may share a label: show > personal > private file > shipped). machine: true leaves the open show out (what this machine has, for the library section). " + INTENTION_REFS_HELP,
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
@@ -336,7 +336,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     name: "look.from_intent",
     title: "Look par intention",
     description:
-      "Proposes a look from an intention: intentions by id or by name (e.g. intimite, joie, or a label as knowledge.get gives it), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true. Its ambiance: tags name each intention by id when one intention only answers to the name (an unknown word stays as typed).",
+      "Proposes a look from an intention: intentions by id or by name (e.g. intimite, joie, or a label as knowledge.get gives it), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true. Its ambiance: tags name each intention by id when one intention only answers to the name (an unknown word stays as typed); a name several answer to stays a name (show.lint says it). " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ name: z.string(), canvas: z.string(), mood: z.array(z.string()).min(1), energy: z.enum(["pose", "dynamique", "survolte"]).optional(), colors: z.array(z.string()).optional(), cut: z.boolean().optional(), id: z.string().optional(), save: z.boolean().default(false) }),
@@ -625,6 +625,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         warn(
           where,
           say(`intention inconnue « ${word} »${e?.hidden ? " (masquée dans ce show)" : ""} : la grille ne sait pas quelles couleurs prendre`, `unknown intention “${word}”${e?.hidden ? " (hidden in this show)" : ""}: the grid does not know which colours to take`) +
+            // a strict form is exact: said, with the id it may have meant
+            (!e && strictHint(intentionsNow, word) ? ` (${strictHint(intentionsNow, word)!})` : "") +
             // the private file's ids are its keywords: one renamed there no longer answers to the old word
             (!e && intentions.base().private ? say(" (un mot-clé renommé dans le fichier privé des intentions casse les liaisons de l'ancien : le remettre, ou recréer l'intention dans le show ou la bibliothèque)", " (a keyword renamed in the private intentions file breaks what named the old one: put it back, or make the intention again in the show or the library)") : ""),
         );

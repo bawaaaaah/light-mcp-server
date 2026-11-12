@@ -411,5 +411,16 @@ describe("intentions by generated id (T15b)", () => {
       await run("show.revert", { id: p.id });
       expect(((await run("look.get", { id: "l" })) as { tags: string[] }).tags).to.deep.equal(["ambiance:=joie"]);
     });
+
+    it("tells an MCP client the strict form, says when one is mistyped, and tells two intentions of one label apart in exports", async () => {
+      for (const name of ["song.put", "look.put", "look.from_intent", "knowledge.get"]) expect(plugin.commands.get(name)!.description, name).to.contain('strict form "=<id>"');
+      const show = await created("Joie");
+      await run("song.put", { song: { id: "s", title: "Chant", mood: ["=joie", show, "=Joie !"], sections: [] } });
+      // two « Joie »: each says where it lives, in song.list as in the cue sheet
+      expect(((await run("song.list")) as { moodLabels: string[] }[])[0]!.moodLabels).to.deep.equal(["Joie (livrée)", "Joie (ce show)", "=Joie !"]);
+      expect((await run("export.cuesheet")) as string).to.contain("Joie (livrée), Joie (ce show)");
+      // a strict form mistyped: exact, and what it may have meant
+      expect((await lint()).find((i) => i.where === "chant s" && /« =Joie ! »/.test(i.message))!.message).to.match(/forme stricte « =Joie ! » est exacte .* vouliez-vous « =joie » \(Joie\)/);
+    });
   });
 });

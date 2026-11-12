@@ -20,6 +20,7 @@
  * Pure: the commands pass the layers.
  */
 import { z } from "zod";
+import { say } from "../../../core/lang.js";
 import { ID_RE } from "../data/store.js";
 import { EnergySchema, flattenLayers, normalizeMood, type Knowledge, type KnowledgeLayers, type Mood } from "./knowledge.js";
 
@@ -173,6 +174,44 @@ export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
  * by a migration.
  */
 export const STRICT = "=";
+
+/** How a song, a look or a command names an intention (T15b): what MCP clients read in the command descriptions. */
+export const INTENTION_REFS_HELP =
+  "An intention is named by its id (as knowledge.get gives it: a key such as joie, or a generated i-…), by its label or a former one (several may share a label: the nearest layer wins, show > personal library > private file > shipped, even over a shipped one's key), or by its strict form \"=<id>\" (e.g. =joie), which always names that exact id (case and spaces matter), even when a nearer intention bears its label. A word nothing answers to stays a word.";
+
+/** Where an intention lives, as people say it. */
+export const originWord = (o: IntentionOrigin): string =>
+  ({ show: say("ce show", "this show"), personal: say("bibliothèque personnelle", "personal library"), private: say("fichier privé", "private file"), generic: say("livrée", "shipped") })[o];
+
+/**
+ * The words of a mood (or of a look's ambiance: tags) as people read them (T15b): the labels, and,
+ * when two of them name different intentions of one label, each with where it lives, « Joie (livrée) »,
+ * « Joie (ce show) », as the interface says it.
+ */
+export function labelsOfRefs(stack: ReadonlyMap<string, IntentionEntry>, words: readonly string[]): string[] {
+  const found = words.map((w) => resolveIntention(stack, w)?.entry);
+  const ids = new Map<string, Set<string>>();
+  for (const e of found) if (e) ids.set(normalizeMood(e.label || e.id), new Set([...(ids.get(normalizeMood(e.label || e.id)) ?? []), e.id]));
+  return words.map((w, k) => {
+    const e = found[k];
+    if (!e) return w;
+    const label = e.label || e.id;
+    return (ids.get(normalizeMood(label))?.size ?? 0) > 1 ? `${label} (${originWord(e.hidden ? (e.over ?? "generic") : e.origin)})` : label;
+  });
+}
+
+/**
+ * What to say of a strict form nothing answers to (T15b): it is exact, and the id it may have meant
+ * (the same once case, accents and spaces are dropped, or the id of an intention of that label).
+ */
+export function strictHint(stack: ReadonlyMap<string, IntentionEntry>, word: string): string | undefined {
+  if (!word.startsWith(STRICT)) return undefined;
+  const rest = word.slice(STRICT.length);
+  const key = normalizeMood(rest);
+  const near = stack.get(key) ?? [...stack.values()].find((e) => !e.hidden && normalizeMood(e.label || e.id) === key);
+  const meant = near ? say(` ; vouliez-vous « ${STRICT}${near.id} » (${near.label || near.id}) ?`, `; did you mean “${STRICT}${near.id}” (${near.label || near.id})?`) : "";
+  return say(`la forme stricte « ${word} » est exacte : l'id tel quel, casse et espaces compris${meant}`, `the strict form “${word}” is exact: the id as it is, case and spaces included${meant}`);
+}
 
 /** How a song or a look names an intention for sure: its id, or its strict form when the plain id would read as another one. */
 export function refFor(stack: ReadonlyMap<string, IntentionEntry>, id: string): string {

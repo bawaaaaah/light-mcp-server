@@ -16,7 +16,7 @@ import { writeMidiFile, type MidiFileEvent } from "../ableton/midi-file.js";
 import { displayHex } from "../engine/display.js";
 import { readAls, setLocators, setTempoSteps, setTrackClips, writeAls, type ClipSpec } from "../ableton/live-set.js";
 import { say } from "../../../core/lang.js";
-import type { AmbiguousRef } from "../knowledge/intentions.js";
+import { INTENTION_REFS_HELP, type AmbiguousRef } from "../knowledge/intentions.js";
 
 export interface SongState {
   setlist?: string;
@@ -41,7 +41,7 @@ export interface SongServices {
   /** Runs a timeline action through the command layer (origin "timeline"). */
   run?: (command: string, args: Record<string, unknown>) => Promise<unknown>;
   /** What the words of a song's mood are shown as (T15b): the labels of the intentions they name, else the words (read once per call). */
-  intentionLabels?: () => (word: string) => string;
+  intentionLabels?: () => (mood: readonly string[]) => string[];
   /** The words of a mood several intentions answer to (T15b): warned of by song.put. */
   ambiguousMood?: (mood: string[]) => AmbiguousRef[];
   /** A song's mood as stored (T15b): words written by name become the id one intention only answers to. */
@@ -92,27 +92,27 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   };
 
   /** A song's mood as people read it (T15b): the intentions' labels. */
-  const labeller = () => s.intentionLabels?.() ?? ((w: string) => w);
+  const labeller = () => s.intentionLabels?.() ?? ((mood: readonly string[]) => [...mood]);
   /** A song as an export shows it: its mood by the intentions' labels (cue sheet, board). */
-  const shownWith = (label: (w: string) => string) => (sg: Song): Song => ({ ...sg, mood: sg.mood.map(label) });
+  const shownWith = (label: (mood: readonly string[]) => string[]) => (sg: Song): Song => ({ ...sg, mood: label(sg.mood) });
   const shown = (sg: Song): Song => shownWith(labeller())(sg);
   reg.register({
     name: "song.list",
     title: "Chants",
-    description: "Songs of the show with their sections (look, cue, idea, position in bars). mood holds intentions by id (or a word); moodLabels says them as people read them.",
+    description: "Songs of the show with their sections (look, cue, idea, position in bars). mood holds intentions by id (or a word); moodLabels says them as people read them (two of one label each with where it lives: “Joie (shipped)”).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "live"],
     schema: z.object({}),
     run: () => {
       const label = labeller();
-      return s.songs.list().map((sg) => ({ ...sg, moodLabels: sg.mood.map(label) }));
+      return s.songs.list().map((sg) => ({ ...sg, moodLabels: label(sg.mood) }));
     },
   });
   reg.register({
     name: "song.put",
     title: "Chant",
-    description: "Creates or updates a song: title, key, BPM, mood (intentions: their id as knowledge.get gives it, or a name: a name one intention only answers to is stored as its id, an unknown word stays a word; guard rail), palette, sections (name, look, cue « repère », idea, bars, optional atBar), timeline actions (cues: any non-song command with its args, at a 0-based bar and beat, fired in playback), start position in the DAW (startBeat).",
+    description: "Creates or updates a song: title, key, BPM, mood (intentions: their id as knowledge.get gives it, or a name: a name one intention only answers to is stored as its id, an unknown word stays a word; guard rail), palette, sections (name, look, cue « repère », idea, bars, optional atBar), timeline actions (cues: any non-song command with its args, at a 0-based bar and beat, fired in playback), start position in the DAW (startBeat). A name several intentions answer to stays a name and is returned in ambiguous (the one it goes to, the candidates). " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ song: SongSchema }),

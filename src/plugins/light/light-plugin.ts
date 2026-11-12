@@ -32,7 +32,7 @@ import { followPosition, registerSongCommands, type SongServices } from "./comma
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
-import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
+import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, labelsOfRefs, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
@@ -332,7 +332,7 @@ export class LightPlugin implements McpPlugin {
     // written by name become the id one intention only answers to, shown by its label
     this.songs.intentionLabels = () => {
       const stack = showStack(this.intentions);
-      return (word) => labelOfRef(stack, word);
+      return (mood) => labelsOfRefs(stack, mood);
     };
     this.songs.migrateMood = (mood) => {
       const stack = migratable();
