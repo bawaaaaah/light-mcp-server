@@ -18,7 +18,7 @@
  * never mutates its state, it returns the next one (sampling future frames, `strictBounds`, must not
  * change anything: only the real render keeps `next`).
  */
-import { hermiteAt, maxStartSpeed } from "./hermite.js";
+import { hermiteAt, hermiteSpeed, maxStartSpeed, type Hermite } from "./hermite.js";
 import { DEFAULT_MOVE_FADE, movePosition, type Move, type MoveFade, type Position } from "./move.js";
 
 export type Axis = "pan" | "tilt";
@@ -118,8 +118,9 @@ interface AxisState {
   rank: number;
   /** The winning claim's launch order (0 without one): handing back to an older claim of the same layer is a release. */
   order: number;
-  /** Last value resolved, at `t`, moving at `v` (per ms). */
+  /** Last value resolved, at `t`, moving at `v` (per ms, the curve's own speed: 0 outside a transition), towards `target`. */
   value: number;
+  target: number;
   t: number;
   v: number;
   /** Transition: from `from` at `t0` over `dur` ms (0: none), leaving at speed `v0`. */
@@ -157,6 +158,8 @@ export interface AxisStatus {
   position: number;
   /** A transition is running. */
   moving: boolean;
+  /** Where the owner asks the axis to be (absent while held: lock, hold, a claim in error). */
+  target?: number;
   /** Why the winning claim cannot place the head (the axis is held meanwhile). */
   error?: string;
 }
@@ -291,13 +294,31 @@ interface AxisFrame {
   cut: boolean;
 }
 
+/**
+ * The speed a new transition over `gap` (ms `duration`) leaves at, from the head's speed `v`.
+ * Same way: at most 3 × gap / duration, beyond which the cubic passes its target. Turning back
+ * (glide.ts brakes the same way): the head first carries on, never past the target it was heading for —
+ * `remaining` is how far that still is; with
+ * |v0| ≤ √(12 × gap × remaining) / D the cubic's swing stays below `remaining` (checked by a test), so it stays inside [start, old target, new target].
+ */
+function startSpeed(v: number, gap: number, toOldTarget: number, duration: number): number {
+  if (v === 0 || duration <= 0) return 0;
+  let max = maxStartSpeed(gap, duration);
+  if (v * gap < 0) {
+    const remaining = Math.max(0, toOldTarget * Math.sign(v));
+    max = Math.min(max, Math.sqrt(12 * Math.abs(gap) * remaining) / duration);
+  }
+  return Math.sign(v) * Math.min(Math.abs(v), max);
+}
+
 /** One axis, one frame: keep, hold or start a transition, then the value at `now`. */
 function stepAxis(o: Owner, f: AxisFrame): AxisState {
   const { prev, current, now, rank } = f;
   const changed = !prev || prev.owner !== o.owner;
   const order = o.claim?.order ?? 0;
-  const v = prev && now > prev.t ? prev.v : 0;
-  const fresh = { owner: o.owner, layer: o.layer, rank, order, value: current, t: now, v, from: current, t0: now, dur: 0, v0: 0, held: current };
+  // only a running transition carries a speed: after a cut, a hold, a pad drag or a shape, the head starts at rest
+  const v = prev && prev.dur > 0 && now > prev.t ? prev.v : 0;
+  const fresh = { owner: o.owner, layer: o.layer, rank, order, value: current, target: current, t: now, v, from: current, t0: now, dur: 0, v0: 0, held: current };
   let s: AxisState;
   let cut = false;
   if (o.target === undefined) {
@@ -311,20 +332,23 @@ function stepAxis(o: Owner, f: AxisFrame): AxisState {
       const releasing = prev !== undefined && (prev.rank < rank || (prev.rank === rank && order < prev.order));
       const fade = o.claim && !releasing ? (o.claim.fade ?? f.moveFade) : f.moveFade;
       const dur = f.cut ? 0 : motionDurationMs(fade, f.bpm);
-      const vmax = maxStartSpeed(o.target - current, dur);
-      const v0 = Math.sign(v) * Math.min(Math.abs(v), vmax);
+      const v0 = startSpeed(v, o.target - current, prev ? prev.target - current : 0, dur);
       // a moving head keeps its pace: its curve starts when the position it leaves from was sent
       const t0 = v0 !== 0 && prev && now - prev.t <= MAX_FRAME_GAP ? prev.t : now;
       s = { ...fresh, t0, dur, v0 };
       cut = dur === 0;
     } else s = { ...prev, layer: o.layer, rank, order };
     const arrived = s.dur <= 0 || now - s.t0 >= s.dur;
-    s.value = arrived ? o.target : clamp01(hermiteAt({ from: s.from, to: o.target, start: s.t0, duration: s.dur, v0: s.v0 }, now));
+    const curve: Hermite = { from: s.from, to: o.target, start: s.t0, duration: s.dur, v0: s.v0 };
+    s.value = arrived ? o.target : clamp01(hermiteAt(curve, now));
+    s.v = arrived || cut ? 0 : hermiteSpeed(curve, now);
+    s.target = o.target;
     if (arrived) s.dur = 0;
   }
-  // the speed the head has (a cut or a held axis has none): the next transition leaves at it
-  if (cut || o.target === undefined) s.v = 0;
-  else if (prev && now > prev.t) s.v = (s.value - prev.value) / (now - prev.t);
+  if (o.target === undefined) {
+    s.v = 0;
+    s.target = s.held;
+  }
   s.t = now;
   return s;
 }
@@ -381,6 +405,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
         owner: o.claim?.owner ?? null,
         position: s.value,
         moving: s.dur > 0 && s.value !== o.target,
+        ...(o.target === undefined ? {} : { target: o.target }),
         ...(o.error === undefined ? {} : { error: o.error }),
       };
     }

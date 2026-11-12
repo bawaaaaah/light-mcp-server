@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import {
+  AXES,
   CENTRE,
   emptyMotionState,
   holdMotion,
@@ -8,6 +9,7 @@ import {
   resolveMotion,
   type Axis,
   type AxisMode,
+  type HeadStatus,
   type LockLevel,
   type MotionClaim,
   type MotionContext,
@@ -398,27 +400,72 @@ describe("motion layer (pure)", () => {
       expect(r.positions.get("h1")!.tilt).to.be.closeTo(0.3, 1e-9);
     });
 
-    for (const at of [0.25, 0.5, 0.75])
-      it(`relaunch A → B → A at ${at * 100} % of the transition: no jump, no going back past where it is`, () => {
+    // [fade of B, fade back to A, share of B's transition done when A is relaunched]
+    const relaunches: [number, number, number][] = [
+      [1, 1, 0.25],
+      [1, 1, 0.5],
+      [1, 1, 0.75],
+      [0.5, 8, 0.9], // a fast move turned back by a slow one: the swing must stay short of B
+      [0.5, 8, 0.5],
+      [0.3, 4, 0.75],
+      [2, 0.5, 0.5],
+    ];
+    for (const [fadeB, fadeA, at] of relaunches)
+      it(`relaunch A → B (${fadeB} s) → A (${fadeA} s) at ${at * 100} %: no jump, never past B`, () => {
         const sim = new Sim({ settings: { moveFade: SEC(1) } });
-        const a = look("a", 1, ["h1"], { pan: 0, tilt: 0 }, SEC(0));
-        sim.claims = [a];
+        sim.claims = [look("a", 1, ["h1"], { pan: 0, tilt: 0 }, SEC(0))];
         sim.at(0);
-        sim.claims = [look("b", 2, ["h1"], { pan: 1, tilt: 1 }, SEC(1))];
-        const ps = sim.run(20, 20 + at * 1000);
+        sim.claims = [look("b", 2, ["h1"], { pan: 0.8, tilt: 0.8 }, SEC(fadeB))];
+        const ps = sim.run(20, 20 + Math.round((at * fadeB * 1000) / FRAME) * FRAME);
         const reached = ps.at(-1)!.pan;
-        sim.claims = [look("a", 3, ["h1"], { pan: 0, tilt: 0 }, SEC(1))];
-        const back = sim.run(40 + at * 1000, 2100);
         const speed = reached - ps.at(-2)!.pan;
-        // leaves from where it is, at the speed it had: no jump, no sudden stop
-        expect(back[0]!.pan - reached).to.be.closeTo(speed, 0.01);
+        sim.claims = [look("a", 3, ["h1"], { pan: 0, tilt: 0 }, SEC(fadeA))];
+        const back = sim.run(ps.length * FRAME + 20, ps.length * FRAME + 20 + fadeA * 1000 + 100);
+        // leaves from where it is, carrying on its way at most at the speed it had: no jump, no sudden reversal
+        expect(back[0]!.pan - reached).to.be.within(Math.min(0, speed) - 1e-3, Math.max(0, speed) + 1e-3);
         expect(back.at(-1)).to.deep.equal({ pan: 0, tilt: 0 });
-        // it brakes before turning back: a little past where it was, never more than 4/27 of its start speed's reach
-        const past = Math.max(...back.map((p) => p.pan)) - reached;
-        expect(past).to.be.at.most((4 / 27) * (3 * reached) + 1e-9);
-        for (const p of back) expect(p.pan).to.be.within(0, 1);
-        expect(maxStep([...ps, ...back])).to.be.at.most(2 * bound(1, 1000));
+        // it brakes before turning back, but never past the target it was heading for
+        for (const p of back) expect(p.pan).to.be.within(0, 0.8 + 1e-9);
+        expect(maxStep([...ps, ...back])).to.be.at.most(2 * bound(0.8, Math.min(fadeA, fadeB) * 1000));
       });
+
+    it("released after a pad drag, the head starts at rest: no swing past where the finger left it", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(1) } });
+      const a = look("a", 1, ["h1"], { pan: 0.2, tilt: 0.5 }, SEC(0));
+      sim.claims = [a];
+      sim.at(0);
+      for (let t = 20, x = 0.2; t <= 400; t += FRAME, x = Math.min(0.6, x + 0.02)) {
+        sim.claims = [a, manual(2, ["h1"], { pan: x, tilt: 0.5 })];
+        sim.at(t);
+      }
+      sim.claims = [a];
+      for (const p of sim.run(420, 1500)) expect(p.pan).to.be.within(0.2, 0.6 + 1e-9);
+    });
+
+    it("a target that moves under the same owner, then stops claiming: no swing past either target", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(1) } });
+      sim.at(0);
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.8, tilt: 0.5 }, SEC(0.5))];
+      const ps = sim.run(20, 200);
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.55, tilt: 0.5 }, SEC(0.5))]; // edited while it plays
+      ps.push(...sim.run(220, 300));
+      const top = Math.max(...ps.map((p) => p.pan));
+      sim.claims = [];
+      for (const p of sim.run(320, 1500)) expect(p.pan).to.be.within(0.5 - 1e-9, Math.max(top, 0.55) + 1e-9);
+    });
+
+    it("bounds the swing of a turn-back: √(12 × gap × remaining) / D keeps it short of the old target", () => {
+      for (const gap of [0.001, 0.01, 0.1, 0.5, 1])
+        for (const remaining of [0.0001, 0.001, 0.01, 0.1, 0.5, 1]) {
+          const reach = Math.sqrt(12 * gap * remaining); // D × v0
+          let swing = 0;
+          for (let i = 0; i <= 1000; i++) {
+            const s = i / 1000;
+            swing = Math.max(swing, reach * s * (1 - s) ** 2 - gap * (3 * s * s - 2 * s ** 3));
+          }
+          expect(swing).to.be.at.most(remaining);
+        }
+    });
   });
 
   describe("a source that cannot place a head (R14)", () => {
@@ -713,7 +760,8 @@ describe("motion layer (pure)", () => {
         const sim = new Sim({ heads, bpm: 60 + r() * 120, settings, ctx });
         let order = 0;
         const steps: Map<string, Position[]> = new Map(heads.map((h) => [h, []]));
-        const cutAt = new Set<number>(); // frames where a newer claim took heads with a fade of 0
+        const statuses: Map<string, HeadStatus[]> = new Map(heads.map((h) => [h, []]));
+        const cutAt = new Set<string>(); // frame:head where a newer claim took heads with a fade of 0
         for (let t = 0; t < 8000; t += FRAME) {
           if (r() < 0.04) {
             const ev = r();
@@ -722,7 +770,7 @@ describe("motion layer (pure)", () => {
             if (ev < 0.25) sim.claims.push(look(`l${Math.floor(r() * 4)}`, ++order, hs, at(), SEC(minFade / 1000 + r() * 2)));
             else if (ev < 0.35) {
               sim.claims.push(look(`cut${Math.floor(r() * 2)}`, ++order, hs, at(), SEC(0)));
-              cutAt.add(t / FRAME);
+              for (const h of hs) cutAt.add(`${t / FRAME}:${h}`);
             }
             else if (ev < 0.55) sim.claims.splice(Math.floor(r() * sim.claims.length), 1);
             else if (ev < 0.65) sim.claims.push({ ...target(`t${Math.floor(r() * 2)}`, ++order, hs), fade: SEC(minFade / 1000 + r()) });
@@ -733,7 +781,10 @@ describe("motion layer (pure)", () => {
             else settings.rest = Object.fromEntries(hs.map((h) => [h, at()]));
           }
           const res = sim.frame(t);
-          for (const h of heads) steps.get(h)!.push(res.positions.get(h)!);
+          for (const h of heads) {
+            steps.get(h)!.push(res.positions.get(h)!);
+            statuses.get(h)!.push(res.status.get(h)!);
+          }
         }
         for (const h of heads) {
           const ps = steps.get(h)!;
@@ -743,8 +794,22 @@ describe("motion layer (pure)", () => {
           }
           // no jump except a newer claim taking the head with a fade of 0; a glide leaving at the speed
           // the head had is at most 3 × gap / duration steep (hermite.ts, maxStartSpeed)
+          // the interval a transition must stay in: [where it started, the target it was heading for, its own target]
+          const first = statuses.get(h)![0]!;
+          const hulls = { pan: [ps[0]!.pan, first.pan.target ?? ps[0]!.pan, CENTRE.pan], tilt: [ps[0]!.tilt, first.tilt.target ?? ps[0]!.tilt, CENTRE.tilt] };
           for (let i = 1; i < ps.length; i++) {
-            if (cutAt.has(i)) continue;
+            const before = statuses.get(h)![i - 1]!;
+            const after = statuses.get(h)![i]!;
+            for (const axis of AXES) {
+              const was = ps[i - 1]![axis];
+              const a = after[axis];
+              const b = before[axis];
+              // a new owner or a moved target starts a new transition from where the head was
+              if (a.layer !== b.layer || a.owner !== b.owner || a.target !== b.target) hulls[axis] = [was, b.target ?? was, a.target ?? was];
+              const hull = hulls[axis];
+              expect(ps[i]![axis], `seed ${seed}, ${h}, frame ${i}, ${axis}`).to.be.within(Math.min(...hull) - 1e-9, Math.max(...hull) + 1e-9);
+            }
+            if (cutAt.has(`${i}:${h}`)) continue;
             const d = Math.max(Math.abs(ps[i]!.pan - ps[i - 1]!.pan), Math.abs(ps[i]!.tilt - ps[i - 1]!.tilt));
             expect(d, `seed ${seed}, ${h}, frame ${i}`).to.be.at.most(2 * bound(1, minFade));
           }
