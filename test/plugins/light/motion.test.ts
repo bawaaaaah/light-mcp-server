@@ -1,7 +1,6 @@
 import { expect } from "chai";
 import {
   CENTRE,
-  DEFAULT_MOVE_FADE,
   emptyMotionState,
   holdMotion,
   motionDurationMs,
@@ -12,13 +11,12 @@ import {
   type LockLevel,
   type MotionClaim,
   type MotionContext,
-  type MotionDuration,
   type MotionInput,
   type MotionResult,
   type MotionSettings,
   type MotionState,
 } from "../../../src/plugins/light/engine/motion.js";
-import { MoveSchema, type Position } from "../../../src/plugins/light/engine/move.js";
+import { DEFAULT_MOVE_FADE, MoveSchema, type MoveFade as MotionDuration, type Position } from "../../../src/plugins/light/engine/move.js";
 import { rng } from "../../../src/plugins/light/engine/techniques.js";
 
 const FRAME = 20;
@@ -160,7 +158,7 @@ describe("motion layer (pure)", () => {
     });
 
     it("puts it at its own rest position when the show sets one", () => {
-      const sim = new Sim({ heads: ["h1", "h2"], settings: { rest: new Map([["h2", { pan: 0.2, tilt: 0.9 }]]) } });
+      const sim = new Sim({ heads: ["h1", "h2"], settings: { rest: { h2: { pan: 0.2, tilt: 0.9 } } } });
       sim.frame(0);
       expect(sim.last.positions.get("h1")).to.deep.equal(CENTRE);
       expect(sim.last.positions.get("h2")).to.deep.equal({ pan: 0.2, tilt: 0.9 });
@@ -177,10 +175,10 @@ describe("motion layer (pure)", () => {
     });
 
     it("glides to a rest position changed in the show", () => {
-      const rest = new Map<string, Position>();
+      const rest: Record<string, Position> = {};
       const sim = new Sim({ settings: { moveFade: SEC(1), rest } });
       sim.at(0);
-      rest.set("h1", { pan: 1, tilt: 0.5 });
+      rest.h1 = { pan: 1, tilt: 0.5 };
       sim.at(100);
       expect(sim.at(600).pan).to.be.closeTo(0.75, 1e-9);
       expect(sim.at(1100).pan).to.equal(1);
@@ -253,12 +251,26 @@ describe("motion layer (pure)", () => {
       const sim = new Sim({ settings: { moveFade: SEC(1) } });
       const ambient = look("ambient", 1, ["h1"], { pan: 0.2, tilt: 0.5 }, SEC(0));
       sim.claims = [ambient, look("accent", 2, ["h1"], { pan: 0.8, tilt: 0.5 }, SEC(0))];
-      expect(sim.at(0).pan).to.equal(0.8);
+      const ps = [sim.at(0)];
+      expect(ps[0]!.pan).to.equal(0.8);
       sim.claims = [ambient];
-      const ps = sim.run(20, 1020);
+      ps.push(...sim.run(20, 1020));
       expect(ps.at(-1)!.pan).to.be.closeTo(0.2, 1e-9);
-      // the ambient look has no fade of its own (cut), but taking a head back is a release: the show's default
+      // the ambient look cuts when it takes over, but taking a head back is a release: the show's default
       expect(maxStep(ps)).to.be.at.most(bound(0.6, 1000));
+      expect(ps[1]!.pan).to.be.above(0.79);
+    });
+
+    it("a newer look cutting in takes the head at once; the older one taking it back glides", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(1) } });
+      const older = look("a", 1, ["h1"], { pan: 0.2, tilt: 0.5 }, SEC(0));
+      sim.claims = [older];
+      expect(sim.at(0).pan).to.equal(0.2); // first frame: from rest, cut
+      sim.claims = [older, look("b", 2, ["h1"], { pan: 0.8, tilt: 0.5 }, SEC(0))];
+      expect(sim.at(20).pan).to.equal(0.8); // newer, same layer, its own cut
+      sim.claims = [older];
+      expect(sim.at(40).pan).to.equal(0.8); // a release, not a take-over: moveFade
+      expect(sim.at(540).pan).to.be.closeTo(0.5, 1e-9);
     });
   });
 
@@ -397,10 +409,15 @@ describe("motion layer (pure)", () => {
         const reached = ps.at(-1)!.pan;
         sim.claims = [look("a", 3, ["h1"], { pan: 0, tilt: 0 }, SEC(1))];
         const back = sim.run(40 + at * 1000, 2100);
-        expect(back[0]!.pan).to.be.closeTo(reached, bound(reached, 1000)); // leaves from where it is
+        const speed = reached - ps.at(-2)!.pan;
+        // leaves from where it is, at the speed it had: no jump, no sudden stop
+        expect(back[0]!.pan - reached).to.be.closeTo(speed, 0.01);
         expect(back.at(-1)).to.deep.equal({ pan: 0, tilt: 0 });
-        for (const p of back) expect(p.pan).to.be.within(0, reached + 1e-9);
-        expect(maxStep([...ps, ...back])).to.be.at.most(bound(1, 1000));
+        // it brakes before turning back: a little past where it was, never more than 4/27 of its start speed's reach
+        const past = Math.max(...back.map((p) => p.pan)) - reached;
+        expect(past).to.be.at.most((4 / 27) * (3 * reached) + 1e-9);
+        for (const p of back) expect(p.pan).to.be.within(0, 1);
+        expect(maxStep([...ps, ...back])).to.be.at.most(2 * bound(1, 1000));
       });
   });
 
@@ -517,7 +534,7 @@ describe("motion layer (pure)", () => {
     });
 
     it("home releases every layer: the head glides to its rest position", () => {
-      const sim = new Sim({ settings: { moveFade: SEC(1), rest: new Map([["h1", { pan: 0, tilt: 0.5 }]]) } });
+      const sim = new Sim({ settings: { moveFade: SEC(1), rest: { h1: { pan: 0, tilt: 0.5 } } } });
       sim.claims = [look("a", 1, ["h1"], { pan: 1, tilt: 0.5 }, SEC(0)), manual(2, ["h1"], { pan: 1, tilt: 0.5 })];
       sim.at(0);
       sim.state = releaseMotion(sim.input(0), sim.state, { scope: "all" });
@@ -542,16 +559,31 @@ describe("motion layer (pure)", () => {
       sim.claims = [look("a", 1, ["h1"], { pan: 0.9, tilt: 0.1 }, SEC(0))];
       sim.at(0);
       sim.claims = []; // Panic stops the looks and releases the manual positions…
-      sim.state = holdMotion(sim.state, ["h1"]); // …and holds the heads
+      sim.state = holdMotion(sim.input(0), sim.state, ["h1"]); // …and holds the heads
       for (const p of sim.run(20, 3000)) expect(p).to.deep.equal({ pan: 0.9, tilt: 0.1 });
       expect(sim.last.status.get("h1")!.pan).to.include({ layer: "hold", owner: null });
+    });
+
+    it("holds even while a stopped look still claims the head during its fade-out", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(1) } });
+      const fading = { ...look("a", 1, ["h1"], { pan: 0.9, tilt: 0.1 }, SEC(0)), shape: { move: MoveSchema.parse({ shape: "pan", size: { pan: 0.05, tilt: 0 } }), cycles: 0 } };
+      sim.claims = [fading];
+      const at0 = sim.at(0);
+      sim.state = holdMotion(sim.input(0), sim.state, ["h1"]);
+      for (let t = 20; t <= 400; t += FRAME) {
+        sim.claims = [{ ...fading, shape: { ...fading.shape, cycles: t / 1000 } }]; // still turning, for one more fade
+        expect(sim.at(t)).to.deep.equal(at0);
+      }
+      sim.claims = [];
+      expect(sim.at(420)).to.deep.equal(at0);
+      expect(sim.last.status.get("h1")!.pan.layer).to.equal("hold");
     });
 
     it("a rescue snapshot carrying motion glides in; once released later, the head goes to rest", () => {
       const sim = new Sim({ settings: { moveFade: SEC(1) } });
       sim.claims = [look("a", 1, ["h1"], { pan: 0.9, tilt: 0.5 }, SEC(0))];
       sim.at(0);
-      sim.state = holdMotion(sim.state, ["h1"]);
+      sim.state = holdMotion(sim.input(0), sim.state, ["h1"]);
       sim.claims = [look("rescue", 2, ["h1"], { pan: 0.5, tilt: 0.5 })];
       sim.at(20);
       expect(sim.at(520).pan).to.be.closeTo(0.7, 1e-9);
@@ -568,10 +600,84 @@ describe("motion layer (pure)", () => {
       sim.claims = [look("a", 1, ["h1"], { pan: 0.9, tilt: 0.1 })];
       sim.at(0);
       sim.claims = [];
-      sim.state = holdMotion(sim.state, ["h1"]);
+      sim.state = holdMotion(sim.input(0), sim.state, ["h1"]);
       expect(sim.at(20).pan).to.equal(0.9);
       sim.state = releaseMotion(sim.input(40), sim.state, { scope: "top" });
       expect(sim.at(40)).to.deep.equal(CENTRE);
+    });
+  });
+
+  describe("held values (M1)", () => {
+    it("a lock freezes the position sent on its first frame, even if what is sent drifts afterwards", () => {
+      let drift = 0;
+      const guard = (_h: string, asked: Position): Position => ({ pan: asked.pan + drift, tilt: asked.tilt });
+      let lock: LockLevel = "off";
+      const sim = new Sim({ lock: () => lock, guard, settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.3, tilt: 0.3 })];
+      sim.at(0);
+      lock = "hard";
+      expect(sim.at(20).pan).to.equal(0.3);
+      drift = 0.01; // the console or a rule moves what is sent
+      for (let t = 40; t < 400; t += FRAME) expect(sim.at(t).pan).to.be.closeTo(0.3, 1e-12);
+    });
+
+    it("a Panic hold is frozen the same way", () => {
+      const guard = (_h: string, asked: Position): Position => ({ pan: asked.pan + 0.01, tilt: asked.tilt });
+      const sim = new Sim({ guard, settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.3, tilt: 0.3 })];
+      sim.at(0);
+      sim.claims = [];
+      sim.state = holdMotion(sim.input(20), sim.state, ["h1"]);
+      const held = sim.at(20).pan; // sent on the previous frame: 0.31
+      expect(held).to.be.closeTo(0.31, 1e-12);
+      for (let t = 40; t < 400; t += FRAME) expect(sim.at(t).pan).to.equal(held);
+    });
+  });
+
+  describe("release under a lock (I1)", () => {
+    it("a hard lock releases nothing: the claims it hides are kept", () => {
+      let lock: LockLevel = "hard";
+      const sim = new Sim({ lock: () => lock, settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), manual(2, ["h1"], { pan: 0.9, tilt: 0.9 })];
+      sim.at(0);
+      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "all" });
+      sim.at(20);
+      expect(sim.last.status.get("h1")!.released).to.deep.equal([]);
+      lock = "off";
+      expect(sim.at(40).pan).to.equal(0.9);
+    });
+
+    it("a soft lock releases the manual layer only", () => {
+      let lock: LockLevel = "soft";
+      const sim = new Sim({ lock: () => lock, settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), manual(2, ["h1"], { pan: 0.9, tilt: 0.9 })];
+      sim.at(0);
+      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "top" });
+      expect(sim.at(20).pan).to.equal(0.9); // the manual released: frozen where it was by the lock
+      expect(sim.last.status.get("h1")!.released).to.deep.equal(["manual#2"]);
+      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "all" });
+      expect(sim.last.status.get("h1")!.pan.layer).to.equal("lock");
+      lock = "off";
+      expect(sim.at(40).pan).to.equal(0.1); // the look under the lock was not eaten
+    });
+  });
+
+  describe("inputs out of their range (I4)", () => {
+    it("ignores a non-finite sent position, a NaN time, and a rest outside the travel", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(1), rest: { h1: { pan: Number.NaN, tilt: 1.7 } } } });
+      expect(sim.at(0)).to.deep.equal({ pan: 0.5, tilt: 1 });
+      sim.sent = new Map([["h1", { pan: Number.NaN, tilt: Number.POSITIVE_INFINITY }]]);
+      expect(sim.at(20)).to.deep.equal({ pan: 0.5, tilt: 1 });
+      sim.claims = [look("a", 1, ["h1"], { pan: 1, tilt: 1 })];
+      sim.at(40);
+      const r = sim.frame(Number.NaN); // treated as the last frame's time
+      expect(r.positions.get("h1")!.pan).to.equal(0.5);
+      expect(sim.at(540).pan).to.be.closeTo(0.75, 1e-9);
+    });
+
+    it("a non-finite duration is a cut", () => {
+      expect(motionDurationMs({ seconds: Number.NaN }, 120)).to.equal(0);
+      expect(motionDurationMs({ beats: Number.POSITIVE_INFINITY }, 120)).to.equal(0);
     });
   });
 
@@ -607,19 +713,24 @@ describe("motion layer (pure)", () => {
         const sim = new Sim({ heads, bpm: 60 + r() * 120, settings, ctx });
         let order = 0;
         const steps: Map<string, Position[]> = new Map(heads.map((h) => [h, []]));
+        const cutAt = new Set<number>(); // frames where a newer claim took heads with a fade of 0
         for (let t = 0; t < 8000; t += FRAME) {
           if (r() < 0.04) {
             const ev = r();
             const hs = heads.filter(() => r() < 0.6);
             const at = () => ({ pan: r(), tilt: r() });
-            if (ev < 0.35) sim.claims.push(look(`l${Math.floor(r() * 4)}`, ++order, hs, at(), SEC(minFade / 1000 + r() * 2)));
+            if (ev < 0.25) sim.claims.push(look(`l${Math.floor(r() * 4)}`, ++order, hs, at(), SEC(minFade / 1000 + r() * 2)));
+            else if (ev < 0.35) {
+              sim.claims.push(look(`cut${Math.floor(r() * 2)}`, ++order, hs, at(), SEC(0)));
+              cutAt.add(t / FRAME);
+            }
             else if (ev < 0.55) sim.claims.splice(Math.floor(r() * sim.claims.length), 1);
             else if (ev < 0.65) sim.claims.push({ ...target(`t${Math.floor(r() * 2)}`, ++order, hs), fade: SEC(minFade / 1000 + r()) });
             else if (ev < 0.75) sim.claims.push({ ...look("named", ++order, hs, at()), owner: "manual", layer: "manual" }); // a recall: glides with the default
             else if (ev < 0.85) sim.state = releaseMotion(sim.input(t), sim.state, { scope: r() < 0.5 ? "top" : "all", heads: hs });
-            else if (ev < 0.9) sim.state = holdMotion(sim.state, hs);
+            else if (ev < 0.9) sim.state = holdMotion(sim.input(0), sim.state, hs);
             else if (ev < 0.95) sim.bpm = 60 + r() * 120;
-            else settings.rest = new Map(hs.map((h) => [h, at()]));
+            else settings.rest = Object.fromEntries(hs.map((h) => [h, at()]));
           }
           const res = sim.frame(t);
           for (const h of heads) steps.get(h)!.push(res.positions.get(h)!);
@@ -630,7 +741,13 @@ describe("motion layer (pure)", () => {
             expect(p.pan).to.be.within(0, 1);
             expect(p.tilt).to.be.within(0, 1);
           }
-          expect(maxStep(ps), `seed ${seed}, ${h}`).to.be.at.most(bound(1, minFade));
+          // no jump except a newer claim taking the head with a fade of 0; a glide leaving at the speed
+          // the head had is at most 3 × gap / duration steep (hermite.ts, maxStartSpeed)
+          for (let i = 1; i < ps.length; i++) {
+            if (cutAt.has(i)) continue;
+            const d = Math.max(Math.abs(ps[i]!.pan - ps[i - 1]!.pan), Math.abs(ps[i]!.tilt - ps[i - 1]!.tilt));
+            expect(d, `seed ${seed}, ${h}, frame ${i}`).to.be.at.most(2 * bound(1, minFade));
+          }
         }
       }
     });

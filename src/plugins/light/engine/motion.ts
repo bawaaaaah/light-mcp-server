@@ -11,15 +11,15 @@
  *   centre by default). A claim that cannot place a head (point out of reach, unknown position) keeps it
  *   where it is: it does not fall through to the layer below (R14).
  * - **How**: whenever the owner of an axis changes, the axis glides from the position really sent
- *   (read back after the guard) to the new owner's, never a jump: smoothstep over a duration fixed when
- *   the transition starts. A relaunch mid-transition restarts from where the head is.
+ *   (read back after the guard) to the new owner's, never a jump: a cubic leaving at the speed the head
+ *   had and landing at rest (engine/hermite.ts), over a duration fixed when the transition starts.
  *
  * Pure: no clock, no venue. The caller gives the time, the tempo and what was sent; `resolveMotion`
  * never mutates its state, it returns the next one (sampling future frames, `strictBounds`, must not
  * change anything: only the real render keeps `next`).
  */
-import { ease } from "./player.js";
-import { movePosition, type Move, type Position } from "./move.js";
+import { hermiteAt, maxStartSpeed } from "./hermite.js";
+import { DEFAULT_MOVE_FADE, movePosition, type Move, type MoveFade, type Position } from "./move.js";
 
 export type Axis = "pan" | "tilt";
 export const AXES: readonly Axis[] = ["pan", "tilt"];
@@ -32,26 +32,19 @@ export type LockLevel = "off" | "soft" | "hard";
 /** What an axis does when its owner changes (T5 « Pistes fondables », `ResolvedTracks.motion`). */
 export type AxisMode = "glide" | "cut";
 
-/**
- * How long a head takes to reach a new owner's position: beats at the current tempo or fixed seconds
- * (the shape of a step's `every`, zero allowed; milliseconds are a display unit, stored as seconds). 0 = cut.
- */
-export type MotionDuration = { beats: number } | { seconds: number };
-
-/** The show's `moveFade` when it sets none. */
-export const DEFAULT_MOVE_FADE: MotionDuration = { seconds: 1 };
 /** Tempo used to turn beats into time when none is known (a non-positive or non-finite BPM). */
 export const FALLBACK_BPM = 120;
 export const CENTRE: Readonly<Position> = { pan: 0.5, tilt: 0.5 };
 
 /**
- * Milliseconds for a duration at `bpm`. Read once, when a transition starts: a tempo change during a
+ * Milliseconds for a `MoveFade` at `bpm`. Read once, when a transition starts: a tempo change during a
  * transition does not stretch it (a head never speeds up or turns back because the tempo moved).
+ * A negative or non-finite duration is a cut.
  */
-export function motionDurationMs(d: MotionDuration, bpm: number): number {
-  if ("seconds" in d) return Math.max(0, d.seconds * 1000);
+export function motionDurationMs(d: MoveFade, bpm: number): number {
   const tempo = Number.isFinite(bpm) && bpm > 0 ? bpm : FALLBACK_BPM;
-  return Math.max(0, (d.beats * 60_000) / tempo);
+  const ms = "seconds" in d ? d.seconds * 1000 : (d.beats * 60_000) / tempo;
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
 }
 
 /** Where a claim centres its heads. */
@@ -76,15 +69,15 @@ export interface MotionClaim {
    */
   owner: string;
   layer: MotionLayer;
-  /** Inside a layer, later wins: the launch order (a manual gesture, a look launch). */
+  /** Inside a layer, later wins: the launch order (a look launch, a manual command — one counter). */
   order: number;
   /** Heads claimed, in row order: index and count feed the shape (spread, fan, wings). */
   heads: readonly string[];
   /** Absent: the shape's own centre. A claim with neither base nor shape claims nothing. */
   base?: MotionBase;
   shape?: MotionShape;
-  /** How this claim takes a head over; absent: the show's default. `{ seconds: 0 }` = direct (the pad follows the finger, R8). */
-  fade?: MotionDuration;
+  /** How this claim takes a head over (`look.move.fade`); absent: `moveFade`. `{ seconds: 0 }` = direct (the pad, R8). */
+  fade?: MoveFade;
 }
 
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
@@ -95,10 +88,10 @@ export interface MotionContext {
 }
 
 export interface MotionSettings {
-  /** Default transition (show setting `moveFade`): a claim without its own (`look.move.fade ?? moveFade`), a release, a return to rest. */
-  moveFade?: MotionDuration;
-  /** Rest position per head (fixture id, set in the show); absent: the centre. */
-  rest?: ReadonlyMap<string, Position>;
+  /** Show setting `moveFade`: a claim without its own fade, a release, a return to rest. Absent: 1 s. */
+  moveFade?: MoveFade;
+  /** Show setting `restPositions`, passed as is: rest position per fixture id; absent: the centre. */
+  rest?: Readonly<Record<string, Position>>;
 }
 
 export interface MotionInput {
@@ -123,13 +116,18 @@ interface AxisState {
   layer: AxisLayer;
   /** `rankOf` the owner: a change to a weaker owner is a release (the show's default duration). */
   rank: number;
-  /** Last value resolved. */
+  /** The winning claim's launch order (0 without one): handing back to an older claim of the same layer is a release. */
+  order: number;
+  /** Last value resolved, at `t`, moving at `v` (per ms). */
   value: number;
-  /** Transition: from `from` at `t0`, over `dur` ms (0: none). */
+  t: number;
+  v: number;
+  /** Transition: from `from` at `t0` over `dur` ms (0: none), leaving at speed `v0`. */
   from: number;
   t0: number;
   dur: number;
-  /** Held value (lock, hold, or a claim in error). */
+  v0: number;
+  /** Held value (lock, hold, or a claim in error): frozen at the first held frame. */
   held: number;
   error?: string;
 }
@@ -146,6 +144,8 @@ interface HeadState {
 /** Opaque per-head state carried from frame to frame. */
 export interface MotionState {
   readonly heads: ReadonlyMap<string, HeadState>;
+  /** Time of the last frame resolved: a non-finite `now` falls back to it. */
+  readonly now?: number;
 }
 
 export const emptyMotionState = (): MotionState => ({ heads: new Map() });
@@ -167,6 +167,8 @@ export interface HeadStatus {
   lock: LockLevel;
   /** Owners that claim the head but are beaten on both axes (« the look X would move it »). */
   masked: string[];
+  /** Claims released on this head (`claimKey`), ignored until they stop claiming it. */
+  released: string[];
 }
 
 export interface MotionResult {
@@ -178,17 +180,30 @@ export interface MotionResult {
 /** A claim's identity for a release: a relaunch (a new order) claims again. */
 export const claimKey = (c: Pick<MotionClaim, "owner" | "order">): string => `${c.owner}#${c.order}`;
 
+const OWNER_RANK: Record<Exclude<AxisLayer, "lock">, number> = { manual: 1, target: 3, look: 4, hold: 5, rest: 6 };
 /** Strength of an axis owner: a hard lock is above the manual layer, a soft one below it. */
-const rankOf = (layer: AxisLayer, lock: LockLevel): number =>
-  layer === "lock" ? (lock === "hard" ? 0 : 2) : { manual: 1, target: 3, look: 4, hold: 5, rest: 6 }[layer];
+const rankOf = (layer: AxisLayer, lock: LockLevel): number => (layer === "lock" ? (lock === "hard" ? 0 : 2) : OWNER_RANK[layer]);
 const CLAIM_RANK: Record<MotionLayer, number> = { manual: 0, target: 1, look: 2 };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const NO_HOLD: Readonly<Record<Axis, boolean>> = { pan: false, tilt: false };
+/** Beyond this gap between two frames, a transition starts at the new frame rather than at the previous one. */
+const MAX_FRAME_GAP = 100;
+const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
 
 function claimsAxis(c: MotionClaim, axis: Axis): boolean {
   if (c.shape) return true;
   if (!c.base) return false;
   return c.base.kind === "fixed" ? c.base[axis] !== undefined : true;
+}
+const claimsAny = (c: MotionClaim) => AXES.some((a) => claimsAxis(c, a));
+
+/** Rest position of a head: the show's, bounded to the travel, else the centre. */
+function restOf(settings: MotionSettings | undefined, head: string): Position {
+  const r = settings?.rest && Object.hasOwn(settings.rest, head) ? settings.rest[head] : undefined;
+  return {
+    pan: finite(r?.pan) ? clamp01(r.pan) : CENTRE.pan,
+    tilt: finite(r?.tilt) ? clamp01(r.tilt) : CENTRE.tilt,
+  };
 }
 
 type Evaluated = { pos: Partial<Position> } | { error: string };
@@ -217,11 +232,14 @@ function evaluate(c: MotionClaim, head: string, ctx: MotionContext | undefined):
       return { error: e instanceof Error ? e.message : String(e) };
     }
   }
+  const out: Partial<Position> = {};
   for (const axis of AXES) {
     const v = pos[axis];
-    if (v !== undefined && !Number.isFinite(v)) return { error: `${axis} is not a number` };
+    if (v === undefined) continue;
+    if (!Number.isFinite(v)) return { error: `${axis} is not a number` };
+    out[axis] = clamp01(v);
   }
-  return { pos: { pan: pos.pan === undefined ? undefined : clamp01(pos.pan), tilt: pos.tilt === undefined ? undefined : clamp01(pos.tilt) } };
+  return { pos: out };
 }
 
 /** Claims on `head`, strongest first; released ones left out. */
@@ -240,12 +258,84 @@ function winnerOf(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel): 
   return top;
 }
 
+/** Who holds one axis this frame, and where it asks the head to be (undefined: stay where it is). */
+interface Owner {
+  layer: AxisLayer;
+  owner: string;
+  claim?: MotionClaim;
+  target?: number;
+  error?: string;
+}
+
+function ownerOf(w: MotionClaim | "lock" | undefined, axis: Axis, holding: boolean, rest: Position, evalOf: (c: MotionClaim) => Evaluated): Owner {
+  if (w === "lock") return { layer: "lock", owner: "lock" };
+  if (w) {
+    // a relaunch is a new owner: a shape restarting from its first cycle glides there
+    const e = evalOf(w);
+    const base = { layer: w.layer, owner: claimKey(w), claim: w };
+    return "error" in e ? { ...base, error: e.error } : { ...base, target: e.pos[axis] };
+  }
+  if (holding) return { layer: "hold", owner: "hold" };
+  // a rest position changed in the show is a new owner: the head glides there
+  return { layer: "rest", owner: `rest:${rest[axis]}`, target: rest[axis] };
+}
+
+interface AxisFrame {
+  prev: AxisState | undefined;
+  /** Where the head is: sent on the previous frame, else the last value resolved, else its rest. */
+  current: number;
+  now: number;
+  rank: number;
+  moveFade: MoveFade;
+  bpm: number;
+  cut: boolean;
+}
+
+/** One axis, one frame: keep, hold or start a transition, then the value at `now`. */
+function stepAxis(o: Owner, f: AxisFrame): AxisState {
+  const { prev, current, now, rank } = f;
+  const changed = !prev || prev.owner !== o.owner;
+  const order = o.claim?.order ?? 0;
+  const v = prev && now > prev.t ? prev.v : 0;
+  const fresh = { owner: o.owner, layer: o.layer, rank, order, value: current, t: now, v, from: current, t0: now, dur: 0, v0: 0, held: current };
+  let s: AxisState;
+  let cut = false;
+  if (o.target === undefined) {
+    // lock, hold, or a claim that cannot place the head: frozen where it was on the first held frame
+    const entering = changed || (o.error !== undefined && prev.error === undefined);
+    s = entering ? { ...fresh, error: o.error } : { ...prev, layer: o.layer, rank, order, error: o.error };
+    s.value = s.held;
+  } else {
+    if (changed || prev.error !== undefined) {
+      // a new owner (or a claim back in reach): glide from what was really sent, at the speed it had
+      const releasing = prev !== undefined && (prev.rank < rank || (prev.rank === rank && order < prev.order));
+      const fade = o.claim && !releasing ? (o.claim.fade ?? f.moveFade) : f.moveFade;
+      const dur = f.cut ? 0 : motionDurationMs(fade, f.bpm);
+      const vmax = maxStartSpeed(o.target - current, dur);
+      const v0 = Math.sign(v) * Math.min(Math.abs(v), vmax);
+      // a moving head keeps its pace: its curve starts when the position it leaves from was sent
+      const t0 = v0 !== 0 && prev && now - prev.t <= MAX_FRAME_GAP ? prev.t : now;
+      s = { ...fresh, t0, dur, v0 };
+      cut = dur === 0;
+    } else s = { ...prev, layer: o.layer, rank, order };
+    const arrived = s.dur <= 0 || now - s.t0 >= s.dur;
+    s.value = arrived ? o.target : clamp01(hermiteAt({ from: s.from, to: o.target, start: s.t0, duration: s.dur, v0: s.v0 }, now));
+    if (arrived) s.dur = 0;
+  }
+  // the speed the head has (a cut or a held axis has none): the next transition leaves at it
+  if (cut || o.target === undefined) s.v = 0;
+  else if (prev && now > prev.t) s.v = (s.value - prev.value) / (now - prev.t);
+  s.t = now;
+  return s;
+}
+
 /**
  * Resolve every head for one frame. Returns the positions to send, the status per head (why it is
  * there), and the next state. Never mutates `state`.
  */
 export function resolveMotion(input: MotionInput, state: MotionState): MotionResult {
-  const { now, ctx } = input;
+  const now = Number.isFinite(input.now) ? input.now : (state.now ?? 0);
+  const { ctx } = input;
   const moveFade = input.settings?.moveFade ?? DEFAULT_MOVE_FADE;
   const positions = new Map<string, Position>();
   const status = new Map<string, HeadStatus>();
@@ -257,7 +347,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
     const released = (prevHead?.released ?? []).filter((k) => claimed.has(k));
     const ranked = contenders(input.claims, head, new Set(released));
     const lock = input.lock?.(head) ?? "off";
-    const rest = input.settings?.rest?.get(head) ?? CENTRE;
+    const rest = restOf(input.settings, head);
     const sent = input.sent?.get(head);
     const evaluated = new Map<MotionClaim, Evaluated>();
     const evalOf = (c: MotionClaim) => {
@@ -274,69 +364,34 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
 
     for (const axis of AXES) {
       const prev = prevHead?.[axis];
-      const current = sent?.[axis] ?? prev?.value ?? rest[axis];
       const w = winnerOf(ranked, axis, lock);
-      let layer: AxisLayer;
-      let owner: string;
-      let target: number | undefined;
-      let error: string | undefined;
-      if (w === "lock") {
-        layer = "lock";
-        owner = "lock";
-      } else if (w) {
+      if (w && w !== "lock") {
         winners.add(w);
         holding[axis] = false;
-        layer = w.layer;
-        owner = claimKey(w); // a relaunch is a new owner: a shape restarting from its first cycle glides there
-        const e = evalOf(w);
-        if ("error" in e) error = e.error;
-        else target = e.pos[axis];
-      } else if (holding[axis]) {
-        layer = "hold";
-        owner = "hold";
-      } else {
-        layer = "rest";
-        owner = `rest:${rest[axis]}`; // a rest position changed in the show is a new owner: the head glides there
-        target = rest[axis];
       }
-
-      const rank = rankOf(layer, lock);
-      let s: AxisState;
-      const changed = !prev || prev.owner !== owner;
-      if (target === undefined) {
-        // lock, hold, or a claim that cannot place the head: stay where it is
-        s = changed || !prev || prev.error === undefined ? { owner, layer, rank, value: current, from: current, t0: now, dur: 0, held: current, error } : { ...prev, layer, rank, error };
-        s.value = s.held;
-      } else {
-        if (changed || prev.error !== undefined) {
-          // a new owner (or a claim back in reach): glide from what was really sent
-          const releasing = prev !== undefined && prev.rank < rank;
-          const d = w && w !== "lock" && !releasing ? (w.fade ?? moveFade) : moveFade;
-          const cut = input.axisMode?.(head, axis) === "cut";
-          s = { owner, layer, rank, value: current, from: current, t0: now, dur: cut ? 0 : motionDurationMs(d, input.bpm), held: current };
-        } else s = { ...prev, layer, rank };
-        const p = s.dur > 0 ? clamp01((now - s.t0) / s.dur) : 1;
-        s.value = p >= 1 ? target : s.from + (target - s.from) * ease(p);
-        if (p >= 1) s.dur = 0;
-      }
+      const o = ownerOf(w, axis, holding[axis], rest, evalOf);
+      const sentAxis = sent?.[axis];
+      const current = finite(sentAxis) ? clamp01(sentAxis) : (prev?.value ?? rest[axis]);
+      const cut = input.axisMode?.(head, axis) === "cut";
+      const s = stepAxis(o, { prev, current, now, rank: rankOf(o.layer, lock), moveFade, bpm: input.bpm, cut });
       next[axis] = s;
       pos[axis] = s.value;
       axisStatus[axis] = {
-        layer,
-        owner: w && w !== "lock" ? w.owner : null,
+        layer: o.layer,
+        owner: o.claim?.owner ?? null,
         position: s.value,
-        moving: s.dur > 0 && s.value !== target,
-        ...(error === undefined ? {} : { error }),
+        moving: s.dur > 0 && s.value !== o.target,
+        ...(o.error === undefined ? {} : { error: o.error }),
       };
     }
 
     const winning = new Set([...winners].map((c) => c.owner));
-    const masked = [...new Set(ranked.filter((c) => AXES.some((a) => claimsAxis(c, a))).map((c) => c.owner))].filter((o) => !winning.has(o));
+    const masked = [...new Set(ranked.filter(claimsAny).map((c) => c.owner))].filter((o) => !winning.has(o));
     positions.set(head, pos);
-    status.set(head, { pan: axisStatus.pan, tilt: axisStatus.tilt, lock, masked });
+    status.set(head, { pan: axisStatus.pan, tilt: axisStatus.tilt, lock, masked, released: [...released] });
     nextHeads.set(head, next);
   }
-  return { positions, status, next: { heads: nextHeads } };
+  return { positions, status, next: { heads: nextHeads, now } };
 }
 
 export interface ReleaseOptions {
@@ -350,38 +405,52 @@ export interface ReleaseOptions {
   scope: "top" | "all";
 }
 
+/** The claims a release may take off `head` under its lock: none under a hard lock, the manual layer only under a soft one. */
+function releasable(ranked: readonly MotionClaim[], lock: LockLevel, scope: "top" | "all"): readonly MotionClaim[] {
+  if (lock === "hard") return [];
+  const open = lock === "soft" ? ranked.filter((c) => c.layer === "manual") : ranked;
+  if (scope === "all") return open;
+  const out: MotionClaim[] = [];
+  for (const axis of AXES) {
+    const w = open.find((c) => claimsAxis(c, axis));
+    if (w) out.push(w);
+  }
+  return out;
+}
+
 /**
  * Release what holds heads: the released claims are ignored on those heads until they stop claiming
- * them (a look relaunched has a new order and claims again). A Panic hold is released too. Locks are
- * not released here (T26 unlocks). The heads then glide to their new owner on the next frame.
+ * them (a look relaunched has a new order and claims again). A Panic hold is released too, unless a
+ * lock covers the head. A lock is never released here (T26 unlocks): under a hard lock nothing is,
+ * under a soft one only the manual layer — the claims the lock hides are kept. The heads then glide
+ * to their new owner on the next frame.
  */
 export function releaseMotion(input: Pick<MotionInput, "heads" | "claims" | "lock">, state: MotionState, opts: ReleaseOptions): MotionState {
   const heads = new Map(state.heads);
   for (const head of opts.heads ?? input.heads) {
     const prev = heads.get(head);
+    const lock = input.lock?.(head) ?? "off";
     const released = new Set(prev?.released ?? []);
-    const ranked = contenders(input.claims, head, released);
-    if (opts.scope === "all") for (const c of ranked) released.add(claimKey(c));
-    else
-      for (const axis of AXES) {
-        const w = winnerOf(ranked, axis, "off");
-        if (w && w !== "lock") released.add(claimKey(w));
-      }
-    heads.set(head, { ...prev, released: [...released], holding: NO_HOLD });
+    for (const c of releasable(contenders(input.claims, head, released), lock, opts.scope)) released.add(claimKey(c));
+    const holding = lock === "off" ? NO_HOLD : (prev?.holding ?? NO_HOLD);
+    heads.set(head, { ...prev, released: [...released], holding });
   }
-  return { heads };
+  return { ...state, heads };
 }
 
 /**
- * Panic (R10): nothing moves by itself. Every axis of these heads holds where it is until a claim
- * takes it (a rescue snapshot carrying motion glides in); without one, it never returns to rest
- * on its own.
+ * Panic (R10): nothing moves by itself. Every claim present on these heads is released (a look still
+ * fading out does not keep moving them) and every axis holds where it is until a new claim takes it:
+ * a rescue snapshot, launched with a new order, glides in. Without one, the head never returns to
+ * rest on its own. Locks stay as they are.
  */
-export function holdMotion(state: MotionState, heads: readonly string[]): MotionState {
+export function holdMotion(input: Pick<MotionInput, "claims">, state: MotionState, heads: readonly string[]): MotionState {
   const next = new Map(state.heads);
   for (const head of heads) {
     const prev = next.get(head);
-    next.set(head, { ...prev, released: prev?.released ?? [], holding: { pan: true, tilt: true } });
+    const released = new Set(prev?.released ?? []);
+    for (const c of input.claims) if (c.heads.includes(head)) released.add(claimKey(c));
+    next.set(head, { ...prev, released: [...released], holding: { pan: true, tilt: true } });
   }
-  return { heads: next };
+  return { ...state, heads: next };
 }
