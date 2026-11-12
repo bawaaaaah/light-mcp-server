@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { TechniqueSchema } from "../engine/techniques.js";
 import { TimingSchema } from "../engine/player.js";
-import { MoveSchema } from "../engine/move.js";
+import { MoveFadeSchema, MoveSchema, DEFAULT_MOVE_FADE, RestPositionSchema } from "../engine/move.js";
 import { normalizeFolder } from "./folders.js";
 
 export const PaletteSchema = z.object({
@@ -167,5 +167,9 @@ export const ShowSettingsSchema = z.object({
   looksMerge: z.enum(["last", "highest"]).default("last"),
   /** AI clients may touch up the service live (live.adjust): off until someone at the desk switches it on. */
   liveAi: z.boolean().default(false),
+  /** Default glide of a head to a new position (beats at the current tempo, or ms); a look's `move.fade` overrides it. 0 = cut. */
+  moveFade: MoveFadeSchema.default(DEFAULT_MOVE_FADE),
+  /** Rest position per moving head (fixture id → normalised pan/tilt): where a head nobody moves returns to. Absent: the centre. */
+  restPositions: z.record(z.string(), RestPositionSchema).default({}),
 });
 export type ShowSettings = z.infer<typeof ShowSettingsSchema>;

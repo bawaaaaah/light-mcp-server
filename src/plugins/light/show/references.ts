@@ -25,7 +25,7 @@ export interface ShowParts {
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown> }[];
   /** The looks play on a canvas (`look.canvas`). */
-  looks: { id: string; name: string; canvas: string; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
+  looks: { id: string; name: string; canvas: string; move?: { group?: string }; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
   /** The canvases render onto fixtures (cell ranges → heads). */
   canvases?: { id: string; name: string; render: { targets: { fixture: string }[] }[] }[];
   songs: { id: string; title: string; mood?: string[]; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
@@ -54,6 +54,7 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
     for (const r of show.rules ?? []) if (r.scope.fixture === id) uses.push(say(`règle du show « ${r.name || r.id} »`, `show rule “${r.name || r.id}”`));
     for (const r of show.venueRules ?? []) if (r.scope.fixture === id) uses.push(say(`règle du lieu « ${r.name || r.id} »`, `venue rule “${r.name || r.id}”`));
   }
+  if (kind === "group") for (const l of show.looks) if (l.move?.group === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
   if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
   const canvasLooks = new Set(kind === "canvas" ? show.looks.filter((l) => l.canvas === id).map((l) => l.id) : []);
   if (kind === "canvas") for (const l of show.looks) if (l.canvas === id) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));

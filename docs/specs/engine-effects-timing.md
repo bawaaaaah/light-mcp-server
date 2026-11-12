@@ -73,6 +73,13 @@ Les fonctions restent **paramétriques** : elles ne sont jamais « cuites » en 
 - Paramètres : centre et taille (fractions de la course), un cycle par `every` (temps ou secondes, comme la cadence), **spread** (déphasage du premier au dernier projecteur, en cycles), `wings`, `reverse`, **ordre mélangé** (`shuffle` : le déphasage suit un ordre tiré au hasard, toujours le même pour un nombre de lyres donné), **éventail** (`fan`, écart de pan fixe le long de la rangée).
 - Projecteurs déplacés : les lyres du canevas du look, dans l'ordre des cellules, ou celles d'un **groupe** (`move.group`), triées par X.
 - Une **position manuelle** (pad XY, viser) passe devant les looks jusqu'au relâchement ; le Panic neutre relâche tout.
+- **Champs de la couche Mouvement** (T25 lot 3, schémas seuls : le moteur ne les lit pas encore ; tout est optionnel, aucun show ni look existant n'est migré, les archives `.lightshow` se rechargent telles quelles) :
+  - `move.fade` : durée du glissement vers ce mouvement depuis la position réellement envoyée. Même type que le réglage du show, **`{ beats: n }`** (temps au tempo courant) **ou `{ ms: n }`** (durée fixe ; l'interface peut l'afficher en secondes) ; `0` = coupe nette. Absent : le `timing.entryFade` du look, puis `moveFade`.
+  - `move.enabled` : réservé à T26 (`false` garde les réglages sans réclamer de lyre) ; lu et conservé, sans effet.
+  - `move.at` : `{ position?, target?, zone?, height? }`, réservé à T24 / T27 / T32 (base où la forme est centrée au lieu de `center`) ; accepté et ignoré.
+  - Réglage du show **`moveFade`** : glissement par défaut, `{ beats }` ou `{ ms }`, **1 s (`{ ms: 1000 }`) par défaut**, 0 = coupe. Modifiable par `show.settings.set`.
+  - Réglage du show **`restPositions`** : par lyre, `{ <id du projecteur>: { pan, tilt } }` (0..1, 0,5 = centre), la position où revient une lyre que plus personne ne déplace ; absente : le centre. Écrite en bloc par `show.settings.set` (les identifiants doivent être des projecteurs du lieu) et **retirée par `venue.fixture.delete`** avec le projecteur (ce n'est jamais un usage qui bloque la suppression).
+  - `show.references` : `move.group` d'un look compte comme un usage du groupe (« look « X » (mouvement) ») ; `played()` est inchangé (tout `move` compte déjà).
 
 ### Fondu d'entrée
 - `timing.entryFade` (secondes) : au lancement, le look part du **noir** sur les cellules qu'il peint et y arrive en fondu ; c'est le « pas 0 d'entrée » et le fondu d'entrée d'une Scene QLC+. L'auto-test de cadence attend la fin du fondu avant de mesurer. Quand le look **remplace un autre look de son groupe exclusif**, il ne part pas du noir : c'est un **fondu enchaîné** (section suivante).

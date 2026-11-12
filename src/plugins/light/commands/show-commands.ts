@@ -656,6 +656,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
       if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });
+      // and its rest position goes with it (not a use: it never blocks the delete)
+      if (deleted && i in show.settings.restPositions) {
+        const { [i]: _gone, ...kept } = show.settings.restPositions;
+        show.saveSettings({ restPositions: kept });
+      }
       return { deleted, usedBy };
     },
   });
@@ -2003,7 +2008,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value).",
+    description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value, moveFade: default glide of the heads to a new position, {beats: n} at the current tempo or {ms: n}, default {ms: 1000}, 0 = cut, restPositions: per fixture id the {pan, tilt} (0..1) a head nobody moves goes back to, the whole map replaced, absent = centre).",
     right: "show:write",
     profiles: ["setup", "design"],
     // a patch: only the settings given change (partial() would reset the others to their defaults)
@@ -2029,6 +2034,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...(safeSnapshot === undefined ? {} : { safeSnapshot: safeSnapshot ?? undefined }),
         ...(startupSnapshot === undefined ? {} : { startupSnapshot: startupSnapshot ?? undefined }),
       };
+      for (const id of Object.keys(patch.restPositions ?? {})) if (!venue.fixtures.get(id)) throw new Error(say(`projecteur inconnu : ${id}`, `unknown fixture: ${id}`));
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
       for (const id of [patch.safeSnapshot, patch.startupSnapshot]) if (id && !show.snapshots.get(id)) throw new Error(say(`instantané inconnu : ${id}`, `unknown snapshot: ${id}`));
       // null clears the grand master's smoothing (a partial patch cannot carry « absent »)

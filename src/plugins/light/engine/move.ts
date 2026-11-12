@@ -15,6 +15,20 @@ export interface Position {
   tilt: number;
 }
 
+/**
+ * How long a head glides to a new position (docs/specs/engine-effects-timing.md, « Couche Mouvement »):
+ * a number of beats at the current tempo, or a fixed time in milliseconds. 0 = cut. Shared by the show
+ * setting `moveFade` and a look's `move.fade`.
+ */
+export const MoveFadeSchema = z.union([z.object({ beats: z.number().min(0).max(64) }), z.object({ ms: z.number().min(0).max(30000) })]);
+export type MoveFade = z.infer<typeof MoveFadeSchema>;
+/** The show's default glide: one second. */
+export const DEFAULT_MOVE_FADE: MoveFade = { ms: 1000 };
+
+/** A rest position: where a head that nobody moves goes back to (normalised, 0.5 = centre). */
+export const RestPositionSchema = z.object({ pan: z.number().min(0).max(1), tilt: z.number().min(0).max(1) });
+export type RestPosition = z.infer<typeof RestPositionSchema>;
+
 export const MoveSchema = z.object({
   /**
    * fixe = static position (position preset); tapis = Wolfmix « magic carpet » (tilt wave, spread 1 by
@@ -36,6 +50,12 @@ export const MoveSchema = z.object({
   fan: z.number().min(-0.5).max(0.5).default(0),
   /** Fixtures moved: this group's fixtures (default: the look's canvas fixtures that have pan/tilt). */
   group: z.string().optional(),
+  /** Glide to this move from wherever the heads are; absent: the look's entry fade, else the show's `moveFade`. 0 = cut. */
+  fade: MoveFadeSchema.optional(),
+  /** Reserved for T26: false keeps the settings but claims no head. Read and kept, not acted on yet. */
+  enabled: z.boolean().optional(),
+  /** Reserved for T24 (target), T27 (zone), T32 (named position): where the shape is centred. Accepted and ignored for now. */
+  at: z.object({ position: z.string().optional(), target: z.string().optional(), zone: z.string().optional(), height: z.number().optional() }).optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;
 
