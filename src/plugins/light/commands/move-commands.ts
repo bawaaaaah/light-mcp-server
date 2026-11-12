@@ -14,10 +14,17 @@ import { motionEntries } from "../show/motion-report.js";
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
 
 /**
- * `nextFrame`: resolves once the engine has rendered a frame after the call (or soon, when the output does not run), so a
- * command that reads what was really sent sees the commands just before it: a mark recorded right after a pad gesture.
+ * Beyond this gap between the position asked by hand and the one sent, a head is not there yet (a speed rule holds it
+ * back): a little more than one step of an 8-bit axis, the rounding of a position sent.
  */
-export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, nextFrame: () => Promise<void> = () => Promise.resolve()): void {
+const ARRIVED = 1.5 / 255;
+
+/**
+ * `nextFrame`: resolves true once the engine has rendered a frame after the call, false when none came (the engine does
+ * not run), so a command that reads what was really sent sees the commands just before it: a mark recorded right after
+ * a pad gesture.
+ */
+export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, nextFrame: () => Promise<boolean> = () => Promise.resolve(true)): void {
   const targets = (t: z.infer<typeof Target>): string[] => {
     const heads = new Set(show.movingHeads());
     if (t.group && !show.groups.get(t.group)) throw new Error(say(`groupe inconnu : ${t.group}`, `unknown group: ${t.group}`));
@@ -162,21 +169,32 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "calibration.record",
     title: "Enregistrer un repère",
     description:
-      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's centre on its floor, or a point {x,y,z} in metres — records that spot with the position really sent to the head (after the speed rules, the DMX console). Refused while a look or a target moves the head, or while it still glides.",
+      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's centre on its floor, or a point {x,y,z} in metres — records that spot with the position really sent to the head, read on the next frame. Refused while a look or a target holds the head, while it glides, while it has not reached the position asked by hand (a speed rule, the DMX console or a fader on pan/tilt), and when no frame is rendered (output stopped).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0) }),
     run: async ({ fixture, zone, point, height }) => {
       const { f } = head(fixture);
-      await nextFrame(); // the gesture just before reaches the output first
+      // the gesture just before reaches the output first: without a frame, what was sent is stale
+      if (!(await nextFrame())) throw new Error(say(`${f.name} : sortie arrêtée, aucune trame rendue : impossible de lire où pointe la lyre`, `${f.name}: output stopped, no frame rendered: where the head points cannot be read`));
       // where the head really points: the position sent (after the speed rules, the DMX console, a fader on pan/tilt)
       const sent = show.sentPosition(fixture);
-      if (!sent) throw new Error(say(`${f.name} : aucune position envoyée pour l'instant (sortie arrêtée ?)`, `${f.name}: no position sent yet (output stopped?)`));
       const status = show.motionStatus().get(fixture);
-      const axes = status ? [status.pan, status.tilt] : [];
-      if (axes.some((a) => a.layer === "look" || a.layer === "target"))
+      if (!sent || !status) throw new Error(say(`${f.name} : aucune position envoyée pour l'instant`, `${f.name}: no position sent yet`));
+      const axes = (["pan", "tilt"] as const).map((axis) => ({ axis, ...status[axis] }));
+      if (axes.some((a) => a.layer === "look"))
         throw new Error(say(`${f.name} : un look la déplace ; la viser d'abord à la main (pad XY), puis enregistrer`, `${f.name}: a look moves it; aim it by hand first (XY pad), then record`));
+      if (axes.some((a) => a.layer === "target"))
+        throw new Error(say(`${f.name} : une cible la tient ; la viser d'abord à la main (pad XY), puis enregistrer`, `${f.name}: a target holds it; aim it by hand first (XY pad), then record`));
       if (axes.some((a) => a.moving)) throw new Error(say(`${f.name} : elle glisse encore ; attendre qu'elle soit arrêtée`, `${f.name}: it is still gliding; wait until it stops`));
+      // a speed rule holds a head back on its way to the pad's position: the mark would be a point of its course
+      if (axes.some((a) => a.layer === "manual" && a.target !== undefined && Math.abs(sent[a.axis] - a.target) > ARRIVED))
+        throw new Error(
+          say(
+            `${f.name} : la lyre n'est pas encore arrivée (une règle de vitesse la ralentit, ou la console DMX ou un fader tient son pan/tilt) ; attendre, puis enregistrer`,
+            `${f.name}: the head has not arrived yet (a speed rule slows it, or the DMX console or a fader holds its pan/tilt); wait, then record`,
+          ),
+        );
       const o = f.orientation;
       // the output values, as the fixture really receives them (current inversion and swap)
       let pan = o?.invertPan ? 1 - sent.pan : sent.pan;

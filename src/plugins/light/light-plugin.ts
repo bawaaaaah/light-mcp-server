@@ -37,7 +37,7 @@ import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRe
 import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
-import { motionEntries, motionKey, type HeadMotionEntry } from "./show/motion-report.js";
+import { motionEntries, motionKey } from "./show/motion-report.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
@@ -484,9 +484,10 @@ export class LightPlugin implements McpPlugin {
     const publishGlide = throttleMerge<ReturnType<ShowRuntime["gliding"]>>(40, (xs) => xs[xs.length - 1]!, (g) => this.publish("glide", g));
     let wasGliding = false;
     let lastClampKey = "";
-    // why each moving head is where it is (T25): on a change of layer, owner, lock, glide start or end, never every
-    // frame; a burst (a look launched on every head, then its glide ending) leaves at most one message per 100 ms
-    const publishMotion = throttleMerge<HeadMotionEntry[]>(100, (xs) => xs[xs.length - 1]!, (heads) => this.publish("motion", { heads }));
+    // why each moving head is where it is (T25): on a change of layer, owner, lock, rest, glide start or end, never
+    // every frame; a burst (a look launched on every head, then its glide ending) leaves at most one message per
+    // 100 ms, built when it leaves (the state then, not the state that triggered it)
+    const publishMotion = throttleMerge<null>(100, () => null, () => this.publish("motion", { heads: motionEntries(this.runtime) }));
     let lastMotionKey = "";
     this.engine.onFrame((buffers, now) => {
       if (this.songs) followPosition(this.songs);
@@ -497,10 +498,10 @@ export class LightPlugin implements McpPlugin {
       if (glide && (gliding || wasGliding)) publishGlide(glide);
       wasGliding = gliding;
       if (this.runtime) {
-        const motion = motionKey(this.runtime.motionStatus());
+        const motion = motionKey(this.runtime);
         if (motion !== lastMotionKey) {
           lastMotionKey = motion;
-          publishMotion(motionEntries(this.runtime));
+          publishMotion(null);
         }
       }
       const clamps = this.runtime?.lastClamps ?? [];
@@ -769,16 +770,16 @@ export class LightPlugin implements McpPlugin {
     });
   }
 
-  /** Resolves after the next frame the engine renders, or after 100 ms when no frame comes (the output does not run). */
-  private nextFrame(): Promise<void> {
+  /** Resolves true after the next frame the engine renders, false when none comes within 100 ms (the engine does not run). */
+  private nextFrame(): Promise<boolean> {
     return new Promise((resolve) => {
-      const done = () => {
+      const done = (came: boolean) => {
         off();
         clearTimeout(timer);
-        resolve();
+        resolve(came);
       };
-      const off = this.engine.onFrame(done);
-      const timer = setTimeout(done, 100);
+      const off = this.engine.onFrame(() => done(true));
+      const timer = setTimeout(() => done(false), 100);
       this.engine.requestFrame();
     });
   }
@@ -1226,7 +1227,11 @@ export class LightPlugin implements McpPlugin {
       rules: { channel: "control" },
       /** Smoothed faders on their way: the level each one sends (groups-masters.md, « Lissage »). */
       glide: { channel: "control" },
-      /** Why each moving head is where it is (position.list's report), on a change of layer, owner, lock or glide start/end (engine-effects-timing.md, « Couche Mouvement »). */
+      /**
+       * Why each moving head is where it is (position.list's report), on a change of layer, owner, lock, rest or glide
+       * start/end (engine-effects-timing.md, « Couche Mouvement »). Not a position feed: sent, position and remainingMs
+       * are those of the message's moment and are not followed (read position.list, or the light:dmx stream).
+       */
       motion: { channel: "control" },
       song: { channel: "control" },
     };

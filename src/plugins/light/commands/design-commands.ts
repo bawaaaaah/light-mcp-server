@@ -481,38 +481,42 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       // they glide, go under the XY pad, and the last look launched wins instead of the highest byte. A fine channel
       // written alone places nothing any more.
       const heads = new Set(runtime.movingHeads());
+      const rawPlaced: { id: string; fr: string; en: string }[] = [];
       for (const l of runtime.looks.list()) {
         if (!l.channels) continue;
         const offsets = new Map<string, Set<number>>();
         for (const t of l.channels.targets) if (heads.has(t.fixture)) offsets.set(t.fixture, (offsets.get(t.fixture) ?? new Set<number>()).add(t.offset));
-        const placed: string[] = [];
-        const fineOnly: string[] = [];
+        const placed: [string, string][] = [];
+        const fineOnly: [string, string][] = [];
         for (const [id, offs] of offsets) {
           const r = runtime.venue.resolve(id);
           if ("error" in r) continue;
           const axes = rawMotionAxes(r, offs);
           const channel = (axis: "pan" | "tilt", fine: boolean) => r.mode.channels[fine ? r[axis]!.fine! : r[axis]!.coarse] ?? axis;
-          if (axes.placed.length) placed.push(`« ${r.patch.name} » (${axes.placed.map((a) => channel(a, false)).join(", ")})`);
-          if (axes.fineOnly.length) fineOnly.push(`« ${r.patch.name} » (${axes.fineOnly.map((a) => channel(a, true)).join(", ")})`);
+          if (axes.placed.length) placed.push([r.patch.name, axes.placed.map((a) => channel(a, false)).join(", ")]);
+          if (axes.fineOnly.length) fineOnly.push([r.patch.name, axes.fineOnly.map((a) => channel(a, true)).join(", ")]);
         }
-        const en = (list: string[]) => list.map((x) => x.replace(/« (.*?) »/, "“$1”")).join(", ");
-        if (placed.length)
-          note(
-            `look ${l.id}`,
-            say(
-              `« ${l.name} » écrit le pan/tilt en canaux bruts sur ${placed.join(", ")} : ces lyres passent désormais par la couche Mouvement — elles glissent vers la position (temps de déplacement du show) au lieu d'y sauter, le pad XY passe devant, et entre deux looks c'est le dernier lancé qui gagne (avant : l'octet le plus haut, par-dessus le pad). Pour régler ce mouvement dans l'éditeur, le convertir en mouvement « fixe » du look`,
-              `“${l.name}” writes pan/tilt as raw channels on ${en(placed)}: these heads now go through the motion layer — they glide to the position (the show's move time) instead of jumping, the XY pad wins over them, and between two looks the last one launched wins (before: the highest byte, over the pad). To set this move in the editor, turn it into a “fixed” move of the look`,
-            ),
-          );
+        const fr = (list: [string, string][]) => list.map(([head, chs]) => `« ${head} » (${chs})`).join(", ");
+        const en = (list: [string, string][]) => list.map(([head, chs]) => `“${head}” (${chs})`).join(", ");
+        if (placed.length) rawPlaced.push({ id: l.id, fr: `« ${l.name} » : ${fr(placed)}`, en: `“${l.name}”: ${en(placed)}` });
         if (fineOnly.length)
           warn(
             `look ${l.id}`,
             say(
-              `« ${l.name} » n'écrit que le canal fin du pan/tilt sur ${fineOnly.join(", ")} : depuis la couche Mouvement, un canal fin seul ne place plus la lyre (le look n'en fait rien) ; écrire aussi le canal gros, ou un mouvement du look`,
+              `« ${l.name} » n'écrit que le canal fin du pan/tilt sur ${fr(fineOnly)} : depuis la couche Mouvement, un canal fin seul ne place plus la lyre (le look n'en fait rien) ; écrire aussi le canal gros, ou un mouvement du look`,
               `“${l.name}” writes only the fine pan/tilt channel on ${en(fineOnly)}: since the motion layer, a fine channel alone no longer places the head (the look does nothing with it); write the coarse channel too, or a move of the look`,
             ),
           );
       }
+      // one note for them all: the change is the same, said once
+      if (rawPlaced.length)
+        note(
+          `looks ${rawPlaced.map((x) => x.id).join(", ")}`,
+          say(
+            `pan/tilt en canaux bruts — ${rawPlaced.map((x) => x.fr).join(" ; ")}. Depuis la couche Mouvement, ils glissent (sauf un axe réglé en coupe dans « Transitions… »), le pad XY passe devant, et entre deux looks le dernier lancé gagne (avant : l'octet le plus haut). Pour les régler dans l'éditeur : un mouvement « fixe » du look`,
+            `raw pan/tilt channels — ${rawPlaced.map((x) => x.en).join("; ")}. Since the motion layer they glide (unless the axis is set to cut in “Transitions…”), the XY pad wins over them, and between two looks the last one launched wins (before: the highest byte). To set them in the editor: a “still” move of the look`,
+          ),
+        );
       const grouping = runtime.typeGrouping();
       if (grouping.tags.length || grouping.groups.length) note(say("groupes par type", "type groups"), groupingMessage(grouping));
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and

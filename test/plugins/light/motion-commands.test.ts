@@ -28,6 +28,11 @@ describe("motion layer: the commands of lot 4", () => {
     return (b[0]! * 256 + b[1]!) / 65535;
   };
   const during = (ms: number) => Array.from({ length: ms / 20 }, frame);
+  /** What `calibration.record` waits for: here, one engine frame rendered on demand (or none: the output stopped). */
+  let frames = true;
+  const injectFrames = () => {
+    (plugin as unknown as { nextFrame: () => Promise<boolean> }).nextFrame = () => Promise.resolve(frames ? (frame(), true) : false);
+  };
   type Listed = HeadMotionEntry & { name: string; manual: { pan: number; tilt: number } | null };
   const listed = async (): Promise<Listed> => ((await run("position.list")) as Listed[]).find((h) => h.id === "spot")!;
 
@@ -44,6 +49,8 @@ describe("motion layer: the commands of lot 4", () => {
     const look = (id: string, name: string, more: object) => plugin.runtime.looks.put({ id, name, canvas: "spot", technique: { kind: "aucune" }, ...more } as never);
     look("a", "A", { move: { shape: "fixe", center: { pan: 0.2, tilt: 0.8 } } });
     look("b", "B", { move: { shape: "fixe", center: { pan: 0.8, tilt: 0.8 } } });
+    frames = true;
+    injectFrames();
   });
   afterEach(async () => {
     await plugin.stop();
@@ -145,28 +152,58 @@ describe("motion layer: the commands of lot 4", () => {
     expect(seen[2]![0]!.motion!.pan).to.include({ layer: "look", moving: false });
   });
 
-  it("`calibration.record` records the position really sent, and waits for a hand-aimed head at rest", async () => {
+  it("`calibration.record` reads the gesture just before it, on the next frame, and refuses a head a look or a glide holds", async () => {
+    const record = (x: number) => run("calibration.record", { fixture: "spot", point: { x, y: 0, z: 0 } });
+    const refusal = (x: number) => record(x).then(() => "", (e: Error) => e.message);
     await run("look.go", { id: "a" });
     during(1500);
-    let refused = "";
-    await run("calibration.record", { fixture: "spot", point: { x: 0, y: 0, z: 0 } }).catch((e: Error) => (refused = e.message));
-    expect(refused).to.match(/look/);
+    expect(await refusal(0)).to.match(/look/);
+    // right after the gesture, no frame in between: the frame the record waits for carries it
     await run("position.set", { fixtures: ["spot"], pan: 0.3, tilt: 0.6 });
-    frame();
-    // the DMX console forces the pan: the head points where the output says, not where the pad asked
-    await run("dmx.set", { universe: 1, values: { "1": 64, "2": 0 } });
-    frame();
-    expect(await run("calibration.record", { fixture: "spot", point: { x: 0, y: 0, z: 0 } })).to.include({ samples: 1 });
+    expect(await record(0)).to.include({ samples: 1 });
     const [mark] = (await run("calibration.list", { fixture: "spot" })) as { pan: number; tilt: number }[];
-    expect(mark!.pan).to.be.closeTo((64 * 256) / 65535, 1e-6);
+    expect(mark!.pan).to.be.closeTo(0.3, 1e-4);
     expect(mark!.tilt).to.be.closeTo(0.6, 1e-4);
     // a glide under way (to rest): not yet
-    await run("look.stop", { id: "a" }).catch(() => undefined);
     await run("position.home", { fixtures: ["spot"] });
-    frame();
-    refused = "";
-    await run("calibration.record", { fixture: "spot", point: { x: 1, y: 0, z: 0 } }).catch((e: Error) => (refused = e.message));
-    expect(refused).to.match(/glisse|gliding/);
+    expect(await refusal(1)).to.match(/glisse|gliding/);
+    // no frame rendered (the output stopped): nothing stale is recorded
+    during(1500);
+    await run("position.set", { fixtures: ["spot"], pan: 0.4, tilt: 0.6 });
+    frames = false;
+    expect(await refusal(1)).to.match(/aucune trame|no frame/);
+    expect(((await run("calibration.list", { fixture: "spot" })) as unknown[]).length).to.equal(1);
+  });
+
+  it("`calibration.record` waits for a head a speed rule slows down to arrive", async () => {
+    const refusal = () => run("calibration.record", { fixture: "spot", point: { x: 0, y: 0, z: 0 } }).then(() => "", (e: Error) => e.message);
+    await run("position.set", { fixtures: ["spot"], pan: 0.8, tilt: 0.5 });
+    during(200);
+    await run("rule.put", { where: "show", rule: { id: "lent", name: "Lent", level: "show", scope: { fixture: "spot" }, target: {}, maxDegPerSecond: 20 } });
+    during(40); // the rule measures from where the head is
+    await run("position.set", { fixtures: ["spot"], pan: 0.1 });
+    during(60);
+    expect(await refusal()).to.match(/pas encore arrivée|not arrived yet/);
+    expect(((await run("calibration.list", { fixture: "spot" })) as unknown[]).length).to.equal(0);
+    during(20000); // 0.7 × 540° at 20°/s: under 19 s
+    expect(await refusal()).to.equal("");
+    const [mark] = (await run("calibration.list", { fixture: "spot" })) as { pan: number }[];
+    expect(mark!.pan).to.be.closeTo(0.1, 1e-3);
+  });
+
+  it("a target holding the head is named as such, not as a look", async () => {
+    // no target layer yet (T24): the refusal is tested on the layer the status gives
+    during(40);
+    const real = plugin.runtime.motionStatus();
+    // shadows the method on this instance only, deleted after
+    const shadow = plugin.runtime as unknown as { motionStatus?: () => ReadonlyMap<string, HeadStatus> };
+    shadow.motionStatus = () => new Map([...real].map(([id, s]) => [id, { ...s, pan: { ...s.pan, layer: "target" as const, owner: "target:chanteur" } }]));
+    try {
+      const message = await run("calibration.record", { fixture: "spot", point: { x: 0, y: 0, z: 0 } }).then(() => "", (e: Error) => e.message);
+      expect(message).to.match(/une cible la tient|a target holds it/);
+    } finally {
+      delete shadow.motionStatus;
+    }
   });
 
   it("Panic moves no head by itself; a safe look that carries a move takes them, gliding (question 4)", async () => {
@@ -200,14 +237,22 @@ describe("motion layer: the report and its change key", () => {
     expect(m.released).to.deep.equal([{ owner: "look:a", name: "A" }, { owner: "manual" }]);
   });
 
-  it("changes on an owner, a glide started or ended, a lock or a release, not on a position nor the time left", () => {
-    const key = (s: HeadStatus) => motionKey(new Map([["h", s]]));
+  it("changes on an owner, a glide started or ended, a lock, a release, a rest or a look renamed, not on a position nor the time left", () => {
+    let rest: Record<string, { pan: number; tilt: number }> = {};
+    let lookName = "A";
+    const key = (s: HeadStatus) =>
+      motionKey({ movingHeads: () => ["h"], motionStatus: () => new Map([["h", s]]), sentPosition: () => undefined, settings: { restPositions: rest }, looks: { get: (id) => (id === "a" ? { name: lookName } : undefined) } });
     const base = key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 900 }));
     expect(key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 300, position: 0.3 }))).to.equal(base);
     expect(key(status({ layer: "look", owner: "look:a" }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:b", moving: true }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { lock: "soft" }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { released: ["manual#2"] }))).to.not.equal(base);
+    rest = { h: { pan: 0.3, tilt: 0.5 } };
+    expect(key(status({ layer: "look", owner: "look:a", moving: true }))).to.not.equal(base);
+    rest = {};
+    lookName = "A renamed";
+    expect(key(status({ layer: "look", owner: "look:a", moving: true }))).to.not.equal(base);
   });
 });
 
@@ -234,12 +279,19 @@ describe("motion layer: raw pan/tilt in « Vérifier le show » (lot 5)", () => 
       raw("scene", "Scène", [{ fixture: "spot", offset: 0 }, { fixture: "spot", offset: 2 }, { fixture: "spot", offset: 5 }]);
       raw("fine", "Fin", [{ fixture: "spot", offset: 1 }]);
       raw("par", "Par seul", [{ fixture: "par", offset: 0 }]);
+      raw("tilt", "Tilt seul", [{ fixture: "spot", offset: 2 }]);
       const { issues } = (await plugin.commands.invoke("show.lint", {}, systemContext())) as { issues: { level: string; where: string; message: string }[] };
       const of = (where: string) => issues.filter((i) => i.where === where && /pan\/tilt/.test(i.message));
-      const scene = of("look scene");
-      expect(scene).to.have.length(1);
-      expect(scene[0]!.level).to.equal("info");
-      expect(scene[0]!.message).to.contain("« Spot » (Pan, Tilt)").and.contain("glissent").and.contain("dernier lancé");
+      // one note for every look, the change said once
+      const grouped = issues.filter((i) => i.where.startsWith("looks "));
+      expect(grouped.map((i) => [i.level, i.where])).to.deep.equal([["info", "looks scene, tilt"]]);
+      expect(grouped[0]!.message)
+        .to.contain("« Scène » : « Spot » (Pan, Tilt)")
+        .and.contain("« Tilt seul » : « Spot » (Tilt)")
+        .and.contain("glissent (sauf un axe réglé en coupe")
+        .and.contain("dernier lancé");
+      expect(grouped[0]!.message.match(/glissent/g)).to.have.length(1);
+      expect(of("look scene")).to.deep.equal([]);
       const fine = of("look fine");
       expect(fine.map((i) => i.level)).to.deep.equal(["attention"]);
       expect(fine[0]!.message).to.contain("« Spot » (Pan fine)").and.contain("ne place plus");

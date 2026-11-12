@@ -196,6 +196,11 @@ export interface MotionResult {
 
 /** A claim's identity for a release: a relaunch (a new order) claims again. */
 export const claimKey = (c: Pick<MotionClaim, "owner" | "order">): string => `${c.owner}#${c.order}`;
+/** The owner of a claim key: the inverse of `claimKey` on its owner part. */
+export const ownerOfClaimKey = (key: string): string => {
+  const at = key.lastIndexOf("#");
+  return at < 0 ? key : key.slice(0, at);
+};
 
 const OWNER_RANK: Record<Exclude<AxisLayer, "lock">, number> = { manual: 1, target: 3, look: 4, hold: 5, rest: 6 };
 /** Strength of an axis owner: a hard lock is above the manual layer, a soft one below it. */

@@ -129,11 +129,12 @@ describe("fixture orientation", () => {
     await run("venue.fixture.put", {
       fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 2, y: 3, z: 5 }, mount: "hung", orientation: { yaw: 0, pitch: 20, roll: 45, invertPan: true, invertTilt: false, swapPanTilt: true, panOffset: 5, tiltOffset: 0 } },
     });
+    // the mark is the position really sent, on the frame `calibration.record` waits for: rendered here on demand
+    (plugin as unknown as { nextFrame: () => Promise<boolean> }).nextFrame = () => Promise.resolve((plugin.engine.render(), true));
     const truth = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 4 };
     for (const target of [{ x: 0, y: 1, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 2, y: 5.5, z: 0 }]) {
       const a = aimAt(truth, target) as { pan: number; tilt: number };
       await run("position.set", { fixtures: ["lyre"], pan: 1 - a.pan, tilt: a.tilt }); // what the hand saw: pan inverted
-      plugin.engine.render(); // the mark is the position really sent
       await run("calibration.record", { fixture: "lyre", point: target });
     }
     const result = (await run("calibration.solve", { fixture: "lyre", apply: true })) as { yaw: number; tiltOffset: number; invertPan: boolean; invertTilt: boolean };

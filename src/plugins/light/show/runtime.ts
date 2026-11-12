@@ -11,7 +11,7 @@ import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
-import { claimKey, claimsAxis, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, releasedOf, releaseMotion, resolveMotion, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
+import { claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, releasedOf, releaseMotion, resolveMotion, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
@@ -1299,7 +1299,7 @@ export class ShowRuntime {
       if (manual && added.includes(claimKey({ owner: "manual", order: manual.order }))) this.manualPositions.delete(head);
       // a Panic hold let go is told like a claim
       const hold = isHeld(before, head) && !isHeld(this.motionState, head) ? ["hold"] : [];
-      return { fixture: head, released: [...new Set([...added.map((key) => key.slice(0, key.lastIndexOf("#"))), ...hold])] };
+      return { fixture: head, released: [...new Set([...added.map(ownerOfClaimKey), ...hold])] };
     });
   }
 

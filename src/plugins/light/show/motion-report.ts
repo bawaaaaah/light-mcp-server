@@ -4,7 +4,7 @@
  * status, the position sent and the names of the looks are given.
  */
 import type { Position } from "../engine/move.js";
-import type { AxisLayer, AxisStatus, HeadStatus, LockLevel } from "../engine/motion.js";
+import { ownerOfClaimKey, type AxisLayer, type AxisStatus, type HeadStatus, type LockLevel } from "../engine/motion.js";
 
 /** An owner of the motion layer ("manual", "look:<id>", "target:<id>") and, for a look, its name. */
 export interface OwnerRef {
@@ -35,12 +35,6 @@ export interface HeadMotion {
   /** Claims « rendre la main » (or `position.home`) released on this head: ignored until they stop claiming it. */
   released: OwnerRef[];
 }
-
-/** The owner of a claim key (`owner#order`, engine/motion.ts claimKey). */
-const ownerOfKey = (key: string): string => {
-  const at = key.lastIndexOf("#");
-  return at < 0 ? key : key.slice(0, at);
-};
 
 function refs(owners: Iterable<string>, nameOf: (owner: string) => string | undefined): OwnerRef[] {
   const out: OwnerRef[] = [];
@@ -73,7 +67,7 @@ export function headMotion(status: HeadStatus, nameOf: (owner: string) => string
     pan: axisReport(status.pan, nameOf),
     tilt: axisReport(status.tilt, nameOf),
     masked: refs(status.masked, nameOf),
-    released: refs(status.released.map(ownerOfKey), nameOf),
+    released: refs(status.released.map(ownerOfClaimKey), nameOf),
   };
 }
 
@@ -82,20 +76,6 @@ export const lookNamer =
   (nameOfLook: (id: string) => string | undefined) =>
   (owner: string): string | undefined =>
     owner.startsWith("look:") ? nameOfLook(owner.slice(5)) : undefined;
-
-/**
- * What a change of the report is made of, for `light:motion`: per head and axis, the layer, the owner, a glide
- * started or ended and an error; the lock, the claims masked and released. Not the positions nor the time left: a
- * shape turning or a glide on its way change nothing here, so the topic is not sent every frame.
- */
-export function motionKey(status: ReadonlyMap<string, HeadStatus>): string {
-  const parts: string[] = [];
-  for (const [head, s] of status) {
-    const axis = (a: AxisStatus) => `${a.layer}:${a.owner ?? ""}:${a.moving ? 1 : 0}:${a.error ?? ""}`;
-    parts.push(`${head}|${s.lock}|${axis(s.pan)}|${axis(s.tilt)}|${s.masked.join(",")}|${s.released.join(",")}`);
-  }
-  return parts.join("\n");
-}
 
 /** One head of `position.list` and `light:motion`. */
 export interface HeadMotionEntry {
@@ -132,4 +112,30 @@ export function motionEntries(show: MotionSource): HeadMotionEntry[] {
       motion: s ? headMotion(s, nameOf) : null,
     };
   });
+}
+
+/**
+ * What a change of the report is made of, for `light:motion`: per head and axis, the layer, the owner and its name, a
+ * glide started or ended and an error; the lock, the claims masked and released (with their names), the rest position.
+ * Not the position sent nor the time left: a shape turning or a glide on its way change nothing here, so the topic is
+ * not sent every frame.
+ */
+export function motionKey(show: MotionSource): string {
+  const status = show.motionStatus();
+  const nameOf = lookNamer((id) => show.looks.get(id)?.name);
+  const named = (owner: string | null) => (owner === null ? "" : `${owner}=${nameOf(owner) ?? ""}`);
+  const rests = show.settings.restPositions;
+  const parts: string[] = [];
+  for (const id of show.movingHeads()) {
+    const s = status.get(id);
+    const rest = Object.hasOwn(rests, id) ? rests[id] : undefined;
+    const restKey = rest ? `${rest.pan},${rest.tilt}` : "-";
+    if (!s) {
+      parts.push(`${id}|${restKey}`);
+      continue;
+    }
+    const axis = (a: AxisStatus) => `${a.layer}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.error ?? ""}`;
+    parts.push(`${id}|${restKey}|${s.lock}|${axis(s.pan)}|${axis(s.tilt)}|${s.masked.map(named).join(",")}|${s.released.map((k) => named(ownerOfClaimKey(k)) + k.slice(k.lastIndexOf("#"))).join(",")}`);
+  }
+  return parts.join("\n");
 }
