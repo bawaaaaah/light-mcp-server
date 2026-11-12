@@ -220,6 +220,20 @@ Ajouts à « Vérifier le show » et à `venue.patch.check` :
 - proposition de **groupes automatiques** (par type : lyres, machines, wash) et de tags à la création du patch ;
 - **canal Reset** (Spot, Wash) : ne jamais le laisser s'activer par un fader, un look ou une règle ; dans les règles par défaut.
 
+### T39 — Éditeur de projecteur complet (demandé le 2026-11-12)
+- **Demande** : un éditeur de projecteur **complet** dans l'interface, pour créer ou corriger une définition de bout en bout sans jamais ouvrir le XML ni passer par QLC+. En partie couvert par **T20b** (livraison 2 : éditeur de définition) : cette entrée rend le besoin explicite et en fixe le périmètre attendu ; le plan de T20b ([plans/T20b](plans/T20b-bibliotheque.md)) devra le couvrir en entier ou renvoyer ici.
+- **Partir de** : une définition vide, une copie d'une définition existante (bibliothèque livrée ou privée), ou l'import d'un `.qxf`.
+- **Identité** : fabricant, modèle, type (lyre, wash, par, barre, machine…), notes.
+- **Canaux** : ajouter, retirer, renommer, réordonner ; attribut (intensité, couleur, pan/tilt, roue, gobo, obturateur, zoom, focus, prisme, vitesse, machine…), couleur, préréglage ; **canal fin 16 bits** associé à son canal principal (pan fin, tilt fin, gradateur fin…).
+- **Plages (capacités)** : Min/Max, nom, préréglage, couleur de case, **image de gobo ou de case** (T19) ; contrôles en direct : chevauchements, trous, plages « à fonction » (stroboscope, son, macro, reset).
+- **Modes** : liste des canaux dans l'ordre, ajout d'un mode par copie d'un autre, **têtes** (`<Head>`, zones, halo).
+- **Physique** : course pan et tilt réelle (lien T8 : course corrigée pour le modèle ou l'appareil), angle de faisceau, dimensions, puissance.
+- **Corrections du lieu** dans le même éditeur : roue (T18), têtes et halo (T21), pistes fondables (T5), sans les recopier dans la définition.
+- **Essai en direct** : envoyer chaque canal ou chaque plage à un appareil patché (sortie locale ou réelle, avec confirmation hors veille), pour vérifier une plage sur le vrai projecteur pendant qu'on l'édite.
+- **Enregistrer** : `.qxf` re-validé par `parseQxf`, rien de ce que l'éditeur ne connaît n'est perdu à l'aller-retour ; refus d'une définition invalide avec le message ; versions et annulation comme les autres objets ; export `.qxf` pour QLC+.
+- **Effet sur le patch** : les appareils qui utilisent la définition suivent ; un mode utilisé qui disparaît ou change de canaux passe par le plan de changement de mode de T6 (report par nom de canal, pertes nommées).
+- **Fait quand** : on peut créer un projecteur de zéro (par exemple une lyre 16 bits avec roue et gobos), le patcher, l'essayer canal par canal et l'exporter vers QLC+ sans perte, entièrement depuis l'interface (clavier compris, utilisable sur tablette).
+
 ## 🟠 Mouvements des lyres (demandes du 2026-11-08)
 
 Note : la **priorité entre couches de mouvement** (T25) et le **sous-look partagé par deux looks** (T29) sont **volontairement reportées** : à trancher avec l'utilisateur quand ces tâches seront attaquées.
@@ -366,7 +380,7 @@ Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les d�
 | **1. Gains rapides** | T7 fait, T17 fait, T33 fait, T31 fait, T12, T16 faits, T14 | inversion pan/tilt, dossiers de looks, gestion des dossiers, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
 | **2. Définitions saines** | T20a (détecter les doublons et avertir), T21, T22, T18 | plus de définition choisie au hasard, le Wash allume ses 3 zones, patch contrôlé, roue de couleurs fiable | « Vérifier le show » signale un doublon ; les 10 couleurs du Spot tombent sur la bonne case ; Wash 29 canaux piloté sur toutes les zones |
 | **3. Réglage et mouvements des lyres** | T5, **T25 (conception, avec T29)**, T26, T11, T6, T9, T24, T32 (enregistrer et rappeler une position nommée), T27 | pistes fondables, couche Mouvement claire, verrou, menu de l'appareil, modes nommés, pad XY, cible 3D, presets de position, zones de visée | essai sur les vraies lyres ; T5 avant T6, T25 avant T24, T26 et T29, T24 avant T27 pour le pad |
-| **4. Confort et contenu** | T15, T13, T20b (fusion, duplication, éditeur de définition), T8, T23, T30, T28 | intentions exportées, canevas, bibliothèque complète, calibration manuelle, triangulation, placement par angles, looks par zone | archive `.lightshow` aller-retour ; fusion sans changer adresses ni modes ; T23 avant T30 ; T27 et T25 avant T28 |
+| **4. Confort et contenu** | T15, T13, T20b (fusion, duplication, éditeur de définition), T39 (éditeur de projecteur complet, avec T20b), T8, T23, T30, T28 | intentions exportées, canevas, bibliothèque complète, calibration manuelle, triangulation, placement par angles, looks par zone | archive `.lightshow` aller-retour ; fusion sans changer adresses ni modes ; T23 avant T30 ; T27 et T25 avant T28 |
 | **5. Visuel** | T19 | images de gobos | après T6 (miniatures dans la liste de plages) et T20b (où déposer les images) |
 | **6. En fin de parcours** | T10 (manette : sticks et gâchettes, puis scènes de manette ; PS5 seulement après discussion), puis T1 (retour du DMX USB, en mesurant avant de corriger) | pilotage à la manette, USB à nouveau fiable | essai avec 2 lyres aux 2 sticks |
 
