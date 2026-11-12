@@ -350,10 +350,15 @@ describe("intentions by generated id (T15b)", () => {
       expect((JSON.parse(readFileSync(file, "utf8")) as Intention).aliases).to.deep.equal(["Aube"]);
       await run("show.revert", { id: p.id });
       expect(readFileSync(file, "utf8")).to.equal(before);
-      await run("intention.put", { intention: { id, label: "Aurore", colors: ["#ffeedd"] } });
-      const versions = (await run("history.list", { collection: "intentions", id })) as { stamp: string }[];
-      await run("history.restore", { collection: "intentions", id, stamp: versions.at(-1)!.stamp });
-      expect(readFileSync(file, "utf8")).to.equal(before);
+      // a version put back (another one, renamed once: its only copy is the one before the rename)
+      const other = await created("Crépuscule");
+      const otherFile = join(dataRoot, "shows", "default", "intentions", `${other}.json`);
+      const was = readFileSync(otherFile, "utf8");
+      await run("intention.put", { intention: { id: other, label: "Soir", colors: ["#ffeedd"] } });
+      const versions = (await run("history.list", { collection: "intentions", id: other })) as { stamp: string }[];
+      expect(versions).to.have.length(1);
+      await run("history.restore", { collection: "intentions", id: other, stamp: versions[0]!.stamp });
+      expect(readFileSync(otherFile, "utf8")).to.equal(was);
     });
 
     it("never takes the show's own intention of an archive for one of another machine", async () => {
