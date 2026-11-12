@@ -49,6 +49,39 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
       return { fixtures: ids };
     },
   });
+  /** Moving heads only: a rest position of anything else would never be read. */
+  const restTargets = (fixtures: string[]): string[] => {
+    const heads = new Set(show.movingHeads());
+    for (const f of fixtures) if (!heads.has(f)) throw new Error(say(`pas une lyre installée : ${f}`, `not an installed moving head: ${f}`));
+    return fixtures;
+  };
+  reg.register({
+    name: "position.rest.set",
+    title: "Position de repos",
+    description: "Sets the rest position (normalised 0..1, 0.5 = centre) of moving heads, stored in the show: where a head nobody moves goes back to. Touches only the heads given, others keep theirs. Refused for an id that is not an installed moving head.",
+    right: "commands:position",
+    profiles: ["live", "design", "setup"],
+    schema: z.object({ fixtures: z.array(z.string()).min(1), pan: z.number().min(0).max(1), tilt: z.number().min(0).max(1) }),
+    run: ({ fixtures, pan, tilt }) => {
+      const ids = restTargets(fixtures);
+      show.saveSettings({ restPositions: { ...show.settings.restPositions, ...Object.fromEntries(ids.map((id) => [id, { pan, tilt }])) } });
+      return { fixtures: ids };
+    },
+  });
+  reg.register({
+    name: "position.rest.clear",
+    title: "Effacer la position de repos",
+    description: "Clears the rest position of moving heads: they go back to the centre. Other heads keep theirs.",
+    right: "commands:position",
+    profiles: ["live", "design", "setup"],
+    schema: z.object({ fixtures: z.array(z.string()).min(1) }),
+    run: ({ fixtures }) => {
+      const drop = new Set(fixtures);
+      const restPositions = Object.fromEntries(Object.entries(show.settings.restPositions).filter(([id]) => !drop.has(id)));
+      show.saveSettings({ restPositions });
+      return { fixtures };
+    },
+  });
   reg.register({
     name: "position.release",
     title: "Relâcher les lyres",

@@ -16,14 +16,14 @@ export interface Position {
 }
 
 /**
- * How long a head glides to a new position (docs/specs/engine-effects-timing.md, « Couche Mouvement »):
- * a number of beats at the current tempo, or a fixed time in milliseconds. 0 = cut. Shared by the show
- * setting `moveFade` and a look's `move.fade`.
+ * How long a head glides to a new position (docs/specs/engine-effects-timing.md, « Move FX », champs de la couche Mouvement):
+ * a number of beats at the current tempo (beats × 60000 / BPM ms), or a fixed time in seconds (like
+ * `EverySchema`; the UI may show ms). 0 = cut. Shared by the show setting `moveFade` and a look's `move.fade`.
  */
-export const MoveFadeSchema = z.union([z.object({ beats: z.number().min(0).max(64) }), z.object({ ms: z.number().min(0).max(30000) })]);
+export const MoveFadeSchema = z.union([z.strictObject({ beats: z.number().min(0).max(64) }), z.strictObject({ seconds: z.number().min(0).max(30) })]);
 export type MoveFade = z.infer<typeof MoveFadeSchema>;
 /** The show's default glide: one second. */
-export const DEFAULT_MOVE_FADE: MoveFade = { ms: 1000 };
+export const DEFAULT_MOVE_FADE: MoveFade = { seconds: 1 };
 
 /** A rest position: where a head that nobody moves goes back to (normalised, 0.5 = centre). */
 export const RestPositionSchema = z.object({ pan: z.number().min(0).max(1), tilt: z.number().min(0).max(1) });
@@ -50,12 +50,10 @@ export const MoveSchema = z.object({
   fan: z.number().min(-0.5).max(0.5).default(0),
   /** Fixtures moved: this group's fixtures (default: the look's canvas fixtures that have pan/tilt). */
   group: z.string().optional(),
-  /** Glide to this move from wherever the heads are; absent: the look's entry fade, else the show's `moveFade`. 0 = cut. */
+  /** Glide to this move from wherever the heads are; absent: the show's `moveFade` (the look's entry fade is not used). 0 = cut. */
   fade: MoveFadeSchema.optional(),
-  /** Reserved for T26: false keeps the settings but claims no head. Read and kept, not acted on yet. */
+  /** Reserved for T26: false keeps the settings but claims no head. Reserved, no effect yet. `move.at` (T24/T27/T32) is not declared: zod strips it, so it is accepted and ignored. */
   enabled: z.boolean().optional(),
-  /** Reserved for T24 (target), T27 (zone), T32 (named position): where the shape is centred. Accepted and ignored for now. */
-  at: z.object({ position: z.string().optional(), target: z.string().optional(), zone: z.string().optional(), height: z.number().optional() }).optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;
 

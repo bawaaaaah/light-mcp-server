@@ -92,6 +92,8 @@ export const HINTS: Record<string, string> = {
   "panic.undo": "I",
   "position.aim": "I",
   "position.release": "I",
+  "position.rest.clear": "DI",
+  "position.rest.set": "DI",
   "position.set": "I",
   "program.delete": "DI",
   "program.put": "DI",

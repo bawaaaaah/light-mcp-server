@@ -655,11 +655,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const usedBy = removable("fixture", i, f.name, force, others);
       const deleted = venue.fixtures.delete(i);
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
-      if (deleted && show.settings.absentFixtures.includes(i)) show.saveSettings({ absentFixtures: show.settings.absentFixtures.filter((x) => x !== i) });
-      // and its rest position goes with it (not a use: it never blocks the delete)
-      if (deleted && i in show.settings.restPositions) {
-        const { [i]: _gone, ...kept } = show.settings.restPositions;
-        show.saveSettings({ restPositions: kept });
+      // and its rest position goes with it (not a use: it never blocks the delete). Other shows of a shared venue keep a stale id, which is ignored (only movingHeads() are read)
+      if (deleted) {
+        const { [i]: _gone, ...restPositions } = show.settings.restPositions;
+        const absentFixtures = show.settings.absentFixtures.filter((x) => x !== i);
+        if (Object.hasOwn(show.settings.restPositions, i) || absentFixtures.length !== show.settings.absentFixtures.length) show.saveSettings({ absentFixtures, restPositions });
       }
       return { deleted, usedBy };
     },
@@ -970,7 +970,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
+    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; enabled = reserved, no effect yet). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
     // a look from the brief list (partial) is refused before anything else: saved, it would lose its steps or raw channels
@@ -2004,11 +2004,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- show settings & safety
-  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », startup snapshot, grand master, default button mode.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
+  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », startup snapshot, grand master, default button mode, moveFade (default glide of the heads, {beats} or {seconds}), restPositions (per moving head, where it returns when nobody moves it).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
-    description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value, moveFade: default glide of the heads to a new position, {beats: n} at the current tempo or {ms: n}, default {ms: 1000}, 0 = cut, restPositions: per fixture id the {pan, tilt} (0..1) a head nobody moves goes back to, the whole map replaced, absent = centre).",
+    description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value, moveFade: default glide of the heads to a new position, {beats: n} at the current tempo or {seconds: n} (max 30), default {seconds: 1}, 0 = cut, restPositions: per fixture id the {pan, tilt} (0..1) a head nobody moves goes back to, absent = centre; prefer position.rest.set / position.rest.clear, which touch one head at a time).",
     right: "show:write",
     profiles: ["setup", "design"],
     // a patch: only the settings given change (partial() would reset the others to their defaults)
@@ -2034,7 +2034,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...(safeSnapshot === undefined ? {} : { safeSnapshot: safeSnapshot ?? undefined }),
         ...(startupSnapshot === undefined ? {} : { startupSnapshot: startupSnapshot ?? undefined }),
       };
-      for (const id of Object.keys(patch.restPositions ?? {})) if (!venue.fixtures.get(id)) throw new Error(say(`projecteur inconnu : ${id}`, `unknown fixture: ${id}`));
+      // only the keys ADDED are checked: a stale id kept from a shared venue's deleted fixture is tolerated
+      for (const id of Object.keys(patch.restPositions ?? {})) if (!Object.hasOwn(show.settings.restPositions, id) && !venue.fixtures.get(id)) throw new Error(say(`projecteur inconnu : ${id}`, `unknown fixture: ${id}`));
       if (patch.safeLook && !show.looks.get(patch.safeLook)) throw new Error(say(`look inconnu : ${patch.safeLook}`, `unknown look: ${patch.safeLook}`));
       for (const id of [patch.safeSnapshot, patch.startupSnapshot]) if (id && !show.snapshots.get(id)) throw new Error(say(`instantané inconnu : ${id}`, `unknown snapshot: ${id}`));
       // null clears the grand master's smoothing (a partial patch cannot carry « absent »)

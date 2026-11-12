@@ -102,6 +102,8 @@ export const TITLES_EN: Record<string, string> = {
   "panic.undo": "Undo the panic",
   "position.aim": "Aim",
   "position.list": "Moving heads",
+  "position.rest.clear": "Clear the rest position",
+  "position.rest.set": "Rest position",
   "position.release": "Release the moving heads",
   "position.set": "Moving head position",
   "program.delete": "Delete a program",

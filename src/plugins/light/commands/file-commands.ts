@@ -208,8 +208,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
         if (venue === "copy" && existsSync(path.join(venuesDir, baseVenue))) cpSync(path.join(venuesDir, baseVenue), path.join(venuesDir, venueId), { recursive: true });
         else mkdirSync(path.join(venuesDir, venueId), { recursive: true });
       }
-      // an empty venue has none of the copied show's fixtures: its absent list would darken fixtures patched later under the same ids
-      writeSettings(id, { name, venue: venueId, ...(venue === "new" ? { absentFixtures: [] } : {}) });
+      // an empty venue has none of the copied show's fixtures: its absent list would darken fixtures patched later under the same ids, and its rest positions would apply to them
+      writeSettings(id, { name, venue: venueId, ...(venue === "new" ? { absentFixtures: [], restPositions: {} } : {}) });
       if (open) await s.open(id);
       const imported = qxw ? await s.importQxw(qxw) : undefined;
       return { id, name, venue: venueId, opened: open, imported };
