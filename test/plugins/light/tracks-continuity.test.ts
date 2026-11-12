@@ -450,3 +450,25 @@ describe("fadeable tracks: a look back beside a crossfade still running (T5)", (
     });
   }
 });
+
+describe("fadeable tracks: a look released while it comes back (T5)", () => {
+  it("keeps what it still had at the rank it left, under a look launched in between: no jump when another look takes over", () => {
+    // b stopped, c in and out over it, b back (two ranks, c between them), then d releases b
+    const frames = play({
+      looks: [painted("a", "#0000ff", [], [2, 4]), painted("b", "#00ff00", [], [1, 4]), painted("c", "#804020", [], [1, 2]), painted("d", "#00ff00", [], [1, 1])],
+      exclusive: ["a", "b", "c", "d"],
+      events: [
+        [0, "go", "b"],
+        [5520, "stop", "b"],
+        [5580, "go", "c"],
+        [5820, "stop", "c"],
+        [6620, "go", "b"],
+        [6720, "go", "d"],
+      ],
+      tail: 6000,
+    });
+    expect(steepest(frames, 5600).light).to.be.at.most(SMOOTH);
+    expect(steepest(frames, 5600).dimmer).to.be.at.most(SMOOTH);
+    expect(at(frames, 12000).slice(0, 6)).to.deep.equal([255, 0, 0, 0, 255, 0]);
+  });
+});

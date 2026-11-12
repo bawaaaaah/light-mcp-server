@@ -523,14 +523,22 @@ export class ShowRuntime {
     const outgoing = [...crossfade.outgoing];
     if (a.look.timing.exitFade > 0) {
       const start = this.inWeight(crossfade, now);
-      // stopped while it was coming back: what it still had at the rank it left stays there as it fades (tracks)
-      const under = crossfade.rank === undefined || start <= 0 ? 0 : (crossfade.from * (1 - start)) / (1 - crossfade.from) / start;
-      const left = under > 0 && crossfade.from < 1 ? { rank: crossfade.rank!, share: Math.min(1, under), ...(crossfade.apart ? { sheet: `was:${a.look.id}` } : {}) } : undefined;
+      const left = this.leftOf(crossfade, start, a.look.id);
       outgoing.push({ look: a.look, player: a.player, start, t: now, dur: a.look.timing.exitFade, rev: this.lookRev(a.look), ...(left ? { left } : {}) });
     }
     const key = this.orphanKey();
     this.moveSheet(a.look.id, key);
     if (outgoing.length) this.crossfades.set(key, { t0: now, tIn: 0, from: 0, outgoing });
+  }
+
+  /**
+   * A look leaves (stopped, or released by another) while it was coming back (Crossfade.rank): the share of the weight
+   * it leaves from (`start`) that still lay at the rank it had before stays there as it fades, on a fixture with tracks.
+   */
+  private leftOf(crossfade: Crossfade, start: number, lookId: string): Leaving["left"] {
+    if (crossfade.rank === undefined || start <= 0 || crossfade.from >= 1) return undefined;
+    const under = (crossfade.from * (1 - start)) / (1 - crossfade.from) / start;
+    return under > 0 ? { rank: crossfade.rank, share: Math.min(1, under), ...(crossfade.apart ? { sheet: `was:${lookId}` } : {}) } : undefined;
   }
 
   private orphanKey(): string {
@@ -576,7 +584,9 @@ export class ShowRuntime {
         for (const o of was.outgoing) outgoing.push({ ...o, start: this.outWeight(o, now), t: now, dur: Math.max(0.05, o.dur - (now - o.t) / 1000) });
       }
       const exit = l.look.timing.exitFade;
-      outgoing.push({ look: l.look, player: l.player, start: was ? this.inWeight(was, now) : 1, t: now, dur: exit > 0 ? exit : look.timing.entryFade, rev: this.lookRev(l.look) });
+      const start = was ? this.inWeight(was, now) : 1;
+      const left = was ? this.leftOf(was, start, l.look.id) : undefined;
+      outgoing.push({ look: l.look, player: l.player, start, t: now, dur: exit > 0 ? exit : look.timing.entryFade, rev: this.lookRev(l.look), ...(left ? { left } : {}) });
     }
     this.crossfades.set(look.id, { t0: now, tIn: look.timing.entryFade, from: Math.min(1, Math.max(0, from)), outgoing, ...(rank === undefined ? {} : { rank, apart }) });
   }
