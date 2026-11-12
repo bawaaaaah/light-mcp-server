@@ -151,6 +151,15 @@ export interface MotionState {
 
 export const emptyMotionState = (): MotionState => ({ heads: new Map() });
 
+/** The claims released on a head (`claimKey`), ignored until they stop claiming it. */
+export const releasedOf = (state: MotionState, head: string): readonly string[] => state.heads.get(head)?.released ?? [];
+
+/** Whether a Panic hold still keeps an axis of this head where it is. */
+export const isHeld = (state: MotionState, head: string): boolean => {
+  const holding = state.heads.get(head)?.holding;
+  return !!holding && (holding.pan || holding.tilt);
+};
+
 export interface AxisStatus {
   layer: AxisLayer;
   /** The winning claim's owner; null for rest, hold and lock. */
@@ -158,6 +167,9 @@ export interface AxisStatus {
   position: number;
   /** A transition is running. */
   moving: boolean;
+  /** While a transition runs: where it started from, and the milliseconds it still lasts. */
+  from?: number;
+  remainingMs?: number;
   /** Where the owner asks the axis to be (absent while held: lock, hold, a claim in error). */
   target?: number;
   /** Why the winning claim cannot place the head (the axis is held meanwhile). */
@@ -189,11 +201,14 @@ const rankOf = (layer: AxisLayer, lock: LockLevel): number => (layer === "lock" 
 const CLAIM_RANK: Record<MotionLayer, number> = { manual: 0, target: 1, look: 2 };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const NO_HOLD: Readonly<Record<Axis, boolean>> = { pan: false, tilt: false };
+/** The owner a held axis is given by a new Panic: no owner of a frame equals it, so the hold is entered again. */
+const HELD_ANEW = "";
 /** Beyond this gap between two frames, a transition starts at the new frame rather than at the previous one. */
 const MAX_FRAME_GAP = 100;
 const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
 
-function claimsAxis(c: MotionClaim, axis: Axis): boolean {
+/** Whether a claim places this axis: a shape places both, a fixed base only the axes it gives. */
+export function claimsAxis(c: MotionClaim, axis: Axis): boolean {
   if (c.shape) return true;
   if (!c.base) return false;
   return c.base.kind === "fixed" ? c.base[axis] !== undefined : true;
@@ -400,11 +415,13 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
       const s = stepAxis(o, { prev, current, now, rank: rankOf(o.layer, lock), moveFade, bpm: input.bpm, cut });
       next[axis] = s;
       pos[axis] = s.value;
+      const moving = s.dur > 0 && s.value !== o.target;
       axisStatus[axis] = {
         layer: o.layer,
         owner: o.claim?.owner ?? null,
         position: s.value,
-        moving: s.dur > 0 && s.value !== o.target,
+        moving,
+        ...(moving ? { from: s.from, remainingMs: Math.max(0, s.t0 + s.dur - now) } : {}),
         ...(o.target === undefined ? {} : { target: o.target }),
         ...(o.error === undefined ? {} : { error: o.error }),
       };
@@ -468,6 +485,10 @@ export function releaseMotion(input: Pick<MotionInput, "heads" | "claims" | "loc
  * fading out does not keep moving them) and every axis holds where it is until a new claim takes it:
  * a rescue snapshot, launched with a new order, glides in. Without one, the head never returns to
  * rest on its own. Locks stay as they are.
+ *
+ * A Panic again on a head already held freezes it anew, on the position sent then: what moved the
+ * output since the first one (a channel forced from the DMX console, which the Panic releases) must
+ * not send the head back to where it was first held.
  */
 export function holdMotion(input: Pick<MotionInput, "claims">, state: MotionState, heads: readonly string[]): MotionState {
   const next = new Map(state.heads);
@@ -475,7 +496,12 @@ export function holdMotion(input: Pick<MotionInput, "claims">, state: MotionStat
     const prev = next.get(head);
     const released = new Set(prev?.released ?? []);
     for (const c of input.claims) if (c.heads.includes(head)) released.add(claimKey(c));
-    next.set(head, { ...prev, released: [...released], holding: { pan: true, tilt: true } });
+    const anew: Partial<Record<Axis, AxisState>> = {};
+    for (const axis of AXES) {
+      const a = prev?.[axis];
+      if (a?.layer === "hold") anew[axis] = { ...a, owner: HELD_ANEW };
+    }
+    next.set(head, { ...prev, ...anew, released: [...released], holding: { pan: true, tilt: true } });
   }
   return { ...state, heads: next };
 }

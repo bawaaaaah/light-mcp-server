@@ -584,20 +584,189 @@ describe("motion layer in the engine (T25)", () => {
       expect(play(true)).to.deep.equal(play(false));
     });
 
-    it("plays the glide itself: a launch is bounded by where the head really goes in the seconds sampled", () => {
+    it("bounds a launch by where the head lands, however long the glide there", () => {
       const t = setup();
       rule(t, 200);
       t.fixed("soon", 1, 0.5);
       t.fixed("late", 1, 0.5, { move: { shape: "fixe", center: { pan: 1, tilt: 0.5 }, fade: { seconds: 30 } } });
+      t.fixed("inside", 0.7, 0.5);
       t.run(200);
       expect(t.show.strictBounds("soon")).to.have.length(1); // there within a second: beyond the limit
-      expect(t.show.strictBounds("late")).to.have.length(0); // four seconds into thirty: still well under it
+      expect(t.show.strictBounds("late")).to.have.length(1); // thirty seconds to get there: the arrival is sampled too
+      expect(t.show.strictBounds("inside")).to.have.length(0);
       // and a launch checked takes no launch order: the next claim is the one a launch alone would get
       t.show.go("soon");
       t.show.setPosition(["spot16"], { tilt: 0.1 });
       t.frame();
       expect(t.show.motionStatus().get("spot16")!.released).to.deep.equal([]);
     });
+  });
+});
+
+describe("motion layer: a speed rule that refuses or asks", () => {
+  it("refuses the launch whose glide is faster than the rule, lets a slower one through", () => {
+    const t = setup();
+    t.show.rules.put({ id: "lent", name: "Lent", level: "show", scope: { fixture: "spot16" }, target: {}, maxDegPerSecond: 90, onViolation: "reject" });
+    t.fixed("fast", 1, 0.5); // 270° of pan in the second of the show's moveFade
+    t.fixed("cut", 1, 0.5, { move: { shape: "fixe", center: { pan: 1, tilt: 0.5 }, fade: { seconds: 0 } } });
+    t.fixed("slow", 1, 0.5, { move: { shape: "fixe", center: { pan: 1, tilt: 0.5 }, fade: { seconds: 10 } } }); // 40°/s at its fastest
+    t.fixed("near", 0.52, 0.5); // 11° in a second
+    t.show.groups.put({ id: "cour", name: "Cour", members: { fixtures: ["spot8"] } });
+    t.place("other", { shape: "fixe", center: { pan: 1, tilt: 0.5 }, group: "cour" }); // the head the rule does not cover
+    t.run(200, [], { guarded: true });
+    for (const [id, bounded] of [["fast", 1], ["cut", 1], ["slow", 0], ["near", 0], ["other", 0]] as const) {
+      const bounds = t.show.strictBounds(id);
+      expect(bounds.map((b) => b.rule.id), id).to.deep.equal(bounded ? ["lent"] : []);
+      if (bounded) expect(bounds[0]!.clamps.map((c) => [c.fixture, c.channel]), id).to.deep.equal([["spot16", "Pan"]]);
+    }
+    // a head already turning faster than the rule is not held against a look that leaves it alone
+    t.show.go("fast");
+    t.run(200, [], { guarded: true });
+    expect(t.show.strictBounds("other")).to.have.length(0);
+  });
+
+  it("measures the speed for a caller's own rule too, from where the heads are", () => {
+    const t = setup();
+    t.show.rules.put({ id: "ia-lent", name: "Lent pour l'IA", level: "show", scope: {}, target: {}, maxDegPerSecond: 90, appliesTo: { origins: ["mcp"] } });
+    t.fixed("cut", 1, 0.5, { move: { shape: "fixe", center: { pan: 1, tilt: 0.5 }, fade: { seconds: 0 } } });
+    t.run(200);
+    expect(t.show.strictBounds("cut")).to.have.length(0); // the rule is not this caller's
+    expect(t.show.strictBounds("cut", { origin: "mcp" }).map((b) => b.rule.id)).to.deep.equal(["ia-lent"]);
+  });
+});
+
+describe("motion layer through the commands", () => {
+  let plugin: LightPlugin;
+  let now = 0;
+  const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+  /** One frame of the engine (render, console, guard, Blackout), 20 ms on: the pan sent to the head, 0..1. */
+  const pan = () => {
+    const b = plugin.engine.render()[0]!;
+    now += 20;
+    return (b[0]! * 256 + b[1]!) / 65535;
+  };
+  const during = (ms: number) => Array.from({ length: ms / 20 }, pan);
+  const steepestOf = (values: number[]) => Math.max(0, ...values.slice(1).map((v, i) => Math.abs(v - values[i]!)));
+  interface Why {
+    rawLooks: { id: string }[];
+    motion?: { axis: string; layer: string; owner: string | null; name?: string; moving: boolean; from?: number; to?: number; remainingMs?: number; masked: { owner: string; name?: string; released?: true }[] };
+  }
+  const why = (channel: number) => run("dmx.explain", { universe: 1, channel }) as Promise<Why>;
+
+  beforeEach(() => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-motion-cmd-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    now = 0;
+    plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null, now: () => now });
+    plugin.venue.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1 });
+    plugin.venue.canvases.put({ id: "spot", name: "Spot", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "spot", head: -1 }] }] });
+    const look = (id: string, name: string, more: object) => plugin.runtime.looks.put({ id, name, canvas: "spot", technique: { kind: "aucune" }, ...more } as never);
+    look("a", "A", { move: { shape: "fixe", center: { pan: 0.2, tilt: 0.8 } } });
+    look("b", "B", { move: { shape: "fixe", center: { pan: 0.8, tilt: 0.8 } } });
+    look("scene", "Scène", { channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[128]] } });
+  });
+  afterEach(async () => {
+    await plugin.stop();
+  });
+
+  it("a Panic again under a channel forced from the DMX console holds the head where it is then, not where it first held", async () => {
+    await run("look.go", { id: "a" });
+    expect(during(1500).at(-1)).to.be.closeTo(0.2, 1e-4);
+    await run("panic");
+    expect(during(500).at(-1)).to.be.closeTo(0.2, 1e-4);
+    await run("dmx.set", { universe: 1, values: { "1": 230, "2": 0 } });
+    const forced = (230 * 256) / 65535;
+    expect(during(500).at(-1)).to.equal(forced);
+    await run("panic"); // it releases the console: the head must not swing back
+    expect(new Set(during(1000))).to.deep.equal(new Set([forced]));
+    expect((await why(1)).motion).to.include({ layer: "hold", owner: null, moving: false });
+  });
+
+  it("`position.release` lets a head out of the hold a Panic left: it glides to rest", async () => {
+    await run("look.go", { id: "a" });
+    during(1500);
+    await run("panic");
+    during(500);
+    expect(await run("position.release", { fixtures: ["spot"] })).to.deep.equal({ released: ["spot"] });
+    const back = during(1500);
+    expect(back[0]).to.be.closeTo(0.2, 1e-3);
+    expect(steepestOf(back)).to.be.at.most(slope(0.3, 1));
+    expect(back.at(-1)).to.be.closeTo(0.5, 1e-4);
+    expect(await run("position.release")).to.deep.equal({ released: [] }); // nothing held any more
+    // without a Panic it releases the manual position only, as before: the look takes the head back
+    await run("look.go", { id: "a" });
+    await run("position.set", { fixtures: ["spot"], pan: 0.6 });
+    during(200);
+    expect(await run("position.release")).to.deep.equal({ released: ["spot"] });
+    expect(during(1500).at(-1)).to.be.closeTo(0.2, 1e-4);
+  });
+
+  it("`position.home` releases everything on a head and sends it to its rest, gliding", async () => {
+    await run("position.rest.set", { fixtures: ["spot"], pan: 0.4, tilt: 0.5 });
+    await run("look.go", { id: "a" });
+    await run("position.set", { fixtures: ["spot"], pan: 0.9 });
+    during(1500);
+    const homed = (await run("position.home", { fixtures: ["spot"] })) as { fixtures: { fixture: string; released: string[] }[] };
+    expect(homed.fixtures.map((h) => [h.fixture, [...h.released].sort()])).to.deep.equal([["spot", ["look:a", "manual"]]]);
+    const back = during(1500);
+    expect(steepestOf(back)).to.be.at.most(slope(0.5, 1));
+    expect(back.at(-1)).to.be.closeTo(0.4, 1e-4);
+    expect(plugin.runtime.isActive("a")).to.equal(true); // the look plays on: it only lost this head
+    expect((await why(1)).motion).to.deep.include({ layer: "rest", masked: [{ owner: "look:a", name: "A", released: true }] });
+    // out of a Panic hold too, which it tells
+    await run("panic");
+    during(200);
+    expect(((await run("position.home")) as typeof homed).fixtures).to.deep.equal([{ fixture: "spot", released: ["hold"] }]);
+    let refused = "";
+    await run("position.home", { fixtures: ["nope"] }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("nope");
+  });
+
+  it("`dmx.explain` on pan/tilt names who holds the axis, the glide under way, and who is masked", async () => {
+    during(100);
+    expect((await why(1)).motion).to.deep.include({ axis: "pan", layer: "rest", owner: null, moving: false, masked: [] });
+    expect((await why(4)).motion).to.include({ axis: "tilt", layer: "rest" }); // the fine channel of the tilt
+    expect((await why(6)).motion).to.equal(undefined); // the dimmer: not the motion layer's
+    await run("look.go", { id: "scene" });
+    during(1500);
+    const raw = await why(1);
+    expect(raw.motion).to.include({ layer: "look", owner: "look:scene", name: "Scène" });
+    expect(raw.rawLooks.map((l) => l.id)).to.deep.equal(["scene"]); // it writes the channel and holds the axis
+    expect((await why(3)).motion).to.include({ layer: "rest" }); // it does not write the tilt
+    await run("look.go", { id: "a" });
+    during(400);
+    const gliding = await why(1);
+    expect(gliding.motion).to.include({ layer: "look", owner: "look:a", name: "A", moving: true, to: 0.2 });
+    expect(gliding.motion!.from).to.be.closeTo(128 / 255.996, 1e-3);
+    expect(gliding.motion!.remainingMs).to.be.within(550, 650);
+    expect(gliding.motion!.masked).to.deep.equal([{ owner: "look:scene", name: "Scène" }]);
+    expect(gliding.rawLooks).to.deep.equal([]); // the scene writes the channel but no longer places the head
+    during(1000);
+    await run("position.set", { fixtures: ["spot"], pan: 0.6 });
+    during(40);
+    const manual = await why(2);
+    expect(manual.motion).to.include({ layer: "manual", owner: "manual", moving: false });
+    expect(manual.motion!.masked.map((m) => m.owner)).to.deep.equal(["look:scene", "look:a"]);
+  });
+});
+
+describe("motion layer: handing back a Panic hold", () => {
+  it("tells the hold among what `releaseTop` released", () => {
+    const t = setup();
+    t.fixed("a", 0.2, 0.3);
+    t.run(1500, [[0, () => t.show.go("a")]]);
+    t.show.holdPositions();
+    t.show.stopAll();
+    t.run(200);
+    expect(t.show.releaseTop(["spot16"])).to.deep.equal([{ fixture: "spot16", released: ["hold"] }]);
+    expect(t.show.releaseHold()).to.deep.equal(["spot8"]); // the other head, by the hook of `position.release`
+    expect(t.show.releaseHold()).to.deep.equal([]);
+    const frames = t.run(1500);
+    expect(steepest(frames, "spot16")).to.be.at.most(slope(0.3, 1));
+    centred(frames.at(-1)!.spot16);
+    centred(frames.at(-1)!.spot8, 1 / 255);
   });
 });
 

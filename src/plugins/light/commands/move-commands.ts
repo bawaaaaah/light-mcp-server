@@ -85,11 +85,24 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
   reg.register({
     name: "position.release",
     title: "Relâcher les lyres",
-    description: "Releases manual positions (fixtures, a group, or all): heads go back to the looks' moves (or the centre).",
+    description: "Releases manual positions (fixtures, a group, or all) and the hold a Panic left on those heads: they glide back to the looks' moves, else to their rest position. Returns the heads released.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target,
-    run: (t) => ({ released: show.releasePositions(t.fixtures || t.group ? targets(t) : undefined) }),
+    run: (t) => {
+      const ids = t.fixtures || t.group ? targets(t) : undefined;
+      // after a Panic the heads hold where they are: handing them back lets them go too
+      return { released: [...new Set([...show.releasePositions(ids), ...show.releaseHold(ids)])] };
+    },
+  });
+  reg.register({
+    name: "position.home",
+    title: "Lyres au repos",
+    description: "Sends moving heads (fixtures, a group, or all) to their rest position, gliding: every claim on them is released — the manual position, the looks' moves (a look started again claims them again), a Panic hold. Returns, per head, what was released.",
+    right: "commands:position",
+    profiles: ["live", "design", "setup"],
+    schema: Target,
+    run: (t) => ({ fixtures: show.homePositions(t.fixtures || t.group ? targets(t) : undefined) }),
   });
   reg.register({
     name: "position.aim",

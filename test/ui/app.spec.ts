@@ -3663,6 +3663,45 @@ test("DMX console: a Reset channel stays at rest, says why, and « Réinitialise
   expect(errors).toEqual([]);
 });
 
+// ---- DMX console: who places a moving head's pan (the motion layer, T25)
+test("DMX console: « Pourquoi ce canal » on a pan channel names who places the head and who is masked", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "venue.canvas.list")) as { id: string }[])[0]!.id;
+  await api(page, "venue.fixture.put", { fixture: { id: "why-head", name: "Lyre pourquoi", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 104 } });
+  await api(page, "look.put", { look: { id: "why-scene", name: "Scène pan", canvas, technique: { kind: "aucune" }, channels: { targets: [{ fixture: "why-head", offset: 0 }], steps: [[40]] } } });
+  try {
+    await page.getByRole("button", { name: "Console DMX" }).click();
+    const head = page.getByRole("region", { name: "Lyre pourquoi" });
+    await head.getByRole("button", { name: "Pourquoi ce canal 104" }).click();
+    const why = page.getByRole("region", { name: "Pourquoi ce canal 104" });
+    await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : position de repos (personne ne la réclame)");
+    // a scene that writes the channel raw: it glides there, then holds the axis and is named as its source
+    await api(page, "look.go", { id: "why-scene" });
+    await expect(why.locator(".why-motion")).toContainText("look « Scène pan » · glisse de 50 % vers 16 %, encore", { timeout: 3000 });
+    await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : look « Scène pan »", { timeout: 5000 });
+    await expect(why).toContainText("Look à canaux bruts « Scène pan »");
+    // the pad takes the head: the scene still writes the channel but no longer places it, and is said masked
+    await api(page, "position.set", { fixtures: ["why-head"], pan: 0.8 });
+    await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : position manuelle (pad, visée)", { timeout: 3000 });
+    await expect(why.locator(".why-motion-masked")).toHaveText("Voudrait la déplacer : look « Scène pan » — masqué par : position manuelle (pad, visée)");
+    await expect(why).not.toContainText("Look à canaux bruts");
+    // a Panic holds the head; handing it back lets it go to rest
+    await api(page, "position.release", { fixtures: ["why-head"] });
+    await api(page, "panic");
+    await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : tenue après un Panic (la lyre reste où elle est)", { timeout: 3000 });
+    await api(page, "position.release", { fixtures: ["why-head"] });
+    await expect(why.locator(".why-motion")).toContainText("position de repos", { timeout: 3000 });
+  } finally {
+    await api(page, "panic.undo").catch(() => undefined);
+    await api(page, "look.stop", { id: "why-scene" }).catch(() => undefined);
+    await api(page, "position.release", {});
+    await api(page, "look.delete", { id: "why-scene", force: true }).catch(() => undefined);
+    await api(page, "venue.fixture.delete", { id: "why-head" }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
 test("songs page: sections start their looks", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

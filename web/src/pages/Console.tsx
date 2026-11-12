@@ -36,6 +36,19 @@ interface Explain {
   clamps: { rule: string; name?: string; from: number; to: number }[];
   /** On a fixture whose tracks are enabled (T5): whether this channel follows the fades or jumps at mid-fade. */
   track?: "fade" | "jump";
+  /** A pan/tilt channel: who places that axis in the motion layer, the glide under way, and who it masks. */
+  motion?: {
+    axis: "pan" | "tilt";
+    layer: "lock" | "manual" | "target" | "look" | "hold" | "rest";
+    owner: string | null;
+    name?: string;
+    moving: boolean;
+    from?: number;
+    to?: number;
+    remainingMs?: number;
+    error?: string;
+    masked: { owner: string; name?: string; released?: true }[];
+  };
   /** A lamp's colour wheel: the slot held (its real colour, two joined by « + » for a split slot), the colour asked and the gap between them (OKLab). */
   wheel?: { slot: string; color: string; asked?: string; gap: number };
   /** Its fixture has Reset channels, held at rest by the built-in protection: fixture.reset resets it on purpose. */
@@ -48,6 +61,12 @@ interface Explain {
 const SLOTS = 512;
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
+
+/** Who holds an axis of a moving head, in words: its layer, with the look's name when a look does. */
+function motionOwner(t: ReturnType<typeof useT>, layer: NonNullable<Explain["motion"]>["layer"], owner: string | null, name?: string): string {
+  if (layer === "look") return `${t.whyMotionLook} ${quoted(t, name ?? owner?.replace(/^look:/, "") ?? "")}`;
+  return { lock: t.whyMotionLock, manual: t.whyMotionManual, target: t.whyMotionTarget, hold: t.whyMotionHold, rest: t.whyMotionRest }[layer];
+}
 
 /** A wheel colour (or two, « #a+#b ») as swatches before its hex. */
 function WheelColors({ hex }: { hex: string }) {
@@ -133,6 +152,25 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
           </li>
         )}
         {why.track && <li className="why-track">{why.track === "fade" ? t.whyTrackFade : t.whyTrackJump}</li>}
+        {why.motion && (
+          <li className="why-motion">
+            {t.whyMotion.replace("{axis}", why.motion.axis)}
+            {t.colon} {motionOwner(t, why.motion.layer, why.motion.owner, why.motion.name)}
+            {why.motion.moving && why.motion.from !== undefined && why.motion.to !== undefined
+              ? ` · ${t.whyMotionGlide
+                  .replace("{from}", pct(why.motion.from))
+                  .replace("{to}", pct(why.motion.to))
+                  .replace("{s}", ((why.motion.remainingMs ?? 0) / 1000).toFixed(1).replace(".", t.decimalMark))}`
+              : ""}
+            {why.motion.error ? ` · ${why.motion.error}` : ""}
+          </li>
+        )}
+        {why.motion?.masked.map((m) => (
+          <li key={m.owner} className="why-motion-masked">
+            {t.whyMotionMasked.replace("{who}", motionOwner(t, m.owner === "manual" ? "manual" : m.owner.startsWith("target:") ? "target" : "look", m.owner, m.name)).replace("{by}", motionOwner(t, why.motion!.layer, why.motion!.owner, why.motion!.name))}
+            {m.released ? ` (${t.whyMotionReleased})` : ""}
+          </li>
+        ))}
         {why.undosed && !why.wheel && <li className="why-undosed">{t.whyUndosed}</li>}
         {why.intensity && !why.wheel && !why.undosed && (
           <li>

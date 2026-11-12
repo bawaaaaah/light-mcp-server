@@ -11,7 +11,7 @@ import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
-import { claimKey, emptyMotionState, FALLBACK_BPM, holdMotion, releaseMotion, resolveMotion, type Axis, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
+import { claimKey, claimsAxis, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, releasedOf, releaseMotion, resolveMotion, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
@@ -66,8 +66,13 @@ interface MotionRun {
   /** The tempo a glide given in beats is timed at when it starts. */
   bpm: number;
   sent?: ReadonlyMap<string, Position> | undefined;
-  status?: ReadonlyMap<string, HeadStatus>;
+  status: ReadonlyMap<string, HeadStatus>;
 }
+
+/** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
+const STRICT_FRAME_MS = 23;
+/** strictBounds: how far ahead the arrival frame is played — past the longest fade and the longest glide (64 beats at a slow tempo). */
+const STRICT_ARRIVAL_MS = 600_000;
 
 /** The pad and the commands that follow a continuous gesture are direct (R8). */
 const DIRECT: MoveFade = { seconds: 0 };
@@ -123,6 +128,9 @@ interface Crossfade {
   /** That part keeps a sheet of its own (it released other looks as it came back: they cross with what rises of it, not with what it still had). */
   apart?: boolean;
 }
+
+/** How far a stopped look is into its exit fade at `now`, 0..1: at 1 it neither paints nor moves a head any more. */
+const exitProgress = (r: Pick<ReleasingLook, "stopTime" | "exitFade">, now: number): number => Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
 
 /** Stable small seed from a string, so a random-order look plays the same way every time. */
 function seedOf(s: string): number {
@@ -181,6 +189,27 @@ export interface ChannelExplanation {
   reset?: { channels: ResetChannel[]; secondsLeft?: number };
   /** On a fixture whose tracks are enabled (T5): whether this channel follows the transitions or jumps (pan/tilt left out: the motion layer's). */
   track?: "fade" | "jump";
+  /**
+   * A pan or tilt channel of a moving head: who places it (the motion layer, T25). `axis` is the logical axis the
+   * channel drives (the other one on a head whose axes are swapped); `owner` the winning claim ("manual", "look:<id>",
+   * "target:<id>"; null for a lock, a Panic hold and the rest position) and `name` its look's; while a glide runs,
+   * `from` → `to` (0..1 of the travel) and the milliseconds left. `masked`: who else claims the axis and is beaten,
+   * `released` when it was handed back. Looks that write the channel raw are listed in `rawLooks` only when they hold the axis.
+   */
+  motion?: {
+    axis: Axis;
+    layer: AxisLayer;
+    owner: string | null;
+    name?: string;
+    lock: LockLevel;
+    position: number;
+    moving: boolean;
+    from?: number;
+    to?: number;
+    remainingMs?: number;
+    error?: string;
+    masked: { owner: string; name?: string; released?: true }[];
+  };
 }
 
 export class ShowRuntime {
@@ -933,6 +962,8 @@ export class ShowRuntime {
     const onWheel = !("error" in r) && r.lampOnly && r.wheel?.offset === offset;
     // fadeable tracks (T5): the wheel follows its own rule (T18), never faded; pan/tilt belong to the motion layer
     const track = "error" in r || !r.tracks || motionOffsets(r).has(offset) ? undefined : r.tracks.fade.has(offset) && !onWheel ? ("fade" as const) : ("jump" as const);
+    // pan/tilt: the motion layer places the head; a look writing the channel raw is a source only when it holds the axis
+    const motion = "error" in r ? undefined : this.explainMotion(fixture.id, r, offset);
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
     const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
     // a painting look's colour here carries the level its groups give it on this channel (colorsOf)
@@ -951,11 +982,44 @@ export class ShowRuntime {
       ...(viaFaders.length ? { faderDcas: { dcas: viaFaders, factor: index.product(viaFaders.map((d) => d.id)) } } : {}),
       ...(kind === "machine" ? { undosed: true as const } : {}),
       faders,
-      rawLooks,
+      rawLooks: motion ? rawLooks.filter((l) => `look:${l.id}` === motion.owner) : rawLooks,
+      ...(motion ? { motion } : {}),
       clamps,
       ...(!("error" in r) && resetChannels(r).length
         ? { resettable: true as const, reset: { channels: resetChannels(r), ...(this.resetting(fixture.id) ? { secondsLeft: Math.ceil((this.resets.get(fixture.id)! - this.now()) / 1000) } : {}) } }
         : {}),
+    };
+  }
+
+  /** Who places the axis a pan or tilt channel drives, on the last frame rendered (ChannelExplanation.motion); undefined for any other channel. */
+  private explainMotion(fixtureId: string, r: ResolvedFixture, offset: number): ChannelExplanation["motion"] {
+    const channel: Axis | undefined = r.pan && (r.pan.coarse === offset || r.pan.fine === offset) ? "pan" : r.tilt && (r.tilt.coarse === offset || r.tilt.fine === offset) ? "tilt" : undefined;
+    const status = this.lastMotion.get(fixtureId);
+    if (!channel || !status) return undefined;
+    const axis: Axis = r.patch.orientation?.swapPanTilt ? (channel === "pan" ? "tilt" : "pan") : channel;
+    const a = status[axis];
+    const named = (owner: string) => {
+      const name = owner.startsWith("look:") ? this.looks.get(owner.slice(5))?.name : undefined;
+      return name === undefined ? {} : { name };
+    };
+    const masked: NonNullable<ChannelExplanation["motion"]>["masked"] = [];
+    for (const c of this.motionClaims(this.movingHeads(), this.now(), this.tempo.state().beats)) {
+      if (!c.heads.includes(fixtureId) || !claimsAxis(c, axis) || c.owner === a.owner || masked.some((m) => m.owner === c.owner)) continue;
+      masked.push({ owner: c.owner, ...named(c.owner), ...(status.released.includes(claimKey(c)) ? { released: true as const } : {}) });
+    }
+    return {
+      axis,
+      layer: a.layer,
+      owner: a.owner,
+      ...(a.owner ? named(a.owner) : {}),
+      lock: status.lock,
+      position: a.position,
+      moving: a.moving,
+      ...(a.moving && a.from !== undefined ? { from: a.from } : {}),
+      ...(a.moving && a.target !== undefined ? { to: a.target } : {}),
+      ...(a.moving && a.remainingMs !== undefined ? { remainingMs: Math.round(a.remainingMs) } : {}),
+      ...(a.error === undefined ? {} : { error: a.error }),
+      masked,
     };
   }
 
@@ -1132,8 +1196,23 @@ export class ShowRuntime {
   /** The groups of the other shows playing on this venue (set by the plugin, which reads their folders); none in tests. */
   otherShowsGroups: () => { show: string; groups: Group[] }[] = () => [];
 
+  /** The moving heads while a frame is composed: listed once for the frame (compose, the claims, the read-back). */
+  private frameHeads: string[] | undefined;
+
+  /** Runs `fn` with the moving heads listed once. */
+  private withHeads<T>(fn: () => T): T {
+    const had = this.frameHeads;
+    this.frameHeads ??= this.movingHeads();
+    try {
+      return fn();
+    } finally {
+      this.frameHeads = had;
+    }
+  }
+
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
   movingHeads(): string[] {
+    if (this.frameHeads) return this.frameHeads;
     return this.venue.fixtures.list().filter((f) => {
       if (this.venue.absent.has(f.id)) return false;
       const r = this.venue.resolve(f.id);
@@ -1213,13 +1292,27 @@ export class ShowRuntime {
     const before = this.motionState;
     this.motionState = releaseMotion({ heads: all, claims: this.motionClaims(all, this.now(), this.tempo.state().beats), lock: this.motionLock }, before, { heads, scope });
     return heads.map((head) => {
-      const was = new Set(headOf(before, head)?.released);
-      const added = (headOf(this.motionState, head)?.released ?? []).filter((key) => !was.has(key));
+      const was = new Set(releasedOf(before, head));
+      const added = releasedOf(this.motionState, head).filter((key) => !was.has(key));
       // a manual claim released is gone: the next command is a new one
       const manual = this.manualPositions.get(head);
       if (manual && added.includes(claimKey({ owner: "manual", order: manual.order }))) this.manualPositions.delete(head);
-      return { fixture: head, released: [...new Set(added.map((key) => key.slice(0, key.lastIndexOf("#"))))] };
+      // a Panic hold let go is told like a claim
+      const hold = isHeld(before, head) && !isHeld(this.motionState, head) ? ["hold"] : [];
+      return { fixture: head, released: [...new Set([...added.map((key) => key.slice(0, key.lastIndexOf("#"))), ...hold])] };
     });
+  }
+
+  /**
+   * Lets heads out of the hold a Panic left (all the moving heads when none is given), and nothing else: they glide
+   * to the look that claims them, else to rest. Returns the heads that were held. `position.release` calls it: after
+   * a Panic, the button that hands a head back must not leave it stuck.
+   */
+  releaseHold(fixtures?: string[]): string[] {
+    const all = this.movingHeads();
+    const held = (fixtures ?? all).filter((f) => all.includes(f) && isHeld(this.motionState, f));
+    if (held.length) this.motionState = releaseMotion({ heads: all, claims: [], lock: this.motionLock }, this.motionState, { heads: held, scope: "top" });
+    return held.filter((f) => !isHeld(this.motionState, f));
   }
 
   /**
@@ -1273,7 +1366,7 @@ export class ShowRuntime {
         if (at.pan !== undefined || at.tilt !== undefined) claims.push({ ...own, heads: [f], base: { kind: "fixed", ...at } });
       }
     };
-    for (const r of this.releasing.values()) if (Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade) < 1) ofLook(r.look, r.player);
+    for (const r of this.releasing.values()) if (exitProgress(r, now) < 1) ofLook(r.look, r.player);
     for (const x of this.crossfades.values()) for (const o of x.outgoing) if (this.outWeight(o, now) > 0) ofLook(o.look, o.player);
     for (const { look, player } of this.active.values()) ofLook(look, player);
     for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: { kind: "fixed", ...m.position }, ...(m.glide ? {} : { fade: DIRECT }) });
@@ -1319,16 +1412,18 @@ export class ShowRuntime {
 
   /** Renders the playing looks into DMX buffers. */
   render(buffers: Uint8Array[]): void {
-    const tempo = this.tempo.state();
-    const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM };
-    const errors = this.compose(buffers, this.now(), tempo.beats, this.wheels, run);
-    this.motionState = run.state;
-    this.lastMotion = run.status ?? new Map();
-    // Rules mask: last stage of the show's output.
-    this.lastClamps = this.mask(buffers, this.rulesInForce());
-    this.lastErrors = errors;
-    // what the heads were really sent (the guard reads it again after the console and its own limits)
-    this.sentPositions = this.readBack(buffers);
+    this.withHeads(() => {
+      const tempo = this.tempo.state();
+      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion };
+      const errors = this.compose(buffers, this.now(), tempo.beats, this.wheels, run);
+      this.motionState = run.state;
+      this.lastMotion = run.status;
+      // Rules mask: last stage of the show's output.
+      this.lastClamps = this.mask(buffers, this.rulesInForce());
+      this.lastErrors = errors;
+      // what the heads were really sent (the guard reads it again after the console and its own limits)
+      this.sentPositions = this.readBack(buffers);
+    });
   }
 
   /**
@@ -1346,22 +1441,42 @@ export class ShowRuntime {
     const zoneById = this.zoneLookup();
     const t0 = this.now();
     const { beats: b0, bpm } = { bpm: 120, ...this.tempo.state() } as { beats: number; bpm?: number };
+    // speed rules that refuse or ask: the pan/tilt course of the frames sampled is measured against them
+    const speedRules = strict.filter((r) => r.maxDegPerSecond);
     const sample = (): Set<string> => {
       const seen = new Set<string>();
       const wheels = new Map(this.wheels); // played in memory: the wheels held on the output stay as they are
       // and so does the motion layer: its transitions are played from the state it has now, which is not kept
-      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: bpm ?? FALLBACK_BPM };
-      for (let k = 0; k < 20; k++) {
-        const buffers = Array.from({ length: universes }, () => new Uint8Array(512));
-        this.compose(buffers, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60, wheels, run);
-        run.sent = undefined; // the frames after the first follow the layer's own course
+      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: bpm ?? FALLBACK_BPM, status: this.lastMotion };
+      const blank = () => Array.from({ length: universes }, () => new Uint8Array(512));
+      const eachFixture = (out: Uint8Array[], visit: (r: ResolvedFixture, buf: Uint8Array) => Clamp[]): void => {
         for (const f of this.venue.installed()) {
           const r = this.venue.resolve(f.id);
-          const buf = buffers[f.universe - 1];
+          const buf = out[f.universe - 1];
           if ("error" in r || !buf) continue;
-          for (const c of applyRules(strict, r, buf, zoneById)) seen.add(JSON.stringify([c.rule, c.fixture, c.channel]));
+          for (const c of visit(r, buf)) seen.add(JSON.stringify([c.rule, c.fixture, c.channel]));
         }
+      };
+      // where the heads are now, one frame before the first sample: what their speed is measured from
+      const speeds = new Map<string, { v: number; t: number }>();
+      if (speedRules.length) {
+        const sent = emptyFrame();
+        for (const [head, p] of this.sentPositions) sent.positions.set(head, p);
+        const before = blank();
+        this.venue.toDmx(sent, before, new Map(wheels), { now: t0, merge: this.settings.looksMerge });
+        eachFixture(before, (r, buf) => (applySpeeds(speedRules, r, buf, t0 - STRICT_FRAME_MS, speeds, zoneById), []));
       }
+      for (let k = 0; k < 20; k++) {
+        const sampled = blank();
+        this.compose(sampled, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60, wheels, run);
+        run.sent = undefined; // the frames after the first follow the layer's own course
+        eachFixture(sampled, (r, buf) => [...applyRules(strict, r, buf, zoneById), ...(speedRules.length ? applySpeeds(speedRules, r, buf, t0 + k * 200, speeds, zoneById) : [])]);
+      }
+      // and where everything lands: one frame once every fade and every glide is over, so that a long glide towards
+      // a forbidden position is bounded too (not its speed: no time is measured across that leap)
+      const landed = blank();
+      this.compose(landed, t0 + STRICT_ARRIVAL_MS, b0 + ((STRICT_ARRIVAL_MS / 1000) * (bpm ?? 120)) / 60, wheels, run);
+      eachFixture(landed, (r, buf) => applyRules(strict, r, buf, zoneById));
       return seen;
     };
     // go() drops the look's own fading copy: it belongs to neither sample (put back after)
@@ -1377,12 +1492,12 @@ export class ShowRuntime {
     // the launch played in memory takes no launch order: the real one gets the same
     const launches = this.launches;
     try {
-      without = sample();
+      without = this.withHeads(sample);
       const player = this.build(look);
       player.start(t0, b0);
       this.launchOrder.set(player, ++this.launches);
       this.active.set(lookId, { look, player });
-      withIt = sample();
+      withIt = this.withHeads(sample);
     } finally {
       this.active.delete(lookId);
       this.launches = launches;
@@ -1572,7 +1687,7 @@ export class ShowRuntime {
     // started (or still playing) wins over the one leaving, in colours; their weight rides into the looks' raw
     // channels the same way. Where the heads go is the motion layer's, below. First the looks fading out on exit.
     for (const [id, r] of this.releasing) {
-      const t = Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
+      const t = exitProgress(r, now);
       if (t >= 1) continue;
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
@@ -1638,7 +1753,7 @@ export class ShowRuntime {
       for (const [head, status] of resolved.status) for (const axis of [status.pan, status.tilt]) if (axis.error && !errors.includes(`${head}: ${axis.error}`)) errors.push(`${head}: ${axis.error}`);
       motion.state = resolved.next;
       motion.status = resolved.status;
-    } else motion.status = new Map();
+    } else if (motion.status.size) motion.status = new Map();
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
@@ -1805,9 +1920,6 @@ export class ShowRuntime {
     return clamps;
   }
 }
-
-/** The motion layer's state of one head (opaque outside engine/motion.ts: only its released claims are read here). */
-const headOf = (state: MotionState, head: string) => state.heads.get(head);
 
 /** What the type grouping proposal reads of a group. */
 const existingGroup = (g: Group): ExistingGroup => ({ id: g.id, name: g.name, fixtures: g.members.fixtures, groups: g.members.groups, ...(g.selector ? { selector: g.selector } : {}) });
