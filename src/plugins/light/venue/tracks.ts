@@ -193,15 +193,17 @@ export function overSheets(carried: readonly Carried[], merge: LooksMerge, held:
  * equal weights. So a crossfade switches at mid-fade, an entry at once, an exit at its very end. With « last », while
  * the heaviest of the latest sheet is a look leaving under looks of other sheets launched after it, those still
  * cover it (overSheets): the channel stays theirs until the incoming look outweighs it — one jump, not two.
- * composeTracks adds, in the sheets carrying the channel, the layers lighting the fixture without it, at the
- * channel's rest value.
+ * `ties: "value"` (a light channel with « highest »): on equal weights the higher value, so that the steady state is
+ * the highest as on a fixture without tracks. composeTracks adds, in the sheets carrying the channel, the layers
+ * lighting the fixture without it, at the channel's rest value.
  */
-export function dominantLayer<T extends { sheet: string; weight: number; order: number }>(carried: readonly T[], merge: LooksMerge): T | undefined {
+export function dominantLayer<T extends { sheet: string; weight: number; order: number; value?: number }>(carried: readonly T[], merge: LooksMerge, ties: "later" | "value" = "later"): T | undefined {
   const heavier = (x: T | undefined, y: T): T => {
     if (!x) return y;
     const wx = Math.max(0, x.weight);
     const wy = Math.max(0, y.weight);
     if (wy !== wx) return wy > wx ? y : x;
+    if (ties === "value" && (y.value ?? 0) !== (x.value ?? 0)) return (y.value ?? 0) > (x.value ?? 0) ? y : x;
     return y.order >= x.order ? y : x;
   };
   if (merge !== "last") return carried.reduce<T | undefined>(heavier, undefined);
@@ -209,7 +211,7 @@ export function dominantLayer<T extends { sheet: string; weight: number; order: 
   if (!last) return undefined;
   const top = carried.filter((c) => c.sheet === last.sheet).reduce<T | undefined>(heavier, undefined)!;
   const over = carried.filter((c) => c.sheet !== last.sheet && c.order > top.order);
-  return over.length ? dominantLayer(over, merge) : top;
+  return over.length ? dominantLayer(over, merge, ties) : top;
 }
 
 const levelOf = (c: Color): number => Math.max(0, ...Object.values(c).map((v) => v ?? 0));
@@ -341,7 +343,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       const sheets = new Set(carried.map((c) => c.sheet));
       const rest = isDimmer ? (r.levelDimmer ? 0 : 255) : isColour ? 0 : (r.shutterOpen.get(o) ?? 0);
       const resting = ordered.flatMap(({ l, order }) => (sheets.has(l.sheet) && present(l) && valueOf(l, o) === undefined ? [{ sheet: l.sheet, weight: l.weight, value: rest, order }] : []));
-      out.set(o, dominantLayer([...carried, ...resting], opts.merge)!.value);
+      out.set(o, dominantLayer([...carried, ...resting], opts.merge, isDimmer || isColour ? "value" : "later")!.value);
       continue;
     }
     const { value, opacity } = overSheets(carried, opts.merge, 0);

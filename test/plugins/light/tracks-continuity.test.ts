@@ -152,3 +152,26 @@ describe("fadeable tracks: a look leaving through a crossfade stays under the lo
     expect(dominantLayer([c("x", 0.4, 10, 0), c("c", 1, 20, 1), c("x", 0.6, 30, 2)], "last")!.value).to.equal(30);
   });
 });
+
+describe("fadeable tracks: jumping light channels with « highest » (T5)", () => {
+  it("keeps the highest value on equal weights, so the steady state is the one without tracks", () => {
+    const s: Scenario = {
+      merge: "highest",
+      ticked: ["Dimmer"],
+      looks: [painted("a", "#ffff00", [], [1, 1]), painted("b", "#0000ff", [], [1, 1])],
+      events: [
+        [0, "go", "a"],
+        [2000, "go", "b"],
+      ],
+    };
+    const withTracks = play(s);
+    expect(at(withTracks, 6000).slice(0, 6)).to.deep.equal([255, 0, 0, 255, 255, 255]);
+    expect(at(withTracks, 6000)).to.deep.equal(at(play(s, false), 6000));
+    // each colour still jumps once, never through a value between
+    expect(path(withTracks, 5)).to.deep.equal([0, 255]);
+    const c = (sheet: string, weight: number, value: number, order: number) => ({ sheet, weight, value, order });
+    expect(dominantLayer([c("a", 1, 200, 0), c("b", 1, 100, 1)], "highest", "value")!.value).to.equal(200);
+    // a machine channel keeps the later look on equal weights
+    expect(dominantLayer([c("a", 1, 200, 0), c("b", 1, 100, 1)], "highest")!.value).to.equal(100);
+  });
+});
