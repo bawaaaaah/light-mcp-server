@@ -202,6 +202,7 @@ Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts)
 - **Fusionner** : garder une définition, rediriger l'autre vers elle (alias) pour que les appareils déjà patchés suivent sans changer d'adresse ni de mode ; refuser si un mode utilisé disparaît, ou proposer la correspondance de modes.
 - **Dupliquer / éditer** : copie privée modifiable (renommer, ajuster canaux, plages, têtes, images) sans toucher à l'original ; un éditeur de définition **dans l'interface** (canaux, capacités, modes, `<Head>`) au lieu d'éditer le XML.
 - **Supprimer** : refusé tant qu'un appareil s'en sert (sauf `force`), corbeille récupérable, comme les looks.
+- **Exporter une définition au format `.qxf`** (demandé le 2026-11-12) : télécharger le fichier de n'importe quelle définition de la bibliothèque (livrée ou privée, copie éditée comprise), depuis la page Bibliothèque, depuis le menu d'un appareil patché et par commande (MCP, HTTP, CLI), pour la réutiliser dans QLC+ ou sur une autre machine. Le fichier exporté est celui de la bibliothèque, octet pour octet quand il n'a pas été édité ; une option « avec les corrections de ce lieu » peut écrire dans le XML ce qui s'y exprime (course pan/tilt réelle, couleurs des cases de la roue, têtes déclarées) et dit ce qui ne passe pas (pistes fondables, halo qui suit). Le nom de fichier proposé suit la convention QLC+ (`Fabricant-Modèle.qxf`).
 - **Avertir** quand deux définitions portent le même nom et que la première gagne aujourd'hui sans le dire (ajouter à « Vérifier le show »).
 - Les commandes sortent d'abord comme **commandes** (outil MCP, route HTTP, CLI), l'interface n'étant qu'un adaptateur, conformément aux règles du dépôt.
 
@@ -230,7 +231,7 @@ Ajouts à « Vérifier le show » et à `venue.patch.check` :
 - **Physique** : course pan et tilt réelle (lien T8 : course corrigée pour le modèle ou l'appareil), angle de faisceau, dimensions, puissance.
 - **Corrections du lieu** dans le même éditeur : roue (T18), têtes et halo (T21), pistes fondables (T5), sans les recopier dans la définition.
 - **Essai en direct** : envoyer chaque canal ou chaque plage à un appareil patché (sortie locale ou réelle, avec confirmation hors veille), pour vérifier une plage sur le vrai projecteur pendant qu'on l'édite.
-- **Enregistrer** : `.qxf` re-validé par `parseQxf`, rien de ce que l'éditeur ne connaît n'est perdu à l'aller-retour ; refus d'une définition invalide avec le message ; versions et annulation comme les autres objets ; export `.qxf` pour QLC+.
+- **Enregistrer** : `.qxf` re-validé par `parseQxf`, rien de ce que l'éditeur ne connaît n'est perdu à l'aller-retour ; refus d'une définition invalide avec le message ; versions et annulation comme les autres objets ; export `.qxf` pour QLC+ (voir T20, « Exporter une définition au format `.qxf` »).
 - **Effet sur le patch** : les appareils qui utilisent la définition suivent ; un mode utilisé qui disparaît ou change de canaux passe par le plan de changement de mode de T6 (report par nom de canal, pertes nommées).
 - **Fait quand** : on peut créer un projecteur de zéro (par exemple une lyre 16 bits avec roue et gobos), le patcher, l'essayer canal par canal et l'exporter vers QLC+ sans perte, entièrement depuis l'interface (clavier compris, utilisable sur tablette).
 
