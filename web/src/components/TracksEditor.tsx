@@ -116,9 +116,12 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
   const shownOn = pending.own ?? info.enabled;
   const modelOn = pending.model ?? allOn;
   // a channel fader on a colour, the dimmer fading and a colour that does not: the dimmer starts every look from black
+  // read on the list the fixture follows (its own when it has one, else its model's), whichever scope is being edited
+  const appliesTo: Scope = info.own || asked?.scope === "fixture" ? "fixture" : "model";
+  const applied = new Set(asked?.scope === appliesTo ? asked.list : appliesTo === "fixture" ? (info.own ?? []) : (info.model.fade ?? []));
   const colours = info.channels.filter((c) => c.kind === "colour");
   const held = colours.filter((c) => c.fader).map((c) => c.name);
-  const faderDark = held.length > 0 && info.channels.some((c) => c.kind === "dimmer" && ticked.has(c.name)) && colours.some((c) => !ticked.has(c.name));
+  const faderDark = held.length > 0 && info.channels.some((c) => c.kind === "dimmer" && applied.has(c.name)) && colours.some((c) => !applied.has(c.name));
   const nothing = !info.channels.some((c) => c.kind !== "wheel" && ticked.has(c.name));
   return (
     <div className="field tracks-entry">

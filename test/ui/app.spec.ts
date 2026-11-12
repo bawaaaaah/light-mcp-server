@@ -5442,6 +5442,25 @@ test("venue patch: the tracks editor warns of a colour a channel fader holds, an
     await page.screenshot({ path: "test-results/venue-tracks-fader-warning.png" });
     await editor.getByRole("button", { name: "Cocher la couleur" }).click();
     await expect(editor.getByRole("note")).toHaveCount(0);
+    // the warning reads the list the fixture follows, not the one being edited: with a list of its own where a colour
+    // is unticked, it stays while the model's list (every colour ticked) is the one shown
+    await editor.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await editor.getByRole("checkbox", { name: "Green" }).uncheck();
+    await expect(editor.getByRole("note")).toContainText("Un fader de canal tient Red");
+    await editor.getByRole("radio", { name: "Ce modèle" }).click();
+    await expect(editor.getByRole("checkbox", { name: "Green" })).toBeChecked();
+    await expect(editor.getByRole("note")).toContainText("Un fader de canal tient Red");
+    // and the model's list changed does not bring it back once the fixture's own list is fine
+    await editor.getByRole("button", { name: "Revenir au modèle" }).click();
+    await expect(editor.getByRole("note")).toHaveCount(0);
+    await editor.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await editor.getByRole("checkbox", { name: "Speed" }).check();
+    await editor.getByRole("radio", { name: "Ce modèle" }).click();
+    await editor.getByRole("checkbox", { name: "Green" }).uncheck();
+    await expect(editor.getByRole("checkbox", { name: "Green" })).not.toBeChecked();
+    await expect(editor.getByRole("note")).toHaveCount(0);
+    await editor.getByRole("checkbox", { name: "Green" }).check();
+    await editor.getByRole("button", { name: "Revenir au modèle" }).click();
     // the whole model switched on, then this fixture at once: it goes off (the model's switch asked it on), the other stays on
     const asked: unknown[] = [];
     page.on("request", (r) => void (r.url().endsWith("/commands/venue.tracks.put") && asked.push((r.postDataJSON() as { enabled?: boolean }).enabled)));
