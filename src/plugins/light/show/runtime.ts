@@ -1222,9 +1222,12 @@ export class ShowRuntime {
      * layers (layerOf), not through the colours and raw channels below — but for pan/tilt and offsets past their mode, which stay raw and verbatim.
      */
     const trackFixtures = new Map<string, (offset: number) => boolean>();
+    const trackColours = new Map<string, Set<number>>();
     for (const f of this.venue.installed()) {
       const r = this.venue.resolve(f.id);
-      if (!("error" in r) && r.tracks) trackFixtures.set(f.id, verbatimOffsets(r));
+      if ("error" in r || !r.tracks) continue;
+      trackFixtures.set(f.id, verbatimOffsets(r));
+      trackColours.set(f.id, new Set([...r.heads.values()].flatMap((c) => Object.values(c))));
     }
     /** Removes the fixtures with tracks from a look's colours, in place (after `paints`, which must still see them: the wheel). */
     const withoutTracks = <M extends Map<string, unknown>>(colors: M): M => {
@@ -1432,6 +1435,17 @@ export class ShowRuntime {
     frame.raw = lookChannels;
     // a fixture with tracks stacks its looks as they were launched: one leaving keeps its place while it fades
     for (const layers of frame.tracks.values()) layers.sort((a, b) => ranks.get(a)! - ranks.get(b)!);
+    // and is lit at rest where a channel fader holds one of its colours up (the pass below): its dimmer then composes
+    // from full, not from black, or that colour would go dark when a look comes in (venue/tracks.ts composeTracks)
+    if (trackFixtures.size)
+      for (const fader of this.faders.list()) {
+        const travel = this.faderTravel(fader);
+        for (const c of fader.channels) {
+          if (frame.lit.has(c.fixture) || !trackColours.get(c.fixture)?.has(c.offset)) continue;
+          const own = doses.faderValue(fader, travel, c.fixture, c.offset);
+          if (!own.doses && Math.round(own.level * 255) > 0) frame.lit.add(c.fixture);
+        }
+      }
     errors.push(...this.venue.toDmx(frame, buffers, wheels, { now, merge: this.settings.looksMerge }));
     // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
     // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/

@@ -220,9 +220,11 @@ const levelOf = (c: Color): number => Math.max(0, ...Object.values(c).map((v) =>
  * The DMX values of one fixture with enabled tracks (`tracks`), from the layers of the looks on it in paint order
  * (bottom → top). `intensity`: the grand master and the DCAs covering the fixture (frame.intensity), on its dimmer,
  * or on its colours when it has none. `wheel`: the frame of its colour wheel (a lamp), whose slot it writes and whose
- * « au noir » factor (`dim`) doses the dimmer. Never a key for a pan/tilt offset.
+ * « au noir » factor (`dim`) doses the dimmer. `lit`: a channel fader holds one of its colours up (the show's frame): the
+ * fixture is lit at rest, so its dimmer composes from full and its colours carry the fades (below). Never a key for a
+ * pan/tilt offset.
  */
-export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: readonly TrackLayer[], opts: { merge: LooksMerge; intensity: number; wheel?: WheelFrame }): Map<number, number> {
+export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: readonly TrackLayer[], opts: { merge: LooksMerge; intensity: number; wheel?: WheelFrame; lit?: boolean }): Map<number, number> {
   const out = new Map<number, number>();
   const motion = motionOffsets(r);
   const dimmers = r.dimmers.filter((d) => !motion.has(d));
@@ -290,12 +292,18 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   if (wheelOffset !== undefined) offsets.add(wheelOffset);
   const ordered = layers.map((l, order) => ({ l, order }));
   const opacityOf = (keep: (l: TrackLayer) => boolean) => overSheets(ordered.filter(({ l }) => keep(l)).map(({ l, order }) => ({ sheet: l.sheet, weight: l.weight, value: 1, order })), opts.merge, 0).opacity;
+  // Lit at rest by a channel fader on a colour (`lit`), with every colour ticked: the dimmer cannot go to black under
+  // that colour, so it composes from full (what no look covers stays at full) and the colours carry the fades, as
+  // under a dimmer that does not fade — a painted look gives the same light either way, the fader's colour never dips.
+  // A look writing machine channels only then comes in at once (no dimmer left to fade it). Not with a colour
+  // that jumps: only the dimmer can fade such a fixture.
+  const based = opts.lit === true && hasDimmer && !r.levelDimmer && [...colourOf.keys()].every((o) => tracks.fade.has(o));
   // the combined opacity of the layers on the fixture, machine ones included: what a colour under a fading dimmer is shared against
-  const intensity = opacityOf(present);
+  const intensity = based ? 1 : opacityOf(present);
   // what the layers writing machine channels only add to it: the share of a fading dimmer they hold at full. Never on a
   // lamp (its dimmer is its painted level). In a crossfade the sheet is shared, so the dimmer does not dip between a
   // machine look and a painted one; between sheets it is (1 − the lighting layers' opacity) × the machine layers' own
-  const machineFill = r.levelDimmer ? 0 : Math.max(0, intensity - opacityOf(lit));
+  const machineFill = r.levelDimmer || based ? 0 : Math.max(0, intensity - opacityOf(lit));
   const dimmerFades = dimmers.some((d) => tracks.fade.has(d));
   // a ticked 16-bit pair (a zoom, a focus): the coarse channel glides with its fine one as one value, written by the coarse
   const glides = (o: number) => tracks.fade.has(o) && !dimmers.includes(o) && !colourOf.has(o) && o !== wheelOffset;
@@ -332,7 +340,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
     if (!carried.length) {
       // at rest: a colour fixture's dimmer held at full (dark under black colours), a lamp's dark, a shutter open; under
       // machine layers only, a fading dimmer follows them from black (a jumping one is at full at once)
-      if (isDimmer) out.set(o, r.levelDimmer ? 0 : tracks.fade.has(o) && layers.some(present) ? machineFill * 255 : 255);
+      if (isDimmer) out.set(o, r.levelDimmer ? 0 : tracks.fade.has(o) && !based && layers.some(present) ? machineFill * 255 : 255);
       else if (isColour) out.set(o, 0);
       else if (r.shutterOpen.has(o)) out.set(o, r.shutterOpen.get(o)!);
       continue;
@@ -346,7 +354,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       out.set(o, dominantLayer([...carried, ...resting], opts.merge, isDimmer || isColour ? "value" : "later")!.value);
       continue;
     }
-    const { value, opacity } = overSheets(carried, opts.merge, 0);
+    const { value, opacity } = overSheets(carried, opts.merge, isDimmer && based ? 255 : 0);
     if (isDimmer) out.set(o, value + machineFill * 255);
     else if (isColour) out.set(o, hasDimmer && dimmerFades ? (intensity > 0 ? Math.min(255, value / intensity) : 0) : value);
     else if (opacity > 0) out.set(o, value / opacity);

@@ -263,3 +263,75 @@ describe("fadeable tracks: a look started again while it leaves (T5)", () => {
     });
   }
 });
+
+describe("fadeable tracks: a channel fader holding a colour up (T5)", () => {
+  const fader = { offsets: [3], level: 0.5 };
+  for (const merge of ["last", "highest"] as const) {
+    it(`keeps that colour lit while a painted look fades in and out, the look's own light fading as ever (« ${merge} »)`, () => {
+      const s: Scenario = {
+        merge,
+        looks: [painted("a", "#0000ff")],
+        fader,
+        events: [
+          [1000, "go", "a"],
+          [5000, "stop", "a"],
+        ],
+      };
+      const frames = play(s);
+      // the fader's red never dips: 128 under a dimmer that stays at full
+      for (const b of frames) expect([b[0], b[3]]).to.deep.equal([255, 128]);
+      expect(steepest(frames).light).to.be.at.most(SMOOTH);
+      expect(at(frames, 2000)[5]).to.be.within(120, 135);
+      expect(at(frames, 4000)[5]).to.equal(255);
+      expect(at(frames, 8000)[5]).to.equal(0);
+      // the same light as on a fixture without tracks, frame by frame
+      const plain = play(s, false);
+      frames.forEach((b, f) => COLOURS.forEach((o) => expect((b[0]! * b[o]!) / 255, `frame ${f} offset ${o}`).to.be.closeTo((plain[f]![0]! * plain[f]![o]!) / 255, 2)));
+    });
+
+    it(`brings a look's raw dimmer down from full, not up from black, under that colour (« ${merge} »)`, () => {
+      const frames = play({
+        merge,
+        looks: [painted("a", "#0000ff", [[0, 100]])],
+        fader,
+        events: [
+          [1000, "go", "a"],
+          [5000, "stop", "a"],
+        ],
+      });
+      expect(at(frames, 980)[0]).to.equal(255);
+      expect(at(frames, 4000)[0]).to.equal(100);
+      expect(at(frames, 8000)[0]).to.equal(255);
+      expect(steepest(frames).dimmer).to.be.at.most(SMOOTH);
+      expect(steepest(frames).light).to.be.at.most(SMOOTH);
+    });
+  }
+
+  it("lets a look writing machine channels only come in at once there: no dimmer is left to fade it", () => {
+    const frames = play({
+      looks: [{ id: "m", raw: [[2, 200]], fades: [2, 2] }],
+      fader,
+      events: [
+        [1000, "go", "m"],
+        [5000, "stop", "m"],
+      ],
+    });
+    for (const b of frames) expect([b[0], b[3]]).to.deep.equal([255, 128]);
+    expect(path(frames, 2)).to.deep.equal([0, 200, 0]);
+  });
+
+  it("known limit: with a colour that jumps, only the dimmer fades the look, and the fader's colour goes dark with it", () => {
+    const frames = play({
+      ticked: ["Dimmer"],
+      looks: [painted("a", "#0000ff")],
+      fader,
+      events: [
+        [1000, "go", "a"],
+        [5000, "stop", "a"],
+      ],
+    });
+    expect(at(frames, 980).slice(0, 4)).to.deep.equal([255, 0, 0, 128]);
+    expect(at(frames, 1000)[0]).to.equal(0);
+    expect(at(frames, 4000)[0]).to.equal(255);
+  });
+});

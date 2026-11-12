@@ -197,6 +197,8 @@ export interface AttributeFrame {
   positions: Map<string, Position>;
   /** fixtureId → the looks on a fixture whose tracks are enabled (T5), as layers in paint order (bottom → top): composed channel by channel (tracks.ts). */
   tracks: Map<string, TrackLayer[]>;
+  /** The fixtures with tracks a channel fader lights at rest (it holds one of their colours above 0): composeTracks `lit`. */
+  lit: Set<string>;
 }
 
 /** A placed moving head's geometry for aiming and reading back where it points (aim.ts). */
@@ -213,7 +215,7 @@ function zoomOf(def: FixtureDefinition, mode: FixtureMode): { offset: number; op
   return offset < 0 ? undefined : { offset, opens: def.channels.get(mode.channels[offset]!)!.zoom === "opens" };
 }
 
-export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), painted: new Map(), paintedBy: new Map(), positions: new Map(), tracks: new Map() });
+export const emptyFrame = (): AttributeFrame => ({ colors: new Map(), intensity: new Map(), raw: new Map(), painted: new Map(), paintedBy: new Map(), positions: new Map(), tracks: new Map(), lit: new Set() });
 
 /** How the colours of several looks playing on the same fixture combine (show setting `looksMerge`). */
 export type LooksMerge = "last" | "highest";
@@ -807,7 +809,7 @@ export class Venue {
         // and offsets past the mode stay verbatim, after every fixture like any raw channel (rawOf kept only those here).
         for (const [off, v] of r.shutterOpen) write(off, v);
         const wheel = r.lampOnly && r.wheel ? this.wheelOn(patch.id, r, r.wheel, undefined, frame, wheels, at) : undefined;
-        for (const [off, v] of composeTracks(r, r.tracks, frame.tracks.get(patch.id) ?? [], { merge: at.merge, intensity, ...(wheel ? { wheel } : {}) })) write(off, v);
+        for (const [off, v] of composeTracks(r, r.tracks, frame.tracks.get(patch.id) ?? [], { merge: at.merge, intensity, lit: frame.lit.has(patch.id), ...(wheel ? { wheel } : {}) })) write(off, v);
         if (r.pan || r.tilt) this.writePosition(r, frame.positions.get(patch.id) ?? { pan: 0.5, tilt: 0.5 }, write);
         const verbatim = verbatimOffsets(r);
         if (raws)
