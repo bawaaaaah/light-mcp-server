@@ -255,7 +255,7 @@ export class LightPlugin implements McpPlugin {
       otherShows: () => showsOnVenueOrThrow(dataRoot, this.config.venue, this.config.show).map(({ id, settings }) => showFolder(dataRoot, id, settings.name || id)),
       place: () => ({ show: this.config.show, venue: this.config.venue }),
     });
-    registerMoveCommands(this.commands, this.runtime);
+    registerMoveCommands(this.commands, this.runtime, () => this.nextFrame());
     registerTracksCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());
@@ -766,6 +766,20 @@ export class LightPlugin implements McpPlugin {
       entry.calls = done;
       entry.ms = Math.round((performance.now() - started) * 100) / 100;
       this.publish("midi", { monitor: entry });
+    });
+  }
+
+  /** Resolves after the next frame the engine renders, or after 100 ms when no frame comes (the output does not run). */
+  private nextFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        off();
+        clearTimeout(timer);
+        resolve();
+      };
+      const off = this.engine.onFrame(done);
+      const timer = setTimeout(done, 100);
+      this.engine.requestFrame();
     });
   }
 

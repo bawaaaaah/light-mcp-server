@@ -4554,7 +4554,11 @@ test("guided calibration of a moving head", async ({ page }) => {
   await box.getByLabel("Repère").selectOption("");
   await box.getByLabel("x (m)").fill("3");
   await box.getByLabel("y (m)").fill("4");
-  await page.mouse.click(r.x + r.width * 0.75, r.y + r.height * 0.2);
+  // the point fields opened above the pad: it moved, measure it again
+  const r2 = (await pad.boundingBox())!;
+  await page.mouse.click(r2.x + r2.width * 0.75, r2.y + r2.height * 0.2);
+  // the mark is the position really sent: wait for the gesture to reach the head
+  await expect.poll(async () => Math.round((((await api(page, "position.list")) as { id: string; sent: { pan: number } | null }[]).find((h) => h.id === "spot")?.sent?.pan ?? 0) * 100)).toBe(75);
   await box.getByRole("button", { name: /Enregistrer ce repère/ }).click();
   await expect(box.getByRole("button", { name: /Enregistrer ce repère/ })).toContainText("(2)");
   await box.getByRole("button", { name: "Calculer" }).click();
@@ -4563,6 +4567,9 @@ test("guided calibration of a moving head", async ({ page }) => {
   page.once("dialog", (d) => void d.accept()); // random aiming: a large error, confirmation asked
   await box.getByRole("button", { name: "Appliquer" }).click();
   await expect.poll(async () => ((await api(page, "venue.fixture.list")) as { id: string; orientation?: { yaw: number } }[]).find((f) => f.id === "spot")?.orientation).toBeTruthy();
+  // the tests after this one find the head as it was: its orientation solved here comes from a random aiming
+  await api(page, "venue.fixture.put", { fixture: spot });
+  await api(page, "position.release", { fixtures: ["spot"] });
   expect(errors).toEqual([]);
 });
 

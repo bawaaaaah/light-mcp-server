@@ -13,7 +13,11 @@ import { motionEntries } from "../show/motion-report.js";
 /** Fixtures given directly or through a group, kept to the moving heads. */
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
 
-export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): void {
+/**
+ * `nextFrame`: resolves once the engine has rendered a frame after the call (or soon, when the output does not run), so a
+ * command that reads what was really sent sees the commands just before it: a mark recorded right after a pad gesture.
+ */
+export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, nextFrame: () => Promise<void> = () => Promise.resolve()): void {
   const targets = (t: z.infer<typeof Target>): string[] => {
     const heads = new Set(show.movingHeads());
     if (t.group && !show.groups.get(t.group)) throw new Error(say(`groupe inconnu : ${t.group}`, `unknown group: ${t.group}`));
@@ -162,8 +166,9 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime): v
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0) }),
-    run: ({ fixture, zone, point, height }) => {
+    run: async ({ fixture, zone, point, height }) => {
       const { f } = head(fixture);
+      await nextFrame(); // the gesture just before reaches the output first
       // where the head really points: the position sent (after the speed rules, the DMX console, a fader on pan/tilt)
       const sent = show.sentPosition(fixture);
       if (!sent) throw new Error(say(`${f.name} : aucune position envoyée pour l'instant (sortie arrêtée ?)`, `${f.name}: no position sent yet (output stopped?)`));
