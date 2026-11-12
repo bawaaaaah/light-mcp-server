@@ -63,6 +63,8 @@ interface ReleasingLook {
   stopTime: number;
   exitFade: number;
   rev: number;
+  /** Fixtures with tracks (T5): the crossfade whose sheet it shared when it was stopped (ShowRuntime.sharedSheet), while that one lasts. */
+  shared?: string;
 }
 
 /** A look leaving through a crossfade: its weight goes from `start` to 0 over `dur` seconds from `t`. */
@@ -73,6 +75,11 @@ interface Leaving {
   t: number;
   dur: number;
   rev: number;
+  /**
+   * Fixtures with tracks (T5): it was stopped while it was coming back (Crossfade.rank) — this share of its weight
+   * still lies at the rank it had before, in `sheet` when that part kept one of its own.
+   */
+  left?: { rank: number; share: number; sheet?: string };
 }
 
 /**
@@ -87,6 +94,10 @@ interface Crossfade {
   tIn: number;
   from: number;
   outgoing: Leaving[];
+  /** The launch rank its incoming look had when it started again while leaving (`from` > 0): where the part of it still leaving lies on a fixture with tracks (T5). */
+  rank?: number;
+  /** That part keeps a sheet of its own (it released other looks as it came back: they cross with what rises of it, not with what it still had). */
+  apart?: boolean;
 }
 
 /** Stable small seed from a string, so a random-order look plays the same way every time. */
@@ -173,6 +184,13 @@ export class ShowRuntime {
    */
   private readonly launchOrder = new WeakMap<LookPlayer, number>();
   private launches = 0;
+  /**
+   * Fixtures with tracks only (T5): the crossfade (by key) whose sheet a look (by id, active or the key of its own
+   * crossfade) shares — a look that starts again while it leaves beside others (the tail of a crossfade stopped
+   * midway) keeps sharing their sheet while they last, or the weights that made one mean would part into two sheets
+   * in one frame. The other fixtures keep the sheets they always had.
+   */
+  private readonly sharedSheet = new Map<string, string>();
   /** Looks stopped with an exit fade, still fading to black (not active). */
   private readonly releasing = new Map<string, ReleasingLook>();
   /** Looks coming in over the ones they replaced (by incoming look id); the leaving ones are not active. */
@@ -397,6 +415,10 @@ export class ShowRuntime {
     // A look that starts again while it still leaves resumes from the level it is at; read what it has on
     // stage before letting go of it below (docs/specs/engine-effects-timing.md, « Fondu enchaîné »).
     const resume = this.queueOf(lookId, now);
+    // the crossfade tail it leaves beside others, if any (tracks: it keeps sharing their sheet)
+    // the looks it was crossing with (it was leaving under them): released now, they go on sharing its sheet
+    const partners = new Set([...this.crossfades].filter(([, c]) => c.outgoing.some((o) => o.look.id === lookId)).map(([key]) => key));
+    const beside = [...this.crossfades].find(([key, c]) => key !== lookId && c.outgoing.length > 1 && c.outgoing.some((o) => o.look.id === lookId))?.[0] ?? this.releasing.get(lookId)?.shared;
     this.releasing.delete(lookId);
     this.leaveCrossfades(lookId);
     for (const g of this.groups.list()) {
@@ -435,10 +457,15 @@ export class ShowRuntime {
       }
       player.start(this.now(), this.tempo.state().beats);
     }
+    // where it lay while it was leaving: the part of it still leaving stays there on a fixture with tracks
+    const rank = from > 0 && resume ? this.launchOrder.get(resume.player) : undefined;
     this.launchOrder.set(player, ++this.launches);
     this.active.set(lookId, { look, player });
-    if (crossfade) this.beginCrossfade(look, leaving, now, from);
-    else fadeOut();
+    if (crossfade) {
+      this.beginCrossfade(look, leaving, now, from, rank, leaving.length > 0 && !leaving.some((l) => partners.has(l.look.id)));
+      // alone to come back (nothing released): it goes on sharing the sheet of the tail it left
+      if (beside !== undefined && !leaving.length && this.crossfades.has(beside)) this.sharedSheet.set(lookId, beside);
+    } else fadeOut();
     return { started: true, released };
   }
 
@@ -487,13 +514,23 @@ export class ShowRuntime {
   private leaveActive(a: ActiveLook, now: number): void {
     const crossfade = this.crossfades.get(a.look.id);
     if (!crossfade) {
-      this.startFadeOut(a.look, a.player, now);
+      const shared = this.sharedSheet.get(a.look.id);
+      this.sharedSheet.delete(a.look.id);
+      this.startFadeOut(a.look, a.player, now, shared);
       return;
     }
     this.crossfades.delete(a.look.id);
     const outgoing = [...crossfade.outgoing];
-    if (a.look.timing.exitFade > 0) outgoing.push({ look: a.look, player: a.player, start: this.inWeight(crossfade, now), t: now, dur: a.look.timing.exitFade, rev: this.lookRev(a.look) });
-    if (outgoing.length) this.crossfades.set(this.orphanKey(), { t0: now, tIn: 0, from: 0, outgoing });
+    if (a.look.timing.exitFade > 0) {
+      const start = this.inWeight(crossfade, now);
+      // stopped while it was coming back: what it still had at the rank it left stays there as it fades (tracks)
+      const under = crossfade.rank === undefined || start <= 0 ? 0 : (crossfade.from * (1 - start)) / (1 - crossfade.from) / start;
+      const left = under > 0 && crossfade.from < 1 ? { rank: crossfade.rank!, share: Math.min(1, under), ...(crossfade.apart ? { sheet: `was:${a.look.id}` } : {}) } : undefined;
+      outgoing.push({ look: a.look, player: a.player, start, t: now, dur: a.look.timing.exitFade, rev: this.lookRev(a.look), ...(left ? { left } : {}) });
+    }
+    const key = this.orphanKey();
+    this.moveSheet(a.look.id, key);
+    if (outgoing.length) this.crossfades.set(key, { t0: now, tIn: 0, from: 0, outgoing });
   }
 
   private orphanKey(): string {
@@ -505,7 +542,9 @@ export class ShowRuntime {
     const crossfade = this.crossfades.get(lookId);
     if (!crossfade) return;
     this.crossfades.delete(lookId);
-    if (crossfade.outgoing.length) this.crossfades.set(this.orphanKey(), crossfade);
+    const key = this.orphanKey();
+    this.moveSheet(lookId, key);
+    if (crossfade.outgoing.length) this.crossfades.set(key, crossfade);
   }
 
   /** The weight of a look coming in through a crossfade: `from` → 1 over its entry fade (smoothstep, like the entry fade); 1 at once when it has none. */
@@ -526,18 +565,38 @@ export class ShowRuntime {
    * has none. A leaving look that was itself coming in leaves from the weight it had, and what was leaving
    * under it keeps going, from the weight it has now.
    */
-  private beginCrossfade(look: Look, leaving: ActiveLook[], now: number, from: number): void {
+  private beginCrossfade(look: Look, leaving: ActiveLook[], now: number, from: number, rank?: number, apart = false): void {
     const outgoing: Leaving[] = [];
+    this.sharedSheet.delete(look.id);
     for (const l of leaving) {
       const was = this.crossfades.get(l.look.id);
       if (was) {
         this.crossfades.delete(l.look.id);
+        this.moveSheet(l.look.id, look.id);
         for (const o of was.outgoing) outgoing.push({ ...o, start: this.outWeight(o, now), t: now, dur: Math.max(0.05, o.dur - (now - o.t) / 1000) });
       }
       const exit = l.look.timing.exitFade;
       outgoing.push({ look: l.look, player: l.player, start: was ? this.inWeight(was, now) : 1, t: now, dur: exit > 0 ? exit : look.timing.entryFade, rev: this.lookRev(l.look) });
     }
-    this.crossfades.set(look.id, { t0: now, tIn: look.timing.entryFade, from: Math.min(1, Math.max(0, from)), outgoing });
+    this.crossfades.set(look.id, { t0: now, tIn: look.timing.entryFade, from: Math.min(1, Math.max(0, from)), outgoing, ...(rank === undefined ? {} : { rank, apart }) });
+  }
+
+  /** A crossfade goes on under another key: the sheet it shared on the fixtures with tracks follows it. */
+  private moveSheet(from: string, to: string): void {
+    const shared = this.sharedSheet.get(from);
+    this.sharedSheet.delete(from);
+    if (shared !== undefined && shared !== to) this.sharedSheet.set(to, shared);
+  }
+
+  /** The sheet of a crossfade on the fixtures with tracks: its own, or the one it shares (sharedSheet). */
+  private trackSheet(key: string): string {
+    let k = key;
+    for (let i = 0; i < 8; i++) {
+      const next = this.sharedSheet.get(k);
+      if (next === undefined) break;
+      k = next;
+    }
+    return `x:${k}`;
   }
 
   /**
@@ -549,12 +608,12 @@ export class ShowRuntime {
   }
 
   /** Moves a stopped look into the `releasing` fade-out, when its exitFade > 0. */
-  private startFadeOut(look: Look, player: LookPlayer, stopTime = this.now()): void {
+  private startFadeOut(look: Look, player: LookPlayer, stopTime = this.now(), shared?: string): void {
     const exitFade = look.timing?.exitFade ?? 0;
     if (exitFade <= 0) return;
     // Drop any earlier fading copy of the same look.
     this.releasing.delete(look.id);
-    this.releasing.set(look.id, { look, player, stopTime, exitFade, rev: this.lookRev(look) });
+    this.releasing.set(look.id, { look, player, stopTime, exitFade, rev: this.lookRev(look), ...(shared === undefined ? {} : { shared }) });
   }
 
   /** Forgets a look at once, fading copy included (it is being deleted). */
@@ -1148,6 +1207,8 @@ export class ShowRuntime {
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
+    // a shared sheet lasts as long as the crossfade it is shared with, for a look still playing or leaving through its own
+    for (const [id, other] of this.sharedSheet) if (!this.crossfades.has(other) || !(this.active.has(id) || this.crossfades.has(id))) this.sharedSheet.delete(id);
     /**
      * Raw channels of the looks, by fixture then offset: every look's write with its weight and its sheet — a
      * crossfade and the looks it replaces share one (`x:<incoming>`), any other look has its own — so that
@@ -1190,7 +1251,7 @@ export class ShowRuntime {
      * its groups give it per light channel (Doses.lookLevel, T35: not by those already dosing the fixture).
      */
     const ranks = new Map<TrackLayer, number>();
-    const layerOf = (look: Look, player: LookPlayer, weight: number, sheet: string, row: readonly number[] | undefined): void => {
+    const layerOf = (look: Look, player: LookPlayer, weight: number, sheet: string, row: readonly number[] | undefined, rank = this.launchOrder.get(player) ?? 0): void => {
       const painted = touches(look.canvas) ? atFull(look, player) : undefined;
       const excluded = painted ? this.excludedFrom(look) : new Set<string>();
       const raw = new Map<string, Map<number, number>>();
@@ -1212,15 +1273,25 @@ export class ShowRuntime {
             if (l !== 1) (level ??= new Map()).set(o, l);
           }
         const layer: TrackLayer = { look: look.id, sheet, weight, raw: own ?? new Map(), ...(colors ? { colors } : {}), ...(level ? { level } : {}) };
-        ranks.set(layer, this.launchOrder.get(player) ?? 0);
+        ranks.set(layer, rank);
         const stack = frame.tracks.get(f);
         if (stack) stack.push(layer);
         else frame.tracks.set(f, [layer]);
       }
     };
-    const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string): void => {
+    /**
+     * `tracks`: on the fixtures with tracks, the sheet when it is not the raw writes' own (a crossfade sharing another's,
+     * sharedSheet), and `leaving`: the part of a look started again while it left that still lies at the rank it had —
+     * the rest of its weight is laid at its new rank, in the same sheet (venue/tracks.ts overSheets keeps their mean),
+     * or in a sheet of its own (`leaving.sheet`) when the look released others as it came back.
+     */
+    const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string, tracks?: { sheet: string; leaving?: { weight: number; rank: number; sheet?: string } }): void => {
       const row = look.channels ? (look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? []) : undefined;
-      if (trackFixtures.size) layerOf(look, player, weight, sheet, row);
+      if (trackFixtures.size) {
+        const left = tracks?.leaving;
+        if (left && left.weight > 0) layerOf(look, player, left.weight, left.sheet ?? tracks.sheet, row, left.rank);
+        layerOf(look, player, weight - (left?.weight ?? 0), tracks?.sheet ?? sheet, row);
+      }
       if (!look.channels || !row) return;
       const included = doses.isIncluded(look.id);
       look.channels.targets.forEach((t, k) => {
@@ -1312,7 +1383,7 @@ export class ShowRuntime {
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
       mergeColors(frame.colors, withoutTracks(paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`)), this.settings.looksMerge);
-      rawOf(r.look, r.player, w, `exit:${id}`);
+      rawOf(r.look, r.player, w, `exit:${id}`, r.shared !== undefined && this.crossfades.has(r.shared) ? { sheet: this.trackSheet(r.shared) } : undefined);
       moveOf(r.look, r.player);
     }
     // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
@@ -1330,7 +1401,8 @@ export class ShowRuntime {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
         leaving = addWeighted(leaving, weighted(withoutTracks(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`)), w));
-        rawOf(o.look, o.player, w * o.player.entryWeight(now), `x:${key}`);
+        const whole = w * o.player.entryWeight(now);
+        rawOf(o.look, o.player, whole, `x:${key}`, { sheet: this.trackSheet(key), ...(o.left ? { leaving: { weight: whole * o.left.share, rank: o.left.rank, ...(o.left.sheet ? { sheet: o.left.sheet } : {}) } } : {}) });
         moveOf(o.look, o.player);
       }
       const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? emptyFrame().colors);
@@ -1344,7 +1416,11 @@ export class ShowRuntime {
       // a look resumed mid-rise under a crossfade keeps rising: its own entry composes with the crossfade's weight
       const inW = x ? this.inWeight(x, now) : 1;
       const w = inW * player.entryWeight(now);
-      rawOf(look, player, w, x ? `x:${look.id}` : `look:${look.id}`);
+      // started again while it was leaving (from > 0): what it still had there fades at the rank it had, the rest rises at its new one
+      const risen = x && x.from < 1 ? (inW - x.from) / (1 - x.from) : 1;
+      const leaving = x?.rank === undefined ? undefined : { weight: x.from * (1 - risen) * player.entryWeight(now), rank: x.rank, ...(x.apart ? { sheet: `was:${look.id}` } : {}) };
+      const sheet = x ? `x:${look.id}` : `look:${look.id}`;
+      rawOf(look, player, w, sheet, x || this.sharedSheet.has(look.id) ? { sheet: this.sharedSheet.has(look.id) ? this.trackSheet(look.id) : sheet, ...(leaving ? { leaving } : {}) } : undefined);
       const colors = x ? settle(addWeighted(shared.get(x)!, weighted(withoutTracks(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`)), inW))) : withoutTracks(paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`));
       mergeColors(frame.colors, colors, this.settings.looksMerge);
       moveOf(look, player);

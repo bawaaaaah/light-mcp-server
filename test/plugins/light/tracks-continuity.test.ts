@@ -175,3 +175,91 @@ describe("fadeable tracks: jumping light channels with « highest » (T5)", () =
     expect(dominantLayer([c("a", 1, 200, 0), c("b", 1, 100, 1)], "highest")!.value).to.equal(100);
   });
 });
+
+describe("fadeable tracks: a look started again while it leaves (T5)", () => {
+  for (const merge of ["last", "highest"] as const) {
+    it(`comes back over a look launched in between without a jump (« ${merge} »)`, () => {
+      for (const raw of [[], [[0, 60]]] as [number, number][][]) {
+        const frames = play({
+          merge,
+          looks: [painted("a", "#ff0000", raw), painted("b", "#00ff00")],
+          events: [
+            [0, "go", "a"],
+            [3000, "go", "b"],
+            [6000, "stop", "a"],
+            [6100, "go", "a"],
+          ],
+        });
+        expect(steepest(frames, 3000).dimmer, `dimmer, raw ${JSON.stringify(raw)}`).to.be.at.most(SMOOTH);
+        expect(steepest(frames, 3000).light, `light, raw ${JSON.stringify(raw)}`).to.be.at.most(SMOOTH);
+        // once back, the look started last is on top (« last ») or both add up (« highest »)
+        expect(at(frames, 10000).slice(3, 6)).to.deep.equal(merge === "last" ? [255, 0, 0] : [255, 255, 0]);
+      }
+    });
+
+    it(`keeps sharing the sheet of the crossfade it was stopped in when it starts again (« ${merge} »)`, () => {
+      const frames = play({
+        merge,
+        looks: [painted("b", "#0000ff"), painted("c", "#ff0000")],
+        exclusive: ["b", "c"],
+        events: [
+          [0, "go", "b"],
+          [3000, "go", "c"],
+          [4000, "stop", "c"],
+          [4400, "go", "c"],
+        ],
+      });
+      expect(steepest(frames, 20).dimmer).to.be.at.most(SMOOTH);
+      expect(steepest(frames, 20).light).to.be.at.most(SMOOTH);
+    });
+
+    it(`does not part from that sheet when its own entry ends before the others have left (« ${merge} »)`, () => {
+      const frames = play({
+        merge,
+        looks: [painted("a", "#ffffff", [], [2, 1]), { id: "b", raw: [[0, 100]], fades: [0.5, 1] }],
+        exclusive: ["a", "b"],
+        events: [
+          [0, "go", "b"],
+          [720, "go", "a"],
+          [1280, "stop", "a"],
+          [1420, "go", "b"],
+        ],
+      });
+      // b's entry ends at 1920 ms while a still leaves until 2280 ms
+      const around = frames.slice(1880 / 20, 1980 / 20);
+      expect(steepest(around).dimmer).to.be.at.most(4);
+    });
+
+    it(`releases the look launched meanwhile without a jump, and is stopped again without one (« ${merge} »)`, () => {
+      // a leaves alone, b comes in on its own, a comes back and releases b: what a still had stays where it was
+      const apart = play({
+        merge,
+        looks: [painted("a", "#c040ff", [[0, 255]]), painted("b", "#00ff00", [], [1, 1])],
+        exclusive: ["a", "b"],
+        events: [
+          [0, "go", "a"],
+          [4880, "stop", "a"],
+          [4980, "go", "b"],
+          [5460, "go", "a"],
+        ],
+      });
+      expect(steepest(apart, 2000).dimmer).to.be.at.most(SMOOTH);
+      expect(steepest(apart, 2000).light).to.be.at.most(SMOOTH);
+      // a and b were crossing: b comes back, then is stopped while it comes back
+      const together = play({
+        merge,
+        looks: [painted("a", "#202020"), painted("b", "#ff0000", [], [0.5, 2])],
+        exclusive: ["a", "b"],
+        events: [
+          [0, "go", "b"],
+          [2400, "go", "a"],
+          [2640, "go", "b"],
+          [2840, "stop", "b"],
+        ],
+      });
+      // (entry fades of 0.5 s: steeper; the dimmer goes back to its rest, at full, once everything has left)
+      expect(steepest(together.slice(1000 / 20, 4000 / 20)).dimmer).to.be.at.most(2 * SMOOTH);
+      expect(steepest(together, 1000).light).to.be.at.most(2 * SMOOTH);
+    });
+  }
+});
