@@ -3686,8 +3686,11 @@ test("DMX console: « Pourquoi ce canal » on a pan channel names who places the
     await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : position manuelle (pad, visée)", { timeout: 3000 });
     await expect(why.locator(".why-motion-masked")).toHaveText("Voudrait la déplacer : look « Scène pan » — masqué par : position manuelle (pad, visée)");
     await expect(why).not.toContainText("Look à canaux bruts");
+    // sent home, the scene is released on this head: said so, not « masked by »
+    await api(page, "position.home", { fixtures: ["why-head"] });
+    await expect(why.locator(".why-motion")).toContainText("position de repos", { timeout: 3000 });
+    await expect(why.locator(".why-motion-masked")).toHaveText("look « Scène pan » — relâché");
     // a Panic holds the head; handing it back lets it go to rest
-    await api(page, "position.release", { fixtures: ["why-head"] });
     await api(page, "panic");
     await expect(why.locator(".why-motion")).toHaveText("Couche Mouvement (pan) : tenue après un Panic (la lyre reste où elle est)", { timeout: 3000 });
     await api(page, "position.release", { fixtures: ["why-head"] });

@@ -62,6 +62,9 @@ const SLOTS = 512;
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 
+/** The layer of a claim, from its owner ("manual", "target:<id>", "look:<id>"). */
+const maskedLayer = (owner: string): "manual" | "target" | "look" => (owner === "manual" ? "manual" : owner.startsWith("target:") ? "target" : "look");
+
 /** Who holds an axis of a moving head, in words: its layer, with the look's name when a look does. */
 function motionOwner(t: ReturnType<typeof useT>, layer: NonNullable<Explain["motion"]>["layer"], owner: string | null, name?: string): string {
   if (layer === "look") return `${t.whyMotionLook} ${quoted(t, name ?? owner?.replace(/^look:/, "") ?? "")}`;
@@ -167,8 +170,10 @@ function WhyPanel({ why, onClose, onError }: { why: Explain; onClose: () => void
         )}
         {why.motion?.masked.map((m) => (
           <li key={m.owner} className="why-motion-masked">
-            {t.whyMotionMasked.replace("{who}", motionOwner(t, m.owner === "manual" ? "manual" : m.owner.startsWith("target:") ? "target" : "look", m.owner, m.name)).replace("{by}", motionOwner(t, why.motion!.layer, why.motion!.owner, why.motion!.name))}
-            {m.released ? ` (${t.whyMotionReleased})` : ""}
+            {/* a claim handed back is not masked by whoever holds the axis now: it is simply released */}
+            {m.released
+              ? `${motionOwner(t, maskedLayer(m.owner), m.owner, m.name)} — ${t.whyMotionReleased}`
+              : t.whyMotionMasked.replace("{who}", motionOwner(t, maskedLayer(m.owner), m.owner, m.name)).replace("{by}", motionOwner(t, why.motion!.layer, why.motion!.owner, why.motion!.name))}
           </li>
         ))}
         {why.undosed && !why.wheel && <li className="why-undosed">{t.whyUndosed}</li>}

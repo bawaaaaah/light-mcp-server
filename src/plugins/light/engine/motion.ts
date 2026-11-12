@@ -131,6 +131,8 @@ interface AxisState {
   /** Held value (lock, hold, or a claim in error): frozen at the first held frame. */
   held: number;
   error?: string;
+  /** Set by a new Panic on an axis already held: the next frame enters the hold again, on the position sent then. */
+  refreeze?: true;
 }
 
 interface HeadState {
@@ -201,8 +203,6 @@ const rankOf = (layer: AxisLayer, lock: LockLevel): number => (layer === "lock" 
 const CLAIM_RANK: Record<MotionLayer, number> = { manual: 0, target: 1, look: 2 };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const NO_HOLD: Readonly<Record<Axis, boolean>> = { pan: false, tilt: false };
-/** The owner a held axis is given by a new Panic: no owner of a frame equals it, so the hold is entered again. */
-const HELD_ANEW = "";
 /** Beyond this gap between two frames, a transition starts at the new frame rather than at the previous one. */
 const MAX_FRAME_GAP = 100;
 const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
@@ -329,7 +329,7 @@ function startSpeed(v: number, gap: number, toOldTarget: number, duration: numbe
 /** One axis, one frame: keep, hold or start a transition, then the value at `now`. */
 function stepAxis(o: Owner, f: AxisFrame): AxisState {
   const { prev, current, now, rank } = f;
-  const changed = !prev || prev.owner !== o.owner;
+  const changed = !prev || prev.owner !== o.owner || prev.refreeze === true;
   const order = o.claim?.order ?? 0;
   // only a running transition carries a speed: after a cut, a hold, a pad drag or a shape, the head starts at rest
   const v = prev && prev.dur > 0 && now > prev.t ? prev.v : 0;
@@ -499,7 +499,7 @@ export function holdMotion(input: Pick<MotionInput, "claims">, state: MotionStat
     const anew: Partial<Record<Axis, AxisState>> = {};
     for (const axis of AXES) {
       const a = prev?.[axis];
-      if (a?.layer === "hold") anew[axis] = { ...a, owner: HELD_ANEW };
+      if (a?.layer === "hold") anew[axis] = { ...a, refreeze: true };
     }
     next.set(head, { ...prev, ...anew, released: [...released], holding: { pan: true, tilt: true } });
   }
