@@ -418,7 +418,7 @@ export class ShowRuntime {
     // the crossfade tail it leaves beside others, if any (tracks: it keeps sharing their sheet)
     // the looks it was crossing with (it was leaving under them): released now, they go on sharing its sheet
     const partners = new Set([...this.crossfades].filter(([, c]) => c.outgoing.some((o) => o.look.id === lookId)).map(([key]) => key));
-    const beside = [...this.crossfades].find(([key, c]) => key !== lookId && c.outgoing.length > 1 && c.outgoing.some((o) => o.look.id === lookId))?.[0] ?? this.releasing.get(lookId)?.shared;
+    const beside = [...this.crossfades].find(([key, c]) => key !== lookId && !this.active.has(key) && c.outgoing.length > 1 && c.outgoing.some((o) => o.look.id === lookId))?.[0] ?? this.releasing.get(lookId)?.shared;
     this.releasing.delete(lookId);
     this.leaveCrossfades(lookId);
     for (const g of this.groups.list()) {

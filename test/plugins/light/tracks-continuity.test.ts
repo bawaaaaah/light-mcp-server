@@ -417,3 +417,36 @@ describe("fadeable tracks: checking a launch changes nothing (T5)", () => {
     });
   }
 });
+
+describe("fadeable tracks: a look back beside a crossfade still running (T5)", () => {
+  // two exclusive groups sharing b: a released b, which had released d; d comes back and a plays on (they are not exclusive)
+  const scenario = (merge: "last" | "highest"): Scenario => ({
+    merge,
+    looks: [painted("a", "#ff0000", [], [1, 1]), painted("b", "#00ff00", [], [1, 5]), painted("d", "#0000ff", [], [1, 3])],
+    exclusive: [
+      ["a", "b"],
+      ["b", "d"],
+    ],
+    events: [
+      [0, "go", "d"],
+      [3000, "go", "b"],
+      [5000, "go", "a"],
+      [5200, "go", "d"],
+    ],
+    tail: 7000,
+  });
+  for (const merge of ["last", "highest"] as const) {
+    it(`does not share the sheet of a look that plays on: both at full, and nothing moves when the crossfade ends (« ${merge} »)`, () => {
+      const frames = play(scenario(merge));
+      const lit = (ms: number) => [3, 5].map((o) => Math.round((at(frames, ms)[0]! * at(frames, ms)[o]!) / 255));
+      // d was started last: it covers a (« last »), or both show (« highest ») — as on a fixture without tracks, well before b is gone
+      expect(lit(7000)).to.deep.equal(merge === "last" ? [0, 255] : [155, 255]);
+      expect(lit(9980)).to.deep.equal(merge === "last" ? [0, 255] : [255, 255]);
+      expect(lit(10020)).to.deep.equal(lit(9980));
+      // no jump while the fades run, once d is back
+      expect(steepest(frames, 5220).light).to.be.at.most(SMOOTH);
+      const without = play(scenario(merge), false);
+      expect(at(frames, 9000).slice(3, 6)).to.deep.equal(at(without, 9000).slice(3, 6));
+    });
+  }
+});
