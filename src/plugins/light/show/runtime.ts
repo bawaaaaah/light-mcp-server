@@ -1178,6 +1178,8 @@ export class ShowRuntime {
     for (const [key] of crossfadesAside) this.crossfades.delete(key);
     let without: Set<string>;
     let withIt: Set<string>;
+    // the samples drop the shared sheets of the crossfades set aside (compose): they come back with them
+    const sheets = [...this.sharedSheet];
     try {
       without = sample();
       const player = this.build(look);
@@ -1189,6 +1191,8 @@ export class ShowRuntime {
       this.active.delete(lookId);
       if (fadingCopy) this.releasing.set(lookId, fadingCopy);
       for (const [key, c] of crossfadesAside) this.crossfades.set(key, c);
+      this.sharedSheet.clear();
+      for (const [id, key] of sheets) this.sharedSheet.set(id, key);
     }
     const byRule = new Map<string, Clamp[]>();
     for (const key of withIt) {

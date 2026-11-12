@@ -387,3 +387,33 @@ describe("fadeable tracks: a look coming back in two layers is still one look (T
     });
   }
 });
+
+describe("fadeable tracks: checking a launch changes nothing (T5)", () => {
+  // c stopped while a and b left under it, then a back alone: it shares the sheet of that tail
+  const looks = [painted("a", "#ff0000"), painted("b", "#00ff00"), painted("c", "#0000ff")];
+  const events: Scenario["events"] = [
+    [0, "go", "a"],
+    [3000, "go", "b"],
+    [3600, "go", "c"],
+    [4200, "stop", "c"],
+    [4400, "go", "a"],
+  ];
+  for (const merge of ["last", "highest"] as const) {
+    it(`sends the same frames after a launch was checked and not made (« ${merge} »)`, () => {
+      const base: Scenario = { merge, looks, exclusive: ["a", "b", "c"], strictRule: true, events, tail: 4000 };
+      const quiet = play({ ...base, tail: 4100 });
+      const checked = play({ ...base, events: [...events, [4500, "check", "b"]] });
+      expect(checked.map((b) => [...b])).to.deep.equal(quiet.map((b) => [...b]));
+      expect(steepest(checked, 4420).light).to.be.at.most(SMOOTH);
+    });
+
+    it(`sends the same frames whether a launch is checked first or not (« ${merge} »)`, () => {
+      for (const who of ["b", "c"]) {
+        const base: Scenario = { merge, looks, exclusive: ["a", "b", "c"], strictRule: true, events, tail: 4000 };
+        const plain = play({ ...base, events: [...events, [4500, "go", who]] });
+        const checked = play({ ...base, events: [...events, [4500, "checked-go", who]] });
+        expect(checked.map((b) => [...b]), who).to.deep.equal(plain.map((b) => [...b]));
+      }
+    });
+  }
+});
