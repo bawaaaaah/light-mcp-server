@@ -5,6 +5,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../folder";
+import { tagsShown } from "../intentions";
 import { pick } from "../selection";
 import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
@@ -180,9 +181,9 @@ export function ShowPage(): ReactElement {
         (l) =>
           // the filter follows the tree: a folder shows its looks and the ones of its sub-folders
           (!actifFolder || inTree(l.tags, actifFolder)) &&
-          (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags].some((s) => s.toLowerCase().includes(needle))),
+          (!needle || [l.name, l.id, labelOf(t.techniqueNames, l.technique.kind), ...l.tags, ...tagsShown(knowledge, l.tags)].some((s) => s.toLowerCase().includes(needle))),
       ),
-    [looks, actifFolder, needle, t],
+    [looks, actifFolder, needle, t, knowledge],
   );
   const shownIds = useMemo(() => new Set(shownLooks.map((l) => l.id)), [shownLooks]);
   // a selection with a look deleted since loses it
@@ -402,7 +403,7 @@ export function ShowPage(): ReactElement {
       <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
       <td>{labelOf(t.orders, l.timing.order)}</td>
       <td>
-        <small>{withoutFolderTag(l.tags).join(" · ")}</small>
+        <small>{tagsShown(knowledge, withoutFolderTag(l.tags)).join(" · ")}</small>
       </td>
       <td>
         <button

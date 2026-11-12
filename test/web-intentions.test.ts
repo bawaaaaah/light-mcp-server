@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { originsOf } from "../web/src/intentions.js";
-import { actionsOf, addColor, draftOf, draftProblems, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, removeColor, replacedBy, searchIntentions, takenIn, type KnowledgeIntentions } from "../web/src/intentions.js";
+import { actionsOf, addColor, draftOf, draftProblems, duplicatesOf, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, removeColor, replacedBy, resolveWord, searchIntentions, tagsShown, tagsTyped, type KnowledgeIntentions } from "../web/src/intentions.js";
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge } from "../src/plugins/light/knowledge/intentions.js";
 import { inLang } from "../src/core/lang.js";
@@ -62,18 +62,15 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(draftOf(list.find((r) => r.key === "joie")!)).to.deep.include({ id: "joie", scope: "show", label: "Joie" });
   });
 
-  it("checks a draft: a label with a letter, a key free in its place (creation only), 1 to 6 valid colours", () => {
-    const taken = takenIn(list);
-    expect(taken("lever-de-rideau", "show")).to.equal(true);
-    expect(taken("lever-de-rideau", "personal")).to.equal(false);
-    expect(taken("douceur", "personal")).to.equal(true);
-    expect(taken("joie", "show")).to.equal(false); // a shipped key: the new one is a touch-up
-    expect(draftProblems({ ...newDraft(), label: "Lever de rideau !" }, taken)).to.deep.equal(["taken"]);
-    expect(draftProblems({ ...newDraft("personal"), label: "Lever de rideau" }, taken)).to.deep.equal([]);
-    expect(draftProblems({ ...newDraft(), id: "lever-de-rideau", label: "Autre libellé" }, taken)).to.deep.equal([]);
-    expect(draftProblems({ ...newDraft(), label: "?!" }, taken)).to.deep.equal(["label"]);
-    expect(draftProblems({ ...newDraft(), label: "x", colors: ["rouge"] }, taken)).to.deep.equal(["colors"]);
-    expect(draftProblems({ ...newDraft(), label: "x", colors: [] }, taken)).to.deep.equal(["colors"]);
+  it("checks a draft: a label with a letter, 1 to 6 valid colours; a shared label is allowed and said (T15b)", () => {
+    expect(draftProblems({ ...newDraft(), label: "Lever de rideau !" })).to.deep.equal([]);
+    expect(duplicatesOf({ ...newDraft(), label: "Lever de rideau !" }, list).map((r) => r.key)).to.deep.equal(["lever-de-rideau"]);
+    expect(duplicatesOf({ ...newDraft(), id: "lever-de-rideau", label: "Lever de rideau" }, list)).to.deep.equal([]); // itself
+    expect(duplicatesOf({ ...newDraft(), label: "Paix" }, list)).to.deep.equal([]); // a masked one is no duplicate
+    expect(draftProblems({ ...newDraft(), id: "lever-de-rideau", label: "Autre libellé" })).to.deep.equal([]);
+    expect(draftProblems({ ...newDraft(), label: "?!" })).to.deep.equal(["label"]);
+    expect(draftProblems({ ...newDraft(), label: "x", colors: ["rouge"] })).to.deep.equal(["colors"]);
+    expect(draftProblems({ ...newDraft(), label: "x", colors: [] })).to.deep.equal(["colors"]);
   });
 
   it("reads a hexadecimal colour typed by hand", () => {
@@ -114,18 +111,42 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(plural(1, "1 usage", "{n} usages")).to.equal("1 usage");
     expect(plural(3, "1 usage", "{n} usages")).to.equal("3 usages");
     expect(fill("Couleur {n} de {name}", { n: 2, name: "x" })).to.equal("Couleur 2 de x");
-    const taken = takenIn(list);
-    expect(draftProblems({ ...newDraft(), label: "mot ".repeat(17) }, taken)).to.deep.equal(["long"]); // a key of 67 characters
-    expect(draftProblems({ ...newDraft(), label: "é".repeat(81) }, taken)).to.deep.equal(["long"]); // a label over 80
-    expect(draftProblems({ ...newDraft(), label: "mot ".repeat(15) }, taken)).to.deep.equal([]);
+    expect(draftProblems({ ...newDraft(), label: "mot ".repeat(17) })).to.deep.equal([]); // the id is generated: a long label's key is no limit
+    expect(draftProblems({ ...newDraft(), label: "é".repeat(81) })).to.deep.equal(["long"]); // a label over 80
   });
 
-  it("says what a new intention would replace: a shipped or private one, or what the show hides", () => {
-    expect(replacedBy({ ...newDraft(), label: "Joie !" }, list)?.key).to.equal("joie");
-    expect(replacedBy({ ...newDraft(), label: "Brume" }, list)?.origin).to.equal("private");
-    expect(replacedBy({ ...newDraft(), label: "Paix" }, list)?.hidden).to.equal(true);
-    expect(replacedBy({ ...newDraft(), label: "Douceur" }, list)).to.equal(undefined); // a personal one: « taken » in its place, or shadowed
-    expect(replacedBy({ ...newDraft(), id: "joie", label: "Joie" }, list)).to.equal(undefined); // an edit replaces nothing
+  it("says what a touch-up replaces; a new intention replaces nothing (T15b)", () => {
+    expect(replacedBy({ ...newDraft(), label: "Joie !" }, list)).to.equal(undefined);
+    expect(replacedBy({ ...newDraft(), id: "joie", label: "Joie" }, list)).to.deep.include({ key: "joie", origin: "generic" });
+    expect(replacedBy({ ...newDraft(), id: "brume", label: "Brume" }, list)?.origin).to.equal("private");
+    expect(replacedBy({ ...newDraft(), id: "douceur", label: "Douceur" }, list)?.origin).to.equal("personal"); // copied into the show
+    expect(replacedBy({ ...newDraft("personal"), id: "douceur", label: "Douceur" }, list)).to.equal(undefined); // the library's own
+    expect(replacedBy({ ...newDraft(), id: "calme", label: "Calme" }, list)?.origin).to.equal("generic"); // the show's touch-up, edited
+    expect(replacedBy({ ...newDraft(), id: "lever-de-rideau", label: "x" }, list)).to.equal(undefined);
+  });
+
+  it("finds a word as the server does: id, then label before former label, the most specific first (T15b)", () => {
+    const two: KnowledgeIntentions = {
+      moods: {
+        joie: { label: "Joie", colors: ["#ffcc1a"], origin: "generic" },
+        "i-a": { label: "Douceur", colors: ["#1"], origin: "personal" },
+        "i-b": { label: "Douceur", colors: ["#2"], origin: "show" },
+        "i-c": { label: "Tendresse", colors: ["#3"], origin: "show", aliases: ["Câlin"] },
+      },
+    };
+    expect(resolveWord(two, "JOIE")).to.deep.include({ id: "joie", by: "id" });
+    expect(resolveWord(two, "douceur")).to.deep.include({ id: "i-b", by: "label", candidates: 2, origin: "show" });
+    expect(resolveWord(two, "calin")).to.deep.include({ id: "i-c", by: "alias" });
+    expect(resolveWord(two, "i-a")).to.deep.include({ label: "Douceur", origin: "personal" });
+    expect(resolveWord(two, "rien")).to.equal(undefined);
+    // a look's tags shown by label, and given back their id (a shared label never moves the link)
+    expect(tagsShown(two, ["ambiance:i-a", "dossier:x", "ambiance:libre"])).to.deep.equal(["ambiance:Douceur", "dossier:x", "ambiance:libre"]);
+    expect(tagsTyped(two, ["ambiance:Douceur", "ambiance:nouveau", "dossier:x"], ["ambiance:i-a"])).to.deep.equal(["ambiance:i-a", "ambiance:nouveau", "dossier:x"]);
+    // the picker: chosen by id, a shared label marked, typed by name to the most specific
+    const themes = themesOf(two);
+    expect(themes.filter((t) => t.duplicate).map((t) => t.key)).to.deep.equal(["i-b", "i-a"]);
+    expect(themeOf(themes, "Douceur")?.key).to.equal("i-b");
+    expect(themeOf(themes, "câlin")?.key).to.equal("i-c");
   });
 
   it("says where each word a song or a look names comes from, or that it is unknown here", () => {

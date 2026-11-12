@@ -14,6 +14,8 @@ interface Entry {
   origin: "ui" | "midi" | "osc" | "os2l" | "ableset" | "mcp" | "timeline" | "cli" | "system";
   who?: string;
   target?: string;
+  /** An intention acted on, by its label (T15b: its id is generated). */
+  targetLabel?: string;
   ok: boolean;
   error?: string;
   /** A design change history.undo can take back. */
@@ -151,7 +153,7 @@ export function ActivityPanel(): ReactElement {
                   <td className="hint">{t.origins[e.origin]}</td>
                   <td>
                     {e.title}
-                    {e.target && <small className="hint"> · {e.target}</small>}
+                    {e.target && <small className="hint" title={e.targetLabel ? e.target : undefined}> · {e.targetLabel ?? e.target}</small>}
                   </td>
                   <td title={e.error}>{e.ok ? "✔" : `✖ ${e.error ?? ""}`}</td>
                   <td>

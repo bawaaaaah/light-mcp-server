@@ -3,7 +3,10 @@
  * metre, mood = guard rail, palette, start in the DAW), sections (look, cue, idea, length, optional
  * fixed position) with a proportional timeline, and « remplir la grille » (song.grid_fill).
  */
-import { useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { ThemePicker } from "./ThemePicker";
+import { themesOf, type KnowledgeMoods } from "../themes";
+import { useCommandEvents } from "../hooks/useTopic";
 import { IntentionOrigins } from "./IntentionOrigins";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -98,6 +101,12 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
     void cmd<{ programs: Named[] }>("program.list").then((r) => setPrograms(r.programs));
     void cmd<Named[]>("venue.canvas.list").then((c) => (setCanvases(c), setCanvas(c[0]?.id ?? "")));
   }, []);
+  // the intentions the picker offers, read again when one changes
+  const [knowledge, setKnowledge] = useState<KnowledgeMoods | null>(null);
+  const readKnowledge = useCallback(() => void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
+  useEffect(readKnowledge, [readKnowledge]);
+  useCommandEvents(["intention.put", "intention.delete"], readKnowledge);
+  const themes = useMemo(() => themesOf(knowledge), [knowledge]);
 
   const id = isNew ? uniqueId(slug(song.title, "chant"), existing) : song.id;
   const set = (patch: Partial<SongDraft>) => setSong((s) => ({ ...s, ...patch }));
@@ -174,11 +183,11 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
           <span>{t.beatsPerBar}</span>
           <input type="number" min={1} max={16} value={song.beatsPerBar} onChange={(e) => set({ beatsPerBar: Number(e.target.value) })} />
         </label>
-        <label className="field">
-          <span>{t.moods}</span>
-          <input defaultValue={song.mood.join(", ")} onBlur={(e) => set({ mood: splitList(e.target.value) })} />
-        </label>
-        <IntentionOrigins words={song.mood} />
+        {/* the song's intentions picked by label, stored by id (T15b); a free word stays a word */}
+        <div className="song-moods">
+          <ThemePicker themes={themes} chosen={song.mood} onChange={(mood) => set({ mood })} title={t.moods} />
+          <IntentionOrigins words={song.mood} />
+        </div>
         <label className="field">
           <span>{t.palette}</span>
           <select value={song.palette ?? ""} onChange={(e) => set({ palette: e.target.value || undefined })}>

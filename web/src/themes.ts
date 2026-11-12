@@ -1,39 +1,54 @@
 /**
  * Themes (moods) of the colour knowledge base for the « create a look by intention » picker (T14,
  * docs/specs/presets-songs-notes.md « Base de connaissances couleur »). A chosen theme is a plain
- * string: the knowledge key when it is a known one (what `look.from_intent` and the `ambiance:` tag
- * use), the typed word otherwise (a free theme, reported back as unknown by the server).
+ * string: the intention's id when it is a known one (what `look.from_intent`, a song's mood and the
+ * `ambiance:` tag store, T15b), the typed word otherwise (a free theme, reported back as unknown by
+ * the server). Shown by its label everywhere.
  */
 import { fold, searchBy, searchPhrase } from "./search-text.js";
-import { intentionKey, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
+import { intentionKey, ORIGIN_RANK, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
 
 export interface Theme {
+  /** The intention's id. */
   key: string;
   label: string;
   colors: string[];
   family: string;
   /** Where it comes from (T15): a show or personal intention is marked in the list. */
   origin?: IntentionOrigin;
+  /** Former labels (T15b): typing one still finds it. */
+  aliases?: string[];
+  /** Another theme has the same label (T15b): the list says where each comes from. */
+  duplicate?: boolean;
 }
 
 export type KnowledgeMoods = KnowledgeIntentions;
 
-/** The known themes, by label (accent-insensitive order). */
+/** The known themes, by label (accent-insensitive order), the most specific first for a shared label. */
 export function themesOf(kb: KnowledgeMoods | null | undefined): Theme[] {
-  return Object.entries(kb?.moods ?? {})
-    .map(([key, m]) => ({ key, label: m.label ?? key, colors: m.colors, family: m.family ?? "", ...(m.origin ? { origin: m.origin } : {}) }))
-    .sort((a, b) => fold(a.label).localeCompare(fold(b.label)));
+  const list: Theme[] = Object.entries(kb?.moods ?? {}).map(([key, m]) => ({ key, label: m.label || key, colors: m.colors, family: m.family ?? "", ...(m.origin ? { origin: m.origin } : {}), ...(m.aliases?.length ? { aliases: m.aliases } : {}) }));
+  const count = new Map<string, number>();
+  for (const t of list) count.set(intentionKey(t.label), (count.get(intentionKey(t.label)) ?? 0) + 1);
+  return list.map((t) => ((count.get(intentionKey(t.label)) ?? 0) > 1 ? { ...t, duplicate: true } : t)).sort((a, b) => fold(a.label).localeCompare(fold(b.label)) || rank(a) - rank(b) || a.key.localeCompare(b.key));
 }
 
-/** The themes a search keeps: by label or key, without case or accents. */
-export const searchThemes = (list: readonly Theme[], query: string): Theme[] => searchBy(list, query, (t) => [t.label, t.key]);
+const rank = (t: Theme): number => ORIGIN_RANK[t.origin ?? "generic"];
 
-/** The known theme a chosen value stands for (its key, or its label typed), if any. */
+/** The themes a search keeps: by label, former label or key, without case or accents. */
+export const searchThemes = (list: readonly Theme[], query: string): Theme[] => searchBy(list, query, (t) => [t.label, t.key, ...(t.aliases ?? [])]);
+
+/**
+ * The known theme a chosen value stands for, as the server reads it (T15b, `resolveIntention`): its id
+ * (or a key typed with spaces, « lever de rideau »), else its label, else a former label, the most
+ * specific first when several share it (show > personal > private file > shipped).
+ */
 export const themeOf = (list: readonly Theme[], value: string): Theme | undefined => {
-  const f = fold(value).trim();
-  // a key with spaces or punctuation typed (« lever de rideau ») is the key the server would read
   const key = intentionKey(value);
-  return list.find((t) => t.key === f) ?? list.find((t) => fold(t.label) === f) ?? (key ? list.find((t) => t.key === key) : undefined);
+  if (!key) return undefined;
+  const byId = list.find((t) => t.key === value) ?? list.find((t) => t.key === key);
+  if (byId) return byId;
+  const best = (a: Theme, b: Theme) => rank(a) - rank(b) || a.key.localeCompare(b.key);
+  return [...list].filter((t) => intentionKey(t.label) === key).sort(best)[0] ?? [...list].filter((t) => (t.aliases ?? []).some((a) => intentionKey(a) === key)).sort(best)[0];
 };
 
 /** What a chosen value is shown as: the label of a known theme, the word itself otherwise. */

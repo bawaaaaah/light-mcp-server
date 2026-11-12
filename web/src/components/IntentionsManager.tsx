@@ -23,7 +23,6 @@ import {
   ENERGIES,
   familiesOf,
   fill,
-  intentionKey,
   intentionsOf,
   libraryRows,
   MAX_COLORS,
@@ -34,8 +33,8 @@ import {
   putArgs,
   removeColor,
   replacedBy,
+  duplicatesOf,
   searchIntentions,
-  takenIn,
   type IntentionDraft,
   type IntentionOrigin,
   type IntentionRow,
@@ -220,15 +219,20 @@ function IntentionEditor({
   /** The colour to give the focus to after a move: its id, and which of its buttons. */
   const focusAfter = useRef<{ id: number; by: -1 | 1 } | null>(null);
   const draft: IntentionDraft = { ...d, colors: swatches.map((s) => s.color) };
-  const problems = draftProblems(draft, takenIn(list));
+  const problems = draftProblems(draft);
   const families = useMemo(() => familiesOf(list), [list]);
-  const key = d.id ?? intentionKey(d.label);
   const creating = d.id === undefined;
   const changed = JSON.stringify(putArgs(draft)) !== JSON.stringify(putArgs(initial));
-  const shadowed = d.scope === "personal" && context.some((r) => r.key === key && r.origin === "show" && !r.hidden);
+  const shadowed = d.scope === "personal" && context.some((r) => r.key === d.id && r.origin === "show" && !r.hidden);
   const replaced = replacedBy(draft, context);
+  // allowed (T15b): another intention of this label is said, with where it comes from
+  const duplicates = duplicatesOf(draft, context);
+  // one of the private file: its id is its keyword's key (T15b), renaming the keyword by hand breaks its links
+  const fromPrivate = d.id !== undefined && context.some((r) => r.key === d.id && (r.origin === "private" || r.over === "private"));
+  // the label it leaves on a rename is kept as a former one (said before it is saved)
+  const formerLabels = creating ? [] : (context.find((r) => r.key === d.id)?.aliases ?? []);
   const set = (patch: Partial<IntentionDraft>) => setD((x) => ({ ...x, ...patch }));
-  const title = creating ? t.intentionNewTitle : initial.label || key;
+  const title = creating ? t.intentionNewTitle : initial.label || (d.id ?? "");
 
   // the proposal these settings would give, refreshed as they change (debounced; a late answer is dropped; notes play no part)
   const { notes: _notes, ...shape } = putArgs(draft).intention;
@@ -280,15 +284,15 @@ function IntentionEditor({
         <h3>{title}</h3>
         <label>
           {t.intentionLabel}
-          <input value={d.label} maxLength={120} onChange={(e) => set({ label: e.target.value })} aria-invalid={problems.includes("label") || problems.includes("taken") || problems.includes("long")} />
+          <input value={d.label} maxLength={120} onChange={(e) => set({ label: e.target.value })} aria-invalid={problems.includes("label") || problems.includes("long")} />
         </label>
-        {key && <small className="hint">{fill(t.intentionKey, { key })}</small>}
+        <small className="hint">{d.id === undefined ? t.intentionNewId : fill(t.intentionKey, { key: d.id })}</small>
+        {formerLabels.length > 0 && <small className="hint">{fill(t.intentionAliases, { names: formerLabels.join(", ") })}</small>}
+        {fromPrivate && <small className="hint">{t.intentionPrivateKeyword}</small>}
         {problems.includes("label") && d.label.trim() !== "" && <small className="warn">{t.intentionNoLabel}</small>}
         {problems.includes("long") && <small className="warn">{t.intentionTooLong}</small>}
-        {problems.includes("taken") && <small className="warn">{t.intentionTaken}</small>}
-        {replaced && !problems.includes("taken") && (
-          <small className="hint">{fill(t.intentionReplaces, { origin: t.intentionOrigins[replaced.hidden ? (replaced.over ?? "generic") : replaced.origin], name: replaced.label, where: d.scope === "show" ? t.intentionReplacesShow : t.intentionReplacesPersonal })}</small>
-        )}
+        {duplicates.length > 0 && <small className="hint intention-duplicate">{fill(t.intentionDuplicate, { names: duplicates.map((r) => `${r.label} (${t.intentionOrigins[r.origin]})`).join(", ") })}</small>}
+        {replaced && <small className="hint">{fill(t.intentionReplaces, { origin: t.intentionOrigins[replaced.origin], name: replaced.label, where: d.scope === "show" ? t.intentionReplacesShow : t.intentionReplacesPersonal })}</small>}
         <fieldset>
           <legend>{t.intentionColors}</legend>
           <ol className="intention-colors">

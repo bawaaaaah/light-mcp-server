@@ -10,7 +10,7 @@ import { useT } from "../App";
 import { quoted } from "../typography";
 import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, toggleTheme, type Theme } from "../themes";
 
-export function ThemePicker({ themes, chosen, onChange }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void }): ReactElement {
+export function ThemePicker({ themes, chosen, onChange, title, help }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void; title?: string; help?: string }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
@@ -23,6 +23,12 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
     setQuery("");
   };
 
+  /** A chosen one by its label; one of a label shared by several says where it comes from (T15b). */
+  const chipLabel = (c: string): string => {
+    const theme = themeOf(themes, c);
+    return theme?.duplicate && theme.origin ? `${theme.label} · ${t.intentionOrigins[theme.origin]}` : themeLabel(themes, c);
+  };
+
   const removeChip = (c: string) => {
     onChange(toggleTheme(themes, chosen, c));
     search.current?.focus(); // the chip is gone: keep the keyboard where it can go on
@@ -30,21 +36,21 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
 
   return (
     <section className="theme-picker" aria-labelledby={`${id}-title`}>
-      <h4 id={`${id}-title`}>{t.themes}</h4>
-      <p className="hint">{t.themeHelp}</p>
+      <h4 id={`${id}-title`}>{title ?? t.themes}</h4>
+      <p className="hint">{help ?? t.themeHelp}</p>
       <ul className="theme-chips" aria-label={t.themeChosen}>
         {chosen.length === 0 && <li className="hint">{t.themeNone}</li>}
         {chosen.map((c) => (
           <li key={c} className={themeOf(themes, c) ? "chip" : "chip free"}>
-            <span>{themeLabel(themes, c)}</span>
-            <button type="button" aria-label={t.themeRemove.replace("{name}", themeLabel(themes, c))} onClick={() => removeChip(c)}>
+            <span>{chipLabel(c)}</span>
+            <button type="button" aria-label={t.themeRemove.replace("{name}", chipLabel(c))} onClick={() => removeChip(c)}>
               ×
             </button>
           </li>
         ))}
       </ul>
       <p className="sr-only" role="status">
-        {t.themeChosen}{t.colon} {chosen.length ? chosen.map((c) => themeLabel(themes, c)).join(", ") : t.themeNone}
+        {t.themeChosen}{t.colon} {chosen.length ? chosen.map(chipLabel).join(", ") : t.themeNone}
       </p>
       <input
         ref={search}
@@ -79,7 +85,7 @@ export function ThemePicker({ themes, chosen, onChange }: { themes: readonly The
                 </span>
                 {theme.family && <small className="theme-family">{theme.family}</small>}
                 {/* the user's own (T15): where it lives, the shipped ones go unmarked */}
-                {theme.origin && theme.origin !== "generic" && <small className={`theme-origin origin-${theme.origin}`}>{t.intentionOrigins[theme.origin]}</small>}
+                {theme.origin && (theme.origin !== "generic" || theme.duplicate) && <small className={`theme-origin origin-${theme.origin}`}>{t.intentionOrigins[theme.origin]}</small>}
               </button>
             </li>
           );

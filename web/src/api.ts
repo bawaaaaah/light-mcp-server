@@ -322,10 +322,19 @@ export interface FixtureSummary {
 }
 
 /** What restoring this backup would change; nothing is written. */
-export async function previewArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null; fixtures: FixtureSummary; intentions?: { added: number; changed: number; removed: number } | null; intentionsKnown?: { id: string; label: string }[] }> {
+export async function previewArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ manifest: { show?: string; venue?: string; createdAt: string }; show: FolderDiff | null; venue: FolderDiff | null; fixtures: FixtureSummary; intentions?: { added: number; changed: number; removed: number } | null; intentionsKnown?: { id: string; label: string }[]; intentionTwins?: IntentionTwin[] }> {
   return json(await fetch(`/api/plugins/light/archive?dryRun=1&fixtures=${fixtures}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
 }
 
-export async function restoreArchive(file: File, fixtures: FixturePolicy = "missing"): Promise<{ files: { show: number; venue: number }; backup: string; fixtures: FixtureSummary }> {
-  return json(await fetch(`/api/plugins/light/archive?fixtures=${fixtures}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
+/** An intention a backup brings whose label one of this machine's has under another id (T15b: made apart on two machines). */
+export interface IntentionTwin {
+  id: string;
+  label: string;
+  machine: { id: string; label: string; origin: "generic" | "private" | "personal" };
+}
+
+/** `keepMachine`: the backup's intentions (ids) whose twin of this machine is kept instead (T15b). */
+export async function restoreArchive(file: File, fixtures: FixturePolicy = "missing", keepMachine: readonly string[] = []): Promise<{ files: { show: number; venue: number }; backup: string; fixtures: FixtureSummary }> {
+  const keep = keepMachine.length ? `&keepMachine=${encodeURIComponent(keepMachine.join(","))}` : "";
+  return json(await fetch(`/api/plugins/light/archive?fixtures=${fixtures}${keep}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/octet-stream" }, body: file }));
 }

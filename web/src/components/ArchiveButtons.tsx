@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
-import { downloadArchive, previewArchive, restoreArchive, type FixturePolicy, type FolderDiff, type FixtureSummary } from "../api";
+import { downloadArchive, previewArchive, restoreArchive, type FixturePolicy, type FolderDiff, type FixtureSummary, type IntentionTwin } from "../api";
 import { useT } from "../App";
-import { plural } from "../intentions";
+import { fill, plural } from "../intentions";
 
 /**
  * A .lightshow file of the open show (and its venue): download it, or restore one after seeing what
@@ -41,16 +41,22 @@ export function ArchiveButtons({ onError, onRestored }: { onError: (msg: string)
                 // the show's intentions, apart: an older backup without any removes them (T15)
                 const i = p.intentions;
                 const known = p.intentionsKnown ?? [];
+                const twins = p.intentionTwins ?? []; // an older server sends none
+                const twinOrigin = (w: IntentionTwin) => t.intentionOrigins[w.machine.origin];
                 const intentions =
                   (i && i.added + i.changed + i.removed ? `\n${t.restoreIntentions}${t.colon} +${i.added} / ~${i.changed} / -${i.removed}${i.removed && !i.added && !i.changed ? ` (${t.restoreIntentionsGone})` : ""}` : "") +
-                  (known.length ? `\n${plural(known.length, t.restoreIntentionKnown, t.restoreIntentionsKnown)}${t.colon} ${known.map((k) => k.label).join(", ")}` : "");
+                  (known.length ? `\n${plural(known.length, t.restoreIntentionKnown, t.restoreIntentionsKnown)}${t.colon} ${known.map((k) => k.label).join(", ")}` : "") +
+                  // made apart on another machine (T15b): restored as they are, a second intention of that label
+                  twins.map((w) => `\n${fill(t.restoreIntentionTwin, { name: w.label, origin: twinOrigin(w) })}`).join("");
                 const summary = `${t.restoreConfirm}\n\n${part(t.show, p.show)}${intentions}\n${part(t.venue, p.venue)}${defs(p.fixtures)}`;
                 if (!confirm(summary)) return;
                 // the policy: missing definitions are added; the differing ones only when asked
                 const policy: FixturePolicy = p.fixtures.differs.length && confirm(t.restoreFixturesReplaceAsk) ? "replace" : "missing";
                 // only differing definitions, and they are kept: a restore would just stop the show for nothing
                 if (policy === "missing" && folders && p.fixtures.missing.length === 0) return;
-                return restoreArchive(f, policy).then(onRestored);
+                // each twin: keep this machine's (OK) or the backup's (Cancel)
+                const keep = twins.filter((w) => confirm(fill(t.restoreIntentionTwinAsk, { name: w.label, origin: twinOrigin(w) }))).map((w) => w.id);
+                return restoreArchive(f, policy, keep).then(onRestored);
               })
               .catch((err: Error) => onError(err.message));
           }}

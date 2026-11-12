@@ -6,6 +6,7 @@
  */
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
 import { IntentionOrigins } from "./IntentionOrigins";
+import { tagsShown, tagsTyped, type KnowledgeIntentions } from "../intentions";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -104,6 +105,9 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
+  // the intentions, to show an ambiance: tag by its label (T15b)
+  const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
+  useEffect(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
   const [rawOpen, setRawOpen] = useState(false);
   const tempo = useTopic<{ bpm: number } | null>("light:tempo", null);
 
@@ -415,7 +419,12 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         <label className="field">
           <span>tags</span>
           {/* the folder has its own field above: a folder tag typed here is dropped on blur, the dedicated field keeps its folder */}
-          <input defaultValue={withoutFolderTag(look.tags).join(", ")} onBlur={(e) => set({ tags: withFolder(splitList(e.target.value), folderOf(look.tags)) })} />
+          {/* an ambiance: tag shown by its intention's label, given back its id on blur (T15b); read again once the intentions are known */}
+          <input
+            key={knowledge ? "known" : "loading"}
+            defaultValue={tagsShown(knowledge, withoutFolderTag(look.tags)).join(", ")}
+            onBlur={(e) => set({ tags: withFolder(tagsTyped(knowledge, splitList(e.target.value), look.tags), folderOf(look.tags)) })}
+          />
         </label>
         {/* the intentions its ambiance: tags name, and where each comes from (T15) */}
         <IntentionOrigins words={look.tags.filter((x) => x.startsWith("ambiance:")).map((x) => x.slice("ambiance:".length))} />
