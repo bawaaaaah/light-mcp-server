@@ -65,11 +65,13 @@ describe("T25 lot 3: move schemas (fade, enabled, at, moveFade, rest positions)"
 
   describe("in the show", () => {
     let plugin: LightPlugin;
+    let dataRoot = "";
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     beforeEach(async () => {
-      const dataRoot = join(mkdtempSync(join(tmpdir(), "light-movefade-")), "data");
+      dataRoot = join(mkdtempSync(join(tmpdir(), "light-movefade-")), "data");
       mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
       copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+      copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
       const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
       plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
       await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
@@ -91,20 +93,30 @@ describe("T25 lot 3: move schemas (fade, enabled, at, moveFade, rest positions)"
       expect(plugin.runtime.settings.restPositions).to.deep.equal({});
     });
 
-    it("position.rest.set / clear touch one head at a time and refuse what is not a moving head", async () => {
-      const heads = plugin.runtime.movingHeads();
-      if (heads.length < 2) return; // the fixtures of this show carry no moving head
-      await run("position.rest.set", { fixtures: [heads[0]], pan: 0.1, tilt: 0.9 });
-      await run("position.rest.set", { fixtures: [heads[1]], pan: 0.3, tilt: 0.4 });
-      expect(plugin.runtime.settings.restPositions).to.deep.equal({ [heads[0]!]: { pan: 0.1, tilt: 0.9 }, [heads[1]!]: { pan: 0.3, tilt: 0.4 } });
-      await run("position.rest.clear", { fixtures: [heads[0]] });
-      expect(Object.keys(plugin.runtime.settings.restPositions)).to.deep.equal([heads[1]]);
+    /** Two real moving heads (the Spot 7 definition has pan and tilt) next to the imported bar. */
+    const patchHeads = async () => {
+      for (const [id, address] of [["spot-l", 200], ["spot-r", 220]] as const) await run("venue.fixture.put", { fixture: { id, name: id, manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address } });
+    };
+
+    it("position.rest.set / clear touch one head at a time", async () => {
+      await patchHeads();
+      expect(plugin.runtime.movingHeads()).to.include.members(["spot-l", "spot-r"]);
+      await run("position.rest.set", { fixtures: ["spot-l"], pan: 0.1, tilt: 0.9 });
+      await run("position.rest.set", { fixtures: ["spot-r"], pan: 0.3, tilt: 0.4 });
+      expect(plugin.runtime.settings.restPositions).to.deep.equal({ "spot-l": { pan: 0.1, tilt: 0.9 }, "spot-r": { pan: 0.3, tilt: 0.4 } });
+      await run("position.rest.clear", { fixtures: ["spot-l"] });
+      expect(plugin.runtime.settings.restPositions).to.deep.equal({ "spot-r": { pan: 0.3, tilt: 0.4 } });
     });
 
-    it("position.rest.set refuses an id that is not an installed moving head", async () => {
-      let refused = "";
-      await run("position.rest.set", { fixtures: ["ghost"], pan: 0.5, tilt: 0.5 }).catch((e: Error) => (refused = e.message));
-      expect(refused).to.contain("ghost");
+    it("position.rest.set refuses a fixture without pan/tilt and an unknown id, and changes nothing", async () => {
+      await patchHeads();
+      expect(plugin.runtime.movingHeads()).to.not.include("bar-0");
+      for (const id of ["bar-0", "ghost"]) {
+        let refused = "";
+        await run("position.rest.set", { fixtures: ["spot-l", id], pan: 0.5, tilt: 0.5 }).catch((e: Error) => (refused = e.message));
+        expect(refused, id).to.contain(id);
+      }
+      expect(plugin.runtime.settings.restPositions).to.deep.equal({});
     });
 
     it("a stale rest id (kept from a shared venue) is tolerated, and a new venue starts without rest positions", async () => {
