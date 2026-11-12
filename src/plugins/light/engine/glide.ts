@@ -8,38 +8,29 @@
  * brakes first, then eases towards the new target.
  */
 import type { FaderSmoothing } from "../show/model.js";
+import { type Hermite, hermiteAt, hermiteProgress, hermiteSpeed } from "./hermite.js";
 
-interface Move {
-  from: number;
-  to: number;
+interface Move extends Hermite {
   /** Where the fader asks to go: `to` itself, or beyond it while braking before turning back. */
   goal: number;
-  start: number;
-  duration: number;
   curve: FaderSmoothing["curve"];
-  /** Speed at the start (level per ms): the speed the output had when the target moved. */
-  v0: number;
 }
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** Position on a move at `now`: a straight line, or a cubic leaving `from` at `v0` and landing on `to` at rest (smoothstep when v0 = 0). */
+/** Position on a move at `now`: a straight line, or the shared cubic (smoothstep when v0 = 0). */
 function positionOf(m: Move, now: number): number {
-  const s = m.duration > 0 ? Math.min(1, Math.max(0, (now - m.start) / m.duration)) : 1;
-  if (s >= 1) return m.to;
-  if (m.curve === "linear") return m.from + (m.to - m.from) * s;
-  const s2 = s * s;
-  const s3 = s2 * s;
-  return clamp01((2 * s3 - 3 * s2 + 1) * m.from + (s3 - 2 * s2 + s) * m.duration * m.v0 + (3 * s2 - 2 * s3) * m.to);
+  if (m.curve !== "linear") return clamp01(hermiteAt(m, now));
+  const s = hermiteProgress(m, now);
+  return s >= 1 ? m.to : m.from + (m.to - m.from) * s;
 }
 
 /** Speed on a move at `now` (level per ms); 0 once arrived. */
 function speedOf(m: Move, now: number): number {
+  if (m.curve !== "linear") return hermiteSpeed(m, now);
   if (m.duration <= 0) return 0;
   const s = (now - m.start) / m.duration;
-  if (s < 0 || s >= 1) return 0;
-  if (m.curve === "linear") return (m.to - m.from) / m.duration;
-  return ((6 * s * s - 6 * s) * (m.from - m.to)) / m.duration + (3 * s * s - 4 * s + 1) * m.v0;
+  return s < 0 || s >= 1 ? 0 : (m.to - m.from) / m.duration;
 }
 
 /**
