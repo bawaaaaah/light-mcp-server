@@ -195,7 +195,8 @@ export function overSheets(carried: readonly Carried[], merge: LooksMerge, held:
  * cover it (overSheets): the channel stays theirs until the incoming look outweighs it — one jump, not two.
  * `ties: "value"` (a light channel with « highest »): on equal weights the higher value, so that the steady state is
  * the highest as on a fixture without tracks. composeTracks adds, in the sheets carrying the channel, the layers
- * lighting the fixture without it, at the channel's rest value.
+ * lighting the fixture without it, at the channel's rest value, and hands one entry per look (the two layers of a
+ * look started again while it left count as one).
  */
 export function dominantLayer<T extends { sheet: string; weight: number; order: number; value?: number }>(carried: readonly T[], merge: LooksMerge, ties: "later" | "value" = "later"): T | undefined {
   const heavier = (x: T | undefined, y: T): T => {
@@ -350,8 +351,16 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       // a crossfade from a look writing a mode channel to one that does not switches it back at mid-fade too
       const sheets = new Set(carried.map((c) => c.sheet));
       const rest = isDimmer ? (r.levelDimmer ? 0 : 255) : isColour ? 0 : (r.shutterOpen.get(o) ?? 0);
-      const resting = ordered.flatMap(({ l, order }) => (sheets.has(l.sheet) && present(l) && valueOf(l, o) === undefined ? [{ sheet: l.sheet, weight: l.weight, value: rest, order }] : []));
-      out.set(o, dominantLayer([...carried, ...resting], opts.merge, isDimmer || isColour ? "value" : "later")!.value);
+      // one entry per look: a look started again while it left lies at two ranks (show/runtime.ts), and it is the whole of
+      // its weight that makes it the heaviest — weighed layer by layer, the look it releases would take the channel for a moment
+      const whole = new Map<string, Carried>();
+      for (const { l, order } of ordered) {
+        const v = valueOf(l, o) ?? (sheets.has(l.sheet) && present(l) ? rest : undefined);
+        if (v === undefined) continue;
+        // its layers come in paint order: the later one says where the look lies now
+        whole.set(l.look, { sheet: l.sheet, weight: (whole.get(l.look)?.weight ?? 0) + Math.max(0, l.weight), value: v, order });
+      }
+      out.set(o, dominantLayer([...whole.values()], opts.merge, isDimmer || isColour ? "value" : "later")!.value);
       continue;
     }
     const { value, opacity } = overSheets(carried, opts.merge, isDimmer && based ? 255 : 0);

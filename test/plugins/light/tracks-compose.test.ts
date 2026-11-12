@@ -27,8 +27,9 @@ function venue(): Venue {
 }
 const resolved = (v: Venue, id: string) => v.resolve(id) as ResolvedFixture;
 const tracks = (r: ResolvedFixture, fade: string[]): ResolvedTracks => tracksOf(r.def, r.mode, { enabled: true, fade })!;
-const layer = (sheet: string, weight: number, o: { colors?: [number, Record<string, number>][]; raw?: [number, number][]; level?: [number, number][] } = {}): TrackLayer => ({
-  look: sheet,
+/** One look's layer; `look` names it when two looks share a sheet (a crossfade), else the sheet does. */
+const layer = (sheet: string, weight: number, o: { look?: string; colors?: [number, Record<string, number>][]; raw?: [number, number][]; level?: [number, number][] } = {}): TrackLayer => ({
+  look: o.look ?? sheet,
   sheet,
   weight,
   raw: new Map(o.raw ?? []),
@@ -104,7 +105,7 @@ describe("fadeable tracks: composition (composeTracks)", () => {
 
   it("switches a jumping channel at mid-fade in a crossfade (one sheet: the heaviest; on equal weights the later)", () => {
     const r = resolved(venue(), "bar");
-    const at = (w: number) => composeTracks(r, tracks(r, LIGHT), [layer("x:b", 1 - w, { colors: [RED], raw: [[2, 0]] }), layer("x:b", w, { colors: [BLUE], raw: [[2, 200]] })], opts).get(2);
+    const at = (w: number) => composeTracks(r, tracks(r, LIGHT), [layer("x:b", 1 - w, { look: "a", colors: [RED], raw: [[2, 0]] }), layer("x:b", w, { look: "b", colors: [BLUE], raw: [[2, 200]] })], opts).get(2);
     expect(at(0.4)).to.equal(0);
     expect(at(0.5)).to.equal(200);
     expect(at(0.6)).to.equal(200);
@@ -174,7 +175,7 @@ describe("fadeable tracks: composition (composeTracks)", () => {
     const r = resolved(venue(), "bar");
     const t = tracks(r, LIGHT);
     const at = (w: number, aWrites: boolean) =>
-      composeTracks(r, t, [layer("x:b", 1 - w, { colors: [RED], ...(aWrites ? { raw: [[2, 200]] as [number, number][] } : {}) }), layer("x:b", w, { colors: [BLUE], ...(aWrites ? {} : { raw: [[2, 200]] as [number, number][] }) })], opts).get(2);
+      composeTracks(r, t, [layer("x:b", 1 - w, { look: "a", colors: [RED], ...(aWrites ? { raw: [[2, 200]] as [number, number][] } : {}) }), layer("x:b", w, { look: "b", colors: [BLUE], ...(aWrites ? {} : { raw: [[2, 200]] as [number, number][] }) })], opts).get(2);
     expect([at(0.1, true), at(0.4, true), at(0.6, true), at(0.9, true)]).to.deep.equal([200, 200, 0, 0]);
     expect([at(0.1, false), at(0.4, false), at(0.6, false), at(0.9, false)]).to.deep.equal([0, 0, 200, 200]);
     // a look that leaves alone still holds it to the end

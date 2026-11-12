@@ -25,11 +25,14 @@ interface Scenario {
   merge?: "last" | "highest";
   ticked?: string[];
   looks: LookSpec[];
-  exclusive?: string[];
+  /** One exclusive group (look ids), or several. */
+  exclusive?: string[] | string[][];
+  /** A rule that refuses rather than clamps: launches are checked first (strictBounds). */
+  strictRule?: boolean;
   /** A channel fader on these offsets, at this level. */
   fader?: { offsets: number[]; level: number };
-  /** [ms, "go" | "stop", look], in time order. */
-  events: [number, "go" | "stop", string][];
+  /** [ms, "go" | "stop" | "check" (strictBounds alone, as a refused launch) | "checked-go" (strictBounds then go, as look.go), look], in time order. */
+  events: [number, "go" | "stop" | "check" | "checked-go", string][];
   /** How long after the last event the frames go on, ms (4000 by default). */
   tail?: number;
 }
@@ -55,7 +58,9 @@ function play(s: Scenario, tracks = true): Uint8Array[] {
       timing: { entryFade: l.fades[0], exitFade: l.fades[1] },
       ...(l.raw?.length ? { channels: { targets: l.raw.map(([offset]) => ({ fixture: "bar", offset })), steps: [l.raw.map(([, v]) => v)] } } : {}),
     });
-  if (s.exclusive) show.groups.put({ id: "ex", name: "Ex", exclusive: true, members: { looks: s.exclusive } });
+  const groups = s.exclusive === undefined ? [] : s.exclusive.every((x) => typeof x === "string") ? [s.exclusive as string[]] : (s.exclusive as string[][]);
+  groups.forEach((looks, i) => show.groups.put({ id: `ex${i}`, name: `Ex${i}`, exclusive: true, members: { looks } }));
+  if (s.strictRule) show.rules.put({ id: "max-red", name: "Max red", level: "show", target: { color: "red" }, max: 254, onViolation: "reject" });
   if (s.fader) show.faders.put({ id: "f", name: "F", channels: s.fader.offsets.map((offset) => ({ fixture: "bar", offset })), level: s.fader.level });
   const render = () => {
     const b = [new Uint8Array(512)];
@@ -76,8 +81,10 @@ function play(s: Scenario, tracks = true): Uint8Array[] {
   let e = 0;
   for (let ms = 0; ms <= end; ms += 20) {
     for (; e < s.events.length && s.events[e]![0] <= ms; e++) {
-      if (s.events[e]![1] === "go") show.go(s.events[e]![2]);
-      else show.stop(s.events[e]![2]);
+      const [, op, id] = s.events[e]!;
+      if (op === "check" || op === "checked-go") show.strictBounds(id);
+      if (op === "go" || op === "checked-go") show.go(id);
+      else if (op === "stop") show.stop(id);
     }
     frames.push(render());
     step();
@@ -334,4 +341,49 @@ describe("fadeable tracks: a channel fader holding a colour up (T5)", () => {
     expect(at(frames, 1000)[0]).to.equal(0);
     expect(at(frames, 4000)[0]).to.equal(255);
   });
+});
+
+describe("fadeable tracks: a look coming back in two layers is still one look (T5)", () => {
+  // a comes back while it leaves under b: its weight is laid at two ranks, and the whole of it is what a jumping channel weighs
+  const back = (ms: number, entry: number, exit: number, ticked?: string[]): Scenario => ({
+    ...(ticked ? { ticked } : {}),
+    looks: [painted("a", "#ff0000", [[2, 50]], [entry, 2]), painted("b", "#00ff00", [[2, 200]], [2, exit])],
+    exclusive: ["a", "b"],
+    events: [
+      [0, "go", "a"],
+      [3000, "go", "b"],
+      [3000 + ms, "go", "a"],
+    ],
+    tail: 7000,
+  });
+  for (const merge of ["last", "highest"] as const) {
+    it(`never gives a jumping channel to the look it releases while it is still the heavier (« ${merge} »)`, () => {
+      // back before mid-fade: a never stopped being the heavier, nothing switches — whatever the fades
+      for (const [entry, exit] of [
+        [0.5, 5],
+        [1, 2],
+        [2, 3],
+        [1, 1],
+      ] as [number, number][]) {
+        for (const ticked of [undefined, ["Dimmer"], []]) {
+          const frames = play({ ...back(900, entry, exit, ticked), merge });
+          expect(path(frames, 2), `Program, entry ${entry} exit ${exit}, ticked ${ticked?.join("+") ?? "light"}`).to.deep.equal([50]);
+          if (ticked) expect([path(frames, 3), path(frames, 4)], `colours, entry ${entry} exit ${exit}`).to.deep.equal([[255], [0]]);
+        }
+      }
+    });
+
+    it(`switches a jumping channel once each way when it comes back past mid-fade, with no chatter (« ${merge} »)`, () => {
+      for (const [entry, exit] of [
+        [1, 1],
+        [2, 0],
+        [0.5, 2],
+      ] as [number, number][])
+        for (const ms of [1000, 1100, 1500]) {
+          const program = path(play({ ...back(ms, entry, exit), merge }), 2);
+          // right at mid-fade the weights are equal: b may not have taken the channel yet
+          expect(program, `entry ${entry} exit ${exit}, back after ${ms} ms`).to.deep.equal(ms === 1000 && program.length === 1 ? [50] : [50, 200, 50]);
+        }
+    });
+  }
 });
