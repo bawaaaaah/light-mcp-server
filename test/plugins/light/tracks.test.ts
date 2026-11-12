@@ -162,17 +162,17 @@ describe("fadeable tracks in the engine (T5)", () => {
     expect(t.dmx()[0]).to.be.within(62, 66); // half of half
     t.advance(4);
     expect(t.dmx()[0]).to.be.within(127, 128);
-    // a group including the look (not covering the fixture) doses it once, by its level
+    // a group including the look (not covering the fixture) doses it once, by its level, on its colours
     const u = setup({ tracks: { fade: LIGHT } });
     u.show.groups.put({ id: "dose", name: "Dose", master: { level: 0.5 }, presets: { included: ["a"] } });
     u.show.looks.put(look("a", "#ff0000", { entryFade: 2 }));
     u.show.go("a");
     u.advance(2);
     const mid = u.dmx();
-    expect(mid[0]).to.be.within(62, 66);
-    expect(mid[3]).to.equal(255);
+    expect((mid[0]! * mid[3]!) / 255).to.be.within(62, 66); // half of half
     u.advance(4);
-    expect(u.dmx()[0]).to.be.within(127, 128);
+    const end = u.dmx();
+    expect([end[0], end[3]]).to.deep.equal([255, 128]);
   });
 
   it("never touches pan/tilt, coarse or fine: the same bytes as a spot without tracks", () => {
@@ -234,6 +234,69 @@ describe("fadeable tracks in the engine (T5)", () => {
       expect(program.slice(switched).every((v) => v === to), `${writer}: a single switch`).to.equal(true);
       expect(switched * 20, writer).to.be.within(960, 1040);
     }
+  });
+
+  it("keeps a group's level on its own look when two looks share the fixture, in both merges and both orders (T35)", () => {
+    /** A paints heads 0-1 red and is in a group at `level`; B paints heads 2-3 green; the light of R1 and G3 once settled. */
+    const settled = (opts: { tracks: boolean; merge: "last" | "highest"; aFirst: boolean; level: number }) => {
+      const t = setup(opts.tracks ? { tracks: { fade: LIGHT } } : {});
+      t.show.saveSettings({ looksMerge: opts.merge });
+      const heads = (id: string, from: number) => t.venue.canvases.put({ id, name: id, topology: "line", cells: 2, render: [0, 1].map((i) => ({ from: i, to: i, targets: [{ fixture: "bar-l", head: from + i }] })) });
+      heads("front", 0);
+      heads("back", 2);
+      t.show.looks.put(look("a", "#ff0000", {}, [], "front"));
+      t.show.looks.put(look("b", "#00ff00", {}, [], "back"));
+      t.show.groups.put({ id: "g", name: "G", master: { level: opts.level }, presets: { included: ["a"] } });
+      for (const id of opts.aFirst ? ["a", "b"] : ["b", "a"]) t.show.go(id);
+      t.advance(1);
+      const b = t.dmx();
+      return [b[0]! * b[3]!, b[0]! * b[10]!].map((v) => Math.round(v / 255));
+    };
+    for (const merge of ["last", "highest"] as const)
+      for (const aFirst of [true, false])
+        for (const level of [1, 0.5, 0.02, 0]) {
+          const plain = settled({ tracks: false, merge, aFirst, level });
+          expect(settled({ tracks: true, merge, aFirst, level }), `${merge}, ${aFirst ? "A then B" : "B then A"}, ${level}`).to.deep.equal(plain);
+          expect(plain[1]).to.equal(255); // B is never dosed by A's group
+        }
+  });
+
+  it("matches the fixture without tracks once the fades are over, for random looks, groups and merges", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const pick = <T>(xs: readonly T[]) => xs[Math.floor(rnd() * xs.length)]!;
+    for (let round = 0; round < 40; round++) {
+      const plan = {
+        merge: pick(["last", "highest"] as const),
+        looks: [0, 1, 2].map((i) => ({ id: `l${i}`, color: pick(["#ff0000", "#00ff00", "#ffffff", "#ff8000", "#0000ff"]), from: pick([0, 1, 2]), level: pick([1, 0.5, 0.25]) })),
+        order: pick([[0, 1, 2], [2, 1, 0], [1, 0, 2]]),
+      };
+      const settled = (tracks: boolean) => {
+        const t = setup(tracks ? { tracks: { fade: LIGHT } } : {});
+        t.show.saveSettings({ looksMerge: plan.merge });
+        for (const l of plan.looks) {
+          t.venue.canvases.put({ id: `c-${l.id}`, name: l.id, topology: "line", cells: 2, render: [0, 1].map((i) => ({ from: i, to: i, targets: [{ fixture: "bar-l", head: l.from + i }] })) });
+          t.show.looks.put(look(l.id, l.color, { entryFade: 1 }, [], `c-${l.id}`));
+          if (l.level < 1) t.show.groups.put({ id: `g-${l.id}`, name: `G ${l.id}`, master: { level: l.level }, presets: { included: [l.id] } });
+        }
+        for (const k of plan.order) t.show.go(plan.looks[k]!.id);
+        t.advance(4); // 2 s: every entry over
+        const b = t.dmx();
+        return [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((o) => Math.round((b[0]! * b[o]!) / 255));
+      };
+      const plain = settled(false);
+      settled(true).forEach((v, i) => expect(Math.abs(v - plain[i]!), `round ${round} (${JSON.stringify(plan)}), channel ${i + 3}`).to.be.at.most(1));
+    }
+  });
+
+  it("does not raise the dimmer over another look's raw dimmer with a look writing machine channels only", () => {
+    const t = setup({ tracks: { fade: LIGHT } });
+    t.show.looks.put(look("d", "#ff0000", {}, [[0, 60]]));
+    t.show.looks.put(look("m", undefined, {}, [[2, 200]])); // a mode channel only, launched after
+    t.show.go("d");
+    t.show.go("m");
+    const b = t.dmx();
+    expect([b[0], b[2]]).to.deep.equal([60, 200]);
   });
 
   it("doses a colour a channel fader linked to the look's group holds once, as without tracks (T35)", () => {

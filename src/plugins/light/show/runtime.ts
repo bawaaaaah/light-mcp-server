@@ -798,15 +798,10 @@ export class ShowRuntime {
       const mine = look.channels?.targets.filter((t) => t.fixture === fixture.id) ?? [];
       const byColour = bodyPainters.has(look.id) || mine.some((t) => bodyColours.has(t.offset));
       const byDimmer = mine.some((t) => light?.dimmers.includes(t.offset));
-      // the level is told only where venue.toDmx applies it (rawLevelApplies); on a fixture with tracks, as composeTracks
-      // shares it: the dimmer the highest of the light channels' levels, a colour the rest of its own
-      const tracksLevel = (): number => {
-        const top = Math.max(0, ...[...(light?.dimmers ?? []), ...(light?.colours ?? [])].map((o) => doses.lookLevel(look.id, fixture.id, o)));
-        if (kind === "dimmer") return top;
-        const own = doses.lookLevel(look.id, fixture.id, offset);
-        return light?.dimmers.length ? (top > 0 ? Math.min(1, own / top) : 0) : own;
-      };
-      const level = kind === "machine" ? 1 : !("error" in r) && r.tracks ? tracksLevel() : rawLevelApplies(kind, { byColour, byDimmer }) ? doses.lookLevel(look.id, fixture.id, offset) : 1;
+      // the level is told only where venue.toDmx applies it (rawLevelApplies); on a fixture with tracks, where
+      // composeTracks applies it: always on a colour, on the dimmer of a lamp or of a look lighting it by that dimmer only
+      const applies = !("error" in r) && r.tracks ? kind === "colour" || r.levelDimmer || !byColour : rawLevelApplies(kind, { byColour, byDimmer });
+      const level = kind !== "machine" && applies ? doses.lookLevel(look.id, fixture.id, offset) : 1;
       return { id: look.id, name: look.name, ...(out ? { leaving: true as const } : {}), ...(level === 1 ? {} : { level }) };
     });
     // a raw dimmer, or a raw colour of a fixture without a dimmer, is light: the intensity doses what a look writes there

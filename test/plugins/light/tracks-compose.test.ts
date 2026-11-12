@@ -155,16 +155,19 @@ describe("fadeable tracks: composition (composeTracks)", () => {
     const r = resolved(venue(), "bar");
     const t = tracks(r, LIGHT);
     expect(composeTracks(r, t, [layer("look:a", 1, { colors: [RED] })], { ...opts, intensity: 0.5 }).get(0)).to.be.closeTo(127.5, 1e-9);
-    // a look its group doses at 50 % keeps that level through its fade: half of its weight
+    // a painting look its group doses at 50 % keeps that level through its fade, on its colours (the dimmer is shared):
+    // its light is half of its weight
     const light = [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
     const half = composeTracks(r, t, [layer("look:a", 0.5, { colors: [RED], level: light.map((o) => [o, 0.5]) })], opts);
-    expect(half.get(0)).to.be.closeTo(63.75, 1e-9);
-    expect(half.get(3)).to.equal(255);
-    // a channel fader linked to that group holds R1 (its DCA doses R1 afterwards): the dimmer carries the highest level,
-    // each colour the rest of its own — R1 at full here, the others at half
+    expect(half.get(0)).to.be.closeTo(127.5, 1e-9);
+    expect(half.get(3)).to.be.closeTo(127.5, 1e-9);
+    // a channel fader linked to that group holds R1 (its DCA doses R1 afterwards, the look gets 1 there): R1 at full,
+    // the others at half
     const WHITE = [-1, { red: 1, green: 1, blue: 1 }] as [number, Record<string, number>];
     const fader = composeTracks(r, t, [layer("look:a", 1, { colors: [WHITE], level: light.map((o) => [o, o === 3 ? 1 : 0.5]) })], opts);
     expect([fader.get(0), fader.get(3), fader.get(4)]).to.deep.equal([255, 255, 127.5]);
+    // a look lighting it by its raw dimmer only has that dimmer dosed
+    expect(composeTracks(r, t, [layer("look:a", 1, { raw: [[0, 200]], level: light.map((o) => [o, 0.5]) })], opts).get(0)).to.equal(100);
   });
 
   it("switches a mode channel only one look writes at mid-fade too: the other counts at the channel's rest", () => {

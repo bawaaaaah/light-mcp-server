@@ -191,16 +191,24 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
   // the offsets this path composes: in the fixture's mode, pan/tilt left out (toDmx writes the others verbatim)
   const own = (o: number) => o < size && !motion.has(o);
   const levelAt = (l: TrackLayer, o: number) => l.level?.get(o) ?? 1;
-  // a layer lights the fixture when it paints it or writes a raw channel other than pan/tilt (a position alone lights nothing)
-  const lits = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some(own)]));
-  const lit = (l: TrackLayer) => lits.get(l) ?? false;
   /**
-   * The groups' level of a look on a fixture with a dimmer (T35): the dimmer carries the highest of its light channels'
-   * levels, each colour the rest of its own (its level / that highest, at most 1) — a channel fader linked to a group
-   * that holds one colour doses that colour once, as on a fixture without tracks.
+   * A layer lights the fixture when it paints it or writes one of its light channels (a dimmer, a colour): machine
+   * channels (a mode, a gobo, a speed) and a position light nothing, and never raise the dimmer over another look's.
+   * It is there at all (`present`) when it paints or writes any channel of this path: a jumping channel's rest counts it.
    */
-  const lightOffsets = [...dimmers, ...colourOf.keys()];
-  const topLevel = new Map(layers.map((l) => [l, l.level ? Math.max(0, ...lightOffsets.map((o) => levelAt(l, o))) : 1]));
+  const lightChannel = (o: number) => dimmers.includes(o) || colourOf.has(o);
+  const lits = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some(lightChannel)]));
+  const lit = (l: TrackLayer) => lits.get(l) ?? false;
+  const presents = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some(own)]));
+  const present = (l: TrackLayer) => presents.get(l) ?? false;
+  /**
+   * The groups' level of a look (T35), as on a fixture without tracks (rawLevelApplies): a look that doses its light by its
+   * colours (it paints the fixture or writes a raw colour) has each colour dosed by its own level and leaves the dimmer
+   * as it is — the dimmer is shared by every look, it cannot carry one look's level; a channel fader linked to the group
+   * already gives that look 1 on the channel it holds. A look lighting it by its raw dimmer only, or a lamp (its dimmer is
+   * its painted level), has its dimmer dosed.
+   */
+  const byColour = new Map(layers.map((l) => [l, (l.colors?.size ?? 0) > 0 || [...l.raw.keys()].some((o) => colourOf.has(o))]));
   const bodyLevel = (l: TrackLayer): number | undefined => {
     const body = [...(l.colors ?? [])].filter(([h]) => !r.accent.has(h));
     if (!body.length) return undefined;
@@ -218,7 +226,8 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
         const body = r.levelDimmer ? bodyLevel(l) : 1;
         if (body !== undefined) v = body * 255;
       }
-      return v === undefined ? undefined : v * (topLevel.get(l) ?? 1);
+      if (v === undefined) return undefined;
+      return r.levelDimmer || !byColour.get(l) ? v * levelAt(l, o) : v;
     }
     const colour = colourOf.get(o);
     if (colour) {
@@ -227,10 +236,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
         const c = l.colors?.get(colour.head) ?? (r.accent.has(colour.head) && !r.follow ? undefined : l.colors?.get(-1));
         if (c) v = (c[colour.comp] ?? 0) * 255;
       }
-      if (v === undefined) return undefined;
-      if (!hasDimmer) return v * levelAt(l, o);
-      const top = topLevel.get(l) ?? 1;
-      return top > 0 ? v * Math.min(1, levelAt(l, o) / top) : 0;
+      return v === undefined ? undefined : v * levelAt(l, o);
     }
     return raw;
   };
@@ -249,6 +255,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
     if (paired.has(o)) continue;
     const fine = pairs.get(o);
     if (fine !== undefined) {
+      // a layer writing only the fine byte of the pair carries nothing here: the coarse byte says where the value is
       const wide: Carried[] = ordered.flatMap(({ l, order }) => {
         const v = l.raw.get(o);
         return v === undefined ? [] : [{ sheet: l.sheet, weight: l.weight, value: v * 256 + (l.raw.get(fine) ?? 0), order }];
@@ -284,7 +291,7 @@ export function composeTracks(r: TrackFixture, tracks: ResolvedTracks, layers: r
       // a crossfade from a look writing a mode channel to one that does not switches it back at mid-fade too
       const sheets = new Set(carried.map((c) => c.sheet));
       const rest = isDimmer ? (r.levelDimmer ? 0 : 255) : isColour ? 0 : (r.shutterOpen.get(o) ?? 0);
-      const resting = ordered.flatMap(({ l, order }) => (sheets.has(l.sheet) && lit(l) && valueOf(l, o) === undefined ? [{ sheet: l.sheet, weight: l.weight, value: rest, order }] : []));
+      const resting = ordered.flatMap(({ l, order }) => (sheets.has(l.sheet) && present(l) && valueOf(l, o) === undefined ? [{ sheet: l.sheet, weight: l.weight, value: rest, order }] : []));
       out.set(o, dominantLayer([...carried, ...resting], opts.merge)!.value);
       continue;
     }
