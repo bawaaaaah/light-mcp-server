@@ -8,7 +8,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { bearersOf, fill, originsOf, resolveWord, type KnowledgeIntentions } from "../intentions";
+import { bearersOf, fill, originsOf, refFor, resolveWord, type KnowledgeIntentions } from "../intentions";
 
 export function IntentionOrigins({ words, kb: given, onPick }: { words: readonly string[]; kb?: KnowledgeIntentions | null; onPick?: (word: string, id: string) => void }): ReactElement | null {
   const t = useT();
@@ -30,15 +30,18 @@ export function IntentionOrigins({ words, kb: given, onPick }: { words: readonly
           const bearers = o.origin === "unknown" ? [] : bearersOf(kb, o.label);
           const others = bearers.length > 1 ? bearers : [];
           const current = resolveWord(kb, o.word);
+          // pinned by its id (or strict form): settled, said quietly; by a name several answer to: a warning
+          const ambiguous = Boolean(current && current.by !== "id" && current.candidates > 1);
           return (
-            <li key={o.word} className={`chip origin-${o.origin}${others.length ? " shared" : ""}`}>
+            <li key={o.word} className={`chip origin-${o.origin}${ambiguous ? " shared" : ""}`}>
               {o.label} · {o.origin === "unknown" ? t.intentionUnknown : o.hidden ? t.intentionHidden : t.intentionOrigins[o.origin]}
               {others.length > 0 && (
                 <>
                   {" "}
-                  <small className="warn">{fill(t.intentionShared, { n: others.length })}</small>
+                  <small className={ambiguous ? "warn" : "hint"}>{fill(t.intentionShared, { n: others.length })}</small>
                   {onPick && (
-                    <select aria-label={fill(t.intentionPickOther, { name: o.label })} value={current?.id ?? ""} onChange={(e) => onPick(o.word, e.target.value)}>
+                    // the farther one is written in its strict form: its plain id would read as the nearer one
+                    <select aria-label={fill(t.intentionPickOther, { name: o.label })} value={current?.id ?? ""} onChange={(e) => onPick(o.word, refFor(kb, e.target.value))}>
                       {others.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.label} · {t.intentionOrigins[c.origin]}

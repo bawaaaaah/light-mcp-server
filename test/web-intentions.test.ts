@@ -1,11 +1,11 @@
 import { expect } from "chai";
 import { originsOf } from "../web/src/intentions.js";
-import { actionsOf, addColor, draftOf, draftProblems, duplicatesOf, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, removeColor, replacedBy, resolveWord, searchIntentions, tagsShown, tagsTyped, type KnowledgeIntentions } from "../web/src/intentions.js";
+import { actionsOf, addColor, draftOf, draftProblems, duplicatesOf, familiesOf, fill, intentionKey, intentionsOf, moveColor, newDraft, normalizeHex, plural, putArgs, refFor, removeColor, replacedBy, resolveWord, searchIntentions, tagsShown, tagsTyped, type KnowledgeIntentions } from "../web/src/intentions.js";
 import { loadKnowledgeLayers, normalizeMood, proposeLook } from "../src/plugins/light/knowledge/knowledge.js";
 import { mergeKnowledge } from "../src/plugins/light/knowledge/intentions.js";
 import { inLang } from "../src/core/lang.js";
 import { TEXTS } from "../web/src/i18n.js";
-import { enterPick, themeOf, themesOf } from "../web/src/themes.js";
+import { enterPick, themeOf, themeRef, themesOf, toggleTheme } from "../web/src/themes.js";
 
 describe("intentions (T15): the Show page's list and editor", () => {
   const kb: KnowledgeIntentions = {
@@ -183,6 +183,17 @@ describe("intentions (T15): the Show page's list and editor", () => {
     expect(themeOf(themes, "joie")?.key).to.equal("i-mx1-aaaa");
     expect(enterPick(themes, "Calme")).to.equal(undefined);
     expect(enterPick(themes, "Paix")).to.equal("i-mx1-bbbb");
+    // the farther key-id by its strict form: read, written by the picker and « Laquelle », shown by label
+    expect(resolveWord(k, "=joie")).to.deep.include({ id: "joie", by: "id", origin: "generic" });
+    expect(refFor(k, "joie")).to.equal("=joie");
+    expect(refFor(k, "i-mx1-aaaa")).to.equal("i-mx1-aaaa");
+    const shipped = themes.find((x) => x.key === "joie")!;
+    expect(themeRef(themes, shipped)).to.equal("=joie");
+    expect(themeOf(themes, "=joie")?.key).to.equal("joie");
+    // picked beside the show's « Joie »: both stay chosen
+    expect(toggleTheme(themes, ["i-mx1-aaaa"], themeRef(themes, shipped))).to.deep.equal(["i-mx1-aaaa", "=joie"]);
+    expect(tagsShown(k, ["ambiance:=joie"])).to.deep.equal(["ambiance:Joie"]);
+    expect(tagsTyped(k, ["ambiance:Joie"], ["ambiance:=joie"])).to.deep.equal(["ambiance:=joie"]);
   });
 
   it("names the energies in English as the server's proposals do (« high-energy » for « high energy »)", async () => {

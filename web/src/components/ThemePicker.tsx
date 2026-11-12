@@ -8,7 +8,7 @@
 import { useId, useRef, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { quoted } from "../typography";
-import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, toggleTheme, type Theme } from "../themes";
+import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, themeRef, toggleTheme, type Theme } from "../themes";
 
 export function ThemePicker({ themes, chosen, onChange, title, help, loading = false }: { themes: readonly Theme[]; chosen: readonly string[]; onChange: (chosen: string[]) => void; title?: string; help?: string; /** the list is not there yet: chosen ids are not shown raw */ loading?: boolean }): ReactElement {
   const t = useT();
@@ -98,7 +98,7 @@ export function ThemePicker({ themes, chosen, onChange, title, help, loading = f
           const on = isOn(theme);
           return (
             <li key={theme.key}>
-              <button type="button" className={on ? "chosen" : ""} aria-pressed={on} onClick={() => onChange(toggleTheme(themes, chosen, theme.key))}>
+              <button type="button" className={on ? "chosen" : ""} aria-pressed={on} onClick={() => onChange(toggleTheme(themes, chosen, themeRef(themes, theme)))}>
                 <span className="theme-name">{theme.label}</span>
                 <span className="theme-swatches" aria-hidden="true">
                   {theme.colors.map((c, k) => (

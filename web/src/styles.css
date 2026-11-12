@@ -3722,6 +3722,7 @@ fieldset.checklist .checklist-search {
   .theme-picker .chip button,
   .theme-picker input[type="search"],
   .intention-editor .intention-aliases .chip button,
+  .intention-origins .chip select,
   .restore-twins label {
     min-height: 44px;
   }

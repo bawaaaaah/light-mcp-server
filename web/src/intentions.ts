@@ -248,6 +248,16 @@ export interface ResolvedWord extends WordCandidate {
 /** A generated id (the server's `newIntentionId`): typed as such, it names that intention whatever its label. */
 export const GENERATED_ID = /^i-[a-z0-9]+-[a-z0-9]{4}$/;
 
+/**
+ * The strict form of an id (the server's `STRICT`, T15b): `=` then the id, always that intention. A
+ * key-id's plain word reads by name (a nearer intention of its label takes it): choosing the farther
+ * one writes this form.
+ */
+export const STRICT = "=";
+
+/** How a song or a look names an intention for sure: its id, or its strict form when the plain id would read as another one. */
+export const refFor = (kb: KnowledgeIntentions | null | undefined, id: string): string => (resolveWord(kb, id)?.id === id ? id : `${STRICT}${id}`);
+
 type Entry = { id: string; m: KnowledgeMood; hidden: boolean; rank: number; label: string; aliases: string[] };
 /** The intentions of a reply, read once (the keys of their names computed once per reply). */
 const indexes = new WeakMap<KnowledgeIntentions, { all: Entry[]; byId: Map<string, Entry> }>();
@@ -276,6 +286,11 @@ export function resolveWord(kb: KnowledgeIntentions | null | undefined, word: st
   if (!key) return undefined;
   const { all, byId } = indexOf(kb);
   const brief = (e: Entry): WordCandidate => ({ id: e.id, label: e.m.label || e.id, origin: (e.hidden ? e.m.over : e.m.origin) ?? "generic", hidden: e.hidden });
+  // the strict form: that id or nothing
+  if (word.startsWith(STRICT)) {
+    const strict = byId.get(word.slice(STRICT.length));
+    return strict ? { ...brief(strict), by: "id", candidates: 1, others: [brief(strict)] } : undefined;
+  }
   const exact = byId.get(word);
   if (exact && GENERATED_ID.test(word)) return { ...brief(exact), by: "id", candidates: 1, others: [brief(exact)] };
   const byKey = exact ?? byId.get(key);
@@ -331,7 +346,7 @@ export function tagsTyped(kb: KnowledgeIntentions | null | undefined, typed: rea
     const kept = back.get(intentionKey(word))?.shift();
     if (kept) return kept;
     const r = resolveWord(kb, word);
-    return r && !r.hidden ? `${AMBIANCE}${r.id}` : t;
+    return r && !r.hidden ? `${AMBIANCE}${refFor(kb, r.id)}` : t;
   });
 }
 

@@ -196,7 +196,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
         </label>
         {/* the song's intentions picked by label, stored by id (T15b); a free word stays a word */}
         <div className="song-moods">
-          <ThemePicker themes={themes} chosen={song.mood} onChange={(mood) => set({ mood })} title={t.moods} help={t.songMoodsHelp} loading={!knowledge} />
+          <ThemePicker themes={themes} chosen={song.mood} onChange={(mood) => set({ mood })} title={t.songMoods} help={t.songMoodsHelp} loading={!knowledge} />
           {/* a label several bear (T15b): the song names the one picked, by its id */}
           <IntentionOrigins kb={knowledge} words={song.mood} onPick={(word, picked) => set({ mood: song.mood.map((m) => (m === word ? picked : m)) })} />
         </div>

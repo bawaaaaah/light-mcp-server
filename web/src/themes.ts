@@ -6,7 +6,7 @@
  * the server). Shown by its label everywhere.
  */
 import { fold, searchBy, searchPhrase } from "./search-text.js";
-import { GENERATED_ID, intentionKey, ORIGIN_RANK, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
+import { GENERATED_ID, intentionKey, STRICT, ORIGIN_RANK, type IntentionOrigin, type KnowledgeIntentions } from "./intentions.js";
 
 export interface Theme {
   /** The intention's id. */
@@ -43,6 +43,8 @@ export const searchThemes = (list: readonly Theme[], query: string): Theme[] => 
  * specific first when several share it (show > personal > private file > shipped).
  */
 export const themeOf = (list: readonly Theme[], value: string): Theme | undefined => {
+  // the strict form (`=id`): that one, even when a nearer one bears its label
+  if (value.startsWith(STRICT)) return list.find((t) => t.key === value.slice(STRICT.length));
   const key = intentionKey(value);
   if (!key) return undefined;
   const exact = list.find((t) => t.key === value);
@@ -61,10 +63,14 @@ export const themeLabel = (list: readonly Theme[], value: string): string => the
 const same = (list: readonly Theme[], a: string, b: string) => (themeOf(list, a)?.key ?? fold(a).trim()) === (themeOf(list, b)?.key ?? fold(b).trim());
 
 /** Picks a value, or unpicks it when already chosen (a known theme typed by label is the same as its key). */
+/** What a chosen theme is stored as (T15b): its id, or its strict form when the plain id would read as a nearer one of its label. */
+export const themeRef = (list: readonly Theme[], theme: Theme): string => (themeOf(list, theme.key) === theme ? theme.key : `${STRICT}${theme.key}`);
+
 export function toggleTheme(list: readonly Theme[], chosen: readonly string[], value: string): string[] {
   const word = value.trim();
   if (!word) return [...chosen];
-  const key = themeOf(list, word)?.key ?? word;
+  const theme = themeOf(list, word);
+  const key = theme ? themeRef(list, theme) : word;
   return chosen.some((c) => same(list, c, key)) ? chosen.filter((c) => !same(list, c, key)) : [...chosen, key];
 }
 

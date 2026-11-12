@@ -6399,3 +6399,52 @@ test("the song editor on a phone: the intentions' picker fits, finger-sized (T15
   await page.locator(".song-editor").getByRole("button", { name: "Fermer" }).first().click();
   expect(errors).toEqual([]);
 });
+
+test("a show intention with the same label as a shipped one: choose the shipped one in the song picker and the look editor, reopen, still the shipped one (T15b, review 2)", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  const own = ((await api(page, "intention.put", { intention: { label: "Joie", colors: ["#2266aa"], energy: "pose" } })) as { intention: { id: string } }).intention.id;
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  try {
+    await api(page, "song.put", { song: { id: "t15b-j", title: "Essai joie", mood: [], sections: [] } });
+    await api(page, "look.put", { look: { id: "t15b-jl", name: "Essai joie look", canvas, technique: { kind: "plat", color: "#ffffff" }, tags: ["ambiance:joie"] } });
+    // the song picker: the shipped « Joie » picked beside the show's
+    await page.locator("nav.pages button", { hasText: "Chants" }).click();
+    await page.getByRole("button", { name: "Modifier Essai joie" }).click();
+    const editor = page.locator(".song-editor");
+    await editor.locator(".theme-picker").getByRole("searchbox").fill("joie");
+    await editor.locator(".theme-list button", { hasText: "livrée" }).click();
+    await expect(editor.locator(".theme-chips .chip")).toHaveText([/^Joie · livrée/]);
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "song.list")) as { id: string; mood: string[] }[]).find((s) => s.id === "t15b-j")!.mood).toEqual(["=joie"]);
+    await page.getByRole("button", { name: "Modifier Essai joie" }).click();
+    await expect(editor.locator(".theme-chips .chip")).toHaveText([/^Joie · livrée/]);
+    await expect(editor.locator(".theme-list button", { hasText: "livrée" })).toHaveAttribute("aria-pressed", "true");
+    await expect(editor.locator(".theme-list button", { hasText: "ce show" })).toHaveAttribute("aria-pressed", "false");
+    await page.keyboard.press("Escape");
+    // the look editor: « joie » reads as the show's; « Laquelle » picks the shipped one
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier Essai joie look" }).click();
+    const look = page.locator(".look-editor");
+    const which = look.getByRole("combobox", { name: "Laquelle « Joie » désigne" });
+    await expect(which).toHaveValue(own);
+    await expect(look.locator(".intention-origins .chip.shared")).toHaveCount(1); // by a name several bear: a warning
+    await which.selectOption("joie");
+    await expect(look.locator(".intention-origins .chip")).toContainText("Joie · livrée");
+    await expect(look.locator(".intention-origins .chip.shared")).toHaveCount(0); // pinned: said quietly
+    await page.screenshot({ path: "test-results/t15b/look-strict.png" });
+    await look.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect.poll(async () => ((await api(page, "look.get", { id: "t15b-jl" })) as { tags: string[] }).tags).toEqual(["ambiance:=joie"]);
+    await expect(look).toHaveCount(0);
+    await page.getByRole("button", { name: "Modifier Essai joie look" }).click();
+    await expect(look.getByRole("combobox", { name: "Laquelle « Joie » désigne" })).toHaveValue("joie");
+    await expect(look.getByLabel("tags", { exact: true })).toHaveValue("ambiance:Joie");
+  } finally {
+    await api(page, "song.delete", { id: "t15b-j" });
+    await api(page, "look.delete", { id: "t15b-jl", force: true });
+    await api(page, "intention.delete", { id: own, force: true });
+  }
+  expect(errors).toEqual([]);
+});
