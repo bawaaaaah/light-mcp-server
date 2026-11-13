@@ -236,6 +236,8 @@ export class ShowRuntime {
    * leaving keeps its place among the others while it fades instead of dropping under the ones still playing.
    */
   private readonly launchOrder = new WeakMap<LookPlayer, number>();
+  /** Per raw-channel table of a look, the targets whose value changes from one step to another (computed once per table). */
+  private readonly changingTargets = new WeakMap<object, ReadonlySet<number>>();
   private launches = 0;
   /**
    * Fixtures with tracks only (T5): the crossfade (by key) whose sheet a look (by id, active or the key of its own
@@ -1354,16 +1356,20 @@ export class ShowRuntime {
       }
       if (!look.channels) return;
       const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
+      const changing = this.changingTargetsOf(look.channels);
       const bytes = new Map<string, Map<number, number>>();
+      const stepping = new Set<string>();
       look.channels.targets.forEach((t, k) => {
         const r = headAt(t.fixture);
         if (!r || !motionOffsets(r).has(t.offset)) return;
         const mine = bytes.get(t.fixture) ?? new Map<number, number>();
         bytes.set(t.fixture, mine.set(t.offset, Math.max(mine.get(t.offset) ?? 0, row[k] ?? 0)));
+        if (changing.has(k)) stepping.add(t.fixture);
       });
       for (const [f, mine] of bytes) {
         const at = this.venue.readPosition(headAt(f)!, (offset) => mine.get(offset));
-        if (at.pan !== undefined || at.tilt !== undefined) claims.push({ ...own, heads: [f], base: { kind: "fixed", ...at } });
+        // steps writing other pan/tilt bytes move the head under the same claim, with no glide: the pad must keep reading it
+        if (at.pan !== undefined || at.tilt !== undefined) claims.push({ ...own, heads: [f], base: { kind: "fixed", ...at }, ...(stepping.has(f) ? { animated: true as const } : {}) });
       }
     };
     for (const r of this.releasing.values()) if (exitProgress(r, now) < 1) ofLook(r.look, r.player);
@@ -1371,6 +1377,18 @@ export class ShowRuntime {
     for (const { look, player } of this.active.values()) ofLook(look, player);
     for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: { kind: "fixed", ...m.position }, ...(m.glide ? {} : { fade: DIRECT }) });
     return claims;
+  }
+
+  /** The targets of a raw-channel table whose value differs between two of its steps. */
+  private changingTargetsOf(channels: { targets: readonly unknown[]; steps: readonly (readonly number[])[] }): ReadonlySet<number> {
+    let changing = this.changingTargets.get(channels);
+    if (!changing) {
+      const found = new Set<number>();
+      const first = channels.steps[0] ?? [];
+      for (let k = 0; k < channels.targets.length; k++) if (channels.steps.some((step) => (step[k] ?? 0) !== (first[k] ?? 0))) found.add(k);
+      this.changingTargets.set(channels, (changing = found));
+    }
+    return changing;
   }
 
   /** Whether an axis of a head glides or cuts at a change of owner: the box of the channel that axis drives (T5, ResolvedTracks.motion). */

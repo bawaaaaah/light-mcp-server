@@ -27,6 +27,12 @@ const reloadsScopes = (name: string): boolean =>
   name.startsWith("venue.fixture.") ||
   (name.startsWith("group.") && !GROUP_VALUE_ONLY.has(name));
 
+/** Same tolerance as the pad: a 16-bit read back of the asked point is that point. */
+const POINT_TOLERANCE = 1.5 / 255;
+/** Reads in a row with the same sent position after which a head held by hand is taken as stopped short (a console, a fader). */
+const STILL_READS = 2;
+const sameSent = (a: Position | null, b: Position | null): boolean => a !== null && b !== null && a.pan === b.pan && a.tilt === b.tilt;
+
 const targetKey = (target: MotionTarget): string => (target.fixtures ? `fixtures:${[...target.fixtures].sort().join(",")}` : target.group ? `group:${target.group}` : "all");
 
 /**
@@ -38,6 +44,8 @@ class MotionHeadsStore {
   private readonly scopes = new Map<string, Scope>();
   private readonly heads = new Map<string, MotionHead>();
   private readonly queue = new Map<string, ReadJob>();
+  /** Per head, how many position.list answers in a row brought the same sent position. */
+  private readonly stillReads = new Map<string, number>();
   private nextSubscriber = 1;
   private generation = 0;
   private reading = false;
@@ -77,6 +85,7 @@ class MotionHeadsStore {
       this.queue.clear();
       this.scopes.clear();
       this.heads.clear();
+      this.stillReads.clear();
       this.stopTopic?.();
       this.stopCommands?.();
       this.stopStatus?.();
@@ -93,6 +102,7 @@ class MotionHeadsStore {
 
   markGesture(): void {
     this.gestureUntil = Date.now() + 1000;
+    this.stillReads.clear(); // a new gesture: a head held short before may move again
     this.schedule();
   }
 
@@ -188,11 +198,19 @@ class MotionHeadsStore {
         // Overtaken by the topic: still apply what only this answer carries (manual, name, sent, membership), keep the
         // newer layers and owners, and read again once — never in a loop that a busy topic would starve.
         this.apply(job, list, overtaken);
-        if (overtaken && !job.retried) this.enqueue({ ...job, retried: true });
+        // never over a newer read of the same key queued meanwhile: it already asks for what this retry would
+        if (overtaken && !job.retried && !this.queue.has(job.key)) this.enqueue({ ...job, retried: true });
       })
       .catch(() => {
+        if (generation !== this.generation) return;
         // An aggregate read refused (a fixture gone from a scope): resolve the scopes again rather than retry it.
-        if (generation === this.generation && job.key === "aggregate") this.reloadScopes();
+        if (job.key === "aggregate") this.reloadScopes();
+        else if (job.scope) {
+          // A scope that no longer resolves (its fixture gone after another show opened): it shows no head, and the poll
+          // has nothing left to read there — never a refused read again every 200 ms. A later command or topic reloads it.
+          job.scope.ids.clear();
+          job.scope.loaded = true;
+        }
         // Otherwise a later topic, command, reconnect or active poll retries; no unhandled rejection reaches the UI.
       })
       .finally(() => {
@@ -210,7 +228,9 @@ class MotionHeadsStore {
 
   private apply(job: ReadJob, list: MotionHead[], keepTopic = false): void {
     for (const entry of list) {
-      const topic = keepTopic ? this.heads.get(entry.id) : undefined;
+      const old = this.heads.get(entry.id);
+      this.stillReads.set(entry.id, old && sameSent(old.sent, entry.sent) ? (this.stillReads.get(entry.id) ?? 0) + 1 : 0);
+      const topic = keepTopic ? old : undefined;
       // The topic owns the layer stack, owner, lock and rest; position.list alone carries manual, name and a fresh sent.
       this.heads.set(entry.id, topic ? { ...entry, motion: topic.motion, rest: topic.rest } : entry);
     }
@@ -223,15 +243,23 @@ class MotionHeadsStore {
     }
   }
 
-  /** Poll only while a position really changes: a glide, a moving shape, or a local gesture in the last second. */
+  /**
+   * Poll only while a position really changes: a glide, a moving shape or raw steps, a local gesture in the last second,
+   * or a head held by hand still on its way to the asked point (a speed rule slows it down) — until its sent position
+   * stays the same over two reads (a DMX console or a fader holding the axis): the poll never runs forever.
+   */
   private canMove(): boolean {
     if (Date.now() < this.gestureUntil) return true;
     for (const scope of this.scopes.values()) {
       for (const id of scope.ids) {
-        const motion = this.heads.get(id)?.motion;
-        if (!motion) continue;
-        for (const axis of [motion.pan, motion.tilt]) {
-          if (axis.moving || axis.animated) return true;
+        const head = this.heads.get(id);
+        const motion = head?.motion;
+        if (!head || !motion) continue;
+        for (const axis of ["pan", "tilt"] as const) {
+          const status = motion[axis];
+          if (status.moving || status.animated) return true;
+          const { manual, sent } = head;
+          if (status.layer === "manual" && manual && sent && Math.abs(manual[axis] - sent[axis]) > POINT_TOLERANCE && (this.stillReads.get(id) ?? 0) < STILL_READS) return true;
         }
       }
     }

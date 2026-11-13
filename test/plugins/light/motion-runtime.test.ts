@@ -485,6 +485,25 @@ describe("motion layer in the engine (T25)", () => {
       expect(bytes(back.at(-1)!, 0, 2)).to.deep.equal([240, 0]); // the scene below takes the axis back
     });
 
+    it("says the axis is animated while the scene steps through other pan/tilt bytes, not when its steps keep them", () => {
+      const t = setup();
+      const stepping = (id: string, steps: number[][]) =>
+        t.show.looks.put({ id, name: id, canvas: "lyres", technique: { kind: "aucune" }, timing: { every: { seconds: 0.2 } }, channels: { targets: [{ fixture: "spot16", offset: 0 }, { fixture: "spot16", offset: 5 }], steps } } as never);
+      stepping("moving", [[40, 10], [200, 10]]);
+      stepping("still", [[40, 10], [40, 200]]); // only the dimmer changes from step to step
+      t.show.go("moving");
+      const frames = t.run(2000).slice(-30); // once the entry glide is over
+      const pans = new Set(frames.map((f) => f.buf[0]));
+      expect(pans.has(40) && pans.has(200)).to.equal(true); // the steps really move the head
+      expect(t.show.motionStatus().get("spot16")!.pan).to.include({ layer: "look", owner: "look:moving", moving: false, animated: true });
+      expect(t.show.motionStatus().get("spot8")!.pan.animated).to.equal(undefined); // not written by the scene
+      t.show.stop("moving");
+      t.show.go("still");
+      t.run(1500);
+      expect(t.show.motionStatus().get("spot16")!.pan).to.include({ owner: "look:still" });
+      expect(t.show.motionStatus().get("spot16")!.pan.animated).to.equal(undefined);
+    });
+
     it("places nothing from a fine channel alone, and leaves a fixture without a definition as it was", () => {
       const t = setup();
       t.venue.fixtures.put({ id: "nodef", name: "No definition", manufacturer: "Test", model: "Unknown", mode: "x", universe: 1, address: 40 });

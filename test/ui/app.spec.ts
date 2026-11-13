@@ -6668,6 +6668,8 @@ test("motion pad: latest write wins on a slow link and shared polling sleeps at 
   await api(page, "position.home", {});
   const pad = page.locator(".xy .pad");
   await expect(pad.getByTestId("xy-sent-dot")).toBeVisible();
+  // a head left elsewhere by an earlier test glides home first: the pad rightly reads it until it lands
+  await expect.poll(async () => ((await api(page, "position.list")) as { motion: { pan: { moving: boolean }; tilt: { moving: boolean } } | null }[]).some((h) => h.motion?.pan.moving || h.motion?.tilt.moving), { timeout: 5000 }).toBe(false);
   await page.waitForTimeout(600); // let the initial report and first ownership event finish
   const quiet = listCalls;
   await page.waitForTimeout(500);
@@ -6730,17 +6732,23 @@ test("motion settings: the show's default glide accepts decimals, rejects invali
     await seconds.pressSequentially("45", { delay: 30 });
     await seconds.press("Tab");
     await expect(seconds).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByText("30 s au plus", { exact: true })).toBeVisible();
+    const settingError = page.locator(".move-fade-setting .move-fade-error");
+    await expect(settingError).toHaveText("30 s au plus — rien n'est enregistré, valeur enregistrée : 2,5 s (Échap pour la reprendre)"); // what stays saved
     await expect(seconds).toHaveValue("45"); // kept for correction
     expect(await settings()).toEqual({ seconds: 2.5 }); // never « 4 », the keystroke on the way to « 45 »
+    await seconds.focus();
+    await seconds.press("Escape"); // gives the saved value back
+    await expect(seconds).toHaveValue("2,5");
+    await expect(seconds).toHaveAttribute("aria-invalid", "false");
+    await expect(settingError).toHaveCount(0);
     await seconds.fill("");
     await seconds.pressSequentially("0,05", { delay: 30 });
     await seconds.press("Enter");
-    await expect(page.getByText("0,1 s au moins", { exact: true })).toBeVisible();
+    await expect(page.locator(".move-fade-setting .move-fade-error")).toContainText("0,1 s au moins");
     expect(await settings()).toEqual({ seconds: 2.5 }); // never « 0 » nor « 0,0 » saved on the way
     await seconds.fill("0");
     await seconds.press("Enter");
-    await expect(page.getByText("Pour une coupure, choisir « Coupe »", { exact: true })).toBeVisible();
+    await expect(page.locator(".move-fade-setting .move-fade-error")).toContainText("Pour une coupure, choisir « Coupe »");
     await expect(mode).toHaveValue("seconds");
     expect(await settings()).toEqual({ seconds: 2.5 });
     await seconds.fill("2,5");
@@ -6757,11 +6765,11 @@ test("motion settings: the show's default glide accepts decimals, rejects invali
     await beats.fill("100");
     await beats.press("Enter");
     await expect(beats).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByText("64 temps au plus", { exact: true })).toBeVisible();
+    await expect(page.locator(".move-fade-setting .move-fade-error")).toContainText("64 temps au plus");
     expect(await settings()).toEqual({ beats: 2.5 });
     await beats.fill("0");
     await beats.press("Enter");
-    await expect(page.getByText("Pour une coupure, choisir « Coupe »", { exact: true })).toBeVisible();
+    await expect(page.locator(".move-fade-setting .move-fade-error")).toContainText("Pour une coupure, choisir « Coupe »");
     await beats.fill("2");
     await beats.press("Enter");
     await expect.poll(settings).toEqual({ beats: 2 });
@@ -6814,8 +6822,12 @@ test("motion settings: a look saves automatic, seconds, beats and cut", async ({
       await seconds.pressSequentially(typed, { delay: 30 });
       await saveButton.click();
       await expect(editor).toBeVisible(); // a refused value never saves another one (« 4 », « 1 ») and closes silently
-      await expect(editor.getByText(message, { exact: true })).toBeVisible();
+      const shownError = editor.getByText(message, { exact: true });
+      await expect(shownError).toBeVisible();
       await expect(seconds).toBeFocused(); // the operator is taken back to the field
+      const errorBox = (await shownError.boundingBox())!;
+      const shapeBox = (await editor.locator(".field > span", { hasText: /^Forme$/ }).boundingBox())!;
+      expect(errorBox.y + errorBox.height <= shapeBox.y + 1 || errorBox.x >= shapeBox.x + shapeBox.width - 1 || errorBox.x + errorBox.width <= shapeBox.x + 1).toBe(true); // over no label
       await expect(seconds).toHaveValue(typed);
       expect(((await api(page, "look.list", { brief: true })) as { id: string }[]).some((l) => l.id === "test-mouvement")).toBe(false); // nothing saved
     }
@@ -6850,6 +6862,7 @@ test("motion pad: sent dot, per-axis layers, a masked look and one layer release
   await login(page);
   const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
   await api(page, "look.put", { look: { id: "motion-layer", name: "Position test", canvas, technique: { kind: "aucune" }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[40]] } } });
+  await api(page, "show.settings.set", { moveFade: { seconds: 3 } }); // a 3 s glide: the intermediate point is never missed between two reads
   const xy = page.locator(".xy").first();
   const layer = (axis: "pan" | "tilt") => xy.locator(`.xy-layers [data-axis~="${axis}"]`);
   try {
@@ -6863,13 +6876,13 @@ test("motion pad: sent dot, per-axis layers, a masked look and one layer release
       const left = await dotLeft();
       return left > 17 && left < 49;
     }).toBe(true); // an intermediate sent point is required: a direct jump to the target does not pass
-    await expect.poll(dotLeft, { timeout: 4000 }).toBeCloseTo(15.7, 0);
+    await expect.poll(dotLeft, { timeout: 6000 }).toBeCloseTo(15.7, 0);
     await api(page, "position.set", { fixtures: ["spot"], pan: 0.8, tilt: 0.7 });
     await expect(layer("pan")).toHaveText("Pan/Tilt : Main"); // both axes held alike: one line says both
     await expect(layer("pan")).toHaveAttribute("data-layer", "manual");
     await expect(dot).toHaveAttribute("data-layer", "manual"); // the dot takes its layer's colour
     await expect(dot).toHaveClass(/\bmanual\b/);
-    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 2 couches");
+    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 2 appuis");
     await expect.poll(dotLeft).toBeCloseTo(80, 0);
     await expect(xy.locator(".xy-masked")).toContainText("le look « Position test » voudrait la déplacer");
     await page.locator("header select").selectOption("en");
@@ -6881,9 +6894,10 @@ test("motion pad: sent dot, per-axis layers, a masked look and one layer release
     await expect(layer("pan")).toHaveText("Pan : Look « Position test »");
     await expect(layer("pan")).toHaveAttribute("data-layer", "look");
     await expect(layer("tilt")).toHaveText("Tilt : Repos");
-    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 1 couche");
+    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 1 appui");
     await xy.getByRole("button", { name: "Rendre la main", exact: true }).click();
     await expect(layer("pan")).toHaveText("Pan/Tilt : Repos");
+    await expect(xy.getByRole("button", { name: "Retour au repos", exact: true })).toBeFocused(); // not dropped to the page
     await expect(layer("pan")).toHaveAttribute("data-layer", "rest");
     await expect(dot).toHaveAttribute("data-layer", "rest");
     await expect(dot).toHaveClass(/\bremote\b/);
@@ -6894,6 +6908,30 @@ test("motion pad: sent dot, per-axis layers, a masked look and one layer release
     await api(page, "look.stop", { id: "motion-layer" }).catch(() => undefined);
     await api(page, "position.home", {}).catch(() => undefined);
     await api(page, "look.delete", { id: "motion-layer", force: true }).catch(() => undefined);
+    await api(page, "show.settings.set", { moveFade: { seconds: 1 } }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion pad: a look stepping through raw pan bytes keeps the dot moving", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await api(page, "show.settings.set", { moveFade: { seconds: 0.1 } });
+  await api(page, "look.put", { look: { id: "motion-steps", name: "Pas de pan", canvas, technique: { kind: "aucune" }, timing: { every: { seconds: 1 } }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[40], [200]] } } });
+  const dot = page.locator(".xy").first().getByTestId("xy-sent-dot");
+  const dotLeft = async () => Number((await dot.getAttribute("style"))?.match(/left: ([\d.]+)%/)?.[1]);
+  try {
+    await api(page, "look.go", { id: "motion-steps" });
+    // the same claim changes target at every step, with no glide: the pad keeps reading it instead of freezing on one
+    await expect.poll(dotLeft, { timeout: 5000 }).toBeCloseTo(15.7, 0);
+    await expect.poll(dotLeft, { timeout: 5000 }).toBeCloseTo(78.4, 0);
+    await expect.poll(dotLeft, { timeout: 5000 }).toBeCloseTo(15.7, 0);
+  } finally {
+    await api(page, "look.stop", { id: "motion-steps" }).catch(() => undefined);
+    await api(page, "position.home", {}).catch(() => undefined);
+    await api(page, "look.delete", { id: "motion-steps", force: true }).catch(() => undefined);
+    await api(page, "show.settings.set", { moveFade: { seconds: 1 } }).catch(() => undefined);
   }
   expect(errors).toEqual([]);
 });
@@ -6957,7 +6995,7 @@ test("motion pad: selectors, a sub-group, mixed keyboard offsets and strongest-o
       const pad = cellElement.querySelector(".pad")!;
       const style = cellElement.ownerDocument.defaultView!.getComputedStyle(pad);
       const masked = cellElement.querySelector(".xy-masked")!;
-      const texts = [...cellElement.querySelectorAll(".xy-heading, .xy-detail, .xy-actions button")].map((item) => Number.parseFloat(cellElement.ownerDocument.defaultView!.getComputedStyle(item).fontSize));
+      const texts = [...cellElement.querySelectorAll(".xy-heading, .xy-position, .xy-detail, .xy-layer-count, .xy-actions button")].map((item) => Number.parseFloat(cellElement.ownerDocument.defaultView!.getComputedStyle(item).fontSize));
       const clipped = [...cellElement.querySelectorAll(".xy-heading, .xy-layer-count, .xy-actions button")].filter((item) => item.scrollWidth > item.clientWidth + 1).map((item) => item.textContent);
       return {
         texts,
@@ -6970,8 +7008,10 @@ test("motion pad: selectors, a sub-group, mixed keyboard offsets and strongest-o
         buttons: [...cellElement.querySelectorAll(".xy-actions button, .xy-actions summary")].map((item) => item.getBoundingClientRect().height),
         coarse: cellElement.ownerDocument.defaultView!.matchMedia("(pointer: coarse)").matches,
         masked: { visible: masked.clientHeight, content: masked.scrollHeight },
+        grid: { scroll: cellElement.closest(".dgrid-scroll")!.scrollWidth, client: cellElement.closest(".dgrid-scroll")!.clientWidth },
       };
     });
+    if (name !== "390") expect(measured.grid.scroll, "the dashboard grid fits its room").toBeLessThanOrEqual(measured.grid.client + 1); // a phone may scroll sideways
     const cellBox = measured.cell;
     expect(measured.padHeight).toBeGreaterThanOrEqual(120);
     for (const size of measured.texts) expect(size).toBeGreaterThanOrEqual(12); // no text under 12 px
@@ -7014,17 +7054,24 @@ test("motion pad: selectors, a sub-group, mixed keyboard offsets and strongest-o
     await expect(layers.locator('.xy-chip[data-layer="look"]')).toHaveCount(1);
     await expect(xy.locator('[data-testid="xy-sent-dot"][data-fixture="spot"]')).toHaveAttribute("data-layer", "manual");
     await expect(xy.locator('[data-testid="xy-sent-dot"][data-fixture="head-b"]')).toHaveAttribute("data-layer", "look");
-    await expect(xy.locator(".xy-masked")).toContainText("le look « Position mixte » voudrait déplacer 1 lyre"); // it masks the manual head only
-    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 2 couches");
+    await expect(xy.locator(".xy-masked > span[aria-hidden]")).toHaveText("« Position mixte » : 1 lyre masquée"); // the count first, readable in a narrow cell
+    await expect(xy.locator(".xy-masked")).toHaveAttribute("title", "le look « Position mixte » voudrait déplacer 1 lyre"); // the whole sentence stays
+    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 2 appuis");
     await expect(xy.locator(".pad")).not.toHaveAttribute("title", /.+/); // no long tooltip over the gesture surface
     const info = xy.locator(".xy-release-info");
     await info.locator("summary").click();
+    await expect(info.locator(".xy-info-body[data-placed]")).toBeVisible();
     await expect(info.locator(".xy-legend li")).toHaveCount(6); // the colour legend is in the details
     await expect(info).toContainText("plein pour la main");
-    const bubble = await info.locator(".xy-info-body").boundingBox();
+    const bubbleBody = info.locator(".xy-info-body");
+    const bubble = (await bubbleBody.boundingBox())!;
     const cellBox = (await page.locator('[data-widget="xy"]').boundingBox())!;
-    expect(bubble!.x).toBeGreaterThanOrEqual(cellBox.x - 1);
-    expect(bubble!.x + bubble!.width).toBeLessThanOrEqual(cellBox.x + cellBox.width + 1); // constrained to the cell
+    expect(bubble.x).toBeGreaterThanOrEqual(0);
+    expect(bubble.y).toBeGreaterThanOrEqual(0);
+    expect(bubble.x + bubble.width).toBeLessThanOrEqual(1400);
+    expect(bubble.y + bubble.height).toBeLessThanOrEqual(900); // a popover over the page, inside the viewport
+    expect(await bubbleBody.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true); // no inner scroll: the legend is in view
+    await expect(info.locator(".xy-legend")).toBeInViewport();
     await page.keyboard.press("Escape");
     await expect(info).not.toHaveAttribute("open", "");
     await info.locator("summary").click();
@@ -7049,7 +7096,7 @@ test("motion pad: selectors, a sub-group, mixed keyboard offsets and strongest-o
     const after = await rows();
     expect(after.find((h) => h.id === "head-b")?.motion?.pan.layer).toBe("look");
     expect(after.find((h) => h.id === "head-c")?.motion?.pan.layer).toBe("look"); // B and C keep their look
-    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 1 couche");
+    await expect(xy.locator(".xy-layer-count")).toHaveText("encore 1 appui");
   } finally {
     await api(page, "look.stop", { id: "motion-mixed-look" }).catch(() => undefined);
     await api(page, "position.home", {}).catch(() => undefined);
@@ -7114,8 +7161,19 @@ test("motion fixture panel: set, clear and return to rest, with 44 px controls o
       const kept = (await panel.locator(selector).boundingBox())!;
       expect(kept.x + kept.width, selector).toBeLessThanOrEqual(box.x + box.width + 1); // the count and the « i » stay with the pad
     }
+    const countBox = (await panel.locator(".xy-layer-count").boundingBox())!;
+    const infoBox = (await panel.locator(".xy-release-info summary").boundingBox())!;
+    expect(Math.abs(countBox.y + countBox.height / 2 - (infoBox.y + infoBox.height / 2))).toBeLessThan(8); // the « i » beside the count, under the pad
+    expect(infoBox.y).toBeLessThan(box.y + box.height + 60);
+    await panel.locator(".xy-release-info summary").click();
+    await expect(panel.locator(".xy-release-info")).toHaveAttribute("open", "");
+    await page.keyboard.press("Escape"); // closes the bubble only, not the fixture panel behind it
+    await expect(panel.locator(".xy-release-info")).not.toHaveAttribute("open", "");
+    await expect(panel).toBeVisible();
+    await expect(panel.locator(".xy-release-info summary")).toBeFocused();
     await expect(panel.locator(".xy > .xy-legend")).toBeVisible(); // the colour legend is visible on the fixture panel
     await expect(panel.locator(".xy > .xy-legend li")).toHaveCount(6);
+    box = (await pad.boundingBox())!; // the bubble's « i » may have scrolled the page
     await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.3);
     await expect.poll(async () => Math.round(((await head()).sent?.pan ?? 0) * 10)).toBe(7);
     await expect(panel.getByTestId("xy-sent-dot")).toHaveAttribute("style", /left: 70(?:\.\d+)?%/);
@@ -7146,6 +7204,17 @@ test("motion fixture panel: set, clear and return to rest, with 44 px controls o
       expect(button.height).toBeGreaterThanOrEqual(44);
       expect(button.right).toBeLessThanOrEqual(390);
     }
+    await panel.locator(".xy-release-info summary").click();
+    await expect(panel.locator(".xy-info-body[data-placed]")).toBeVisible();
+    const phoneBubble = (await panel.locator(".xy-info-body").boundingBox())!;
+    const phoneInfo = (await panel.locator(".xy-release-info summary").boundingBox())!;
+    expect(phoneBubble.y).toBeGreaterThanOrEqual(0);
+    expect(phoneBubble.y + phoneBubble.height).toBeLessThanOrEqual(844);
+    expect(phoneBubble.x).toBeGreaterThanOrEqual(0);
+    expect(phoneBubble.x + phoneBubble.width).toBeLessThanOrEqual(390);
+    // anchored to the « i »: just above or just below it, not at the pad's top
+    expect(Math.min(Math.abs(phoneBubble.y + phoneBubble.height - phoneInfo.y), Math.abs(phoneBubble.y - (phoneInfo.y + phoneInfo.height)))).toBeLessThan(12);
+    await page.keyboard.press("Escape");
     await page.screenshot({ path: "test-results/t25-motion-panel-phone.png", fullPage: true });
   } finally {
     await api(page, "position.home", {}).catch(() => undefined);
@@ -7173,6 +7242,9 @@ test("calibration: a real record refusal stays visible and phone controls keep 4
     await expect(refusal).toBeVisible();
     await expect(refusal).toContainText("un look la déplace"); // the server's actual refusal, not a mocked message
     await expect(refusal).toHaveCSS("cursor", "default");
+    const calInfo = (await calibration.locator(".xy-release-info summary").boundingBox())!;
+    const calCount = (await calibration.locator(".xy-layer-count").boundingBox())!;
+    expect(Math.abs(calInfo.y + calInfo.height / 2 - (calCount.y + calCount.height / 2))).toBeLessThan(8); // inline with the layer line, not alone over the buttons
     await page.setViewportSize({ width: 390, height: 844 });
     const heights = await calibration.locator(".fields select, .fields input, .row.actions > button").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
     expect(heights).toHaveLength(7); // two selects, x/y, and record/solve/clear

@@ -648,6 +648,7 @@ textarea {
 .xy-position {
   margin-right: 0.5em;
   color: var(--muted);
+  font-size: inherit; /* a <small> would drop it to 10 px */
 }
 .xy-layers {
   color: var(--muted);
@@ -672,7 +673,7 @@ textarea {
 }
 .xy-detail {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.6em;
   min-width: 0;
 }
@@ -729,15 +730,21 @@ textarea {
 .xy-release-info summary::-webkit-details-marker {
   display: none;
 }
-/* The bubble stays inside the pad's own box (a narrow Live cell clips nothing outside it), over the pad. */
+/* By the count (fixture panel, calibration): the « i » follows it instead of sitting alone after the buttons. */
+.xy-detail .xy-release-info {
+  margin-left: 0;
+}
+/* A popover over the page, anchored to its « i » and clamped to the viewport by XyPad (top/left set there): a Live cell
+   clips nothing, the legend never hides behind an inner scroll, a phone panel never pushes it off the screen. */
 .xy-info-body {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
-  right: 0;
-  z-index: 5;
-  max-height: calc(100% - 40px);
+  z-index: 40;
+  width: min(22em, calc(100vw - 16px));
+  box-sizing: border-box;
   overflow-y: auto;
+  outline: none;
   padding: 0.5em;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -745,6 +752,10 @@ textarea {
   box-shadow: 0 4px 16px #0008;
   font-size: 0.75rem;
   white-space: normal;
+}
+/* never shown at the page's corner before XyPad has placed it by its « i » */
+.xy-info-body:not([data-placed]) {
+  visibility: hidden;
 }
 .xy-info-body p {
   margin: 0 0 0.4em;
@@ -797,10 +808,21 @@ textarea {
   top: calc(100% + 2px);
   left: 0;
   z-index: 4;
+  width: max-content;
+  max-width: min(26em, calc(100vw - 32px));
   padding: 0 0.3em;
   border-radius: 4px;
   background: var(--panel);
   font-size: 0.75rem;
+  white-space: normal;
+}
+/* In the look editor the room under the field is always kept: the error lands there, over no label (« Forme »). */
+.field > .move-fade-input {
+  padding-bottom: 1.3em;
+}
+.field > .move-fade-input .move-fade-error {
+  top: auto;
+  bottom: 0;
   white-space: nowrap;
 }
 .move-fade-input input {
@@ -840,9 +862,6 @@ textarea {
   }
   .cell .xy-actions {
     gap: 4px;
-  }
-  .xy-info-body {
-    max-height: calc(100% - 52px);
   }
   .move-fade-setting {
     flex-wrap: wrap;
@@ -2512,8 +2531,12 @@ html {
   overflow-y: hidden;
   padding-bottom: 0.4em;
 }
-@media (max-width: 999px) {
-  .dashboards {
+/* Read against the room the grid really has (not the viewport): a 1180 px tablet leaves 960 px, under 12 × 84. */
+.dgrid-scroll {
+  container-type: inline-size;
+}
+@container (max-width: 1007px) {
+  .dgrid {
     --colmin: 56px; /* a tablet keeps a 12-column dashboard on screen */
   }
 }

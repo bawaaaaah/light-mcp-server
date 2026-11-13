@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
 import { quoted } from "../typography";
+import { pressesLeft } from "../motionPresses";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -19,6 +20,8 @@ type XyPadProps = {
   resync?: unknown;
   /** Per-head rest controls belong on the fixture panel, not on a group or all-heads pad. */
   restControls?: boolean;
+  /** A Live cell: the « i » sits in the button row, where the fixed-height cell keeps its room (elsewhere: by the count). */
+  compact?: boolean;
 };
 
 type Axis = "pan" | "tilt";
@@ -48,13 +51,16 @@ const topLayer = (h: MotionHead): MotionLayer => {
   const { pan, tilt } = h.motion;
   return rankOf(pan.layer) <= rankOf(tilt.layer) ? pan.layer : tilt.layer;
 };
+/** Room kept between the info bubble and the viewport's edges, and between the bubble and its « i ». */
+const BUBBLE_MARGIN = 8;
+const BUBBLE_GAP = 4;
 const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.length && a.every((chip, i) => chip.text === b[i]!.text && chip.count === b[i]!.count);
 
 /**
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept, so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled = false, resync, restControls = false }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled = false, resync, restControls = false, compact = false }: XyPadProps): ReactElement {
   const t = useT();
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
@@ -65,6 +71,11 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   const [keyboardHint, setKeyboardHint] = useState("");
   const pad = useRef<HTMLDivElement>(null);
   const info = useRef<HTMLDetailsElement>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const releaseButton = useRef<HTMLButtonElement>(null);
+  const homeButton = useRef<HTMLButtonElement>(null);
+  /** « Rendre la main » was the last control used: when it turns disabled, the focus goes on instead of to the page. */
+  const releaseHadFocus = useRef(false);
   const dragRect = useRef<DOMRect | null>(null);
   const activePointer = useRef<number | null>(null);
   const pending = useRef<WriteBatch | null>(null);
@@ -138,8 +149,12 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     const onKey = (event: KeyboardEvent): void => {
       const details = info.current;
       if (event.key !== "Escape" || !details?.open) return;
+      // Escape closes the bubble only: not the panel, the selection or the dialog behind it (capture phase, first).
+      event.preventDefault();
+      event.stopPropagation();
+      const inside = details.contains(document.activeElement);
       details.open = false;
-      details.querySelector("summary")?.focus();
+      if (inside) details.querySelector("summary")?.focus();
     };
     const onPress = (event: PointerEvent): void => {
       const details = info.current;
@@ -153,6 +168,37 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
       document.removeEventListener("pointerdown", onPress, true);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    // A popover over the page, anchored to its « i » and kept inside the viewport: a Live cell clips nothing, and a
+    // phone panel never pushes it above the screen or under the navigation bar.
+    if (!infoOpen) return;
+    const place = (): void => {
+      const details = info.current;
+      const body = details?.querySelector<HTMLElement>(".xy-info-body");
+      const summary = details?.querySelector("summary");
+      if (!details?.open || !body || !summary) return;
+      const width = document.documentElement.clientWidth;
+      const height = window.innerHeight;
+      body.style.maxHeight = `${height - 2 * BUBBLE_MARGIN}px`;
+      const anchor = summary.getBoundingClientRect();
+      const box = body.getBoundingClientRect();
+      let top = anchor.top - BUBBLE_GAP - box.height; // above the « i » first, else below it, else as low as it fits
+      if (top < BUBBLE_MARGIN) top = anchor.bottom + BUBBLE_GAP;
+      if (top + box.height > height - BUBBLE_MARGIN) top = Math.max(BUBBLE_MARGIN, height - BUBBLE_MARGIN - box.height);
+      const left = Math.min(Math.max(BUBBLE_MARGIN, anchor.right - box.width), width - BUBBLE_MARGIN - box.width);
+      body.style.top = `${Math.round(top)}px`;
+      body.style.left = `${Math.round(Math.max(BUBBLE_MARGIN, left))}px`;
+      body.dataset.placed = "";
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  });
 
   const fromEvent = (event: React.PointerEvent): Position => {
     // Layout may change during a gesture; the pad's geometry at pointerdown remains the gesture's reference.
@@ -226,47 +272,74 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   const rowText = (row: { axes: Axis[]; chips: LayerChip[] }): string =>
     row.chips.length ? `${axisName(row.axes)}${t.colon} ${row.chips.map((chip) => chipText(chip, row.chips)).join(" · ")}` : `${axisName(row.axes)}${t.colon} —`;
 
-  // Claims, not distinct layers: three stacked looks count three, and every effective press lowers the count.
-  const countFor = (h: MotionHead): number =>
-    Math.max(
-      ...AXES.map((axis) => {
-        const status = h.motion?.[axis];
-        return (status?.layers ?? (status ? [status.layer, "rest"] : ["rest"])).filter((layer) => layer !== "rest").length;
-      }),
-    );
-  const remaining = scopedHeads.length ? Math.max(...scopedHeads.map(countFor)) : 0;
+  // Presses, not layers: the server's rule replayed (locks set aside, the strongest layer present first), so the count
+  // drops on every press, also on a mixed group, and never counts what a lock protects.
+  const remaining = pressesLeft(scopedHeads);
   const remainingText = remaining === 0 ? t.motionLayersRemainingNone : remaining === 1 ? t.motionLayersRemainingOne : t.motionLayersRemainingMany.replace("{count}", () => String(remaining));
-  // Heads at rest or under a lock (hard or soft) are set aside, as on the server: nothing else, nothing to release.
-  const canRelease = scopedHeads.some((h) => !h.motion || AXES.some((axis) => !["rest", "lock"].includes(h.motion![axis].layer)));
+  // A head without a frame yet may still hold something: the server answers, the count waits for the report.
+  const canRelease = remaining > 0 || scopedHeads.some((h) => !h.motion);
 
-  type Claim = { owner: string; name?: string; released: boolean; heads: number };
+  /** An owner beaten on some heads and released on others: both counted apart, each head once. */
+  type Claim = { owner: string; name?: string; masked: number; released: number };
   const byOwner = new Map<string, Claim>();
   for (const h of scopedHeads) {
-    const seen = new Set<string>();
-    const add = (ref: { owner: string; name?: string }, released: boolean): void => {
-      if (seen.has(ref.owner)) return;
-      seen.add(ref.owner);
-      const known = byOwner.get(ref.owner);
-      byOwner.set(ref.owner, { ...ref, released: known ? known.released && released : released, heads: (known?.heads ?? 0) + 1 });
+    const maskedHere = new Set<string>();
+    const releasedHere = new Set<string>();
+    const claimOf = (ref: { owner: string; name?: string }): Claim => {
+      const known = byOwner.get(ref.owner) ?? { ...ref, masked: 0, released: 0 };
+      byOwner.set(ref.owner, known);
+      return known;
     };
-    for (const ref of h.motion?.masked ?? []) add(ref, false);
+    for (const ref of h.motion?.masked ?? []) {
+      if (maskedHere.has(ref.owner)) continue;
+      maskedHere.add(ref.owner);
+      claimOf(ref).masked += 1;
+    }
     // A released owner matters while another live layer holds the head; at rest/hold the stack already says enough.
     const covered = h.motion && AXES.some((axis) => ["manual", "target", "look", "lock"].includes(h.motion![axis].layer));
-    if (covered) for (const ref of h.motion?.released ?? []) add(ref, true);
-  }
-  const claims = [...byOwner.values()];
-  const ownerText = (claim: Claim): string => {
-    const heads = claim.heads === 1 ? t.motionHeadsOne : t.motionHeadsMany.replace("{count}", () => String(claim.heads));
-    if (claim.owner.startsWith("look:")) {
-      const lookTemplate = many ? t.motionMaskedLookMany : t.motionMaskedLook;
-      return lookTemplate.replace("{name}", () => quoted(t, claim.name ?? claim.owner.slice(5))).replace("{heads}", () => heads);
+    if (!covered) continue;
+    for (const ref of h.motion?.released ?? []) {
+      if (maskedHere.has(ref.owner) || releasedHere.has(ref.owner)) continue; // masked again by a relaunch: said masked
+      releasedHere.add(ref.owner);
+      claimOf(ref).released += 1;
     }
-    const layer: MotionLayer = claim.owner === "manual" ? "manual" : claim.owner.startsWith("target:") ? "target" : claim.owner === "hold" ? "hold" : "rest";
-    const otherTemplate = many ? t.motionMaskedOtherMany : t.motionMaskedOther;
-    return otherTemplate.replace("{name}", () => claim.name ?? t.motionLayers[layer]).replace("{heads}", () => heads);
+  }
+  // What still wants the heads comes first; what was handed back after (« … — relâché » never opens the line).
+  const claims = [...byOwner.values()].sort((a, b) => Number(b.masked > 0) - Number(a.masked > 0));
+  const headsText = (count: number): string => (count === 1 ? t.motionHeadsOne : t.motionHeadsMany.replace("{count}", () => String(count)));
+  const ownerLayer = (owner: string): MotionLayer => (owner === "manual" ? "manual" : owner.startsWith("target:") ? "target" : owner === "hold" ? "hold" : "rest");
+  const ownerName = (claim: Claim): string => (claim.owner.startsWith("look:") ? quoted(t, claim.name ?? claim.owner.slice(5)) : (claim.name ?? t.motionLayers[ownerLayer(claim.owner)]));
+  /** The whole sentence: the info bubble, the line's title and screen readers. */
+  const claimText = (claim: Claim): string => {
+    const look = claim.owner.startsWith("look:");
+    const parts: string[] = [];
+    if (claim.masked > 0) {
+      const template = many ? (look ? t.motionMaskedLookMany : t.motionMaskedOtherMany) : look ? t.motionMaskedLook : t.motionMaskedOther;
+      parts.push(template.replace("{name}", () => ownerName(claim)).replace("{heads}", () => headsText(claim.masked)));
+    } else parts.push(look ? t.motionOwnerLook.replace("{name}", () => ownerName(claim)) : ownerName(claim));
+    if (claim.released > 0) parts.push(many ? t.motionReleasedOn.replace("{heads}", () => headsText(claim.released)) : t.motionReleased);
+    return parts.join(" — ");
   };
-  const claimText = (claim: Claim): string => `${ownerText(claim)}${claim.released ? ` — ${t.motionReleased}` : ""}`;
-  const maskedText = claims.length ? `${claimText(claims[0]!)}${claims.length > 1 ? ` ${t.motionMoreClaims.replace("{count}", () => String(claims.length - 1))}` : ""}` : "";
+  /** A group's short form, counts first: « « Position A » : 1 lyre masquée » reads whole in a narrow Live cell. */
+  const claimShort = (claim: Claim): string => {
+    if (!many) return claimText(claim);
+    const counts: string[] = [];
+    if (claim.masked > 0) counts.push(claim.masked === 1 ? t.motionMaskedCountOne : t.motionMaskedCountMany.replace("{count}", () => String(claim.masked)));
+    if (claim.released > 0) counts.push(claim.released === 1 ? t.motionReleasedCountOne : t.motionReleasedCountMany.replace("{count}", () => String(claim.released)));
+    return `${ownerName(claim)}${t.colon} ${counts.join(", ")}`;
+  };
+  const more = claims.length > 1 ? ` ${t.motionMoreClaims.replace("{count}", () => String(claims.length - 1))}` : "";
+  const maskedText = claims.length ? `${claimShort(claims[0]!)}${more}` : "";
+  const maskedFull = claims.map(claimText).join("\n");
+
+  useEffect(() => {
+    // « Rendre la main » turning disabled under the focus must not drop it to the page: the next sensible control takes it.
+    if (canRelease || !releaseHadFocus.current) return;
+    const active = document.activeElement;
+    if (active !== releaseButton.current && active !== document.body && active !== null) return;
+    const home = homeButton.current;
+    (home && !home.disabled ? home : pad.current)?.focus({ preventScroll: true });
+  }, [canRelease]);
 
   const onKeyDown = (event: React.KeyboardEvent): void => {
     if (disabled) return;
@@ -318,10 +391,45 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     </ul>
   );
 
+  const infoBubble = (
+    <details
+      ref={info}
+      className="xy-release-info"
+      onToggle={(event) => {
+        const open = event.currentTarget.open;
+        if (!open) delete event.currentTarget.querySelector<HTMLElement>(".xy-info-body")?.dataset.placed;
+        setInfoOpen(open);
+      }}
+      onBlur={(event) => {
+        // Focus leaving the bubble (Tab past it) closes it, like a press outside does.
+        const details = event.currentTarget;
+        if (details.open && !details.contains(event.relatedTarget as Node | null)) details.open = false;
+      }}
+    >
+      <summary aria-label={t.releaseTopInfo}>i</summary>
+      {/* focusable: a press on its text keeps the focus inside, so it does not read as leaving the bubble */}
+      <div className="xy-info-body" tabIndex={-1}>
+        {axisRows.map((row) => (
+          <p key={row.axes.join(" ")}>{rowText(row)}</p>
+        ))}
+        <p>{remainingText}</p>
+        {claims.map((claim) => (
+          <p key={claim.owner} className="hint">{claimText(claim)}</p>
+        ))}
+        <p>{t.releaseTopHelp}</p>
+        <p>{t.padDotsHelp}</p>
+        {legend}
+      </div>
+    </details>
+  );
+
   return (
     <div
       className={`xy fill${dragging ? " dragging" : ""}`}
-      onFocusCapture={() => setFocused(true)}
+      onFocusCapture={(event) => {
+        setFocused(true);
+        releaseHadFocus.current = (event.target as Element) === releaseButton.current;
+      }}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
       }}
@@ -404,18 +512,30 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
         </div>
         <div className="xy-detail">
           <small className="xy-layer-count">{remainingText}</small>
-          <span className="xy-masked hint" aria-hidden={!confirmation && !claims.length && !keyboardHint}>
-            {confirmation || maskedText || " "}
-            {keyboardHint ? ` ${keyboardHint}` : ""}
+          {!compact && infoBubble}
+          <span className="xy-masked hint" aria-hidden={!confirmation && !claims.length && !keyboardHint} title={!confirmation && maskedFull ? maskedFull : undefined}>
+            <span aria-hidden={!confirmation && claims.length > 0 ? true : undefined}>
+              {confirmation || maskedText || " "}
+              {keyboardHint ? ` ${keyboardHint}` : ""}
+            </span>
+            {!confirmation && claims.length > 0 && <span className="sr-only">{maskedFull}</span>}
           </span>
         </div>
       </div>
       {restControls && legend}
       <div className="row xy-actions">
-        <button title={t.releaseTopHelp} disabled={disabled || !canRelease} onClick={() => void runMotion("position.releaseTop")}>
+        <button
+          ref={releaseButton}
+          title={t.releaseTopHelp}
+          disabled={disabled || !canRelease}
+          onClick={() => {
+            releaseHadFocus.current = true;
+            void runMotion("position.releaseTop");
+          }}
+        >
           {t.releaseTop}
         </button>
-        <button title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
+        <button ref={homeButton} title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
           {t.homeHeads}
         </button>
         {restControls && fixture && (
@@ -435,24 +555,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
             </button>
           </>
         )}
-        <details
-          ref={info}
-          className="xy-release-info"
-        >
-          <summary aria-label={t.releaseTopInfo}>i</summary>
-          <div className="xy-info-body">
-            {axisRows.map((row) => (
-              <p key={row.axes.join(" ")}>{rowText(row)}</p>
-            ))}
-            <p>{remainingText}</p>
-            {claims.map((claim) => (
-              <p key={claim.owner} className="hint">{claimText(claim)}</p>
-            ))}
-            <p>{t.releaseTopHelp}</p>
-            <p>{t.padDotsHelp}</p>
-            {legend}
-          </div>
-        </details>
+        {compact && infoBubble}
       </div>
     </div>
   );

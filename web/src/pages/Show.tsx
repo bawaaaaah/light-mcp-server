@@ -559,7 +559,7 @@ export function ShowPage(): ReactElement {
         </label>
         <label className="move-fade-setting" title={t.moveFadeHelp}>
           <span>{t.moveFadeDefault}</span>
-          {settings && <MoveFadeInput label={t.moveFadeDefault} value={settings.moveFade} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />}
+          {settings && <MoveFadeInput savedHint label={t.moveFadeDefault} value={settings.moveFade} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />}
         </label>
         <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
           <input type="checkbox" checked={Boolean(settings?.liveAi)} onChange={(e) => void run("show.settings.set", { liveAi: e.target.checked })} /> {t.liveAi}

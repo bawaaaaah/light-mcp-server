@@ -78,6 +78,8 @@ export interface MotionClaim {
   shape?: MotionShape;
   /** How this claim takes a head over (`look.move.fade`); absent: `moveFade`. `{ seconds: 0 }` = direct (the pad, R8). */
   fade?: MoveFade;
+  /** Its position changes by itself without a shape: a look's raw pan/tilt over steps that write other bytes. */
+  animated?: true;
 }
 
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
@@ -171,7 +173,7 @@ export interface AxisStatus {
   position: number;
   /** A transition is running. */
   moving: boolean;
-  /** The winning claim draws a shape that moves (not « fixe »): the head keeps moving without any transition. */
+  /** The winning claim moves by itself — a shape that moves (not « fixe »), raw pan/tilt steps — without any transition. */
   animated?: true;
   /** While a transition runs: where it started from, and the milliseconds it still lasts. */
   from?: number;
@@ -297,9 +299,9 @@ function layerStack(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel,
   const bottom: AxisLayer[] = holding ? ["hold", "rest"] : ["rest"];
   if (lock === "hard") return ["lock", ...claims, ...bottom];
   if (lock === "soft") {
-    // A manual claim stays above the soft lock; every lower claim remains underneath it.
-    if (claims[0] === "manual") return ["manual", "lock", ...claims.slice(1), ...bottom];
-    return ["lock", ...claims, ...bottom];
+    // Every manual claim stays above the soft lock; every lower claim remains underneath it.
+    const manual = claims.filter((layer) => layer === "manual");
+    return [...manual, "lock", ...claims.filter((layer) => layer !== "manual"), ...bottom];
   }
   return [...claims, ...bottom];
 }
@@ -450,7 +452,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
         owner: o.claim?.owner ?? null,
         position: s.value,
         moving,
-        ...(o.claim?.shape && o.claim.shape.move.shape !== "fixe" ? { animated: true as const } : {}),
+        ...((o.claim?.shape && o.claim.shape.move.shape !== "fixe") || o.claim?.animated ? { animated: true as const } : {}),
         ...(moving ? { from: s.from, remainingMs: Math.max(0, s.t0 + s.dur - now) } : {}),
         ...(o.target === undefined ? {} : { target: o.target }),
         ...(o.error === undefined ? {} : { error: o.error }),

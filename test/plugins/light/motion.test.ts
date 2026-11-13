@@ -262,6 +262,30 @@ describe("motion layer (pure)", () => {
       expect(soft.last.status.get("h1")!.pan.layers).to.deep.equal(["manual", "lock", "look", "rest"]);
     });
 
+    it("keeps every manual claim above a soft lock and every claim under a hard one", () => {
+      const stack = (lock: LockLevel, claims: MotionClaim[]) => {
+        const sim = new Sim({ ctx, lock: () => lock, settings: { moveFade: SEC(0) } });
+        sim.claims = claims;
+        sim.frame(0);
+        return sim.last.status.get("h1")!.pan.layers;
+      };
+      const two = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), target("t", 2, ["h1"]), manual(3, ["h1"], { pan: 0.9 }), { ...manual(4, ["h1"], { pan: 0.8 }), owner: "preset" }];
+      expect(stack("soft", two)).to.deep.equal(["manual", "manual", "lock", "target", "look", "rest"]); // not only the first manual entry
+      expect(stack("hard", two)).to.deep.equal(["lock", "manual", "manual", "target", "look", "rest"]);
+      const noManual = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), target("t", 2, ["h1"])];
+      expect(stack("soft", noManual)).to.deep.equal(["lock", "target", "look", "rest"]);
+      expect(stack("hard", noManual)).to.deep.equal(["lock", "target", "look", "rest"]);
+      expect(stack("soft", [])).to.deep.equal(["lock", "rest"]);
+    });
+
+    it("says an axis is animated while a claim marked animated (raw pan/tilt steps) holds it", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(0) } });
+      sim.claims = [{ ...look("raw", 1, ["h1"], { pan: 0.2 }), animated: true }];
+      expect(sim.frame(0).status.get("h1")!.pan.animated).to.equal(true);
+      sim.claims = [look("raw", 1, ["h1"], { pan: 0.2 })];
+      expect(sim.frame(20).status.get("h1")!.pan.animated).to.equal(undefined);
+    });
+
     it("says which owners it masks", () => {
       const sim = new Sim({ ctx, settings: { moveFade: SEC(0) } });
       sim.claims = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), manual(2, ["h1"], { pan: 0.9, tilt: 0.9 }), { owner: "look:c", layer: "look", order: 3, heads: ["h1"] }];

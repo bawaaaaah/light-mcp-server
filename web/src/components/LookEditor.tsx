@@ -103,6 +103,7 @@ export function MoveFadeInput({
   automatic = false,
   automaticValue,
   onInvalid,
+  savedHint = false,
 }: {
   value: MoveFade | undefined;
   onChange: (value: MoveFade | undefined) => void;
@@ -111,12 +112,15 @@ export function MoveFadeInput({
   automaticValue?: MoveFade;
   /** Told the field while its text is not a valid duration (null once it is): a form refuses to save meanwhile. */
   onInvalid?: (field: HTMLInputElement | null) => void;
+  /** The value is saved as soon as it is committed (the show's setting): a refusal also says what stays saved. */
+  savedHint?: boolean;
 }): ReactElement {
   const t = useT();
   /** The text being typed; committed only whole, on blur or Enter, never keystroke by keystroke (« 45 » is not « 4 »). */
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const lastEmitted = useRef<MoveFade | undefined>(value);
+  /** The value shown when the draft opened: one changed elsewhere since (another tab, a revert) replaces the draft. */
+  const draftBase = useRef<MoveFade | undefined>(value);
   const field = useRef<HTMLInputElement | null>(null);
   const focused = useRef(false);
   const onInvalidRef = useRef(onInvalid);
@@ -126,7 +130,7 @@ export function MoveFadeInput({
   const n = value === undefined ? 1 : "beats" in value ? value.beats : value.seconds;
   useEffect(() => {
     // A value read back while the operator types never wipes the draft; once the field is left, the saved value shows.
-    if (draft !== null && !focused.current && !sameFade(value, lastEmitted.current)) {
+    if (draft !== null && !focused.current && !sameFade(value, draftBase.current)) {
       setDraft(null);
       setError("");
       onInvalidRef.current?.(null);
@@ -150,10 +154,10 @@ export function MoveFadeInput({
     onInvalidRef.current?.(null);
     const bounded = (min: number, max: number): number => Math.min(max, Math.max(min, n || 1));
     const next: MoveFade | undefined = nextMode === "auto" ? undefined : nextMode === "cut" ? { seconds: 0 } : nextMode === "beats" ? { beats: bounded(0.25, 64) } : { seconds: bounded(0.1, 30) };
-    lastEmitted.current = next;
     onChange(next);
   };
   const type = (raw: string): void => {
+    if (draft === null) draftBase.current = value;
     setDraft(raw);
     setError(""); // judged when the field is left: « 0, » on the way to « 0,5 » is not an error
     onInvalidRef.current?.("error" in parse(raw) ? field.current : null);
@@ -171,8 +175,13 @@ export function MoveFadeInput({
     onInvalidRef.current?.(null);
     setDraft(null);
     if (sameFade(parsed.value, value)) return;
-    lastEmitted.current = parsed.value;
     onChange(parsed.value);
+  };
+  /** Escape gives the committed value back: the draft and its error go, nothing is saved. */
+  const revert = (): void => {
+    setDraft(null);
+    setError("");
+    onInvalidRef.current?.(null);
   };
   return (
     <span className="row move-fade-input">
@@ -199,6 +208,14 @@ export function MoveFadeInput({
             }}
             onChange={(event) => type(event.target.value)}
             onKeyDown={(event) => {
+              if (event.key === "Escape" && draft !== null) {
+                // the draft only: a dialog or panel behind keeps its own Escape for the next press
+                event.preventDefault();
+                event.stopPropagation();
+                event.nativeEvent.stopImmediatePropagation();
+                revert();
+                return;
+              }
               if (event.key !== "Enter") return;
               event.preventDefault();
               commit();
@@ -208,7 +225,11 @@ export function MoveFadeInput({
               commit();
             }}
           />
-          {error && <small id={errorId} className="move-fade-error error">{error}</small>}
+          {error && (
+            <small id={errorId} className="move-fade-error error">
+              {savedHint && value !== undefined ? `${error} — ${t.moveFadeKept.replace("{value}", () => fadeText(value, t.beats, t.decimalMark))}` : error}
+            </small>
+          )}
         </>
       )}
     </span>

@@ -748,7 +748,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           </div>
         );
       case "xy":
-        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} />;
+        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
