@@ -6,6 +6,7 @@ import { TechniqueSchema } from "../engine/techniques.js";
 import { TimingSchema } from "../engine/player.js";
 import { MoveFadeSchema, MoveSchema, DEFAULT_MOVE_FADE, RestPositionSchema } from "../engine/move.js";
 import { normalizeFolder } from "./folders.js";
+import { MotionLockSchema, MotionLockStateSchema } from "./motion-lock.js";
 
 export const PaletteSchema = z.object({
   id: z.string(),
@@ -136,6 +137,8 @@ export const SnapshotSchema = z.object({
   /** Active rule program; absent = none. */
   program: z.string().optional(),
   blackout: z.boolean().default(false),
+  /** « Figer les lyres » (T26): the lock levels when it was saved, put back exactly on recall (decision Q3); absent (an older snapshot): the lock is left as it is. */
+  motionLock: MotionLockStateSchema.optional(),
   savedAt: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -171,5 +174,7 @@ export const ShowSettingsSchema = z.object({
   moveFade: MoveFadeSchema.default(DEFAULT_MOVE_FADE),
   /** Rest position per moving head (fixture id → normalised pan/tilt): where a head nobody moves returns to. Absent: the centre. */
   restPositions: z.record(z.string(), RestPositionSchema).default({}),
+  /** « Figer les lyres » (T26, show/motion-lock.ts): global and per-head lock levels, and where each locked head was frozen. Absent: nothing locked. */
+  motionLock: MotionLockSchema.optional(),
 });
 export type ShowSettings = z.infer<typeof ShowSettingsSchema>;

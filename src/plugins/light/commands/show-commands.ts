@@ -2014,7 +2014,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // a patch: only the settings given change (partial() would reset the others to their defaults)
     // null clears a setting: JSON has no « undefined », so a cleared Panic fallback would otherwise never reach here
     schema: patchSchema(ShowSettingsSchema)
-      .omit({ schemaVersion: true, kind: true })
+      // the lock (T26) has its own commands and rights: show:write must not lift it
+      .omit({ schemaVersion: true, kind: true, motionLock: true })
       .extend({
         grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
         safeLook: z.string().min(1).nullable().optional().describe("the look « Panic neutre » plays; null: none"),
