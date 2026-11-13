@@ -76,7 +76,11 @@ describe("motion layer: the commands of lot 4", () => {
     expect(gliding.remainingMs).to.be.within(550, 650);
     during(1000);
     const arrived = await listed();
-    expect(arrived.motion!.pan).to.deep.equal({ layer: "look", layers: ["look", "rest"], owner: "look:a", name: "A", position: arrived.motion!.pan.position, moving: false });
+    const { claims: arrivedClaims, ...arrivedPan } = arrived.motion!.pan;
+    expect(arrivedPan).to.deep.equal({ layer: "look", layers: ["look", "rest"], owner: "look:a", name: "A", position: arrived.motion!.pan.position, moving: false });
+    expect(arrivedClaims).to.have.length(2);
+    expect(arrivedClaims[0]).to.match(/^look:a#\d+$/); // the claim key of each layer, same order; "" for rest
+    expect(arrivedClaims[1]).to.equal("");
     expect(arrived.sent!.pan).to.be.closeTo(0.2, 1e-4);
     await run("position.set", { fixtures: ["spot"], pan: 0.6 }); // the pan only
     during(40);
@@ -247,13 +251,16 @@ describe("motion layer: the commands of lot 4", () => {
 });
 
 describe("motion layer: the report and its change key", () => {
-  const axis = (more: Partial<AxisStatus>): AxisStatus => ({ layer: "rest", layers: more.layer && more.layer !== "rest" ? [more.layer, "rest"] : ["rest"], owner: null, position: 0.5, moving: false, ...more });
+  const axis = (more: Partial<AxisStatus>): AxisStatus => {
+    const layers: AxisStatus["layers"] = more.layer && more.layer !== "rest" ? [more.layer, "rest"] : ["rest"];
+    return { layer: "rest", layers, claims: layers.map((layer) => (layer === "rest" ? "" : `${more.owner ?? layer}#1`)), owner: null, position: 0.5, moving: false, ...more };
+  };
   const status = (pan: Partial<AxisStatus>, more: Partial<HeadStatus> = {}): HeadStatus => ({ pan: axis(pan), tilt: axis({}), lock: "off", masked: [], released: [], ...more });
 
   it("names the looks, rounds the time left, and gives the owners of the released claims once", () => {
     const nameOf = lookNamer((id) => (id === "a" ? "A" : undefined));
     const m = headMotion(status({ layer: "look", owner: "look:a", moving: true, from: 0.1, target: 0.2, remainingMs: 412.6 }, { masked: ["look:gone"], released: ["look:a#3", "look:a#5", "manual#4"] }), nameOf);
-    expect(m.pan).to.deep.equal({ layer: "look", layers: ["look", "rest"], owner: "look:a", name: "A", position: 0.5, moving: true, from: 0.1, to: 0.2, remainingMs: 413 });
+    expect(m.pan).to.deep.equal({ layer: "look", layers: ["look", "rest"], claims: ["look:a#1", ""], owner: "look:a", name: "A", position: 0.5, moving: true, from: 0.1, to: 0.2, remainingMs: 413 });
     expect(m.masked).to.deep.equal([{ owner: "look:gone" }]);
     expect(m.released).to.deep.equal([{ owner: "look:a", name: "A" }, { owner: "manual" }]);
   });
@@ -266,6 +273,7 @@ describe("motion layer: the report and its change key", () => {
     const base = key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 900 }));
     expect(key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 300, position: 0.3 }))).to.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true, layers: ["look", "hold", "rest"] }))).to.not.equal(base);
+    expect(key(status({ layer: "look", owner: "look:a", moving: true, claims: ["look:a#2", ""] }))).to.not.equal(base); // relaunched
     expect(key(status({ layer: "look", owner: "look:a" }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:b", moving: true }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { lock: "soft" }))).to.not.equal(base);

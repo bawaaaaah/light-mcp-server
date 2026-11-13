@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
@@ -38,6 +39,8 @@ const rankOf = (layer: MotionLayer): number => LAYER_ORDER.indexOf(layer);
 const POINT_TOLERANCE = 1.5 / 255;
 /** A key burst keeps its own per-head base: the 5 Hz reads of the sent position would make held arrows jerky. */
 const KEY_BURST_MS = 1000;
+/** « Rendre la main » turning disabled hands the focus to the pad only if it had it this recently. */
+const RELEASE_FOCUS_MS = 1000;
 
 const cloneTarget = (target: MotionTarget): MotionTarget => ({
   ...(target.fixtures ? { fixtures: [...target.fixtures] } : {}),
@@ -70,12 +73,16 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   const [confirmation, setConfirmation] = useState("");
   const [keyboardHint, setKeyboardHint] = useState("");
   const pad = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const info = useRef<HTMLDetailsElement>(null);
+  /** The bubble's body, in a portal on document.body: no ancestor's container-type ever contains its position: fixed. */
+  const infoBody = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  /** The bubble's text overflows its height: it then takes the keyboard focus, to scroll it with the arrows. */
+  const [infoScrolls, setInfoScrolls] = useState(false);
   const releaseButton = useRef<HTMLButtonElement>(null);
-  const homeButton = useRef<HTMLButtonElement>(null);
-  /** « Rendre la main » was the last control used: when it turns disabled, the focus goes on instead of to the page. */
-  const releaseHadFocus = useRef(false);
+  /** When « Rendre la main » last had the focus (0: not since the focus left the pad): turning disabled, it hands it to the pad. */
+  const releaseFocusAt = useRef(0);
   const dragRect = useRef<DOMRect | null>(null);
   const activePointer = useRef<number | null>(null);
   const pending = useRef<WriteBatch | null>(null);
@@ -84,6 +91,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   const keyBurst = useRef<{ base: Map<string, Position>; at: number } | null>(null);
   const hintId = useId();
   const statusId = useId();
+  const infoId = useId();
   const targetRef = useRef(target);
   targetRef.current = target;
   const onErrorRef = useRef(onError);
@@ -143,6 +151,11 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     const timer = window.setTimeout(() => setConfirmation(""), 2500);
     return () => window.clearTimeout(timer);
   }, [confirmation]);
+  /** Inside the bubble: its « i » (the details) or its body, which the portal keeps out of the details' DOM. */
+  const inBubble = (node: Node | null): boolean => Boolean(node && (info.current?.contains(node) || infoBody.current?.contains(node)));
+  /** Inside the pad: its own DOM or the bubble's body (a portal elsewhere in the page). */
+  const inPad = (node: Node | null): boolean => Boolean(node && (root.current?.contains(node) || infoBody.current?.contains(node)));
+
   useEffect(() => {
     // The info bubble closes like a popover: Escape, or a press anywhere outside it. The element owns its open state
     // (no controlled prop, no reliance on the coalesced toggle event): the listeners read it when they fire.
@@ -152,13 +165,13 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
       // Escape closes the bubble only: not the panel, the selection or the dialog behind it (capture phase, first).
       event.preventDefault();
       event.stopPropagation();
-      const inside = details.contains(document.activeElement);
+      const inside = inBubble(document.activeElement);
       details.open = false;
       if (inside) details.querySelector("summary")?.focus();
     };
     const onPress = (event: PointerEvent): void => {
       const details = info.current;
-      if (details?.open && !details.contains(event.target as Node)) details.open = false;
+      if (details?.open && !inBubble(event.target as Node)) details.open = false;
     };
     // Capture phase: a widget that stops the press (the dashboard grid, the stage plan) still closes the bubble.
     document.addEventListener("keydown", onKey, true);
@@ -175,13 +188,18 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     if (!infoOpen) return;
     const place = (): void => {
       const details = info.current;
-      const body = details?.querySelector<HTMLElement>(".xy-info-body");
+      const body = infoBody.current;
       const summary = details?.querySelector("summary");
       if (!details?.open || !body || !summary) return;
       const width = document.documentElement.clientWidth;
       const height = window.innerHeight;
-      body.style.maxHeight = `${height - 2 * BUBBLE_MARGIN}px`;
       const anchor = summary.getBoundingClientRect();
+      if (anchor.bottom <= 0 || anchor.top >= height || anchor.right <= 0 || anchor.left >= width) {
+        // Its « i » scrolled out of the viewport: a bubble left alone at the edge would point at nothing.
+        details.open = false;
+        return;
+      }
+      body.style.maxHeight = `${height - 2 * BUBBLE_MARGIN}px`;
       const box = body.getBoundingClientRect();
       let top = anchor.top - BUBBLE_GAP - box.height; // above the « i » first, else below it, else as low as it fits
       if (top < BUBBLE_MARGIN) top = anchor.bottom + BUBBLE_GAP;
@@ -190,6 +208,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
       body.style.top = `${Math.round(top)}px`;
       body.style.left = `${Math.round(Math.max(BUBBLE_MARGIN, left))}px`;
       body.dataset.placed = "";
+      setInfoScrolls(body.scrollHeight > body.clientHeight + 1);
     };
     place();
     window.addEventListener("resize", place);
@@ -273,7 +292,7 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     row.chips.length ? `${axisName(row.axes)}${t.colon} ${row.chips.map((chip) => chipText(chip, row.chips)).join(" · ")}` : `${axisName(row.axes)}${t.colon} —`;
 
   // Presses, not layers: the server's rule replayed (locks set aside, the strongest layer present first), so the count
-  // drops on every press, also on a mixed group, and never counts what a lock protects.
+  // drops on every press, also on a mixed group, never counts what a lock protects, and a released claim leaves both axes.
   const remaining = pressesLeft(scopedHeads);
   const remainingText = remaining === 0 ? t.motionLayersRemainingNone : remaining === 1 ? t.motionLayersRemainingOne : t.motionLayersRemainingMany.replace("{count}", () => String(remaining));
   // A head without a frame yet may still hold something: the server answers, the count waits for the report.
@@ -320,25 +339,29 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     if (claim.released > 0) parts.push(many ? t.motionReleasedOn.replace("{heads}", () => headsText(claim.released)) : t.motionReleased);
     return parts.join(" — ");
   };
-  /** A group's short form, counts first: « « Position A » : 1 lyre masquée » reads whole in a narrow Live cell. */
-  const claimShort = (claim: Claim): string => {
-    if (!many) return claimText(claim);
+  /**
+   * A group's short form, the counts first and whole, then the name, which alone is cut in a narrow Live cell:
+   * « 1 lyre masquée · « Balayage lent… » ». One head: the sentence, cut at its end.
+   */
+  const claimShort = (claim: Claim): { counts: string; name: string } => {
+    if (!many) return { counts: "", name: claimText(claim) };
     const counts: string[] = [];
     if (claim.masked > 0) counts.push(claim.masked === 1 ? t.motionMaskedCountOne : t.motionMaskedCountMany.replace("{count}", () => String(claim.masked)));
     if (claim.released > 0) counts.push(claim.released === 1 ? t.motionReleasedCountOne : t.motionReleasedCountMany.replace("{count}", () => String(claim.released)));
-    return `${ownerName(claim)}${t.colon} ${counts.join(", ")}`;
+    return { counts: counts.join(", "), name: ownerName(claim) };
   };
   const more = claims.length > 1 ? ` ${t.motionMoreClaims.replace("{count}", () => String(claims.length - 1))}` : "";
-  const maskedText = claims.length ? `${claimShort(claims[0]!)}${more}` : "";
+  const masked = claims.length ? claimShort(claims[0]!) : null;
   const maskedFull = claims.map(claimText).join("\n");
 
   useEffect(() => {
-    // « Rendre la main » turning disabled under the focus must not drop it to the page: the next sensible control takes it.
-    if (canRelease || !releaseHadFocus.current) return;
+    // « Rendre la main » turning disabled under the focus (used within the last second) must not drop it to the page:
+    // the pad itself takes it, never « Retour au repos », which a second press would trigger by mistake.
+    if (canRelease || Date.now() - releaseFocusAt.current > RELEASE_FOCUS_MS) return;
+    releaseFocusAt.current = 0;
     const active = document.activeElement;
     if (active !== releaseButton.current && active !== document.body && active !== null) return;
-    const home = homeButton.current;
-    (home && !home.disabled ? home : pad.current)?.focus({ preventScroll: true });
+    pad.current?.focus({ preventScroll: true });
   }, [canRelease]);
 
   const onKeyDown = (event: React.KeyboardEvent): void => {
@@ -395,43 +418,71 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     <details
       ref={info}
       className="xy-release-info"
-      onToggle={(event) => {
-        const open = event.currentTarget.open;
-        if (!open) delete event.currentTarget.querySelector<HTMLElement>(".xy-info-body")?.dataset.placed;
-        setInfoOpen(open);
-      }}
+      onToggle={(event) => setInfoOpen(event.currentTarget.open)}
       onBlur={(event) => {
-        // Focus leaving the bubble (Tab past it) closes it, like a press outside does.
+        // Focus leaving the bubble (Tab past it) closes it, like a press outside does. React bubbles the body's blur
+        // here through the portal; the DOM check covers both parts.
         const details = event.currentTarget;
-        if (details.open && !details.contains(event.relatedTarget as Node | null)) details.open = false;
+        if (details.open && !inBubble(event.relatedTarget as Node | null)) details.open = false;
       }}
     >
-      <summary aria-label={t.releaseTopInfo}>i</summary>
-      {/* focusable: a press on its text keeps the focus inside, so it does not read as leaving the bubble */}
-      <div className="xy-info-body" tabIndex={-1}>
-        {axisRows.map((row) => (
-          <p key={row.axes.join(" ")}>{rowText(row)}</p>
-        ))}
-        <p>{remainingText}</p>
-        {claims.map((claim) => (
-          <p key={claim.owner} className="hint">{claimText(claim)}</p>
-        ))}
-        <p>{t.releaseTopHelp}</p>
-        <p>{t.padDotsHelp}</p>
-        {legend}
-      </div>
+      <summary
+        aria-label={t.releaseTopInfo}
+        aria-controls={infoOpen ? infoId : undefined}
+        onKeyDown={(event) => {
+          // The body lives at the end of the page: Tab from the « i » goes into it when it has to be scrolled.
+          if (event.key !== "Tab" || event.shiftKey || !infoOpen || !infoScrolls || !infoBody.current) return;
+          event.preventDefault();
+          infoBody.current.focus();
+        }}
+      >
+        i
+      </summary>
+      {infoOpen &&
+        createPortal(
+          // focusable: a press on its text keeps the focus inside, so it does not read as leaving the bubble; in the
+          // Tab order only when its text overflows, to scroll it with the arrows
+          <div
+            ref={infoBody}
+            id={infoId}
+            className="xy-info-body"
+            tabIndex={infoScrolls ? 0 : -1}
+            onKeyDown={(event) => {
+              if (event.key !== "Tab") return;
+              // Back to the « i »; on Tab, the browser then moves on from it to the pad's next control.
+              const summary = info.current?.querySelector("summary");
+              if (!summary) return;
+              summary.focus();
+              if (event.shiftKey) event.preventDefault();
+            }}
+          >
+            {axisRows.map((row) => (
+              <p key={row.axes.join(" ")}>{rowText(row)}</p>
+            ))}
+            <p>{remainingText}</p>
+            {claims.map((claim) => (
+              <p key={claim.owner} className="hint">{claimText(claim)}</p>
+            ))}
+            <p>{t.releaseTopHelp}</p>
+            <p>{t.padDotsHelp}</p>
+            {legend}
+          </div>,
+          document.body,
+        )}
     </details>
   );
 
   return (
     <div
+      ref={root}
       className={`xy fill${dragging ? " dragging" : ""}`}
-      onFocusCapture={(event) => {
-        setFocused(true);
-        releaseHadFocus.current = (event.target as Element) === releaseButton.current;
-      }}
+      onFocusCapture={() => setFocused(true)}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+        if (inPad(event.relatedTarget as Node | null)) return;
+        setFocused(false);
+        // The button blurred because it turned disabled is not the focus leaving: the effect below hands it to the pad.
+        const button = releaseButton.current;
+        if ((event.target as Element) !== button || !button?.disabled) releaseFocusAt.current = 0;
       }}
     >
       <div
@@ -514,9 +565,19 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
           <small className="xy-layer-count">{remainingText}</small>
           {!compact && infoBubble}
           <span className="xy-masked hint" aria-hidden={!confirmation && !claims.length && !keyboardHint} title={!confirmation && maskedFull ? maskedFull : undefined}>
-            <span aria-hidden={!confirmation && claims.length > 0 ? true : undefined}>
-              {confirmation || maskedText || " "}
-              {keyboardHint ? ` ${keyboardHint}` : ""}
+            <span className="xy-masked-line" aria-hidden={!confirmation && claims.length > 0 ? true : undefined}>
+              {confirmation ? (
+                <span className="xy-masked-name">{confirmation}</span>
+              ) : masked ? (
+                <>
+                  {masked.counts && <span className="xy-masked-count">{`${masked.counts} · `}</span>}
+                  <span className="xy-masked-name">{masked.name}</span>
+                  {more && <span className="xy-masked-count">{more}</span>}
+                </>
+              ) : (
+                !keyboardHint && " "
+              )}
+              {keyboardHint && <span className="xy-masked-name">{` ${keyboardHint}`}</span>}
             </span>
             {!confirmation && claims.length > 0 && <span className="sr-only">{maskedFull}</span>}
           </span>
@@ -528,14 +589,17 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
           ref={releaseButton}
           title={t.releaseTopHelp}
           disabled={disabled || !canRelease}
+          onFocus={() => {
+            releaseFocusAt.current = Date.now();
+          }}
           onClick={() => {
-            releaseHadFocus.current = true;
+            releaseFocusAt.current = Date.now();
             void runMotion("position.releaseTop");
           }}
         >
           {t.releaseTop}
         </button>
-        <button ref={homeButton} title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
+        <button title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
           {t.homeHeads}
         </button>
         {restControls && fixture && (

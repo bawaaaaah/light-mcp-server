@@ -1380,7 +1380,7 @@ export class ShowRuntime {
   }
 
   /** The targets of a raw-channel table whose value differs between two of its steps. */
-  private changingTargetsOf(channels: { targets: readonly unknown[]; steps: readonly (readonly number[])[] }): ReadonlySet<number> {
+  private changingTargetsOf(channels: NonNullable<Look["channels"]>): ReadonlySet<number> {
     let changing = this.changingTargets.get(channels);
     if (!changing) {
       const found = new Set<number>();

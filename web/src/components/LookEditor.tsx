@@ -7,7 +7,8 @@
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
 import { IntentionOrigins } from "./IntentionOrigins";
 import { tagsShown, tagsTyped, type KnowledgeIntentions } from "../intentions";
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
@@ -104,6 +105,7 @@ export function MoveFadeInput({
   automaticValue,
   onInvalid,
   savedHint = false,
+  errorSlot,
 }: {
   value: MoveFade | undefined;
   onChange: (value: MoveFade | undefined) => void;
@@ -114,47 +116,74 @@ export function MoveFadeInput({
   onInvalid?: (field: HTMLInputElement | null) => void;
   /** The value is saved as soon as it is committed (the show's setting): a refusal also says what stays saved. */
   savedHint?: boolean;
+  /** Where the error goes, in the page's flow (its own line under a settings row); without it, under the field. */
+  errorSlot?: HTMLElement | null;
 }): ReactElement {
   const t = useT();
   /** The text being typed; committed only whole, on blur or Enter, never keystroke by keystroke (« 45 » is not « 4 »). */
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState("");
+  /** A unit picked but not saved yet: like a typed number, it is committed on blur or Enter, never on the pick. */
+  const [draftUnit, setDraftUnit] = useState<"seconds" | "beats" | null>(null);
   /** The value shown when the draft opened: one changed elsewhere since (another tab, a revert) replaces the draft. */
   const draftBase = useRef<MoveFade | undefined>(value);
   const field = useRef<HTMLInputElement | null>(null);
   const focused = useRef(false);
+  /** A unit was just picked: the field takes the focus once rendered, its number selected, before any key that follows. */
+  const focusField = useRef(false);
   const onInvalidRef = useRef(onInvalid);
   onInvalidRef.current = onInvalid;
   const errorId = useId();
-  const mode = value === undefined ? "auto" : ("seconds" in value && value.seconds === 0) || ("beats" in value && value.beats === 0) ? "cut" : "beats" in value ? "beats" : "seconds";
+  const savedMode = value === undefined ? "auto" : ("seconds" in value && value.seconds === 0) || ("beats" in value && value.beats === 0) ? "cut" : "beats" in value ? "beats" : "seconds";
+  const mode = draftUnit ?? savedMode;
   const n = value === undefined ? 1 : "beats" in value ? value.beats : value.seconds;
   useEffect(() => {
     // A value read back while the operator types never wipes the draft; once the field is left, the saved value shows.
     if (draft !== null && !focused.current && !sameFade(value, draftBase.current)) {
       setDraft(null);
+      setDraftUnit(null);
       setError("");
       onInvalidRef.current?.(null);
     }
   }, [value, draft]);
   useEffect(() => () => onInvalidRef.current?.(null), []);
-  const parse = (raw: string): FadeParse => {
+  useLayoutEffect(() => {
+    if (!focusField.current || !field.current) return;
+    focusField.current = false;
+    field.current.focus();
+    field.current.select();
+  });
+  const parse = (raw: string, unit: string = mode): FadeParse => {
     const text = raw.trim();
     if (!/^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(text)) return { error: t.moveFadeInvalid };
     const next = Number(text.replace(",", "."));
     if (!Number.isFinite(next)) return { error: t.moveFadeInvalid };
     if (next === 0) return { error: t.moveFadeUseCut };
-    const seconds = mode === "seconds";
+    const seconds = unit === "seconds";
     if (next < (seconds ? 0.1 : 0.25)) return { error: seconds ? t.moveFadeMinSeconds : t.moveFadeMinBeats };
     if (next > (seconds ? 30 : 64)) return { error: seconds ? t.moveFadeMaxSeconds : t.moveFadeMaxBeats };
     return { value: seconds ? { seconds: next } : { beats: next } };
   };
   const select = (nextMode: string): void => {
-    setDraft(null);
     setError("");
     onInvalidRef.current?.(null);
+    if (nextMode === "auto" || nextMode === "cut") {
+      // Automatic and Cut have no number: saved at once.
+      setDraft(null);
+      setDraftUnit(null);
+      onChange(nextMode === "auto" ? undefined : { seconds: 0 });
+      return;
+    }
+    const unit = nextMode === "beats" ? "beats" : "seconds";
+    // Another unit is a draft, not a save: 2.5 s never silently becomes 2.5 beats. The number waits in the field,
+    // which takes the focus; blur or Enter commits it in the new unit, Escape gives the saved value back.
+    if (draft === null) draftBase.current = value;
     const bounded = (min: number, max: number): number => Math.min(max, Math.max(min, n || 1));
-    const next: MoveFade | undefined = nextMode === "auto" ? undefined : nextMode === "cut" ? { seconds: 0 } : nextMode === "beats" ? { beats: bounded(0.25, 64) } : { seconds: bounded(0.1, 30) };
-    onChange(next);
+    const number = draft ?? decimal(unit === "beats" ? bounded(0.25, 64) : bounded(0.1, 30), t.decimalMark);
+    setDraftUnit(unit === savedMode ? null : unit);
+    setDraft(number);
+    onInvalidRef.current?.("error" in parse(number, unit) ? field.current : null);
+    focusField.current = true;
   };
   const type = (raw: string): void => {
     if (draft === null) draftBase.current = value;
@@ -174,12 +203,14 @@ export function MoveFadeInput({
     setError("");
     onInvalidRef.current?.(null);
     setDraft(null);
+    setDraftUnit(null);
     if (sameFade(parsed.value, value)) return;
     onChange(parsed.value);
   };
   /** Escape gives the committed value back: the draft and its error go, nothing is saved. */
   const revert = (): void => {
     setDraft(null);
+    setDraftUnit(null);
     setError("");
     onInvalidRef.current?.(null);
   };
@@ -225,11 +256,12 @@ export function MoveFadeInput({
               commit();
             }}
           />
-          {error && (
-            <small id={errorId} className="move-fade-error error">
-              {savedHint && value !== undefined ? `${error} — ${t.moveFadeKept.replace("{value}", () => fadeText(value, t.beats, t.decimalMark))}` : error}
-            </small>
-          )}
+          {error &&
+            ((message) => (errorSlot ? createPortal(message, errorSlot) : message))(
+              <small id={errorId} className="move-fade-error error">
+                {savedHint && value !== undefined ? `${error} — ${t.moveFadeKept.replace("{value}", () => fadeText(value, t.beats, t.decimalMark))}` : error}
+              </small>,
+            )}
         </>
       )}
     </span>

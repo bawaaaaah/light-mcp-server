@@ -20,6 +20,7 @@ import {
 } from "../../../src/plugins/light/engine/motion.js";
 import { DEFAULT_MOVE_FADE, MoveSchema, type MoveFade as MotionDuration, type Position } from "../../../src/plugins/light/engine/move.js";
 import { rng } from "../../../src/plugins/light/engine/techniques.js";
+import { pressesLeft } from "../../../web/src/motionPresses.js";
 
 const FRAME = 20;
 const SEC = (seconds: number): MotionDuration => ({ seconds });
@@ -249,6 +250,9 @@ describe("motion layer (pure)", () => {
       const status = sim.last.status.get("h1")!;
       expect(status.pan.layers).to.deep.equal(["manual", "target", "look", "rest"]);
       expect(status.tilt.layers).to.deep.equal(["target", "look", "rest"]);
+      // the claim key of each layer, same order: a press releases that key on both axes of the head
+      expect(status.pan.claims).to.deep.equal(["manual#3", "target:t#2", "look:a#1", ""]);
+      expect(status.tilt.claims).to.deep.equal(["target:t#2", "look:a#1", ""]);
     });
 
     it("places hard and soft locks at their own ranks in the reported stack", () => {
@@ -260,6 +264,7 @@ describe("motion layer (pure)", () => {
       soft.claims = hard.claims;
       soft.frame(0);
       expect(soft.last.status.get("h1")!.pan.layers).to.deep.equal(["manual", "lock", "look", "rest"]);
+      expect(soft.last.status.get("h1")!.pan.claims).to.deep.equal(["manual#2", "", "look:a#1", ""]);
     });
 
     it("keeps every manual claim above a soft lock and every claim under a hard one", () => {
@@ -694,6 +699,23 @@ describe("motion layer (pure)", () => {
         sim.frame(20 * (i + 1));
         expect(above()).to.equal(left);
       }
+    });
+
+    it("the pad's press count, replayed on the reported claims, is the server's real count", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(0) } });
+      // pan [A, B], tilt [C, D, A, B]: A and C go with the first press (A from both axes), B and D with the second
+      sim.claims = [look("b", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), look("a", 3, ["h1"], { pan: 0.3, tilt: 0.3 }), look("d", 4, ["h1"], { tilt: 0.4 }), look("c", 5, ["h1"], { tilt: 0.5 })];
+      sim.frame(0);
+      const count = () => pressesLeft([{ motion: sim.last.status.get("h1")! }]);
+      expect(count()).to.equal(2);
+      let presses = 0;
+      for (let t = 20; sim.last.status.get("h1")!.pan.layer !== "rest" || sim.last.status.get("h1")!.tilt.layer !== "rest"; t += 20) {
+        sim.state = releaseMotion(sim.input(t), sim.state, { scope: "top" });
+        sim.frame(t);
+        presses += 1;
+        expect(count()).to.equal(2 - presses);
+      }
+      expect(presses).to.equal(2);
     });
 
     it("releases one head only, or every head", () => {

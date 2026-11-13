@@ -592,12 +592,12 @@ textarea {
   pointer-events: none;
 }
 /* Each layer has its colour, never its only signal: the text names it, the dot's fill says manual or not. */
-.xy [data-layer="manual"] { --layer-color: var(--layer-manual); }
-.xy [data-layer="target"] { --layer-color: var(--layer-target); }
-.xy [data-layer="look"] { --layer-color: var(--layer-look); }
-.xy [data-layer="hold"] { --layer-color: var(--layer-hold); }
-.xy [data-layer="rest"] { --layer-color: var(--layer-rest); }
-.xy [data-layer="lock"] { --layer-color: var(--layer-lock); }
+:is(.xy, .xy-info-body) [data-layer="manual"] { --layer-color: var(--layer-manual); }
+:is(.xy, .xy-info-body) [data-layer="target"] { --layer-color: var(--layer-target); }
+:is(.xy, .xy-info-body) [data-layer="look"] { --layer-color: var(--layer-look); }
+:is(.xy, .xy-info-body) [data-layer="hold"] { --layer-color: var(--layer-hold); }
+:is(.xy, .xy-info-body) [data-layer="rest"] { --layer-color: var(--layer-rest); }
+:is(.xy, .xy-info-body) [data-layer="lock"] { --layer-color: var(--layer-lock); }
 .xy .dot,
 .xy .rest-dot {
   position: absolute;
@@ -693,6 +693,21 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The counts and « +N » never shrink; only the name is cut, so « 1 lyre masquée » always reads whole. */
+.xy-masked-line {
+  display: flex;
+  min-width: 0;
+}
+.xy-masked-count {
+  flex: none;
+  white-space: pre;
+}
+.xy-masked-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
 .xy-legend {
   display: flex;
   flex-wrap: wrap;
@@ -744,7 +759,6 @@ textarea {
   width: min(22em, calc(100vw - 16px));
   box-sizing: border-box;
   overflow-y: auto;
-  outline: none;
   padding: 0.5em;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -752,6 +766,13 @@ textarea {
   box-shadow: 0 4px 16px #0008;
   font-size: 0.75rem;
   white-space: normal;
+}
+/* a press on its text focuses it without a ring; Tab reaches it only when it must scroll, and then shows the ring */
+.xy-info-body:focus:not(:focus-visible) {
+  outline: none;
+}
+.xy-info-body:focus-visible {
+  outline-offset: -2px;
 }
 /* never shown at the page's corner before XyPad has placed it by its « i » */
 .xy-info-body:not([data-placed]) {
@@ -779,6 +800,10 @@ textarea {
 }
 .cell .xy-heading label {
   font-size: inherit;
+}
+/* Two lines kept for the status line: when the layers wrap (a tablet, a mixed group), the pad above never moves. */
+.cell .xy-heading {
+  min-height: 28px;
 }
 .cell .xy-masked {
   min-height: 14px;
@@ -815,6 +840,20 @@ textarea {
   background: var(--panel);
   font-size: 0.75rem;
   white-space: normal;
+}
+/* The Show page's settings row: the refusal takes a whole line of its own under the row and wraps there. */
+.move-fade-error-line {
+  flex: 0 0 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.move-fade-error-line:empty {
+  display: none;
+}
+.move-fade-error-line .move-fade-error {
+  display: block;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 /* In the look editor the room under the field is always kept: the error lands there, over no label (« Forme »). */
 .field > .move-fade-input {
@@ -2530,6 +2569,14 @@ html {
   /* sideways only: a pixel of height from rounding would otherwise catch a vertical swipe on a tablet */
   overflow-y: hidden;
   padding-bottom: 0.4em;
+}
+/* Without container queries (an older tablet browser), the viewport decides, as before. */
+@supports not (container-type: inline-size) {
+  @media (max-width: 999px) {
+    .dashboards {
+      --colmin: 56px;
+    }
+  }
 }
 /* Read against the room the grid really has (not the viewport): a 1180 px tablet leaves 960 px, under 12 × 84. */
 .dgrid-scroll {

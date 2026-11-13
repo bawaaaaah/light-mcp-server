@@ -168,6 +168,8 @@ export interface AxisStatus {
   layer: AxisLayer;
   /** One entry per claim still present on this axis (three stacked looks: three entries), strongest first, rest last; released claims are left out. */
   layers: AxisLayer[];
+  /** The claim key of each `layers` entry, same order (`owner#order`; "" for the structural lock, hold and rest). */
+  claims: string[];
   /** The winning claim's owner; null for rest, hold and lock. */
   owner: string | null;
   position: number;
@@ -290,20 +292,23 @@ function winnerOf(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel): 
 /**
  * The whole stack still present on an axis, not only its winner: the pad can say what another press would release.
  * One entry per claim (a look's raw channels and its move share one key, so one entry): three stacked looks are three
- * entries, and the count drops on every press that releases one of them.
+ * entries, and the count drops on every press that releases one of them. Returns the layers and, in the same order, the
+ * claim key of each entry (`owner#order`, "" for the structural lock, hold and rest): the press count pops the key on
+ * both axes of a head, a layer alone cannot.
  */
-function layerStack(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel, holding: boolean): AxisLayer[] {
+function layerStack(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel, holding: boolean): { layers: AxisLayer[]; claims: string[] } {
   const byKey = new Map<string, AxisLayer>();
   for (const c of ranked) if (claimsAxis(c, axis) && !byKey.has(claimKey(c))) byKey.set(claimKey(c), c.layer);
-  const claims = [...byKey.values()];
-  const bottom: AxisLayer[] = holding ? ["hold", "rest"] : ["rest"];
-  if (lock === "hard") return ["lock", ...claims, ...bottom];
-  if (lock === "soft") {
+  type Entry = readonly [AxisLayer, string];
+  const claimed: Entry[] = [...byKey].map(([key, layer]) => [layer, key]);
+  const bottom: Entry[] = holding ? [["hold", ""], ["rest", ""]] : [["rest", ""]];
+  let stack: Entry[];
+  if (lock === "hard") stack = [["lock", ""], ...claimed, ...bottom];
+  else if (lock === "soft") {
     // Every manual claim stays above the soft lock; every lower claim remains underneath it.
-    const manual = claims.filter((layer) => layer === "manual");
-    return [...manual, "lock", ...claims.filter((layer) => layer !== "manual"), ...bottom];
-  }
-  return [...claims, ...bottom];
+    stack = [...claimed.filter(([layer]) => layer === "manual"), ["lock", ""], ...claimed.filter(([layer]) => layer !== "manual"), ...bottom];
+  } else stack = [...claimed, ...bottom];
+  return { layers: stack.map(([layer]) => layer), claims: stack.map(([, key]) => key) };
 }
 
 /** Who holds one axis this frame, and where it asks the head to be (undefined: stay where it is). */
@@ -446,9 +451,11 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
       next[axis] = s;
       pos[axis] = s.value;
       const moving = s.dur > 0 && s.value !== o.target;
+      const stack = layerStack(ranked, axis, lock, holding[axis]);
       axisStatus[axis] = {
         layer: o.layer,
-        layers: layerStack(ranked, axis, lock, holding[axis]),
+        layers: stack.layers,
+        claims: stack.claims,
         owner: o.claim?.owner ?? null,
         position: s.value,
         moving,

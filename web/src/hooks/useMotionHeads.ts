@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cmd } from "../api";
+import { ApiError, cmd } from "../api";
 import { control } from "../ws";
 import type { Position } from "../../../src/plugins/light/engine/move";
 import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-report";
@@ -29,9 +29,12 @@ const reloadsScopes = (name: string): boolean =>
 
 /** Same tolerance as the pad: a 16-bit read back of the asked point is that point. */
 const POINT_TOLERANCE = 1.5 / 255;
-/** Reads in a row with the same sent position after which a head held by hand is taken as stopped short (a console, a fader). */
-const STILL_READS = 2;
-const sameSent = (a: Position | null, b: Position | null): boolean => a !== null && b !== null && a.pan === b.pan && a.tilt === b.tilt;
+/**
+ * How long a head held by hand keeps the same sent position before it is taken as stopped short (a console, a fader):
+ * a time, not a number of reads, so a slow link or a slow head (a speed rule) is not mistaken for a stopped one.
+ */
+const STILL_MS = 800;
+const samePosition = (a: Position | null, b: Position | null): boolean => (a === null && b === null) || (a !== null && b !== null && a.pan === b.pan && a.tilt === b.tilt);
 
 const targetKey = (target: MotionTarget): string => (target.fixtures ? `fixtures:${[...target.fixtures].sort().join(",")}` : target.group ? `group:${target.group}` : "all");
 
@@ -44,8 +47,8 @@ class MotionHeadsStore {
   private readonly scopes = new Map<string, Scope>();
   private readonly heads = new Map<string, MotionHead>();
   private readonly queue = new Map<string, ReadJob>();
-  /** Per head, how many position.list answers in a row brought the same sent position. */
-  private readonly stillReads = new Map<string, number>();
+  /** Per head, since when position.list answers bring the same sent and manual positions. */
+  private readonly stillSince = new Map<string, number>();
   private nextSubscriber = 1;
   private generation = 0;
   private reading = false;
@@ -85,7 +88,7 @@ class MotionHeadsStore {
       this.queue.clear();
       this.scopes.clear();
       this.heads.clear();
-      this.stillReads.clear();
+      this.stillSince.clear();
       this.stopTopic?.();
       this.stopCommands?.();
       this.stopStatus?.();
@@ -102,7 +105,7 @@ class MotionHeadsStore {
 
   markGesture(): void {
     this.gestureUntil = Date.now() + 1000;
-    this.stillReads.clear(); // a new gesture: a head held short before may move again
+    this.stillSince.clear(); // a new gesture: a head held short before may move again
     this.schedule();
   }
 
@@ -201,13 +204,14 @@ class MotionHeadsStore {
         // never over a newer read of the same key queued meanwhile: it already asks for what this retry would
         if (overtaken && !job.retried && !this.queue.has(job.key)) this.enqueue({ ...job, retried: true });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (generation !== this.generation) return;
         // An aggregate read refused (a fixture gone from a scope): resolve the scopes again rather than retry it.
         if (job.key === "aggregate") this.reloadScopes();
-        else if (job.scope) {
+        else if (job.scope && error instanceof ApiError && error.status >= 400 && error.status < 500) {
           // A scope that no longer resolves (its fixture gone after another show opened): it shows no head, and the poll
           // has nothing left to read there — never a refused read again every 200 ms. A later command or topic reloads it.
+          // Only a refusal (4xx) says so: a network drop or a server error leaves the heads shown until a later read.
           job.scope.ids.clear();
           job.scope.loaded = true;
         }
@@ -229,7 +233,9 @@ class MotionHeadsStore {
   private apply(job: ReadJob, list: MotionHead[], keepTopic = false): void {
     for (const entry of list) {
       const old = this.heads.get(entry.id);
-      this.stillReads.set(entry.id, old && sameSent(old.sent, entry.sent) ? (this.stillReads.get(entry.id) ?? 0) + 1 : 0);
+      // A new sent position, or a manual one changed meanwhile (a remote position.set), starts the stillness again.
+      const still = old && entry.sent !== null && samePosition(old.sent, entry.sent) && samePosition(old.manual, entry.manual);
+      if (!still || !this.stillSince.has(entry.id)) this.stillSince.set(entry.id, Date.now());
       const topic = keepTopic ? old : undefined;
       // The topic owns the layer stack, owner, lock and rest; position.list alone carries manual, name and a fresh sent.
       this.heads.set(entry.id, topic ? { ...entry, motion: topic.motion, rest: topic.rest } : entry);
@@ -246,7 +252,7 @@ class MotionHeadsStore {
   /**
    * Poll only while a position really changes: a glide, a moving shape or raw steps, a local gesture in the last second,
    * or a head held by hand still on its way to the asked point (a speed rule slows it down) — until its sent position
-   * stays the same over two reads (a DMX console or a fader holding the axis): the poll never runs forever.
+   * stays the same for 800 ms (a DMX console or a fader holding the axis): the poll never runs forever.
    */
   private canMove(): boolean {
     if (Date.now() < this.gestureUntil) return true;
@@ -259,7 +265,9 @@ class MotionHeadsStore {
           const status = motion[axis];
           if (status.moving || status.animated) return true;
           const { manual, sent } = head;
-          if (status.layer === "manual" && manual && sent && Math.abs(manual[axis] - sent[axis]) > POINT_TOLERANCE && (this.stillReads.get(id) ?? 0) < STILL_READS) return true;
+          // Not read since the last gesture: not known to be still yet.
+          const since = this.stillSince.get(id);
+          if (status.layer === "manual" && manual && sent && Math.abs(manual[axis] - sent[axis]) > POINT_TOLERANCE && (since === undefined || Date.now() - since < STILL_MS)) return true;
         }
       }
     }

@@ -16,6 +16,8 @@ export interface AxisReport {
   layer: AxisLayer;
   /** One entry per claim still present on this axis (stacked looks repeat "look"), strongest first, rest last; released claims are omitted. */
   layers: AxisLayer[];
+  /** The claim key of each `layers` entry, same order (`owner#order`; "" for the structural lock, hold and rest). */
+  claims: string[];
   owner: string | null;
   /** The name of the look that holds the axis. */
   name?: string;
@@ -54,6 +56,7 @@ function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined
   return {
     layer: a.layer,
     layers: [...a.layers],
+    claims: [...a.claims],
     owner: a.owner,
     ...(name === undefined ? {} : { name }),
     position: a.position,
@@ -140,7 +143,7 @@ export function motionKey(show: MotionSource): string {
       parts.push(`${id}|${restKey}`);
       continue;
     }
-    const axis = (a: AxisStatus) => `${a.layer}:${a.layers.join(">")}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.animated ? 1 : 0}:${a.error ?? ""}`;
+    const axis = (a: AxisStatus) => `${a.layer}:${a.layers.join(">")}:${a.claims.join(">")}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.animated ? 1 : 0}:${a.error ?? ""}`;
     parts.push(`${id}|${restKey}|${s.lock}|${axis(s.pan)}|${axis(s.tilt)}|${s.masked.map(named).join(",")}|${s.released.map((k) => named(ownerOfClaimKey(k)) + k.slice(k.lastIndexOf("#"))).join(",")}`);
   }
   return parts.join("\n");

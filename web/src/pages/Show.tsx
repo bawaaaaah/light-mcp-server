@@ -87,6 +87,8 @@ interface Snapshot {
 export function ShowPage(): ReactElement {
   const t = useT();
   const [looks, setLooks] = useState<Look[]>([]);
+  /** The default glide's refusal, on its own line under the settings row: in the flow, never over the next buttons. */
+  const [fadeErrorSlot, setFadeErrorSlot] = useState<HTMLDivElement | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   const [canvases, setCanvases] = useState<Canvas[]>([]);
@@ -559,7 +561,7 @@ export function ShowPage(): ReactElement {
         </label>
         <label className="move-fade-setting" title={t.moveFadeHelp}>
           <span>{t.moveFadeDefault}</span>
-          {settings && <MoveFadeInput savedHint label={t.moveFadeDefault} value={settings.moveFade} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />}
+          {settings && <MoveFadeInput savedHint errorSlot={fadeErrorSlot} label={t.moveFadeDefault} value={settings.moveFade} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />}
         </label>
         <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
           <input type="checkbox" checked={Boolean(settings?.liveAi)} onChange={(e) => void run("show.settings.set", { liveAi: e.target.checked })} /> {t.liveAi}
@@ -584,6 +586,7 @@ export function ShowPage(): ReactElement {
             {error}
           </span>
         )}
+        <div ref={setFadeErrorSlot} className="move-fade-error-line" />
       </section>
 
       {lint && (
