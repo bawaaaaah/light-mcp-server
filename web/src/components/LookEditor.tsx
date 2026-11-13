@@ -220,7 +220,16 @@ export function MoveFadeInput({
       className="row move-fade-input"
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
     >
-      <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)} onPointerDown={() => { pointerChange.current = true; }} onKeyDown={() => { pointerChange.current = false; }}>
+      <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)} onPointerDown={() => { pointerChange.current = true; }} onKeyDown={(event) => {
+        pointerChange.current = false;
+        // a unit picked with the keyboard leaves the focus here: Escape gives the committed unit back, as in the field
+        if (event.key === "Escape" && (draft !== null || draftUnit !== null)) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation();
+          revert();
+        }
+      }}>
         {automatic && <option value="auto">{t.moveFadeAuto.replace("{value}", () => (automaticValue ? fadeText(automaticValue, t.beats, t.decimalMark) : "…"))}</option>}
         <option value="seconds">{t.seconds}</option>
         <option value="beats">{t.beats}</option>
