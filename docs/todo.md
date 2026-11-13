@@ -255,6 +255,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **Prérequis** : positions et orientations des lyres exactes (saisies ou T23), T7. **Rang** : moyen-dur ; **phase 3-4**.
 
 ### T25 — Revoir toute la gestion des mouvements via les looks
+- **Fait (2026-11-13, lots 1 à 6, branche `fix/t2-look-restart-mid-fade`)** : la gestion des mouvements passe désormais par une **couche Mouvement** avec une pile de priorité fixe par axe (verrou dur > main [pad XY, visée] > verrou souple > cible > looks > tenue > repos) ; entre les looks le dernier lancé gagne et une tête qui change de propriétaire glisse (temps de déplacement) au lieu de sauter ; le temps de déplacement est réglable (`moveFade`, 1 s par défaut, sur un look via `move.fade`, en secondes ou en temps de tempo) et la glisse peut être coupée. Le **Repos**, la **Tenue** et le « Rendre la main » (`position.releaseTop`) sont en place, et le pad XY, `calibration.record` et « Vérifier le show » ont été ajustés. **Reste** : essai sur les vraies lyres.
 - **Constat** (`show/runtime.ts`, `engine/move.ts`, `show/model.ts`) : un look porte un `move` (forme autour d'un centre en pan/tilt **normalisés**, par lyre) ; une **position manuelle** (`manualPositions`, pad XY) l'emporte sur tous les looks jusqu'à relâchement ; viser une zone ou un point pose aussi une position manuelle. Il n'y a ni couche de priorité claire, ni « mouvement » réutilisable, ni cible vivante.
 - **À concevoir avec l'utilisateur** (priorité des couches : décision reportée à l'attaque de T25 ; pas de code avant décision, et décision à noter dans `decisions.md` et `specs/engine-effects-timing.md`) :
   - une **couche Mouvement** séparée de la couleur, avec une priorité explicite et visible : *position manuelle* > *cible* (T24) > *mouvement du look* > *centre* ;
@@ -393,7 +394,7 @@ Ouvertes :
 - ~~T16 : l'instantané de démarrage passe-t-il outre la veille ?~~ tranché le 2026-11-11 : non, la veille tient.
 - ~~T6 : une variante de mode se présente en sous-menu ou dans le même menu ?~~ tranché le 2026-11-11 : dans le même menu, en retrait sous son mode.
 - T27 : formes de zones voulues (rectangle seulement, ou aussi ellipse et polygone) ?
-- **T25 : priorité entre position manuelle, cible et mouvement du look** : reportée par l'utilisateur, à trancher à l'attaque de T25 (proposition de départ : manuelle > cible > look).
+- ~~**T25 : priorité entre position manuelle, cible et mouvement du look** : reportée par l'utilisateur, à trancher à l'attaque de T25 (proposition de départ : manuelle > cible > look).~~ tranché le 2026-11-12 : pile fixe verrou dur > main > verrou souple > cible > looks > tenue > repos, avec le bouton « Rendre la main ».
 - **T32 : une position nommée porte une lyre, un groupe ou toutes** ; et ce que fait le rappel pendant qu'un look tourne (proposition de départ : la position manuelle l'emporte jusqu'à relâchement, comme aujourd'hui). Reportée, à trancher à l'attaque de T32.
 - **T29 : deux looks ayant le même sous-look** : une instance partagée comptée par référence (proposition) ou une par parent ? Reportée, à trancher à l'attaque de T29.
 

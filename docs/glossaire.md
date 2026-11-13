@@ -47,3 +47,8 @@
 | **Couche de commandes** | Le point d'entrée unique de toutes les actions (UI, MIDI, OSC, MCP, timeline, CLI). |
 | **Coquille** | Un fichier `.adg` exporté tel quel par Ableton, qu'on clone pour générer les racks. |
 | **`.lightshow`** | Archive compressée d'un show (et/ou d'un lieu), téléchargeable et rechargeable. |
+| **Couche Mouvement** | La couche de priorité qui décide, par axe, quel mouvement prévaut : verrou dur > main (pad XY, visée) > verrou souple > cible > looks > tenue > repos. |
+| **Temps de déplacement** | Le fondu de position (glisse) entre deux positions : réglé par le show (`moveFade`, 1 s par défaut) ou par look (`move.fade`), en secondes ou en temps de tempo ; la glisse peut être coupée (« Coupe »). |
+| **Repos (d'une lyre)** | La position de repos d'une lyre, stockée dans le show (centre 50/50 par défaut) ; boutons « Définir comme repos », « Effacer le repos » et « Retour au repos ». |
+| **Tenue** | Après un Panic sans look de secours, les lyres restent où elles sont. |
+| **Rendre la main** | Le relâchement d'une couche à la fois (`position.releaseTop`) : sur un pad qui pilote plusieurs lyres, on ne relâche que la couche la plus forte présente, les lyres sous verrou sont mises de côté ; le pad affiche « encore N appuis ». |
