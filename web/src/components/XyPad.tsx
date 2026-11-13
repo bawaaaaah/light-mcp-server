@@ -450,8 +450,13 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
             onKeyDown={(event) => {
               if (event.key !== "Tab") return;
               // Back to the « i »; on Tab, the browser then moves on from it to the pad's next control.
-              const summary = info.current?.querySelector("summary");
+              const details = info.current;
+              const summary = details?.querySelector("summary");
               if (!summary) return;
+              if (!event.shiftKey && details?.open) {
+                details.open = false;
+                if (infoBody.current) infoBody.current.tabIndex = -1;
+              }
               summary.focus();
               if (event.shiftKey) event.preventDefault();
             }}

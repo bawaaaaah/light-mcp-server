@@ -131,6 +131,7 @@ export function MoveFadeInput({
   const focused = useRef(false);
   /** A unit was just picked: the field takes the focus once rendered, its number selected, before any key that follows. */
   const focusField = useRef(false);
+  const pointerChange = useRef(false);
   const onInvalidRef = useRef(onInvalid);
   onInvalidRef.current = onInvalid;
   const errorId = useId();
@@ -183,7 +184,7 @@ export function MoveFadeInput({
     setDraftUnit(unit === savedMode ? null : unit);
     setDraft(number);
     onInvalidRef.current?.("error" in parse(number, unit) ? field.current : null);
-    focusField.current = true;
+    if (pointerChange.current) focusField.current = true;
   };
   const type = (raw: string): void => {
     if (draft === null) draftBase.current = value;
@@ -215,8 +216,11 @@ export function MoveFadeInput({
     onInvalidRef.current?.(null);
   };
   return (
-    <span className="row move-fade-input">
-      <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)}>
+    <span
+      className="row move-fade-input"
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
+    >
+      <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)} onPointerDown={() => { pointerChange.current = true; }} onKeyDown={() => { pointerChange.current = false; }}>
         {automatic && <option value="auto">{t.moveFadeAuto.replace("{value}", () => (automaticValue ? fadeText(automaticValue, t.beats, t.decimalMark) : "…"))}</option>}
         <option value="seconds">{t.seconds}</option>
         <option value="beats">{t.beats}</option>
@@ -253,7 +257,6 @@ export function MoveFadeInput({
             }}
             onBlur={() => {
               focused.current = false;
-              commit();
             }}
           />
           {error &&
