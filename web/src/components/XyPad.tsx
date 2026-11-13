@@ -1,54 +1,14 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
 import { quoted } from "../typography";
+import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
+import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
-export interface Position {
-  pan: number;
-  tilt: number;
-}
-export type MotionLayer = "lock" | "manual" | "target" | "look" | "hold" | "rest";
-export interface MotionAxis {
-  layer: MotionLayer;
-  owner: string | null;
-  name?: string;
-  position: number;
-  moving: boolean;
-  from?: number;
-  to?: number;
-  remainingMs?: number;
-  error?: string;
-}
-interface MotionOwner {
-  owner: string;
-  name?: string;
-}
-export interface MotionHead {
-  id: string;
-  name?: string;
-  manual: Position | null;
-  sent: Position | null;
-  rest: Position & { set: boolean };
-  motion: {
-    lock: "off" | "soft" | "hard";
-    pan: MotionAxis;
-    tilt: MotionAxis;
-    masked: MotionOwner[];
-    released: MotionOwner[];
-  } | null;
-}
-type MotionTopicHead = Pick<MotionHead, "id" | "sent" | "rest" | "motion">;
-interface MotionGroup {
-  id: string;
-  members: { fixtures: string[]; groups: string[] };
-  selector?: { role?: string; tags?: string[] };
-}
-interface FixtureIdentity {
-  id: string;
-  role?: string;
-  tags?: string[];
-}
+export type { MotionHead, Position };
+export type MotionLayer = AxisLayer;
+export type MotionAxis = AxisReport;
 
 type XyPadProps = {
   group?: string;
@@ -61,228 +21,229 @@ type XyPadProps = {
   restControls?: boolean;
 };
 
+type PositionWrite = { target: MotionTarget; point: Position };
+type WriteBatch = { writes: PositionWrite[] };
+
+const cloneTarget = (target: MotionTarget): MotionTarget => ({
+  ...(target.fixtures ? { fixtures: [...target.fixtures] } : {}),
+  ...(target.group ? { group: target.group } : {}),
+});
+const clamp = (value: number): number => Math.max(0, Math.min(1, Math.round(value * 1000) / 1000));
+const samePoint = (a: Position | null, b: Position | null): boolean => a !== null && b !== null && a.pan === b.pan && a.tilt === b.tilt;
+
 /**
- * XY pad for moving heads: X = pan, Y = tilt (top = 1). Sends `position.set` at most every 40 ms
- * while dragging. The permanent dot reads the position really sent, and each axis names its owner.
- * `light:motion` announces ownership changes; `position.list` seeds and resynchronises the report.
+ * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
+ * kept, so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
 export function XyPad({ group, fixture, label, onError, disabled = false, resync, restControls = false }: XyPadProps): ReactElement {
   const t = useT();
-  const [heads, setHeads] = useState<MotionHead[]>([]);
-  const [groupFixtures, setGroupFixtures] = useState<ReadonlySet<string> | null>(null);
+  const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
+  const { heads: scopedHeads, refresh, markGesture } = useMotionHeads(target);
   const [pos, setPos] = useState<Position | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [keyboardHint, setKeyboardHint] = useState("");
   const pad = useRef<HTMLDivElement>(null);
-  const pending = useRef<Position | null>(null);
-  const timer = useRef<number | undefined>(undefined);
-  const writes = useRef<Promise<void>>(Promise.resolve());
-  const headsRef = useRef<MotionHead[]>([]);
-  const reading = useRef(false);
-  const readAgain = useRef(false);
-  const readRef = useRef<() => void>(() => undefined);
-  const groupReadSequence = useRef(0);
-  const motionSequence = useRef(0);
+  const dragRect = useRef<DOMRect | null>(null);
+  const activePointer = useRef<number | null>(null);
+  const pending = useRef<WriteBatch | null>(null);
+  const inFlight = useRef<Promise<void> | null>(null);
   const hintId = useId();
   const statusId = useId();
-  const target = fixture ? { fixtures: [fixture] } : group ? { group } : {};
-  // The unmount flush runs the first render's closure: it reads the current target and callbacks here.
   const targetRef = useRef(target);
   targetRef.current = target;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
-  const applyHeads = useCallback(
-    (list: MotionHead[]) => {
-      headsRef.current = list;
-      setHeads(list);
-      // A read must not pull the dot back while the gesture is still being sent.
-      if (timer.current !== undefined || pending.current) return;
-      const scoped = group ? list.filter((h) => groupFixtures?.has(h.id)) : list;
-      const selected = fixture ? list.find((h) => h.id === fixture) : scoped.find((h) => h.manual) ?? scoped[0];
-      // `pos` is the requested manual position; mixed targets never show one head's value as the group's.
-      const manuals = scoped.map((h) => h.manual);
-      const same = manuals.every((p) => p?.pan === manuals[0]?.pan && p?.tilt === manuals[0]?.tilt);
-      setPos(same ? selected?.manual ?? null : null);
-    },
-    [fixture, group, groupFixtures],
-  );
-  const read = useCallback(async () => {
-    // Coalesce callers instead of superseding an in-flight read forever on a slow connection.
-    if (reading.current) {
-      readAgain.current = true;
-      return;
-    }
-    reading.current = true;
-    const motionAtStart = motionSequence.current;
-    try {
-      const list = await cmd<MotionHead[]>("position.list");
-      // A motion event received while reading is newer than this answer.
-      if (motionAtStart === motionSequence.current) applyHeads(list);
-    } catch {
-      // The next motion event, command or reconnection tries again.
-    } finally {
-      reading.current = false;
-      if (readAgain.current) {
-        readAgain.current = false;
-        readRef.current();
-      }
-    }
-  }, [applyHeads]);
-  readRef.current = () => void read();
-  const readGroup = useCallback(async () => {
-    if (!group) {
-      setGroupFixtures(null);
-      return;
-    }
-    const sequence = ++groupReadSequence.current;
-    try {
-      const [groups, fixtures] = await Promise.all([cmd<MotionGroup[]>("group.list"), cmd<FixtureIdentity[]>("venue.fixture.list")]);
-      if (sequence !== groupReadSequence.current) return;
-      const byId = new Map(groups.map((g) => [g.id, g]));
-      const walk = (id: string, seen = new Set<string>()): Set<string> => {
-        const out = new Set<string>();
-        const g = byId.get(id);
-        if (!g || seen.has(id)) return out;
-        seen.add(id);
-        g.members.fixtures.forEach((f) => out.add(f));
-        if (g.selector) {
-          for (const f of fixtures) {
-            if (g.selector.role && f.role !== g.selector.role) continue;
-            if (g.selector.tags && !g.selector.tags.every((tag) => f.tags?.includes(tag))) continue;
-            out.add(f.id);
-          }
+  /** Latest wins: never enqueue behind an in-flight request; its completion sends only the current pending batch. */
+  const pump = useCallback(() => {
+    if (inFlight.current || !pending.current) return;
+    const batch = pending.current;
+    pending.current = null;
+    inFlight.current = Promise.all(
+      batch.writes.map(async (write) => {
+        try {
+          await cmd("position.set", { ...write.target, ...write.point });
+        } catch (error) {
+          onErrorRef.current((error as Error).message);
         }
-        for (const sub of g.members.groups) for (const f of walk(sub, seen)) out.add(f);
-        return out;
-      };
-      setGroupFixtures(walk(group));
-    } catch {
-      if (sequence === groupReadSequence.current) setGroupFixtures(new Set());
-    }
-  }, [group]);
+      }),
+    ).then(() => undefined).finally(() => {
+      inFlight.current = null;
+      markGesture(); // one last read follows even a slow final write, then the local-activity window expires
+      pump();
+    });
+  }, [markGesture]);
 
-  useEffect(() => {
-    void read();
-  }, [group, resync, read]);
-  useEffect(() => {
-    // light:motion is not a position feed: refresh sent at a quiet 5 Hz while this pad is visible.
-    const interval = window.setInterval(() => void read(), 200);
-    return () => window.clearInterval(interval);
-  }, [read]);
+  const sendBatch = (writes: PositionWrite[], requested: Position | null): void => {
+    setPos(requested);
+    setKeyboardHint("");
+    pending.current = { writes: writes.map((write) => ({ target: cloneTarget(write.target), point: { ...write.point } })) };
+    markGesture();
+    pump();
+  };
+  const send = (point: Position): void => sendBatch([{ target: targetRef.current, point }], point);
+
+  // On unmount, the in-flight completion still pumps the one pending value; no timer or promise chain remains.
+  useEffect(() => () => pump(), [pump]);
   useEffect(() => {
     // A gesture belongs to the target where it started, never to the next head selected meanwhile.
     pending.current = null;
-    window.clearTimeout(timer.current);
-    timer.current = undefined;
+    dragRect.current = null;
+    activePointer.current = null;
+    setDragging(false);
     setPos(null);
-    if (group) setGroupFixtures(null);
+    setConfirmation("");
+    setKeyboardHint("");
   }, [group, fixture]);
-  useCommandEvents(["position.", "panic", "show."], () => void read());
-  useEffect(() => void readGroup(), [readGroup, resync]);
-  useCommandEvents(["group.", "venue.fixture."], () => void readGroup());
-  const motion = useTopic<{ heads: MotionTopicHead[] } | null>("light:motion", null);
+  useEffect(() => refresh(), [refresh, resync]);
+  const manualSignature = scopedHeads.map((h) => `${h.id}:${h.manual?.pan},${h.manual?.tilt}`).join("|");
   useEffect(() => {
-    if (!motion) return;
-    motionSequence.current += 1;
-    // The topic has no fixture names or manual field: keep those from position.list.
-    const known = new Map(headsRef.current.map((h) => [h.id, h]));
-    applyHeads(
-      motion.heads.map((h) => {
-        const old = known.get(h.id);
-        return { ...old, ...h, name: old?.name, manual: old?.manual ?? null };
-      }),
-    );
-  }, [motion, applyHeads]);
+    if (dragging || pending.current || inFlight.current || !pos) return;
+    // Only a changed manual report can supersede the requested point; motion/sent-only events must not pull it back.
+    if (!scopedHeads.length || !scopedHeads.every((h) => samePoint(h.manual, pos))) setPos(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the signature is the manual value, not the frequently updated sent report
+  }, [manualSignature, dragging]);
+  useEffect(() => {
+    if (!confirmation) return;
+    const timer = window.setTimeout(() => setConfirmation(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [confirmation]);
 
-  const flush = () => {
-    timer.current = undefined;
-    const p = pending.current;
-    if (!p) return;
-    pending.current = null;
-    // Writes stay ordered and keep the target captured when this gesture was flushed.
-    const gestureTarget = { ...targetRef.current, ...(targetRef.current.fixtures ? { fixtures: [...targetRef.current.fixtures] } : {}) };
-    const request = writes.current
-      .then(async () => {
-        await cmd("position.set", { ...gestureTarget, ...p });
-      })
-      .catch((e: Error) => onErrorRef.current(e.message));
-    writes.current = request;
-    timer.current = window.setTimeout(flush, 40);
+  const fromEvent = (event: React.PointerEvent): Position => {
+    // Layout may change during a gesture; the pad's geometry at pointerdown remains the gesture's reference.
+    const rect = dragRect.current ?? pad.current!.getBoundingClientRect();
+    return { pan: clamp((event.clientX - rect.left) / rect.width), tilt: clamp(1 - (event.clientY - rect.top) / rect.height) };
   };
-  // On unmount only: stop the loop, and send the gesture value not sent yet.
-  useEffect(
-    () => () => {
-      window.clearTimeout(timer.current);
-      timer.current = undefined;
-      if (pending.current) flush();
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, on unmount: `flush` sends to this pad's own target
-    [],
-  );
+  const endPointer = (event: React.PointerEvent): void => {
+    if (activePointer.current !== event.pointerId) return;
+    activePointer.current = null;
+    dragRect.current = null;
+    setDragging(false);
+  };
 
-  const send = (p: Position) => {
-    setPos(p);
-    pending.current = p;
-    if (timer.current === undefined) flush();
-  };
-  const fromEvent = (e: React.PointerEvent) => {
-    const r = pad.current!.getBoundingClientRect();
-    const clamp = (v: number) => Math.max(0, Math.min(1, v));
-    return { pan: clamp((e.clientX - r.left) / r.width), tilt: clamp(1 - (e.clientY - r.top) / r.height) };
-  };
-  const runMotion = async (name: "position.releaseTop" | "position.home" | "position.rest.set" | "position.rest.clear", args: Record<string, unknown> = {}) => {
-    const actionTarget = { ...targetRef.current, ...(targetRef.current.fixtures ? { fixtures: [...targetRef.current.fixtures] } : {}) };
+  const runMotion = async (name: "position.releaseTop" | "position.home" | "position.rest.set" | "position.rest.clear", args: Record<string, unknown> = {}): Promise<void> => {
+    const actionTarget = cloneTarget(targetRef.current);
     try {
-      if (name === "position.rest.set" || name === "position.rest.clear") {
-        // Rest settings do not interrupt a manual gesture. `rest.set` receives the visible, really sent point.
-        await cmd(name, { ...actionTarget, ...args });
-      } else {
-        // A release discards a trailing gesture, then waits for writes already sent to this same target.
+      if (name !== "position.rest.set" && name !== "position.rest.clear") {
+        // Discard the trailing gesture and await only the request already on the wire, never a backlog.
         pending.current = null;
-        window.clearTimeout(timer.current);
-        timer.current = undefined;
-        await writes.current;
-        await cmd(name, { ...actionTarget, ...args });
+        setPos(null);
+        const writing = inFlight.current;
+        if (writing) await writing;
       }
-      await read();
-    } catch (e) {
-      onErrorRef.current((e as Error).message);
+      await cmd(name, { ...actionTarget, ...args });
+      if (name === "position.rest.set") setConfirmation(t.restSaved);
+      if (name !== "position.rest.set") setConfirmation("");
+      refresh();
+    } catch (error) {
+      onErrorRef.current((error as Error).message);
     }
   };
 
-  const scopedHeads = fixture ? heads.filter((h) => h.id === fixture) : group ? heads.filter((h) => groupFixtures?.has(h.id)) : heads;
-  const head = scopedHeads.find((h) => h.manual) ?? scopedHeads[0];
-  const sentOf = (h: MotionHead | undefined) => h?.sent ?? null;
-  const sent = sentOf(head);
-  const sameSent = scopedHeads.every((h) => {
-    const p = sentOf(h);
-    return p?.pan === sent?.pan && p?.tilt === sent?.tilt;
-  });
-  const manualValues = scopedHeads.map((h) => h.manual);
-  const sameManual = manualValues.every((p) => p?.pan === manualValues[0]?.pan && p?.tilt === manualValues[0]?.tilt);
-  const shown = pos ?? (sameManual ? head?.manual : null) ?? (sameSent ? sent : null);
-  const axisLabel = (axis: "pan" | "tilt") => {
+  const head = scopedHeads[0];
+  const firstSent = head?.sent ?? null;
+  const sameSent = firstSent !== null && scopedHeads.length > 0 && scopedHeads.every((h) => samePoint(h.sent, firstSent));
+  const firstManual = head?.manual ?? null;
+  const sameManual = firstManual !== null && scopedHeads.length > 0 && scopedHeads.every((h) => samePoint(h.manual, firstManual));
+  const shown = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null);
+
+  const axisLabel = (axis: "pan" | "tilt"): { text: string; layer: MotionLayer | "mixed" } => {
     const labels = scopedHeads.map((h) => {
       const status = h.motion?.[axis];
       if (!status) return t.motionLayers.rest;
       const name = status.name ?? (status.owner?.startsWith("look:") ? status.owner.slice(5) : status.owner ?? "—");
-      return t.motionLayers[status.layer].replace("{name}", status.layer === "look" ? quoted(t, name) : name);
+      return t.motionLayers[status.layer].replace("{name}", () => (status.layer === "look" ? quoted(t, name) : name));
     });
-    if (!labels.length) return "—";
-    return labels.every((value) => value === labels[0]) ? labels[0]! : t.motionMixed;
+    if (!labels.length) return { text: "—", layer: "rest" };
+    const layers = scopedHeads.map((h) => h.motion?.[axis].layer ?? "rest");
+    return labels.every((value) => value === labels[0])
+      ? { text: labels[0]!, layer: layers[0] ?? "rest" }
+      : { text: t.motionMixed, layer: "mixed" };
   };
-  const axisErrors = (axis: "pan" | "tilt") => [...new Set(scopedHeads.map((h) => h.motion?.[axis].error).filter((e): e is string => Boolean(e)))];
-  const released = new Set(scopedHeads.flatMap((h) => h.motion?.released.map((r) => r.owner) ?? []));
-  const byOwner = new Map<string, MotionOwner>();
-  for (const h of scopedHeads) for (const ref of [...(h.motion?.masked ?? []), ...(h.motion?.released ?? [])]) byOwner.set(ref.owner, ref);
+  const axisErrors = (axis: "pan" | "tilt"): string[] => [...new Set(scopedHeads.map((h) => h.motion?.[axis].error).filter((error): error is string => Boolean(error)))];
+  const countFor = (h: MotionHead): number =>
+    Math.max(
+      ...(["pan", "tilt"] as const).map((axis) => {
+        const status = h.motion?.[axis];
+        return (status?.layers ?? (status ? [status.layer, "rest"] : ["rest"])).filter((layer) => layer !== "rest").length;
+      }),
+    );
+  const remaining = scopedHeads.length ? Math.max(...scopedHeads.map(countFor)) : 0;
+  const remainingText = remaining === 0 ? t.motionLayersRemainingNone : remaining === 1 ? t.motionLayersRemainingOne : t.motionLayersRemainingMany.replace("{count}", () => String(remaining));
+  const canRelease = scopedHeads.some((h) => {
+    if (!h.motion) return true;
+    return (["pan", "tilt"] as const).some((axis) => {
+      const layer = h.motion![axis].layer;
+      return layer !== "rest" && !(layer === "lock" && h.motion!.lock === "hard");
+    });
+  });
+
+  type Claim = { owner: string; name?: string; released: boolean };
+  const byOwner = new Map<string, Claim>();
+  for (const h of scopedHeads) {
+    for (const ref of h.motion?.masked ?? []) byOwner.set(ref.owner, { ...ref, released: false });
+    // A released owner matters while another live layer holds the head; at rest/hold the stack already says enough.
+    const covered = h.motion && (["pan", "tilt"] as const).some((axis) => ["manual", "target", "look", "lock"].includes(h.motion![axis].layer));
+    if (covered) for (const ref of h.motion?.released ?? []) byOwner.set(ref.owner, { ...ref, released: true });
+  }
   const claims = [...byOwner.values()];
-  const ownerText = (ref: MotionOwner) => {
-    if (ref.owner.startsWith("look:")) return t.motionMaskedLook.replace("{name}", quoted(t, ref.name ?? ref.owner.slice(5)));
-    const layer: MotionLayer = ref.owner === "manual" ? "manual" : ref.owner.startsWith("target:") ? "target" : ref.owner === "hold" ? "hold" : "rest";
-    return t.motionMaskedOther.replace("{name}", ref.name ?? t.motionLayers[layer]);
+  const ownerText = (claim: Claim): string => {
+    const many = scopedHeads.length > 1;
+    if (claim.owner.startsWith("look:")) {
+      const lookTemplate = many ? t.motionMaskedLookMany : t.motionMaskedLook;
+      return lookTemplate.replace("{name}", () => quoted(t, claim.name ?? claim.owner.slice(5)));
+    }
+    const layer: MotionLayer = claim.owner === "manual" ? "manual" : claim.owner.startsWith("target:") ? "target" : claim.owner === "hold" ? "hold" : "rest";
+    const otherTemplate = many ? t.motionMaskedOtherMany : t.motionMaskedOther;
+    return otherTemplate.replace("{name}", () => claim.name ?? t.motionLayers[layer]);
+  };
+  const claimText = (claim: Claim): string => `${ownerText(claim)}${claim.released ? ` — ${t.motionReleased}` : ""}`;
+  const claimsTitle = claims.map(claimText).join("\n");
+  const maskedText = claims.length ? `${claimText(claims[0]!)}${claims.length > 1 ? ` ${t.motionMoreClaims.replace("{count}", () => String(claims.length - 1))}` : ""}` : "";
+
+  const onKeyDown = (event: React.KeyboardEvent): void => {
+    if (disabled) return;
+    const step = event.shiftKey ? 0.1 : 0.01;
+    if (event.key === "Home") {
+      event.preventDefault();
+      event.stopPropagation();
+      send({ pan: 0.5, tilt: 0.5 }); // explicit manual centre, unlike return-to-rest
+      return;
+    }
+    const axis = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "pan" : event.key === "ArrowUp" || event.key === "ArrowDown" ? "tilt" : undefined;
+    if (!axis) return;
+    event.preventDefault();
+    event.stopPropagation(); // the stage plan's arrows (turn, nudge) are not for the pad
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -step : step;
+    if (scopedHeads.length > 1 && !sameSent) {
+      // Mixed heads must never jump to a common centre: offset each from its own position really sent.
+      if (scopedHeads.some((h) => !h.sent)) {
+        setKeyboardHint(t.motionKeyboardWaiting);
+        return;
+      }
+      sendBatch(
+        scopedHeads.map((h) => ({
+          target: { fixtures: [h.id] },
+          point: { ...h.sent!, [axis]: clamp(h.sent![axis] + delta) },
+        })),
+        null,
+      );
+      return;
+    }
+    const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? { pan: 0.5, tilt: 0.5 };
+    send({ ...at, [axis]: clamp(at[axis] + delta) });
   };
 
   return (
-    <div className="xy fill">
+    <div
+      className={`xy fill${dragging ? " dragging" : ""}`}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      }}
+    >
       <div
         ref={pad}
         className="pad"
@@ -290,41 +251,36 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
         aria-label={label ?? t.heads}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={sameSent && sent ? Math.round(sent.pan * 100) : undefined}
+        aria-valuenow={sameSent && firstSent ? Math.round(firstSent.pan * 100) : undefined}
         aria-describedby={`${hintId} ${statusId}`}
-        aria-valuetext={sameSent && sent ? `pan ${Math.round(sent.pan * 100)} %, tilt ${Math.round(sent.tilt * 100)} %` : sent ? t.motionMixed : "—"}
+        aria-valuetext={sameSent && firstSent ? `pan ${Math.round(firstSent.pan * 100)} %, tilt ${Math.round(firstSent.tilt * 100)} %` : firstSent ? t.motionMixed : "—"}
         aria-disabled={disabled || undefined}
+        title={t.padDotsHelp}
         tabIndex={disabled ? -1 : 0}
-        onKeyDown={(e) => {
-          // Arrows move by 1% (Shift: 10%); Home sets a manual centre, unlike the return-to-rest button.
-          if (disabled) return;
-          const step = e.shiftKey ? 0.1 : 0.01;
-          const at = shown ?? { pan: 0.5, tilt: 0.5 };
-          const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 1000) / 1000));
-          const next =
-            e.key === "ArrowLeft" ? { ...at, pan: clamp(at.pan - step) }
-            : e.key === "ArrowRight" ? { ...at, pan: clamp(at.pan + step) }
-            : e.key === "ArrowUp" ? { ...at, tilt: clamp(at.tilt + step) }
-            : e.key === "ArrowDown" ? { ...at, tilt: clamp(at.tilt - step) }
-            : e.key === "Home" ? { pan: 0.5, tilt: 0.5 }
-            : undefined;
-          if (!next) return;
-          e.preventDefault();
-          e.stopPropagation(); // the stage plan's arrows (turn, nudge) are not for the pad
-          send(next);
+        onKeyDown={onKeyDown}
+        onPointerDown={(event) => {
+          if (disabled || activePointer.current !== null) return;
+          event.preventDefault();
+          pad.current?.focus({ preventScroll: true });
+          dragRect.current = event.currentTarget.getBoundingClientRect();
+          activePointer.current = event.pointerId;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setDragging(true);
+          send(fromEvent(event));
         }}
-        onPointerDown={(e) => {
-          if (disabled) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          send(fromEvent(e));
+        onPointerMove={(event) => {
+          if (activePointer.current === event.pointerId && !disabled) send(fromEvent(event));
         }}
-        onPointerMove={(e) => {
-          if (e.buttons && !disabled) send(fromEvent(e));
-        }}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
       >
         <span className="cross" />
+        {restControls && head && <span className="rest-dot" data-testid="xy-rest-dot" aria-hidden="true" style={{ left: `${head.rest.pan * 100}%`, top: `${(1 - head.rest.tilt) * 100}%` }} />}
+        {pos && (!sameSent || !samePoint(pos, firstSent)) && (
+          <span className="dot requested" data-testid="xy-requested-dot" aria-hidden="true" style={{ left: `${pos.pan * 100}%`, top: `${(1 - pos.tilt) * 100}%` }} />
+        )}
         {scopedHeads.map((h) => {
-          const point = sentOf(h);
+          const point = h.sent;
           if (!point) return null;
           return (
             <span
@@ -338,31 +294,33 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
           );
         })}
       </div>
-      <span id={hintId} className="sr-only">{t.padKeysHelp}</span>
-      <div className="row">
+      <span id={hintId} className="sr-only">{t.padKeysHelp} {t.padDotsHelp}</span>
+      <div className="row xy-heading">
         <label>{label ?? t.heads}</label>
         <small className="xy-position">{shown ? `${Math.round(shown.pan * 100)} / ${Math.round(shown.tilt * 100)}` : "—"}</small>
       </div>
-      <div id={statusId} className="xy-layers" aria-label={t.motionLayerStatus}>
-        {(["pan", "tilt"] as const).map((axis) => (
-          <span key={axis} data-axis={axis}>
-            {t.motionAxes[axis]}{t.colon} {axisLabel(axis)}
-            {axisErrors(axis).map((error) => <span key={error} className="error"> {error}</span>)}
-          </span>
-        ))}
-      </div>
-      {claims.length > 0 && (
-        <div className="xy-masked hint" role="status">
-          {claims.map((ref) => (
-            <span key={ref.owner}>
-              {ownerText(ref)}{released.has(ref.owner) ? ` — ${t.motionReleased}` : ""}
-            </span>
-          ))}
+      <div className="xy-status" aria-live={focused || restControls ? "polite" : undefined} aria-atomic="true">
+        <div id={statusId} className="xy-layers" role="group" aria-label={t.motionLayerStatus}>
+          {(["pan", "tilt"] as const).map((axis) => {
+            const current = axisLabel(axis);
+            return (
+              <span key={axis} data-axis={axis} data-layer={current.layer} title={[current.text, ...axisErrors(axis)].join("\n")}>
+                <i className="layer-mark" aria-hidden="true" />
+                {t.motionAxes[axis]}{t.colon} {current.text}
+                {axisErrors(axis).map((error) => <span key={error} className="error"> {error}</span>)}
+              </span>
+            );
+          })}
+          <small className="xy-layer-count">{remainingText}</small>
         </div>
-      )}
+        <div className="xy-masked hint" title={confirmation || claimsTitle || keyboardHint || undefined} aria-hidden={!confirmation && !claims.length && !keyboardHint}>
+          {confirmation || maskedText || " "}
+          {keyboardHint ? ` ${keyboardHint}` : ""}
+        </div>
+      </div>
       <div className="row xy-actions">
-        <button title={t.releaseTopHelp} aria-label={t.releaseTop} disabled={disabled} onClick={() => void runMotion("position.releaseTop")}>
-          ⟲ {t.releaseTop}
+        <button title={t.releaseTopHelp} aria-label={t.releaseTop} disabled={disabled || !canRelease} onClick={() => void runMotion("position.releaseTop")}>
+          {t.releaseTop}
         </button>
         <button title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
           {t.homeHeads}
@@ -384,6 +342,10 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
             </button>
           </>
         )}
+        <details className="xy-release-info">
+          <summary aria-label={t.releaseTopInfo} title={t.releaseTopHelp}>i</summary>
+          <p>{t.releaseTopHelp}</p>
+        </details>
       </div>
     </div>
   );

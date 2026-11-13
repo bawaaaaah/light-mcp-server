@@ -76,14 +76,35 @@ describe("motion layer: the commands of lot 4", () => {
     expect(gliding.remainingMs).to.be.within(550, 650);
     during(1000);
     const arrived = await listed();
-    expect(arrived.motion!.pan).to.deep.equal({ layer: "look", owner: "look:a", name: "A", position: arrived.motion!.pan.position, moving: false });
+    expect(arrived.motion!.pan).to.deep.equal({ layer: "look", layers: ["look", "rest"], owner: "look:a", name: "A", position: arrived.motion!.pan.position, moving: false });
     expect(arrived.sent!.pan).to.be.closeTo(0.2, 1e-4);
     await run("position.set", { fixtures: ["spot"], pan: 0.6 }); // the pan only
     during(40);
     const manual = await listed();
     expect(manual.motion!.pan).to.include({ layer: "manual", owner: "manual" });
+    expect(manual.motion!.pan.layers).to.deep.equal(["manual", "look", "rest"]);
     expect(manual.motion!.tilt).to.include({ layer: "look", owner: "look:a" }); // the other axis stays with the look
+    expect(manual.motion!.tilt.layers).to.deep.equal(["look", "rest"]);
     expect(manual.manual!.pan).to.equal(0.6);
+    await run("position.releaseTop", { fixtures: ["spot"] });
+    during(40);
+    expect((await listed()).motion!.pan.layers).to.deep.equal(["look", "rest"]); // released claims leave the stack
+  });
+
+  it("`position.list` resolves the existing fixture and group targets server-side", async () => {
+    plugin.venue.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, tags: ["motion-test"] });
+    plugin.venue.fixtures.put({ id: "spot2", name: "Spot 2", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 11 });
+    await run("group.put", { group: { id: "leaf", name: "Leaf", members: { fixtures: ["spot2"], groups: [], looks: [] } } });
+    await run("group.put", { group: { id: "parent", name: "Parent", members: { fixtures: [], groups: ["leaf"], looks: [] }, selector: { tags: ["motion-test"] } } });
+    const ids = async (args: unknown) => ((await run("position.list", args)) as Listed[]).map((h) => h.id);
+    expect(await ids({ fixtures: ["spot"] })).to.deep.equal(["spot"]);
+    expect(await ids({ fixtures: [] })).to.deep.equal([]);
+    expect(await ids({ group: "leaf" })).to.deep.equal(["spot2"]);
+    expect(new Set(await ids({ group: "parent" }))).to.deep.equal(new Set(["spot", "spot2"])); // selector and sub-group
+    expect(new Set(await ids({}))).to.deep.equal(new Set(["spot", "spot2"]));
+    let refused = "";
+    await run("position.list", { group: "missing" }).catch((e: Error) => (refused = e.message));
+    expect(refused).to.contain("missing");
   });
 
   it("`position.releaseTop` hands a head back one layer at a time: manual, then the look, then rest", async () => {
@@ -226,13 +247,13 @@ describe("motion layer: the commands of lot 4", () => {
 });
 
 describe("motion layer: the report and its change key", () => {
-  const axis = (more: Partial<AxisStatus>): AxisStatus => ({ layer: "rest", owner: null, position: 0.5, moving: false, ...more });
+  const axis = (more: Partial<AxisStatus>): AxisStatus => ({ layer: "rest", layers: more.layer && more.layer !== "rest" ? [more.layer, "rest"] : ["rest"], owner: null, position: 0.5, moving: false, ...more });
   const status = (pan: Partial<AxisStatus>, more: Partial<HeadStatus> = {}): HeadStatus => ({ pan: axis(pan), tilt: axis({}), lock: "off", masked: [], released: [], ...more });
 
   it("names the looks, rounds the time left, and gives the owners of the released claims once", () => {
     const nameOf = lookNamer((id) => (id === "a" ? "A" : undefined));
     const m = headMotion(status({ layer: "look", owner: "look:a", moving: true, from: 0.1, target: 0.2, remainingMs: 412.6 }, { masked: ["look:gone"], released: ["look:a#3", "look:a#5", "manual#4"] }), nameOf);
-    expect(m.pan).to.deep.equal({ layer: "look", owner: "look:a", name: "A", position: 0.5, moving: true, from: 0.1, to: 0.2, remainingMs: 413 });
+    expect(m.pan).to.deep.equal({ layer: "look", layers: ["look", "rest"], owner: "look:a", name: "A", position: 0.5, moving: true, from: 0.1, to: 0.2, remainingMs: 413 });
     expect(m.masked).to.deep.equal([{ owner: "look:gone" }]);
     expect(m.released).to.deep.equal([{ owner: "look:a", name: "A" }, { owner: "manual" }]);
   });
@@ -244,6 +265,7 @@ describe("motion layer: the report and its change key", () => {
       motionKey({ movingHeads: () => ["h"], motionStatus: () => new Map([["h", s]]), sentPosition: () => undefined, settings: { restPositions: rest }, looks: { get: (id) => (id === "a" ? { name: lookName } : undefined) } });
     const base = key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 900 }));
     expect(key(status({ layer: "look", owner: "look:a", moving: true, remainingMs: 300, position: 0.3 }))).to.equal(base);
+    expect(key(status({ layer: "look", owner: "look:a", moving: true, layers: ["look", "hold", "rest"] }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a" }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:b", moving: true }))).to.not.equal(base);
     expect(key(status({ layer: "look", owner: "look:a", moving: true }, { lock: "soft" }))).to.not.equal(base);

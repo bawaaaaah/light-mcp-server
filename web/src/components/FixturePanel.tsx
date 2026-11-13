@@ -18,7 +18,8 @@ import { quoted } from "../typography";
 import { stream } from "../ws";
 import { FaderTrack } from "./FaderTrack";
 import { ModePicker, type ModeItem } from "./ModePicker";
-import { XyPad, type MotionHead } from "./XyPad";
+import { XyPad } from "./XyPad";
+import { useMotionHeads } from "../hooks/useMotionHeads";
 
 interface ChannelMode {
   name: string;
@@ -78,14 +79,12 @@ const narrowed = (range: { min: number; max: number } | undefined) => range !== 
 export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: string; name: string; absent?: boolean }; onError: (msg: string) => void; onClose: () => void }): ReactElement {
   const t = useT();
   const me = useMe() as Role | null;
-  const [heads, setHeads] = useState<MotionHead[]>([]);
+  const { heads } = useMotionHeads({ fixtures: [fixture.id] });
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [faders, setFaders] = useState<FaderRow[]>([]);
   const [patch, setPatch] = useState<{ universe: number; address: number } | null>(null);
   /** Level shown for each channel (its fader's, or the channel's value before its fader exists). */
   const [levels, setLevels] = useState<Record<number, number>>({});
-  /** Bumped on every read: the pad reads its dot again from position.list. */
-  const [stamp, setStamp] = useState(0);
   /** Channels whose fader is being created (the gesture's level rides along until it is saved). */
   const working = useRef(new Map<number, { pending?: number }>());
   /** Channel values read once (a channel shown before its fader exists starts at what the fixture has). */
@@ -106,7 +105,6 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
 
   const read = useCallback(() => {
     void cmd<FaderRow[]>("fader.list").then(setFaders).catch(() => undefined);
-    void cmd<MotionHead[]>("position.list").then(setHeads).catch(() => undefined);
     // channels that can be dosed: everything but the pan and tilt of a moving head, whatever the rest does
     void cmd<{ id: string; channels: ChannelRow[] }[]>("venue.fixture.channels")
       .then((rows) => setChannels((rows.find((r) => r.id === fixture.id)?.channels ?? []).filter((c) => c.attribute !== "pan" && c.attribute !== "tilt")))
@@ -117,12 +115,10 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
         setPatch(row ? { universe: row.universe, address: row.address } : null);
       })
       .catch(() => undefined);
-    setStamp((s) => s + 1);
   }, [fixture.id]);
   useEffect(read, [read]);
-  // the light follows fader changes from elsewhere, and the movement an aim, a Panic, a show
-  // opened, or the patch itself (a re-patch, a definition added)
-  useCommandEvents(["position.", "panic", "show.", "fader.", "venue.fixture."], read);
+  // The shared motion store follows positions itself; this read concerns the light faders and patch.
+  useCommandEvents(["panic", "show.", "fader.", "venue.fixture."], read);
   const glide = useTopic<Glide>("light:glide", { faders: {} });
   // one universe followed, only while a channel has modes to show; left when the panel goes (a tablet keeps no stream)
   const followsModes = channels.some((c) => c.modes?.length);
@@ -328,7 +324,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               <h4>{t.panelMovement}</h4>
               {may("commands:position") ? (
                 <>
-                  <XyPad fixture={fixture.id} label={fixture.name} resync={stamp} onError={onError} restControls />
+                  <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls />
                 </>
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>

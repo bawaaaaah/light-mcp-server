@@ -164,6 +164,8 @@ export const isHeld = (state: MotionState, head: string): boolean => {
 
 export interface AxisStatus {
   layer: AxisLayer;
+  /** Every layer still present on this axis, strongest first, rest last; released claims are left out. */
+  layers: AxisLayer[];
   /** The winning claim's owner; null for rest, hold and lock. */
   owner: string | null;
   position: number;
@@ -279,6 +281,19 @@ function winnerOf(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel): 
   const top = ranked.find((c) => claimsAxis(c, axis));
   if (lock === "soft" && top?.layer !== "manual") return "lock";
   return top;
+}
+
+/** The whole stack still present on an axis, not only its winner: the pad can say what another press would release. */
+function layerStack(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel, holding: boolean): AxisLayer[] {
+  const claims = [...new Set(ranked.filter((c) => claimsAxis(c, axis)).map((c) => c.layer))] as AxisLayer[];
+  const bottom: AxisLayer[] = holding ? ["hold", "rest"] : ["rest"];
+  if (lock === "hard") return ["lock", ...claims, ...bottom];
+  if (lock === "soft") {
+    // A manual claim stays above the soft lock; every lower claim remains underneath it.
+    if (claims[0] === "manual") return ["manual", "lock", ...claims.slice(1), ...bottom];
+    return ["lock", ...claims, ...bottom];
+  }
+  return [...claims, ...bottom];
 }
 
 /** Who holds one axis this frame, and where it asks the head to be (undefined: stay where it is). */
@@ -423,6 +438,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
       const moving = s.dur > 0 && s.value !== o.target;
       axisStatus[axis] = {
         layer: o.layer,
+        layers: layerStack(ranked, axis, lock, holding[axis]),
         owner: o.claim?.owner ?? null,
         position: s.value,
         moving,
@@ -445,41 +461,66 @@ export interface ReleaseOptions {
   /** Heads to release; absent: every head of the input. */
   heads?: readonly string[];
   /**
-   * "top": the claims that win the head now are released, the layer below takes over (« rendre la
-   * main », per head or for all). "all": every claim on the head is released, it glides to rest
-   * (`position.home`).
+   * "top": only the strongest layer present among the targeted heads is released (« rendre la main »).
+   * "all": every claim on each head is released (`position.home`). "hold": only Panic holds are released.
    */
-  scope: "top" | "all";
+  scope: "top" | "all" | "hold";
 }
 
-/** The claims a release may take off `head` under its lock: none under a hard lock, the manual layer only under a soft one. */
-function releasable(ranked: readonly MotionClaim[], lock: LockLevel, scope: "top" | "all"): readonly MotionClaim[] {
+/** Claims a whole-head release may take off under its lock: none under hard, manual only under soft. */
+function releasable(ranked: readonly MotionClaim[], lock: LockLevel): readonly MotionClaim[] {
   if (lock === "hard") return [];
-  const open = lock === "soft" ? ranked.filter((c) => c.layer === "manual") : ranked;
-  if (scope === "all") return open;
-  const out: MotionClaim[] = [];
-  for (const axis of AXES) {
-    const w = open.find((c) => claimsAxis(c, axis));
-    if (w) out.push(w);
-  }
-  return out;
+  return lock === "soft" ? ranked.filter((c) => c.layer === "manual") : ranked;
+}
+
+interface TopAtAxis {
+  rank: number;
+  winner: MotionClaim | "lock" | undefined;
+  holding: boolean;
+}
+
+/** The current owner on one axis, calculated from current claims so consecutive presses need no frame in between. */
+function topAtAxis(input: Pick<MotionInput, "claims" | "lock">, head: string, axis: Axis, state: MotionState): TopAtAxis {
+  const previous = state.heads.get(head);
+  const lock = input.lock?.(head) ?? "off";
+  const released = new Set(previous?.released ?? []);
+  const winner = winnerOf(contenders(input.claims, head, released), axis, lock);
+  const holding = winner === undefined && (previous?.holding[axis] ?? false);
+  const layer: AxisLayer = winner === "lock" ? "lock" : winner ? winner.layer : holding ? "hold" : "rest";
+  return { rank: rankOf(layer, lock), winner, holding };
 }
 
 /**
- * Release what holds heads: the released claims are ignored on those heads until they stop claiming
- * them (a look relaunched has a new order and claims again). A Panic hold is released too, unless a
- * lock covers the head. A lock is never released here (T26 unlocks): under a hard lock nothing is,
- * under a soft one only the manual layer — the claims the lock hides are kept. The heads then glide
- * to their new owner on the next frame.
+ * Release what holds heads: released claims are ignored until they stop claiming them (a relaunched look has a new
+ * order and claims again). On a multi-head target, only heads whose top is the strongest layer present in that target
+ * are released; the others keep their layer until a later press reaches it. A lock is never released here: hard locks
+ * release nothing, soft locks only the manual layer above them. Only a selected hold layer lifts a Panic hold.
  */
 export function releaseMotion(input: Pick<MotionInput, "heads" | "claims" | "lock">, state: MotionState, opts: ReleaseOptions): MotionState {
   const heads = new Map(state.heads);
-  for (const head of opts.heads ?? input.heads) {
+  const targeted = opts.heads ?? input.heads;
+  let strongest = OWNER_RANK.rest;
+  if (opts.scope === "top") {
+    for (const head of targeted) for (const axis of AXES) strongest = Math.min(strongest, topAtAxis(input, head, axis, state).rank);
+  }
+  for (const head of targeted) {
     const prev = heads.get(head);
     const lock = input.lock?.(head) ?? "off";
     const released = new Set(prev?.released ?? []);
-    for (const c of releasable(contenders(input.claims, head, released), lock, opts.scope)) released.add(claimKey(c));
-    const holding = lock === "off" ? NO_HOLD : (prev?.holding ?? NO_HOLD);
+    const holding = { ...(prev?.holding ?? NO_HOLD) };
+    if (opts.scope === "all") {
+      for (const c of releasable(contenders(input.claims, head, released), lock)) released.add(claimKey(c));
+      if (lock === "off") Object.assign(holding, NO_HOLD);
+    } else if (opts.scope === "hold") {
+      if (lock === "off") Object.assign(holding, NO_HOLD);
+    } else {
+      for (const axis of AXES) {
+        const top = topAtAxis(input, head, axis, state);
+        if (top.rank !== strongest) continue;
+        if (top.winner && top.winner !== "lock") released.add(claimKey(top.winner));
+        else if (top.holding && lock === "off") holding[axis] = false;
+      }
+    }
     heads.set(head, { ...prev, released: [...released], holding });
   }
   return { ...state, heads };

@@ -14,6 +14,8 @@ export interface OwnerRef {
 
 export interface AxisReport {
   layer: AxisLayer;
+  /** The layers still present on this axis, strongest first, rest last; released claims are omitted. */
+  layers: AxisLayer[];
   owner: string | null;
   /** The name of the look that holds the axis. */
   name?: string;
@@ -49,6 +51,7 @@ function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined
   const name = a.owner ? nameOf(a.owner) : undefined;
   return {
     layer: a.layer,
+    layers: [...a.layers],
     owner: a.owner,
     ...(name === undefined ? {} : { name }),
     position: a.position,
@@ -115,8 +118,8 @@ export function motionEntries(show: MotionSource): HeadMotionEntry[] {
 }
 
 /**
- * What a change of the report is made of, for `light:motion`: per head and axis, the layer, the owner and its name, a
- * glide started or ended and an error; the lock, the claims masked and released (with their names), the rest position.
+ * What a change of the report is made of, for `light:motion`: per head and axis, the layer stack, the owner and its
+ * name, a glide started or ended and an error; the lock, the claims masked and released (with their names), the rest.
  * Not the position sent nor the time left: a shape turning or a glide on its way change nothing here, so the topic is
  * not sent every frame.
  */
@@ -134,7 +137,7 @@ export function motionKey(show: MotionSource): string {
       parts.push(`${id}|${restKey}`);
       continue;
     }
-    const axis = (a: AxisStatus) => `${a.layer}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.error ?? ""}`;
+    const axis = (a: AxisStatus) => `${a.layer}:${a.layers.join(">")}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.error ?? ""}`;
     parts.push(`${id}|${restKey}|${s.lock}|${axis(s.pan)}|${axis(s.tilt)}|${s.masked.map(named).join(",")}|${s.released.map((k) => named(ownerOfClaimKey(k)) + k.slice(k.lastIndexOf("#"))).join(",")}`);
   }
   return parts.join("\n");

@@ -1273,8 +1273,8 @@ export class ShowRuntime {
   }
 
   /**
-   * « Rendre la main »: releases what holds heads now (the winning claim of each axis; a Panic hold) — all the moving
-   * heads when none is given. The layer below takes over, gliding; pressed again, it goes one layer down, to rest.
+   * « Rendre la main »: on a target, releases only the strongest top layer present among its heads, axis by axis.
+   * Other heads keep their layer until a later press reaches it. The layer below takes over, gliding, down to rest.
    * A look released keeps playing: it claims the head again once started again. Returns, per head, the owners released.
    */
   releaseTop(fixtures?: string[]): { fixture: string; released: string[] }[] {
@@ -1311,7 +1311,7 @@ export class ShowRuntime {
   releaseHold(fixtures?: string[]): string[] {
     const all = this.movingHeads();
     const held = (fixtures ?? all).filter((f) => all.includes(f) && isHeld(this.motionState, f));
-    if (held.length) this.motionState = releaseMotion({ heads: all, claims: [], lock: this.motionLock }, this.motionState, { heads: held, scope: "top" });
+    if (held.length) this.motionState = releaseMotion({ heads: all, claims: [], lock: this.motionLock }, this.motionState, { heads: held, scope: "hold" });
     return held.filter((f) => !isHeld(this.motionState, f));
   }
 

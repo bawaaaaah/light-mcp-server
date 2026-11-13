@@ -31,8 +31,10 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
   const [result, setResult] = useState<Result | null>(null);
   /** Refusals stay beside the record button, where the operator is working. */
   const [error, setError] = useState("");
-  /** Only the latest action on the currently selected head may write marks, results or errors. */
+  /** Bumped only when the selected head changes; concurrent actions on that head do not cancel each other. */
   const actionSequence = useRef(0);
+  const currentHead = useRef(head);
+  currentHead.current = head;
 
   const placedKey = [...placed].sort().join(",");
   useEffect(() => {
@@ -49,9 +51,16 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
   }, [placedKey, follow]);
   useEffect(() => {
     const action = ++actionSequence.current;
-    if (head) void cmd<unknown[]>("calibration.list", { fixture: head }).then((l) => {
-      if (action === actionSequence.current) setMarks(l.length);
-    });
+    const actionHead = head;
+    if (head) {
+      void cmd<unknown[]>("calibration.list", { fixture: head })
+        .then((list) => {
+          if (action === actionSequence.current && currentHead.current === actionHead) setMarks(list.length);
+        })
+        .catch((cause: Error) => {
+          if (action === actionSequence.current && currentHead.current === actionHead) setError(cause.message);
+        });
+    } else setMarks(0);
     setResult(null);
     setError("");
   }, [head]);
@@ -100,13 +109,13 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
         <button
           onClick={() => {
             setError("");
-            const action = ++actionSequence.current;
+            const actionHead = head;
             void cmd<{ samples: number }>("calibration.record", { fixture: head, ...(zone ? { zone } : { point: { x: xy.x, y: xy.y, z: 0 } }) })
               .then((r) => {
-                if (action === actionSequence.current) setMarks(r.samples);
+                if (currentHead.current === actionHead) setMarks(r.samples);
               })
               .catch((e: Error) => {
-                if (action === actionSequence.current) fail(e);
+                if (currentHead.current === actionHead) fail(e);
               });
           }}
         >
@@ -116,13 +125,13 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
           disabled={marks < 2}
           onClick={() => {
             setError("");
-            const action = ++actionSequence.current;
+            const actionHead = head;
             void cmd<Result>("calibration.solve", { fixture: head })
               .then((r) => {
-                if (action === actionSequence.current) setResult(r);
+                if (currentHead.current === actionHead) setResult(r);
               })
               .catch((e: Error) => {
-                if (action === actionSequence.current) fail(e);
+                if (currentHead.current === actionHead) fail(e);
               });
           }}
         >
@@ -132,16 +141,16 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
           className="ghost"
           onClick={() => {
             setError("");
-            const action = ++actionSequence.current;
+            const actionHead = head;
             void cmd("calibration.clear", { fixture: head })
               .then(() => {
-                if (action === actionSequence.current) {
+                if (currentHead.current === actionHead) {
                   setMarks(0);
                   setResult(null);
                 }
               })
               .catch((e: Error) => {
-                if (action === actionSequence.current) fail(e);
+                if (currentHead.current === actionHead) fail(e);
               });
           }}
         >
@@ -162,17 +171,17 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
             onClick={() => {
               setError("");
               if (result.errorDeg <= 3 || confirm(`${t.calibrationBad}. ${t.calibrationApplyAnyway}`)) {
-                const action = ++actionSequence.current;
+                const actionHead = head;
                 void cmd<Result>("calibration.solve", { fixture: head, apply: true })
                   .then((r) => {
-                    if (action === actionSequence.current) {
+                    if (currentHead.current === actionHead) {
                       setResult(r);
                       setMarks(0);
                       onApplied();
                     }
                   })
                   .catch((e: Error) => {
-                    if (action === actionSequence.current) fail(e);
+                    if (currentHead.current === actionHead) fail(e);
                   });
               }
             }}

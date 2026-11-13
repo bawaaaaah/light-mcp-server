@@ -37,17 +37,21 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.list",
     title: "Lyres",
     description:
-      "Moving heads of the venue with their pan/tilt travel (degrees), their manual position if any, and why each is where it is (positions normalised 0..1, 0.5 = centre): sent = the position really sent on the last frame (after the rules and the guard); rest = where it goes when nothing claims it (set: false = the centre); motion = per axis the layer that holds it (manual, target, look, hold = held after a Panic, rest, lock), its owner (manual, look:<id> with the look's name), a glide under way (moving, from, to, remainingMs) and an error, then the claims it masks (masked: « the look X would move it ») and those « rendre la main » released (released). The same report is pushed on the light:motion topic when it changes.",
+      "Moving heads selected by fixtures, a group (selectors and sub-groups included), or all, with their pan/tilt travel, manual position and why each is where it is: sent = the position really sent after the rules and guard; rest = where it goes when unclaimed; motion = per axis the winning layer, all layers still present (layers, strongest first, rest last), owner, glide and error, then masked and released claims. The same report is pushed on light:motion when it changes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],
-    schema: z.object({}),
-    run: () =>
-      motionEntries(show).map(({ id, ...why }) => {
-        const r = show.venue.resolve(id);
-        const f = show.venue.fixtures.get(id)!;
-        return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null, ...why };
-      }),
+    schema: Target,
+    run: (t) => {
+      const selected = new Set(targets(t));
+      return motionEntries(show)
+        .filter(({ id }) => selected.has(id))
+        .map(({ id, ...why }) => {
+          const r = show.venue.resolve(id);
+          const f = show.venue.fixtures.get(id)!;
+          return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null, ...why };
+        });
+    },
   });
   reg.register({
     name: "position.set",
@@ -112,7 +116,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.releaseTop",
     title: "Rendre la main",
     description:
-      "« Rendre la main »: releases what holds moving heads now (fixtures, a group, or all) — on each axis the winning claim (the manual position, the look that moves it, a Panic hold) — and the layer below takes over, gliding: the look under it, else the rest position. Pressed again it goes one layer down. A released look keeps playing and claims the heads again once started again. Respects a lock (T26): under a hard lock nothing is released, under a soft one only the manual position. Returns, per head, the owners released (manual, look:<id>, hold).",
+      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present among the targeted heads (hard lock, manual, soft lock, target, look, hold, rest) and releases only the heads at that layer, axis by axis. Other heads keep theirs; pressing again descends one more layer, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing, soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target,

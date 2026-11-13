@@ -70,7 +70,7 @@ interface Settings {
   grandMaster: number;
   liveAi?: boolean;
   looksMerge?: "last" | "highest";
-  moveFade?: MoveFade;
+  moveFade: MoveFade;
   /** Folders named ahead for this show (show.folder.create), to group even before a look carries them. */
   folders?: string[];
 }
@@ -557,9 +557,9 @@ export function ShowPage(): ReactElement {
             <option value="highest">{t.looksMergeHighest}</option>
           </select>
         </label>
-        <label title={t.moveFadeHelp}>
-          {t.moveFadeDefault}{" "}
-          <MoveFadeInput label={t.moveFadeDefault} value={settings?.moveFade ?? { seconds: 1 }} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />
+        <label className="move-fade-setting" title={t.moveFadeHelp}>
+          <span>{t.moveFadeDefault}</span>
+          {settings && <MoveFadeInput label={t.moveFadeDefault} value={settings.moveFade} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />}
         </label>
         <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
           <input type="checkbox" checked={Boolean(settings?.liveAi)} onChange={(e) => void run("show.settings.set", { liveAi: e.target.checked })} /> {t.liveAi}

@@ -560,6 +560,11 @@ textarea {
   flex-direction: column;
   gap: 0.3em;
 }
+.xy.dragging,
+.xy .pad {
+  user-select: none;
+  -webkit-user-select: none;
+}
 .xy .pad {
   position: relative;
   flex: 1;
@@ -578,7 +583,8 @@ textarea {
     linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat;
   pointer-events: none;
 }
-.xy .dot {
+.xy .dot,
+.xy .rest-dot {
   position: absolute;
   width: 1em;
   height: 1em;
@@ -591,6 +597,19 @@ textarea {
   background: var(--bg);
   border: 2px solid var(--accent);
 }
+.xy .dot.requested {
+  width: 0.8em;
+  height: 0.8em;
+  margin: -0.4em 0 0 -0.4em;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+  border: 1px solid var(--text);
+  opacity: 0.65;
+}
+.xy .rest-dot {
+  background: transparent;
+  border: 2px solid var(--muted);
+  opacity: 0.35;
+}
 .xy .row {
   display: flex;
   align-items: center;
@@ -599,21 +618,149 @@ textarea {
 .xy .row label {
   flex: 1;
 }
+.xy-heading label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xy-status {
+  display: grid;
+  gap: 0.15em;
+  min-width: 0;
+}
 .xy-layers {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 0.15em 0.8em;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
 }
+.xy-layers [data-axis] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--layer-color, var(--muted));
+}
+.xy-layers [data-layer="manual"] { --layer-color: #f2c14e; }
+.xy-layers [data-layer="target"] { --layer-color: #78b7ff; }
+.xy-layers [data-layer="look"] { --layer-color: #c79bf2; }
+.xy-layers [data-layer="hold"] { --layer-color: #f29a62; }
+.xy-layers [data-layer="rest"] { --layer-color: #9aa4b2; }
+.xy-layers [data-layer="lock"] { --layer-color: #ef476f; }
+.layer-mark {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-right: 0.25em;
+  border-radius: 50%;
+  background: var(--layer-color, var(--muted));
+}
+.xy-layer-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .xy-masked {
-  display: grid;
-  gap: 0.15em;
+  display: block;
+  min-height: 1.2em;
   margin: 0;
+  overflow: hidden;
   font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .xy-actions {
+  position: relative;
   align-items: stretch;
+  flex-wrap: wrap;
+}
+.xy-release-info {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
+.xy-release-info summary {
+  display: grid;
+  width: 1.6em;
+  height: 1.6em;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.xy-release-info summary::-webkit-details-marker {
+  display: none;
+}
+.xy-release-info p {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 5;
+  width: 230px;
+  max-width: 80vw;
+  margin: 0;
+  padding: 0.5em;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px #0008;
+  font-size: 0.75rem;
+  white-space: normal;
+}
+/* The Live cell is fixed-height: every status line is reserved, even when empty, and the pad keeps its travel. */
+.cell .xy {
+  min-height: 0;
+  gap: 1px;
+  font-size: 0.75rem;
+}
+/* A fixed row (desktop dashboard) holds the cell at one height; the pad flexes and the lines stay reserved.
+   A phone grid sizes each row to its content, so the cell grows instead of crushing the 44 px buttons. */
+.dgrid.fine .cell .xy {
+  height: 100%;
+}
+.cell .xy .pad {
+  min-height: 140px;
+}
+.cell .xy-heading {
+  flex: 0 0 14px;
+  min-height: 14px;
+}
+.cell .xy-status {
+  flex: 0 0 28px;
+  gap: 0;
+  font-size: 0.68rem;
+  line-height: 14px;
+}
+.cell .xy-layers,
+.cell .xy-masked {
+  height: 14px;
+  min-height: 14px;
+  line-height: 14px;
+}
+.cell .xy-actions {
+  flex: 0 0 25px;
+  flex-wrap: nowrap;
+  gap: 3px;
+  min-height: 25px;
+}
+.cell .xy-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 1px 4px;
+  font-size: 0.68rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.cell .xy-release-info summary {
+  width: 20px;
+  height: 23px;
 }
 .move-fade-input {
   flex-wrap: wrap;
@@ -622,14 +769,43 @@ textarea {
   width: 6em;
   min-width: 0;
 }
+.move-fade-input input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.move-fade-error,
+.calibration .error {
+  cursor: default;
+}
+.move-fade-setting {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.3em;
+}
 @media (max-width: 600px), (pointer: coarse) {
   .xy-actions button,
+  .xy-release-info summary,
   .move-fade-input select,
-  .move-fade-input input {
+  .move-fade-input input,
+  .calibration select,
+  .calibration input,
+  .calibration button {
     min-height: 44px;
+  }
+  .xy-release-info summary {
+    min-width: 44px;
+    border-radius: 6px;
   }
   .xy-actions {
     gap: 8px;
+  }
+  .cell .xy-actions {
+    flex-basis: auto;
+    flex-wrap: wrap;
+    min-height: 44px;
+  }
+  .move-fade-setting {
+    flex-wrap: wrap;
   }
 }
 
@@ -1198,6 +1374,10 @@ table.cues select {
   flex: none;
   width: min(100%, 18em);
   aspect-ratio: 1;
+}
+/* The read-out belongs beside the pad, not at the far right of a desktop-width panel. */
+.fixture-panel .xy-heading {
+  width: min(100%, 18em);
 }
 .fixture-panel section h4 {
   margin: 0.2em 0;

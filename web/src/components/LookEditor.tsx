@@ -7,7 +7,7 @@
 import { RawChannelsEditor, type LookChannelsDraft } from "./RawChannelsEditor";
 import { IntentionOrigins } from "./IntentionOrigins";
 import { tagsShown, tagsTyped, type KnowledgeIntentions } from "../intentions";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useTopic } from "../hooks/useTopic";
@@ -21,8 +21,9 @@ import { labelOf, slug, splitList, uniqueId } from "../util";
 import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
+import type { MoveFade } from "../../../src/plugins/light/engine/move";
 
-export type MoveFade = { beats: number } | { seconds: number };
+export type { MoveFade };
 type Every = MoveFade;
 interface Move {
   shape: string;
@@ -86,49 +87,92 @@ function EveryInput({ value, onChange }: { value: Every; onChange: (v: Every) =>
   );
 }
 
+const sameFade = (a: MoveFade | undefined, b: MoveFade | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && (("seconds" in a && "seconds" in b && a.seconds === b.seconds) || ("beats" in a && "beats" in b && a.beats === b.beats)));
+const fadeText = (value: MoveFade, beats: string): string => ("seconds" in value ? `${value.seconds} s` : `${value.beats} ${beats.toLowerCase()}`);
+
 /** A look's override, or the show's default: automatic, fixed seconds, musical beats, or an explicit cut. */
-export function MoveFadeInput({ value, onChange, label, automatic = false }: { value: MoveFade | undefined; onChange: (value: MoveFade | undefined) => void; label: string; automatic?: boolean }): ReactElement {
+export function MoveFadeInput({ value, onChange, label, automatic = false, automaticValue }: { value: MoveFade | undefined; onChange: (value: MoveFade | undefined) => void; label: string; automatic?: boolean; automaticValue?: MoveFade }): ReactElement {
   const t = useT();
   const [draft, setDraft] = useState<string | null>(null);
-  const mode = value === undefined ? "auto" : "beats" in value ? "beats" : value.seconds === 0 ? "cut" : "seconds";
+  const [error, setError] = useState("");
+  const lastEmitted = useRef<MoveFade | undefined>(value);
+  const errorId = useId();
+  const mode = value === undefined ? "auto" : ("seconds" in value && value.seconds === 0) || ("beats" in value && value.beats === 0) ? "cut" : "beats" in value ? "beats" : "seconds";
   const n = value === undefined ? 1 : "beats" in value ? value.beats : value.seconds;
+  useEffect(() => {
+    // A value written here keeps its draft (including « 0, »); a server refusal/external resync clears it.
+    if (draft !== null && !sameFade(value, lastEmitted.current)) {
+      setDraft(null);
+      setError("");
+    }
+  }, [value, draft]);
+  const select = (nextMode: string): void => {
+    setDraft(null);
+    setError("");
+    const bounded = (min: number, max: number): number => Math.min(max, Math.max(min, n || 1));
+    const next: MoveFade | undefined = nextMode === "auto" ? undefined : nextMode === "cut" ? { seconds: 0 } : nextMode === "beats" ? { beats: bounded(0.25, 64) } : { seconds: bounded(0.1, 30) };
+    lastEmitted.current = next;
+    onChange(next);
+  };
+  const type = (raw: string): void => {
+    setDraft(raw);
+    const text = raw.trim();
+    if (!/^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(text)) {
+      setError(t.moveFadeInvalid);
+      return;
+    }
+    const next = Number(text.replace(",", "."));
+    if (!Number.isFinite(next)) {
+      setError(t.moveFadeInvalid);
+      return;
+    }
+    if (next === 0) {
+      setError(t.moveFadeUseCut);
+      return;
+    }
+    const seconds = mode === "seconds";
+    const min = seconds ? 0.1 : 0.25;
+    const max = seconds ? 30 : 64;
+    if (next < min) {
+      setError(seconds ? t.moveFadeMinSeconds : t.moveFadeMinBeats);
+      return;
+    }
+    if (next > max) {
+      setError(seconds ? t.moveFadeMaxSeconds : t.moveFadeMaxBeats);
+      return;
+    }
+    setError("");
+    const nextValue: MoveFade = seconds ? { seconds: next } : { beats: next };
+    lastEmitted.current = nextValue;
+    onChange(nextValue);
+  };
   return (
     <span className="row move-fade-input">
-      <select
-        aria-label={label}
-        value={mode}
-        onChange={(e) => {
-          setDraft(null);
-          const next = e.target.value;
-          if (next === "auto") onChange(undefined);
-          else if (next === "cut") onChange({ seconds: 0 });
-          else if (next === "beats") onChange({ beats: n || 1 });
-          else onChange({ seconds: n || 1 });
-        }}
-      >
-        {automatic && <option value="auto">{t.moveFadeAuto}</option>}
+      <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)}>
+        {automatic && <option value="auto">{t.moveFadeAuto.replace("{value}", () => (automaticValue ? fadeText(automaticValue, t.beats) : "…"))}</option>}
         <option value="seconds">{t.seconds}</option>
         <option value="beats">{t.beats}</option>
         <option value="cut">{t.moveFadeCut}</option>
       </select>
       {(mode === "seconds" || mode === "beats") && (
-        <input
-          type="number"
-          aria-label={`${label} · ${mode === "beats" ? t.beats : t.seconds}`}
-          min={mode === "beats" ? 0 : 0.1}
-          max={mode === "beats" ? 64 : 30}
-          step={mode === "beats" ? 0.25 : 0.1}
-          value={draft ?? n}
-          onChange={(e) => {
-            // Keep the text being typed (including a trailing decimal point) while the parent saves.
-            setDraft(e.target.value);
-            if (e.target.value === "") return;
-            const next = Number(e.target.value);
-            // Zero in seconds is the explicit « Cut » option; keep typing « 0.5 » in this input.
-            if (Number.isFinite(next) && (mode === "beats" ? next >= 0 : next > 0)) onChange(mode === "beats" ? { beats: next } : { seconds: next });
-          }}
-          onBlur={() => setDraft(null)}
-        />
+        <>
+          <input
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label={`${label} · ${mode === "beats" ? t.beats : t.seconds}`}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? errorId : undefined}
+            value={draft ?? n}
+            onChange={(event) => type(event.target.value)}
+            onBlur={() => {
+              if (!error) setDraft(null);
+            }}
+          />
+          {error && <small id={errorId} className="move-fade-error error">{error}</small>}
+        </>
       )}
     </span>
   );
@@ -155,6 +199,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
+  const [showMoveFade, setShowMoveFade] = useState<MoveFade | undefined>(undefined);
   // the intentions, to show an ambiance: tag by its label (T15b)
   const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
   useEffect(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
@@ -170,6 +215,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     void cmd<Named[]>("group.list").then(setGroups);
     void cmd<Named[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
     void cmd<unknown[]>("position.list").then((h) => setHasHeads(h.length > 0));
+    void cmd<{ moveFade: MoveFade }>("show.settings").then((settings) => setShowMoveFade(settings.moveFade)).catch(() => undefined);
   }, []);
 
   const id = isNew ? uniqueId(slug(look.name, "look"), existing) : look.id;
@@ -385,7 +431,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
             <div className="fields">
               <label className="field" title={t.moveFadeHelp}>
                 <span>{t.moveFade}</span>
-                <MoveFadeInput automatic label={t.moveFade} value={look.move.fade} onChange={(fade) => setMove({ fade })} />
+                <MoveFadeInput automatic automaticValue={showMoveFade} label={t.moveFade} value={look.move.fade} onChange={(fade) => setMove({ fade })} />
               </label>
               <label className="field">
                 <span>{t.shape}</span>
