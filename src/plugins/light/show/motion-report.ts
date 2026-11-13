@@ -14,7 +14,7 @@ export interface OwnerRef {
 
 export interface AxisReport {
   layer: AxisLayer;
-  /** The layers still present on this axis, strongest first, rest last; released claims are omitted. */
+  /** One entry per claim still present on this axis (stacked looks repeat "look"), strongest first, rest last; released claims are omitted. */
   layers: AxisLayer[];
   owner: string | null;
   /** The name of the look that holds the axis. */
@@ -22,6 +22,8 @@ export interface AxisReport {
   position: number;
   /** A glide is under way: from where, to where, for how many more milliseconds (rounded). */
   moving: boolean;
+  /** The look holding the axis draws a moving shape: the position keeps changing without a glide. */
+  animated?: true;
   from?: number;
   to?: number;
   remainingMs?: number;
@@ -56,6 +58,7 @@ function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined
     ...(name === undefined ? {} : { name }),
     position: a.position,
     moving: a.moving,
+    ...(a.animated ? { animated: true as const } : {}),
     ...(a.moving && a.from !== undefined ? { from: a.from } : {}),
     ...(a.moving && a.target !== undefined ? { to: a.target } : {}),
     ...(a.moving && a.remainingMs !== undefined ? { remainingMs: Math.round(a.remainingMs) } : {}),
@@ -137,7 +140,7 @@ export function motionKey(show: MotionSource): string {
       parts.push(`${id}|${restKey}`);
       continue;
     }
-    const axis = (a: AxisStatus) => `${a.layer}:${a.layers.join(">")}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.error ?? ""}`;
+    const axis = (a: AxisStatus) => `${a.layer}:${a.layers.join(">")}:${named(a.owner)}:${a.moving ? 1 : 0}:${a.animated ? 1 : 0}:${a.error ?? ""}`;
     parts.push(`${id}|${restKey}|${s.lock}|${axis(s.pan)}|${axis(s.tilt)}|${s.masked.map(named).join(",")}|${s.released.map((k) => named(ownerOfClaimKey(k)) + k.slice(k.lastIndexOf("#"))).join(",")}`);
   }
   return parts.join("\n");

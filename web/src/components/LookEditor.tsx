@@ -89,27 +89,65 @@ function EveryInput({ value, onChange }: { value: Every; onChange: (v: Every) =>
 
 const sameFade = (a: MoveFade | undefined, b: MoveFade | undefined): boolean =>
   a === b || (a !== undefined && b !== undefined && (("seconds" in a && "seconds" in b && a.seconds === b.seconds) || ("beats" in a && "beats" in b && a.beats === b.beats)));
-const fadeText = (value: MoveFade, beats: string): string => ("seconds" in value ? `${value.seconds} s` : `${value.beats} ${beats.toLowerCase()}`);
+/** A number with the interface's decimal mark (a comma in French). */
+const decimal = (value: number, mark: string): string => String(value).replace(".", mark);
+const fadeText = (value: MoveFade, beats: string, mark: string): string => ("seconds" in value ? `${decimal(value.seconds, mark)} s` : `${decimal(value.beats, mark)} ${beats.toLowerCase()}`);
+
+type FadeParse = { value: MoveFade } | { error: string };
 
 /** A look's override, or the show's default: automatic, fixed seconds, musical beats, or an explicit cut. */
-export function MoveFadeInput({ value, onChange, label, automatic = false, automaticValue }: { value: MoveFade | undefined; onChange: (value: MoveFade | undefined) => void; label: string; automatic?: boolean; automaticValue?: MoveFade }): ReactElement {
+export function MoveFadeInput({
+  value,
+  onChange,
+  label,
+  automatic = false,
+  automaticValue,
+  onInvalid,
+}: {
+  value: MoveFade | undefined;
+  onChange: (value: MoveFade | undefined) => void;
+  label: string;
+  automatic?: boolean;
+  automaticValue?: MoveFade;
+  /** Told the field while its text is not a valid duration (null once it is): a form refuses to save meanwhile. */
+  onInvalid?: (field: HTMLInputElement | null) => void;
+}): ReactElement {
   const t = useT();
+  /** The text being typed; committed only whole, on blur or Enter, never keystroke by keystroke (« 45 » is not « 4 »). */
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState("");
   const lastEmitted = useRef<MoveFade | undefined>(value);
+  const field = useRef<HTMLInputElement | null>(null);
+  const focused = useRef(false);
+  const onInvalidRef = useRef(onInvalid);
+  onInvalidRef.current = onInvalid;
   const errorId = useId();
   const mode = value === undefined ? "auto" : ("seconds" in value && value.seconds === 0) || ("beats" in value && value.beats === 0) ? "cut" : "beats" in value ? "beats" : "seconds";
   const n = value === undefined ? 1 : "beats" in value ? value.beats : value.seconds;
   useEffect(() => {
-    // A value written here keeps its draft (including « 0, »); a server refusal/external resync clears it.
-    if (draft !== null && !sameFade(value, lastEmitted.current)) {
+    // A value read back while the operator types never wipes the draft; once the field is left, the saved value shows.
+    if (draft !== null && !focused.current && !sameFade(value, lastEmitted.current)) {
       setDraft(null);
       setError("");
+      onInvalidRef.current?.(null);
     }
   }, [value, draft]);
+  useEffect(() => () => onInvalidRef.current?.(null), []);
+  const parse = (raw: string): FadeParse => {
+    const text = raw.trim();
+    if (!/^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(text)) return { error: t.moveFadeInvalid };
+    const next = Number(text.replace(",", "."));
+    if (!Number.isFinite(next)) return { error: t.moveFadeInvalid };
+    if (next === 0) return { error: t.moveFadeUseCut };
+    const seconds = mode === "seconds";
+    if (next < (seconds ? 0.1 : 0.25)) return { error: seconds ? t.moveFadeMinSeconds : t.moveFadeMinBeats };
+    if (next > (seconds ? 30 : 64)) return { error: seconds ? t.moveFadeMaxSeconds : t.moveFadeMaxBeats };
+    return { value: seconds ? { seconds: next } : { beats: next } };
+  };
   const select = (nextMode: string): void => {
     setDraft(null);
     setError("");
+    onInvalidRef.current?.(null);
     const bounded = (min: number, max: number): number => Math.min(max, Math.max(min, n || 1));
     const next: MoveFade | undefined = nextMode === "auto" ? undefined : nextMode === "cut" ? { seconds: 0 } : nextMode === "beats" ? { beats: bounded(0.25, 64) } : { seconds: bounded(0.1, 30) };
     lastEmitted.current = next;
@@ -117,40 +155,29 @@ export function MoveFadeInput({ value, onChange, label, automatic = false, autom
   };
   const type = (raw: string): void => {
     setDraft(raw);
-    const text = raw.trim();
-    if (!/^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(text)) {
-      setError(t.moveFadeInvalid);
-      return;
-    }
-    const next = Number(text.replace(",", "."));
-    if (!Number.isFinite(next)) {
-      setError(t.moveFadeInvalid);
-      return;
-    }
-    if (next === 0) {
-      setError(t.moveFadeUseCut);
-      return;
-    }
-    const seconds = mode === "seconds";
-    const min = seconds ? 0.1 : 0.25;
-    const max = seconds ? 30 : 64;
-    if (next < min) {
-      setError(seconds ? t.moveFadeMinSeconds : t.moveFadeMinBeats);
-      return;
-    }
-    if (next > max) {
-      setError(seconds ? t.moveFadeMaxSeconds : t.moveFadeMaxBeats);
+    setError(""); // judged when the field is left: « 0, » on the way to « 0,5 » is not an error
+    onInvalidRef.current?.("error" in parse(raw) ? field.current : null);
+  };
+  /** Commit the whole text: a valid value is saved, an invalid one shows its error and is kept for correction. */
+  const commit = (): void => {
+    if (draft === null) return;
+    const parsed = parse(draft);
+    if ("error" in parsed) {
+      setError(parsed.error);
+      onInvalidRef.current?.(field.current);
       return;
     }
     setError("");
-    const nextValue: MoveFade = seconds ? { seconds: next } : { beats: next };
-    lastEmitted.current = nextValue;
-    onChange(nextValue);
+    onInvalidRef.current?.(null);
+    setDraft(null);
+    if (sameFade(parsed.value, value)) return;
+    lastEmitted.current = parsed.value;
+    onChange(parsed.value);
   };
   return (
     <span className="row move-fade-input">
       <select aria-label={label} value={mode} onChange={(event) => select(event.target.value)}>
-        {automatic && <option value="auto">{t.moveFadeAuto.replace("{value}", () => (automaticValue ? fadeText(automaticValue, t.beats) : "…"))}</option>}
+        {automatic && <option value="auto">{t.moveFadeAuto.replace("{value}", () => (automaticValue ? fadeText(automaticValue, t.beats, t.decimalMark) : "…"))}</option>}
         <option value="seconds">{t.seconds}</option>
         <option value="beats">{t.beats}</option>
         <option value="cut">{t.moveFadeCut}</option>
@@ -158,6 +185,7 @@ export function MoveFadeInput({ value, onChange, label, automatic = false, autom
       {(mode === "seconds" || mode === "beats") && (
         <>
           <input
+            ref={field}
             type="text"
             inputMode="decimal"
             autoComplete="off"
@@ -165,10 +193,19 @@ export function MoveFadeInput({ value, onChange, label, automatic = false, autom
             aria-label={`${label} · ${mode === "beats" ? t.beats : t.seconds}`}
             aria-invalid={Boolean(error)}
             aria-describedby={error ? errorId : undefined}
-            value={draft ?? n}
+            value={draft ?? decimal(n, t.decimalMark)}
+            onFocus={() => {
+              focused.current = true;
+            }}
             onChange={(event) => type(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              commit();
+            }}
             onBlur={() => {
-              if (!error) setDraft(null);
+              focused.current = false;
+              commit();
             }}
           />
           {error && <small id={errorId} className="move-fade-error error">{error}</small>}
@@ -200,6 +237,8 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
   const [showMoveFade, setShowMoveFade] = useState<MoveFade | undefined>(undefined);
+  /** The glide field while its text is not a valid duration: Save waits for it. */
+  const invalidFade = useRef<HTMLInputElement | null>(null);
   // the intentions, to show an ambiance: tag by its label (T15b)
   const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
   useEffect(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
@@ -259,6 +298,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
 
   const save = async (andPlay = false) => {
     if (!look.name.trim()) return setError(t.nameRequired);
+    const fadeField = invalidFade.current;
+    if (fadeField?.isConnected) {
+      // A glide being corrected is never saved as another value: say it and take the operator back to it.
+      setError(t.moveFadeFix);
+      fadeField.focus();
+      return;
+    }
     try {
       await cmd("look.put", { look: draft });
       if (andPlay) await cmd("look.go", { id: draft.id });
@@ -431,7 +477,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
             <div className="fields">
               <label className="field" title={t.moveFadeHelp}>
                 <span>{t.moveFade}</span>
-                <MoveFadeInput automatic automaticValue={showMoveFade} label={t.moveFade} value={look.move.fade} onChange={(fade) => setMove({ fade })} />
+                <MoveFadeInput automatic automaticValue={showMoveFade} label={t.moveFade} value={look.move.fade} onChange={(fade) => setMove({ fade })} onInvalid={(field) => (invalidFade.current = field)} />
               </label>
               <label className="field">
                 <span>{t.shape}</span>

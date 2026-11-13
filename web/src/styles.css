@@ -8,6 +8,13 @@
   --on: #2fbf71;
   --danger: #e5484d;
   --warn: #f0b429;
+  /* motion layers on the pad (T25): one hue each, readable on the dark panels */
+  --layer-manual: #f2c14e;
+  --layer-target: #78b7ff;
+  --layer-look: #c79bf2;
+  --layer-hold: #f29a62;
+  --layer-rest: #9aa4b2;
+  --layer-lock: #ef476f;
   color-scheme: dark;
 }
 * {
@@ -556,6 +563,7 @@ textarea {
 
 /* XY pad (moving heads) */
 .xy {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.3em;
@@ -583,6 +591,13 @@ textarea {
     linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat;
   pointer-events: none;
 }
+/* Each layer has its colour, never its only signal: the text names it, the dot's fill says manual or not. */
+.xy [data-layer="manual"] { --layer-color: var(--layer-manual); }
+.xy [data-layer="target"] { --layer-color: var(--layer-target); }
+.xy [data-layer="look"] { --layer-color: var(--layer-look); }
+.xy [data-layer="hold"] { --layer-color: var(--layer-hold); }
+.xy [data-layer="rest"] { --layer-color: var(--layer-rest); }
+.xy [data-layer="lock"] { --layer-color: var(--layer-lock); }
 .xy .dot,
 .xy .rest-dot {
   position: absolute;
@@ -590,12 +605,12 @@ textarea {
   height: 1em;
   margin: -0.5em 0 0 -0.5em;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--layer-color, var(--accent));
   pointer-events: none;
 }
 .xy .dot.remote {
   background: var(--bg);
-  border: 2px solid var(--accent);
+  border: 2px solid var(--layer-color, var(--accent));
 }
 .xy .dot.requested {
   width: 0.8em;
@@ -615,69 +630,85 @@ textarea {
   align-items: center;
   gap: 0.5em;
 }
-.xy .row label {
-  flex: 1;
-}
-.xy-heading label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .xy-status {
   display: grid;
   gap: 0.15em;
   min-width: 0;
-}
-.xy-layers {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.15em 0.8em;
-  min-width: 0;
-  color: var(--muted);
   font-size: 0.75rem;
 }
-.xy-layers [data-axis] {
+/* Title, read-out and layers flow as one text and wrap when the names are long: nothing is cut off. */
+.xy-heading {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+.xy-heading label {
+  margin-right: 0.5em;
+  font-size: 0.875rem;
+}
+.xy-position {
+  margin-right: 0.5em;
+  color: var(--muted);
+}
+.xy-layers {
+  color: var(--muted);
+}
+.xy-layers [data-axis] {
+  margin-right: 0.6em;
   color: var(--layer-color, var(--muted));
 }
-.xy-layers [data-layer="manual"] { --layer-color: #f2c14e; }
-.xy-layers [data-layer="target"] { --layer-color: #78b7ff; }
-.xy-layers [data-layer="look"] { --layer-color: #c79bf2; }
-.xy-layers [data-layer="hold"] { --layer-color: #f29a62; }
-.xy-layers [data-layer="rest"] { --layer-color: #9aa4b2; }
-.xy-layers [data-layer="lock"] { --layer-color: #ef476f; }
+.xy-layers [data-layer="mixed"] {
+  color: var(--text);
+}
+.xy-chip {
+  color: var(--layer-color, var(--muted));
+}
 .layer-mark {
   display: inline-block;
-  width: 0.55em;
-  height: 0.55em;
+  width: 0.6em;
+  height: 0.6em;
   margin-right: 0.25em;
   border-radius: 50%;
   background: var(--layer-color, var(--muted));
 }
+.xy-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  min-width: 0;
+}
 .xy-layer-count {
   flex: 0 0 auto;
-  margin-left: auto;
   color: var(--muted);
   white-space: nowrap;
+  font-size: inherit;
 }
 .xy-masked {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 1.2em;
   margin: 0;
   overflow: hidden;
-  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.xy-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.8em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
 .xy-actions {
-  position: relative;
   align-items: stretch;
   flex-wrap: wrap;
+}
+.xy-actions button {
+  min-height: 32px;
+  font-size: 0.75rem;
 }
 .xy-release-info {
   flex: 0 0 auto;
@@ -686,8 +717,8 @@ textarea {
 }
 .xy-release-info summary {
   display: grid;
-  width: 1.6em;
-  height: 1.6em;
+  min-width: 32px;
+  height: 32px;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
@@ -698,14 +729,15 @@ textarea {
 .xy-release-info summary::-webkit-details-marker {
   display: none;
 }
-.xy-release-info p {
+/* The bubble stays inside the pad's own box (a narrow Live cell clips nothing outside it), over the pad. */
+.xy-info-body {
   position: absolute;
+  top: 0;
+  left: 0;
   right: 0;
-  bottom: calc(100% + 4px);
   z-index: 5;
-  width: 230px;
-  max-width: 80vw;
-  margin: 0;
+  max-height: calc(100% - 40px);
+  overflow-y: auto;
   padding: 0.5em;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -714,56 +746,62 @@ textarea {
   font-size: 0.75rem;
   white-space: normal;
 }
-/* The Live cell is fixed-height: every status line is reserved, even when empty, and the pad keeps its travel. */
+.xy-info-body p {
+  margin: 0 0 0.4em;
+}
+/* The Live cell is fixed-height: the pad flexes, the two status lines and the button row keep their room. */
 .cell .xy {
   min-height: 0;
-  gap: 1px;
-  font-size: 0.75rem;
+  gap: 2px;
 }
-/* A fixed row (desktop dashboard) holds the cell at one height; the pad flexes and the lines stay reserved.
-   A phone grid sizes each row to its content, so the cell grows instead of crushing the 44 px buttons. */
+/* A fixed row (desktop or tablet dashboard) holds the cell at one height; a phone grid sizes each row to its content. */
 .dgrid.fine .cell .xy {
   height: 100%;
 }
 .cell .xy .pad {
-  min-height: 140px;
-}
-.cell .xy-heading {
-  flex: 0 0 14px;
-  min-height: 14px;
+  min-height: 120px;
 }
 .cell .xy-status {
-  flex: 0 0 28px;
+  flex: 0 0 auto;
   gap: 0;
-  font-size: 0.68rem;
   line-height: 14px;
 }
-.cell .xy-layers,
+.cell .xy-heading label {
+  font-size: inherit;
+}
 .cell .xy-masked {
-  height: 14px;
   min-height: 14px;
-  line-height: 14px;
 }
 .cell .xy-actions {
-  flex: 0 0 25px;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
-  gap: 3px;
-  min-height: 25px;
+  gap: 4px;
 }
+/* A narrow cell breaks a label on two lines rather than cutting it (« Rendre la m… »). */
 .cell .xy-actions button {
   flex: 1 1 0;
   min-width: 0;
-  padding: 1px 4px;
-  font-size: 0.68rem;
+  padding: 2px 6px;
   line-height: 1.1;
-  white-space: nowrap;
 }
 .cell .xy-release-info summary {
-  width: 20px;
-  height: 23px;
+  border-radius: 6px;
 }
+/* The error shows under the field without moving anything: a Save pressed as the field is left still gets the click. */
 .move-fade-input {
+  position: relative;
   flex-wrap: wrap;
+}
+.move-fade-input .move-fade-error {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 4;
+  padding: 0 0.3em;
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 .move-fade-input input {
   width: 6em;
@@ -794,15 +832,17 @@ textarea {
   }
   .xy-release-info summary {
     min-width: 44px;
+    height: 44px;
     border-radius: 6px;
   }
   .xy-actions {
     gap: 8px;
   }
   .cell .xy-actions {
-    flex-basis: auto;
-    flex-wrap: wrap;
-    min-height: 44px;
+    gap: 4px;
+  }
+  .xy-info-body {
+    max-height: calc(100% - 52px);
   }
   .move-fade-setting {
     flex-wrap: wrap;
@@ -1375,9 +1415,9 @@ table.cues select {
   width: min(100%, 18em);
   aspect-ratio: 1;
 }
-/* The read-out belongs beside the pad, not at the far right of a desktop-width panel. */
-.fixture-panel .xy-heading {
-  width: min(100%, 18em);
+/* The read-out, the layer count and the « i » belong with the pad, not at the far right of a desktop-width panel. */
+.fixture-panel .xy {
+  max-width: min(100%, 18em);
 }
 .fixture-panel section h4 {
   margin: 0.2em 0;

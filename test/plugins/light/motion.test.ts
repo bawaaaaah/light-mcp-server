@@ -418,6 +418,17 @@ describe("motion layer (pure)", () => {
       expect(r.positions.get("h1")!.pan).to.be.closeTo(0.3, 1e-9);
       expect(r.positions.get("h2")!.pan).to.be.closeTo(0.7, 1e-9);
       expect(r.positions.get("h1")!.tilt).to.be.closeTo(0.3, 1e-9);
+      expect(r.status.get("h1")!.pan.animated).to.equal(undefined); // a fixed shape never moves by itself: no poll needed
+    });
+
+    it("says an axis is animated while a moving shape holds it", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(0) } });
+      sim.claims = [{ owner: "look:c", layer: "look", order: 1, heads: ["h1"], shape: { move: MoveSchema.parse({ shape: "cercle" }), cycles: 0 } }];
+      expect(sim.frame(0).status.get("h1")!.pan.animated).to.equal(true);
+      sim.claims = [...sim.claims, manual(2, ["h1"], { pan: 0.2 })];
+      const status = sim.frame(20).status.get("h1")!;
+      expect(status.pan.animated).to.equal(undefined); // the manual claim holds pan now
+      expect(status.tilt.animated).to.equal(true);
     });
 
     // [fade of B, fade back to A, share of B's transition done when A is relaunched]
@@ -620,15 +631,45 @@ describe("motion layer (pure)", () => {
       expect(status.get("h2")!.pan.layer).to.equal("rest");
     });
 
-    it("a hard lock anywhere in the target is the strongest layer and releases nothing", () => {
-      const sim = new Sim({ heads: ["h1", "h2"], lock: (head) => (head === "h1" ? "hard" : "off"), settings: { moveFade: SEC(0) } });
-      sim.claims = [manual(1, ["h1", "h2"], { pan: 0.9, tilt: 0.9 })];
+    it("sets locked heads aside: the strongest layer among the others is released", () => {
+      const locks: Record<string, "hard" | "soft" | "off"> = { h1: "hard", h2: "soft", h3: "off" };
+      const sim = new Sim({ heads: ["h1", "h2", "h3"], lock: (head) => locks[head] ?? "off", settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1", "h2", "h3"], { pan: 0.2, tilt: 0.2 }), manual(2, ["h1"], { pan: 0.9, tilt: 0.9 })];
       sim.frame(0);
-      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "top", heads: ["h1", "h2"] });
+      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "top", heads: ["h1", "h2", "h3"] });
       const status = sim.frame(20).status;
-      expect(status.get("h1")!.released).to.deep.equal([]);
-      expect(status.get("h2")!.released).to.deep.equal([]);
-      expect(status.get("h2")!.pan.layer).to.equal("manual");
+      expect(status.get("h1")!.released).to.deep.equal([]); // hard lock: nothing, its manual claim stays underneath
+      expect(status.get("h2")!.released).to.deep.equal([]); // soft lock without a manual claim above it
+      expect(status.get("h3")!.released).to.deep.equal(["look:a#1"]); // the look is the strongest unlocked layer
+      expect(status.get("h3")!.pan.layer).to.equal("rest");
+    });
+
+    it("on one head, the strongest layer across both axes goes first", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.2, tilt: 0.2 }), manual(2, ["h1"], { pan: 0.9 })];
+      sim.frame(0);
+      sim.state = releaseMotion(sim.input(0), sim.state, { scope: "top" });
+      let status = sim.frame(20).status.get("h1")!;
+      expect(status.released).to.deep.equal(["manual#2"]);
+      expect(status.pan.layer).to.equal("look");
+      expect(status.tilt.layer).to.equal("look"); // tilt was not touched by the first press
+      sim.state = releaseMotion(sim.input(20), sim.state, { scope: "top" });
+      status = sim.frame(40).status.get("h1")!;
+      expect(status.pan.layer).to.equal("rest");
+      expect(status.tilt.layer).to.equal("rest");
+    });
+
+    it("counts stacked looks one by one: every press that releases one shortens the stack", () => {
+      const sim = new Sim({ settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.1, tilt: 0.1 }), look("b", 2, ["h1"], { pan: 0.2, tilt: 0.2 }), look("c", 3, ["h1"], { pan: 0.3, tilt: 0.3 })];
+      sim.frame(0);
+      const above = () => sim.last.status.get("h1")!.pan.layers.filter((l) => l !== "rest").length;
+      expect(sim.last.status.get("h1")!.pan.layers).to.deep.equal(["look", "look", "look", "rest"]);
+      for (const [i, left] of [2, 1, 0].entries()) {
+        sim.state = releaseMotion(sim.input(0), sim.state, { scope: "top" });
+        sim.frame(20 * (i + 1));
+        expect(above()).to.equal(left);
+      }
     });
 
     it("releases one head only, or every head", () => {

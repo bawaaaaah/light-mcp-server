@@ -37,7 +37,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.list",
     title: "Lyres",
     description:
-      "Moving heads selected by fixtures, a group (selectors and sub-groups included), or all, with their pan/tilt travel, manual position and why each is where it is: sent = the position really sent after the rules and guard; rest = where it goes when unclaimed; motion = per axis the winning layer, all layers still present (layers, strongest first, rest last), owner, glide and error, then masked and released claims. The same report is pushed on light:motion when it changes.",
+      "Moving heads selected by fixtures, a group (selectors and sub-groups included), or all, with their pan/tilt travel, manual position and why each is where it is: sent = the position really sent after the rules and guard; rest = where it goes when unclaimed; motion = per axis the winning layer, every claim still present (layers, one entry per claim, strongest first, rest last), owner, glide and error, then masked and released claims. The same report is pushed on light:motion when it changes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],
@@ -116,7 +116,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.releaseTop",
     title: "Rendre la main",
     description:
-      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present among the targeted heads (hard lock, manual, soft lock, target, look, hold, rest) and releases only the heads at that layer, axis by axis. Other heads keep theirs; pressing again descends one more layer, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing, soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
+      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing, soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target,

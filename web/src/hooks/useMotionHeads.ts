@@ -8,10 +8,24 @@ export type { Position };
 export type MotionHead = HeadMotionEntry & { name?: string; manual: Position | null };
 export type MotionTarget = { fixtures?: string[]; group?: string };
 
-type Listener = (heads: MotionHead[]) => void;
+/** The heads of one scope; `loaded` stays false until the server resolved that scope once. */
+export type MotionScope = { heads: MotionHead[]; loaded: boolean };
+type Listener = (scope: MotionScope) => void;
 type Scope = { target: MotionTarget; ids: Set<string>; loaded: boolean };
-type Subscriber = { key: string; listener: Listener; last: MotionHead[] };
-type ReadJob = { key: string; target: MotionTarget; scope?: Scope };
+/** `last` starts undefined: a new subscriber is always told its scope, even an empty one. */
+type Subscriber = { key: string; listener: Listener; last: MotionScope | undefined };
+/** `retried`: a read overtaken by the topic is replayed once, never in an unbounded loop. */
+type ReadJob = { key: string; target: MotionTarget; scope?: Scope; retried?: boolean };
+
+/** Commands after which a scope may resolve to other heads (membership, selectors, patch, another show). */
+const GROUP_VALUE_ONLY = new Set(["group.level", "group.mute", "group.flash"]);
+const reloadsScopes = (name: string): boolean =>
+  name === "panic" ||
+  ["show.open", "show.create", "show.apply", "show.revert", "show.reset", "venue.grouping.apply"].includes(name) ||
+  name.startsWith("show.venue.") ||
+  name.startsWith("history.") ||
+  name.startsWith("venue.fixture.") ||
+  (name.startsWith("group.") && !GROUP_VALUE_ONLY.has(name));
 
 const targetKey = (target: MotionTarget): string => (target.fixtures ? `fixtures:${[...target.fixtures].sort().join(",")}` : target.group ? `group:${target.group}` : "all");
 
@@ -36,7 +50,7 @@ class MotionHeadsStore {
 
   subscribe(key: string, target: MotionTarget, listener: Listener): () => void {
     const id = this.nextSubscriber++;
-    const subscriber: Subscriber = { key, listener, last: [] };
+    const subscriber: Subscriber = { key, listener, last: undefined };
     this.subscribers.set(id, subscriber);
     let scope = this.scopes.get(key);
     if (!scope) {
@@ -103,11 +117,6 @@ class MotionHeadsStore {
         // A pad's own gesture is already represented locally and followed by the one-second bounded poll.
         if (Date.now() < this.gestureUntil) return;
         this.enqueueAggregate();
-      } else if (event.name === "panic" || ["show.open", "show.create", "show.apply", "show.revert"].includes(event.name)) {
-        this.reloadScopes();
-      } else if (event.name === "group.put" || event.name === "venue.fixture.put") {
-        // Membership and selectors may have changed; fader moves (group.level) deliberately do not re-read anything.
-        this.reloadScopes();
       } else if (event.name === "group.delete") {
         const key = `group:${event.target ?? ""}`;
         const removed = this.scopes.get(key);
@@ -126,6 +135,10 @@ class MotionHeadsStore {
           this.queue.delete("aggregate");
           this.notifyAll();
         }
+        this.reloadScopes(); // a group selecting it by role or tag may resolve differently now
+      } else if (reloadsScopes(event.name)) {
+        // Membership and selectors may have changed; fader moves (group.level, mute, flash) deliberately re-read nothing.
+        this.reloadScopes();
       } else return;
       this.pump();
     });
@@ -171,15 +184,16 @@ class MotionHeadsStore {
     void cmd<MotionHead[]>("position.list", job.target)
       .then((list) => {
         if (generation !== this.generation) return;
-        if (motionAtStart !== this.motionSequence) {
-          // Never drop the only read that carries `manual`: run the same job again after the newer topic state.
-          this.enqueue(job);
-          return;
-        }
-        this.apply(job, list);
+        const overtaken = motionAtStart !== this.motionSequence;
+        // Overtaken by the topic: still apply what only this answer carries (manual, name, sent, membership), keep the
+        // newer layers and owners, and read again once — never in a loop that a busy topic would starve.
+        this.apply(job, list, overtaken);
+        if (overtaken && !job.retried) this.enqueue({ ...job, retried: true });
       })
       .catch(() => {
-        // A later topic, command, reconnect or active poll retries; no unhandled rejection reaches the UI.
+        // An aggregate read refused (a fixture gone from a scope): resolve the scopes again rather than retry it.
+        if (generation === this.generation && job.key === "aggregate") this.reloadScopes();
+        // Otherwise a later topic, command, reconnect or active poll retries; no unhandled rejection reaches the UI.
       })
       .finally(() => {
         this.reading = false;
@@ -194,8 +208,12 @@ class MotionHeadsStore {
       });
   }
 
-  private apply(job: ReadJob, list: MotionHead[]): void {
-    for (const entry of list) this.heads.set(entry.id, entry);
+  private apply(job: ReadJob, list: MotionHead[], keepTopic = false): void {
+    for (const entry of list) {
+      const topic = keepTopic ? this.heads.get(entry.id) : undefined;
+      // The topic owns the layer stack, owner, lock and rest; position.list alone carries manual, name and a fresh sent.
+      this.heads.set(entry.id, topic ? { ...entry, motion: topic.motion, rest: topic.rest } : entry);
+    }
     if (!job.scope) return;
     job.scope.ids = new Set(list.map((entry) => entry.id));
     job.scope.loaded = true;
@@ -205,6 +223,7 @@ class MotionHeadsStore {
     }
   }
 
+  /** Poll only while a position really changes: a glide, a moving shape, or a local gesture in the last second. */
   private canMove(): boolean {
     if (Date.now() < this.gestureUntil) return true;
     for (const scope of this.scopes.values()) {
@@ -212,7 +231,7 @@ class MotionHeadsStore {
         const motion = this.heads.get(id)?.motion;
         if (!motion) continue;
         for (const axis of [motion.pan, motion.tilt]) {
-          if (axis.moving || axis.layer === "look" || axis.layer === "target") return true;
+          if (axis.moving || axis.animated) return true;
         }
       }
     }
@@ -229,18 +248,20 @@ class MotionHeadsStore {
     }, 200);
   }
 
-  private headsOf(subscriber: Subscriber): MotionHead[] {
+  private scopeOf(subscriber: Subscriber): MotionScope {
     const scope = this.scopes.get(subscriber.key);
-    if (!scope?.loaded) return [];
-    return [...scope.ids].flatMap((id) => {
+    if (!scope?.loaded) return { heads: [], loaded: false };
+    const heads = [...scope.ids].flatMap((id) => {
       const head = this.heads.get(id);
       return head ? [head] : [];
     });
+    return { heads, loaded: true };
   }
 
   private notify(subscriber: Subscriber): void {
-    const next = this.headsOf(subscriber);
-    const same = next.length === subscriber.last.length && next.every((head, i) => head === subscriber.last[i]);
+    const next = this.scopeOf(subscriber);
+    const last = subscriber.last;
+    const same = last !== undefined && last.loaded === next.loaded && next.heads.length === last.heads.length && next.heads.every((head, i) => head === last.heads[i]);
     if (same) return;
     subscriber.last = next;
     subscriber.listener(next);
@@ -253,14 +274,18 @@ class MotionHeadsStore {
 
 const store = new MotionHeadsStore();
 
-/** The scoped motion report shared by all mounted consumers. */
-export function useMotionHeads(target: MotionTarget = {}): { heads: MotionHead[]; refresh: () => void; markGesture: () => void } {
+const NOT_LOADED: MotionScope = { heads: [], loaded: false };
+
+/** The scoped motion report shared by all mounted consumers; `loaded` is false until this target was resolved once. */
+export function useMotionHeads(target: MotionTarget = {}): MotionScope & { refresh: () => void; markGesture: () => void } {
   const key = targetKey(target);
   const current = useRef(target);
   current.current = target;
-  const [heads, setHeads] = useState<MotionHead[]>([]);
-  useEffect(() => store.subscribe(key, current.current, setHeads), [key]);
+  const [scope, setScope] = useState<MotionScope & { key: string }>({ ...NOT_LOADED, key });
+  useEffect(() => store.subscribe(key, current.current, (next) => setScope({ ...next, key })), [key]);
   const refresh = useCallback(() => store.refresh(key), [key]);
   const markGesture = useCallback(() => store.markGesture(), []);
-  return { heads, refresh, markGesture };
+  // Until the new target's first answer, never show the previous target's heads.
+  const shown = scope.key === key ? scope : NOT_LOADED;
+  return { heads: shown.heads, loaded: shown.loaded, refresh, markGesture };
 }

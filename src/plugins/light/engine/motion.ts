@@ -164,13 +164,15 @@ export const isHeld = (state: MotionState, head: string): boolean => {
 
 export interface AxisStatus {
   layer: AxisLayer;
-  /** Every layer still present on this axis, strongest first, rest last; released claims are left out. */
+  /** One entry per claim still present on this axis (three stacked looks: three entries), strongest first, rest last; released claims are left out. */
   layers: AxisLayer[];
   /** The winning claim's owner; null for rest, hold and lock. */
   owner: string | null;
   position: number;
   /** A transition is running. */
   moving: boolean;
+  /** The winning claim draws a shape that moves (not « fixe »): the head keeps moving without any transition. */
+  animated?: true;
   /** While a transition runs: where it started from, and the milliseconds it still lasts. */
   from?: number;
   remainingMs?: number;
@@ -283,9 +285,15 @@ function winnerOf(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel): 
   return top;
 }
 
-/** The whole stack still present on an axis, not only its winner: the pad can say what another press would release. */
+/**
+ * The whole stack still present on an axis, not only its winner: the pad can say what another press would release.
+ * One entry per claim (a look's raw channels and its move share one key, so one entry): three stacked looks are three
+ * entries, and the count drops on every press that releases one of them.
+ */
 function layerStack(ranked: readonly MotionClaim[], axis: Axis, lock: LockLevel, holding: boolean): AxisLayer[] {
-  const claims = [...new Set(ranked.filter((c) => claimsAxis(c, axis)).map((c) => c.layer))] as AxisLayer[];
+  const byKey = new Map<string, AxisLayer>();
+  for (const c of ranked) if (claimsAxis(c, axis) && !byKey.has(claimKey(c))) byKey.set(claimKey(c), c.layer);
+  const claims = [...byKey.values()];
   const bottom: AxisLayer[] = holding ? ["hold", "rest"] : ["rest"];
   if (lock === "hard") return ["lock", ...claims, ...bottom];
   if (lock === "soft") {
@@ -442,6 +450,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
         owner: o.claim?.owner ?? null,
         position: s.value,
         moving,
+        ...(o.claim?.shape && o.claim.shape.move.shape !== "fixe" ? { animated: true as const } : {}),
         ...(moving ? { from: s.from, remainingMs: Math.max(0, s.t0 + s.dur - now) } : {}),
         ...(o.target === undefined ? {} : { target: o.target }),
         ...(o.error === undefined ? {} : { error: o.error }),
@@ -492,16 +501,24 @@ function topAtAxis(input: Pick<MotionInput, "claims" | "lock">, head: string, ax
 
 /**
  * Release what holds heads: released claims are ignored until they stop claiming them (a relaunched look has a new
- * order and claims again). On a multi-head target, only heads whose top is the strongest layer present in that target
- * are released; the others keep their layer until a later press reaches it. A lock is never released here: hard locks
- * release nothing, soft locks only the manual layer above them. Only a selected hold layer lifts a Panic hold.
+ * order and claims again). On a multi-head target, only heads whose top is the strongest layer present among the
+ * unlocked axes of that target are released; the others keep their layer until a later press reaches it. On one head
+ * too, the strongest layer across both axes goes first (pan manual, tilt look: the first press releases pan only).
+ * A lock is never released here and is set aside when choosing that layer: hard locks release nothing, soft locks only
+ * the manual layer above them. Only a selected hold layer lifts a Panic hold.
  */
 export function releaseMotion(input: Pick<MotionInput, "heads" | "claims" | "lock">, state: MotionState, opts: ReleaseOptions): MotionState {
   const heads = new Map(state.heads);
   const targeted = opts.heads ?? input.heads;
   let strongest = OWNER_RANK.rest;
   if (opts.scope === "top") {
-    for (const head of targeted) for (const axis of AXES) strongest = Math.min(strongest, topAtAxis(input, head, axis, state).rank);
+    // A locked axis (hard, or soft without a manual claim above it) is set aside: it never decides the strongest layer.
+    for (const head of targeted) {
+      for (const axis of AXES) {
+        const top = topAtAxis(input, head, axis, state);
+        if (top.winner !== "lock") strongest = Math.min(strongest, top.rank);
+      }
+    }
   }
   for (const head of targeted) {
     const prev = heads.get(head);
