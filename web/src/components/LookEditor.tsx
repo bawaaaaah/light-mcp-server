@@ -22,12 +22,14 @@ import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 
-type Every = { beats: number } | { seconds: number };
+export type MoveFade = { beats: number } | { seconds: number };
+type Every = MoveFade;
 interface Move {
   shape: string;
   center: { pan: number; tilt: number };
   size: { pan: number; tilt: number };
   every: Every;
+  fade?: MoveFade;
   spread?: number;
   wings: boolean;
   reverse: boolean;
@@ -80,6 +82,54 @@ function EveryInput({ value, onChange }: { value: Every; onChange: (v: Every) =>
         <option value="beats">{t.beats}</option>
         <option value="seconds">{t.seconds}</option>
       </select>
+    </span>
+  );
+}
+
+/** A look's override, or the show's default: automatic, fixed seconds, musical beats, or an explicit cut. */
+export function MoveFadeInput({ value, onChange, label, automatic = false }: { value: MoveFade | undefined; onChange: (value: MoveFade | undefined) => void; label: string; automatic?: boolean }): ReactElement {
+  const t = useT();
+  const [draft, setDraft] = useState<string | null>(null);
+  const mode = value === undefined ? "auto" : "beats" in value ? "beats" : value.seconds === 0 ? "cut" : "seconds";
+  const n = value === undefined ? 1 : "beats" in value ? value.beats : value.seconds;
+  return (
+    <span className="row move-fade-input">
+      <select
+        aria-label={label}
+        value={mode}
+        onChange={(e) => {
+          setDraft(null);
+          const next = e.target.value;
+          if (next === "auto") onChange(undefined);
+          else if (next === "cut") onChange({ seconds: 0 });
+          else if (next === "beats") onChange({ beats: n || 1 });
+          else onChange({ seconds: n || 1 });
+        }}
+      >
+        {automatic && <option value="auto">{t.moveFadeAuto}</option>}
+        <option value="seconds">{t.seconds}</option>
+        <option value="beats">{t.beats}</option>
+        <option value="cut">{t.moveFadeCut}</option>
+      </select>
+      {(mode === "seconds" || mode === "beats") && (
+        <input
+          type="number"
+          aria-label={`${label} · ${mode === "beats" ? t.beats : t.seconds}`}
+          min={mode === "beats" ? 0 : 0.1}
+          max={mode === "beats" ? 64 : 30}
+          step={mode === "beats" ? 0.25 : 0.1}
+          value={draft ?? n}
+          onChange={(e) => {
+            // Keep the text being typed (including a trailing decimal point) while the parent saves.
+            setDraft(e.target.value);
+            if (e.target.value === "") return;
+            const next = Number(e.target.value);
+            // Zero in seconds is the explicit « Cut » option; keep typing « 0.5 » in this input.
+            if (Number.isFinite(next) && (mode === "beats" ? next >= 0 : next > 0)) onChange(mode === "beats" ? { beats: next } : { seconds: next });
+          }}
+          onBlur={() => setDraft(null)}
+        />
+      )}
     </span>
   );
 }
@@ -330,8 +380,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
               <input type="checkbox" checked={Boolean(look.move)} onChange={(e) => set({ move: e.target.checked ? MOVE : undefined })} /> {t.moveFx}
             </label>
           </h3>
+          {!look.move && <p className="hint">{t.moveNoneHelp}</p>}
           {look.move && (
             <div className="fields">
+              <label className="field" title={t.moveFadeHelp}>
+                <span>{t.moveFade}</span>
+                <MoveFadeInput automatic label={t.moveFade} value={look.move.fade} onChange={(fade) => setMove({ fade })} />
+              </label>
               <label className="field">
                 <span>{t.shape}</span>
                 <select value={look.move.shape} onChange={(e) => setMove({ shape: e.target.value })}>

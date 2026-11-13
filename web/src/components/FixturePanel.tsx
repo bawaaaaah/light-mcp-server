@@ -18,12 +18,8 @@ import { quoted } from "../typography";
 import { stream } from "../ws";
 import { FaderTrack } from "./FaderTrack";
 import { ModePicker, type ModeItem } from "./ModePicker";
-import { XyPad } from "./XyPad";
+import { XyPad, type MotionHead } from "./XyPad";
 
-interface Head {
-  id: string;
-  manual: { pan: number; tilt: number } | null;
-}
 interface ChannelMode {
   name: string;
   min: number;
@@ -82,14 +78,12 @@ const narrowed = (range: { min: number; max: number } | undefined) => range !== 
 export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: string; name: string; absent?: boolean }; onError: (msg: string) => void; onClose: () => void }): ReactElement {
   const t = useT();
   const me = useMe() as Role | null;
-  const [heads, setHeads] = useState<Head[]>([]);
+  const [heads, setHeads] = useState<MotionHead[]>([]);
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [faders, setFaders] = useState<FaderRow[]>([]);
   const [patch, setPatch] = useState<{ universe: number; address: number } | null>(null);
   /** Level shown for each channel (its fader's, or the channel's value before its fader exists). */
   const [levels, setLevels] = useState<Record<number, number>>({});
-  /** The manual position read or sent by the pad, for the read-out. */
-  const [pos, setPos] = useState<{ pan: number; tilt: number } | null>(null);
   /** Bumped on every read: the pad reads its dot again from position.list. */
   const [stamp, setStamp] = useState(0);
   /** Channels whose fader is being created (the gesture's level rides along until it is saved). */
@@ -112,7 +106,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
 
   const read = useCallback(() => {
     void cmd<FaderRow[]>("fader.list").then(setFaders).catch(() => undefined);
-    void cmd<Head[]>("position.list").then(setHeads).catch(() => undefined);
+    void cmd<MotionHead[]>("position.list").then(setHeads).catch(() => undefined);
     // channels that can be dosed: everything but the pan and tilt of a moving head, whatever the rest does
     void cmd<{ id: string; channels: ChannelRow[] }[]>("venue.fixture.channels")
       .then((rows) => setChannels((rows.find((r) => r.id === fixture.id)?.channels ?? []).filter((c) => c.attribute !== "pan" && c.attribute !== "tilt")))
@@ -334,8 +328,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               <h4>{t.panelMovement}</h4>
               {may("commands:position") ? (
                 <>
-                  <XyPad fixture={fixture.id} label={fixture.name} onPosition={setPos} resync={stamp} onError={onError} />
-                  <small>{pos ? `pan ${Math.round(pos.pan * 100)} % · tilt ${Math.round(pos.tilt * 100)} %` : t.followsLooks}</small>
+                  <XyPad fixture={fixture.id} label={fixture.name} resync={stamp} onError={onError} restControls />
                 </>
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>

@@ -7,7 +7,7 @@ import { labelOf } from "../util";
 import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../folder";
 import { tagNames, tagsShown } from "../intentions";
 import { pick } from "../selection";
-import { LookEditor, newLook, type LookDraft } from "../components/LookEditor";
+import { LookEditor, MoveFadeInput, newLook, type LookDraft, type MoveFade } from "../components/LookEditor";
 import { Modal } from "../components/Modal";
 import { FolderMenu } from "../components/FolderMenu";
 import { LookMenu } from "../components/LookMenu";
@@ -70,6 +70,7 @@ interface Settings {
   grandMaster: number;
   liveAi?: boolean;
   looksMerge?: "last" | "highest";
+  moveFade?: MoveFade;
   /** Folders named ahead for this show (show.folder.create), to group even before a look carries them. */
   folders?: string[];
 }
@@ -97,6 +98,8 @@ export function ShowPage(): ReactElement {
   const [knowledge, setKnowledge] = useState<KnowledgeMoods | null>(null);
   const [proposal, setProposal] = useState<{ explanation: string[]; unknownMoods: string[] } | null>(null);
   const [error, setError] = useState("");
+  /** Default-glide writes keep their keystroke order; the draft stays responsive before answers arrive. */
+  const moveFadeWrites = useRef<Promise<void>>(Promise.resolve());
   const [editing, setEditing] = useState<LookDraft | null>(null);
   /** The look whose right-click menu is open, and where. */
   const [lookMenu, setLookMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -155,6 +158,18 @@ export function ShowPage(): ReactElement {
   const refreshKnowledge = useCallback(() => void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
   useCommandEvents(["intention.put", "intention.delete", "song.put", "song.delete"], refreshKnowledge);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
+  const changeMoveFade = (moveFade: MoveFade) => {
+    setSettings((current) => (current ? { ...current, moveFade } : current));
+    moveFadeWrites.current = moveFadeWrites.current
+      .then(async () => {
+        await cmd("show.settings.set", { moveFade });
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        // An optimistic value refused by the server must not remain presented as saved.
+        void cmd<Settings>("show.settings").then(setSettings).catch(() => undefined);
+      });
+  };
 
   const themes = useMemo(() => themesOf(knowledge), [knowledge]);
   const intentArgs = (save: boolean) => ({
@@ -541,6 +556,10 @@ export function ShowPage(): ReactElement {
             <option value="last">{t.looksMergeLast}</option>
             <option value="highest">{t.looksMergeHighest}</option>
           </select>
+        </label>
+        <label title={t.moveFadeHelp}>
+          {t.moveFadeDefault}{" "}
+          <MoveFadeInput label={t.moveFadeDefault} value={settings?.moveFade ?? { seconds: 1 }} onChange={(moveFade) => moveFade && changeMoveFade(moveFade)} />
         </label>
         <label className={`inline ${settings?.liveAi ? "live-ai on" : "live-ai"}`} title={t.liveAiHelp}>
           <input type="checkbox" checked={Boolean(settings?.liveAi)} onChange={(e) => void run("show.settings.set", { liveAi: e.target.checked })} /> {t.liveAi}

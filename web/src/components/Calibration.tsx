@@ -2,7 +2,7 @@
  * Guided calibration of a moving head (docs/specs/venue-fixtures-stage.md, « Lyres »): aim it by
  * hand at 2–3 known floor marks, record each one, then solve its yaw, tilt offset and inversions.
  */
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { XyPad } from "./XyPad";
@@ -29,6 +29,10 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
   const [xy, setXy] = useState({ x: 0, y: 0 });
   const [marks, setMarks] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
+  /** Refusals stay beside the record button, where the operator is working. */
+  const [error, setError] = useState("");
+  /** Only the latest action on the currently selected head may write marks, results or errors. */
+  const actionSequence = useRef(0);
 
   const placedKey = [...placed].sort().join(",");
   useEffect(() => {
@@ -44,12 +48,16 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `placed` is a new Set on every render of the page: its content (`placedKey`) is the dependency
   }, [placedKey, follow]);
   useEffect(() => {
-    if (head) void cmd<unknown[]>("calibration.list", { fixture: head }).then((l) => setMarks(l.length));
+    const action = ++actionSequence.current;
+    if (head) void cmd<unknown[]>("calibration.list", { fixture: head }).then((l) => {
+      if (action === actionSequence.current) setMarks(l.length);
+    });
     setResult(null);
+    setError("");
   }, [head]);
 
   if (!heads.length) return <p className="hint">{t.calibrationNone}</p>;
-  const fail = (e: Error) => onError(e.message);
+  const fail = (e: Error) => setError(e.message);
   const held = follow && heads.some((h) => h.id === follow) && head === follow;
   return (
     <div className="calibration">
@@ -87,20 +95,56 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
       <div className="calibration-pad">
         <XyPad fixture={head} label={heads.find((h) => h.id === head)?.name} onError={onError} />
       </div>
+      {error && <p className="error" role="alert">{error}</p>}
       <div className="row actions">
         <button
-          onClick={() =>
+          onClick={() => {
+            setError("");
+            const action = ++actionSequence.current;
             void cmd<{ samples: number }>("calibration.record", { fixture: head, ...(zone ? { zone } : { point: { x: xy.x, y: xy.y, z: 0 } }) })
-              .then((r) => setMarks(r.samples))
-              .catch(fail)
-          }
+              .then((r) => {
+                if (action === actionSequence.current) setMarks(r.samples);
+              })
+              .catch((e: Error) => {
+                if (action === actionSequence.current) fail(e);
+              });
+          }}
         >
           {t.calibrationRecord} ({marks})
         </button>
-        <button disabled={marks < 2} onClick={() => void cmd<Result>("calibration.solve", { fixture: head }).then(setResult).catch(fail)}>
+        <button
+          disabled={marks < 2}
+          onClick={() => {
+            setError("");
+            const action = ++actionSequence.current;
+            void cmd<Result>("calibration.solve", { fixture: head })
+              .then((r) => {
+                if (action === actionSequence.current) setResult(r);
+              })
+              .catch((e: Error) => {
+                if (action === actionSequence.current) fail(e);
+              });
+          }}
+        >
           {t.calibrationSolve}
         </button>
-        <button className="ghost" onClick={() => void cmd("calibration.clear", { fixture: head }).then(() => (setMarks(0), setResult(null)))}>
+        <button
+          className="ghost"
+          onClick={() => {
+            setError("");
+            const action = ++actionSequence.current;
+            void cmd("calibration.clear", { fixture: head })
+              .then(() => {
+                if (action === actionSequence.current) {
+                  setMarks(0);
+                  setResult(null);
+                }
+              })
+              .catch((e: Error) => {
+                if (action === actionSequence.current) fail(e);
+              });
+          }}
+        >
           {t.calibrationClear}
         </button>
       </div>
@@ -115,12 +159,23 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
           </p>
           <button
             className="primary"
-            onClick={() =>
-              (result.errorDeg <= 3 || confirm(`${t.calibrationBad}. ${t.calibrationApplyAnyway}`)) &&
-              void cmd<Result>("calibration.solve", { fixture: head, apply: true })
-                .then((r) => (setResult(r), setMarks(0), onApplied()))
-                .catch(fail)
-            }
+            onClick={() => {
+              setError("");
+              if (result.errorDeg <= 3 || confirm(`${t.calibrationBad}. ${t.calibrationApplyAnyway}`)) {
+                const action = ++actionSequence.current;
+                void cmd<Result>("calibration.solve", { fixture: head, apply: true })
+                  .then((r) => {
+                    if (action === actionSequence.current) {
+                      setResult(r);
+                      setMarks(0);
+                      onApplied();
+                    }
+                  })
+                  .catch((e: Error) => {
+                    if (action === actionSequence.current) fail(e);
+                  });
+              }
+            }}
           >
             {t.apply}
           </button>

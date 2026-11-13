@@ -587,6 +587,10 @@ textarea {
   background: var(--accent);
   pointer-events: none;
 }
+.xy .dot.remote {
+  background: var(--bg);
+  border: 2px solid var(--accent);
+}
 .xy .row {
   display: flex;
   align-items: center;
@@ -594,6 +598,39 @@ textarea {
 }
 .xy .row label {
   flex: 1;
+}
+.xy-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.8em;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.xy-masked {
+  display: grid;
+  gap: 0.15em;
+  margin: 0;
+  font-size: 0.75rem;
+}
+.xy-actions {
+  align-items: stretch;
+}
+.move-fade-input {
+  flex-wrap: wrap;
+}
+.move-fade-input input {
+  width: 6em;
+  min-width: 0;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .xy-actions button,
+  .move-fade-input select,
+  .move-fade-input input {
+    min-height: 44px;
+  }
+  .xy-actions {
+    gap: 8px;
+  }
 }
 
 /* Look editor */
@@ -1219,12 +1256,17 @@ table.cues select {
   color: var(--muted);
 }
 .calibration-pad {
-  width: 260px;
-  height: 260px;
+  width: min(260px, 100%);
+  min-height: 260px;
   display: flex;
 }
 .calibration-pad .xy {
   flex: 1;
+}
+.calibration-pad .xy .pad {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 1;
 }
 
 /* Group editor */

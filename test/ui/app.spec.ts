@@ -3744,11 +3744,12 @@ test("XY pad moves the heads, ⟲ gives them back to the looks", async ({ page }
   await login(page);
   const pad = page.locator(".xy .pad");
   await expect(pad).toBeVisible();
+  await expect(pad.getByTestId("xy-sent-dot")).toBeVisible();
   const box = (await pad.boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.75, box.y + box.height * 0.25);
-  await expect(page.locator(".xy small")).toHaveText("75 / 75");
+  await expect(page.locator(".xy-position")).toHaveText("75 / 75");
   await expect.poll(async () => (await dmx(page, 2)).slice(0, 3)).toEqual([191, expect.any(Number), 191]); // pan, pan fine, tilt
-  await page.locator(".xy button").click();
+  await page.getByRole("button", { name: "Rendre la main", exact: true }).click();
   await expect.poll(async () => (await dmx(page, 2))[0]).toBe(128); // back to the centre
   await page.screenshot({ path: "test-results/xy.png", fullPage: true });
   expect(errors).toEqual([]);
@@ -6652,4 +6653,233 @@ test("a show intention with the same label as a shipped one: choose the shipped 
     await api(page, "intention.delete", { id: own, force: true });
   }
   expect(errors).toEqual([]);
+});
+
+// ---- Motion layer UI (T25, lot 6)
+test("motion settings: the show's default glide is saved in seconds, beats, or as a cut", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  const mode = page.getByRole("combobox", { name: "Temps de déplacement par défaut", exact: true });
+  const settings = async () => ((await api(page, "show.settings")) as { moveFade: { seconds?: number; beats?: number } }).moveFade;
+  try {
+    await expect(mode).toHaveValue("seconds");
+    const seconds = page.getByRole("spinbutton", { name: "Temps de déplacement par défaut · secondes" });
+    await seconds.fill("");
+    await seconds.pressSequentially("2.5", { delay: 30 }); // real keystrokes, not one pasted value
+    await expect.poll(settings).toEqual({ seconds: 2.5 });
+    await mode.selectOption("beats");
+    await expect.poll(settings).toEqual({ beats: 2.5 });
+    await page.getByRole("spinbutton", { name: "Temps de déplacement par défaut · temps" }).fill("2");
+    await expect.poll(settings).toEqual({ beats: 2 });
+    await mode.selectOption("cut");
+    await expect.poll(settings).toEqual({ seconds: 0 });
+    await page.locator("header select").selectOption("en");
+    await expect(page.getByRole("combobox", { name: "Default movement glide", exact: true })).toHaveValue("cut");
+    await page.locator("header select").selectOption("fr");
+  } finally {
+    await api(page, "show.settings.set", { moveFade: { seconds: 1 } });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion settings: a look saves automatic, seconds, beats and cut", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages").getByRole("button", { name: "Show", exact: true }).click();
+  await page.getByRole("button", { name: "+ Nouveau look" }).click();
+  const editor = page.locator(".look-editor");
+  await editor.getByLabel("Nom", { exact: true }).fill("Test mouvement");
+  await editor.getByRole("checkbox", { name: "Mouvement (lyres)", exact: true }).check();
+  const mode = editor.getByRole("combobox", { name: "Temps de déplacement", exact: true });
+  const fade = async () => ((await api(page, "look.get", { id: "test-mouvement" })) as { move?: { fade?: { seconds?: number; beats?: number } } }).move?.fade;
+  const save = async () => {
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+  };
+  const reopen = async () => {
+    await page.getByRole("button", { name: "Modifier Test mouvement" }).click();
+    await expect(editor).toBeVisible();
+  };
+  try {
+    await expect(mode).toHaveValue("auto");
+    await mode.selectOption("seconds");
+    const seconds = editor.getByRole("spinbutton", { name: "Temps de déplacement · secondes" });
+    await seconds.fill("");
+    await seconds.pressSequentially("0.5", { delay: 30 }); // typing zero must not turn the field into « Coupe »
+    await expect(seconds).toBeFocused();
+    await save();
+    await expect.poll(fade).toEqual({ seconds: 0.5 });
+    await reopen();
+    await mode.selectOption("beats");
+    await editor.getByRole("spinbutton", { name: "Temps de déplacement · temps" }).fill("2");
+    await save();
+    await expect.poll(fade).toEqual({ beats: 2 });
+    await reopen();
+    await mode.selectOption("cut");
+    await save();
+    await expect.poll(fade).toEqual({ seconds: 0 });
+    await reopen();
+    await mode.selectOption("auto");
+    await save();
+    await expect.poll(fade).toBeUndefined();
+  } finally {
+    await api(page, "look.delete", { id: "test-mouvement", force: true }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion pad: sent dot, per-axis layers, a masked look and one layer released per press", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await api(page, "look.put", { look: { id: "motion-layer", name: "Position test", canvas, technique: { kind: "aucune" }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[40]] } } });
+  const xy = page.locator(".xy").first();
+  const layer = (axis: "pan" | "tilt") => xy.locator(`.xy-layers [data-axis="${axis}"]`);
+  try {
+    await api(page, "look.go", { id: "motion-layer" });
+    await expect(layer("pan")).toHaveText("Pan : Look « Position test »");
+    await expect(layer("tilt")).toHaveText("Tilt : Repos");
+    const dot = xy.getByTestId("xy-sent-dot");
+    await expect(dot).toBeVisible();
+    const dotLeft = async () => Number((await dot.getAttribute("style"))?.match(/left: ([\d.]+)%/)?.[1]);
+    await expect.poll(dotLeft).toBeLessThan(49); // the sent dot follows the glide, not only its target
+    await expect.poll(dotLeft, { timeout: 4000 }).toBeCloseTo(15.7, 0);
+    await api(page, "position.set", { fixtures: ["spot"], pan: 0.8, tilt: 0.7 });
+    await expect(layer("pan")).toHaveText("Pan : Main");
+    await expect(layer("tilt")).toHaveText("Tilt : Main");
+    await expect.poll(dotLeft).toBeCloseTo(80, 0);
+    await expect(xy.locator(".xy-masked")).toContainText("le look « Position test » voudrait la déplacer");
+    await page.locator("header select").selectOption("en");
+    await expect(layer("pan")).toHaveText("Pan: Manual");
+    await expect(xy.locator(".xy-masked")).toContainText("look “Position test” would move it");
+    await expect(xy.getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
+    await page.locator("header select").selectOption("fr");
+    await xy.getByRole("button", { name: "Rendre la main", exact: true }).click();
+    await expect(layer("pan")).toHaveText("Pan : Look « Position test »");
+    await expect(layer("tilt")).toHaveText("Tilt : Repos");
+    await xy.getByRole("button", { name: "Rendre la main", exact: true }).click();
+    await expect(layer("pan")).toHaveText("Pan : Repos");
+    await expect(layer("tilt")).toHaveText("Tilt : Repos");
+  } finally {
+    await api(page, "look.stop", { id: "motion-layer" }).catch(() => undefined);
+    await api(page, "position.home", {}).catch(() => undefined);
+    await api(page, "look.delete", { id: "motion-layer", force: true }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion pad: a group shows and releases only its own heads", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "other-head", name: "Autre lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 20 } });
+  await api(page, "group.put", { group: { id: "motion-only", name: "Une lyre", members: { fixtures: ["spot"], groups: [], looks: [] } } });
+  await api(page, "dashboard.put", { dashboard: { id: "motion-group", name: "Pad groupe", columns: 4, widgets: [{ id: "xy", kind: "xy", target: "motion-only", x: 0, y: 0, w: 4, h: 4 }] } });
+  try {
+    await page.reload();
+    await page.getByRole("button", { name: /Pad groupe/ }).click();
+    await api(page, "position.set", { fixtures: ["spot"], pan: 0.8, tilt: 0.7 });
+    await api(page, "position.set", { fixtures: ["other-head"], pan: 0.2, tilt: 0.3 });
+    const xy = page.locator(".xy").first();
+    await expect(xy.getByTestId("xy-sent-dot")).toHaveCount(1);
+    await expect(xy.getByTestId("xy-sent-dot")).toHaveAttribute("data-fixture", "spot");
+    await expect(xy.locator(".xy-position")).toHaveText("80 / 70");
+    await expect(xy.locator('.xy-layers [data-axis="pan"]')).toHaveText("Pan : Main");
+    await xy.getByRole("button", { name: "Rendre la main", exact: true }).click();
+    await expect(xy.locator('.xy-layers [data-axis="pan"]')).toHaveText("Pan : Repos");
+    const other = ((await api(page, "position.list")) as { id: string; motion: { pan: { layer: string } } | null }[]).find((h) => h.id === "other-head");
+    expect(other?.motion?.pan.layer).toBe("manual"); // the other pad's head is not released
+  } finally {
+    await api(page, "position.home", {}).catch(() => undefined);
+    await api(page, "dashboard.delete", { id: "motion-group" }).catch(() => undefined);
+    await api(page, "group.delete", { id: "motion-only" }).catch(() => undefined);
+    await api(page, "venue.fixture.delete", { id: "other-head" }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion fixture panel: set, clear and return to rest, with 44 px controls on a phone", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  type Fixture = { id: string; position?: { x: number; y: number; z: number } };
+  const spot = ((await api(page, "venue.fixture.list")) as Fixture[]).find((f) => f.id === "spot")!;
+  const head = async () => ((await api(page, "position.list")) as { id: string; sent: { pan: number; tilt: number } | null; rest: { pan: number; tilt: number; set: boolean }; motion: { pan: { layer: string }; tilt: { layer: string } } | null }[]).find((h) => h.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 4 } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    const body = page.locator('.stage-plan g.fixture[data-fixture="spot"] > g').first();
+    const bodyBox = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.85, 0.85], [0.15, 0.85], [0.85, 0.15], [0.15, 0.15]]) {
+      await body.click({ position: { x: bodyBox.width * fx!, y: bodyBox.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const panel = page.locator(".fixture-panel");
+    const pad = panel.locator(".xy .pad");
+    await pad.scrollIntoViewIfNeeded();
+    let box = (await pad.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.3);
+    await expect.poll(async () => Math.round(((await head()).sent?.pan ?? 0) * 10)).toBe(7);
+    await expect(panel.getByTestId("xy-sent-dot")).toHaveAttribute("style", /left: 70(?:\.\d+)?%/);
+    await panel.getByRole("button", { name: "Définir comme repos", exact: true }).click();
+    await expect.poll(async () => (await head()).rest.set).toBe(true);
+    expect((await head()).rest.pan).toBeCloseTo(0.7, 1);
+    expect((await head()).rest.tilt).toBeCloseTo(0.7, 1);
+    await panel.getByRole("button", { name: "Rendre la main", exact: true }).click();
+    await expect(panel.locator('.xy-layers [data-axis="pan"]')).toHaveText("Pan : Repos");
+    box = (await pad.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.8);
+    await expect.poll(async () => Math.round(((await head()).sent?.pan ?? 0) * 10)).toBe(2);
+    await panel.getByRole("button", { name: "Retour au repos", exact: true }).click();
+    await expect.poll(async () => (await head()).sent?.pan ?? 0, { timeout: 5000 }).toBeCloseTo(0.7, 1);
+    await panel.getByRole("button", { name: "Effacer le repos", exact: true }).click();
+    await expect.poll(async () => (await head()).rest.set).toBe(false);
+    await panel.getByRole("button", { name: "Retour au repos", exact: true }).click();
+    await expect.poll(async () => (await head()).sent?.pan ?? 0, { timeout: 5000 }).toBeCloseTo(0.5, 1);
+    await page.setViewportSize({ width: 400, height: 860 });
+    await pad.scrollIntoViewIfNeeded();
+    const panelBox = (await panel.boundingBox())!;
+    expect(panelBox.x).toBeGreaterThanOrEqual(0);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(400);
+    const buttons = await panel.locator(".xy-actions button").evaluateAll((items) => items.map((b) => ({ width: b.getBoundingClientRect().width, height: b.getBoundingClientRect().height, right: b.getBoundingClientRect().right })));
+    expect(buttons).toHaveLength(4);
+    for (const button of buttons) {
+      expect(button.height).toBeGreaterThanOrEqual(44);
+      expect(button.right).toBeLessThanOrEqual(400);
+    }
+    await page.screenshot({ path: "test-results/t25-motion-panel-phone.png", fullPage: true });
+  } finally {
+    await api(page, "position.home", {}).catch(() => undefined);
+    await api(page, "position.rest.clear", { fixtures: ["spot"] }).catch(() => undefined);
+    await api(page, "venue.fixture.put", { fixture: spot }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("calibration: record refusals stay visible beside the controls", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  type Fixture = { id: string; position?: { x: number; y: number; z: number } };
+  const spot = ((await api(page, "venue.fixture.list")) as Fixture[]).find((f) => f.id === "spot")!;
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 4 } } });
+  let refusal = "";
+  await page.route("**/api/plugins/light/commands/calibration.record", (route) => route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ ok: false, error: refusal }) }));
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.getByText("Calibrer les lyres").click();
+    const calibration = page.locator(".calibration");
+    for (const message of [
+      "Lyre : la lyre n'est pas encore arrivée ; attendre, puis enregistrer",
+      "Lyre : un look la déplace ; la viser d'abord à la main (pad XY), puis enregistrer",
+      "Lyre : une cible la tient ; la viser d'abord à la main (pad XY), puis enregistrer",
+      "Lyre : sortie arrêtée, aucune trame rendue : impossible de lire où pointe la lyre",
+    ]) {
+      refusal = message;
+      await calibration.getByRole("button", { name: /Enregistrer ce repère/ }).click();
+      await expect(calibration.getByRole("alert")).toHaveText(message);
+    }
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/calibration.record");
+    await api(page, "venue.fixture.put", { fixture: spot }).catch(() => undefined);
+  }
+  expect(errors.filter((e) => !e.includes("status of 400"))).toEqual([]);
 });
