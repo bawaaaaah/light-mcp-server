@@ -85,6 +85,11 @@ export class DmxEngine {
     return [...this.programmer.values()].reduce((n, u) => n + u.size, 0);
   }
 
+  /** The slots (0-based, per universe) the DMX console forces now: what the hard motion lock leaves to it (T26, Q4). */
+  parkedSlots(): Map<number, Set<number>> {
+    return new Map([...this.programmer].map(([u, m]) => [u, new Set([...m.keys()].map((ch) => ch - 1))]));
+  }
+
   parked(universe: number): Record<number, number> {
     return Object.fromEntries(this.programmer.get(universe) ?? []);
   }

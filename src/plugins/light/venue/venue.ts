@@ -934,7 +934,7 @@ export class Venue {
   }
 
   /** Logical position → pan/tilt channels (inversion, swap, 16-bit). */
-  private writePosition(r: ResolvedFixture, p: Position, write: (offset: number, value: number) => void): void {
+  writePosition(r: ResolvedFixture, p: Position, write: (offset: number, value: number) => void): void {
     const o = r.patch.orientation;
     let pan = o?.invertPan ? 1 - p.pan : p.pan;
     let tilt = o?.invertTilt ? 1 - p.tilt : p.tilt;

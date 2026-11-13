@@ -107,8 +107,14 @@ export interface MotionInput {
   sent?: ReadonlyMap<string, Position>;
   settings?: MotionSettings;
   ctx?: MotionContext;
-  /** T26: "off" until the lock exists. */
+  /** T26 « Figer les lyres »: the effective lock level of a head (show/motion-lock.ts `lockOf`). Absent: off. */
   lock?: (head: string) => LockLevel;
+  /**
+   * T26: where a locked head is frozen (`motionLock.held`, kept by the runtime: the position sent when it was locked,
+   * followed by the pad under a soft lock, read from show.json after a restart). Absent, or an axis not a number:
+   * the position sent on the first locked frame.
+   */
+  heldOf?: (head: string) => Partial<Position> | undefined;
   /** T5 tracks: an unticked axis cuts at a change of owner. Default: glide. */
   axisMode?: (head: string, axis: Axis) => AxisMode;
 }
@@ -216,6 +222,8 @@ const rankOf = (layer: AxisLayer, lock: LockLevel): number => (layer === "lock" 
 const CLAIM_RANK: Record<MotionLayer, number> = { manual: 0, target: 1, look: 2 };
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const NO_HOLD: Readonly<Record<Axis, boolean>> = { pan: false, tilt: false };
+/** T26: leaving a lock glides over at least this long, even when `moveFade` is shorter (« relâcher reprend en douceur »). */
+export const UNLOCK_MIN_MS = 1000;
 /** Beyond this gap between two frames, a transition starts at the new frame rather than at the previous one. */
 const MAX_FRAME_GAP = 100;
 const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
@@ -318,10 +326,15 @@ interface Owner {
   claim?: MotionClaim;
   target?: number;
   error?: string;
+  /** A lock's frozen value (T26 `held`), when the runtime gives one. */
+  held?: number;
 }
 
-function ownerOf(w: MotionClaim | "lock" | undefined, axis: Axis, holding: boolean, rest: Position, evalOf: (c: MotionClaim) => Evaluated): Owner {
-  if (w === "lock") return { layer: "lock", owner: "lock" };
+function ownerOf(w: MotionClaim | "lock" | undefined, axis: Axis, holding: boolean, rest: Position, evalOf: (c: MotionClaim) => Evaluated, held: Partial<Position> | undefined): Owner {
+  if (w === "lock") {
+    const v = held?.[axis];
+    return finite(v) ? { layer: "lock", owner: "lock", held: clamp01(v) } : { layer: "lock", owner: "lock" };
+  }
   if (w) {
     // a relaunch is a new owner: a shape restarting from its first cycle glides there
     const e = evalOf(w);
@@ -375,13 +388,18 @@ function stepAxis(o: Owner, f: AxisFrame): AxisState {
     // lock, hold, or a claim that cannot place the head: frozen where it was on the first held frame
     const entering = changed || (o.error !== undefined && prev.error === undefined);
     s = entering ? { ...fresh, error: o.error } : { ...prev, layer: o.layer, rank, order, error: o.error };
+    // a lock frozen by the runtime (T26 `held`): there, whatever was sent (a restart under the lock sends it back there)
+    if (o.held !== undefined) s.held = o.held;
     s.value = s.held;
   } else {
     if (changed || prev.error !== undefined) {
       // a new owner (or a claim back in reach): glide from what was really sent, at the speed it had
       const releasing = prev !== undefined && (prev.rank < rank || (prev.rank === rank && order < prev.order));
       const fade = o.claim && !releasing ? (o.claim.fade ?? f.moveFade) : f.moveFade;
-      const dur = f.cut ? 0 : motionDurationMs(fade, f.bpm);
+      // a lock lifted (T26) is never a jump: at least UNLOCK_MIN_MS, unless the axis is set to cut (T5 tracks); the pad
+      // taking a head over under a soft lock is no release, it stays direct
+      const ms = motionDurationMs(fade, f.bpm);
+      const dur = f.cut ? 0 : releasing && prev.layer === "lock" ? Math.max(UNLOCK_MIN_MS, ms) : ms;
       const v0 = startSpeed(v, o.target - current, prev ? prev.target - current : 0, dur);
       // a moving head keeps its pace: its curve starts when the position it leaves from was sent
       const t0 = v0 !== 0 && prev && now - prev.t <= MAX_FRAME_GAP ? prev.t : now;
@@ -421,6 +439,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
     const released = (prevHead?.released ?? []).filter((k) => claimed.has(k));
     const ranked = contenders(input.claims, head, new Set(released));
     const lock = input.lock?.(head) ?? "off";
+    const held = lock === "off" ? undefined : input.heldOf?.(head);
     const rest = restOf(input.settings, head);
     const sent = input.sent?.get(head);
     const evaluated = new Map<MotionClaim, Evaluated>();
@@ -443,7 +462,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
         winners.add(w);
         holding[axis] = false;
       }
-      const o = ownerOf(w, axis, holding[axis], rest, evalOf);
+      const o = ownerOf(w, axis, holding[axis], rest, evalOf, held);
       const sentAxis = sent?.[axis];
       const current = finite(sentAxis) ? clamp01(sentAxis) : (prev?.value ?? rest[axis]);
       const cut = input.axisMode?.(head, axis) === "cut";

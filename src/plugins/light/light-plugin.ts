@@ -235,6 +235,8 @@ export class LightPlugin implements McpPlugin {
     this.runtime.otherShowsGroups = () => groupsOfOtherShows(dataRoot, this.config.show, this.config.venue);
     this.engine.setRenderer((buffers) => this.runtime.render(buffers));
     this.engine.setGuard((buffers) => this.runtime.guard(buffers));
+    // the hard motion lock freezes pan/tilt bytes in the guard, but leaves the DMX console's (T26, Q4)
+    this.runtime.consoleSlots = () => this.engine.parkedSlots();
     this.engine.setBlackoutKeep(() => this.venue.positionSlots());
     // the other shows on the open venue, read from disk at the time of a delete (file-commands.ts)
     const otherShowsSharing = () => sharedWith({ dataRoot, current: () => ({ show: this.config.show, venue: this.config.venue }) });

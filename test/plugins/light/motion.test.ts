@@ -7,6 +7,7 @@ import {
   motionDurationMs,
   releaseMotion,
   resolveMotion,
+  UNLOCK_MIN_MS,
   type Axis,
   type AxisMode,
   type HeadStatus,
@@ -55,6 +56,7 @@ interface SimOptions {
   settings?: MotionSettings;
   ctx?: MotionContext;
   lock?: (head: string) => LockLevel;
+  heldOf?: (head: string) => Partial<Position> | undefined;
   axisMode?: (head: string, axis: Axis) => AxisMode;
   /** What the guard does to the position asked before it is sent (a speed rule…). Default: sent as asked. */
   guard?: (head: string, asked: Position, before: Position | undefined) => Position;
@@ -80,6 +82,7 @@ class Sim {
       ...(this.o.settings ? { settings: this.o.settings } : {}),
       ...(this.o.ctx ? { ctx: this.o.ctx } : {}),
       ...(this.o.lock ? { lock: this.o.lock } : {}),
+      ...(this.o.heldOf ? { heldOf: this.o.heldOf } : {}),
       ...(this.o.axisMode ? { axisMode: this.o.axisMode } : {}),
     };
   }
@@ -842,7 +845,9 @@ describe("motion layer (pure)", () => {
       sim.at(20);
       expect(sim.last.status.get("h1")!.released).to.deep.equal([]);
       lock = "off";
-      expect(sim.at(40).pan).to.equal(0.9);
+      // unlocking glides for at least a second, even with moveFade 0 (T26)
+      expect(sim.at(40).pan).to.be.below(0.9);
+      expect(sim.at(1040).pan).to.equal(0.9);
     });
 
     it("a soft lock releases the manual layer only", () => {
@@ -856,7 +861,54 @@ describe("motion layer (pure)", () => {
       sim.state = releaseMotion(sim.input(0), sim.state, { scope: "all" });
       expect(sim.last.status.get("h1")!.pan.layer).to.equal("lock");
       lock = "off";
-      expect(sim.at(40).pan).to.equal(0.1); // the look under the lock was not eaten
+      sim.at(40); // the unlock glide starts
+      expect(sim.at(1040).pan).to.equal(0.1); // the look under the lock was not eaten
+    });
+  });
+
+  describe("the lock of T26: held position and unlock", () => {
+    it("a lock holds the head where the runtime froze it (`held`), from the very first frame (a restart)", () => {
+      const sim = new Sim({ lock: () => "hard", heldOf: () => ({ pan: 0.2, tilt: 0.7 }) });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.9, tilt: 0.9 }), manual(2, ["h1"], { pan: 0.1, tilt: 0.1 })];
+      for (const p of sim.run(0, 400)) expect(p).to.deep.equal({ pan: 0.2, tilt: 0.7 });
+      expect(sim.last.status.get("h1")!.pan.layer).to.equal("lock");
+      expect(sim.last.status.get("h1")!.masked).to.have.members(["look:a", "manual"]);
+    });
+
+    it("ignores `held` on a free head, and an axis of it that is not a number", () => {
+      let lock: LockLevel = "off";
+      const sim = new Sim({ lock: () => lock, heldOf: () => ({ pan: Number.NaN, tilt: 0.7 }), settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.3, tilt: 0.3 })];
+      expect(sim.at(0)).to.deep.equal({ pan: 0.3, tilt: 0.3 });
+      lock = "soft";
+      expect(sim.at(20)).to.deep.equal({ pan: 0.3, tilt: 0.7 }); // pan where it was sent, tilt where it is held
+    });
+
+    it("the pad stays direct under a soft lock; the lock lifted glides at least a second, never a jump", () => {
+      let lock: LockLevel = "soft";
+      const sim = new Sim({ lock: () => lock, settings: { moveFade: SEC(0) } });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.2, tilt: 0.2 })];
+      expect(sim.at(0)).to.deep.equal(CENTRE); // frozen where it starts
+      sim.claims = [...sim.claims, manual(2, ["h1"], { pan: 0.8, tilt: 0.8 })];
+      expect(sim.at(20)).to.deep.equal({ pan: 0.8, tilt: 0.8 }); // the pad: at once
+      sim.claims = sim.claims.filter((c) => c.layer !== "manual");
+      expect(sim.at(40)).to.deep.equal({ pan: 0.8, tilt: 0.8 }); // released: frozen where the pad left it
+      lock = "off";
+      const glide = sim.run(60, 1100);
+      expect(maxStep([{ pan: 0.8, tilt: 0.8 }, ...glide])).to.be.at.most(bound(0.6, UNLOCK_MIN_MS));
+      expect(glide.at(-1)).to.deep.equal({ pan: 0.2, tilt: 0.2 });
+      expect(glide[UNLOCK_MIN_MS / FRAME - 2]!.pan).to.be.above(0.2); // still on its way just before the second
+    });
+
+    it("a lock lifted takes `moveFade` when it is longer, and cuts on an axis set to cut (T5 tracks)", () => {
+      let lock: LockLevel = "hard";
+      const sim = new Sim({ lock: () => lock, settings: { moveFade: SEC(2) }, axisMode: (_h, axis) => (axis === "tilt" ? "cut" : "glide") });
+      sim.claims = [look("a", 1, ["h1"], { pan: 0.9, tilt: 0.9 })];
+      sim.at(0);
+      lock = "off";
+      expect(sim.at(20).tilt).to.equal(0.9);
+      expect(sim.at(1500).pan).to.be.below(0.9);
+      expect(sim.at(2020).pan).to.equal(0.9);
     });
   });
 
