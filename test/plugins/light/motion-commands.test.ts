@@ -143,7 +143,8 @@ describe("motion layer: the commands of lot 4", () => {
     during(200);
     plugin.runtime.motionLock = () => "hard";
     during(40);
-    expect(await run("position.releaseTop")).to.deep.equal({ fixtures: [{ fixture: "spot", released: [] }] });
+    // hard: nothing released, the head said refused (T26)
+    expect(await run("position.releaseTop")).to.deep.equal({ fixtures: [{ fixture: "spot", released: [] }], refused: ["spot"] });
     plugin.runtime.motionLock = () => "soft";
     during(40);
     expect(await run("position.releaseTop")).to.deep.equal({ fixtures: [{ fixture: "spot", released: ["manual"] }] });

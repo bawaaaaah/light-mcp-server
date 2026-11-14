@@ -1,6 +1,7 @@
 /** HTTP client: login and the command layer (POST /api/plugins/light/commands/:name). */
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { initialLang, type Lang } from "./i18n";
+import { grants } from "./rights";
 
 /** The interface's language, sent with every request: the server answers its messages in it. */
 let apiLang: Lang = initialLang();
@@ -22,12 +23,7 @@ export interface Role {
   kind?: "static" | "session";
 }
 
-/** Same rule as the server's rightMatches (src/core/auth.ts): "*" and "area:*" grant wholesale; show:write brings show:propose, commands:position brings commands:freeze. */
-const IMPLIED: Record<string, string> = { "show:propose": "show:write", "commands:freeze": "commands:position" };
-export function grants(rights: string[], right: string): boolean {
-  const direct = (wanted: string) => rights.some((g) => g === "*" || g === wanted || (g.endsWith(":*") && wanted.startsWith(g.slice(0, -1))));
-  return direct(right) || (IMPLIED[right] !== undefined && direct(IMPLIED[right]));
-}
+export { grants } from "./rights";
 export const can = (role: Role, right: string): boolean => grants(role.rights, right);
 
 export class ApiError extends Error {

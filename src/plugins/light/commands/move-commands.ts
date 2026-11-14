@@ -3,7 +3,7 @@
  * a zone or a point of the stage, release, guided calibration. Move FX are part of looks (`look.move`).
  */
 import { z } from "zod";
-import { CommandError, type CommandRegistry } from "./registry.js";
+import { CommandError, type CommandRegistry, type Origin } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { calibrate, type CalibrationSample } from "../venue/aim.js";
 import { isHung } from "../venue/orientation.js";
@@ -11,6 +11,13 @@ import { say } from "../../../core/lang.js";
 import { motionEntries } from "../show/motion-report.js";
 import { stricter, type HeadLock, type MotionLockState } from "../show/motion-lock.js";
 import type { LockLevel } from "../engine/motion.js";
+
+/**
+ * Who may loosen the motion lock (T26, decision U3 of 2026-11-14): the interface, a MIDI control a person mapped, an AI
+ * client, the command line, the server's own callers. An OSC message, the DJ software (OS2L), AbleSet or a song's
+ * timeline (its steps) may freeze but never unfreeze: an automatic cue must not set the heads moving again.
+ */
+export const UNFREEZE_ORIGINS: readonly Origin[] = ["ui", "midi", "mcp", "cli", "system"];
 
 /** Fixtures given directly or through a group, kept to the moving heads. */
 const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
@@ -144,11 +151,16 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.releaseTop",
     title: "Rendre la main",
     description:
-      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing, soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
+      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing (those heads are listed in refused), soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target,
-    run: (t) => ({ fixtures: show.releaseTop(t.fixtures || t.group ? targets(t) : undefined) }),
+    run: (t) => {
+      const scoped = Boolean(t.fixtures || t.group);
+      // hard-locked heads release nothing: said in `refused`, as position.release and .home do
+      const refused = (scoped ? targets(t) : show.movingHeads()).filter((f) => show.motionLock(f) === "hard");
+      return { fixtures: show.releaseTop(scoped ? targets(t) : undefined), ...refusedOf(refused) };
+    },
   });
   reg.register({
     name: "position.home",
@@ -198,12 +210,12 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
   };
   /**
    * The heads to unfreeze: given or through a group, kept to the installed moving heads and to the heads locked on
-   * their own (a head marked absent after it was frozen can still be unfrozen).
+   * their own (a head marked absent after it was frozen, or an id no longer in the patch, can still be unfrozen).
    */
   const unfreezeTargets = (t: z.infer<typeof Target>, locked: Record<string, HeadLock>): string[] => {
     if (t.group && !show.groups.get(t.group)) throw new Error(say(`groupe inconnu : ${t.group}`, `unknown group: ${t.group}`));
     const ids = t.fixtures ?? (t.group ? [...show.fixturesOf(t.group)] : []);
-    for (const f of ids) if (!show.venue.fixtures.get(f)) throw new Error(say(`fixture inconnue : ${f}`, `unknown fixture: ${f}`));
+    for (const f of ids) if (!show.venue.fixtures.get(f) && !Object.hasOwn(locked, f)) throw new Error(say(`fixture inconnue : ${f}`, `unknown fixture: ${f}`));
     const heads = new Set(show.movingHeads());
     return ids.filter((f) => heads.has(f) || Object.hasOwn(locked, f));
   };
@@ -222,11 +234,29 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
   const needPosition = (why: { fr: string; en: string }) => {
     throw new CommandError("forbidden", say(`droit requis : commands:position (${why.fr})`, `right required: commands:position (${why.en})`));
   };
+  /** Decision U3: an automatic origin may freeze, never loosen. */
+  const mayLoosen = (origin: Origin) => {
+    if (!UNFREEZE_ORIGINS.includes(origin))
+      throw new CommandError(
+        "failed",
+        say(
+          `défiger refusé depuis ${origin} : un signal automatique (OSC, OS2L, AbleSet, un chant) peut figer les lyres, pas les défiger ; le faire depuis l'interface, un bouton MIDI ou un client IA`,
+          `unfreezing refused from ${origin}: an automatic signal (OSC, OS2L, AbleSet, a song) may freeze the moving heads, not unfreeze them; do it from the interface, a MIDI control or an AI client`,
+        ),
+      );
+  };
+  /** Anything frozen at all: the global level, or any head's own lock (absent and orphan ids included). */
+  const anyFrozen = (lock: MotionLockState) => lock.level !== "off" || Object.keys(lock.heads).length > 0;
+  /** Decision U2: the whole lock loosened to `to` — the global level and every head's own. */
+  const loosenAll = (lock: MotionLockState, to: LockLevel): MotionLockState => ({
+    level: looser(lock.level, to),
+    heads: withHeads(lock.heads, Object.keys(lock.heads), (own) => (own ? looser(own, to) : "off")),
+  });
   reg.register({
     name: "motion.freeze",
     title: "Figer les lyres",
     description:
-      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: off ↔ level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. Returns the lock levels and each head's effective level.",
+      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ level: z.enum(["soft", "hard"]).default("soft"), toggle: z.boolean().default(false) }),
@@ -240,10 +270,14 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       if (t.fixtures || t.group) {
         ids = freezeTargets(t);
         const free = toggle && ids.every((id) => Object.hasOwn(cur.heads, id));
+        if (free) mayLoosen(ctx.origin);
         next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (free ? "off" : own ? stricter(own, level) : level)) };
       } else {
         ids = show.movingHeads();
-        next = { level: toggle && cur.level !== "off" ? "off" : stricter(cur.level, level), heads: cur.heads };
+        // decision U2: the global toggle frees everything when anything is frozen, else freezes at the level given
+        const free = toggle && anyFrozen(cur);
+        if (free) mayLoosen(ctx.origin);
+        next = free ? loosenAll(cur, "off") : { level: stricter(cur.level, level), heads: cur.heads };
       }
       show.setMotionLock(next);
       return lockReport(ids);
@@ -253,11 +287,12 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "motion.unfreeze",
     title: "Défiger les lyres",
     description:
-      "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: the global lock; with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position. Returns the lock levels and each head's effective level.",
+      "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: everything — the global lock and every head's own lock (heads absent or no longer patched included); with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position; refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ to: z.enum(["off", "soft"]).default("off") }),
-    run: ({ to, ...t }) => {
+    run: ({ to, ...t }, ctx) => {
+      mayLoosen(ctx.origin);
       const cur = show.motionLockState();
       let next: MotionLockState;
       let ids: string[];
@@ -265,8 +300,9 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         ids = unfreezeTargets(t, cur.heads);
         next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (own ? looser(own, to) : "off")) };
       } else {
+        // decision U2: without a target, « Défiger » lifts everything — the global level and every head's own lock
         ids = show.movingHeads();
-        next = { level: looser(cur.level, to), heads: cur.heads };
+        next = loosenAll(cur, to);
       }
       show.setMotionLock(next);
       return lockReport(ids);
@@ -346,12 +382,19 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "calibration.solve",
     title: "Calculer la calibration",
     description:
-      "Guided calibration, step 2: from the recorded marks, finds the head's yaw, tilt offset and pan/tilt inversions (with the angular error per mark). With apply, writes them into the patch and forgets the marks.",
+      "Guided calibration, step 2: from the recorded marks, finds the head's yaw, tilt offset and pan/tilt inversions (with the angular error per mark). With apply, writes them into the patch and forgets the marks; apply is refused while the head is frozen hard (motion.freeze: new inversions would move it), solving alone is not.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), apply: z.boolean().default(false) }),
     run: ({ fixture, apply }) => {
       const { f, r } = head(fixture);
+      if (apply && show.motionLock(fixture) === "hard")
+        // new inversions would send the frozen head elsewhere, and releasing its manual position would lose it (T26)
+        throw new CommandError(
+          "failed",
+          say(`${f.name} : lyre figée (tout, pad compris) : la défiger, puis appliquer la calibration`, `${f.name}: moving head frozen (everything, pad included): unfreeze it, then apply the calibration`),
+          { refused: [fixture] },
+        );
       const result = calibrate({ position: f.position!, hung: isHung(f), panMax: r.panMax, tiltMax: r.tiltMax }, samples.get(fixture) ?? []);
       if ("error" in result) throw new Error(result.error);
       if (apply) {

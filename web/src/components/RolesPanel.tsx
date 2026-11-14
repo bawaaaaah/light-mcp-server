@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, cmd, grants } from "../api";
+import { impliedBy } from "../rights";
 import { useT } from "../App";
 import { roleLabel } from "../i18n";
 import { quoted, beforeMark } from "../typography";
@@ -87,17 +88,22 @@ export function RolesPanel(): ReactElement {
             ...rights.map((right) => (
               <tr key={right}>
                 <td>{t.rightNames[right as keyof typeof t.rightNames] ?? right}</td>
-                {roles.map((r) => (
-                  <td key={r.id} className="check">
-                    <input
-                      type="checkbox"
-                      aria-label={`${roleLabel(t, r.id, r.name)} · ${t.rightNames[right as keyof typeof t.rightNames] ?? right}`}
-                      checked={grants(r.rights, right)}
-                      disabled={r.id === "admin"}
-                      onChange={() => patch(r.id, { rights: toggle(r.rights, right) })}
-                    />
-                  </td>
-                ))}
+                {roles.map((r) => {
+                  // granted through another right (commands:position brings commands:freeze): shown, not removable here
+                  const by = impliedBy(r.rights, right);
+                  const byName = by && (t.rightNames[by as keyof typeof t.rightNames] ?? by);
+                  return (
+                    <td key={r.id} className="check" title={byName ? `${t.rightImpliedBy} ${quoted(t, byName)}` : undefined}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${roleLabel(t, r.id, r.name)} · ${t.rightNames[right as keyof typeof t.rightNames] ?? right}${byName ? ` (${t.rightImpliedBy} ${quoted(t, byName)})` : ""}`}
+                        checked={grants(r.rights, right)}
+                        disabled={r.id === "admin" || by !== undefined}
+                        onChange={() => patch(r.id, { rights: toggle(r.rights, right) })}
+                      />
+                    </td>
+                  );
+                })}
               </tr>
             )),
           ])}

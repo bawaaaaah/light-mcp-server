@@ -103,6 +103,25 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const venue = show.venue;
   const idSchema = z.object({ id: z.string() });
   /**
+   * « Figer les lyres », hard level (T26): a hard-frozen head keeps its pan/tilt where it is held, a logical position
+   * turned into bytes through its inversions and swap. Changing them would send it elsewhere: refused until it is
+   * unfrozen (the rest of the patch and the orientation stay editable).
+   */
+  const keepFrozenFlips = (id: string, before: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean } | undefined, after: typeof before) => {
+    if (show.motionLock(id) !== "hard" || !show.movingHeads().includes(id)) return;
+    const flips = (o: typeof before) => [o?.invertPan ?? false, o?.invertTilt ?? false, o?.swapPanTilt ?? false].join();
+    if (flips(before) === flips(after)) return;
+    const name = venue.fixtures.get(id)?.name ?? id;
+    throw new CommandError(
+      "failed",
+      say(
+        `${name} : lyre figée (tout, pad compris) : inverser ou permuter son pan/tilt la déplacerait ; la défiger d'abord (motion.unfreeze)`,
+        `${name}: moving head frozen (everything, pad included): inverting or swapping its pan/tilt would move it; unfreeze it first (motion.unfreeze)`,
+      ),
+      { refused: [id] },
+    );
+  };
+  /**
    * What uses a look, a group, a fader or a canvas (show/references.ts). Songs and mappings are opened on
    * call: a store collection keeps the schema of its first opening, and the plugin opens those two
    * with their own schemas after these commands are registered.
@@ -241,6 +260,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       // a universe the output does not have: its light would go nowhere. A fixture already there (an
       // older patch, a smaller config) can still be edited where it is.
       const before = venue.fixtures.get(fixture.id);
+      if (before) keepFrozenFlips(fixture.id, before.orientation, fixture.orientation);
       if (fixture.universe > engine.output.count && fixture.universe !== before?.universe)
         throw new CommandError("invalid", say(`univers ${fixture.universe} hors de 1..${engine.output.count} (les univers de la sortie, Réglages)`, `universe ${fixture.universe} out of 1..${engine.output.count} (the output's universes, Settings)`));
       // ticked tracks (T5) named as venue.tracks.put accepts them
@@ -289,6 +309,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...(invertPan !== undefined ? { invertPan } : {}),
         ...(invertTilt !== undefined ? { invertTilt } : {}),
       };
+      keepFrozenFlips(fixtureId, f.orientation, orientation);
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };
     },
@@ -662,6 +683,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       // out of the patch, out of the show's absent list: a fixture patched later under this id is installed
       // and its rest position goes with it (not a use: it never blocks the delete). Other shows of a shared venue keep a stale id, which is ignored (only movingHeads() are read)
       if (deleted) {
+        // and out of the motion lock (T26): a fixture patched later under this id is not frozen by a stale entry
+        show.forgetLockedHead(i);
         const { [i]: _gone, ...restPositions } = show.settings.restPositions;
         const absentFixtures = show.settings.absentFixtures.filter((x) => x !== i);
         if (Object.hasOwn(show.settings.restPositions, i) || absentFixtures.length !== show.settings.absentFixtures.length) show.saveSettings({ absentFixtures, restPositions });

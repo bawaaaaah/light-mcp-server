@@ -1030,6 +1030,7 @@ const fr = {
   newPin: "Nouveau PIN",
   noRight: "droit requis",
   rolesHelp: "Ce que chaque rôle peut faire : une page ou un bouton n'apparaît (ou n'est actif) que si le rôle en a le droit, et le serveur refuse le reste, MCP compris. L'administrateur a tous les droits.",
+  rightImpliedBy: "Compris dans le droit",
   rightAreas: { live: "En direct", technique: "Technique", design: "Conception", access: "Accès" },
   rightNames: {
     "commands:trigger": "Lancer des looks et des sections",
@@ -2459,6 +2460,7 @@ const en: typeof fr = {
   newPin: "New PIN",
   noRight: "right required",
   rolesHelp: "What each role may do: a page or a button only shows up (or works) with the right, and the server refuses the rest, MCP included. The administrator has every right.",
+  rightImpliedBy: "Included in the right",
   rightAreas: { live: "Live", technique: "Technical", design: "Design", access: "Access" },
   rightNames: {
     "commands:trigger": "Start looks and sections",

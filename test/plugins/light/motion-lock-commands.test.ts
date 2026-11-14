@@ -1,12 +1,13 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus, type PluginEvent } from "../../../src/core/event-bus.js";
-import { AuthService, DEFAULT_ROLES, rightMatches } from "../../../src/core/auth.js";
+import { AuthService, DEFAULT_ROLES, IMPLIED_RIGHTS, rightMatches } from "../../../src/core/auth.js";
 import { ConfigStore } from "../../../src/core/config-store.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { CommandError, systemContext, type CommandContext } from "../../../src/plugins/light/commands/registry.js";
+import { CommandError, systemContext, type CommandContext, type Origin } from "../../../src/plugins/light/commands/registry.js";
+import { grants, IMPLIED } from "../../../web/src/rights.js";
 
 /**
  * « Figer les lyres » through its commands and rights (T26, lot 3; docs/specs/rules-limits.md, « Verrou des lyres »):
@@ -109,7 +110,7 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(plugin.runtime.heldPosition("spot")).to.equal(undefined);
     });
 
-    it("unfreezes a head on its own, and says when the global lock still holds it", async () => {
+    it("unfreezes a head on its own, says when the global lock still holds it; without a target, unfreezes everything", async () => {
       await run("motion.freeze", { fixtures: ["spot", "spot2"], level: "hard" });
       await run("motion.unfreeze", { fixtures: ["spot2"], to: "soft" });
       expect(lock().heads).to.deep.equal({ spot: "hard", spot2: "soft" });
@@ -117,6 +118,57 @@ describe("motion lock commands (T26, lot 3)", () => {
       const r = (await run("motion.unfreeze", { fixtures: ["spot2"] })) as Report;
       expect(r.heads).to.deep.equal({ spot: "hard" });
       expect(r.fixtures).to.deep.equal([{ id: "spot2", lock: "soft" }]); // the global soft lock still holds it
+      // decision U2: « Défiger » without a target lifts the global lock and every head's own
+      const all = (await run("motion.unfreeze")) as Report;
+      expect(all).to.deep.include({ level: "off", heads: {} });
+      expect(all.fixtures).to.deep.equal([
+        { id: "spot", lock: "off" },
+        { id: "spot2", lock: "off" },
+      ]);
+    });
+
+    it("unfreeze without a target lifts everything: global, per head, absent and no longer patched ids (decision U2)", async () => {
+      await run("motion.freeze", { level: "soft" });
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("venue.fixture.presence", { fixtures: ["spot2"], present: false });
+      plugin.runtime.setMotionLock({ level: lock().level, heads: { ...lock().heads, ghost: "hard" } });
+      await run("motion.unfreeze");
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      expect(plugin.state().motionLock.effective).to.equal("off");
+      expect(plugin.runtime.heldPosition("spot")).to.equal(undefined);
+    });
+
+    it("unfreeze to soft without a target loosens every hard lock to soft, global and per head", async () => {
+      await run("motion.freeze", { level: "hard" });
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("motion.unfreeze", { to: "soft" });
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot: "soft", spot2: "soft" } });
+    });
+
+    it("unfreeze to soft on a free head never freezes it", async () => {
+      await run("motion.unfreeze", { fixtures: ["spot"], to: "soft" });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+    });
+
+    it("unfreezes an id no longer in the patch that the lock still names", async () => {
+      plugin.runtime.setMotionLock({ level: "off", heads: { ghost: "hard" } });
+      await run("motion.unfreeze", { fixtures: ["ghost"] });
+      expect(lock().heads).to.deep.equal({});
+      expect((await refusal(run("motion.unfreeze", { fixtures: ["ghost"] }))).message).to.match(/ghost/);
+    });
+
+    it("a fixture deleted from the patch leaves the lock; patched again under its id, it is free", async () => {
+      await run("motion.freeze", { fixtures: ["spot2"], level: "hard" });
+      expect(plugin.runtime.heldPosition("spot2")).to.not.equal(undefined);
+      await run("venue.fixture.delete", { id: "spot2", force: true });
+      expect(lock().heads).to.deep.equal({});
+      expect(plugin.runtime.settings.motionLock?.held).to.not.have.property("spot2");
+      plugin.venue.fixtures.put({ id: "spot2", name: "Spot 2", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 11, position: { x: 1, y: 2, z: 5 }, mount: "hung" });
+      during(100);
+      expect(plugin.runtime.motionLock("spot2")).to.equal("off");
+      expect(plugin.runtime.heldPosition("spot2")).to.equal(undefined);
     });
 
     it("unfreezes a head marked absent after it was frozen", async () => {
@@ -139,6 +191,18 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(lock().heads).to.deep.equal({ spot: "soft", spot2: "soft" });
       await run("motion.freeze", { toggle: true, fixtures: ["spot", "spot2"] });
       expect(lock().heads).to.deep.equal({});
+    });
+
+    it("the global toggle frees everything when anything is frozen, per head included (decision U2)", async () => {
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      await run("motion.freeze", { toggle: true }); // spot is frozen: everything is freed
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      await run("motion.freeze", { toggle: true, level: "hard" }); // nothing frozen: the global lock at the level given
+      expect(lock()).to.deep.equal({ level: "hard", heads: {} });
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      expect(plugin.state().motionLock.effective).to.equal("off");
     });
 
     it("puts the lock in `state`, with the strictest effective level, and sends it on every change", async () => {
@@ -174,6 +238,24 @@ describe("motion lock commands (T26, lot 3)", () => {
       await run("motion.freeze", { toggle: true }, desk);
       expect(lock().level).to.equal("soft");
       expect((await refusal(run("motion.freeze", {}, role("lecture")))).code).to.equal("forbidden");
+    });
+
+    it("OSC, OS2L, AbleSet and a song's timeline may freeze but not unfreeze (decision U3); MIDI and the interface may", async () => {
+      const from = (origin: Origin): CommandContext => ({ origin, can: () => true });
+      for (const origin of ["osc", "os2l", "ableset", "timeline"] as const) {
+        await run("motion.freeze", { level: "hard" }, from(origin));
+        await run("motion.freeze", { fixtures: ["spot"] }, from(origin));
+        expect((await refusal(run("motion.unfreeze", {}, from(origin)))).message).to.match(new RegExp(origin));
+        expect((await refusal(run("motion.unfreeze", { fixtures: ["spot"], to: "soft" }, from(origin)))).code).to.equal("failed");
+        // a toggle that would loosen is refused; one that freezes passes
+        await refusal(run("motion.freeze", { toggle: true }, from(origin)));
+        await refusal(run("motion.freeze", { toggle: true, fixtures: ["spot"] }, from(origin)));
+        expect(lock()).to.deep.equal({ level: "hard", heads: { spot: "soft" } });
+        await run("motion.unfreeze", {}, from("midi"));
+        await run("motion.freeze", { toggle: true, fixtures: ["spot2"] }, from(origin));
+        expect(lock().heads).to.deep.equal({ spot2: "soft" });
+        await run("motion.unfreeze", {}, from("ui"));
+      }
     });
 
     it("whoever may aim the heads may freeze them (commands:position brings commands:freeze)", async () => {
@@ -223,6 +305,45 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(homed.refused).to.deep.equal(["spot"]);
     });
 
+    it("position.releaseTop releases nothing on a hard-frozen head and lists it in refused", async () => {
+      await run("position.set", { pan: 0.3 });
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      const one = (await run("position.releaseTop", { fixtures: ["spot"] })) as { fixtures: unknown[]; refused: string[] };
+      expect(one.fixtures).to.deep.equal([{ fixture: "spot", released: [] }]);
+      expect(one.refused).to.deep.equal(["spot"]);
+      const all = (await run("position.releaseTop")) as { fixtures: { fixture: string }[]; refused: string[] };
+      expect(all.refused).to.deep.equal(["spot"]);
+      expect(plugin.runtime.manualPosition("spot")?.pan).to.equal(0.3);
+      await run("motion.unfreeze");
+      expect(await run("position.releaseTop", { fixtures: ["spot2"] })).to.not.have.property("refused");
+    });
+
+    it("calibration.solve may solve a hard-frozen head but not apply: new inversions would move it", async () => {
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      const err = await refusal(run("calibration.solve", { fixture: "spot", apply: true }));
+      expect(err.message).to.match(/Spot.*(figée|frozen)/);
+      expect(err.detail).to.deep.equal({ refused: ["spot"] });
+      // without apply, the lock is not the problem (here: no marks yet)
+      expect((await refusal(run("calibration.solve", { fixture: "spot" }))).message).to.not.match(/figée|frozen/);
+    });
+
+    it("the pan/tilt inversions and swap of a hard-frozen head cannot change; the rest of the patch can", async () => {
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      expect((await refusal(run("venue.fixture.orient", { id: "spot", invertPan: true }))).detail).to.deep.equal({ refused: ["spot"] });
+      const f = plugin.venue.fixtures.get("spot")!;
+      await refusal(run("venue.fixture.put", { fixture: { ...f, orientation: { ...f.orientation, invertTilt: true } } }));
+      await refusal(run("venue.fixture.put", { fixture: { ...f, orientation: { ...f.orientation, swapPanTilt: true } } }));
+      expect(plugin.venue.fixtures.get("spot")?.orientation?.invertTilt ?? false).to.equal(false);
+      await run("venue.fixture.put", { fixture: { ...f, name: "Spot A" } });
+      await run("venue.fixture.orient", { id: "spot", yaw: 90 });
+      expect(plugin.venue.fixtures.get("spot")?.name).to.equal("Spot A");
+      // soft or free: allowed
+      await run("venue.fixture.orient", { id: "spot2", invertPan: true });
+      await run("motion.unfreeze", { fixtures: ["spot"], to: "soft" });
+      await run("venue.fixture.orient", { id: "spot", invertPan: true });
+      expect(plugin.venue.fixtures.get("spot")?.orientation?.invertPan).to.equal(true);
+    });
+
     it("a global hard lock refuses a release of every head", async () => {
       await run("motion.freeze", { level: "hard" });
       expect((await refusal(run("position.release"))).detail).to.deep.equal({ refused: ["spot", "spot2"] });
@@ -265,6 +386,24 @@ describe("the commands:freeze right on stored roles (T26 migration)", () => {
     expect(rightsOf(auth, "benevole")).to.include("commands:freeze");
     expect(rightsOf(auth, "accueil")).to.deep.equal(["commands:panic", "commands:freeze"]);
     expect(rightsOf(auth, "son")).to.deep.equal(["commands:tempo"]);
+  });
+
+  it("saves the mark at once: removed before any other change of the roles, the right stays removed", async () => {
+    const config = await store({ roles: [{ id: "admin", name: "Admin", rights: ["*"] }, { id: "accueil", name: "Accueil", rights: ["commands:panic"] }] });
+    void new AuthService("master", config);
+    let saved: { server: { auth?: { migrations?: string[] } } } | undefined;
+    for (let i = 0; i < 50 && !saved?.server.auth?.migrations?.includes("commands:freeze"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      saved = JSON.parse(readFileSync(config.filePath, "utf8")) as typeof saved;
+    }
+    expect(saved?.server.auth?.migrations).to.include("commands:freeze");
+  });
+
+  it("the interface matches rights as the server does (implied rights included)", () => {
+    expect(IMPLIED).to.deep.equal(IMPLIED_RIGHTS);
+    const rights = ["commands:position", "commands:freeze", "commands:panic", "show:write", "show:propose", "show:admin", "dashboards:view"];
+    const granted = [["*"], ["commands:*"], ["show:*"], ["commands:position"], ["commands:panic"], ["show:write"], ["show:propose"], []];
+    for (const g of granted) for (const r of rights) expect(grants(g, r), `${g.join(",")} → ${r}`).to.equal(g.some((x) => rightMatches(x, r)));
   });
 
   it("runs once: a right removed after the migration stays removed", async () => {

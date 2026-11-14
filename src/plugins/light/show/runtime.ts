@@ -389,6 +389,24 @@ export class ShowRuntime {
     this.flushHeld();
   }
 
+  /**
+   * A fixture gone from the patch leaves the motion lock (T26): its own level and where it was held, so a fixture
+   * patched later under this id is not frozen by a stale entry (the global lock still applies to it, as to any head).
+   * Saved at once; nothing to do when the lock does not name it.
+   */
+  forgetLockedHead(id: string): void {
+    const lock = this.settings.motionLock;
+    const own = lock !== undefined && Object.hasOwn(lock.heads, id);
+    if (!own && !this.lockHeld.has(id)) return;
+    this.lockHeld.delete(id);
+    this.lockArrivals.delete(id);
+    this.lockLevels.delete(id);
+    const { [id]: _gone, ...heads } = lock?.heads ?? {};
+    this.settings = { ...this.settings, motionLock: { level: lock?.level ?? "off", heads, held: Object.fromEntries(this.lockHeld) } };
+    this.heldUrgent = true;
+    this.flushHeld();
+  }
+
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */
   heldPosition(fixture: string): Position | undefined {
     return this.motionLock(fixture) === "off" ? undefined : this.lockHeld.get(fixture);

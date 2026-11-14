@@ -75,8 +75,7 @@ export const DEFAULT_ROLES: Role[] = [
 
 /**
  * Rights added to the stored roles once, when a new right takes over part of an older one. Applied at load, marked
- * done in the state; the mark is saved with the next change of the roles, so until then the migration simply runs
- * again on the same roles.
+ * done in the state and saved at once (a failed save only runs it again on the next start).
  * - `commands:freeze` (T26, decision Q2 of 2026-11-11): freezing the moving heads (soft lock) goes with the Panic.
  */
 const ROLE_MIGRATIONS: { id: string; from: string; add: string }[] = [{ id: "commands:freeze", from: "commands:panic", add: "commands:freeze" }];
@@ -99,12 +98,13 @@ export function verifyPin(pin: string, stored: string): boolean {
  * Rights that come with another: whoever may change the show may propose a change to it; whoever may move the
  * moving heads by hand may freeze them (T26).
  */
-const IMPLIED: Record<string, string> = { "show:propose": "show:write", "commands:freeze": "commands:position" };
+export const IMPLIED_RIGHTS: Readonly<Record<string, string>> = { "show:propose": "show:write", "commands:freeze": "commands:position" };
 
 export function rightMatches(granted: string, wanted: string): boolean {
   if (granted === "*" || granted === wanted) return true;
   if (granted.endsWith(":*")) return wanted.startsWith(granted.slice(0, -1));
-  return IMPLIED[wanted] !== undefined && rightMatches(granted, IMPLIED[wanted]);
+  const implied = IMPLIED_RIGHTS[wanted];
+  return implied !== undefined && rightMatches(granted, implied);
 }
 
 export function tokensMatch(candidate: string | undefined, token: string): boolean {
@@ -174,11 +174,15 @@ export class AuthService implements AuthMiddleware {
     for (const role of DEFAULT_ROLES) if (!this.state.roles.some((r) => r.id === role.id)) this.state.roles.push({ ...role, rights: [...role.rights] });
     const admin = this.state.roles.find((r) => r.id === "admin")!;
     if (!admin.rights.includes("*")) admin.rights = ["*"];
+    let migrated = false;
     for (const m of ROLE_MIGRATIONS) {
       if (this.state.migrations.includes(m.id)) continue;
       for (const role of this.state.roles) if (role.rights.includes(m.from) && !role.rights.includes(m.add)) role.rights.push(m.add);
       this.state.migrations.push(m.id);
+      migrated = true;
     }
+    // the mark is saved at once: a right an administrator removes before any other change of the roles stays removed
+    if (migrated) void this.save().catch((err: unknown) => console.warn("rôles : migration non enregistrée, elle sera rejouée au prochain démarrage :", (err as Error).message));
     const stored = configStore?.getAuthSessions();
     for (const entry of Array.isArray(stored) ? stored : []) {
       const session = SessionSchema.safeParse(entry);
