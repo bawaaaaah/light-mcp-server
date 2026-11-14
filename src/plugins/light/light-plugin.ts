@@ -587,16 +587,19 @@ export class LightPlugin implements McpPlugin {
     if (!ID_RE.test(venue)) throw new Error(say(`lieu invalide dans le show ${id} : ${venue}`, `invalid venue in show ${id}: ${venue}`));
     // the open show again is a no-op, unless its venue changed (show.venue.set / detach): then it follows
     if (id === this.config.show && venue === this.config.venue) return;
+    // where the locked heads are frozen goes to the show they were frozen in, before it is left (T26)
+    this.runtime.flushHeld();
     this.saveLive();
     this.runtime.resetLive();
     this.engine.setBlackout(false);
     this.show.retarget(showRoot, path.join(this.dataRoot, "backups", "shows", id));
     if (venue !== this.config.venue) this.venue.retarget(path.join(this.dataRoot, "venues", venue), path.join(this.dataRoot, "backups", "venues", venue), this.definitionDirs(venue));
     this.config = { ...this.config, show: id, venue };
-    await this.opts.config?.set(this.config);
     if (this.songs) Object.assign(this.songs.state, { setlist: undefined, song: undefined, section: undefined });
+    // from the retarget to here, nothing awaits: no frame can write the old show's settings into the new folder
     this.reloadFromDisk();
     this.recallStartup(); // the opened show's own startup snapshot
+    await this.opts.config?.set(this.config);
   }
 
   /**
@@ -643,6 +646,7 @@ export class LightPlugin implements McpPlugin {
    */
   private restoreArchive(bytes: Uint8Array, fixtures: FixturePolicy = "missing", keepMachine: readonly string[] = []): RestoreResult & { manifest: ReturnType<typeof readArchive>["manifest"] } {
     const content = readArchive(bytes);
+    this.runtime.flushHeld(); // the show replaced is backed up with its heads where they are frozen (T26)
     this.runtime.stopAll();
     try {
       return { manifest: content.manifest, ...applyRestore(content, this.restoreTargets(), fixtures, restoreBackupDir(this.dataRoot), keepMachine) };
@@ -944,6 +948,7 @@ export class LightPlugin implements McpPlugin {
     for (const t of this.autoBackupTimers) clearTimeout(t);
     if (this.started) this.saveLive();
     this.show.flushLive();
+    this.runtime.flushHeld(); // the pad's last move under a soft lock, still within its second (T26)
     this.osc.stop();
     if (this.clockTimer) clearInterval(this.clockTimer);
     await this.ableset.stop();

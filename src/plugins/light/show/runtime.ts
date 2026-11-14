@@ -11,7 +11,7 @@ import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
-import { claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, releasedOf, releaseMotion, resolveMotion, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
+import { claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
@@ -24,11 +24,15 @@ import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
-import { heldOf, lockOf, lockState, type MotionLockState } from "./motion-lock.js";
+import { hardenLock, heldOf, lockOf, lockState, sameLock, type MotionLockState } from "./motion-lock.js";
+import { hermiteAt } from "../engine/hermite.js";
 import { say } from "../../../core/lang.js";
 
-/** T26: a soft-locked head moved by the pad is written to show.json this long after the last move. */
+/** T26: a soft-locked head moved by the pad is written to show.json this long after the last move (and a failed write retried). */
 export const HELD_WRITE_DELAY_MS = 1000;
+
+/** How a snapshot puts its motion lock back (T26): `exact` (snapshot.recall, decision Q3), or `harden` only (the Panic's safe snapshot and the startup snapshot, decisions D1 and D2). */
+export type SnapshotLockMode = "exact" | "harden";
 
 /** How long a Panic stays undoable. */
 export const PANIC_UNDO_MS = 60_000;
@@ -283,8 +287,18 @@ export class ShowRuntime {
   private lockHeld: Map<string, Position>;
   /** Each head's lock level on the last frame: a soft lock hardening takes `held` again. */
   private readonly lockLevels = new Map<string, LockLevel>();
-  /** Since when a change of `held` made by the pad waits to be written to show.json (one second after the last). */
+  /** Since when a change of `held` made by the pad (or a failed write) waits to be written to show.json (one second after). */
   private heldDirtySince: number | undefined;
+  /** A freeze or a release of `held` to write to show.json as soon as the frame is over. */
+  private heldUrgent = false;
+  /** A write of `held` is queued after the current frame (never inside it: a failing disk must not blank a frame). */
+  private heldWriteQueued = false;
+  /**
+   * T26, decision D4: a show opened (or restored) while its heads were already sent somewhere, with locked heads held
+   * elsewhere: they glide from where they were sent to their stored `held` (at least UNLOCK_MIN_MS), they do not jump.
+   * `t0`/`dur` are set on the first frame that renders it.
+   */
+  private readonly lockArrivals = new Map<string, { from: Position; t0?: number; dur?: number }>();
   /** The slots (0-based, per universe) the DMX console forces: the hard lock leaves them to it (decision Q4). Set by the plugin. */
   consoleSlots: () => ReadonlyMap<number, ReadonlySet<number>> = () => new Map();
   /** The slot each colour wheel holds (venue.toDmx): kept from frame to frame, a slot changes only for one clearly closer (color-wheel.ts). */
@@ -332,10 +346,19 @@ export class ShowRuntime {
   reloadSettings(): void {
     this.settings = this.store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
-    // the lock is the open show's, with its heads where that show froze them
+    // the lock is the open show's, with its heads where that show froze them (what was pending for the show before is
+    // the caller's to flush first: flushHeld)
     this.lockHeld = heldOf(this.settings.motionLock);
     this.lockLevels.clear();
     this.heldDirtySince = undefined;
+    this.heldUrgent = false;
+    // decision D4: heads already sent somewhere glide to where the opened show holds them; after a restart (nothing
+    // sent yet) they take it at once on the first frame
+    this.lockArrivals.clear();
+    for (const [head, to] of this.lockHeld) {
+      const from = this.sentPositions.get(head);
+      if (from && this.motionLock(head) !== "off" && (from.pan !== to.pan || from.tilt !== to.tilt)) this.lockArrivals.set(head, { from });
+    }
   }
 
   saveSettings(patch: Partial<ShowSettings>): ShowSettings {
@@ -356,9 +379,12 @@ export class ShowRuntime {
    * unlocked forgets where it was held and glides back to what claims it (at least a second). Saved in show.json.
    */
   setMotionLock(state: MotionLockState): void {
-    const held = Object.fromEntries(this.lockHeld);
-    this.saveSettings({ motionLock: { level: state.level, heads: { ...state.heads }, held } });
-    if (this.syncLockHeld()) this.writeHeld();
+    // the same levels: nothing to do, nothing written (a show without a lock does not get `motionLock: off`)
+    if (sameLock(state, this.motionLockState())) return;
+    // the levels in effect first, `held` brought in line with them, then one write
+    this.settings = { ...this.settings, motionLock: { level: state.level, heads: { ...state.heads }, held: Object.fromEntries(this.lockHeld) } };
+    this.syncLockHeld();
+    this.writeHeld();
   }
 
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */
@@ -378,10 +404,7 @@ export class ShowRuntime {
       const level = this.motionLock(head);
       const was = this.lockLevels.get(head);
       this.lockLevels.set(head, level);
-      if (level === "off") {
-        if (this.lockHeld.delete(head)) urgent = true;
-        continue;
-      }
+      if (level === "off") continue; // dropped below, with the heads no longer listed
       const sent = this.sentPositions.get(head);
       if (!sent) continue; // nothing sent yet: the layer freezes the head where it starts, `held` follows on the next frame
       const held = this.lockHeld.get(head);
@@ -389,26 +412,76 @@ export class ShowRuntime {
       if (!held || (level === "hard" && was === "soft")) {
         if (!same) urgent = true;
         this.lockHeld.set(head, { pan: sent.pan, tilt: sent.tilt });
+        this.lockArrivals.delete(head);
         continue;
       }
       // the pad moves a soft-locked head: it is frozen where the pad leaves it
       const status = this.lastMotion.get(head);
       if (level === "soft" && !same && (status?.pan.layer === "manual" || status?.tilt.layer === "manual")) {
         this.lockHeld.set(head, { pan: sent.pan, tilt: sent.tilt });
+        this.lockArrivals.delete(head);
         if (now !== undefined) this.heldDirtySince = now;
         else urgent = true;
       }
     }
+    // a head free now forgets where it was held, listed or not (an absent head unlocked must not snap back to a stale
+    // `held` when it is locked again)
+    for (const head of [...this.lockHeld.keys()]) {
+      if (this.motionLock(head) !== "off") continue;
+      this.lockHeld.delete(head);
+      this.lockArrivals.delete(head);
+      urgent = true;
+    }
     return urgent;
   }
 
-  /** Writes `held` to show.json (with the lock levels as they are). */
+  /** Writes `held` to show.json (with the lock levels as they are); nothing is pending after it. Throws on a failed write. */
   private writeHeld(): void {
-    this.heldDirtySince = undefined;
     const lock = this.settings.motionLock;
-    const held = Object.fromEntries(this.lockHeld);
-    if (!lock && !this.lockHeld.size) return;
-    this.saveSettings({ motionLock: { ...lockState(lock), held } });
+    if (lock || this.lockHeld.size) this.saveSettings({ motionLock: { ...lockState(lock), held: Object.fromEntries(this.lockHeld) } });
+    this.heldDirtySince = undefined;
+    this.heldUrgent = false;
+  }
+
+  /**
+   * Writes a pending change of `held` now (a freeze, a release, the pad's last move under a soft lock), and nothing
+   * otherwise: before the show changes (show.open, an archive restored) and on stop, so that nothing is lost and
+   * nothing is written into another show. A failed write is said and retried a second later, never thrown.
+   */
+  flushHeld(): void {
+    if (!this.heldUrgent && this.heldDirtySince === undefined) return;
+    try {
+      this.writeHeld();
+    } catch (err) {
+      console.warn("verrou des lyres : position figée non enregistrée, nouvel essai dans une seconde :", (err as Error).message);
+      this.heldUrgent = false;
+      this.heldDirtySince = this.now();
+    }
+  }
+
+  /** Queues `flushHeld` right after the current frame, once. */
+  private queueHeldWrite(): void {
+    if (this.heldWriteQueued) return;
+    this.heldWriteQueued = true;
+    queueMicrotask(() => {
+      this.heldWriteQueued = false;
+      this.flushHeld();
+    });
+  }
+
+  /**
+   * Where a locked head is frozen at `now` (T26 `held`): its stored `held`, or on the way there after a show opened
+   * (decision D4). Pure in `now`: the arrival starts on the first frame that renders it.
+   */
+  private heldAt(head: string, now: number): Position | undefined {
+    const to = this.lockHeld.get(head);
+    const a = to && this.lockArrivals.get(head);
+    if (!to || !a) return to;
+    const { from, t0, dur } = a;
+    if (t0 === undefined || dur === undefined) return from;
+    if (now - t0 >= dur) return to;
+    const at = (axis: Axis) => hermiteAt({ from: from[axis], to: to[axis], start: t0, duration: dur, v0: 0 }, now);
+    return { pan: at("pan"), tilt: at("tilt") };
   }
 
   /** The technique with its palette applied (palettes are used by reference). */
@@ -499,10 +572,8 @@ export class ShowRuntime {
   takeBeforePanic(now = Date.now()): Snapshot | undefined {
     const kept = this.beforePanic;
     this.beforePanic = undefined;
-    if (!kept || now > kept.until) return undefined;
-    // « Annuler le Panic » leaves the lock alone (T26): the Panic did not touch it, a freeze since must hold
-    const { motionLock: _lock, ...snap } = kept.snap;
-    return { id: "avant-panic", name: "Avant le Panic", ...snap };
+    // with the lock as it was before the Panic (decision D3): one the safe snapshot hardened is given back as it was
+    return kept && now <= kept.until ? { id: "avant-panic", name: "Avant le Panic", ...kept.snap } : undefined;
   }
 
   /** The live state a snapshot saves: looks playing, DCA, channel faders, grand master, program, the motion lock levels (T26). */
@@ -523,10 +594,11 @@ export class ShowRuntime {
    * Puts a snapshot back: its levels first (playback DCAs start their looks), then only its looks
    * play. Objects deleted since are skipped and listed. The Blackout is the caller's (engine).
    */
-  applySnapshot(s: Snapshot): { looks: string[]; skipped: string[] } {
-    // the lock first (T26, decision Q3: exactly as saved, unlocking included; an older snapshot leaves it): its looks
-    // then start under it. A head it locks is frozen where it is now, not where the snapshot was saved
-    if (s.motionLock) this.setMotionLock(s.motionLock);
+  applySnapshot(s: Snapshot, lock: SnapshotLockMode = "exact"): { looks: string[]; skipped: string[] } {
+    // the lock first (T26), its looks then start under it: exactly as saved, unlocking included (decision Q3), or only
+    // what hardens it (the Panic's safe snapshot and the startup snapshot never unfreeze: decisions D1, D2); an older
+    // snapshot leaves it. A head it locks is frozen where it is now, not where the snapshot was saved
+    if (s.motionLock) this.setMotionLock(lock === "exact" ? s.motionLock : hardenLock(this.motionLockState(), s.motionLock));
     this.stopAll();
     this.playbackStarted.clear();
     const skipped: string[] = [];
@@ -1530,9 +1602,15 @@ export class ShowRuntime {
     this.withHeads(() => {
       const tempo = this.tempo.state();
       const now = this.now();
-      // where the locked heads are frozen (T26), from what was sent on the last frame; show.json at once on a freeze or
-      // a release, a second after the last move of the pad otherwise (not every frame)
-      if (this.syncLockHeld(now) || (this.heldDirtySince !== undefined && now - this.heldDirtySince >= HELD_WRITE_DELAY_MS)) this.writeHeld();
+      // where the locked heads are frozen (T26), from what was sent on the last frame; show.json right after the frame
+      // on a freeze or a release, a second after the last move of the pad otherwise (not every frame), never inside it
+      if (this.syncLockHeld(now)) this.heldUrgent = true;
+      if (this.heldUrgent || (this.heldDirtySince !== undefined && now - this.heldDirtySince >= HELD_WRITE_DELAY_MS)) this.queueHeldWrite();
+      // a show opened over heads sent elsewhere (D4): their glide to `held` starts now, gone once arrived
+      for (const [head, a] of this.lockArrivals) {
+        if (a.t0 === undefined || a.dur === undefined) Object.assign(a, { t0: now, dur: Math.max(UNLOCK_MIN_MS, motionDurationMs(this.settings.moveFade, tempo.bpm ?? FALLBACK_BPM)) });
+        else if (now - a.t0 >= a.dur) this.lockArrivals.delete(head);
+      }
       const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion };
       const errors = this.compose(buffers, now, tempo.beats, this.wheels, run);
       this.motionState = run.state;
@@ -1863,7 +1941,7 @@ export class ShowRuntime {
           ...(motion.sent ? { sent: motion.sent } : {}),
           settings: { moveFade: this.settings.moveFade, rest: this.settings.restPositions },
           lock: this.motionLock,
-          heldOf: (head) => this.lockHeld.get(head),
+          heldOf: (head) => this.heldAt(head, now),
           axisMode: (head, axis) => this.axisMode(head, axis),
         },
         motion.state,
@@ -2007,8 +2085,9 @@ export class ShowRuntime {
   private freezeHard(buffers: Uint8Array[]): void {
     if (!this.lockHeld.size) return;
     let forced: ReadonlyMap<number, ReadonlySet<number>> | undefined;
+    const now = this.now();
     for (const head of this.movingHeads()) {
-      const held = this.lockHeld.get(head);
+      const held = this.heldAt(head, now);
       if (!held || this.motionLock(head) !== "hard") continue;
       const r = this.venue.resolve(head);
       const buf = "error" in r ? undefined : buffers[r.patch.universe - 1];

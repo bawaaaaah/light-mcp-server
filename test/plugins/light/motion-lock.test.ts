@@ -1,10 +1,11 @@
 import { expect } from "chai";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
+import { recallStartupSnapshot } from "../../../src/plugins/light/commands/show-commands.js";
 import type { Position } from "../../../src/plugins/light/engine/move.js";
 import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-report.js";
 
@@ -24,10 +25,12 @@ describe("motion lock in the engine (T26)", () => {
   let plugin: LightPlugin;
   let dataRoot: string;
   let now = 0;
+  /** Runs while the configuration is saved (show.open awaits it): a frame there must not write into the wrong show. */
+  let onSet: () => void = () => undefined;
   const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
   const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
   const start = () => {
-    plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null, now: () => now });
+    plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => onSet() }, dataRoot, midiNative: null, now: () => now });
   };
   /** One engine frame (render, DMX console, guard, Blackout), 20 ms on: a copy of universe 1. */
   const frame = (): Uint8Array => {
@@ -36,6 +39,17 @@ describe("motion lock in the engine (T26)", () => {
     return Uint8Array.from(plugin.engine.output.buffers[0]!);
   };
   const during = (ms: number): Uint8Array[] => Array.from({ length: Math.round(ms / 20) }, frame);
+  /** Lets what is queued after a frame run (the writes of `held` never happen inside a frame). */
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  /** Frames as the engine runs them: what each frame queues runs before the next one. */
+  const live = async (ms: number): Promise<Uint8Array[]> => {
+    const frames: Uint8Array[] = [];
+    for (let i = 0; i < Math.round(ms / 20); i++) {
+      frames.push(frame());
+      await settle();
+    }
+    return frames;
+  };
   const pan = (b: Uint8Array, at = SPOT) => (b[at]! * 256 + b[at + 1]!) / 65535;
   const tilt = (b: Uint8Array, at = SPOT) => (b[at + 2]! * 256 + b[at + 3]!) / 65535;
   const posBytes = (b: Uint8Array, at = SPOT) => [...b.slice(at, at + 4)];
@@ -44,7 +58,13 @@ describe("motion lock in the engine (T26)", () => {
     Math.max(0, ...frames.slice(1).flatMap((f, i) => [Math.abs(pan(f, at) - pan(frames[i]!, at)), Math.abs(tilt(f, at) - tilt(frames[i]!, at))]));
   const lock = (level: "off" | "soft" | "hard", heads: Record<string, "soft" | "hard"> = {}) => plugin.runtime.setMotionLock({ level, heads });
   const listed = async (id = "spot") => ((await run("position.list")) as HeadMotionEntry[]).find((h) => h.id === id)!;
-  const showJson = () => JSON.parse(readFileSync(join(dataRoot, "shows", "default", "show.json"), "utf8")) as { motionLock?: { level: string; heads: object; held: Record<string, Position> } };
+  const showJson = (show = "default") =>
+    JSON.parse(readFileSync(join(dataRoot, "shows", show, "show.json"), "utf8")) as { grandMaster?: number; motionLock?: { level: string; heads: object; held: Record<string, Position> } };
+  /** Another show on the same venue, with the given settings. */
+  const otherShow = (settings: object) => {
+    mkdirSync(join(dataRoot, "shows", "autre"), { recursive: true });
+    writeFileSync(join(dataRoot, "shows", "autre", "show.json"), JSON.stringify({ schemaVersion: 1, kind: "show", venue: "default", ...settings }));
+  };
 
   beforeEach(() => {
     dataRoot = join(mkdtempSync(join(tmpdir(), "light-motion-lock-")), "data");
@@ -62,6 +82,7 @@ describe("motion lock in the engine (T26)", () => {
     look("raw", { channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[240]] } });
   });
   afterEach(async () => {
+    onSet = () => undefined;
     await plugin.stop();
   });
 
@@ -218,9 +239,9 @@ describe("motion lock in the engine (T26)", () => {
       lock("soft");
       expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(0.3, 1e-4);
       plugin.runtime.setPosition(["spot"], { pan: 0.6, tilt: 0.4 });
-      during(500);
+      await live(500);
       expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(0.3, 1e-4); // not yet
-      during(600);
+      await live(600);
       expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(0.6, 1e-4);
       expect(showJson().motionLock).to.deep.include({ level: "soft", heads: {} });
     });
@@ -263,7 +284,7 @@ describe("motion lock in the engine (T26)", () => {
       expect(plugin.runtime.motionLockState().level).to.equal("hard");
     });
 
-    it("a head locked by a recall is frozen where it is then; `panic.undo` leaves the lock alone", async () => {
+    it("a head locked by a recall is frozen where it is then; `panic.undo` gives back the lock from before the Panic (D3)", async () => {
       during(100);
       lock("hard");
       await run("snapshot.save", { name: "Figees" });
@@ -273,12 +294,246 @@ describe("motion lock in the engine (T26)", () => {
       await run("snapshot.recall", { id: "figees" });
       const held = during(500);
       for (const f of held) expect(pan(f)).to.be.closeTo(0.8, 1e-4);
-      // Panic, a freeze, then « Annuler le Panic »: the freeze holds
+      // Panic, a freeze, then « Annuler le Panic »: the lock is the one from before the Panic
       lock("off");
       await run("panic");
       lock("soft");
       await run("panic.undo");
+      expect(plugin.runtime.motionLockState().level).to.equal("off");
+    });
+  });
+
+  describe("Panic, startup snapshot and « Annuler le Panic » (decisions D1 to D3)", () => {
+    it("a safe snapshot saved free does not lift a hard lock: nothing moves, the lock stays", async () => {
+      during(100);
+      await run("snapshot.save", { name: "Secours" });
+      await run("show.settings.set", { safeSnapshot: "secours" });
+      await run("look.go", { id: "circle" });
+      during(500);
+      lock("soft", { spot: "hard" });
+      const held = during(100).at(-1)!;
+      await run("panic");
+      expect(plugin.runtime.motionLockState()).to.deep.equal({ level: "soft", heads: { spot: "hard" } });
+      for (const f of during(1500)) {
+        expect(posBytes(f)).to.deep.equal(posBytes(held));
+        expect(posBytes(f, SPOT2)).to.deep.equal(posBytes(held, SPOT2));
+      }
+    });
+
+    it("a soft safe snapshot under no lock freezes the heads where they are", async () => {
+      during(100);
+      lock("soft", { spot2: "hard" });
+      await run("snapshot.save", { name: "Secours" });
+      lock("off");
+      await run("show.settings.set", { safeSnapshot: "secours" });
+      await run("look.go", { id: "circle" });
+      during(700);
+      await run("panic");
+      expect(plugin.runtime.motionLockState()).to.deep.equal({ level: "soft", heads: { spot2: "hard" } });
+      const frozen = during(1500);
+      for (const f of frozen) expect(posBytes(f)).to.deep.equal(posBytes(frozen[0]!));
+    });
+
+    it("the startup snapshot only hardens the lock, it never unfreezes", async () => {
+      during(100);
+      lock("soft");
+      await run("snapshot.save", { name: "Souple" });
+      lock("off");
+      await run("snapshot.save", { name: "Libre" });
+      await run("show.settings.set", { startupSnapshot: "libre" });
+      await run("look.go", { id: "circle" });
+      during(700);
+      lock("hard");
+      const held = during(100).at(-1)!;
+      recallStartupSnapshot(plugin.engine, plugin.runtime);
+      expect(plugin.runtime.motionLockState().level).to.equal("hard");
+      for (const f of during(1000)) expect(posBytes(f)).to.deep.equal(posBytes(held));
+      // a stricter startup snapshot does harden: a free lock becomes soft
+      lock("off");
+      await run("show.settings.set", { startupSnapshot: "souple" });
+      recallStartupSnapshot(plugin.engine, plugin.runtime);
       expect(plugin.runtime.motionLockState().level).to.equal("soft");
+    });
+
+    it("« Annuler le Panic » gives back the lock as it was, one the safe snapshot hardened included", async () => {
+      during(100);
+      lock("hard");
+      await run("snapshot.save", { name: "Secours" });
+      await run("show.settings.set", { safeSnapshot: "secours" });
+      lock("soft");
+      during(100);
+      await run("panic");
+      expect(plugin.runtime.motionLockState().level).to.equal("hard");
+      await run("panic.undo");
+      expect(plugin.runtime.motionLockState().level).to.equal("soft");
+    });
+
+    it("a manual recall puts back the exact lock, unfreezing included", async () => {
+      during(100);
+      await run("snapshot.save", { name: "Libre" });
+      lock("hard");
+      await run("snapshot.recall", { id: "libre" });
+      expect(plugin.runtime.motionLockState()).to.deep.equal({ level: "off", heads: {} });
+    });
+
+    it("a recall that does not change the lock writes no `motionLock` into a show that had none", async () => {
+      await run("show.settings.set", { grandMaster: 0.8 }); // a show.json, without a lock
+      during(100);
+      await run("snapshot.save", { name: "S" });
+      await run("snapshot.recall", { id: "s" });
+      during(100);
+      await settle();
+      expect(showJson().motionLock).to.equal(undefined);
+    });
+  });
+
+  describe("held and the show switching, stopping or failing to write", () => {
+    it("show.open writes the old show's frozen heads into the old show, never its settings into the new one", async () => {
+      await run("show.settings.set", { grandMaster: 0.9 });
+      during(100);
+      lock("soft");
+      during(100);
+      plugin.runtime.setPosition(["spot"], { pan: 0.9, tilt: 0.1 });
+      during(100); // the pad's move is not written yet (a second after the last)
+      otherShow({ grandMaster: 0.42 });
+      // a frame while the configuration is saved
+      onSet = () => {
+        now += 1500;
+        frame();
+      };
+      await plugin.openShow("autre");
+      await settle();
+      expect(showJson("autre").grandMaster).to.equal(0.42);
+      expect(showJson("autre").motionLock).to.equal(undefined);
+      expect(plugin.runtime.settings.grandMaster).to.equal(0.42);
+      expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(0.9, 1e-4);
+      expect(showJson().grandMaster).to.equal(0.9);
+    });
+
+    it("a stop within a second of the pad's last move under a soft lock keeps it", async () => {
+      during(100);
+      plugin.runtime.setPosition(["spot"], { pan: 0.3, tilt: 0.4 });
+      during(100);
+      lock("soft");
+      plugin.runtime.setPosition(["spot"], { pan: 0.8, tilt: 0.4 });
+      const last = during(500).at(-1)!;
+      expect(pan(last)).to.be.closeTo(0.8, 1e-4);
+      await plugin.stop();
+      start();
+      expect(pan(frame())).to.be.closeTo(0.8, 1e-4);
+    });
+
+    it("a failing write never blanks a frame, is said, and is retried a second later until it passes", async () => {
+      await run("look.go", { id: "circle" });
+      during(500);
+      const store = (plugin.runtime as unknown as { store: { writeManifest: (...a: unknown[]) => void } }).store;
+      const write = store.writeManifest.bind(store);
+      let fail = false;
+      let attempts = 0;
+      store.writeManifest = (...a: unknown[]) => {
+        if (!fail) return write(...a);
+        attempts++;
+        throw new Error("ENOSPC");
+      };
+      const warn = console.warn;
+      const warned: string[] = [];
+      console.warn = (...a: unknown[]) => void warned.push(a.join(" "));
+      try {
+        lock("soft");
+        during(100);
+        plugin.runtime.setPosition(["spot"], { pan: 0.7, tilt: 0.6 });
+        fail = true;
+        const frames = await live(2500);
+        for (const f of frames) {
+          expect(f[SPOT + 5]).to.equal(255);
+          expect(f[SPOT2 + 5]).to.equal(255);
+        }
+        expect(attempts).to.be.within(2, 3); // about once a second, not every frame
+        expect(warned.length).to.equal(attempts);
+        fail = false;
+        await live(1100);
+        expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(0.7, 1e-4);
+      } finally {
+        console.warn = warn;
+      }
+    });
+  });
+
+  describe("show.open under a lock (decision D4)", () => {
+    it("heads already sent elsewhere glide to where the opened show holds them, over at least a second", async () => {
+      await run("show.settings.set", { moveFade: { seconds: 0 } });
+      during(100);
+      plugin.runtime.setPosition(["spot", "spot2"], { pan: 0.9, tilt: 0.9 });
+      during(200);
+      otherShow({ moveFade: { seconds: 0 }, motionLock: { level: "off", heads: { spot: "hard", spot2: "soft" }, held: { spot: { pan: 0.1, tilt: 0.1 }, spot2: { pan: 0.2, tilt: 0.3 } } } });
+      await plugin.openShow("autre");
+      const glide = during(1200);
+      expect(pan(glide[0]!)).to.be.closeTo(0.9, 0.01);
+      expect(steepest(glide)).to.be.below(0.05);
+      expect(steepest(glide, SPOT2)).to.be.below(0.05);
+      expect(pan(glide[40]!)).to.be.above(0.11); // 800 ms in: not there yet
+      const landed = glide.at(-1)!;
+      expect(pan(landed)).to.be.closeTo(0.1, 1e-4);
+      expect(tilt(landed)).to.be.closeTo(0.1, 1e-4);
+      expect(pan(landed, SPOT2)).to.be.closeTo(0.2, 1e-4);
+      expect(tilt(landed, SPOT2)).to.be.closeTo(0.3, 1e-4);
+      // and there they stay, the stored `held` untouched
+      for (const f of during(500)) expect(posBytes(f)).to.deep.equal(posBytes(landed));
+      expect(showJson("autre").motionLock!.held.spot).to.deep.equal({ pan: 0.1, tilt: 0.1 });
+    });
+  });
+
+  describe("level changes", () => {
+    it("show.settings.set cannot lift the lock", async () => {
+      lock("hard");
+      await run("show.settings.set", { motionLock: { level: "off" } });
+      expect(plugin.runtime.motionLockState().level).to.equal("hard");
+    });
+
+    it("a soft lock hardening takes `held` from what is sent: the DMX console's position stays once released", async () => {
+      during(100);
+      lock("soft");
+      during(100);
+      await run("dmx.set", { universe: 1, values: { "1": 200 } });
+      during(100);
+      lock("hard");
+      during(100);
+      await run("dmx.release", { universe: 1 });
+      expect(during(100).at(-1)![SPOT]).to.equal(200);
+    });
+
+    it("hard to soft lets a manual position the hard lock masked take the head back, gliding at least a second", async () => {
+      await run("show.settings.set", { moveFade: { seconds: 0 } });
+      during(100);
+      lock("hard");
+      during(100);
+      plugin.runtime.setPosition(["spot"], { pan: 0.9, tilt: 0.5 });
+      const masked = during(200);
+      for (const f of masked) expect(pan(f)).to.be.closeTo(0.5, 1e-3);
+      lock("soft");
+      const glide = during(1200);
+      expect(steepest(glide)).to.be.below(0.05);
+      expect(pan(glide[40]!)).to.be.below(0.89);
+      expect(pan(glide.at(-1)!)).to.be.closeTo(0.9, 1e-4);
+    });
+
+    it("a head unlocked while absent forgets where it was held: locked again, it freezes where it is", async () => {
+      during(100);
+      plugin.runtime.setPosition(["spot"], { pan: 0.1, tilt: 0.1 });
+      during(100);
+      lock("soft");
+      during(100);
+      await run("venue.fixture.presence", { fixtures: ["spot"], present: false });
+      during(100);
+      lock("off");
+      during(100);
+      expect(showJson().motionLock!.held).to.deep.equal({}); // forgotten at once, though the head is not listed
+      await run("venue.fixture.presence", { fixtures: ["spot"], present: true });
+      plugin.runtime.releasePositions();
+      const free = during(1500).at(-1)!;
+      lock("soft");
+      for (const f of during(200)) expect(posBytes(f)).to.deep.equal(posBytes(free));
+      expect(showJson().motionLock!.held.spot!.pan).to.be.closeTo(pan(free), 1e-4);
     });
   });
 });

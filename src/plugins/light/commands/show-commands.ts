@@ -27,7 +27,7 @@ import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPat
 import { IntentionSchema, INTENTION_REFS_HELP, newIntentionId, type AmbiguousRef } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
-import type { ShowRuntime } from "../show/runtime.js";
+import type { ShowRuntime, SnapshotLockMode } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { isBuiltinRule, RESET_ORIGINS, RESET_WINDOW_MS, resetChannels } from "../rules/reset-protection.js";
 import { TYPE_TAGS } from "../venue/grouping.js";
@@ -39,10 +39,14 @@ import { diff } from "../data/diff.js";
 import { say } from "../../../core/lang.js";
 import { patchSchema } from "../../../core/zod-patch.js";
 
-/** Puts a snapshot back the way `snapshot.recall` does: the runtime applies it, then the Blackout is set. */
-export function recallSnapshot(engine: DmxEngine, show: ShowRuntime, snap: Snapshot): { looks: string[]; skipped: string[] } {
+/**
+ * Puts a snapshot back the way `snapshot.recall` does: the runtime applies it, then the Blackout is set. `lock`: its
+ * motion lock exactly (snapshot.recall), or only what hardens the lock now (the Panic's safe snapshot, the startup
+ * snapshot: decisions D1, D2 of T26).
+ */
+export function recallSnapshot(engine: DmxEngine, show: ShowRuntime, snap: Snapshot, lock: SnapshotLockMode = "exact"): { looks: string[]; skipped: string[] } {
   try {
-    return show.applySnapshot(snap);
+    return show.applySnapshot(snap, lock);
   } finally {
     engine.setBlackout(snap.blackout);
   }
@@ -54,7 +58,8 @@ export function recallStartupSnapshot(engine: DmxEngine, show: ShowRuntime): { i
   if (!id) return undefined;
   const snap = show.snapshots.get(id);
   if (!snap) return { missing: id };
-  recallSnapshot(engine, show, snap);
+  // replayed at launch and on show.open: it can freeze heads, never unfreeze them (decision D2)
+  recallSnapshot(engine, show, snap, "harden");
   return { id: snap.id, name: snap.name };
 }
 
@@ -2094,7 +2099,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     engine.release();
     const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
     if (snap) {
-      const done = recallSnapshot(engine, show, snap);
+      // the safe snapshot can freeze or harden the lock, never lift it (decision D1)
+      const done = recallSnapshot(engine, show, snap, "harden");
       return { action: "safe-snapshot", snapshot: snap.id, ...done };
     }
     const safe = show.settings.safeLook;
@@ -2110,7 +2116,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "panic",
     title: "Panic neutre",
     description:
-      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding.",
+      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
@@ -2125,7 +2131,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "panic.undo",
     title: "Annuler le Panic",
-    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout); the DMX console forcing and hand-aimed heads it released stay released.",
+    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was); the DMX console forcing and hand-aimed heads it released stay released.",
     right: "commands:panic",
     profiles: ["live"],
     schema: z.object({}),

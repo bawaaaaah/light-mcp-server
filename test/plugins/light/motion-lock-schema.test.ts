@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { MotionLockSchema, MotionLockStateSchema, anyLock, heldOf, isStricter, lockOf, lockState, stricter } from "../../../src/plugins/light/show/motion-lock.js";
+import { MotionLockSchema, MotionLockStateSchema, hardenLock, heldOf, lockOf, lockState, sameLock, stricter } from "../../../src/plugins/light/show/motion-lock.js";
 import { ShowSettingsSchema, SnapshotSchema } from "../../../src/plugins/light/show/model.js";
 
 describe("T26 lot 1: the motion lock schema and each head's effective level", () => {
@@ -7,7 +7,6 @@ describe("T26 lot 1: the motion lock schema and each head's effective level", ()
     const s = ShowSettingsSchema.parse({});
     expect(s.motionLock).to.equal(undefined);
     expect(lockOf(s.motionLock, "spot")).to.equal("off");
-    expect(anyLock(s.motionLock)).to.equal(false);
     expect(ShowSettingsSchema.parse({ motionLock: {} }).motionLock).to.deep.equal({ level: "off", heads: {}, held: {} });
   });
 
@@ -36,16 +35,29 @@ describe("T26 lot 1: the motion lock schema and each head's effective level", ()
     expect(lockOf(free, "a")).to.equal("soft");
     expect(lockOf(free, "b")).to.equal("off");
     expect(lockOf(free, "constructor")).to.equal("off"); // ids are looked up as own keys only
-    expect(anyLock(free)).to.equal(true);
   });
 
   it("orders the levels hard > soft > off", () => {
     expect(stricter("off", "soft")).to.equal("soft");
     expect(stricter("hard", "soft")).to.equal("hard");
     expect(stricter("soft", "soft")).to.equal("soft");
-    expect(isStricter("hard", "soft")).to.equal(true);
-    expect(isStricter("soft", "soft")).to.equal(false);
-    expect(isStricter("off", "soft")).to.equal(false);
+  });
+
+  it("hardening a lock never loosens it: the stricter global level, the stricter per head, no head dropped (D1, D2)", () => {
+    const current = MotionLockStateSchema.parse({ level: "soft", heads: { a: "hard", b: "soft" } });
+    expect(hardenLock(current, { level: "off", heads: {} })).to.deep.equal(current);
+    expect(hardenLock(current, { level: "hard", heads: { a: "soft", b: "hard", c: "soft" } })).to.deep.equal({ level: "hard", heads: { a: "hard", b: "hard", c: "soft" } });
+    expect(hardenLock({ level: "off", heads: {} }, { level: "soft", heads: { a: "hard" } })).to.deep.equal({ level: "soft", heads: { a: "hard" } });
+    // a copy: the current lock is left as it is
+    expect(current).to.deep.equal({ level: "soft", heads: { a: "hard", b: "soft" } });
+  });
+
+  it("compares two locks by their levels, global and per head", () => {
+    expect(sameLock({ level: "off", heads: {} }, lockState(undefined))).to.equal(true);
+    expect(sameLock({ level: "soft", heads: { a: "hard" } }, { level: "soft", heads: { a: "hard" } })).to.equal(true);
+    expect(sameLock({ level: "soft", heads: { a: "hard" } }, { level: "soft", heads: { a: "soft" } })).to.equal(false);
+    expect(sameLock({ level: "soft", heads: { a: "hard" } }, { level: "soft", heads: { b: "hard" } })).to.equal(false);
+    expect(sameLock({ level: "soft", heads: {} }, { level: "hard", heads: {} })).to.equal(false);
   });
 
   it("a snapshot records the levels without `held`; an older snapshot has none", () => {

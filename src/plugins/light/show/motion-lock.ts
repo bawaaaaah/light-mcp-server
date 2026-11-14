@@ -13,6 +13,7 @@ import type { LockLevel } from "../engine/motion.js";
 
 /** A head's own lock: absent from `heads` = free (the global lock still applies). */
 export const HeadLockSchema = z.enum(["soft", "hard"]);
+export type HeadLock = z.infer<typeof HeadLockSchema>;
 
 /** What a snapshot records of the lock (decision Q3: recalled, it puts back exactly this lock). No `held`: positions are the live state's. */
 export const MotionLockStateSchema = z.object({
@@ -36,10 +37,7 @@ export type MotionLock = z.infer<typeof MotionLockSchema>;
 const STRENGTH: Record<LockLevel, number> = { off: 0, soft: 1, hard: 2 };
 
 /** The stricter of two levels. */
-export const stricter = (a: LockLevel, b: LockLevel): LockLevel => (STRENGTH[b] > STRENGTH[a] ? b : a);
-
-/** Whether `a` locks more than `b` (hard > soft > off). */
-export const isStricter = (a: LockLevel, b: LockLevel): boolean => STRENGTH[a] > STRENGTH[b];
+export const stricter = <L extends LockLevel>(a: L, b: L): L => (STRENGTH[b] > STRENGTH[a] ? b : a);
 
 /** The effective level of a head: the stricter of the global lock and its own. No lock (undefined): off. */
 export function lockOf(lock: MotionLockState | undefined, head: string): LockLevel {
@@ -48,11 +46,28 @@ export function lockOf(lock: MotionLockState | undefined, head: string): LockLev
   return own ? stricter(lock.level, own) : lock.level;
 }
 
-/** Whether anything is locked at all. */
-export const anyLock = (lock: MotionLockState | undefined): boolean => !!lock && (lock.level !== "off" || Object.keys(lock.heads).length > 0);
-
 /** The part of the lock a snapshot records: the levels, never `held`. */
 export const lockState = (lock: MotionLockState | undefined): MotionLockState => ({ level: lock?.level ?? "off", heads: { ...(lock?.heads ?? {}) } });
+
+/** Whether two locks have the same levels, global and per head. */
+export function sameLock(a: MotionLockState, b: MotionLockState): boolean {
+  const ka = Object.keys(a.heads);
+  return a.level === b.level && ka.length === Object.keys(b.heads).length && ka.every((h) => Object.hasOwn(b.heads, h) && b.heads[h] === a.heads[h]);
+}
+
+/**
+ * `current` hardened by `incoming`, never loosened (decisions D1 and D2 of 2026-11-14: the Panic's safe snapshot and
+ * the startup snapshot can only freeze or harden): the stricter global level, and per head the stricter of both; a
+ * head locked now stays in `heads`.
+ */
+export function hardenLock(current: MotionLockState, incoming: MotionLockState): MotionLockState {
+  const heads = new Map<string, HeadLock>(Object.entries(current.heads));
+  for (const [head, level] of Object.entries(incoming.heads)) {
+    const own = heads.get(head);
+    heads.set(head, own ? stricter(own, level) : level);
+  }
+  return { level: stricter(current.level, incoming.level), heads: Object.fromEntries(heads) };
+}
 
 /** `held` as a map, from the setting. */
 export const heldOf = (lock: MotionLock | undefined): Map<string, Position> =>
