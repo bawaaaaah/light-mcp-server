@@ -91,6 +91,17 @@ describe("look move disabled (T26, move.enabled)", () => {
     expect(posBytes(during(3000).at(-1)!)).to.deep.equal(rest);
   });
 
+  it("a still look does not end a Panic hold: once it stops, the head stays where the Panic caught it", async () => {
+    await run("show.settings.set", { safeLook: "calm" });
+    await run("look.go", { id: "circle-on" });
+    during(2700); // mid-circle, away from rest
+    await run("panic"); // holds the heads, then the safe look « calm » holds them too
+    const held = posBytes(during(1000).at(-1)!);
+    await run("look.stop", { id: "calm" });
+    for (const f of during(4000)) expect(posBytes(f)).to.deep.equal(held);
+    expect((await listed()).motion!.pan.layer).to.equal("hold");
+  });
+
   it("a look with move.enabled true still moves the head", async () => {
     during(200);
     await run("look.go", { id: "circle-on" });

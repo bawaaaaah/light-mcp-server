@@ -466,7 +466,8 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
       const w = winnerOf(ranked, axis, lock);
       if (w && w !== "lock") {
         winners.add(w);
-        holding[axis] = false;
+        // a still look (V3) holds where the head is: it does not end a Panic hold, which takes over again once it stops
+        if (w.base?.kind !== "hold") holding[axis] = false;
       }
       const o = ownerOf(w, axis, holding[axis], rest, evalOf, held);
       const sentAxis = sent?.[axis];
