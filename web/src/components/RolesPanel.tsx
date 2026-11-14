@@ -13,7 +13,7 @@ interface RoleRow {
 
 /** The rights a role can be given, by area, as the commands ask for them (see `right` in the command layer). */
 const AREAS: [area: string, rights: string[]][] = [
-  ["live", ["commands:trigger", "commands:level", "commands:panic", "commands:blackout", "commands:tempo", "commands:position", "commands:snapshot"]],
+  ["live", ["commands:trigger", "commands:level", "commands:panic", "commands:freeze", "commands:blackout", "commands:tempo", "commands:position", "commands:snapshot"]],
   ["technique", ["commands:dmx", "commands:output", "commands:selftest", "midi:configure", "midi:input"]],
   ["design", ["show:propose", "show:write", "show:admin"]],
   ["access", ["dashboards:view", "mcp:use", "auth:admin"]],

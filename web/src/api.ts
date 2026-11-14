@@ -22,8 +22,8 @@ export interface Role {
   kind?: "static" | "session";
 }
 
-/** Same rule as the server's rightMatches (src/core/auth.ts): "*" and "area:*" grant wholesale; show:write brings show:propose. */
-const IMPLIED: Record<string, string> = { "show:propose": "show:write" };
+/** Same rule as the server's rightMatches (src/core/auth.ts): "*" and "area:*" grant wholesale; show:write brings show:propose, commands:position brings commands:freeze. */
+const IMPLIED: Record<string, string> = { "show:propose": "show:write", "commands:freeze": "commands:position" };
 export function grants(rights: string[], right: string): boolean {
   const direct = (wanted: string) => rights.some((g) => g === "*" || g === wanted || (g.endsWith(":*") && wanted.startsWith(g.slice(0, -1))));
   return direct(right) || (IMPLIED[right] !== undefined && direct(IMPLIED[right]));

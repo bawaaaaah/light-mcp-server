@@ -56,7 +56,12 @@ export function signedInView(role: Role, user?: UserSummary): { id: string; name
   return { id: role.id, name: user?.name ?? role.name, role: role.name, rights: role.rights, dashboards: role.dashboards, user: user ? { id: user.id, name: user.name } : undefined };
 }
 
-const AuthStateSchema = z.object({ roles: z.array(RoleSchema), users: z.array(UserSchema).default([]) });
+const AuthStateSchema = z.object({
+  roles: z.array(RoleSchema),
+  users: z.array(UserSchema).default([]),
+  /** One-shot migrations of the stored roles already applied (see ROLE_MIGRATIONS): a right removed afterwards stays removed. */
+  migrations: z.array(z.string()).default([]),
+});
 type AuthState = z.infer<typeof AuthStateSchema>;
 
 const PIN_RE = /^\d{4,8}$/;
@@ -64,9 +69,17 @@ const PIN_RE = /^\d{4,8}$/;
 export const DEFAULT_ROLES: Role[] = [
   { id: "admin", name: "Administrateur du lieu", rights: ["*"] },
   { id: "regisseur", name: "Régisseur", rights: ["commands:*", "show:write", "dashboards:*", "midi:*", "mcp:use"] },
-  { id: "benevole", name: "Bénévole", rights: ["commands:trigger", "commands:panic", "commands:blackout", "dashboards:view"] },
+  { id: "benevole", name: "Bénévole", rights: ["commands:trigger", "commands:panic", "commands:freeze", "commands:blackout", "dashboards:view"] },
   { id: "lecture", name: "Lecture seule", rights: ["dashboards:view"] },
 ];
+
+/**
+ * Rights added to the stored roles once, when a new right takes over part of an older one. Applied at load, marked
+ * done in the state; the mark is saved with the next change of the roles, so until then the migration simply runs
+ * again on the same roles.
+ * - `commands:freeze` (T26, decision Q2 of 2026-11-11): freezing the moving heads (soft lock) goes with the Panic.
+ */
+const ROLE_MIGRATIONS: { id: string; from: string; add: string }[] = [{ id: "commands:freeze", from: "commands:panic", add: "commands:freeze" }];
 
 export function hashPin(pin: string): string {
   const salt = crypto.randomBytes(16);
@@ -82,8 +95,11 @@ export function verifyPin(pin: string, stored: string): boolean {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-/** Rights that come with another: whoever may change the show may propose a change to it. */
-const IMPLIED: Record<string, string> = { "show:propose": "show:write" };
+/**
+ * Rights that come with another: whoever may change the show may propose a change to it; whoever may move the
+ * moving heads by hand may freeze them (T26).
+ */
+const IMPLIED: Record<string, string> = { "show:propose": "show:write", "commands:freeze": "commands:position" };
 
 export function rightMatches(granted: string, wanted: string): boolean {
   if (granted === "*" || granted === wanted) return true;
@@ -139,7 +155,7 @@ const PIN_FAILURE_WINDOW_MS = 60_000;
 
 export class AuthService implements AuthMiddleware {
   // a copy: the state is edited in place, the built-in roles must stay as they are
-  private state: AuthState = { roles: DEFAULT_ROLES.map((r) => ({ ...r, rights: [...r.rights] })), users: [] };
+  private state: AuthState = { roles: DEFAULT_ROLES.map((r) => ({ ...r, rights: [...r.rights] })), users: [], migrations: [] };
   /** By token hash; persisted, so a server restart signs no tablet out in the middle of a service. */
   private readonly sessions = new Map<string, { userId: string; expiresAt: number }>();
   private resolveToken: ((token: string) => { userId?: string } | undefined) | undefined;
@@ -158,6 +174,11 @@ export class AuthService implements AuthMiddleware {
     for (const role of DEFAULT_ROLES) if (!this.state.roles.some((r) => r.id === role.id)) this.state.roles.push({ ...role, rights: [...role.rights] });
     const admin = this.state.roles.find((r) => r.id === "admin")!;
     if (!admin.rights.includes("*")) admin.rights = ["*"];
+    for (const m of ROLE_MIGRATIONS) {
+      if (this.state.migrations.includes(m.id)) continue;
+      for (const role of this.state.roles) if (role.rights.includes(m.from) && !role.rights.includes(m.add)) role.rights.push(m.add);
+      this.state.migrations.push(m.id);
+    }
     const stored = configStore?.getAuthSessions();
     for (const entry of Array.isArray(stored) ? stored : []) {
       const session = SessionSchema.safeParse(entry);

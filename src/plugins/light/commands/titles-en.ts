@@ -86,6 +86,8 @@ export const TITLES_EN: Record<string, string> = {
   "midi.rtp.keep": "Always join an RTP-MIDI session",
   "midi.rtp.sessions": "RTP-MIDI sessions on the network",
   "midi.status": "MIDI status",
+  "motion.freeze": "Freeze the moving heads",
+  "motion.unfreeze": "Unfreeze the moving heads",
   "nodes.discover": "Look for nodes",
   "nodes.list": "Art-Net nodes",
   "notes.search": "Search the notes",

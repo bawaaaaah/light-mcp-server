@@ -38,6 +38,8 @@ import { intentionUsesByKey } from "./show/references.js";
 import { machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { motionEntries, motionKey } from "./show/motion-report.js";
+import { stricter, type MotionLockState } from "./show/motion-lock.js";
+import type { LockLevel } from "./engine/motion.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
@@ -795,7 +797,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel } } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -814,7 +816,30 @@ export class LightPlugin implements McpPlugin {
       liveAi: Boolean(this.runtime?.settings.liveAi),
       grandMaster: this.runtime?.settings.grandMaster ?? 1,
       grandMasterSmoothed: Boolean(this.runtime?.settings.grandMasterSmoothing),
+      // « Figer les lyres » (T26): said on every page; `effective` is the strictest level a moving head is under (the
+      // badge: a head frozen hard under a soft global lock is « everything frozen » for it)
+      motionLock: this.motionLockSummary(),
     };
+  }
+
+  /** The lock levels, and the strictest effective level over the installed moving heads (off without a head). */
+  private motionLockSummary(): MotionLockState & { effective: LockLevel } {
+    if (!this.runtime) return { level: "off", heads: {}, effective: "off" };
+    const lock = this.runtime.motionLockState();
+    const effective = this.runtime.movingHeads().reduce<LockLevel>((acc, head) => stricter(acc, this.runtime.motionLock(head)), "off");
+    return { ...lock, effective };
+  }
+
+  /** « Figer les lyres » in light://live: a forgotten lock reads as « my heads no longer move » (T26). */
+  private liveLockLine(): string {
+    const { level, heads, effective } = this.motionLockSummary();
+    if (effective === "off") return "";
+    const named = (lv: "soft" | "hard") =>
+      Object.entries(heads)
+        .filter(([, l]) => l === lv)
+        .map(([id]) => this.venue.fixtures.get(id)?.name ?? id);
+    const parts = [level !== "off" ? `toutes ${level === "hard" ? "en dur (pad compris)" : "en souple (le pad reste libre)"}` : "", named("hard").length ? `en dur : ${named("hard").join(", ")}` : "", named("soft").length ? `en souple : ${named("soft").join(", ")}` : ""].filter(Boolean);
+    return `Lyres FIGÉES (${parts.join(" ; ")}) : les looks ne les déplacent plus ; motion.unfreeze les rend.`;
   }
 
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
@@ -1051,6 +1076,7 @@ export class LightPlugin implements McpPlugin {
         this.router.isStandby() ? "Sortie EN VEILLE : rien n'atteint les projecteurs (une autre console tient peut-être la lumière)." : "",
         parked ? `${parked} canal(aux) FORCÉ(S) depuis la console DMX, par-dessus le show tant qu'ils ne sont pas relâchés.` : "",
         this.engine.isBlackout() ? "BLACKOUT actif." : "",
+        this.liveLockLine(),
         `Looks en cours : ${looks.length ? looks.join(", ") : "aucun"}.`,
         masters.length ? `Masters : ${masters.join(" ; ")}.` : "",
         `Tempo : ${t.bpm.toFixed(1)} BPM (${t.source}${t.clockMissing ? ", horloge absente" : ""}).`,

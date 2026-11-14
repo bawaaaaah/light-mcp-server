@@ -84,6 +84,9 @@ export const HINTS: Record<string, string> = {
   "midi.rtp.connect": "IO",
   "midi.rtp.disconnect": "IO",
   "midi.rtp.keep": "IO",
+  // a toggle switches each call: not idempotent; freezing alone only hardens
+  "motion.freeze": "",
+  "motion.unfreeze": "I",
   "notes.set": "D",
   "output.route": "IO",
   "output.standby": "IO",
