@@ -830,16 +830,16 @@ export class LightPlugin implements McpPlugin {
 
   /**
    * Whether a « Figer les lyres » mapping's target is frozen (T26), from the lock itself whoever froze it (the
-   * interface, a snapshot, the Panic): every head — anything frozen; a group or fixtures — all their installed moving
-   * heads. Its LED says it, and its next press (latch, toggle) does the opposite of what the lock is now.
+   * interface, a snapshot, the Panic): every head, a group or fixtures — all their installed moving heads (one head
+   * frozen hard on its own leaves the mapping off: its next press freezes the others, decision V1). Its LED says it,
+   * and its next press (latch, toggle) does the opposite of what the lock is now.
    */
   private frozenFor(args: Record<string, unknown>): boolean {
     const heads = this.runtime.movingHeads();
     const group = argText(args.group);
     const listed = Array.isArray(args.fixtures) ? args.fixtures.map(argText) : undefined;
     const inScope = listed ?? (group ? [...this.runtime.fixturesOf(group)] : undefined);
-    if (!inScope) return heads.some((head) => this.runtime.motionLock(head) !== "off");
-    const scoped = inScope.filter((id) => heads.includes(id));
+    const scoped = inScope ? inScope.filter((id) => heads.includes(id)) : heads;
     return scoped.length > 0 && scoped.every((head) => this.runtime.motionLock(head) !== "off");
   }
 

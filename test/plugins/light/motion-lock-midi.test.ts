@@ -117,6 +117,26 @@ describe("motion lock from a MIDI mapping (T26)", () => {
     expect(journal[0]!.calls[0]!.error).to.match(/interface/);
   });
 
+  it("a mixed lock: one head hard alone, every press still does something (decision V1)", async () => {
+    for (const mode of ["trigger", "latch", "toggle"] as const) {
+      await run("motion.unfreeze");
+      const mapping = await map(mode);
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" }); // from the interface
+      // not every head is frozen: the mapping is off, the press freezes the free heads (soft)
+      await send(press, release);
+      expect(lock(), `${mode} 1`).to.deep.equal({ level: "soft", heads: { spot: "hard" } });
+      // every head frozen: the press loosens the soft part, the hard head stays
+      await send(press, release);
+      expect(lock(), `${mode} 2`).to.deep.equal({ level: "off", heads: { spot: "hard" } });
+      // and the next press freezes the free heads again
+      await send(press, release);
+      expect(lock(), `${mode} 3`).to.deep.equal({ level: "soft", heads: { spot: "hard" } });
+      const journal = (await run("midi.journal")) as { calls: { ok: boolean }[] }[];
+      expect(journal.flatMap((j) => j.calls).every((c) => c.ok), mode).to.equal(true);
+      await run("midi.mapping.delete", { id: mapping.id });
+    }
+  });
+
   it("a group's mapping: on when all its heads are frozen", async () => {
     await map("latch", { type: "note", channel: 1, number: 40 }, "left");
     await run("motion.freeze", { fixtures: ["spot"] });

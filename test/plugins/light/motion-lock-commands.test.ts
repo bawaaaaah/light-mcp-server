@@ -318,6 +318,11 @@ describe("motion lock commands (T26, lot 3)", () => {
       await run("motion.freeze", {}, midi);
       await run("motion.freeze", { toggle: true }, midi);
       expect(lock()).to.deep.equal({ level: "off", heads: { spot: "hard" } });
+      // one head hard alone, the others free: the toggle, which could free nothing, freezes the free heads (soft)
+      await run("motion.freeze", { toggle: true }, midi);
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot: "hard" } });
+      await run("motion.freeze", { toggle: true }, midi);
+      expect(lock()).to.deep.equal({ level: "off", heads: { spot: "hard" } });
       // the interface still unfreezes it
       await run("motion.unfreeze", {}, { origin: "ui", can: () => true });
       expect(lock()).to.deep.equal({ level: "off", heads: {} });

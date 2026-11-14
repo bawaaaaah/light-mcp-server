@@ -284,7 +284,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "motion.freeze",
     title: "Figer les lyres",
     description:
-      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays, refused when only hard is frozen). Returns the lock levels and each head's effective level.",
+      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays); when that would change nothing, it freezes the free heads soft instead, and is refused only when every head is frozen hard. Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ level: z.enum(["soft", "hard"]).default("soft"), toggle: z.boolean().default(false) }),
@@ -305,10 +305,14 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       } else {
         ids = show.movingHeads();
         // decision U2: the global toggle frees everything when anything patched is frozen, else freezes at the level given
+        const freeze: MotionLockState = { level: stricter(cur.level, level), heads: cur.heads };
         const free = toggle && anyFrozen(cur);
         if (free) mayLoosen(ctx.origin);
-        next = free ? loosenAll(cur, loosenFor(ctx.origin, "off")) : { level: stricter(cur.level, level), heads: cur.heads };
-        if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
+        next = free ? loosenAll(cur, loosenFor(ctx.origin, "off")) : freeze;
+        // decision V1: from MIDI, a press that could only keep a hard lock while some head is free freezes the free
+        // heads instead (MIDI may always freeze): one head frozen hard on its own does not make the button useless
+        if (free && sameLock(cur, next) && ctx.origin === "midi" && ids.some((id) => show.motionLock(id) === "off")) next = freeze;
+        else if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
       }
       show.setMotionLock(next);
       return lockReport(ids);
