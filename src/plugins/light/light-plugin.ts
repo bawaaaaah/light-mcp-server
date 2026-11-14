@@ -351,6 +351,7 @@ export class LightPlugin implements McpPlugin {
       current: () => ({ show: this.config.show, venue: this.config.venue }),
       open: (id) => this.openShow(id),
       flush: () => {
+        this.runtime.flushHeld(); // where a locked head is held, before a copy, an archive or a rename re-reads the show
         this.show.flushLive();
         this.venue.store.flushLive();
       },

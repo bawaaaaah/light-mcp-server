@@ -350,6 +350,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     run: ({ id, name }) => {
       const target = id ?? s.current().show;
       known(target);
+      if (target === s.current().show) s.flush(); // the pad's last move under a soft lock, before the reload re-reads it
       writeSettings(target, { name });
       if (target === s.current().show) s.reload();
       return { id: target, name };

@@ -384,7 +384,9 @@ export class ShowRuntime {
     // the levels in effect first, `held` brought in line with them, then one write
     this.settings = { ...this.settings, motionLock: { level: state.level, heads: { ...state.heads }, held: Object.fromEntries(this.lockHeld) } };
     this.syncLockHeld();
-    this.writeHeld();
+    // a failed write (a full disk during a Panic) is said and retried, never thrown: the Panic goes on
+    this.heldUrgent = true;
+    this.flushHeld();
   }
 
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */

@@ -457,6 +457,45 @@ describe("motion lock in the engine (T26)", () => {
         console.warn = warn;
       }
     });
+
+    it("a Panic whose safe snapshot hardens the lock goes on when the disk fails, and the lock is written later", async () => {
+      during(100);
+      lock("soft");
+      await run("snapshot.save", { name: "Secours" });
+      await run("show.settings.set", { safeSnapshot: "secours" });
+      lock("off");
+      await run("look.go", { id: "circle" });
+      during(500);
+      const store = (plugin.runtime as unknown as { store: { writeManifest: (...a: unknown[]) => void } }).store;
+      const write = store.writeManifest.bind(store);
+      let fail = true;
+      store.writeManifest = (...a: unknown[]) => {
+        if (!fail) return write(...a);
+        throw new Error("ENOSPC");
+      };
+      const warn = console.warn;
+      console.warn = () => undefined;
+      try {
+        await run("panic").catch(() => undefined); // the grand master's own save may fail too: the lock must not
+        expect(plugin.runtime.motionLockState().level).to.equal("soft");
+        fail = false;
+        await live(1100);
+        expect(showJson().motionLock!.level).to.equal("soft");
+      } finally {
+        console.warn = warn;
+      }
+    });
+
+    it("show.rename within a second of the pad's last move under a soft lock keeps it", async () => {
+      during(100);
+      plugin.runtime.setPosition(["spot"], { pan: 0.3, tilt: 0.4 });
+      during(100);
+      lock("soft");
+      plugin.runtime.setPosition(["spot"], { pan: 0.8, tilt: 0.4 });
+      during(500);
+      await run("show.rename", { name: "Autre nom" });
+      for (const f of during(1500)) expect(pan(f)).to.be.closeTo(0.8, 1e-4);
+    });
   });
 
   describe("show.open under a lock (decision D4)", () => {
