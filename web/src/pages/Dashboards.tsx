@@ -9,6 +9,7 @@ import { asksBeforeLaunch } from "../preview-first";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
+import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
 import { sharedRanges, type FixtureFunctions } from "../fader-functions";
 import { LiveStage } from "../components/StagePlan";
@@ -30,7 +31,7 @@ import { pick } from "../selection";
 import { microphone } from "../audio/microphone";
 import { quoted } from "../typography";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock";
 interface Widget {
   id: string;
   kind: Kind;
@@ -120,7 +121,7 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "motion-lock", "preview", "channel-fader"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
@@ -747,6 +748,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             <LiveStage onError={setError} beamsShown={stageBeams} />
           </div>
         );
+      case "motion-lock":
+        // « Figer les lyres » (T26): the top bar's button, placed and sized at will, optionally for one group
+        return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} onError={setError} />;
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
       case "channel-fader": {
@@ -1100,7 +1104,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             <option value="">—</option>
             {sel.kind === "look" && looks.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            {(sel.kind === "group-fader" || sel.kind === "xy") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            {(sel.kind === "group-fader" || sel.kind === "xy" || sel.kind === "motion-lock") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <input placeholder={t.labelText} aria-label={t.labelText} value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           {(sel.kind === "look" || sel.kind === "blackout") && (

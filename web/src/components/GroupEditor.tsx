@@ -9,6 +9,10 @@ import { slug, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { Versions } from "./Versions";
+import { LockChoice } from "./MotionLockButton";
+import { useMotionHeads } from "../hooks/useMotionHeads";
+import { useMotionLock } from "../hooks/useMotionLock";
+import { groupLevels } from "../motionLock";
 
 export interface GroupDraft {
   id: string;
@@ -147,6 +151,7 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
           </>
         )}
       </div>
+      {!isNew && <GroupLock group={initial.id} edited={JSON.stringify(g.members) !== JSON.stringify(initial.members)} onError={setError} />}
       <textarea placeholder={t.notes} value={g.notes ?? ""} onChange={(e) => setG({ ...g, notes: e.target.value || undefined })} />
       <div className="row actions">
         <button className="primary" onClick={save}>
@@ -173,5 +178,36 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
       </div>
       {!isNew && <Versions collection="groups" id={initial.id} onRestored={onClose} />}
     </section>
+  );
+}
+
+/**
+ * « Figer les lyres de ce groupe » / « Défiger » (T26): the saved group's moving heads, frozen as the group is now
+ * (the server expands it into its heads at the freeze). Nothing shown for a group without a moving head.
+ */
+function GroupLock({ group, edited, onError }: { group: string; edited: boolean; onError: (message: string) => void }): ReactElement | null {
+  const t = useT();
+  const view = useMotionLock();
+  const { heads, loaded } = useMotionHeads({ group });
+  if (!view || !loaded || heads.length === 0) return null;
+  const own = heads.map((h) => view.lock.heads[h.id] ?? "off");
+  const levels = groupLevels(own);
+  const frozen = heads.filter((h) => (h.motion?.lock ?? "off") !== "off").length;
+  return (
+    <fieldset className="group-lock" data-testid="group-lock">
+      <legend>{t.motionLock.group}</legend>
+      <LockChoice
+        label={t.motionLock.group}
+        names={{ off: t.motionLock.groupUnfreeze, soft: t.motionLock.groupFreeze, hard: t.motionLock.groupFreezeHard }}
+        levels={levels}
+        checked={levels.base === levels.top ? levels.base : null}
+        target={{ group }}
+        onError={onError}
+      />
+      <small className="hint" role="status">
+        {t.motionLock.groupState.replace("{n}", String(frozen)).replace("{total}", String(heads.length))}
+        {edited ? ` · ${t.motionLock.groupSaveFirst}` : ""}
+      </small>
+    </fieldset>
   );
 }

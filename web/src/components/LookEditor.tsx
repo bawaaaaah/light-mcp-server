@@ -38,6 +38,8 @@ interface Move {
   shuffle?: boolean;
   fan: number;
   group?: string;
+  /** « Ne pas bouger les lyres » (T26): false keeps the settings but moves no head. */
+  enabled?: boolean;
 }
 export interface LookDraft {
   id: string;
@@ -538,6 +540,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
             </label>
           </h3>
           {!look.move && <p className="hint">{t.moveNoneHelp}</p>}
+          {look.move && (
+            // « Ne pas bouger les lyres » (T26): one switch, nothing erased — unticked, the same move comes back
+            <label className="row look-no-move" title={t.motionLock.lookNoMoveHelp}>
+              <input type="checkbox" data-testid="look-no-move" checked={look.move.enabled === false} onChange={(e) => setMove({ enabled: e.target.checked ? false : undefined })} /> 🔒 {t.motionLock.lookNoMove}
+            </label>
+          )}
+          {look.move?.enabled === false && <p className="hint">{t.motionLock.lookNoMoveHelp}</p>}
           {look.move && (
             <div className="fields">
               <label className="field" title={t.moveFadeHelp}>

@@ -5,6 +5,8 @@ import { useT } from "../App";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
 import { quoted } from "../typography";
 import { pressesLeft } from "../motionPresses";
+import { useMotionLock } from "../hooks/useMotionLock";
+import { useLockRights } from "./MotionLockButton";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -63,10 +65,26 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept, so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled = false, resync, restControls = false, compact = false }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false }: XyPadProps): ReactElement {
   const t = useT();
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
+  // « Figer les lyres » (T26): every targeted head frozen hard → the pad is off, with the reason and « Défiger »; frozen
+  // soft → the pad still moves them; some frozen hard on a group → the others move (decision U1), those stay
+  const lockView = useMotionLock();
+  const lockRights = useLockRights();
+  const lockOf = (h: MotionHead) => h.motion?.lock ?? "off";
+  const hardCount = scopedHeads.filter((h) => lockOf(h) === "hard").length;
+  const softCount = scopedHeads.filter((h) => lockOf(h) === "soft").length;
+  const allHard = scopedHeads.length > 0 && hardCount === scopedHeads.length;
+  const disabled = disabledByCaller || allHard;
+  const [unfreezeArmed, setUnfreezeArmed] = useState(false);
+  useEffect(() => {
+    if (!unfreezeArmed) return;
+    const timer = window.setTimeout(() => setUnfreezeArmed(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [unfreezeArmed]);
+  useEffect(() => setUnfreezeArmed(false), [allHard]);
   const [pos, setPos] = useState<Position | null>(null);
   const [dragging, setDragging] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -96,6 +114,8 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   targetRef.current = target;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  /** Heads a gesture left in place (frozen hard on a partly frozen group): said in the status line, not as an error. */
+  const refusedRef = useRef<(ids: string[]) => void>(() => undefined);
 
   /** Latest wins: never enqueue behind an in-flight request; its completion sends only the current pending batch. */
   const pump = useCallback(() => {
@@ -105,7 +125,8 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
     inFlight.current = Promise.all(
       batch.writes.map(async (write) => {
         try {
-          await cmd("position.set", { ...write.target, ...write.point });
+          const reply = await cmd<{ refused?: string[] }>("position.set", { ...write.target, ...write.point });
+          if (reply?.refused?.length) refusedRef.current(reply.refused);
         } catch (error) {
           onErrorRef.current((error as Error).message);
         }
@@ -354,6 +375,25 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
   const masked = claims.length ? claimShort(claims[0]!) : null;
   const maskedFull = claims.map(claimText).join("\n");
 
+  const nameOfHead = (id: string): string => scopedHeads.find((h) => h.id === id)?.name ?? id;
+  refusedRef.current = (ids) => setConfirmation(t.motionLock.padRefused.replace("{names}", () => ids.map(nameOfHead).join(", ")));
+  /** The pad's lock line: all hard, some hard (they stay), or frozen soft (the pad is still free). */
+  const lockChip = allHard
+    ? { level: "hard", text: `🔒🔒 ${scopedHeads.length > 1 ? t.motionLock.padHardMany : t.motionLock.padHard}` }
+    : hardCount > 0
+      ? { level: "hard", text: `🔒🔒 ${t.motionLock.padSomeHard.replace("{n}", String(hardCount))}` }
+      : softCount > 0
+        ? { level: "soft", text: `🔒 ${scopedHeads.length > 1 ? t.motionLock.padSoftMany.replace("{n}", String(softCount)) : t.motionLock.padSoft}` }
+        : null;
+  // held by the global lock: only « Défiger » without a target frees them (it lifts everything, decision U2)
+  const globalHard = lockView?.lock.level === "hard";
+  const unfreezeTarget: MotionTarget = globalHard ? {} : cloneTarget(targetRef.current);
+  const unfreeze = (): void => {
+    if (!unfreezeArmed) return setUnfreezeArmed(true); // someone may be up by a head: a second press, as for a look marked « À confirmer »
+    setUnfreezeArmed(false);
+    void cmd("motion.unfreeze", unfreezeTarget).then(refresh, (error: Error) => onErrorRef.current(error.message));
+  };
+
   useEffect(() => {
     // « Rendre la main » turning disabled under the focus (used within the last second) must not drop it to the page:
     // the pad itself takes it, never « Retour au repos », which a second press would trigger by mistake.
@@ -521,6 +561,11 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
         onPointerCancel={endPointer}
       >
         <span className="cross" />
+        {allHard && (
+          <span className="xy-lock-mark" aria-hidden="true">
+            🔒🔒
+          </span>
+        )}
         {restControls && head && <span className="rest-dot" data-testid="xy-rest-dot" aria-hidden="true" style={{ left: `${head.rest.pan * 100}%`, top: `${(1 - head.rest.tilt) * 100}%` }} />}
         {pos && (!sameSent || !samePoint(pos, firstSent)) && (
           <span className="dot requested" data-testid="xy-requested-dot" aria-hidden="true" style={{ left: `${pos.pan * 100}%`, top: `${(1 - pos.tilt) * 100}%` }} />
@@ -546,6 +591,11 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
       <div className="xy-status" aria-live={focused || restControls ? "polite" : undefined} aria-atomic="true">
         <div className="xy-heading">
           <label>{label ?? t.heads}</label>
+          {lockChip && (
+            <small className="xy-lock-chip" data-level={lockChip.level} data-testid="xy-lock">
+              {lockChip.text}
+            </small>
+          )}
           <small className="xy-position">{shown ? `${Math.round(shown.pan * 100)} / ${Math.round(shown.tilt * 100)}` : "—"}</small>
           <span id={statusId} className="xy-layers" role="group" aria-label={t.motionLayerStatus}>
             {axisRows.map((row) => {
@@ -590,6 +640,14 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
       </div>
       {restControls && legend}
       <div className="row xy-actions">
+        {allHard && !disabledByCaller && lockRights.position && (
+          <button className={`xy-unfreeze${unfreezeArmed ? " armed" : ""}`} data-testid="xy-unfreeze" title={t.motionLock.helpHard} onClick={unfreeze}>
+            {unfreezeArmed ? t.motionLock.pressAgain : globalHard ? t.motionLock.unfreezeAll : t.motionLock.unfreeze}
+          </button>
+        )}
+        {allHard && !lockRights.position && <small className="hint xy-lock-why">{t.motionLock.needPosition}</small>}
+        {!allHard && (
+        <>
         <button
           ref={releaseButton}
           title={t.releaseTopHelp}
@@ -607,6 +665,8 @@ export function XyPad({ group, fixture, label, onError, disabled = false, resync
         <button title={t.homeHeadsHelp} disabled={disabled} onClick={() => void runMotion("position.home")}>
           {t.homeHeads}
         </button>
+        </>
+        )}
         {restControls && fixture && (
           <>
             <button

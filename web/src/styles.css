@@ -4115,3 +4115,204 @@ fieldset.checklist .checklist-search {
     min-width: 44px;
   }
 }
+
+/* « Figer les lyres » (T26): a split button — the state (a press freezes or frees) and ▾ for the levels. Three states
+   readable without the colour: the words and 🔒 / 🔒🔒 say them; free is an outline, frozen is filled, all is filled
+   with an alert border. */
+.motion-lock {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.motion-lock > button {
+  border-radius: 999px;
+  padding: 0.25em 0.75em;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+}
+.motion-lock .motion-lock-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+}
+.motion-lock .motion-lock-more {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 0.25em 0.55em;
+}
+.motion-lock .lock-soft {
+  background: color-mix(in srgb, var(--layer-lock) 22%, var(--bg));
+  border-color: var(--layer-lock);
+}
+.motion-lock .lock-hard {
+  background: var(--layer-lock);
+  color: #111;
+  border: 2px solid var(--warn);
+  font-weight: 600;
+}
+.motion-lock .motion-lock-more.lock-hard {
+  border-left: none;
+}
+/* a press the role may not make: the state stays readable, the press says why */
+.motion-lock .motion-lock-main[aria-disabled="true"] {
+  opacity: 1;
+  cursor: help;
+}
+.motion-lock .motion-lock-main.armed {
+  outline: 3px dashed var(--warn);
+  outline-offset: 2px;
+}
+.motion-lock-some {
+  font-size: inherit;
+  opacity: 0.85;
+}
+.motion-lock-notice {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  width: max-content;
+  max-width: min(22em, calc(100vw - 16px));
+  padding: 0.35em 0.6em;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--warn);
+  color: var(--text);
+  font-size: 0.8rem;
+  white-space: normal;
+}
+.motion-lock-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: 100%;
+  min-height: 2.6em;
+  margin: 0.2em 0;
+  text-align: left;
+}
+.motion-lock-menu button.chosen {
+  border-color: var(--layer-lock);
+}
+.motion-lock-menu button.armed {
+  outline: 3px dashed var(--warn);
+  outline-offset: -4px;
+}
+.motion-lock-menu .check {
+  width: 1em;
+  color: var(--layer-lock);
+}
+/* the dashboard widget fills its cell: the state big, ▾ at its side */
+.motion-lock.widget {
+  flex: 1;
+  width: 100%;
+}
+.motion-lock.widget > button {
+  font-size: 1rem;
+  border-radius: 8px;
+}
+.motion-lock.widget .motion-lock-main {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  white-space: normal;
+}
+.motion-lock.widget .motion-lock-more {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  min-width: 2.75em;
+}
+.motion-lock-label {
+  font-size: 0.75em;
+  opacity: 0.85;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .motion-lock > button {
+    min-height: 44px;
+  }
+  .motion-lock .motion-lock-more {
+    min-width: 44px;
+  }
+  .motion-lock-menu button {
+    min-height: 44px;
+  }
+}
+/* the pad under « Figer les lyres » (T26): the level said in words beside the title, a big 🔒🔒 on a pad turned off */
+.xy-lock-chip {
+  margin-right: 0.5em;
+  font-size: inherit;
+  color: var(--layer-lock);
+  font-weight: 600;
+}
+.xy-lock-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+  pointer-events: none;
+}
+.xy-actions .xy-unfreeze {
+  border-color: var(--layer-lock);
+}
+.xy-actions .xy-unfreeze.armed {
+  outline: 3px dashed var(--warn);
+  outline-offset: -4px;
+}
+.xy-lock-why {
+  font-size: 0.75rem;
+}
+/* a moving head frozen (T26), in the patch list beside its inversions */
+.badge.lock {
+  margin-left: 0.45em;
+  background: color-mix(in srgb, var(--layer-lock) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--layer-lock);
+  cursor: help;
+}
+.badge.lock[data-level="hard"] {
+  box-shadow: inset 0 0 0 2px var(--layer-lock);
+}
+/* « Mouvement : libre / figé / figé — tout » in a fixture's menu: three choices side by side */
+.lock-choice {
+  display: flex;
+  gap: 0.3em;
+  flex-wrap: wrap;
+}
+.lock-choice button {
+  flex: 1 1 auto;
+}
+.lock-choice button[aria-checked="true"] {
+  border-color: var(--layer-lock);
+  background: color-mix(in srgb, var(--layer-lock) 22%, var(--panel));
+}
+.lock-choice button.armed {
+  outline: 3px dashed var(--warn);
+  outline-offset: -4px;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .lock-choice button {
+    min-height: 44px;
+  }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .look-no-move {
+    min-height: 44px;
+  }
+}
+.motion-lock .motion-lock-more {
+  font-size: 1rem;
+  line-height: 1;
+}
+.motion-lock-menu button[data-level="hard"] .check,
+.motion-lock-menu button[data-level="soft"] .check {
+  color: var(--layer-lock);
+}

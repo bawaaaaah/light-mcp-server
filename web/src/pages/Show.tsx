@@ -26,7 +26,7 @@ interface Look {
   name: string;
   canvas: string;
   technique: { kind: string };
-  move?: { shape: string };
+  move?: { shape: string; enabled?: boolean };
   timing: { every: { beats?: number; seconds?: number }; attack: number; order: string };
   tags: string[];
   active: boolean;
@@ -82,6 +82,8 @@ interface Snapshot {
   faders: Record<string, number>;
   blackout: boolean;
   savedAt?: string;
+  /** « Figer les lyres » (T26): the lock it puts back when recalled by hand (decision Q3). */
+  motionLock?: { level: "off" | "soft" | "hard"; heads: Record<string, "soft" | "hard"> };
 }
 
 export function ShowPage(): ReactElement {
@@ -415,6 +417,7 @@ export function ShowPage(): ReactElement {
       <td>
         {labelOf(t.techniqueNames, l.technique.kind)}
         {l.move && <small> · ↻ {labelOf(t.moveShapes, l.move.shape)}</small>}
+        {l.move?.enabled === false && <small title={t.motionLock.lookNoMoveHelp}> · 🔒 {t.motionLock.lookNoMoveShort}</small>}
       </td>
       <td>{cadence(l)}</td>
       <td>{l.timing.attack < 0.2 ? t.snap : l.timing.attack > 0.8 ? t.breathe : `${Math.round(l.timing.attack * 100)} %`}</td>
@@ -630,6 +633,14 @@ export function ShowPage(): ReactElement {
                   {s.name}
                   {settings?.safeSnapshot === s.id && <>{" "}<span className="badge standby">{t.safeBadge}</span></>}
                   {settings?.startupSnapshot === s.id && <>{" "}<span className="badge standby">{t.startupBadge}</span></>}
+                  {s.motionLock && (s.motionLock.level !== "off" || Object.keys(s.motionLock.heads).length > 0) && (
+                    <>
+                      {" "}
+                      <span className="badge lock" data-testid="snapshot-lock" title={t.motionLock.snapshotBadgeHelp}>
+                        {t.motionLock.snapshotBadge}
+                      </span>
+                    </>
+                  )}
                 </td>
                 <td className="hint">
                   {s.looks.length} look(s) · {Object.keys(s.groups).length} DCA · {Object.keys(s.faders).length} fader(s){s.blackout ? " · Blackout" : ""}

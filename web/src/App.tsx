@@ -5,6 +5,7 @@ import { control, stream } from "./ws";
 import { useTopic } from "./hooks/useTopic";
 import { DashboardsPage } from "./pages/Dashboards";
 import { newerBuild } from "./freshness";
+import { MotionLockButton } from "./components/MotionLockButton";
 // The Live loads first (a tablet on stage needs nothing else); every other page comes on demand.
 const ConsolePage = lazy(() => import("./pages/Console").then((m) => ({ default: m.ConsolePage })));
 const MidiPage = lazy(() => import("./pages/Midi").then((m) => ({ default: m.MidiPage })));
@@ -359,6 +360,9 @@ export function App(): ReactElement | null {
               {output.show.name}
             </button>
           )}
+          {/* « Figer les lyres » (T26): on every page, only where the venue has moving heads */}
+          <MotionLockButton variant="bar" />
+
           {output?.standby && (
             <span className="badge standby" title={`${t.standby}${output.foreignSources?.length ? ` · ${t.otherHolds} ${output.foreignSources.map(sourceName).join(", ")}` : ""}. ${t.standbyHelp}`}>
               ⏸ {t.standbyShort}

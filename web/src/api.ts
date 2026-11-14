@@ -253,6 +253,13 @@ export async function cmd<T = unknown>(name: string, args: unknown = {}): Promis
   return r.result;
 }
 
+export type MotionLockLevel = "off" | "soft" | "hard";
+export interface MotionLockSummary {
+  level: MotionLockLevel;
+  heads: Record<string, "soft" | "hard">;
+  effective: MotionLockLevel;
+}
+
 export async function lightState(): Promise<{
   show?: { id: string; name: string };
   blackout: boolean;
@@ -267,6 +274,10 @@ export async function lightState(): Promise<{
   parked?: number;
   /** AI clients may touch up the service live (show settings). */
   liveAi?: boolean;
+  /** « Figer les lyres » (T26): the global level, each head's own, and the strictest effective level of an installed head. */
+  motionLock?: MotionLockSummary;
+  /** The installed moving heads, and how many a lock holds. */
+  movingHeads?: { total: number; frozen: number };
 }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }

@@ -8,7 +8,7 @@ import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master";
+export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock";
 export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 export interface MenuWidget {
   id: string;
@@ -47,6 +47,8 @@ function midiAction(w: MenuWidget): { action: Action; target: string } | undefin
       return { action: "tempo.tap", target: "" };
     case "stop-all":
       return { action: "look.stopall", target: "" };
+    case "motion-lock":
+      return { action: "freeze", target: w.target ?? "" };
     default:
       return undefined;
   }
@@ -146,7 +148,7 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
-  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" ? groups : widget.kind === "snapshot" ? snapshots : [];
+  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" || widget.kind === "motion-lock" ? groups : widget.kind === "snapshot" ? snapshots : [];
   const learn = () => {
     if (!action) return;
     setLearning(true);

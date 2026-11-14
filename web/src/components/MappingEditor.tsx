@@ -28,7 +28,7 @@ interface Named {
 }
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
-const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout"] as const;
+const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze"] as const;
 export type Action = (typeof ACTIONS)[number];
 /** Target meaning « no program » (program.select with id null). */
 const NO_PROGRAM = "-";
@@ -42,6 +42,8 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
   if (m.on.command === "group.flash") return { action: "flash", target: id };
   if (m.on.command === "snapshot.recall") return { action: "snapshot", target: plain(m.on.args.id) };
   if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : plain(m.on.args.id) };
+  // « Figer les lyres » (T26): every head, or a group's
+  if (m.on.command === "motion.freeze") return { action: "freeze", target: plain(m.on.args.group) };
   if (m.on.command === "song.section.go") return { action: "section", target: `${plain(m.on.args.song)}/${plain(m.on.args.section)}` };
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
 }
@@ -69,6 +71,14 @@ export function build(m: MappingDraft, action: Action, target: string): MappingD
       return { ...base, mode: "trigger", on: { command: "snapshot.recall", args: { id: target } } };
     case "blackout":
       return { ...base, on: { command: "blackout", args: { on: true } }, off: m.mode === "trigger" ? undefined : { command: "blackout", args: { on: false } } };
+    case "freeze": {
+      // « Figer les lyres » (T26): a button in latch or momentary freezes on press and unfreezes on release (or the next
+      // press); in trigger or toggle, each press switches (motion.freeze toggle). Unfreezing needs commands:position.
+      const scope = target ? { group: target } : {};
+      return m.mode === "latch" || m.mode === "momentary"
+        ? { ...base, on: { command: "motion.freeze", args: { ...scope } }, off: { command: "motion.unfreeze", args: { ...scope } } }
+        : { ...base, on: { command: "motion.freeze", args: { ...scope, toggle: true } } };
+    }
     default:
       return { ...base, on: { command: action, args: {} } };
   }
@@ -99,7 +109,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
@@ -109,7 +119,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
       .finally(() => setLearning(false));
   };
   const save = () => {
-    if (targets.length && !target) return setError(t.targetRequired);
+    // a freeze without a group is every head: its target is optional
+    if (targets.length && !target && action !== "freeze") return setError(t.targetRequired);
     const label = m.label || targets.find((x) => x.id === target)?.name || t.mappingActions[action];
     const full = build({ ...m, label }, action, target);
     const id = initial.id || uniqueId(slug(`${m.input.type}-${m.input.number}-${label}`, "mapping"), existing);

@@ -235,6 +235,17 @@ describe("motion lock commands (T26, lot 3)", () => {
         { level: "soft", heads: { spot2: "hard" }, effective: "hard" },
       ]);
     });
+
+    it("counts the installed moving heads and those a lock holds, for the top bar's button", async () => {
+      expect(plugin.state().movingHeads).to.deep.equal({ total: 2, frozen: 0 });
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      expect(plugin.state().movingHeads).to.deep.equal({ total: 2, frozen: 1 });
+      await run("motion.freeze");
+      expect(plugin.state().movingHeads).to.deep.equal({ total: 2, frozen: 2 });
+      // an absent head is not installed: neither counted nor frozen
+      await run("venue.fixture.presence", { fixtures: ["spot2"], present: false });
+      expect(plugin.state().movingHeads).to.deep.equal({ total: 1, frozen: 1 });
+    });
   });
 
   describe("rights (decisions Q2 + Q6)", () => {

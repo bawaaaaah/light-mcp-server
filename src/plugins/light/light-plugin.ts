@@ -798,7 +798,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel } } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel }; movingHeads: { total: number; frozen: number } } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -820,7 +820,17 @@ export class LightPlugin implements McpPlugin {
       // « Figer les lyres » (T26): said on every page; `effective` is the strictest level a moving head is under (the
       // badge: a head frozen hard under a soft global lock is « everything frozen » for it)
       motionLock: this.motionLockSummary(),
+      // the installed moving heads and how many of them are frozen (effective level not off): the top bar shows its
+      // « Figer les lyres » button only where the venue has heads, and says when only some are frozen
+      movingHeads: this.movingHeadsSummary(),
     };
+  }
+
+  /** How many moving heads are installed, and how many of them a lock holds (their effective level, T26). */
+  private movingHeadsSummary(): { total: number; frozen: number } {
+    if (!this.runtime) return { total: 0, frozen: 0 };
+    const heads = this.runtime.movingHeads();
+    return { total: heads.length, frozen: heads.filter((head) => this.runtime.motionLock(head) !== "off").length };
   }
 
   /** The lock levels, and the strictest effective level over the installed moving heads (off without a head). */

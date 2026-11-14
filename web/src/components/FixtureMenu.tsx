@@ -7,6 +7,9 @@ import { DmxModeSection } from "./DmxModeSection";
 import { FixtureHeads } from "./FixtureHeads";
 import { WheelEntry } from "./WheelEditor";
 import { TracksEntry } from "./TracksEditor";
+import { LockChoice } from "./MotionLockButton";
+import { useMotionLock } from "../hooks/useMotionLock";
+import { stricter, type LockLevel } from "../motionLock";
 
 export interface MarkedFixture {
   id: string;
@@ -103,6 +106,9 @@ export function FixtureMenu({
   const [name, setName] = useState(fixture.name);
   const [color, setColor] = useState(fixture.color);
   const o = fixture.orientation ?? {}; // a fixture that was never oriented has no orientation object
+  // « Figer les lyres » (T26): this head's own lock level (the global one is said apart)
+  const lockView = useMotionLock();
+  const ownLock: LockLevel = lockView?.lock.heads[fixture.id] ?? "off";
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [universe, setUniverse] = useState(String(fixture.universe));
@@ -247,6 +253,13 @@ export function FixtureMenu({
             </button>
           </div>
           <small className="hint">{t.invertAxisHelp}</small>
+          {lockView && (
+            <div className="field" data-testid="fixture-lock">
+              <span>{t.motionLock.fixture}</span>
+              <LockChoice label={`${t.motionLock.fixture} · ${fixture.name}`} names={t.motionLock.fixtureLevels} levels={{ base: ownLock, top: ownLock }} checked={ownLock} target={{ fixtures: [fixture.id] }} onDone={onSaved} onError={setError} />
+              <small className="hint">{stricter(ownLock, lockView.lock.level) !== ownLock ? t.motionLock.fixtureGlobal.replace("{level}", t.motionLock.fixtureLevels[lockView.lock.level]) : t.motionLock.fixtureHelp}</small>
+            </div>
+          )}
         </>
       )}
       <FixtureHeads fixture={fixture.id} onSaved={onSaved} />

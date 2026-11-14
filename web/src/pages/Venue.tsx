@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactK
 import { cmd, lightState } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
+import { useMotionLock } from "../hooks/useMotionLock";
+import { stricter } from "../motionLock";
 import { jumpTo, labelOf, slug, uniqueId } from "../util";
 import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
@@ -70,6 +72,7 @@ interface ShowRow {
 
 export function VenuePage(): ReactElement {
   const t = useT();
+  const lockView = useMotionLock();
   const [library, setLibrary] = useState<Def[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [canvases, setCanvases] = useState<Canvas[]>([]);
@@ -235,6 +238,17 @@ export function VenuePage(): ReactElement {
                       return (
                         <span className="badge invert" title={[o?.invertPan ? t.invertPanLabel : "", o?.invertTilt ? t.invertTiltLabel : ""].filter(Boolean).join(" + ")}>
                           ⇄ {axes}
+                        </span>
+                      );
+                    })()}
+                    {(() => {
+                      // « Figer les lyres » (T26): its effective level, the stricter of its own and the global lock
+                      if (!f.movable || f.absent || !lockView) return null;
+                      const level = stricter(lockView.lock.heads[f.id] ?? "off", lockView.lock.level);
+                      if (level === "off") return null;
+                      return (
+                        <span className="badge lock" data-level={level} data-testid="patch-lock" role="img" title={t.motionLock.patchBadge[level]} aria-label={t.motionLock.patchBadge[level]}>
+                          {level === "hard" ? "🔒🔒" : "🔒"}
                         </span>
                       );
                     })()}
