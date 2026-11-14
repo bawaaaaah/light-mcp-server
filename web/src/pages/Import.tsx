@@ -22,6 +22,7 @@ interface Selftest {
   total: number;
   passed: number;
   failed: { mapping: string; label: string; reason: string }[];
+  untested: { mapping: string; label: string; reason: string }[];
   exclusivity: { group: string; ok: boolean; detail?: string }[];
   latencyMs: { p50: number; max: number };
   cadence?: { bpm: number; looks: { look: string; expectedMs: number; measuredMs?: number; ok: boolean; detail?: string }[] };
@@ -340,6 +341,11 @@ export function ImportPage(): ReactElement {
               {selftest.failed.map((f) => (
                 <li key={f.mapping}>
                   {f.label || f.mapping}{t.colon} {f.reason}
+                </li>
+              ))}
+              {selftest.untested.map((u) => (
+                <li key={u.mapping}>
+                  {u.label || u.mapping}{t.colon} {u.reason}
                 </li>
               ))}
               {selftest.exclusivity

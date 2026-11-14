@@ -91,6 +91,8 @@ if __name__ == "__main__":
     print(f"Mappings : {result['passed']}/{result['total']} · latence {result['latencyMs']['p50']} ms (max {result['latencyMs']['max']} ms)")
     for f in result["failed"]:
         print(f"  ✖ {f['label'] or f['mapping']} : {f['reason']}")
+    for u in result.get("untested", []):
+        print(f"  – {u['label'] or u['mapping']} : {u['reason']}")
     for e in result["exclusivity"]:
         print(f"  {'✔' if e['ok'] else '✖'} exclusivité {e['group']}")
     for c in (result.get("cadence") or {}).get("looks", []):

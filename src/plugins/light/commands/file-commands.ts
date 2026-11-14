@@ -12,6 +12,7 @@ import { definitionDirsFor, FixturePolicySchema, type FixturePolicy } from "../d
 import { ID_RE, slugify, stableStringify } from "../data/store.js";
 import { settingsOn, showsOnVenue, type ShowSettings } from "../data/show-folders.js";
 import { PatchedFixtureSchema, type PatchedFixture } from "../venue/venue.js";
+import type { HeadFlips } from "../show/motion-lock.js";
 import { pairFixtures, placementChange } from "../venue/positions-import.js";
 import { autoBackupDue, autoBackupsOf, autoBackupsToPrune, autoBackupTime, historyToPrune } from "../data/retention.js";
 import { CommandError, type CommandRegistry } from "./registry.js";
@@ -35,6 +36,8 @@ export interface FileServices {
   importQxw(xml: string): Promise<unknown>;
   /** Files the open show uses from this machine, packed as its own (its personal intentions, T15). */
   showExtra?(): Record<string, string>;
+  /** Whether new pan/tilt inversions or swap would move this hard-frozen moving head (T26, « Figer les lyres »). */
+  flipsMoveFrozen?(fixture: string, before: HeadFlips, after: HeadFlips): boolean;
 }
 
 /** Local date and time for file names, as the user reads them: 2026-10-15_23-01-52. */
@@ -302,7 +305,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     name: "venue.positions.import",
     title: "Reprendre les positions d'un autre lieu",
     description:
-      "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order (`ambiguous`: several candidates shared that name or model, paired by address: check them). A target zone this venue lacks is not copied (`skipped`). Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, what has no equivalent on either side, and the source files that did not read (`unreadable`). With apply true every move is checked first, then written, one venue.fixture.put each; a write refused midway stops and says how many were moved.",
+      "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order (`ambiguous`: several candidates shared that name or model, paired by address: check them). A target zone this venue lacks is not copied (`skipped`). Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, what has no equivalent on either side, the source files that did not read (`unreadable`), and the hard-frozen moving heads whose pan/tilt inversions or swap would change (`frozen`: apply is then refused as a whole until they are unfrozen). With apply true every move is checked first, then written, one venue.fixture.put each; a write refused midway stops and says how many were moved.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ from: z.string(), apply: z.boolean().default(false) }),
@@ -318,6 +321,17 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
       const toMove = moves.filter((m) => m.changed.length);
       // every fixture checked before the first write: a refused one would leave the venue half moved
       const next = toMove.map((m) => PatchedFixtureSchema.parse({ ...m.to, ...m.fields }));
+      // « Figer les lyres » (T26): new inversions or swap would move a hard-frozen head — refused as a whole, never midway
+      const frozen = toMove.filter((m, i) => s.flipsMoveFrozen?.(m.to.id, m.to.orientation, next[i]!.orientation)).map((m) => ({ id: m.to.id, name: m.to.name }));
+      if (apply && frozen.length)
+        throw new CommandError(
+          "failed",
+          say(
+            `lyres figées (tout, pad compris) : ${frozen.map((f) => f.name).join(", ")} ; inverser ou permuter leur pan/tilt les déplacerait, rien n'est déplacé ; les défiger d'abord (motion.unfreeze)`,
+            `moving heads frozen (everything, pad included): ${frozen.map((f) => f.name).join(", ")}; inverting or swapping their pan/tilt would move them, nothing is moved; unfreeze them first (motion.unfreeze)`,
+          ),
+          { refused: frozen.map((f) => f.id) },
+        );
       let written = 0;
       if (apply) {
         for (const fixture of next) {
@@ -336,6 +350,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
         noEquivalentHere: unmatchedSource.map((f) => ({ id: f.id, name: f.name })),
         notInSource: unmatchedTarget.map((f) => ({ id: f.id, name: f.name })),
         ...(unreadable.length ? { unreadable } : {}),
+        ...(frozen.length ? { frozen } : {}),
       };
     },
   });

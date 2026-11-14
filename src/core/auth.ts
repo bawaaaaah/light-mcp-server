@@ -181,8 +181,9 @@ export class AuthService implements AuthMiddleware {
       this.state.migrations.push(m.id);
       migrated = true;
     }
-    // the mark is saved at once: a right an administrator removes before any other change of the roles stays removed
-    if (migrated) void this.save().catch((err: unknown) => console.warn("rôles : migration non enregistrée, elle sera rejouée au prochain démarrage :", (err as Error).message));
+    // the mark is saved at once: a right an administrator removes before any other change of the roles stays removed;
+    // never over a stored state that could not be read (its users, PINs and roles would be lost to the defaults)
+    if (migrated && parsed.success) void this.save().catch((err: unknown) => console.warn("rôles : migration non enregistrée, elle sera rejouée au prochain démarrage :", (err as Error).message));
     const stored = configStore?.getAuthSessions();
     for (const entry of Array.isArray(stored) ? stored : []) {
       const session = SessionSchema.safeParse(entry);

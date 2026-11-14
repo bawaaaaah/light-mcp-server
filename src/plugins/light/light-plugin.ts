@@ -357,6 +357,7 @@ export class LightPlugin implements McpPlugin {
         this.show.flushLive();
         this.venue.store.flushLive();
       },
+      flipsMoveFrozen: (fixture, before, after) => this.runtime.flipsMoveFrozen(fixture, before, after),
       reload: () => {
         this.runtime.resetLive();
         this.reloadFromDisk();

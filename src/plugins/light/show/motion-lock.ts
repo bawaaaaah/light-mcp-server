@@ -46,6 +46,13 @@ export function lockOf(lock: MotionLockState | undefined, head: string): LockLev
   return own ? stricter(lock.level, own) : lock.level;
 }
 
+/** A head's pan/tilt inversions and swap: a frozen position is logical, its bytes follow them. */
+export type HeadFlips = { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean } | undefined;
+
+/** Whether two orientations invert and swap pan/tilt the same way (absent = false). */
+export const sameFlips = (a: HeadFlips, b: HeadFlips): boolean =>
+  (a?.invertPan ?? false) === (b?.invertPan ?? false) && (a?.invertTilt ?? false) === (b?.invertTilt ?? false) && (a?.swapPanTilt ?? false) === (b?.swapPanTilt ?? false);
+
 /** The part of the lock a snapshot records: the levels, never `held`. */
 export const lockState = (lock: MotionLockState | undefined): MotionLockState => ({ level: lock?.level ?? "off", heads: { ...(lock?.heads ?? {}) } });
 

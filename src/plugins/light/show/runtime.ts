@@ -24,7 +24,7 @@ import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
-import { hardenLock, heldOf, lockOf, lockState, sameLock, type MotionLockState } from "./motion-lock.js";
+import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
 import { say } from "../../../core/lang.js";
 
@@ -405,6 +405,14 @@ export class ShowRuntime {
     this.settings = { ...this.settings, motionLock: { level: lock?.level ?? "off", heads, held: Object.fromEntries(this.lockHeld) } };
     this.heldUrgent = true;
     this.flushHeld();
+  }
+
+  /**
+   * Whether new pan/tilt inversions or swap would move a hard-frozen moving head (T26): its frozen position is logical,
+   * its bytes follow them, so the change is refused until it is unfrozen. False for any other head or the same flips.
+   */
+  flipsMoveFrozen(fixture: string, before: HeadFlips, after: HeadFlips): boolean {
+    return this.motionLock(fixture) === "hard" && this.movingHeads().includes(fixture) && !sameFlips(before, after);
   }
 
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */

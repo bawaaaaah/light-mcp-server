@@ -37,7 +37,15 @@ import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.
 import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
 import { say } from "../../../core/lang.js";
+import { UNFREEZE_ORIGINS } from "./move-commands.js";
+import type { HeadFlips } from "../show/motion-lock.js";
 import { patchSchema } from "../../../core/zod-patch.js";
+
+/**
+ * How a snapshot recalled by a command puts the motion lock back (decision U3 of 2026-11-14): exactly from an origin that
+ * may unfreeze, hardened only from an automatic one (OSC, OS2L, AbleSet, a song), which may freeze but never unfreeze.
+ */
+const lockModeFor = (origin: CommandContext["origin"]): SnapshotLockMode => (UNFREEZE_ORIGINS.includes(origin) ? "exact" : "harden");
 
 /**
  * Puts a snapshot back the way `snapshot.recall` does: the runtime applies it, then the Blackout is set. `lock`: its
@@ -107,10 +115,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
    * turned into bytes through its inversions and swap. Changing them would send it elsewhere: refused until it is
    * unfrozen (the rest of the patch and the orientation stay editable).
    */
-  const keepFrozenFlips = (id: string, before: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean } | undefined, after: typeof before) => {
-    if (show.motionLock(id) !== "hard" || !show.movingHeads().includes(id)) return;
-    const flips = (o: typeof before) => [o?.invertPan ?? false, o?.invertTilt ?? false, o?.swapPanTilt ?? false].join();
-    if (flips(before) === flips(after)) return;
+  const keepFrozenFlips = (id: string, before: HeadFlips, after: HeadFlips) => {
+    if (!show.flipsMoveFrozen(id, before, after)) return;
     const name = venue.fixtures.get(id)?.name ?? id;
     throw new CommandError(
       "failed",
@@ -2093,10 +2099,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "commands:snapshot",
     profiles: ["live", "design"],
     schema: idSchema,
-    run: ({ id: i }) => {
+    run: ({ id: i }, ctx) => {
       const snap = show.snapshots.get(i);
       if (!snap) throw new Error(say(`instantané inconnu : ${i}`, `unknown snapshot: ${i}`));
-      return { id: i, ...recallSnapshot(engine, show, snap) };
+      // decision U3: an automatic origin (OSC, OS2L, AbleSet, a song) may freeze, never unfreeze — the lock only hardens
+      return { id: i, ...recallSnapshot(engine, show, snap, lockModeFor(ctx.origin)) };
     },
   });
   reg.register({
@@ -2158,10 +2165,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     right: "commands:panic",
     profiles: ["live"],
     schema: z.object({}),
-    run: () => {
+    run: (_args, ctx) => {
       const before = show.takeBeforePanic();
       if (!before) throw new Error(say("rien à annuler : pas de Panic dans la dernière minute", "nothing to undo: no Panic in the last minute"));
-      const done = show.applySnapshot(before);
+      // decision U3: from an automatic origin the lock before the Panic comes back only where it is stricter than now
+      const done = show.applySnapshot(before, lockModeFor(ctx.origin));
       engine.setBlackout(before.blackout);
       return { undone: true, ...done };
     },

@@ -245,8 +245,12 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         ),
       );
   };
-  /** Anything frozen at all: the global level, or any head's own lock (absent and orphan ids included). */
-  const anyFrozen = (lock: MotionLockState) => lock.level !== "off" || Object.keys(lock.heads).length > 0;
+  /**
+   * Anything frozen at all: the global level, or the own lock of a fixture in the open venue's patch (an absent head
+   * included). An id no longer in the patch (left by show.venue.set) does not count: the toggle must not need a blank
+   * press to clear it; motion.unfreeze without a target, and a toggle that frees, still clear it (decision U2).
+   */
+  const anyFrozen = (lock: MotionLockState) => lock.level !== "off" || Object.keys(lock.heads).some((id) => show.venue.fixtures.get(id) !== undefined);
   /** Decision U2: the whole lock loosened to `to` — the global level and every head's own. */
   const loosenAll = (lock: MotionLockState, to: LockLevel): MotionLockState => ({
     level: looser(lock.level, to),
@@ -256,7 +260,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "motion.freeze",
     title: "Figer les lyres",
     description:
-      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
+      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ level: z.enum(["soft", "hard"]).default("soft"), toggle: z.boolean().default(false) }),
@@ -274,7 +278,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (free ? "off" : own ? stricter(own, level) : level)) };
       } else {
         ids = show.movingHeads();
-        // decision U2: the global toggle frees everything when anything is frozen, else freezes at the level given
+        // decision U2: the global toggle frees everything when anything patched is frozen, else freezes at the level given
         const free = toggle && anyFrozen(cur);
         if (free) mayLoosen(ctx.origin);
         next = free ? loosenAll(cur, "off") : { level: stricter(cur.level, level), heads: cur.heads };

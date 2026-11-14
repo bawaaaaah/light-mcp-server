@@ -22,6 +22,7 @@ describe("motion lock commands (T26, lot 3)", () => {
   let plugin: LightPlugin;
   let bus: EventBus;
   let now = 0;
+  let dataRoot = "";
   const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
   const run = (name: string, args: unknown = {}, ctx: CommandContext = systemContext()) => plugin.commands.invoke(name, args, ctx);
   /** A caller with these rights, as the server matches them (wildcards, implied rights). */
@@ -48,7 +49,7 @@ describe("motion lock commands (T26, lot 3)", () => {
   type Report = { level: string; heads: Record<string, string>; fixtures: { id: string; lock: string }[] };
 
   beforeEach(() => {
-    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-lock-cmds-")), "data");
+    dataRoot = join(mkdtempSync(join(tmpdir(), "light-lock-cmds-")), "data");
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
     copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
     now = 0;
@@ -205,6 +206,22 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(plugin.state().motionLock.effective).to.equal("off");
     });
 
+    it("the global toggle ignores an id no longer in the patch: it freezes at once; unfreeze still clears it (decision U2)", async () => {
+      plugin.runtime.setMotionLock({ level: "off", heads: { ghost: "hard" } }); // left by show.venue.set
+      await run("motion.freeze", { toggle: true }); // nothing patched is frozen: the first press freezes
+      expect(lock()).to.deep.equal({ level: "soft", heads: { ghost: "hard" } });
+      await run("motion.freeze", { toggle: true }); // the second frees everything, the orphan included
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      plugin.runtime.setMotionLock({ level: "off", heads: { ghost: "hard" } });
+      await run("motion.unfreeze");
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      // an absent head is still patched: frozen on its own, it counts
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("venue.fixture.presence", { fixtures: ["spot2"], present: false });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+    });
+
     it("puts the lock in `state`, with the strictest effective level, and sends it on every change", async () => {
       const states: { motionLock: { level: string; heads: object; effective: string } }[] = [];
       bus.subscribe((e: PluginEvent) => {
@@ -256,6 +273,54 @@ describe("motion lock commands (T26, lot 3)", () => {
         expect(lock().heads).to.deep.equal({ spot2: "soft" });
         await run("motion.unfreeze", {}, from("ui"));
       }
+    });
+
+    it("a snapshot recalled from OSC or OS2L only hardens the lock; from the interface, exactly (decisions Q3, U3)", async () => {
+      const from = (origin: Origin): CommandContext => ({ origin, can: () => true });
+      await run("snapshot.save", { name: "Free", id: "free" }); // the lock off
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("snapshot.save", { name: "Spot2", id: "spot2" }); // spot2 soft
+      for (const origin of ["osc", "os2l"] as const) {
+        await run("motion.unfreeze");
+        await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+        await run("snapshot.recall", { id: "free" }, from(origin));
+        expect(lock(), origin).to.deep.equal({ level: "off", heads: { spot: "hard" } }); // not unfrozen
+        await run("snapshot.recall", { id: "spot2" }, from(origin));
+        expect(lock(), origin).to.deep.equal({ level: "off", heads: { spot: "hard", spot2: "soft" } }); // hardened
+      }
+      await run("snapshot.recall", { id: "free" }, from("ui"));
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+    });
+
+    it("panic.undo from OSC or OS2L keeps the lock where it is now stricter; from the interface, the lock before (decisions D3, U3)", async () => {
+      const from = (origin: Origin): CommandContext => ({ origin, can: () => true });
+      for (const origin of ["osc", "os2l"] as const) {
+        await run("motion.unfreeze");
+        await run("motion.freeze", { fixtures: ["spot2"] });
+        await run("panic"); // before: spot2 soft
+        await run("motion.unfreeze");
+        await run("motion.freeze", { level: "hard" });
+        await run("panic.undo", {}, from(origin));
+        expect(lock(), origin).to.deep.equal({ level: "hard", heads: { spot2: "soft" } }); // the hard lock now stays, spot2 comes back
+      }
+      await run("motion.unfreeze");
+      await run("panic");
+      await run("motion.freeze", { level: "hard" });
+      await run("panic.undo", {}, from("ui"));
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+    });
+
+    it("selftest.run does not replay a mapping that freezes or unfreezes: listed as untested, the lock unchanged", async () => {
+      const input = (number: number) => ({ type: "note", channel: 1, number });
+      await run("midi.mapping.put", { mapping: { id: "freeze", label: "Figer", input: input(1), on: { command: "motion.freeze", args: { level: "hard" } } } });
+      await run("midi.mapping.put", { mapping: { id: "free", label: "Défiger", input: input(2), on: { command: "motion.unfreeze" } } });
+      await run("midi.mapping.put", { mapping: { id: "bo", label: "Blackout", input: input(3), on: { command: "blackout", args: { on: true } }, off: { command: "motion.freeze", args: { toggle: true } } } });
+      await run("motion.freeze", { fixtures: ["spot"] });
+      const r = (await run("selftest.run")) as { total: number; passed: number; untested: { mapping: string; reason: string }[] };
+      expect(r.untested.map((u) => u.mapping)).to.deep.equal(["freeze", "free", "bo"]);
+      expect(r.untested[0]!.reason).to.match(/lyres|moving heads/);
+      expect(r).to.deep.include({ total: 3, passed: 0 });
+      expect(lock()).to.deep.equal({ level: "off", heads: { spot: "soft" } });
     });
 
     it("whoever may aim the heads may freeze them (commands:position brings commands:freeze)", async () => {
@@ -344,6 +409,24 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(plugin.venue.fixtures.get("spot")?.orientation?.invertPan).to.equal(true);
     });
 
+    it("venue.positions.import refuses as a whole new flips on a hard-frozen head, and says so in the preview", async () => {
+      const other = join(dataRoot, "venues", "autre", "fixtures");
+      mkdirSync(other, { recursive: true });
+      const spot = plugin.venue.fixtures.get("spot")!;
+      const spot2 = plugin.venue.fixtures.get("spot2")!;
+      writeFileSync(join(other, "spot.json"), JSON.stringify({ ...spot, orientation: { ...spot.orientation, invertPan: true } }));
+      writeFileSync(join(other, "spot2.json"), JSON.stringify({ ...spot2, position: { x: 3, y: 2, z: 5 } }));
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      expect(await run("venue.positions.import", { from: "autre" })).to.deep.include({ frozen: [{ id: "spot", name: "Spot" }] });
+      expect((await refusal(run("venue.positions.import", { from: "autre", apply: true }))).detail).to.deep.equal({ refused: ["spot"] });
+      expect(plugin.venue.fixtures.get("spot2")?.position).to.deep.equal({ x: 1, y: 2, z: 5 }); // nothing moved, not half
+      await run("motion.unfreeze", { fixtures: ["spot"], to: "soft" });
+      expect(await run("venue.positions.import", { from: "autre" })).to.not.have.property("frozen");
+      await run("venue.positions.import", { from: "autre", apply: true });
+      expect(plugin.venue.fixtures.get("spot")?.orientation?.invertPan).to.equal(true);
+      expect(plugin.venue.fixtures.get("spot2")?.position).to.deep.equal({ x: 3, y: 2, z: 5 });
+    });
+
     it("a global hard lock refuses a release of every head", async () => {
       await run("motion.freeze", { level: "hard" });
       expect((await refusal(run("position.release"))).detail).to.deep.equal({ refused: ["spot", "spot2"] });
@@ -404,6 +487,15 @@ describe("the commands:freeze right on stored roles (T26 migration)", () => {
     const rights = ["commands:position", "commands:freeze", "commands:panic", "show:write", "show:propose", "show:admin", "dashboards:view"];
     const granted = [["*"], ["commands:*"], ["show:*"], ["commands:position"], ["commands:panic"], ["show:write"], ["show:propose"], []];
     for (const g of granted) for (const r of rights) expect(grants(g, r), `${g.join(",")} → ${r}`).to.equal(g.some((x) => rightMatches(x, r)));
+  });
+
+  it("never overwrites a stored state it cannot read: users, PINs and roles stay on disk", async () => {
+    const auth = { roles: "not a list", users: [{ id: "u1", name: "Someone", role: "admin", pinHash: "x" }] };
+    const config = await store(auth);
+    void new AuthService("master", config);
+    await new Promise((r) => setTimeout(r, 50));
+    const saved = JSON.parse(readFileSync(config.filePath, "utf8")) as { server: { auth: unknown } };
+    expect(saved.server.auth).to.deep.equal(auth);
   });
 
   it("runs once: a right removed after the migration stays removed", async () => {

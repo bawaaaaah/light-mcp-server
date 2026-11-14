@@ -197,10 +197,11 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         return lint.ok ? 0 : 1;
       }
       case "selftest": {
-        type R = { total: number; passed: number; failed: { label: string; mapping: string; reason: string }[]; exclusivity: { group: string; ok: boolean; detail?: string }[]; latencyMs: { p50: number; max: number }; cadence?: { bpm: number; looks: { look: string; ok: boolean; measuredMs?: number; expectedMs: number; detail?: string }[] } };
+        type R = { total: number; passed: number; failed: { label: string; mapping: string; reason: string }[]; untested?: { label: string; mapping: string; reason: string }[]; exclusivity: { group: string; ok: boolean; detail?: string }[]; latencyMs: { p50: number; max: number }; cadence?: { bpm: number; looks: { look: string; ok: boolean; measuredMs?: number; expectedMs: number; detail?: string }[] } };
         const r = await caller.call<R>("selftest.run", { cadence: values.cadence });
         console.log(`Mappings : ${r.passed}/${r.total} · latence ${r.latencyMs.p50} ms (max ${r.latencyMs.max} ms)`);
         for (const f of r.failed) console.log(`  ✖ ${f.label || f.mapping} : ${f.reason}`);
+        for (const u of r.untested ?? []) console.log(`  – ${u.label || u.mapping} : ${u.reason}`);
         for (const e of r.exclusivity) console.log(`  ${e.ok ? "✔" : "✖"} exclusivité ${e.group}${e.detail ? ` : ${e.detail}` : ""}`);
         if (r.cadence) {
           console.log(`Cadence à ${r.cadence.bpm} BPM :`);

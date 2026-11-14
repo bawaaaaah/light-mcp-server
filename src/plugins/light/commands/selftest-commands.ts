@@ -17,6 +17,8 @@ export interface SelftestResult {
   total: number;
   passed: number;
   failed: { mapping: string; label: string; reason: string }[];
+  /** Mappings not replayed, with why: those that freeze or unfreeze the moving heads (the lock would not be put back). */
+  untested: { mapping: string; label: string; reason: string }[];
   exclusivity: { group: string; ok: boolean; detail?: string }[];
   latencyMs: { p50: number; max: number };
   /** Real-time cadence of the looks (with `cadence: true`), at the tempo of the moment. */
@@ -55,6 +57,9 @@ export function checkCadence(changes: number[], expectedMs: number, toleranceMs 
   const detail = !medianOk ? say(`cadence ${measuredMs} ms au lieu de ${Math.round(expectedMs)} (${tol})`, `rate ${measuredMs} ms instead of ${Math.round(expectedMs)} (${tol})`) : hiccups.length > 1 ? say(`${hiccups.length} à-coups jusqu'à ${Math.round(Math.max(...hiccups))} ms (${tol})`, `${hiccups.length} hiccups up to ${Math.round(Math.max(...hiccups))} ms (${tol})`) : hiccups.length === 1 ? say(`un à-coup isolé de ${Math.round(hiccups[0]!)} ms, toléré`, `a single hiccup of ${Math.round(hiccups[0]!)} ms, tolerated`) : undefined;
   return { expectedMs: Math.round(expectedMs * 10) / 10, measuredMs, ok, ...(detail ? { detail } : {}) };
 }
+
+/** Commands of the motion lock (T26): their mappings are not replayed, the test would leave the lock changed. */
+const LOCK_COMMANDS: ReadonlySet<string> = new Set(["motion.freeze", "motion.unfreeze"]);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -140,7 +145,7 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     name: "selftest.run",
     title: "Auto-test",
     description:
-      "Replays every MIDI mapping, checks its effect (look playing with DMX on its fixtures, group level), checks exclusive groups, measures trigger→frame time, then restores the previous state. With cadence: true, also plays each look (or the given ones) alone and measures its step cadence on the real output against the current tempo (about 4 steps per look: takes a while).",
+      "Replays every MIDI mapping (except those that freeze or unfreeze the moving heads, listed as untested), checks its effect (look playing with DMX on its fixtures, group level), checks exclusive groups, measures trigger→frame time, then restores the previous state. With cadence: true, also plays each look (or the given ones) alone and measures its step cadence on the real output against the current tempo (about 4 steps per look: takes a while).",
     right: "commands:selftest",
     profiles: ["setup"],
     schema: z.object({ cadence: z.boolean().default(false), looks: z.array(z.string()).optional() }),
@@ -151,12 +156,17 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
       engine.setBlackout(false);
       const mapper = new MidiMapper();
       const all = mappings();
-      mapper.setMappings(all);
+      // a mapping that freezes or unfreezes the heads would change the motion lock (T26), which the test does not put back
+      const untested: SelftestResult["untested"] = all
+        .filter((m) => [m.on, m.off].some((c) => c && LOCK_COMMANDS.has(c.command)))
+        .map((m) => ({ mapping: m.id, label: m.label, reason: say("fige ou défige les lyres : non rejoué", "freezes or unfreezes the moving heads: not replayed") }));
+      const replayed = all.filter((m) => !untested.some((u) => u.mapping === m.id));
+      mapper.setMappings(replayed);
       const failed: SelftestResult["failed"] = [];
       const latencies: number[] = [];
       const ctx = { origin: "system" as const, can: () => true };
       try {
-        for (const m of all) {
+        for (const m of replayed) {
           runtime.stopAll();
           engine.setBlackout(false); // a previous mapping (e.g. a blackout button) must not mask the next ones
           const t0 = performance.now();
@@ -215,8 +225,9 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
         }
         return {
           total: all.length,
-          passed: all.length - failed.length,
+          passed: replayed.length - failed.length,
           failed,
+          untested,
           exclusivity,
           latencyMs: { p50: Math.round((latencies[Math.floor(latencies.length / 2)] ?? 0) * 100) / 100, max: Math.round((latencies.at(-1) ?? 0) * 100) / 100 },
           ...(cadenceResult ? { cadence: cadenceResult } : {}),
