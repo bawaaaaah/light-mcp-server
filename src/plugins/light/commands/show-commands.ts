@@ -960,7 +960,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         if (!brief) return { ...l, ...extra };
         const { technique, channels: _c, move, notes: _n, ...rest } = l;
         // partial: look.put refuses it, so a list → edit → put round trip cannot drop the steps or raw channels
-        return { ...rest, technique: { kind: technique.kind }, ...(move ? { move: { shape: move.shape } } : {}), ...extra, partial: true };
+        return { ...rest, technique: { kind: technique.kind }, ...(move ? { move: { shape: move.shape, ...(move.enabled === false ? { enabled: false } : {}) } } : {}), ...extra, partial: true };
       }),
   });
   reg.register({

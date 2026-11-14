@@ -483,7 +483,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       const heads = new Set(runtime.movingHeads());
       const rawPlaced: { id: string; fr: string; en: string }[] = [];
       for (const l of runtime.looks.list()) {
-        if (!l.channels) continue;
+        // « Ne pas bouger les lyres » (T26, move.enabled false): its raw pan/tilt place nothing, nothing to say
+        if (!l.channels || l.move?.enabled === false) continue;
         const offsets = new Map<string, Set<number>>();
         for (const t of l.channels.targets) if (heads.has(t.fixture)) offsets.set(t.fixture, (offsets.get(t.fixture) ?? new Set<number>()).add(t.offset));
         const placed: [string, string][] = [];

@@ -52,7 +52,11 @@ export const MoveSchema = z.object({
   group: z.string().optional(),
   /** Glide to this move from wherever the heads are; absent: the show's `moveFade` (the look's entry fade is not used). 0 = cut. */
   fade: MoveFadeSchema.optional(),
-  /** Reserved for T26: false keeps the settings but claims no head. Reserved, no effect yet. `move.at` (T24/T27/T32) is not declared: zod strips it, so it is accepted and ignored. */
+  /**
+   * « Ne pas bouger les lyres » (T26): false keeps the settings but the look claims no head, neither by its move nor by
+   * its raw pan/tilt steps; absent or true: it moves. `move.at` (T24/T27/T32) is not declared: zod strips it, so it is
+   * accepted and ignored.
+   */
   enabled: z.boolean().optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;

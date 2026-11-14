@@ -1542,6 +1542,9 @@ export class ShowRuntime {
       return resolved.get(id);
     };
     const ofLook = (look: Look, player: LookPlayer): void => {
+      // « Ne pas bouger les lyres » (T26, `move.enabled: false`): the look keeps its move settings but claims no head,
+      // neither by its move nor by raw pan/tilt steps — the heads stay with whatever else holds them
+      if (look.move?.enabled === false) return;
       const own = { owner: `look:${look.id}`, layer: "look" as const, order: this.launchOrder.get(player) ?? 0, ...(look.move?.fade ? { fade: look.move.fade } : {}) };
       if (look.move) {
         try {
