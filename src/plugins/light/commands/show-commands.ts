@@ -121,8 +121,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     throw new CommandError(
       "failed",
       say(
-        `${name} : lyre figée (tout, pad compris) : inverser ou permuter son pan/tilt la déplacerait ; la défiger d'abord (motion.unfreeze)`,
-        `${name}: moving head frozen (everything, pad included): inverting or swapping its pan/tilt would move it; unfreeze it first (motion.unfreeze)`,
+        `${name} : lyre figée (tout, pad compris) : inverser ou permuter son pan/tilt la déplacerait ; la défiger d'abord (« Figer les lyres », en haut de l'écran)`,
+        `${name}: moving head frozen (everything, pad included): inverting or swapping its pan/tilt would move it; unfreeze it first (« Freeze the heads », at the top of the screen)`,
       ),
       { refused: [id] },
     );

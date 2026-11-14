@@ -208,7 +208,8 @@ export class LightPlugin implements McpPlugin {
     };
     this.commands.onCommand((e) => {
       this.publish("command", commandNotice(e));
-      if (e.ok) this.syncMidiFeedback();
+      // a lock command refused (a MIDI press on a hard lock, decision V1) flipped its mapping all the same: put it back
+      if (e.ok || e.name.startsWith("motion.")) this.syncMidiFeedback();
     });
     registerCoreCommands(
       this.commands,
@@ -731,6 +732,7 @@ export class LightPlugin implements McpPlugin {
     for (const m of this.mapper.list()) {
       const target = argText(m.on.args.id);
       if (m.on.command === "look.go") out.push(...this.mapper.syncState(m.id, this.runtime.isActive(target)));
+      else if (m.on.command === "motion.freeze") out.push(...this.mapper.syncState(m.id, this.frozenFor(m.on.args)));
       else if (m.on.command === "group.level") {
         const g = this.runtime.groups.get(target);
         if (g?.master) out.push(...this.mapper.syncState(m.id, !g.master.mute && g.master.level > 0, g.master.level));
@@ -824,6 +826,21 @@ export class LightPlugin implements McpPlugin {
       // « Figer les lyres » button only where the venue has heads, and says when only some are frozen
       movingHeads: this.movingHeadsSummary(),
     };
+  }
+
+  /**
+   * Whether a « Figer les lyres » mapping's target is frozen (T26), from the lock itself whoever froze it (the
+   * interface, a snapshot, the Panic): every head — anything frozen; a group or fixtures — all their installed moving
+   * heads. Its LED says it, and its next press (latch, toggle) does the opposite of what the lock is now.
+   */
+  private frozenFor(args: Record<string, unknown>): boolean {
+    const heads = this.runtime.movingHeads();
+    const group = argText(args.group);
+    const listed = Array.isArray(args.fixtures) ? args.fixtures.map(argText) : undefined;
+    const inScope = listed ?? (group ? [...this.runtime.fixturesOf(group)] : undefined);
+    if (!inScope) return heads.some((head) => this.runtime.motionLock(head) !== "off");
+    const scoped = inScope.filter((id) => heads.includes(id));
+    return scoped.length > 0 && scoped.every((head) => this.runtime.motionLock(head) !== "off");
   }
 
   /** How many moving heads are installed, and how many of them a lock holds (their effective level, T26). */

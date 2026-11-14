@@ -54,7 +54,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       const names = refused.map(nameOf).join(", ");
       throw new CommandError(
         "failed",
-        say(`lyres figées (tout, pad compris) : ${names} ; les défiger d'abord (motion.unfreeze)`, `moving heads frozen (everything, pad included): ${names}; unfreeze them first (motion.unfreeze)`),
+        say(`lyres figées (tout, pad compris) : ${names} ; les défiger d'abord (« Figer les lyres », en haut de l'écran)`, `moving heads frozen (everything, pad included): ${names}; unfreeze them first (« Freeze the heads », at the top of the screen)`),
         { refused },
       );
     }
@@ -251,16 +251,40 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
    * press to clear it; motion.unfreeze without a target, and a toggle that frees, still clear it (decision U2).
    */
   const anyFrozen = (lock: MotionLockState) => lock.level !== "off" || Object.keys(lock.heads).some((id) => show.venue.fixtures.get(id) !== undefined);
-  /** Decision U2: the whole lock loosened to `to` — the global level and every head's own. */
-  const loosenAll = (lock: MotionLockState, to: LockLevel): MotionLockState => ({
-    level: looser(lock.level, to),
-    heads: withHeads(lock.heads, Object.keys(lock.heads), (own) => (own ? looser(own, to) : "off")),
+  /**
+   * Decision V1 of 2026-11-14: from MIDI, loosening touches only a soft lock — a hard one stays hard (someone may be up
+   * by a head: unfreezing it is the interface's, where it asks a second press). Elsewhere, `to` as asked.
+   */
+  const loosenFor = (origin: Origin, to: LockLevel) => (own: LockLevel): LockLevel => (origin === "midi" && own === "hard" ? "hard" : looser(own, to));
+  /** Decision U2: the whole lock loosened by `loosen` — the global level and every head's own. */
+  const loosenAll = (lock: MotionLockState, loosen: (own: LockLevel) => LockLevel): MotionLockState => ({
+    level: loosen(lock.level),
+    heads: withHeads(lock.heads, Object.keys(lock.heads), (own) => (own ? loosen(own) : "off")),
   });
+  const sameLock = (a: MotionLockState, b: MotionLockState): boolean =>
+    a.level === b.level && Object.keys(a.heads).length === Object.keys(b.heads).length && Object.entries(a.heads).every(([id, l]) => b.heads[id] === l);
+  /**
+   * Decision V1: a loosening from MIDI that left everything as it was because the target is frozen hard is refused
+   * with the way out, rather than a press that silently does nothing (a mixed lock loosens its soft part and passes).
+   */
+  const refuseHardFromMidi = (origin: Origin, cur: MotionLockState, next: MotionLockState, hard: boolean): void => {
+    if (origin !== "midi" || !hard || !sameLock(cur, next)) return;
+    throw new CommandError(
+      "failed",
+      say(
+        "verrou dur : défiger le verrou dur depuis l'interface (un bouton MIDI ne défige qu'un verrou souple)",
+        "hard lock: unfreeze the hard lock from the interface (a MIDI control only unfreezes a soft lock)",
+      ),
+    );
+  };
+  /** Whether these heads, or every head (no ids), are frozen hard by their own or the global lock. */
+  const anyHard = (cur: MotionLockState, ids?: readonly string[]): boolean =>
+    ids ? ids.some((id) => show.motionLock(id) === "hard") : cur.level === "hard" || Object.values(cur.heads).includes("hard");
   reg.register({
     name: "motion.freeze",
     title: "Figer les lyres",
     description:
-      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
+      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays, refused when only hard is frozen). Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ level: z.enum(["soft", "hard"]).default("soft"), toggle: z.boolean().default(false) }),
@@ -275,13 +299,16 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         ids = freezeTargets(t);
         const free = toggle && ids.every((id) => Object.hasOwn(cur.heads, id));
         if (free) mayLoosen(ctx.origin);
-        next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (free ? "off" : own ? stricter(own, level) : level)) };
+        const loosen = loosenFor(ctx.origin, "off");
+        next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (free ? loosen(own ?? "off") : own ? stricter(own, level) : level)) };
+        if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur, ids));
       } else {
         ids = show.movingHeads();
         // decision U2: the global toggle frees everything when anything patched is frozen, else freezes at the level given
         const free = toggle && anyFrozen(cur);
         if (free) mayLoosen(ctx.origin);
-        next = free ? loosenAll(cur, "off") : { level: stricter(cur.level, level), heads: cur.heads };
+        next = free ? loosenAll(cur, loosenFor(ctx.origin, "off")) : { level: stricter(cur.level, level), heads: cur.heads };
+        if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
       }
       show.setMotionLock(next);
       return lockReport(ids);
@@ -291,7 +318,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "motion.unfreeze",
     title: "Défiger les lyres",
     description:
-      "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: everything — the global lock and every head's own lock (heads absent or no longer patched included); with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position; refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze). Returns the lock levels and each head's effective level.",
+      "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: everything — the global lock and every head's own lock (heads absent or no longer patched included); with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position; refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI only a soft lock is loosened (a hard one stays hard; refused when the target is only frozen hard: unfreeze it from the interface). Returns the lock levels and each head's effective level.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ to: z.enum(["off", "soft"]).default("off") }),
@@ -300,13 +327,16 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       const cur = show.motionLockState();
       let next: MotionLockState;
       let ids: string[];
+      const loosen = loosenFor(ctx.origin, to);
       if (t.fixtures || t.group) {
         ids = unfreezeTargets(t, cur.heads);
-        next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (own ? looser(own, to) : "off")) };
+        next = { level: cur.level, heads: withHeads(cur.heads, ids, (own) => (own ? loosen(own) : "off")) };
+        refuseHardFromMidi(ctx.origin, cur, next, ids.some((id) => cur.heads[id] === "hard"));
       } else {
         // decision U2: without a target, « Défiger » lifts everything — the global level and every head's own lock
         ids = show.movingHeads();
-        next = loosenAll(cur, to);
+        next = loosenAll(cur, loosen);
+        refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
       }
       show.setMotionLock(next);
       return lockReport(ids);

@@ -1542,10 +1542,24 @@ export class ShowRuntime {
       return resolved.get(id);
     };
     const ofLook = (look: Look, player: LookPlayer): void => {
-      // « Ne pas bouger les lyres » (T26, `move.enabled: false`): the look keeps its move settings but claims no head,
-      // neither by its move nor by raw pan/tilt steps — the heads stay with whatever else holds them
-      if (look.move?.enabled === false) return;
       const own = { owner: `look:${look.id}`, layer: "look" as const, order: this.launchOrder.get(player) ?? 0, ...(look.move?.fade ? { fade: look.move.fade } : {}) };
+      if (look.move?.enabled === false) {
+        // « Ne pas bouger les lyres » (T26, decision V3): the look keeps its move settings and holds the heads it would
+        // move (its move's, and those its raw pan/tilt write) where they are while it is the top look — they do not
+        // go back to rest; its colours play on
+        const held = new Set<string>();
+        try {
+          for (const f of this.movedBy(look)) held.add(f);
+        } catch (err) {
+          errors.push((err as Error).message);
+        }
+        for (const t of look.channels?.targets ?? []) {
+          const r = headAt(t.fixture);
+          if (r && motionOffsets(r).has(t.offset)) held.add(t.fixture);
+        }
+        if (held.size) claims.push({ ...own, heads: [...held], base: { kind: "hold" } });
+        return;
+      }
       if (look.move) {
         try {
           const moved = this.movedBy(look);

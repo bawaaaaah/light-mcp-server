@@ -279,11 +279,48 @@ describe("motion lock commands (T26, lot 3)", () => {
         await refusal(run("motion.freeze", { toggle: true }, from(origin)));
         await refusal(run("motion.freeze", { toggle: true, fixtures: ["spot"] }, from(origin)));
         expect(lock()).to.deep.equal({ level: "hard", heads: { spot: "soft" } });
-        await run("motion.unfreeze", {}, from("midi"));
+        await run("motion.unfreeze", {}, from("ui"));
         await run("motion.freeze", { toggle: true, fixtures: ["spot2"] }, from(origin));
         expect(lock().heads).to.deep.equal({ spot2: "soft" });
         await run("motion.unfreeze", {}, from("ui"));
       }
+    });
+
+    it("MIDI freezes, and unfreezes only a soft lock: a hard lock stays, refused when nothing else is frozen (decision V1)", async () => {
+      const midi: CommandContext = { origin: "midi", can: () => true };
+      // soft: MIDI frees it, by unfreeze or by the toggle
+      await run("motion.freeze", {}, midi);
+      await run("motion.unfreeze", {}, midi);
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      await run("motion.freeze", { toggle: true }, midi);
+      await run("motion.freeze", { toggle: true }, midi);
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      // hard: refused, with the way out, by unfreeze, to soft and by the toggle; the lock stays
+      await run("motion.freeze", { level: "hard" }, midi);
+      for (const call of [run("motion.unfreeze", {}, midi), run("motion.unfreeze", { to: "soft" }, midi), run("motion.freeze", { toggle: true }, midi)]) {
+        const err = await refusal(call);
+        expect(err.code).to.equal("failed");
+        expect(err.message).to.match(/interface/);
+      }
+      expect(lock().level).to.equal("hard");
+      // a head frozen hard on its own: the same, through the head and through a group
+      await run("motion.unfreeze", {}, systemContext());
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" }, midi);
+      await refusal(run("motion.unfreeze", { fixtures: ["spot"] }, midi));
+      await refusal(run("motion.unfreeze", { group: "left" }, midi));
+      await refusal(run("motion.freeze", { toggle: true, fixtures: ["spot"] }, midi));
+      expect(lock().heads).to.deep.equal({ spot: "hard" });
+      // mixed: the soft part is freed, the hard part stays
+      await run("motion.freeze", {}, midi);
+      await run("motion.freeze", { fixtures: ["spot2"] }, midi);
+      await run("motion.unfreeze", {}, midi);
+      expect(lock()).to.deep.equal({ level: "off", heads: { spot: "hard" } });
+      await run("motion.freeze", {}, midi);
+      await run("motion.freeze", { toggle: true }, midi);
+      expect(lock()).to.deep.equal({ level: "off", heads: { spot: "hard" } });
+      // the interface still unfreezes it
+      await run("motion.unfreeze", {}, { origin: "ui", can: () => true });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
     });
 
     it("a snapshot recalled from OSC or OS2L only hardens the lock; from the interface, exactly (decisions Q3, U3)", async () => {

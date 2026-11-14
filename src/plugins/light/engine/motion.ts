@@ -54,7 +54,12 @@ export type MotionBase =
   /** A named position (T32), resolved per head through `ctx.presetOf`. */
   | { kind: "preset"; id: string }
   /** A 3D point (T24 target, T27 zone), aimed per head through `ctx.aim`. */
-  | { kind: "point"; x: number; y: number; z: number };
+  | { kind: "point"; x: number; y: number; z: number }
+  /**
+   * Both axes held where the head is when the claim takes it over (a look « Ne pas bouger les lyres », T26): the claim
+   * owns the axes at its layer and places nothing, like a lock or a Panic hold.
+   */
+  | { kind: "hold" };
 
 /** A Move FX shape drawn around the base: `cycles` since the look started (the look's own cadence). */
 export interface MotionShape {
@@ -252,6 +257,7 @@ function evaluate(c: MotionClaim, head: string, ctx: MotionContext | undefined):
   const b = c.base;
   if (!b) base = {};
   else if (b.kind === "fixed") base = { pan: b.pan, tilt: b.tilt };
+  else if (b.kind === "hold") return { pos: {} };
   else if (b.kind === "preset") {
     const p = ctx?.presetOf?.(b.id, head);
     if (!p) return { error: `unknown position « ${b.id} »` };

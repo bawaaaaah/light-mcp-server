@@ -9,8 +9,9 @@ import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-rep
 
 /**
  * « Ne pas bouger les lyres » (T26, `move.enabled: false`; docs/specs/engine-effects-timing.md, « Couche Mouvement »):
- * the look keeps its move settings but claims no head, neither by its move nor by raw pan/tilt steps; its colours play
- * on. One engine frame every 20 ms, time injected; no output route.
+ * the look keeps its move settings and holds the heads where they are while it is the top look (decision V3), neither
+ * moving them by its move nor by raw pan/tilt steps, nor sending them to rest; its colours play on. One engine frame
+ * every 20 ms, time injected; no output route.
  */
 const SPOT = 0;
 
@@ -41,12 +42,14 @@ describe("look move disabled (T26, move.enabled)", () => {
     look("circle-off", { move: { ...circle, enabled: false } });
     look("raw-off", { move: { shape: "fixe", enabled: false }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[240]] } });
     look("circle-on", { move: { ...circle, enabled: true } });
+    look("calm", { move: { shape: "fixe", enabled: false } });
+    plugin.runtime.groups.put({ id: "set", name: "Set", members: { fixtures: [], looks: ["circle-on", "calm"], groups: [] }, exclusive: true } as never);
   });
   afterEach(async () => {
     await plugin.stop();
   });
 
-  it("claims no head with move.enabled false: the head stays still while the colours play, and keeps the settings", async () => {
+  it("holds the head with move.enabled false: it stays still while the colours play, and keeps the settings", async () => {
     const before = during(200).at(-1)!;
     await run("look.go", { id: "circle-off" });
     for (const f of during(3000)) {
@@ -54,7 +57,9 @@ describe("look move disabled (T26, move.enabled)", () => {
       expect(f[SPOT + 5]).to.equal(255); // the dimmer: the look still lights the head
     }
     const motion = (await listed()).motion!;
-    expect(motion.pan.layer).to.equal("rest");
+    // held at the look's layer (decision V3): the look owns the axes and places nothing
+    expect(motion.pan.layer).to.equal("look");
+    expect(motion.pan.owner).to.match(/^look:circle-off/);
     expect(motion.masked).to.deep.equal([]);
     const saved = (await run("look.get", { id: "circle-off" })) as { move: { shape: string; enabled: boolean } };
     expect(saved.move).to.include({ shape: "cercle", enabled: false });
@@ -63,10 +68,27 @@ describe("look move disabled (T26, move.enabled)", () => {
     expect(brief.find((l) => l.id === "circle-on")!.move).to.deep.equal({ shape: "cercle" });
   });
 
-  it("leaves raw pan/tilt steps unclaimed too", async () => {
+  it("its raw pan/tilt steps do not move the head either: held too", async () => {
     const before = during(200).at(-1)!;
     await run("look.go", { id: "raw-off" });
     for (const f of during(1500)) expect(posBytes(f)).to.deep.equal(posBytes(before));
+  });
+
+  it("keeps the heads where a moving look left them, away from rest, while it is the top look (decision V3)", async () => {
+    const rest = posBytes(during(200).at(-1)!);
+    await run("look.go", { id: "circle-on" });
+    during(2700); // away from the centre (the rest), mid-circle
+    await run("look.go", { id: "calm" }); // same exclusive set: the circle stops
+    const there = posBytes(frame());
+    expect(there).to.not.deep.equal(rest);
+    for (const f of during(3000)) {
+      expect(posBytes(f)).to.deep.equal(there);
+      expect(f[SPOT + 5]).to.equal(255);
+    }
+    expect((await listed()).motion!.pan.layer).to.equal("look");
+    // stopped: nothing holds it any more, it glides back to rest
+    await run("look.stop", { id: "calm" });
+    expect(posBytes(during(3000).at(-1)!)).to.deep.equal(rest);
   });
 
   it("a look with move.enabled true still moves the head", async () => {
