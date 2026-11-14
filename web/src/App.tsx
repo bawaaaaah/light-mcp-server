@@ -392,7 +392,8 @@ export function App(): ReactElement | null {
         <div className="right">
           <span className={up ? "dot ok" : "dot ko"} title={up ? t.connected : t.disconnected} />
           <button className="role ghost" title={`${roleLabel(t, role.id, role.role ?? role.name)} · ${t.account}`} onClick={() => setPage("account")}>
-            {role.user ? role.name : roleLabel(t, role.id, role.name)}
+            {/* a user named after a built-in role (the French label, as created by default) reads in the interface's language */}
+            {roleLabel(t, role.id, role.name)}
           </button>
           <select aria-label={t.language} value={lang} onChange={(e) => switchLang(e.target.value as Lang)}>
             <option value="fr">FR</option>

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
-import { cmd } from "../api";
+import { ApiError, cmd } from "../api";
 import { useT } from "../App";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
 import { quoted } from "../typography";
 import { pressesLeft } from "../motionPresses";
 import { useMotionLock } from "../hooks/useMotionLock";
-import { useLockRights } from "./MotionLockButton";
+import { needRight, useLockRights } from "./MotionLockButton";
+import { noKeyRepeat, useArm } from "../hooks/useArm";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -78,13 +79,17 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const softCount = scopedHeads.filter((h) => lockOf(h) === "soft").length;
   const allHard = scopedHeads.length > 0 && hardCount === scopedHeads.length;
   const disabled = disabledByCaller || allHard;
-  const [unfreezeArmed, setUnfreezeArmed] = useState(false);
+  // « Défiger » asks a second press, not sooner than CONFIRM_MIN_MS (a double tap, a held key), on the target as armed
+  const { armed: unfreezeArmed, press: armUnfreeze, disarm: disarmUnfreeze } = useArm<MotionTarget>();
+  useEffect(() => disarmUnfreeze(), [allHard, disarmUnfreeze]);
+  /** Heads a gesture left in place (frozen hard on a partly frozen group), named in the status line until the lock changes. */
+  const [refusedIds, setRefusedIds] = useState<string[]>([]);
+  useEffect(() => setRefusedIds([]), [hardCount, group, fixture]);
   useEffect(() => {
-    if (!unfreezeArmed) return;
-    const timer = window.setTimeout(() => setUnfreezeArmed(false), 3000);
+    if (!refusedIds.length) return;
+    const timer = window.setTimeout(() => setRefusedIds([]), 4000);
     return () => window.clearTimeout(timer);
-  }, [unfreezeArmed]);
-  useEffect(() => setUnfreezeArmed(false), [allHard]);
+  }, [refusedIds]);
   const [pos, setPos] = useState<Position | null>(null);
   const [dragging, setDragging] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -128,7 +133,11 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
           const reply = await cmd<{ refused?: string[] }>("position.set", { ...write.target, ...write.point });
           if (reply?.refused?.length) refusedRef.current(reply.refused);
         } catch (error) {
-          onErrorRef.current((error as Error).message);
+          // frozen hard between the gesture and the light:motion update that turns the pad off: said as heads left in
+          // place, not as an error banner
+          const refused = error instanceof ApiError ? error.detail?.refused : undefined;
+          if (Array.isArray(refused)) refusedRef.current(refused.filter((id): id is string => typeof id === "string"));
+          else onErrorRef.current((error as Error).message);
         }
       }),
     ).then(() => undefined).finally(() => {
@@ -376,22 +385,25 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const maskedFull = claims.map(claimText).join("\n");
 
   const nameOfHead = (id: string): string => scopedHeads.find((h) => h.id === id)?.name ?? id;
-  refusedRef.current = (ids) => setConfirmation(t.motionLock.padRefused.replace("{names}", () => ids.map(nameOfHead).join(", ")));
-  /** The pad's lock line: all hard, some hard (they stay), or frozen soft (the pad is still free). */
+  refusedRef.current = setRefusedIds;
+  // the names first: a narrow cell cuts the end of the line, never who stayed in place
+  const refusal = refusedIds.length ? (refusedIds.length === 1 ? t.motionLock.padRefusedOne : t.motionLock.padRefused).replace("{names}", () => refusedIds.map(nameOfHead).join(", ")) : "";
+  const statusLine = confirmation || refusal;
+  /** The pad's lock line, short (the layers line already says « Verrou »): all hard, some hard (they stay), or soft (the pad is still free). */
   const lockChip = allHard
-    ? { level: "hard", text: `🔒🔒 ${scopedHeads.length > 1 ? t.motionLock.padHardMany : t.motionLock.padHard}` }
+    ? { level: "hard", text: `🔒🔒 ${t.motionLock.padHard}` }
     : hardCount > 0
-      ? { level: "hard", text: `🔒🔒 ${t.motionLock.padSomeHard.replace("{n}", String(hardCount))}` }
+      ? { level: "hard", text: `🔒🔒 ${(hardCount === 1 ? t.motionLock.padSomeHardOne : t.motionLock.padSomeHard).replace("{n}", String(hardCount))}` }
       : softCount > 0
         ? { level: "soft", text: `🔒 ${scopedHeads.length > 1 ? t.motionLock.padSoftMany.replace("{n}", String(softCount)) : t.motionLock.padSoft}` }
         : null;
-  // held by the global lock: only « Défiger » without a target frees them (it lifts everything, decision U2)
+  // decision V4: heads held by the global lock are unfrozen from the top bar, not here; the pad's « Défiger » is only for
+  // the head's or the group's own lock
   const globalHard = lockView?.lock.level === "hard";
-  const unfreezeTarget: MotionTarget = globalHard ? {} : cloneTarget(targetRef.current);
   const unfreeze = (): void => {
-    if (!unfreezeArmed) return setUnfreezeArmed(true); // someone may be up by a head: a second press, as for a look marked « À confirmer »
-    setUnfreezeArmed(false);
-    void cmd("motion.unfreeze", unfreezeTarget).then(refresh, (error: Error) => onErrorRef.current(error.message));
+    // someone may be up by a head: a second press, as for a look marked « À confirmer »; the target as it was when armed
+    const fire = armUnfreeze("unfreeze", cloneTarget(targetRef.current));
+    if (fire) void cmd("motion.unfreeze", fire.payload).then(refresh, (error: Error) => onErrorRef.current(error.message));
   };
 
   useEffect(() => {
@@ -619,10 +631,10 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         <div className="xy-detail">
           <small className="xy-layer-count">{remainingText}</small>
           {!compact && infoBubble}
-          <span className="xy-masked hint" aria-hidden={!confirmation && !claims.length && !keyboardHint} title={!confirmation && maskedFull ? maskedFull : undefined}>
-            <span className="xy-masked-line" aria-hidden={!confirmation && claims.length > 0 ? true : undefined}>
-              {confirmation ? (
-                <span className="xy-masked-name">{confirmation}</span>
+          <span className="xy-masked hint" aria-hidden={!statusLine && !claims.length && !keyboardHint} title={statusLine || maskedFull || undefined}>
+            <span className="xy-masked-line" aria-hidden={!statusLine && claims.length > 0 ? true : undefined}>
+              {statusLine ? (
+                <span className="xy-masked-name" data-testid={refusal && !confirmation ? "xy-refused" : undefined}>{statusLine}</span>
               ) : masked ? (
                 <>
                   {masked.counts && <span className="xy-masked-count">{`${masked.counts} · `}</span>}
@@ -634,18 +646,23 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
               )}
               {keyboardHint && <span className="xy-masked-name">{` ${keyboardHint}`}</span>}
             </span>
-            {!confirmation && claims.length > 0 && <span className="sr-only">{maskedFull}</span>}
+            {!statusLine && claims.length > 0 && <span className="sr-only">{maskedFull}</span>}
           </span>
         </div>
       </div>
       {restControls && legend}
       <div className="row xy-actions">
-        {allHard && !disabledByCaller && lockRights.position && (
-          <button className={`xy-unfreeze${unfreezeArmed ? " armed" : ""}`} data-testid="xy-unfreeze" title={t.motionLock.helpHard} onClick={unfreeze}>
-            {unfreezeArmed ? t.motionLock.pressAgain : globalHard ? t.motionLock.unfreezeAll : t.motionLock.unfreeze}
+        {allHard && globalHard && (
+          <small className="hint xy-lock-why" data-testid="xy-lock-global">
+            {t.motionLock.padGlobal}
+          </small>
+        )}
+        {allHard && !globalHard && !disabledByCaller && lockRights.position && (
+          <button className={`xy-unfreeze${unfreezeArmed ? " armed" : ""}`} data-testid="xy-unfreeze" title={t.motionLock.helpHard} onClick={unfreeze} {...noKeyRepeat}>
+            {unfreezeArmed ? t.motionLock.pressAgain : t.motionLock.unfreeze}
           </button>
         )}
-        {allHard && !lockRights.position && <small className="hint xy-lock-why">{t.motionLock.needPosition}</small>}
+        {allHard && !globalHard && !lockRights.position && <small className="hint xy-lock-why">{needRight(t, "commands:position")}</small>}
         {!allHard && (
         <>
         <button
@@ -671,7 +688,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
           <>
             <button
               title={t.setRestHelp}
-              disabled={disabled || !head?.sent}
+              // the rest position is the show's, not a move: the lock leaves it free (the server does too)
+              disabled={disabledByCaller || !head?.sent}
               onClick={() => {
                 const currentSent = head?.sent;
                 if (currentSent) void runMotion("position.rest.set", { fixtures: [fixture], pan: currentSent.pan, tilt: currentSent.tilt });
@@ -679,7 +697,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
             >
               {t.setRest}
             </button>
-            <button title={t.clearRestHelp} disabled={disabled || !head?.rest.set} onClick={() => void runMotion("position.rest.clear", { fixtures: [fixture] })}>
+            <button title={t.clearRestHelp} disabled={disabledByCaller || !head?.rest.set} onClick={() => void runMotion("position.rest.clear", { fixtures: [fixture] })}>
               {t.clearRest}
             </button>
           </>

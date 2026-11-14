@@ -33,5 +33,5 @@ export function jumpTo(e: { preventDefault(): void }, id: string): void {
 /** The label of a server identifier (technique, order, topology…), or the identifier itself when the UI has none. */
 export const labelOf = (labels: Record<string, string>, id: string): string => labels[id] ?? id;
 
-/** A loosely typed value (a command argument, a schema default) as text; anything but a string, number or boolean is `fallback`. */
-export const plain = (v: unknown, fallback = ""): string => (typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : fallback);
+// kept apart, without the DOM, so pure modules tested in Node (mappingActions.ts) can use it
+export { plain } from "./plain.js";

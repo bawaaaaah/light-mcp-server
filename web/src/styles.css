@@ -790,6 +790,10 @@ textarea {
 .dgrid.fine .cell .xy {
   height: 100%;
 }
+/* a short cell (3 rows) keeps its status lines and buttons: the pad gives up its height first */
+.dgrid.fine .cell .xy .pad {
+  min-height: 40px;
+}
 .cell .xy .pad {
   min-height: 120px;
 }
@@ -4123,9 +4127,12 @@ fieldset.checklist .checklist-search {
   position: relative;
   display: inline-flex;
   align-items: stretch;
+  gap: 0;
   min-width: 0;
 }
+/* one pill: the state on the left (rounded left edge only), ▾ on the right (rounded right edge only), touching */
 .motion-lock > button {
+  margin: 0;
   border-radius: 999px;
   padding: 0.25em 0.75em;
   font-size: 0.8rem;
@@ -4133,6 +4140,11 @@ fieldset.checklist .checklist-search {
   border: 1px solid var(--line);
   background: none;
   color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+/* the focus ring follows each half's rounded shape, inside the pill, instead of a square sticking out of it */
+.motion-lock > button:focus-visible {
+  outline-offset: -4px;
 }
 .motion-lock .motion-lock-main {
   border-top-right-radius: 0;
@@ -4174,20 +4186,25 @@ fieldset.checklist .checklist-search {
   font-size: inherit;
   opacity: 0.85;
 }
-.motion-lock-notice {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 40;
+/* a lock control's message (T26): at the bottom of the window, over the Live's sticky bar and a cell's overflow, never
+   over the header's buttons (sign out), inside the screen on a phone */
+.lock-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 90;
   width: max-content;
-  max-width: min(22em, calc(100vw - 16px));
-  padding: 0.35em 0.6em;
-  border-radius: 6px;
+  max-width: calc(100vw - 32px);
+  padding: 0.6em 0.9em;
+  border-radius: 8px;
   background: var(--panel);
   border: 1px solid var(--warn);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.45);
   color: var(--text);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 .motion-lock-menu button {
   display: flex;
@@ -4253,12 +4270,13 @@ fieldset.checklist .checklist-search {
   color: var(--layer-lock);
   font-weight: 600;
 }
+/* in a corner and faded: the dots (where the heads are) stay readable under it */
 .xy-lock-mark {
   position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 2rem;
+  top: 4px;
+  right: 6px;
+  font-size: 1rem;
+  opacity: 0.7;
   pointer-events: none;
 }
 .xy-actions .xy-unfreeze {
@@ -4270,6 +4288,23 @@ fieldset.checklist .checklist-search {
 }
 .xy-lock-why {
   font-size: 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+}
+.invert-row .invert-label {
+  cursor: pointer;
+  user-select: none;
+}
+/* « Lyres de ce groupe » in the group editor: framed like the lists above it */
+fieldset.group-lock {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4em 0.8em;
+}
+fieldset.group-lock legend {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 /* a moving head frozen (T26), in the patch list beside its inversions */
 .badge.lock {

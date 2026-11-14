@@ -229,7 +229,10 @@ export function FixtureMenu({
       {fixture.movable && (
         <>
           <div className="invert-row" title={t.invertAxisHelp}>
-            <span>{t.invertPanLabel}</span>
+            {/* the words toggle too, as a label does (the switch is a button, not a native checkbox) */}
+            <span className="invert-label" onClick={() => invert("invertPan", !o.invertPan)}>
+              {t.invertPanLabel}
+            </span>
             <button
               className={`ghost${o.invertPan ? " on" : ""}`}
               aria-pressed={Boolean(o.invertPan)}
@@ -241,7 +244,10 @@ export function FixtureMenu({
             </button>
           </div>
           <div className="invert-row" title={t.invertAxisHelp}>
-            <span>{t.invertTiltLabel}</span>
+            {/* the words toggle too, as a label does (the switch is a button, not a native checkbox) */}
+            <span className="invert-label" onClick={() => invert("invertTilt", !o.invertTilt)}>
+              {t.invertTiltLabel}
+            </span>
             <button
               className={`ghost${o.invertTilt ? " on" : ""}`}
               aria-pressed={Boolean(o.invertTilt)}
@@ -256,7 +262,16 @@ export function FixtureMenu({
           {lockView && (
             <div className="field" data-testid="fixture-lock">
               <span>{t.motionLock.fixture}</span>
-              <LockChoice label={`${t.motionLock.fixture} · ${fixture.name}`} names={t.motionLock.fixtureLevels} levels={{ base: ownLock, top: ownLock }} checked={ownLock} target={{ fixtures: [fixture.id] }} onDone={onSaved} onError={setError} />
+              <LockChoice
+                label={`${t.motionLock.fixture} · ${fixture.name}`}
+                names={t.motionLock.fixtureLevels}
+                levels={{ base: ownLock, top: ownLock }}
+                checked={stricter(ownLock, lockView.lock.level)}
+                target={{ fixtures: [fixture.id] }}
+                globalHolds={t.motionLock.stillGlobal.replace("{names}", () => fixture.name)}
+                onDone={onSaved}
+                onError={setError}
+              />
               <small className="hint">{stricter(ownLock, lockView.lock.level) !== ownLock ? t.motionLock.fixtureGlobal.replace("{level}", t.motionLock.fixtureLevels[lockView.lock.level]) : t.motionLock.fixtureHelp}</small>
             </div>
           )}

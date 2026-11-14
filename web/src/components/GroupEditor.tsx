@@ -12,7 +12,7 @@ import { Versions } from "./Versions";
 import { LockChoice } from "./MotionLockButton";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock } from "../hooks/useMotionLock";
-import { groupLevels } from "../motionLock";
+import { groupLevels, stricter } from "../motionLock";
 
 export interface GroupDraft {
   id: string;
@@ -192,7 +192,11 @@ function GroupLock({ group, edited, onError }: { group: string; edited: boolean;
   if (!view || !loaded || heads.length === 0) return null;
   const own = heads.map((h) => view.lock.heads[h.id] ?? "off");
   const levels = groupLevels(own);
-  const frozen = heads.filter((h) => (h.motion?.lock ?? "off") !== "off").length;
+  // what holds the heads now: their own lock or the one on every head, the stricter (U3: the state shown is the real one)
+  const effective = own.map((level) => stricter(level, view.lock.level));
+  const shown = groupLevels(effective);
+  const frozen = effective.filter((level) => level !== "off").length;
+  const globalHolds = view.lock.level !== "off" && own.some((level) => stricter(level, view.lock.level) !== level);
   return (
     <fieldset className="group-lock" data-testid="group-lock">
       <legend>{t.motionLock.group}</legend>
@@ -200,12 +204,14 @@ function GroupLock({ group, edited, onError }: { group: string; edited: boolean;
         label={t.motionLock.group}
         names={{ off: t.motionLock.groupUnfreeze, soft: t.motionLock.groupFreeze, hard: t.motionLock.groupFreezeHard }}
         levels={levels}
-        checked={levels.base === levels.top ? levels.base : null}
+        checked={shown.base === shown.top ? shown.base : null}
         target={{ group }}
+        globalHolds={t.motionLock.stillGlobal.replace("{names}", () => t.motionLock.group)}
         onError={onError}
       />
       <small className="hint" role="status">
         {t.motionLock.groupState.replace("{n}", String(frozen)).replace("{total}", String(heads.length))}
+        {globalHolds ? ` · ${t.motionLock.groupGlobal}` : ""}
         {edited ? ` · ${t.motionLock.groupSaveFirst}` : ""}
       </small>
     </fieldset>

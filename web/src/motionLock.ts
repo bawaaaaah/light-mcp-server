@@ -38,10 +38,14 @@ export const looser = (a: LockLevel, b: LockLevel): LockLevel => (RANK[a] <= RAN
  */
 export function planLock(state: { base: LockLevel; top: LockLevel }, wanted: LockLevel, rights: LockRights): LockPlan {
   const calls: LockCall[] = [];
-  const loosen = RANK[state.top] > RANK[wanted];
-  if (loosen) {
-    if (!rights.position) return { blocked: "position" };
-    calls.push({ command: "motion.unfreeze", args: { to: wanted === "soft" ? "soft" : "off" } });
+  let loosen = false;
+  if (RANK[state.top] > RANK[wanted]) {
+    if (rights.position) {
+      loosen = true;
+      calls.push({ command: "motion.unfreeze", args: { to: wanted === "soft" ? "soft" : "off" } });
+    } else if (!(wanted === "soft" && RANK[state.base] < RANK.soft)) return { blocked: "position" };
+    // decision V2: without commands:position, « Figées » freezes soft what is free and leaves the hard heads hard —
+    // never blocked because something is frozen hard elsewhere
   }
   if (wanted !== "off" && RANK[state.base] < RANK[wanted]) {
     // freezing: soft is anyone with the Panic (commands:freeze), hard is the desk (commands:position) — decisions Q2 + Q6
@@ -51,8 +55,11 @@ export function planLock(state: { base: LockLevel; top: LockLevel }, wanted: Loc
   return calls.length ? { calls, confirm: loosen && state.top === "hard" } : { blocked: "same" };
 }
 
-/** One press of the button (decision Q1): free → frozen soft; frozen at any level → free. */
-export const tapTarget = (shown: LockLevel): LockLevel => (shown === "off" ? "soft" : "off");
+/**
+ * One press of the button (decision Q1): free → frozen soft; frozen at any level → free. Decision V2: a role that may
+ * not unfreeze (no commands:position) freezes soft what is still free when only some heads are frozen.
+ */
+export const tapTarget = (shown: LockLevel, someFree = false, mayLoosen = true): LockLevel => (shown === "off" || (someFree && !mayLoosen) ? "soft" : "off");
 
 /** The levels of a group's heads: the loosest own level (what freezing hardens from) and the strictest (what loosening starts from). */
 export function groupLevels(own: readonly LockLevel[]): { base: LockLevel; top: LockLevel } {

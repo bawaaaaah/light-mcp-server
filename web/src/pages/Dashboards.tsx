@@ -30,6 +30,7 @@ import { isHex, SWATCHES, textOn } from "../color";
 import { pick } from "../selection";
 import { microphone } from "../audio/microphone";
 import { quoted } from "../typography";
+import { noKeyRepeat, useArm } from "../hooks/useArm";
 
 type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock";
 interface Widget {
@@ -97,8 +98,6 @@ interface SongState {
 
 /** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
 const SUB = 4;
-/** How long an « À confirmer » button waits for its second press. */
-const CONFIRM_MS = 3000;
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
 
@@ -563,17 +562,11 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
    */
   // « À confirmer » buttons: the first press arms the button for a few seconds, the second fires.
   // Only switching on asks: stopping a look or leaving a Blackout is never delayed.
-  const [armed, setArmed] = useState<string | null>(null);
-  const armTimer = useRef(0);
+  // a second press sooner than CONFIRM_MIN_MS (a double click, a double tap, a held key) does not confirm
+  const { armed, press: armPress } = useArm<() => void>();
   const confirmed = (id: string | undefined, fire: () => void) => {
-    window.clearTimeout(armTimer.current);
-    if (!id || armed === id) {
-      setArmed(null);
-      fire();
-      return;
-    }
-    setArmed(id);
-    armTimer.current = window.setTimeout(() => setArmed(null), CONFIRM_MS);
+    if (!id) return fire();
+    armPress(id, fire)?.payload();
   };
   const armedMark = (w: Widget) => armed === w.id && <small className="armed-mark">{t.pressAgain}</small>;
   // a look's colours in a tooltip, under the mouse; not while arranging the widgets
@@ -593,7 +586,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           onKeyDown: (e: React.KeyboardEvent) => !edit && !e.repeat && (e.key === " " || e.key === "Enter") && on(),
           onKeyUp: (e: React.KeyboardEvent) => !edit && (e.key === " " || e.key === "Enter") && off(),
         }
-      : { onClick: () => ((mode === "latch" || mode === "toggle") && active ? off() : confirmed(confirm, on)) };
+      : { onClick: () => ((mode === "latch" || mode === "toggle") && active ? off() : confirmed(confirm, on)), ...noKeyRepeat };
 
   const render = (w: Widget) => {
     switch (w.kind) {
@@ -736,7 +729,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         const shot = snapshots.find((x) => x.id === w.target);
         if (!shot) return <div className="fill missing">{w.target}</div>;
         return (
-          <button className={`fill snapshot ${armed === w.id ? "armed" : ""}`} title={t.snapshotButtonHelp} {...locked("commands:snapshot")} onClick={() => confirmed(w.confirm ? w.id : undefined, () => void run("snapshot.recall", { id: shot.id }))}>
+          <button className={`fill snapshot ${armed === w.id ? "armed" : ""}`} title={t.snapshotButtonHelp} {...locked("commands:snapshot")} {...noKeyRepeat} onClick={() => confirmed(w.confirm ? w.id : undefined, () => void run("snapshot.recall", { id: shot.id }))}>
             ◉ {w.label ?? shot.name}
             {armedMark(w)}
           </button>
@@ -750,7 +743,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         );
       case "motion-lock":
         // « Figer les lyres » (T26): the top bar's button, placed and sized at will, optionally for one group
-        return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} onError={setError} />;
+        // edit mode: `inert` guards the presses without disabling the buttons, so the widget is still dragged and selected
+        return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} onError={setError} />;
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
       case "channel-fader": {

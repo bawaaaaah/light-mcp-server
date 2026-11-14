@@ -6,85 +6,17 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { plain, slug, uniqueId } from "../util";
+import { slug, uniqueId } from "../util";
+import { ACTIONS, NO_PROGRAM, build, actionOf, type Action, type MappingDraft } from "../mappingActions";
 
-export interface MappingDraft {
-  id: string;
-  label: string;
-  input: { type: "note" | "cc" | "programchange"; channel: number; number: number; port?: string };
-  mode: "trigger" | "latch" | "momentary" | "toggle";
-  /** Raw value a CC (or a note's velocity) must exceed to answer (0..126); 0 = immediate. */
-  threshold?: number;
-  on: { command: string; args: Record<string, unknown> };
-  off?: { command: string; args: Record<string, unknown> };
-  levelArg?: string;
-  feedback: "none" | "note" | "cc";
-}
+export { actionOf, build, newMapping, type Action, type MappingDraft } from "../mappingActions";
+
 interface Named {
   id: string;
   name: string;
   title?: string;
   sections?: { id: string; name: string }[];
 }
-
-/** Actions offered; the editor builds the on/off commands and the level argument from them. */
-const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze"] as const;
-export type Action = (typeof ACTIONS)[number];
-/** Target meaning « no program » (program.select with id null). */
-const NO_PROGRAM = "-";
-
-export function actionOf(m: MappingDraft): { action: Action; target: string } {
-  const id = plain(m.on.args.id);
-  if (m.on.command === "look.go") return { action: "look", target: id };
-  if (m.on.command === "group.level") return { action: "dca", target: id };
-  if (m.on.command === "fader.level") return { action: "fader", target: id };
-  if (m.on.command === "grandmaster.set") return { action: "grandmaster", target: "" };
-  if (m.on.command === "group.flash") return { action: "flash", target: id };
-  if (m.on.command === "snapshot.recall") return { action: "snapshot", target: plain(m.on.args.id) };
-  if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : plain(m.on.args.id) };
-  // « Figer les lyres » (T26): every head, or a group's
-  if (m.on.command === "motion.freeze") return { action: "freeze", target: plain(m.on.args.group) };
-  if (m.on.command === "song.section.go") return { action: "section", target: `${plain(m.on.args.song)}/${plain(m.on.args.section)}` };
-  return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
-}
-
-export function build(m: MappingDraft, action: Action, target: string): MappingDraft {
-  const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0 };
-  switch (action) {
-    case "look":
-      return { ...base, on: { command: "look.go", args: { id: target } }, off: m.mode === "trigger" ? undefined : { command: "look.stop", args: { id: target } } };
-    case "dca":
-      return { ...base, on: { command: "group.level", args: { id: target } }, levelArg: "level" };
-    case "fader":
-      return { ...base, on: { command: "fader.level", args: { id: target } }, levelArg: "level" };
-    case "grandmaster":
-      return { ...base, on: { command: "grandmaster.set", args: {} }, levelArg: "level" };
-    case "flash":
-      return { ...base, mode: "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
-    case "section": {
-      const [song, section] = target.split("/");
-      return { ...base, on: { command: "song.section.go", args: { song, section } } };
-    }
-    case "program":
-      return { ...base, mode: "trigger", on: { command: "program.select", args: { id: target === NO_PROGRAM ? null : target } } };
-    case "snapshot":
-      return { ...base, mode: "trigger", on: { command: "snapshot.recall", args: { id: target } } };
-    case "blackout":
-      return { ...base, on: { command: "blackout", args: { on: true } }, off: m.mode === "trigger" ? undefined : { command: "blackout", args: { on: false } } };
-    case "freeze": {
-      // « Figer les lyres » (T26): a button in latch or momentary freezes on press and unfreezes on release (or the next
-      // press); in trigger or toggle, each press switches (motion.freeze toggle). Unfreezing needs commands:position.
-      const scope = target ? { group: target } : {};
-      return m.mode === "latch" || m.mode === "momentary"
-        ? { ...base, on: { command: "motion.freeze", args: { ...scope } }, off: { command: "motion.unfreeze", args: { ...scope } } }
-        : { ...base, on: { command: "motion.freeze", args: { ...scope, toggle: true } } };
-    }
-    default:
-      return { ...base, on: { command: action, args: {} } };
-  }
-}
-
-export const newMapping = (): MappingDraft => ({ id: "", label: "", input: { type: "note", channel: 1, number: 36 }, mode: "trigger", on: { command: "look.go", args: { id: "" } }, feedback: "note" });
 
 export function MappingEditor({ initial, existing, onClose }: { initial: MappingDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();

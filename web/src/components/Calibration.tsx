@@ -6,6 +6,8 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { XyPad } from "./XyPad";
+import { useMotionLock } from "../hooks/useMotionLock";
+import { stricter } from "../motionLock";
 
 interface Head {
   id: string;
@@ -28,6 +30,9 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
   const [zone, setZone] = useState("");
   const [xy, setXy] = useState({ x: 0, y: 0 });
   const [marks, setMarks] = useState(0);
+  // « Figer les lyres » (T26): a head frozen hard (its own lock or the one on every head) cannot record a mark
+  const lockView = useMotionLock();
+  const frozenHard = Boolean(lockView && head && stricter(lockView.lock.heads[head] ?? "off", lockView.lock.level) === "hard");
   const [result, setResult] = useState<Result | null>(null);
   /** Refusals stay beside the record button, where the operator is working. */
   const [error, setError] = useState("");
@@ -107,6 +112,9 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row actions">
         <button
+          // frozen hard (T26): the head cannot be aimed, a mark would record where it is held — said, not sent
+          disabled={frozenHard}
+          title={frozenHard ? t.motionLock.calibrationFrozen : undefined}
           onClick={() => {
             setError("");
             const actionHead = head;
@@ -121,6 +129,7 @@ export function Calibration({ zones, placed, follow, onError, onApplied }: { zon
         >
           {t.calibrationRecord} ({marks})
         </button>
+        {frozenHard && <small className="hint">{t.motionLock.calibrationFrozen}</small>}
         <button
           disabled={marks < 2}
           onClick={() => {

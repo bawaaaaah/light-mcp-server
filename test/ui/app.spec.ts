@@ -953,6 +953,10 @@ test("a button to confirm: the first press arms it, the second plays; stopping n
   await expect(button).toContainText("Appuyer encore");
   expect(await active()).toBe(false);
   await page.screenshot({ path: "test-results/confirm-armed.png" });
+  await button.click(); // too soon (a double click): still armed, nothing played
+  await expect(button).toContainText("Appuyer encore");
+  expect(await active()).toBe(false);
+  await page.waitForTimeout(600);
   await button.click();
   await expect.poll(active).toBe(true);
   await expect(button).not.toContainText("Appuyer encore");
@@ -7392,13 +7396,16 @@ test("motion lock: a press freezes soft, the menu freezes all, unfreezing all as
     await expect.poll(() => headLock(page)).toBe("hard");
     // the pad is off, with its reason and « Défiger »
     await expect(pad).toHaveAttribute("aria-disabled", "true");
-    await expect(xy.getByTestId("xy-lock")).toHaveText("🔒🔒 Figée — tout (pad compris)");
-    await expect(xy.getByTestId("xy-unfreeze")).toHaveText("Défiger toutes les lyres");
+    await expect(xy.getByTestId("xy-lock")).toHaveText("🔒🔒 pad bloqué");
+    // decision V4: held by the lock on every head, the pad sends to the top bar rather than unfreezing it
+    await expect(xy.getByTestId("xy-unfreeze")).toHaveCount(0);
+    await expect(xy.getByTestId("xy-lock-global")).toHaveText("figée par le verrou de toutes les lyres — barre du haut");
     await page.screenshot({ path: "test-results/t26-lock-desktop.png" });
     // unfreezing a hard lock: armed first, nothing sent, then freed on the second press
     await main.click();
     await expect(main).toHaveText("Appuyer encore pour défiger");
     expect(await headLock(page)).toBe("hard");
+    await page.waitForTimeout(600); // a second press sooner is a double click: it does not confirm (B1)
     await main.click();
     await expect(main).toHaveText("Lyres libres");
     await expect.poll(() => headLock(page)).toBe("off");
@@ -7424,10 +7431,14 @@ test("motion lock: a long press opens the levels; the pad's « Défiger » asks 
     await expect(main).toHaveText("Lyres libres"); // the click ending the long press only opened the menu
     await menu.getByRole("menuitemradio", { name: /Tout figer/ }).click();
     await expect(main).toHaveText("🔒🔒 Figées — tout");
+    // the pad's « Défiger » is for the head's own lock (decision V4): frozen hard on its own, not by the bar
+    await asDesk(page, "motion.unfreeze");
+    await asDesk(page, "motion.freeze", { fixtures: ["spot"], level: "hard" });
     const unfreeze = page.locator(".cell .xy").first().getByTestId("xy-unfreeze");
     await unfreeze.click();
     await expect(unfreeze).toHaveText("Appuyer encore pour défiger");
     expect(await headLock(page)).toBe("hard");
+    await page.waitForTimeout(600);
     await unfreeze.click();
     await expect(main).toHaveText("Lyres libres");
     await expect.poll(() => headLock(page)).toBe("off");
@@ -7450,7 +7461,10 @@ test("motion lock: a volunteer freezes soft, but neither freezes all nor unfreez
     // a second press does not send a refused unfreeze: it says why
     await expect(main).toHaveAttribute("aria-disabled", "true");
     await main.dispatchEvent("click"); // aria-disabled: Playwright would wait for it to be enabled, a finger presses it anyway
-    await expect(bar.getByRole("status")).toContainText("commands:position");
+    // said where it is seen, in the operator's words: the right's name, never its key
+    const toast = page.getByTestId("lock-toast");
+    await expect(toast).toContainText("réservé à la régie");
+    await expect(toast).not.toContainText("commands:");
     expect(await headLock(page)).toBe("soft");
     await bar.getByRole("button", { name: "Niveau du verrou des lyres" }).click();
     const menu = page.getByRole("menu", { name: "Niveau du verrou des lyres" });
@@ -7471,13 +7485,13 @@ test("motion lock: a pad partly frozen hard moves the free head and names the on
   try {
     await asDesk(page, "motion.freeze", { fixtures: ["spot2"], level: "hard" });
     const xy = page.locator(".cell .xy").first(); // the Live's pad, on every head
-    await expect(xy.getByTestId("xy-lock")).toHaveText("🔒🔒 1 figée(s) — tout : elles restent en place");
+    await expect(xy.getByTestId("xy-lock")).toHaveText("🔒🔒 1 figée — tout : elle reste en place");
     const pad = xy.locator(".pad");
     await expect(pad).not.toHaveAttribute("aria-disabled", "true");
     const before = (await dmx(page, 2)).slice(19, 23);
     const box = (await pad.boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.8, box.y + box.height * 0.2);
-    await expect(xy.locator(".xy-masked")).toContainText("Restée(s) en place (figée(s) — tout) : Lyre 2");
+    await expect(xy.locator(".xy-masked")).toContainText("Lyre 2 : restée en place (figée — tout)");
     await expect.poll(async () => (await dmx(page, 2))[0]).toBe(204); // the free head went
     expect((await dmx(page, 2)).slice(19, 23)).toEqual(before); // the frozen one stayed
     // the bar says only some heads are frozen
@@ -7508,6 +7522,7 @@ test("motion lock: the fixture menu freezes one head, the patch shows 🔒, the 
     // back to free: a hard lock asks twice
     await choice.getByRole("radio", { name: "libre" }).click();
     await expect(choice.locator("button.armed")).toHaveText("Appuyer encore pour défiger");
+    await page.waitForTimeout(600);
     await choice.locator("button.armed").click();
     await expect(row.getByTestId("patch-lock")).toHaveCount(0);
     expect(await headLock(page)).toBe("off");
@@ -7539,7 +7554,7 @@ test("motion lock: the group editor freezes and unfreezes the group's heads", as
   expect(errors).toEqual([]);
 });
 
-test("motion lock: « Ne pas bouger les lyres » keeps the look's move and claims no head", async ({ page }) => {
+test("motion lock: « Ne pas bouger les lyres » keeps the look's move and holds the heads where they are", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
   const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
@@ -7550,14 +7565,15 @@ test("motion lock: « Ne pas bouger les lyres » keeps the look's move and claim
     await page.getByRole("button", { name: "Modifier T26 cercle" }).click();
     const editor = page.locator(".look-editor");
     await editor.getByTestId("look-no-move").check();
-    await expect(editor.locator("p.hint", { hasText: "ne déplace aucune lyre" })).toBeVisible();
+    await expect(editor.locator("p.hint", { hasText: "tient les lyres là où elles sont" })).toBeVisible();
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor).toHaveCount(0);
     const saved = (await api(page, "look.get", { id: "t26-cercle" })) as { move: { shape: string; enabled?: boolean; size: { pan: number } } };
     expect(saved.move).toMatchObject({ shape: "cercle", enabled: false, size: { pan: 0.2 } }); // nothing erased
     await expect(page.locator("tr", { hasText: "T26 cercle" })).toContainText("🔒 lyres immobiles");
     await asDesk(page, "look.go", { id: "t26-cercle" });
-    await expect.poll(async () => ((await asDesk(page, "position.list")) as LockedHead[]).find((h) => h.id === "spot")?.motion?.pan.layer).toBe("rest");
+    // decision V3: the look holds the head at its layer (it does not go back to rest)
+    await expect.poll(async () => ((await asDesk(page, "position.list")) as LockedHead[]).find((h) => h.id === "spot")?.motion?.pan.layer).toBe("look");
   } finally {
     await asDesk(page, "look.stop", { id: "t26-cercle" });
     await asDesk(page, "look.delete", { id: "t26-cercle", force: true });
@@ -7623,6 +7639,160 @@ test("motion lock: the dashboard widget freezes like the bar; on a tablet and a 
   } finally {
     await asDesk(page, "motion.unfreeze");
     await api(page, "dashboard.put", { dashboard: dash });
+  }
+  expect(errors).toEqual([]);
+});
+
+// ---- « Figer les lyres », revue 1 du lot 4 (T26): confirmations, keyboard, group widget, Volunteer, English, edit mode
+
+test("motion lock: a double click, or Enter held, never confirms unfreezing a hard lock (B1)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const bar = page.getByTestId("motion-lock-bar");
+  const main = bar.locator(".motion-lock-main");
+  try {
+    await asDesk(page, "motion.freeze", { level: "hard" });
+    await expect(main).toHaveText("🔒🔒 Figées — tout");
+    await main.dblclick();
+    await page.waitForTimeout(300);
+    expect(await headLock(page)).toBe("hard");
+    await expect(main).toHaveText("Appuyer encore pour défiger");
+    // armed, then a held Enter: its repeats press nothing
+    await page.waitForTimeout(3200); // disarmed
+    await main.focus();
+    await page.keyboard.down("Enter");
+    for (let i = 0; i < 8; i++) await page.keyboard.down("Enter"); // auto-repeat
+    await page.keyboard.up("Enter");
+    await page.waitForTimeout(300);
+    expect(await headLock(page)).toBe("hard");
+    // Enter held on the chevron: the menu opens on the level checked, never on « Libres »
+    await page.waitForTimeout(3200);
+    const chevron = bar.locator(".motion-lock-more");
+    await chevron.focus();
+    await page.keyboard.down("Enter");
+    for (let i = 0; i < 8; i++) await page.keyboard.down("Enter");
+    await page.keyboard.up("Enter");
+    const menu = page.getByRole("menu", { name: "Niveau du verrou des lyres" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitemradio", { name: /Tout figer/ })).toBeFocused();
+    expect(await headLock(page)).toBe("hard");
+    // the arrows, Home and End move the focus; Tab closes and gives it back to the chevron
+    await page.keyboard.press("Home");
+    await expect(menu.getByRole("menuitemradio", { name: /^Libres/ })).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitemradio", { name: /Tout figer/ })).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(menu.getByRole("menuitemradio", { name: /Figées \(le pad reste libre\)/ })).toBeFocused();
+    // decision V2 + right label: from hard, « Figées » frees the pad, said so, and asks twice
+    await page.keyboard.press("Enter");
+    await expect(menu.getByRole("menuitemradio", { name: /Appuyer encore pour libérer le pad/ })).toBeVisible();
+    await page.waitForTimeout(600);
+    await page.keyboard.press("Enter");
+    await expect(menu).toHaveCount(0);
+    await expect(chevron).toBeFocused();
+    await expect.poll(() => headLock(page)).toBe("soft");
+    await chevron.click();
+    await page.keyboard.press("Tab");
+    await expect(menu).toHaveCount(0);
+    await expect(chevron).toBeFocused();
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion lock: a volunteer with one head frozen hard alone freezes the rest soft (decision V2); the message is seen", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "5678");
+  await asDesk(page, "venue.fixture.put", { fixture: { id: "spot2", name: "Lyre 2", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 20 } });
+  const main = page.getByTestId("motion-lock-bar").locator(".motion-lock-main");
+  try {
+    await asDesk(page, "motion.freeze", { fixtures: ["spot2"], level: "hard" });
+    await expect(main).toHaveText("🔒🔒 Figées — tout1 sur 2");
+    await main.click();
+    await expect.poll(() => headLock(page)).toBe("soft");
+    expect(await headLock(page, "spot2")).toBe("hard");
+    await expect(main).toHaveText("🔒🔒 Figées — tout");
+    // everything frozen: a press would unfreeze, which a volunteer may not — said in a toast seen over the Live
+    await main.dispatchEvent("click");
+    const toast = page.getByTestId("lock-toast");
+    await expect(toast).toBeVisible();
+    const box = (await toast.boundingBox())!;
+    const header = (await page.locator("header.top").boundingBox())!;
+    expect(box.y).toBeGreaterThan(header.y + header.height); // never over the header (sign out)
+    expect(box.y + box.height).toBeLessThanOrEqual(900);
+    const hit = await page.evaluate<boolean>(`(() => { const r = document.querySelector('[data-testid="lock-toast"]').getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return Boolean(e?.closest('[data-testid="lock-toast"]')); })()`);
+    expect(hit).toBe(true); // on top of everything
+    await page.screenshot({ path: "test-results/t26-lock-toast-desktop.png" });
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+    await asDesk(page, "venue.fixture.delete", { id: "spot2", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion lock: a group widget under the global lock says so visibly; in edit mode the widget still drags (I6)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await asDesk(page, "group.put", { group: { id: "t26-pair", name: "T26 paire", members: { fixtures: ["spot"], looks: [], groups: [] } } });
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t26-glock", kind: "motion-lock", x: 0, y: bottom, w: 3, h: 1, target: "t26-pair" }] } });
+  try {
+    await asDesk(page, "motion.freeze");
+    await page.reload();
+    const widget = page.getByTestId("motion-lock-widget");
+    await widget.scrollIntoViewIfNeeded();
+    await expect(widget.locator(".motion-lock-main")).toContainText("🔒 Figées");
+    // « Défiger » of the group's own lock changes nothing: the global lock holds it, said in a toast that is not clipped
+    await widget.locator(".motion-lock-main").click();
+    const toast = page.getByTestId("lock-toast");
+    await expect(toast).toHaveText("T26 paire : encore figée(s) par le verrou de toutes les lyres (barre du haut)");
+    await expect(toast).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: "test-results/t26-lock-group-widget.png" });
+    // edit mode: the widget is not a disabled button, a drag moves it
+    await page.getByRole("button", { name: "✎" }).click();
+    const cell = page.locator(".dgrid.fine.editing > .cell", { has: page.getByTestId("motion-lock-widget") });
+    await cell.scrollIntoViewIfNeeded();
+    const before = await cell.getAttribute("style");
+    const c = (await cell.locator(".motion-lock-main").boundingBox())!;
+    await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(c.x + c.width / 2 + i * 20, c.y + c.height / 2);
+    await page.mouse.up();
+    await expect.poll(() => cell.getAttribute("style")).not.toBe(before);
+    expect(await headLock(page)).toBe("soft"); // the drag pressed nothing
+    await page.getByRole("button", { name: "✕", exact: true }).first().click();
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+    await api(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "group.delete", { id: "t26-pair", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion lock: the group editor shows the real state under the global lock (U3) and the English interface", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await asDesk(page, "group.put", { group: { id: "t26-lyres", name: "T26 lyres", members: { fixtures: ["spot"], looks: [], groups: [] } } });
+  try {
+    await asDesk(page, "motion.freeze");
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier T26 lyres" }).click();
+    const lock = page.locator(".group-editor").getByTestId("group-lock");
+    await expect(lock.getByRole("radio", { name: "🔒 Figer les lyres de ce groupe" })).toHaveAttribute("aria-checked", "true");
+    await expect(lock.getByRole("status")).toContainText("figées par le verrou de toutes les lyres");
+    await page.locator(".group-editor").getByRole("button", { name: "Fermer" }).click();
+    await page.locator("header select").selectOption("en");
+    await expect(page.locator("header.top .role")).toHaveText("Stage manager"); // the built-in role's name, translated
+    const bar = page.getByTestId("motion-lock-bar");
+    await expect(bar.locator(".motion-lock-main")).toHaveText("🔒 Frozen");
+    await bar.getByRole("button", { name: "Moving head lock level" }).click();
+    await expect(page.getByRole("menu", { name: "Moving head lock level" }).getByRole("menuitemradio", { name: /Freeze all \(pad included\)/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+    await asDesk(page, "group.delete", { id: "t26-lyres", force: true });
   }
   expect(errors).toEqual([]);
 });
