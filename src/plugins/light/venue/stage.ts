@@ -65,6 +65,15 @@ export function beamCrosses(o: Vec, d: Vec, zone: Zone, height = 2.5): boolean {
   return false;
 }
 
+/**
+ * The point a zone is aimed at: the mean of its corners (a rectangle's centre), `height` metres above its floor. Shared
+ * by position.aim, calibration.record and target.zone (T24).
+ */
+export function zoneAimPoint(zone: Pick<Zone, "polygon" | "floorHeight">, height: number): Vec {
+  const n = zone.polygon.length;
+  return { x: zone.polygon.reduce((a, p) => a + p[0], 0) / n, y: zone.polygon.reduce((a, p) => a + p[1], 0) / n, z: zone.floorHeight + height };
+}
+
 export function zoneOf(f: PatchedFixture, zones: Zone[]): Zone | undefined {
   if (!f.position) return undefined;
   return zones.find((zone) => pointInPolygon(f.position!.x, f.position!.y, zone.polygon));

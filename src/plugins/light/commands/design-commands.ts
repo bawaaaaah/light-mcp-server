@@ -391,7 +391,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture), channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer). Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping), targets moving no installed head, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer). Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -425,8 +425,33 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           if (m.on.command.startsWith("group.") && !runtime.groups.get(target)) err(`mapping ${m.id}`, say(`groupe inconnu ${target}`, `unknown group ${target}`));
           if (m.on.command.startsWith("fader.") && !runtime.faders.get(target)) err(`mapping ${m.id}`, say(`fader de canaux inconnu ${target}`, `unknown channel fader ${target}`));
           if (m.on.command === "program.select" && !runtime.programs.get(target)) err(`mapping ${m.id}`, say(`programme inconnu ${target}`, `unknown program ${target}`));
+          if (m.on.command.startsWith("target.") && !runtime.targets.get(target)) err(`mapping ${m.id}`, say(`cible inconnue ${target}`, `unknown target ${target}`));
         }
       }
+      // targets (T24): what they name, and the heads two of them share (the last engaged wins them)
+      const targets = runtime.targets.list();
+      for (const l of runtime.looks.list()) {
+        const at = l.move?.at?.target;
+        if (at !== undefined && !runtime.targets.get(at)) err(`look ${l.id}`, say(`cible inconnue ${at} (mouvement) : ses lyres restent où elles sont`, `unknown target ${at} (move): its heads stay where they are`));
+      }
+      for (const t of targets) {
+        for (const f of t.fixtures) if (!runtime.venue.fixtures.get(f)) err(say(`cible ${t.id}`, `target ${t.id}`), say(`projecteur inconnu ${f}`, `unknown fixture ${f}`));
+        if (t.group && !runtime.groups.get(t.group)) err(say(`cible ${t.id}`, `target ${t.id}`), say(`groupe inconnu ${t.group}`, `unknown group ${t.group}`));
+        else if (!runtime.targetHeads(t).length) warn(say(`cible ${t.id}`, `target ${t.id}`), say(`« ${t.name} » ne déplace aucune lyre installée`, `“${t.name}” moves no installed moving head`));
+      }
+      for (let i = 0; i < targets.length; i++)
+        for (const other of targets.slice(i + 1)) {
+          const mine = new Set(runtime.targetHeads(targets[i]!));
+          const shared = runtime.targetHeads(other).filter((h) => mine.has(h));
+          if (shared.length)
+            note(
+              say(`cible ${targets[i]!.id}`, `target ${targets[i]!.id}`),
+              say(
+                `« ${targets[i]!.name} » et « ${other.name} » partagent ${shared.map((h) => runtime.venue.fixtures.get(h)?.name ?? h).join(", ")} : engagées ensemble, la dernière engagée les prend`,
+                `“${targets[i]!.name}” and “${other.name}” share ${shared.map((h) => runtime.venue.fixtures.get(h)?.name ?? h).join(", ")}: engaged together, the last engaged takes them`,
+              ),
+            );
+        }
       for (const g of runtime.groups.list()) {
         for (const f of g.members.fixtures) if (!runtime.venue.fixtures.get(f)) err(say(`groupe ${g.id}`, `group ${g.id}`), say(`projecteur inconnu ${f}`, `unknown fixture ${f}`));
         for (const l of [...g.members.looks, ...g.presets.included, ...g.presets.excluded]) if (!runtime.looks.get(l)) err(say(`groupe ${g.id}`, `group ${g.id}`), say(`look inconnu ${l}`, `unknown look ${l}`));

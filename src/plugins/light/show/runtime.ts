@@ -23,9 +23,11 @@ import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGroup
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
-import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot } from "./model.js";
+import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot, type Target } from "./model.js";
+import { aimHead, clampPoint, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
 import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
+import { ownerNamer } from "./motion-report.js";
 import { say } from "../../../core/lang.js";
 
 /** T26: a soft-locked head moved by the pad is written to show.json this long after the last move (and a failed write retried). */
@@ -233,11 +235,15 @@ export class ShowRuntime {
   activeProgram: string | undefined;
   readonly zones: Collection<Zone>;
   readonly snapshots: Collection<Snapshot>;
+  /** Targets (T24): 3D points the moving heads follow, engaged by hand or followed by a look's `move.at.target`. */
+  readonly targets: Collection<Target>;
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
+  /** The targets' points on their way (T24, `target.smoothing`): per axis, 0..1 across the target's bounds. */
+  private targetGlide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
   /**
    * When each player was (re)launched, in order: the layers of a fixture with tracks (T5) stack by it, so that a look
@@ -320,6 +326,7 @@ export class ShowRuntime {
     this.programs = store.collection("programs", RuleProgramSchema);
     this.zones = venue.store.collection("zones", ZoneSchema);
     this.snapshots = store.collection("snapshots", SnapshotSchema);
+    this.targets = store.collection("targets", TargetSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
     this.lockHeld = heldOf(this.settings.motionLock);
@@ -614,6 +621,8 @@ export class ShowRuntime {
       program: this.activeProgram,
       blackout,
       motionLock: this.motionLockState(),
+      // T24, decision Q4: the targets' points and engagement (none in a show without a target: an older snapshot's shape)
+      ...(this.targets.list().length ? { targets: Object.fromEntries(this.targets.list().map((t) => [t.id, { point: t.point, engaged: t.engaged, ...(t.engagedAt === undefined ? {} : { engagedAt: t.engagedAt }) }])) } : {}),
       savedAt: new Date().toISOString(),
     };
   }
@@ -630,6 +639,7 @@ export class ShowRuntime {
     this.stopAll();
     this.playbackStarted.clear();
     const skipped: string[] = [];
+    if (s.targets) skipped.push(...this.applyTargets(s.targets));
     for (const [id, m] of Object.entries(s.groups)) {
       const g = this.groups.get(id);
       if (g) this.groups.putLive({ ...g, master: { ...g.master, level: m.level, mute: m.mute } });
@@ -653,6 +663,28 @@ export class ShowRuntime {
       }
     }
     return { looks: this.activeLooks(), skipped };
+  }
+
+  /**
+   * The targets as a snapshot saved them (T24, decision Q4): each point put back, each engaged one engaged again in the
+   * order they had (with new orders: a recall is a new claim, the heads glide from where they are), the targets it does
+   * not list disengaged. Returns the saved ids no longer in the show.
+   */
+  private applyTargets(saved: NonNullable<Snapshot["targets"]>): string[] {
+    const skipped = Object.keys(saved).filter((id) => !this.targets.get(id));
+    for (const t of this.targets.list()) {
+      const s = Object.hasOwn(saved, t.id) ? saved[t.id] : undefined;
+      if (!s) {
+        if (t.engaged) this.targets.putLive({ ...t, engaged: false });
+        continue;
+      }
+      this.targets.putLive({ ...t, point: clampPoint(s.point, this.targetBounds(t)), engaged: false });
+    }
+    const engaged = Object.entries(saved)
+      .filter(([id, s]) => s.engaged && this.targets.get(id))
+      .sort(([, a], [, b]) => (a.engagedAt ?? 0) - (b.engagedAt ?? 0));
+    for (const [id] of engaged) this.engageTarget(id, true);
+    return skipped;
   }
 
   isActive(lookId: string): boolean {
@@ -920,6 +952,7 @@ export class ShowRuntime {
     this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();
+    this.targetGlide = new Glide();
     // the layer starts afresh; what was sent is kept, so that the heads glide from where they are
     this.motionState = emptyMotionState();
     this.lastMotion = new Map();
@@ -1197,8 +1230,9 @@ export class ShowRuntime {
     if (!channel || !status) return undefined;
     const axis: Axis = r.patch.orientation?.swapPanTilt ? (channel === "pan" ? "tilt" : "pan") : channel;
     const a = status[axis];
+    const nameOf = ownerNamer(this);
     const named = (owner: string) => {
-      const name = owner.startsWith("look:") ? this.looks.get(owner.slice(5))?.name : undefined;
+      const name = nameOf(owner);
       return name === undefined ? {} : { name };
     };
     const masked: NonNullable<ChannelExplanation["motion"]>["masked"] = [];
@@ -1419,14 +1453,18 @@ export class ShowRuntime {
     }).map((f) => f.id);
   }
 
+  /** The moving heads of a group, sorted by X position (then patch order). */
+  private groupHeads(groupId: string): string[] {
+    const heads = new Set(this.movingHeads());
+    const pos = (id: string) => this.venue.fixtures.get(id)?.position?.x ?? 0;
+    const order = this.venue.fixtures.list().map((f) => f.id);
+    return [...this.fixturesOf(groupId)].filter((f) => heads.has(f)).sort((a, b) => pos(a) - pos(b) || order.indexOf(a) - order.indexOf(b));
+  }
+
   /** Fixtures moved by a look, in row order (canvas order, or by X position for a group). */
   movedBy(look: Look): string[] {
     const heads = new Set(this.movingHeads());
-    if (look.move?.group) {
-      const pos = (id: string) => this.venue.fixtures.get(id)?.position?.x ?? 0;
-      const order = this.venue.fixtures.list().map((f) => f.id);
-      return [...this.fixturesOf(look.move.group)].filter((f) => heads.has(f)).sort((a, b) => pos(a) - pos(b) || order.indexOf(a) - order.indexOf(b));
-    }
+    if (look.move?.group) return this.groupHeads(look.move.group);
     const out: string[] = [];
     for (const cell of this.venue.cellTargets(look.canvas)) for (const t of cell) if (heads.has(t.fixture) && !out.includes(t.fixture)) out.push(t.fixture);
     return out;
@@ -1563,7 +1601,13 @@ export class ShowRuntime {
       if (look.move) {
         try {
           const moved = this.movedBy(look);
-          if (moved.length) claims.push({ ...own, heads: moved, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
+          // centred on a target's point (T24, move.at.target), aimed head by head; a target gone holds the heads where they are
+          const at = look.move.at?.target;
+          const target = at === undefined ? undefined : this.targets.get(at);
+          if (at !== undefined && !target) {
+            errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
+            if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
+          } else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
         } catch (err) {
           errors.push((err as Error).message);
         }
@@ -1589,6 +1633,12 @@ export class ShowRuntime {
     for (const r of this.releasing.values()) if (exitProgress(r, now) < 1) ofLook(r.look, r.player);
     for (const x of this.crossfades.values()) for (const o of x.outgoing) if (this.outWeight(o, now) > 0) ofLook(o.look, o.player);
     for (const { look, player } of this.active.values()) ofLook(look, player);
+    // the targets engaged by hand (T24): one claim each at the target layer, ordered by when they were engaged
+    for (const t of this.targets.list()) {
+      if (!t.engaged) continue;
+      const mine = this.targetHeads(t).filter((h) => isHead.has(h));
+      if (mine.length) claims.push({ owner: `target:${t.id}`, layer: "target", order: t.engagedAt ?? 0, heads: mine, base: { kind: "point", ...this.targetPoint(t) }, ...(t.fade ? { fade: t.fade } : {}) });
+    }
     for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: { kind: "fixed", ...m.position }, ...(m.glide ? {} : { fade: DIRECT }) });
     return claims;
   }
@@ -1640,6 +1690,79 @@ export class ShowRuntime {
       this.setPosition([id], res);
       return { fixture: id, pan: res.pan, tilt: res.tilt };
     });
+  }
+
+  // ---- targets (T24; docs/specs/venue-fixtures-stage.md, « Cible »): a source of the motion layer, nothing more —
+  // their claims go through resolveMotion like the others (priority, transitions, hold, lock)
+
+  /** The box a target's point moves in: its own bounds, else the stage volume (zones, placed fixtures). */
+  targetBounds(t: Pick<Target, "bounds">): Bounds {
+    return t.bounds ?? stageBounds(this.zones.list(), this.venue.installed());
+  }
+
+  /** Where a new target's point starts: the middle of its bounds (the stage volume without its own), at a standing person's face. */
+  newTargetPoint(bounds?: Bounds): Point3 {
+    const b = bounds ?? this.targetBounds({});
+    return clampPoint({ x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: 1.5 }, b);
+  }
+
+  /** The installed moving heads a target moves, each once: its fixtures in their order, then its group's by X. */
+  targetHeads(t: Pick<Target, "fixtures" | "group">): string[] {
+    const heads = new Set(this.movingHeads());
+    return [...new Set([...t.fixtures.filter((f) => heads.has(f)), ...(t.group ? this.groupHeads(t.group) : [])])];
+  }
+
+  /** Where a target's point is now: its point within its bounds, gliding per axis when it has a smoothing. */
+  targetPoint(t: Target): Point3 {
+    const b = this.targetBounds(t);
+    const p = clampPoint(t.point, b);
+    if (!t.smoothing) return p;
+    const now = this.now();
+    const axis = (a: StageAxis) => fromNormal(a, this.targetGlide.value(`${t.id}:${a}`, toNormal(a, p[a], b), t.smoothing, now), b);
+    return { x: axis("x"), y: axis("y"), z: axis("z") };
+  }
+
+  /** Moves a target's point (the axes given), bounded: live state, written without a backup. */
+  moveTarget(id: string, p: Partial<Point3>): Target {
+    const t = this.targets.get(id);
+    if (!t) throw new Error(say(`cible inconnue : ${id}`, `unknown target: ${id}`));
+    return this.targets.putLive({ ...t, point: clampPoint({ ...t.point, ...p }, this.targetBounds(t)) });
+  }
+
+  /**
+   * Engages or disengages a target. Engaged, it claims its heads at the target layer, ordered by `engagedAt` (strictly
+   * increasing: the last engaged wins a head two targets share, restart included); its point starts where it is (no
+   * glide of the point on engaging: the heads' transition is the motion layer's). Idempotent.
+   */
+  engageTarget(id: string, on: boolean, at = Date.now()): Target {
+    const t = this.targets.get(id);
+    if (!t) throw new Error(say(`cible inconnue : ${id}`, `unknown target: ${id}`));
+    if (t.engaged === on) return t;
+    if (!on) return this.targets.putLive({ ...t, engaged: false });
+    for (const a of ["x", "y", "z"] as const) this.targetGlide.forget(`${id}:${a}`);
+    const last = Math.max(0, ...this.targets.list().map((x) => x.engagedAt ?? 0));
+    return this.targets.putLive({ ...t, engaged: true, engagedAt: Math.max(Math.round(at), last + 1) });
+  }
+
+  /** Panic (T24, decision Q2): every target disengaged; the heads hold where they are. Returns the ids disengaged. */
+  disengageTargets(): string[] {
+    return this.targets.list().flatMap((t) => (t.engaged ? [this.engageTarget(t.id, false).id] : []));
+  }
+
+  /**
+   * Where `head` points to follow `point`: the solution closest to where it was sent (never the long way round), or why
+   * it holds there (out of reach, the point in a no-aim zone closed now, no stage position).
+   */
+  private aimFor(head: string, point: Point3, sent: ReadonlyMap<string, Position> | undefined, noAim: readonly Zone[]): Position | { error: string } {
+    const r = this.venue.resolve(head);
+    const res = aimHead("error" in r ? undefined : aimSetupOf(r), point, sent?.get(head) ?? this.sentPositions.get(head), noAim);
+    return "held" in res ? { error: res.message } : res;
+  }
+
+  /** The no-aim zones closed now: those no playing look of their `allowLooks` opens (the guard's reading). */
+  private closedNoAim(): Zone[] {
+    const playing = new Set(this.activeLooks());
+    return this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
   }
 
   /** Renders the playing looks into DMX buffers. */
@@ -1977,6 +2100,7 @@ export class ShowRuntime {
     // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
     const movers = this.movingHeads();
     if (movers.length) {
+      let noAim: Zone[] | undefined;
       const resolved = resolveMotion(
         {
           heads: movers,
@@ -1985,6 +2109,7 @@ export class ShowRuntime {
           bpm: motion.bpm,
           ...(motion.sent ? { sent: motion.sent } : {}),
           settings: { moveFade: this.settings.moveFade, rest: this.settings.restPositions },
+          ctx: { aim: (head, point) => this.aimFor(head, point, motion.sent, (noAim ??= this.closedNoAim())) },
           lock: this.motionLock,
           heldOf: (head) => this.heldAt(head, now),
           axisMode: (head, axis) => this.axisMode(head, axis),

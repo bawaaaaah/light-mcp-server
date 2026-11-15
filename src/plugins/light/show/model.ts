@@ -120,6 +120,42 @@ export const ChannelFaderSchema = z.object({
 });
 export type ChannelFader = z.infer<typeof ChannelFaderSchema>;
 
+/** A point of the stage, in metres (venue/stage.ts frame: X stage left → right, Y front → upstage, Z up). */
+export const StagePointSchema = z.object({ x: z.number(), y: z.number(), z: z.number() });
+
+/**
+ * Target (« cible », T24; docs/specs/venue-fixtures-stage.md, « Cible »): a 3D point that moving heads follow. Its heads
+ * are a list, a group, or both (their union). Engaged by hand, it claims them at the motion layer's target layer (above
+ * the looks, below the manual layer); a look's `move.at.target` follows it without engaging it. The point, `engaged`
+ * and `engagedAt` are live state (written by target.set / target.engage without a backup); the rest is design.
+ */
+export const TargetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  fixtures: z.array(z.string()).default([]),
+  group: z.string().optional(),
+  /** Bounded to `bounds` (the stage volume by default) on every write. */
+  point: StagePointSchema,
+  engaged: z.boolean().default(false),
+  /** When it was last engaged (ms since the epoch, strictly increasing): between two targets on one head, the last engaged wins, restart included. */
+  engagedAt: z.number().int().optional(),
+  /** The box the point moves in; absent: the stage volume (venue/target-aim.ts `stageBounds`). */
+  bounds: z
+    .object({ min: StagePointSchema, max: StagePointSchema })
+    .refine((b) => b.min.x <= b.max.x && b.min.y <= b.max.y && b.min.z <= b.max.z, { message: "min au-dessus du max" })
+    .optional(),
+  /** The point glides to where it is asked (Glide, per axis across the bounds); absent: it moves at once. */
+  smoothing: FaderSmoothingSchema.optional(),
+  /** How the heads take over to the target when it is engaged (as `look.move.fade`); absent: the show's `moveFade`. */
+  fade: MoveFadeSchema.optional(),
+  color: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type Target = z.infer<typeof TargetSchema>;
+
+/** What a snapshot keeps of a target (T24, decision Q4 of 2026-11-11): its point and whether it is engaged. */
+export const SnapshotTargetSchema = z.object({ point: StagePointSchema, engaged: z.boolean(), engagedAt: z.number().int().optional() });
+
 /**
  * Snapshot (« instantané »): the whole live state saved ahead, recalled at once — by hand or by
  * « Panic neutre » as the safe state. Objects deleted since are skipped on recall.
@@ -139,6 +175,8 @@ export const SnapshotSchema = z.object({
   blackout: z.boolean().default(false),
   /** « Figer les lyres » (T26): the lock levels when it was saved, put back exactly on recall (decision Q3); absent (an older snapshot): the lock is left as it is. */
   motionLock: MotionLockStateSchema.optional(),
+  /** Targets (T24): point and engagement by target id, put back on recall (the targets it does not list are disengaged); absent (an older snapshot): the targets are left as they are. */
+  targets: z.record(z.string(), SnapshotTargetSchema).optional(),
   savedAt: z.string().optional(),
   notes: z.string().optional(),
 });

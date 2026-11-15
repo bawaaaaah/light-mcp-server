@@ -6,7 +6,7 @@
 import type { Position } from "../engine/move.js";
 import { ownerOfClaimKey, type AxisLayer, type AxisStatus, type HeadStatus, type LockLevel } from "../engine/motion.js";
 
-/** An owner of the motion layer ("manual", "look:<id>", "target:<id>") and, for a look, its name. */
+/** An owner of the motion layer ("manual", "look:<id>", "target:<id>") and, for a look or a target, its name. */
 export interface OwnerRef {
   owner: string;
   name?: string;
@@ -86,6 +86,12 @@ export const lookNamer =
   (owner: string): string | undefined =>
     owner.startsWith("look:") ? nameOfLook(owner.slice(5)) : undefined;
 
+/** The name of an owner: a look's ("look:<id>") or a target's ("target:<id>", T24); undefined otherwise, or once gone. */
+export const ownerNamer =
+  (show: Pick<MotionSource, "looks" | "targets">) =>
+  (owner: string): string | undefined =>
+    owner.startsWith("target:") ? show.targets?.get(owner.slice(7))?.name : lookNamer((id) => show.looks.get(id)?.name)(owner);
+
 /** One head of `position.list` and `light:motion`. */
 export interface HeadMotionEntry {
   id: string;
@@ -104,12 +110,14 @@ export interface MotionSource {
   sentPosition(fixture: string): Position | undefined;
   readonly settings: { restPositions: Readonly<Record<string, Position>> };
   readonly looks: { get(id: string): { name: string } | undefined };
+  /** T24: the targets, to name an owner "target:<id>". */
+  readonly targets?: { get(id: string): { name: string } | undefined };
 }
 
 /** Every installed moving head, why it is where it is. */
 export function motionEntries(show: MotionSource): HeadMotionEntry[] {
   const status = show.motionStatus();
-  const nameOf = lookNamer((id) => show.looks.get(id)?.name);
+  const nameOf = ownerNamer(show);
   const rests = show.settings.restPositions;
   return show.movingHeads().map((id) => {
     const s = status.get(id);
@@ -131,7 +139,7 @@ export function motionEntries(show: MotionSource): HeadMotionEntry[] {
  */
 export function motionKey(show: MotionSource): string {
   const status = show.motionStatus();
-  const nameOf = lookNamer((id) => show.looks.get(id)?.name);
+  const nameOf = ownerNamer(show);
   const named = (owner: string | null) => (owner === null ? "" : `${owner}=${nameOf(owner) ?? ""}`);
   const rests = show.settings.restPositions;
   const parts: string[] = [];

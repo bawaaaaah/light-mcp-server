@@ -7,6 +7,7 @@ import { CommandError, type CommandRegistry, type Origin } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import { calibrate, type CalibrationSample } from "../venue/aim.js";
 import { isHung } from "../venue/orientation.js";
+import { zoneAimPoint } from "../venue/stage.js";
 import { say } from "../../../core/lang.js";
 import { motionEntries } from "../show/motion-report.js";
 import { stricter, type HeadLock, type MotionLockState } from "../show/motion-lock.js";
@@ -151,7 +152,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.releaseTop",
     title: "Rendre la main",
     description:
-      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing (those heads are listed in refused), soft permits manual only. Returns, per head, the owners released (manual, look:<id>, hold).",
+      "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing (those heads are listed in refused), soft permits manual only. Returns, per head, the owners released (manual, target:<id>, look:<id>, hold).",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target,
@@ -188,8 +189,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       if (zone) {
         const zn = show.zones.get(zone);
         if (!zn) throw new Error(say(`zone inconnue : ${zone}`, `unknown zone: ${zone}`));
-        const n = zn.polygon.length;
-        target = { x: zn.polygon.reduce((a, p) => a + p[0], 0) / n, y: zn.polygon.reduce((a, p) => a + p[1], 0) / n, z: zn.floorHeight + height };
+        target = zoneAimPoint(zn, height);
       }
       if (!target) throw new Error(say("zone ou point requis", "zone or point required"));
       const { ids, refused } = unlocked(targets(t));
@@ -362,8 +362,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     if (!zone) throw new Error(say("zone ou point requis", "zone or point required"));
     const zn = show.zones.get(zone);
     if (!zn) throw new Error(say(`zone inconnue : ${zone}`, `unknown zone: ${zone}`));
-    const n = zn.polygon.length;
-    return { x: zn.polygon.reduce((a, p) => a + p[0], 0) / n, y: zn.polygon.reduce((a, p) => a + p[1], 0) / n, z: zn.floorHeight + height };
+    return zoneAimPoint(zn, height);
   };
   reg.register({
     name: "calibration.record",

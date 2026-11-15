@@ -19,7 +19,7 @@ import { trackNamesProblem } from "../venue/tracks.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
-import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, type Look, type Snapshot } from "../show/model.js";
+import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, TargetSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
@@ -139,6 +139,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     dashboards: dashboards.list(),
     snapshots: show.snapshots.list(),
     looks: show.looks.list(),
+    targets: show.targets.list(),
     canvases: venue.canvases.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     rules: show.rules.list(),
@@ -1250,11 +1251,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture or an intention (mood key) is used: groups, channel faders, raw channels of looks, canvases, MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key) or a target is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target: a move following it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target"]), id: z.string() }),
     // an intention of the personal library also serves the other shows of this machine: the plugin says which (T15)
     run: ({ kind, id: i }) => ({ uses: kind === "intention" && intentionReferences ? intentionReferences(i) : usesOf(kind, i, parts()) }),
   });
@@ -1528,9 +1529,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   /** Putting a canvas back is checked as any canvas put (looks of exact steps, a shared venue): `force` passes it on. */
   const restoreForce = z.boolean().default(false).describe("canvases: put it back even if looks of exact steps no longer line up with its cells (as venue.canvas.put)");
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
+  /** A target's live state (T24): its point and engagement, moved by target.set / target.engage, never by a design edit. */
+  const liveOfTarget = (t: unknown) => {
+    const { point, engaged, engagedAt } = t as { point?: unknown; engaged?: unknown; engagedAt?: unknown };
+    return { point, engaged, ...(engagedAt === undefined ? {} : { engagedAt }) };
+  };
   const keepLive = (collection: string, old: unknown, now: unknown) => {
     const [o, n] = [old as { master?: unknown; level?: unknown }, now as { master?: unknown; level?: unknown } | undefined];
     if (collection === "intentions") return { ...(old as object), aliases: (old as { aliases?: unknown }).aliases ?? [] }; // put back as it was: a rename it took back leaves no former label (T15b)
+    if (collection === "targets" && n) return { ...(old as object), ...liveOfTarget(n) }; // where it is and whether it is engaged: live (T24)
     return collection === "groups" && o.master && n?.master ? { ...o, master: n.master } : collection === "faders" && n ? { ...o, level: n.level } : old;
   };
   /** How long after its activity line a change's history copy may be stamped. */
@@ -1620,6 +1627,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     venueRules: show.venueRules,
     fixtures: venue.fixtures,
     canvases: venue.canvases,
+    // a target's point and engagement are live (T24): a design edit keeps them, as target.put does
+    targets: {
+      validate: (v: unknown) => {
+        const o = (v && typeof v === "object" ? v : {}) as { id?: unknown; point?: unknown; bounds?: unknown };
+        const cur = typeof o.id === "string" ? show.targets.get(o.id) : undefined;
+        if (cur) return show.targets.validate({ ...o, ...liveOfTarget(cur) });
+        // a new one: where target.put would put it, not engaged
+        const { point: _p, engaged: _e, engagedAt: _a, ...design } = o as Record<string, unknown>;
+        const point = o.point ?? show.newTargetPoint(TargetSchema.shape.bounds.safeParse(o.bounds).data);
+        return show.targets.validate({ ...design, point });
+      },
+      get: (i: string) => show.targets.get(i),
+      delete: (i: string) => show.targets.delete(i),
+      put: (v: unknown) => show.targets.put(v),
+    },
     // a creation of intention.put (no id) gets its generated id when proposed (show.propose pins it, T15b); a
     // lone show.diff reads it as new. A label without a letter or a digit is refused, as the command does
     intentions: {
@@ -1648,6 +1670,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     "stage.zone.put": { collection: () => "zones", key: "zone" },
     "rule.put": { collection: (a) => (a.where === "venue" ? "venueRules" : "rules"), key: "rule", keep: ["where"] },
     "venue.fixture.put": { collection: () => "fixtures", key: "fixture" },
+    "target.put": { collection: () => "targets", key: "target" },
     "venue.canvas.put": {
       collection: () => "canvases",
       key: "canvas",
@@ -1710,7 +1733,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "show.diff",
     title: "Ce que changerait un enregistrement",
     description:
-      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, venue.canvas.put, venue.canvas.edit: the canvas its operations would write, without adapting steps). Several changes to apply together: show.propose.",
+      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases, targets) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, target.put, venue.canvas.put, venue.canvas.edit: the canvas its operations would write, without adapting steps). A target's point and engagement are live state: kept as they are. Several changes to apply together: show.propose.",
     right: "show:propose",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1734,13 +1757,14 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   type Change = { command: string; args: Record<string, unknown> };
   /** `wrote`: a fingerprint of what the apply left (live levels aside), to tell a later edit before taking it back. */
   type Applied = Change & { collection: Diffable; id: string; before?: unknown; wrote?: string };
-  /** An object as an undo compares it: a fader's level and a group's master move live, they are no edit. */
+  /** An object as an undo compares it: a fader's level, a group's master and a target's point and engagement move live, they are no edit. */
   const fingerprint = (collection: string, obj: unknown): string => {
     if (obj === undefined) return "";
     const o = obj as Record<string, unknown>;
     const { level: _l, ...noLevel } = o;
     const { master: _m, ...noMaster } = o;
-    return stableStringify(collection === "faders" ? noLevel : collection === "groups" ? noMaster : o);
+    const { point: _p, engaged: _e, engagedAt: _a, ...noLive } = o;
+    return stableStringify(collection === "faders" ? noLevel : collection === "groups" ? noMaster : collection === "targets" ? noLive : o);
   };
   interface Proposal {
     id: string;
@@ -2124,6 +2148,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   const safeState = () => {
     // no head moves by itself (T25, question 4): they hold where they are until the safe state claims them, gliding
     show.holdPositions();
+    // and no target keeps them (T24, decision Q2): every target disengaged, the heads stay where they are
+    show.disengageTargets();
     show.stopAll();
     show.releasePositions();
     engine.release();
@@ -2146,7 +2172,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "panic",
     title: "Panic neutre",
     description:
-      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
+      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, disengages every target, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),
@@ -2161,7 +2187,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "panic.undo",
     title: "Annuler le Panic",
-    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was); the DMX console forcing and hand-aimed heads it released stay released.",
+    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement); the DMX console forcing and hand-aimed heads it released stay released.",
     right: "commands:panic",
     profiles: ["live"],
     schema: z.object({}),

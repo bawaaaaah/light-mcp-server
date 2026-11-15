@@ -22,6 +22,7 @@ import { recallStartupSnapshot, registerShowCommands } from "./commands/show-com
 import { registerTracksCommands } from "./commands/tracks-commands.js";
 import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
+import { registerTargetCommands } from "./commands/target-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, sharedWith, showsOnVenueOrThrow, type FileServices } from "./commands/file-commands.js";
 import { registerFixtureModeCommands, showFolder } from "./commands/fixture-mode-commands.js";
 import { ActivityLog, commandNotice, undoOf } from "./activity.js";
@@ -261,6 +262,7 @@ export class LightPlugin implements McpPlugin {
       place: () => ({ show: this.config.show, venue: this.config.venue }),
     });
     registerMoveCommands(this.commands, this.runtime, () => this.nextFrame());
+    registerTargetCommands(this.commands, this.runtime);
     registerTracksCommands(this.commands, this.runtime);
     const mappings = this.show.collection("mappings", MappingSchema);
     this.mapper.setMappings(mappings.list());

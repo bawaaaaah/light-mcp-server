@@ -54,10 +54,15 @@ export const MoveSchema = z.object({
   fade: MoveFadeSchema.optional(),
   /**
    * « Ne pas bouger les lyres » (T26): false keeps the settings but the look claims no head, neither by its move nor by
-   * its raw pan/tilt steps; absent or true: it moves. `move.at` (T24/T27/T32) is not declared: zod strips it, so it is
-   * accepted and ignored.
+   * its raw pan/tilt steps; absent or true: it moves.
    */
   enabled: z.boolean().optional(),
+  /**
+   * Where the shape is centred instead of `center`. `target` (T24): a target's point, aimed head by head (the shape
+   * drawn around each head's own aim); the target need not be engaged. Other keys (T27 zones, T32 named positions) are
+   * not declared yet: zod strips them.
+   */
+  at: z.object({ target: z.string().optional() }).optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;
 
