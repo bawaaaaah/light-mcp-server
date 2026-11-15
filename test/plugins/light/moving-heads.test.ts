@@ -813,6 +813,36 @@ describe("a head driven by the command layer (the pad's path)", () => {
     }
   });
 
+  it("« Vérifier le show » names the looks reaching beyond a head's useful stops, and a stop narrower than 10° (T8, decision Q4)", async () => {
+    type Issue = { level: string; where: string; message: string };
+    const lint = async () => ((await run("show.lint")) as { issues: Issue[] }).issues;
+    const about = (issues: Issue[], where: string) => issues.filter((i) => i.where === where && /butée/.test(i.message));
+    await run("group.put", { group: { id: "g-spot", name: "Spot seul", members: { fixtures: ["spot"], looks: [], groups: [] } } });
+    await run("venue.canvas.put", { canvas: { id: "lyres-t8", name: "Lyres T8", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "spot", head: -1 }] }] } });
+    await run("look.put", { look: { id: "rond-large", name: "Rond large", canvas: "lyres-t8", technique: { kind: "aucune" }, move: { shape: "cercle", size: { pan: 0.3, tilt: 0.1 }, group: "g-spot" } } });
+    await run("look.put", { look: { id: "rond-petit", name: "Rond petit", canvas: "lyres-t8", technique: { kind: "aucune" }, move: { shape: "cercle", size: { pan: 0.05, tilt: 0.05 }, group: "g-spot" } } });
+    await run("look.put", { look: { id: "brut", name: "Brut", canvas: "lyres-t8", technique: { kind: "aucune" }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[128], [250]] } } });
+    try {
+      expect(about(await lint(), "look rond-large")).to.deep.equal([]); // no stops: nothing to say
+      // pan ±90° of 540°: 0.3 of the travel (162°) goes beyond, 0.05 (27°) does not; the raw step at 250 does
+      await run("venue.fixture.orient", { id: "spot", limits: { pan: [-90, 90], tilt: [-100, 100] } });
+      const issues = await lint();
+      expect(about(issues, "look rond-large")).to.have.length(1);
+      expect(about(issues, "look rond-large")[0]).to.include({ level: "attention" });
+      expect(about(issues, "look rond-large")[0]!.message).to.contain("Lyre");
+      expect(about(issues, "look rond-petit")).to.deep.equal([]);
+      expect(about(issues, "look brut")).to.have.length(1);
+      expect(issues.filter((i) => /plus étroite/.test(i.message))).to.deep.equal([]);
+      await run("venue.fixture.orient", { id: "spot", limits: { tilt: [0, 5] } });
+      expect((await lint()).filter((i) => /plus étroite/.test(i.message)).map((i) => i.where)).to.deep.equal(["lyre spot"]);
+    } finally {
+      await run("venue.fixture.orient", { id: "spot", limits: null });
+      for (const id of ["rond-large", "rond-petit", "brut"]) await run("look.delete", { id, force: true });
+      await run("group.delete", { id: "g-spot", force: true });
+      await run("venue.canvas.delete", { id: "lyres-t8", force: true });
+    }
+  });
+
   it("corrects a model's travel, overridable per fixture axis by axis; aiming follows, the bytes of a position do not (T8)", async () => {
     type Travel = { panMax: number; tiltMax: number; definition: { panMax: number; tiltMax: number }; applies: { panMax: string; tiltMax: string }; fine: { pan: boolean; tilt: boolean }; step: { pan: number; tilt: number }; finerModes: string[]; model: object | null; own: object | null };
     await run("venue.fixture.put", { fixture: { id: "spot-b", name: "Lyre basique", manufacturer: "Test", model: "Spot 7", mode: "Basic", universe: 2, address: 1, position: { x: 3, y: 2, z: 5 }, mount: "hung" } });

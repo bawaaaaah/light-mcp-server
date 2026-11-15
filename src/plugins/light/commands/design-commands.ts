@@ -49,6 +49,7 @@ import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMess
 import { canvasIssues } from "../venue/canvas-edit.js";
 import { rawMotionAxes } from "../venue/tracks.js";
 import { positionStale } from "../show/position-presets.js";
+import { beyondStops, moveBeyondStops, NARROW_STOP_DEG, narrowStops } from "../venue/stops-check.js";
 import { say } from "../../../core/lang.js";
 
 /**
@@ -392,7 +393,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping —, named position — a look's move following one gone, a mapping), targets moving no installed head, named positions covering fixtures no longer patched or no installed head, stale named positions (a covered head moved, rehung, turned, recalibrated or given another definition since: with the choices to recompute it from its aim point, readjust it by hand, or keep it), looks following a named position that covers none of their heads, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer). Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), looks following a named position that leaves some of their heads uncovered (those stay with the layer below), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping —, named position — a look's move following one gone, a mapping), targets moving no installed head, named positions covering fixtures no longer patched or no installed head, stale named positions (a covered head moved, rehung, turned, recalibrated or given another definition since: with the choices to recompute it from its aim point, readjust it by hand, or keep it), looks following a named position that covers none of their heads, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer), looks whose move or raw pan/tilt steps reach beyond a moving head's useful stops (orientation.limits: clipped at the output, the move stops there), useful stops narrower than 10°. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), looks following a named position that leaves some of their heads uncovered (those stay with the layer below), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -586,6 +587,59 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
             `raw pan/tilt channels — ${rawPlaced.map((x) => x.en).join("; ")}. Since the motion layer they glide (unless the axis is set to cut in “Transitions…”), the XY pad wins over them, and between two looks the last one launched wins (before: the highest byte). To set them in the editor: a “still” move of the look`,
           ),
         );
+      // The useful stops of the moving heads (T8, decision Q4): a look or a Move FX reaching beyond a head's stops plays,
+      // clipped at the output without a word: said here. A stop narrower than 10° leaves the head almost still.
+      const stopsOf = (id: string) => {
+        const r = runtime.venue.resolve(id);
+        return "error" in r || !r.patch.orientation?.limits ? undefined : { panMax: r.panMax, tiltMax: r.tiltMax, limits: r.patch.orientation.limits, name: r.patch.name, r };
+      };
+      for (const id of heads) {
+        const s = stopsOf(id);
+        const narrow = narrowStops(s?.limits);
+        if (s && narrow.length)
+          warn(
+            say(`lyre ${id}`, `moving head ${id}`),
+            say(
+              `« ${s.name} » : butée de ${narrow.join(" et ")} plus étroite que ${NARROW_STOP_DEG}° : la lyre ne bouge presque plus sur cet axe (une faute de frappe ?)`,
+              `“${s.name}”: ${narrow.join(" and ")} stop narrower than ${NARROW_STOP_DEG}°: the head hardly moves on that axis (a typo?)`,
+            ),
+          );
+      }
+      for (const l of runtime.looks.list()) {
+        if (l.move?.enabled === false) continue;
+        const touched = new Set<string>();
+        // its move (a shape around a target is aimed head by head, live: not sampled here)
+        if (l.move && l.move.at?.target === undefined) {
+          const moved = runtime.movedBy(l);
+          for (const i of moveBeyondStops(l.move, moved.map(stopsOf))) touched.add(moved[i]!);
+        }
+        // its raw pan/tilt steps, read as the motion layer reads them
+        if (l.channels)
+          for (const id of new Set(l.channels.targets.map((t) => t.fixture))) {
+            const s = heads.has(id) ? stopsOf(id) : undefined;
+            if (!s || touched.has(id)) continue;
+            for (const row of l.channels.steps) {
+              const bytes = new Map<number, number>();
+              l.channels.targets.forEach((t, k) => {
+                if (t.fixture === id) bytes.set(t.offset, row[k] ?? 0);
+              });
+              if (beyondStops(s, runtime.venue.readPosition(s.r, (offset) => bytes.get(offset)))) {
+                touched.add(id);
+                break;
+              }
+            }
+          }
+        if (touched.size) {
+          const names = [...touched].map((id) => runtime.venue.fixtures.get(id)?.name ?? id);
+          warn(
+            `look ${l.id}`,
+            say(
+              `« ${l.name} » dépasse les butées de ${names.map((n) => `« ${n} »`).join(", ")} : la position y est écrêtée à la sortie (le mouvement s'arrête à la butée) ; réduire la taille ou déplacer le centre du mouvement, ou élargir les butées`,
+              `“${l.name}” reaches beyond the stops of ${names.map((n) => `“${n}”`).join(", ")}: the position is clipped there at the output (the move stops at the stop); shrink or move the move, or widen the stops`,
+            ),
+          );
+        }
+      }
       const grouping = runtime.typeGrouping();
       if (grouping.tags.length || grouping.groups.length) note(say("groupes par type", "type groups"), groupingMessage(grouping));
       // Raw channels the rules bound (UV, strobe, machines): the look does not do what it says, and
