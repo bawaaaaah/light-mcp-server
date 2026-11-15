@@ -26,6 +26,7 @@ import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
 import { moveZone } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
+import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { useStored } from "../hooks/useStored";
 import { FixturePanel } from "./FixturePanel";
 
@@ -234,42 +235,12 @@ export function StagePlan({
   // the heads move from elsewhere too (another screen, MIDI, an aim, a Panic): read again
   useCommandEvents(["position.", "panic", "show."], readHeads);
 
-  // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front.
-  const layout = useMemo(() => {
-    const { fixtures: fxs, zones: zs } = shown;
-    const pts: [number, number][] = [...zs.flatMap((z) => z.polygon), ...fxs.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number])];
-    const unplaced = fxs.filter((f) => !f.position);
-    const rowHalf = Math.max(1.5, unplaced.length * 0.6);
-    let minX = -rowHalf;
-    let maxX = rowHalf;
-    let minY: number;
-    let maxY: number;
-    let rowY = 0;
-    if (pts.length) {
-      minX = Math.min(...pts.map((p) => p[0]));
-      maxX = Math.max(...pts.map((p) => p[0]));
-      minY = Math.min(...pts.map((p) => p[1]));
-      maxY = Math.max(...pts.map((p) => p[1]));
-      if (unplaced.length) {
-        rowY = Math.min(minY, 0) - 0.8; // a row in front of the stage
-        minY = rowY - 0.3;
-        minX = Math.min(minX, -rowHalf);
-        maxX = Math.max(maxX, rowHalf);
-      }
-    } else [minY, maxY] = [rowY - 0.3, rowY + 0.3]; // nothing placed yet: just the row
-    const m = pts.length ? 0.8 : 0.3;
-    const pos = new Map<string, { x: number; y: number }>();
-    for (const f of fxs) if (f.position) pos.set(f.id, { x: f.position.x, y: f.position.y });
-    unplaced.forEach((f, i) => pos.set(f.id, { x: -rowHalf + (2 * rowHalf * (i + 0.5)) / unplaced.length, y: rowY }));
-    return { minX: minX - m, maxX: maxX + m, minY: minY - m, maxY: maxY + m, pos, unplaced: unplaced.length };
-  }, [shown]);
+  // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front (stage-frame.ts).
+  const layout = useMemo(() => stageLayout(shown.fixtures, shown.zones), [shown]);
 
   const W = 800;
-  const scale = W / (layout.maxX - layout.minX);
-  const H = Math.max(160, (layout.maxY - layout.minY) * scale);
-  const sx = (x: number) => (x - layout.minX) * scale;
-  const sy = (y: number) => H - (y - layout.minY) * scale; // upstage at the top, audience at the bottom
-  const toStage = (px: number, py: number) => ({ x: px / scale + layout.minX, y: (H - py) / scale + layout.minY });
+  // upstage at the top, audience at the bottom
+  const { scale, H, sx, sy, toStage } = stageFrame(layout, W);
 
   // the drawing's width on screen (zoom included): names keep a readable size, the grid its density
   const [drawnWidth, setDrawnWidth] = useState(W);
@@ -329,8 +300,8 @@ export function StagePlan({
   const pxPerMetre = (scale * drawnWidth) / VW;
 
   const eventToStage = (e: { clientX: number; clientY: number }) => {
-    const r = svg.current!.getBoundingClientRect();
-    return toStage(((e.clientX - r.left) / r.width) * VW - pad.left, ((e.clientY - r.top) / r.height) * VH - pad.top);
+    const { px, py } = pointerToDrawing(e, svg.current!.getBoundingClientRect(), VW, VH, pad);
+    return toStage(px, py);
   };
   const snap = (v: number) => Math.round(v * 10) / 10;
   /** Where a point of the view puts a fixture: the front view's vertical is its height, its depth kept. */
