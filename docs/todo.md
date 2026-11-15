@@ -266,6 +266,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **Rang** : dur (touche modèle, moteur, éditeur, migration des looks existants). **Phase 3**, **avant T24**, car T24 et T26 s'y appuient.
 
 ### T26 — Autoriser / bloquer la gestion des mouvements
+- **Fait (2026-11-15, lots 1 à 4, branche `fix/t2-look-restart-mid-fade`)** : le verrou « Figer les lyres » est en place, global, par lyre ou par groupe, à deux niveaux : souple (looks et cible bloqués, pad XY libre) et dur (rien ne bouge, pad compris ; la Console DMX passe toujours). On le pose depuis le bouton de la barre du haut, un widget de dashboard, le menu clic droit d'un appareil, l'éditeur de groupe ou un raccourci MIDI. Un appui fige en souple les lyres encore libres, et quand toutes sont figées il les défige toutes ; un appui long ou le chevron ouvre le menu des niveaux, et défiger un verrou dur demande deux appuis. Droits : `commands:freeze` pour le souple (tout rôle qui a le Panic), `commands:position` pour le dur et le dégel ; le MIDI ne défige qu'un verrou souple, l'OSC, OS2L, AbleSet et les chants peuvent figer mais jamais défiger. Le secours du Panic et l'instantané de démarrage ne font que durcir le verrou ; il survit à un redémarrage, et le dégel glisse au moins 1 s. Un look peut porter « Ne pas bouger les lyres » (`move.enabled: false`) : il tient les lyres où elles sont pendant que sa couleur joue. **Reste** : essai sur les vraies lyres.
 - **Besoin** : pouvoir dire quand les lyres ont le droit de bouger.
 - **Proposition, par niveaux** :
   - **Verrou global « Figer les lyres »** (bouton visible sur toutes les pages, mappable en MIDI/OSC), **à deux niveaux choisis par l'utilisateur** : **souple** = les looks et la cible ne bougent plus les lyres, le pad XY à la main reste libre ; **dur** = rien ne bouge, pad compris. Dans les deux cas la position courante est gardée ; relâcher le verrou reprend en douceur (vitesse limitée par les règles) ;
@@ -402,5 +403,5 @@ Ouvertes :
 
 Tranchées (2026-11-08) :
 - T2 : un look relancé en plein fondu repart de son niveau courant **et** garde sa position dans l'animation.
-- T26 : le verrou « Figer les lyres » a **deux niveaux** : souple (looks et cible bloqués, pad libre) et dur (tout, pad compris).
+- T26 : le verrou « Figer les lyres » a **deux niveaux** : souple (looks et cible bloqués, pad libre) et dur (tout, pad compris) — fait le 2026-11-15.
 - T24 : chaque cible a **son groupe ou sa liste de lyres** ; plusieurs cibles en même temps.
