@@ -12,7 +12,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
 import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
-import { aimAt, aimNear, boundPosition } from "../venue/aim.js";
+import { aimAt, aimNear, boundPosition, type AimOptions } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
@@ -1947,16 +1947,23 @@ export class ShowRuntime {
   /**
    * Points fixtures at a point of the stage (metres); returns per-fixture results. The solution closest to the centre of
    * the travel, or with `near` the one closest to that position (a head re-aimed where it already points stays on its
-   * side instead of turning half a turn, T8).
+   * side instead of turning half a turn, T8). `opts`: re-aiming a head held by hand (calibration.correct) — `ignoreStops`
+   * aims as if it had no useful stops (the output bounds it anyway), `slack` lets a solution just past the travel count.
    */
-  aim(fixtures: string[], target: { x: number; y: number; z: number }, near?: Position): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
+  aim(
+    fixtures: string[],
+    target: { x: number; y: number; z: number },
+    near?: Position,
+    opts?: AimOptions & { ignoreStops?: boolean },
+  ): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
     return fixtures.map((id) => {
       const f = this.venue.fixtures.get(id);
       const r = this.venue.resolve(id);
       if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`) };
       if (!r.pan && !r.tilt) return { fixture: id, error: say("pas de pan/tilt", "no pan/tilt") };
       if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown") };
-      const res = near ? aimNear(aimSetupOf(r)!, target, near) : aimAt(aimSetupOf(r)!, target);
+      const setup = aimSetupOf(r)!;
+      const res = near ? aimNear(opts?.ignoreStops ? { ...setup, limits: undefined } : setup, target, near, opts) : aimAt(setup, target);
       if ("error" in res) return { fixture: id, error: res.error };
       this.setPosition([id], res);
       return { fixture: id, pan: res.pan, tilt: res.tilt };

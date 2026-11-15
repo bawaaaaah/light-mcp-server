@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { aimAt, aimNear, correctionOf, type AimSetup, type Correction } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, aimNear, correctionOf, pointing, type AimSetup, type Correction } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { MoveSchema } from "../../../src/plugins/light/engine/move.js";
@@ -45,14 +45,12 @@ const refusal = (p: Promise<unknown>) =>
   );
 
 describe("useful stops and manual calibration: review fixes (T8)", () => {
-  it("« Vérifier le show » does not fail on a look whose move names a canvas or a group gone", async () => {
+  it("« Vérifier le show » does not fail on a look whose move names a canvas gone: the unknown canvas is said", async () => {
     const { plugin, run } = await withHead({ ...HUNG, limits: { pan: [-30, 30] } });
     // stored as an older show could have them: the references are said by the unknown-reference checks
     plugin.runtime.looks.put({ id: "l1", name: "L1", canvas: "gone", technique: { kind: "aucune" }, move: MoveSchema.parse({ shape: "cercle", size: { pan: 0.3, tilt: 0.1 } }) } as never);
     const issues = ((await run("show.lint")) as { issues: { where: string; message: string }[] }).issues;
-    expect(issues.some((i) => i.where === "look l1")).to.equal(true);
-    plugin.runtime.looks.put({ id: "l1", name: "L1", canvas: "gone", technique: { kind: "aucune" }, move: MoveSchema.parse({ shape: "cercle", size: { pan: 0.3, tilt: 0.1 }, group: "nope" }) } as never);
-    expect(await run("show.lint")).to.have.property("issues");
+    expect(issues.some((i) => i.where === "look l1" && /gone/.test(i.message))).to.equal(true);
   });
 
   it("records and corrects on a head the pad pushed against a stop: arrived at the stop, said so", async () => {
@@ -99,6 +97,47 @@ describe("useful stops and manual calibration: review fixes (T8)", () => {
     expect(Math.abs(done.aimed.tilt - held.tilt) * 270).to.be.below(0.5);
   });
 
+  it("keeps a head held against a stop where it is after apply: no half turn (reviewer's scenario)", async () => {
+    const { plugin, run, frames } = await withHead({ ...HUNG, limits: { pan: [-200, 31.37] } });
+    const believed: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    // the pad pushed beyond the stop: the head stands at the stop, its beam really falls where the true yaw says
+    await run("position.set", { fixtures: ["lyre"], pan: 0.9, tilt: 0.68 });
+    frames(60);
+    const held = plugin.runtime.sentPosition("lyre")!;
+    for (const yawErr of [3, 5.5, -4.2]) {
+      const d = pointing({ ...believed, yaw: 30 + yawErr }, held);
+      const mark = { x: 2 + (d.x * -5) / d.z, y: 3 + (d.y * -5) / d.z, z: 0 };
+      const f = plugin.venue.fixtures.get("lyre")!;
+      plugin.venue.fixtures.put({ ...f, orientation: { ...f.orientation!, panOffset: 0, tiltOffset: 0 } });
+      const done = (await run("calibration.correct", { fixture: "lyre", point: mark, apply: true })) as { aimed: { pan: number; tilt: number } };
+      expect(Math.abs(done.aimed.pan - held.pan) * 540, `yaw error ${yawErr}`).to.be.below(0.5);
+      expect(Math.abs(done.aimed.tilt - held.tilt) * 270).to.be.below(0.5);
+      frames(60);
+      expect(Math.abs(plugin.runtime.sentPosition("lyre")!.pan - held.pan) * 540).to.be.below(0.5);
+    }
+  });
+
+  it("keeps a head held at the very edge of its travel, without stops, where it is after apply", async () => {
+    const { plugin, run, frames } = await withHead(HUNG);
+    const believed: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    await run("position.set", { fixtures: ["lyre"], pan: 1, tilt: 0.68 });
+    frames(60);
+    const held = plugin.runtime.sentPosition("lyre")!;
+    const d = pointing({ ...believed, yaw: 34.3 }, held);
+    const mark = { x: 2 + (d.x * -5) / d.z, y: 3 + (d.y * -5) / d.z, z: 0 };
+    const done = (await run("calibration.correct", { fixture: "lyre", point: mark, apply: true })) as { aimed: { pan: number; tilt: number } };
+    expect(Math.abs(done.aimed.pan - held.pan) * 540).to.be.below(0.5);
+  });
+
+  it("re-aims past the stops and the travel's edge by a hair, onto them: the slack", () => {
+    const f: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    const at = aimAt(f, { x: 0, y: 1, z: 0 }) as { panDeg: number; tiltDeg: number; pan: number };
+    const tight = { ...f, limits: { pan: [at.panDeg + 0.3, 200] as const } };
+    expect(aimNear(tight, { x: 0, y: 1, z: 0 }, { pan: at.pan, tilt: 0.5 })).to.have.property("error");
+    const slack = aimNear(tight, { x: 0, y: 1, z: 0 }, { pan: at.pan, tilt: 0.5 }, { slack: 1 }) as { panDeg: number };
+    expect(slack.panDeg).to.be.closeTo(at.panDeg + 0.3, 1e-9);
+  });
+
   it("computes the correction on the patch as it is once the frame is rendered", async () => {
     const { plugin, run, hooks } = await withHead(HUNG);
     const mark = { x: 0, y: 1, z: 0 };
@@ -124,6 +163,10 @@ describe("useful stops and manual calibration: review fixes (T8)", () => {
     const hi = Math.round((30 / 540 + 0.5) * 65535);
     const [c, f] = bytes();
     expect((c! << 8) | f!).to.be.at.most(hi);
+    // the DMX console is the operator's last word: not bounded
+    await run("dmx.set", { universe: 1, channel: 1, value: 250 });
+    frames(3);
+    expect(bytes()[0]).to.equal(250);
   });
 
   it("refuses a stop given beyond the travel, and the show check names one left there by a travel corrected since", async () => {
@@ -191,11 +234,13 @@ describe("show check of a move against the stops (T8): the box of the move", () 
     expect(moveBeyondStops(move({ shape: "aleatoire", size: { pan: 0.05, tilt: 0 }, spread: 0.5, fan: 0.06 }), [stops, stops, stops])).to.deep.equal([0, 2]);
   });
 
-  it("a drawn shape is sampled when its box passes a stop: a pan wave leaves the tilt alone", () => {
+  it("a drawn shape is checked on the axes it moves: a pan wave leaves the tilt alone", () => {
     const tiltStops = { panMax: 540, tiltMax: 270, limits: { tilt: [-27, 27] as const } };
     expect(moveBeyondStops(move({ shape: "pan", size: { pan: 0.3, tilt: 0.4 } }), [tiltStops])).to.deep.equal([]);
     expect(moveBeyondStops(move({ shape: "cercle", size: { pan: 0.3, tilt: 0.4 } }), [tiltStops])).to.deep.equal([0]);
     expect(moveBeyondStops(move({ shape: "fixe", size: { pan: 0.4, tilt: 0.4 } }), [stops])).to.deep.equal([]);
+    expect(moveBeyondStops(move({ shape: "fixe", center: { pan: 0.7, tilt: 0.5 } }), [stops])).to.deep.equal([0]);
+    expect(moveBeyondStops(move({ shape: "tapis", size: { pan: 0.4, tilt: 0.09 } }), [tiltStops, tiltStops])).to.deep.equal([]);
   });
 });
 

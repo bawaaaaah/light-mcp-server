@@ -33,9 +33,9 @@ export interface AimLimits {
   tilt?: readonly [number, number] | undefined;
 }
 
-/** Whether logical angles (degrees) lie within the stops. */
-export function withinLimits(limits: AimLimits | undefined, panDeg: number, tiltDeg: number): boolean {
-  const inside = (r: readonly [number, number] | undefined, v: number) => !r || (v >= r[0] - 1e-9 && v <= r[1] + 1e-9);
+/** Whether logical angles (degrees) lie within the stops, `slack` degrees beyond them allowed. */
+export function withinLimits(limits: AimLimits | undefined, panDeg: number, tiltDeg: number, slack = 0): boolean {
+  const inside = (r: readonly [number, number] | undefined, v: number) => !r || (v >= r[0] - slack - 1e-9 && v <= r[1] + slack + 1e-9);
   return inside(limits?.pan, panDeg) && inside(limits?.tilt, tiltDeg);
 }
 
@@ -84,6 +84,12 @@ export type AimResult = (Position & { panDeg: number; tiltDeg: number }) | AimEr
  */
 export type AimError = { error: string; onFixture?: true; reach?: { pan: number; tilt: number }; limited?: true };
 
+/** How `aimNear` may stretch its reach. */
+export interface AimOptions {
+  /** Degrees a solution may lie beyond the travel or a stop and still count, clamped back onto it (default 0). */
+  slack?: number;
+}
+
 /** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach: the solution closest to the centre. */
 export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): AimResult {
   return aimNear(f, target);
@@ -95,9 +101,10 @@ export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }):
  * solutions (pan, tilt) and (pan ± 180°, −tilt) are 180° of pan apart, and switching between them from one frame to the
  * next would swing the head half a turn. Compared in degrees of the head's own travel (calibration offsets taken off,
  * as the candidates are), |Δpan| + |Δtilt|. Without `prev`, the solution closest to the centre (`aimAt`). On a tie
- * (within 1e-6°), a positive tilt, as `aimAt`.
+ * (within 1e-6°), a positive tilt, as `aimAt`. `opts.slack` (degrees): a solution this much beyond the travel or a stop
+ * still counts, brought back onto it (the output bounds it anyway) — for a head re-aimed where it is held at the edge.
  */
-export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }, prev?: Partial<Position>): AimResult {
+export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }, prev?: Partial<Position>, opts?: AimOptions): AimResult {
   const raw = rawAngles(f, target);
   if (!raw) return { error: say("la cible est sur la fixture", "the target is on the fixture"), onFixture: true };
   const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
@@ -106,12 +113,20 @@ export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }
   // on the base axis (or straight against it) any pan points the same way: the head keeps its own instead of turning
   const onAxis = raw.tilt < 1e-6 || raw.tilt > 180 - 1e-6;
   const dir = onAxis && finite(prev?.pan) ? { ...raw, heading: from[0] + f.panOffset } : raw;
+  const slack = Math.max(0, opts?.slack ?? 0);
   const inTravel = angleCandidates(dir)
     .map(([p, t]) => [p - f.panOffset, t - f.tiltOffset] as [number, number])
-    .filter(([p, t]) => Math.abs(p) <= f.panMax / 2 + 1e-9 && Math.abs(t) <= f.tiltMax / 2 + 1e-9);
+    .filter(([p, t]) => Math.abs(p) <= f.panMax / 2 + slack + 1e-9 && Math.abs(t) <= f.tiltMax / 2 + slack + 1e-9);
+  // within the slack, a solution just past an edge is brought back onto it: the travel, then the stops
+  const onto = (v: number, half: number, r: readonly [number, number] | undefined) => {
+    if (!slack) return v;
+    const t = Math.max(-half, Math.min(half, v));
+    return r ? Math.max(r[0], Math.min(r[1], t)) : t;
+  };
   // the useful stops (T8): a solution in the travel but beyond a stop is out of reach too, said so
   const fit = inTravel
-    .filter(([p, t]) => withinLimits(f.limits, p, t))
+    .filter(([p, t]) => withinLimits(f.limits, p, t, slack))
+    .map(([p, t]) => [onto(p, f.panMax / 2, f.limits?.pan), onto(t, f.tiltMax / 2, f.limits?.tilt)] as [number, number])
     // closest to where the head is (the centre without prev); on a tie, a positive tilt (the natural side for calibration)
     .sort((a, b) => {
       const d = Math.abs(a[0] - from[0]) + Math.abs(a[1] - from[1]) - (Math.abs(b[0] - from[0]) + Math.abs(b[1] - from[1]));

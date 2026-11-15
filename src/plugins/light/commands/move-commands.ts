@@ -472,11 +472,15 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
   // ---- manual calibration (T8): aim a mark with the calibration as it is, correct by hand, then fold the gap into the offsets
   /** Beyond this change of an offset, one mark is likely not a rigid error: a wrong inversion or travel. */
   const LARGE_CORRECTION = 30;
+  /** Within this (degrees) of the mark with the new offsets, the held position is kept rather than aimed again. */
+  const KEPT_DEG = 0.05;
+  /** How far past the travel's edge (degrees) the re-aimed solution may lie, brought back onto it. */
+  const KEPT_SLACK = 1;
   reg.register({
     name: "calibration.correct",
     title: "Corriger sur un repère",
     description:
-      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's centre at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and aims the head at the spot again from where it is held (the same solution, never a half turn): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
+      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's centre at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and keeps the held position when it already points at the spot with the new offsets, else aims the head at the spot again from where it is held (the same solution, never a half turn, the stops left to the output): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0), apply: z.boolean().default(false) }),
@@ -497,9 +501,17 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       let aimed: { pan?: number; tilt?: number; error?: string } | undefined;
       if (apply) {
         show.venue.fixtures.put({ ...f, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, ...f.orientation, panOffset: result.panOffset, tiltOffset: result.tiltOffset } });
-        // aimed again from where it is held: the solution it is on, not the one closest to the centre (a half turn)
-        const [again] = show.aim([fixture], target, held);
-        aimed = again && { ...(again.pan !== undefined ? { pan: again.pan, tilt: again.tilt } : {}), ...(again.error ? { error: again.error } : {}) };
+        if (result.afterDeg <= KEPT_DEG) {
+          // the held position already points at the mark with the new offsets: kept as it is. Aimed again, the rounded
+          // offsets could put the solution a hair past a stop or the travel's edge, and the other one is half a turn away
+          show.setPosition([fixture], held);
+          aimed = { pan: held.pan, tilt: held.tilt };
+        } else {
+          // aimed again from where it is held: the solution it is on, not the one closest to the centre (a half turn);
+          // without the stops and a little past the travel's edge (the output bounds it), for the same reason
+          const [again] = show.aim([fixture], target, held, { ignoreStops: true, slack: KEPT_SLACK });
+          aimed = again && { ...(again.pan !== undefined ? { pan: again.pan, tilt: again.tilt } : {}), ...(again.error ? { error: again.error } : {}) };
+        }
       }
       return { fixture, target, applied: apply, ...result, ...(advice ? { advice } : {}), ...(aimed ? { aimed } : {}), ...(beyondStops ? { note: BEYOND_STOPS_NOTE } : {}) };
     },
