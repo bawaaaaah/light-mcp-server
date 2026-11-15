@@ -23,6 +23,10 @@ export interface HeadPicking {
   unlocked(ids: string[]): { ids: string[]; refused: string[] };
 }
 
+/** A head a position could not place: why, and `limited` when only its useful stops (T8) keep it from the point. */
+type Unreachable = { fixture: string; error: string; limited?: true };
+const unreachableOf = (fixture: string, at: { error: string; limited?: true }): Unreachable => ({ fixture, error: at.error, ...(at.limited ? { limited: true as const } : {}) });
+
 export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowRuntime, pick: HeadPicking): void {
   const presets = show.positionPresets;
   const nameOf = (id: string) => show.venue.fixtures.get(id)?.name ?? id;
@@ -32,6 +36,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     return p;
   };
   const basisNow = (f: string) => show.positionBasis(f);
+  const headNow = (f: string) => show.positionHeadNow(f);
   /** A free id from a name: « Avant-scène » → avant-scene, then avant-scene-2… */
   const freeId = (name: string): string => {
     const base = slugify(name) || "position";
@@ -48,7 +53,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     ...p,
     kind: p.point ? ("point" as const) : ("pantilt" as const),
     covers: coveredHeads(p).map((id) => ({ id, name: nameOf(id) })),
-    stale: positionStale(p, basisNow),
+    stale: positionStale(p, headNow),
     missing: missingOf(p),
   });
   /** Each head must be a patched fixture with pan or tilt: a position on anything else would never place it. */
@@ -65,7 +70,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     name: "position.preset.list",
     title: "Positions nommées",
     description:
-      "Named positions of the show: pan/tilt per covered head (kind pantilt; covers = its heads with their names) or a 3D point every placed head aims at (kind point). stale = covered heads moved, rehung, turned, recalibrated or given another definition (not another DMX mode) since the position was saved (its pan/tilt may no longer point there: recompute it from its aim point when it has one, readjust it by hand, or keep it as it is, position.preset.refresh / position.preset.save; never corrected silently); missing = covered heads no longer installed (ignored by a recall). A point is never stale.",
+      "Named positions of the show: pan/tilt per covered head (kind pantilt; covers = its heads with their names) or a 3D point every placed head aims at (kind point). stale = covered heads moved, rehung, inverted or given another definition (not another DMX mode) since the position was saved; turned, recalibrated or given a corrected travel, only the heads aimed at a point (aimed: a pan/tilt set at the pad keeps its bytes); given new useful stops its pan/tilt reaches beyond (it would be clipped) (its pan/tilt may no longer place it as meant: recompute it from its aim point when it has one, readjust it by hand, or keep it as it is, position.preset.refresh / position.preset.save; never corrected silently); missing = covered heads no longer installed (ignored by a recall). A point is never stale.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],
@@ -134,10 +139,10 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       }
       if (!heads.length) throw new CommandError("invalid", say("aucune lyre installée à enregistrer", "no installed moving head to save"));
       const captured: Record<string, { pan: number; tilt: number }> = {};
-      const unreachable: { fixture: string; error: string }[] = [];
+      const unreachable: Unreachable[] = [];
       for (const h of heads) {
         const at = point ? show.aimNow(h, point) : show.positionNow(h);
-        if ("error" in at) unreachable.push({ fixture: h, error: at.error });
+        if ("error" in at) unreachable.push(unreachableOf(h, at));
         else captured[h] = { pan: at.pan, tilt: at.tilt };
       }
       if (!Object.keys(captured).length) throw new CommandError("failed", say(`aucune lyre ne peut viser ce point : ${unreachable.map((u) => `${nameOf(u.fixture)} (${u.error})`).join(", ")}`, `no head can aim at this point: ${unreachable.map((u) => `${nameOf(u.fixture)} (${u.error})`).join(", ")}`));
@@ -192,11 +197,11 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       const asked = scoped ? pick.targets({ fixtures, group }) : p.point ? [...installed] : coveredHeads(p).filter((h) => installed.has(h));
       const covered = new Set(coveredHeads(p));
       const notCovered = p.point ? [] : asked.filter((h) => !covered.has(h));
-      const unreachable: { fixture: string; error: string }[] = [];
+      const unreachable: Unreachable[] = [];
       const candidates = asked.filter((h) => {
         if (!p.point) return covered.has(h);
         const at = show.presetPosition(p.id, h);
-        if ("error" in at) unreachable.push({ fixture: h, error: at.error });
+        if ("error" in at) unreachable.push(unreachableOf(h, at));
         return !("error" in at);
       });
       if (!candidates.length) {
@@ -213,7 +218,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     name: "position.preset.refresh",
     title: "Remettre à jour une position",
     description:
-      "For a stale pan/tilt position (position.preset.list stale), two of the three choices (decision Q4; the third, readjusting by hand, is position.preset.save with its id): how recompute aims the heads again at the point it was aimed at (its aim, kept by position.preset.save with point and pantilt), from their stored pan/tilt, never the long way round — heads out of reach are listed in unreachable and left as they are; refused for a position without aim; only the heads whose pan/tilt came from the point (aimed) are recomputed, the others asked are listed in notAimed (readjust or keep them). how keep keeps the pan/tilt as they are and takes them as meant for the fixtures as they are now: no longer stale. Heads: fixtures, else every stale head. Nothing moves on stage.",
+      "For a stale pan/tilt position (position.preset.list stale), two of the three choices (decision Q4; the third, readjusting by hand, is position.preset.save with its id): how recompute aims the heads again at the point it was aimed at (its aim, kept by position.preset.save with point and pantilt), from their stored pan/tilt, never the long way round — heads out of reach are listed in unreachable (with limited when only their useful stops keep them from it) and left as they are; refused for a position without aim; only the heads whose pan/tilt came from the point (aimed) are recomputed, the others asked are listed in notAimed (readjust or keep them). how keep keeps the pan/tilt as they are and takes them as meant for the fixtures as they are now: no longer stale; an aimed head whose pan/tilt no longer point at the aim point leaves aimed (listed in leftAim; the aim goes with the last one). Heads: fixtures, else every stale head. Nothing moves on stage.",
     right: "show:write",
     profiles: ["design", "setup"],
     schema: z.object({ id: z.string(), how: z.enum(["recompute", "keep"]), fixtures: z.array(z.string()).optional() }),
@@ -222,7 +227,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       if (p.point) throw new CommandError("invalid", say(`« ${p.name} » est un point : jamais périmé`, `“${p.name}” is a point: never stale`));
       const covered = new Set(coveredHeads(p));
       const aimed = new Set(aimedHeads(p));
-      const asked = fixtures ?? positionStale(p, basisNow);
+      const asked = fixtures ?? positionStale(p, headNow);
       // only the heads aimed at the point can be recomputed from it: the others are said (readjust them by hand or keep them)
       const notAimed = how === "recompute" && p.aim ? asked.filter((h) => covered.has(h) && !aimed.has(h)) : [];
       const heads = asked.filter((h) => !notAimed.includes(h));
@@ -236,7 +241,10 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       const values = { ...p.values };
       const basis = { ...p.basis };
       const refreshed: string[] = [];
-      const unreachable: { fixture: string; error: string }[] = [];
+      const unreachable: Unreachable[] = [];
+      // kept as they are, the heads whose pan/tilt no longer point at the aim point leave `aimed`: a recompute later
+      // would aim them again from pan/tilt now meant for the head as it is (decision of 2026-11-15)
+      const leftAim: string[] = [];
       for (const h of heads) {
         const now = basisNow(h);
         if (now === undefined) {
@@ -246,16 +254,23 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
         if (how === "recompute") {
           const at = show.aimNow(h, p.aim!, values[h]);
           if ("error" in at) {
-            unreachable.push({ fixture: h, error: at.error });
+            unreachable.push(unreachableOf(h, at));
             continue;
           }
           values[h] = { pan: at.pan, tilt: at.tilt };
-        }
+        } else if (p.aim && aimed.has(h) && !show.pointsAt(h, values[h]!, p.aim)) leftAim.push(h);
         basis[h] = now;
         refreshed.push(h);
       }
-      const saved = refreshed.length ? presets.put({ ...p, values, basis }) : p;
-      return { position: describe(saved), refreshed, ...(unreachable.length ? { unreachable } : {}), ...(notAimed.length ? { notAimed } : {}) };
+      let next: PositionPreset = { ...p, values, basis };
+      if (leftAim.length) {
+        // with no head left aimed, the aim point goes too (as position.preset.save leaves it)
+        const { aim: _aim, aimed: _aimed, ...plain } = next;
+        const still = [...aimed].filter((h) => !leftAim.includes(h));
+        next = still.length ? { ...plain, aim: p.aim!, aimed: still } : plain;
+      }
+      const saved = refreshed.length ? presets.put(next) : p;
+      return { position: describe(saved), refreshed, ...(unreachable.length ? { unreachable } : {}), ...(notAimed.length ? { notAimed } : {}), ...(leftAim.length ? { leftAim } : {}) };
     },
   });
 

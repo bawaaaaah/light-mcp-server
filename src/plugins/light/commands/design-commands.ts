@@ -393,7 +393,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
-    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping —, named position — a look's move following one gone, a mapping), targets moving no installed head, named positions covering fixtures no longer patched or no installed head, stale named positions (a covered head moved, rehung, turned, recalibrated or given another definition since: with the choices to recompute it from its aim point, readjust it by hand, or keep it), looks following a named position that covers none of their heads, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer), looks whose move or raw pan/tilt steps reach beyond a moving head's useful stops (orientation.limits: clipped at the output, the move stops there), useful stops narrower than 10° or reaching beyond the travel. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), looks following a named position that leaves some of their heads uncovered (those stay with the layer below), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
+    description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping —, named position — a look's move following one gone, a mapping), targets moving no installed head, named positions covering fixtures no longer patched or no installed head, stale named positions (a covered head moved, rehung, inverted or given another definition since; turned, recalibrated or given a corrected travel, for the heads aimed at a point only; new useful stops its pan/tilt reaches beyond: with the choices to recompute it from its aim point, readjust it by hand, or keep it), named positions reaching beyond a head's useful stops (clipped at the output), looks following a named position that covers none of their heads, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer), looks whose move (around the named position it follows, head by head) or raw pan/tilt steps reach beyond a moving head's useful stops (orientation.limits: clipped at the output, the move stops there), useful stops narrower than 10° or reaching beyond the travel. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), looks following a named position that leaves some of their heads uncovered (those stay with the layer below), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "setup"],
@@ -486,13 +486,23 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         const gone = Object.keys(p.values).filter((h) => !runtime.venue.fixtures.get(h));
         if (gone.length) warn(where, say(`« ${p.name} » couvre des projecteurs qui ne sont plus dans le patch (${gone.join(", ")}) : ignorés au rappel`, `“${p.name}” covers fixtures no longer patched (${gone.join(", ")}): ignored when recalled`));
         if (!Object.keys(p.values).some((h) => installedHeads.has(h))) warn(where, say(`« ${p.name} » ne couvre aucune lyre installée`, `“${p.name}” covers no installed moving head`));
-        const stale = positionStale(p, (f) => runtime.positionBasis(f));
+        const stale = positionStale(p, (f) => runtime.positionHeadNow(f));
         if (stale.length)
           warn(
             where,
             say(
-              `« ${p.name} » est à revoir pour ${stale.map(headName).join(", ")} (déplacée, réaccrochée, tournée, recalibrée ou autre définition depuis l'enregistrement) : ${p.aim ? "la recalculer depuis son point visé (position.preset.refresh how: recompute), " : ""}la modifier à la main (au pad, puis position.preset.save avec son id), ou la laisser telle quelle (position.preset.refresh how: keep)`,
-              `“${p.name}” needs a look for ${stale.map(headName).join(", ")} (moved, rehung, turned, recalibrated or given another definition since it was saved): ${p.aim ? "recompute it from its aim point (position.preset.refresh how: recompute), " : ""}readjust it by hand (at the pad, then position.preset.save with its id), or keep it as it is (position.preset.refresh how: keep)`,
+              `« ${p.name} » est à revoir pour ${stale.map(headName).join(", ")} (déplacée, réaccrochée, inversée, autre définition, ou visée sur son point puis tournée, recalibrée ou de course corrigée, ou de nouvelles butées qu'elle dépasse, depuis l'enregistrement) : ${p.aim ? "la recalculer depuis son point visé (position.preset.refresh how: recompute), " : ""}la modifier à la main (au pad, puis position.preset.save avec son id), ou la laisser telle quelle (position.preset.refresh how: keep)`,
+              `“${p.name}” needs a look for ${stale.map(headName).join(", ")} (moved, rehung, inverted, given another definition, or aimed at its point then turned, recalibrated or given a corrected travel, or new stops it reaches beyond, since it was saved): ${p.aim ? "recompute it from its aim point (position.preset.refresh how: recompute), " : ""}readjust it by hand (at the pad, then position.preset.save with its id), or keep it as it is (position.preset.refresh how: keep)`,
+            ),
+          );
+        // beyond a head's useful stops (T8): recalled or followed, it is clipped at the output, the head stops at the stop
+        const clipped = Object.keys(p.values).filter((h) => installedHeads.has(h) && runtime.positionHeadNow(h)?.beyondStops(p.values[h]!));
+        if (clipped.length)
+          warn(
+            where,
+            say(
+              `« ${p.name} » dépasse les butées utiles de ${clipped.map(headName).join(", ")} : écrêtée à la sortie, la lyre s'arrête à la butée ; la réajuster au pad (puis position.preset.save avec son id), ou élargir les butées`,
+              `“${p.name}” reaches beyond the useful stops of ${clipped.map(headName).join(", ")}: clipped at the output, the head stops at the stop; readjust it at the pad (then position.preset.save with its id), or widen the stops`,
             ),
           );
       }
@@ -618,16 +628,19 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       for (const l of runtime.looks.list()) {
         if (l.move?.enabled === false) continue;
         const touched = new Set<string>();
-        // its move (a shape around a target is aimed head by head, live: not sampled here)
-        if (l.move && l.move.at?.target === undefined) {
-          // a canvas or group gone is said above (unknown references): nothing to sample here
+        // its move (a shape around a target or a named point is aimed head by head, live: not checked here); around a
+        // pan/tilt named position, each covered head's shape is centred on its pan/tilt (the others are not placed)
+        const named = l.move?.at?.position === undefined ? undefined : runtime.positionPresets.get(l.move.at.position);
+        if (l.move && l.move.at?.target === undefined && (l.move.at?.position === undefined || (named && !named.point))) {
+          // a canvas or group gone is said above (unknown references): nothing to check here
           let moved: string[];
           try {
             moved = runtime.movedBy(l);
           } catch {
             moved = [];
           }
-          for (const i of moveBeyondStops(l.move, moved.map(stopsOf))) touched.add(moved[i]!);
+          const centers = named ? moved.map((h) => (Object.hasOwn(named.values, h) ? named.values[h] : undefined)) : undefined;
+          for (const i of moveBeyondStops(l.move, moved.map(stopsOf), centers)) touched.add(moved[i]!);
         }
         // its raw pan/tilt steps, read as the motion layer reads them
         if (l.channels)

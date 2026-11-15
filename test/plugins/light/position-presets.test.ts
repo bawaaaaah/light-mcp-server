@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { PositionPresetSchema } from "../../../src/plugins/light/show/model.js";
-import { basisOf, fillBasis, positionStale, type BasisSource } from "../../../src/plugins/light/show/position-presets.js";
+import { basisOf, fillBasis, legacyBasisOf, positionStale, type BasisSource, type HeadNow } from "../../../src/plugins/light/show/position-presets.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 import { Venue } from "../../../src/plugins/light/venue/venue.js";
 
@@ -33,25 +33,37 @@ describe("named positions: schema and staleness (T32)", () => {
     expect(PositionPresetSchema.safeParse({ id: "g", name: "Visée", point: { x: 0, y: 2, z: 0 }, aim: { x: 0, y: 2, z: 1.5 } }).success).to.equal(false);
   });
 
-  it("the basis changes with the geometry, the travel and the definition, field by field", () => {
+  it("the basis changes with the geometry, the travel and the definition, field by field, each in its part", () => {
     const base = basisOf(head);
-    expect(base).to.match(/^[0-9a-f]{12}$/);
-    const changes: [string, BasisSource][] = [
+    expect(base).to.match(/^[0-9a-f]{12}\.[0-9a-f]{12}\.[0-9a-f]{12}$/);
+    const part = (b: string, i: number) => b.split(".")[i];
+    // geometry: where the same bytes send the beam
+    const geometry: [string, BasisSource][] = [
       ["moved", with_({ position: { x: 1.5, y: 2, z: 5 } })],
       ["placed nowhere", with_({ position: undefined })],
       ["rehung", with_({ mount: "floor" })],
-      ["turned", turned({ yaw: 90 })],
       ["turned upside up", turned({ pitch: 90 })],
       ["pan inverted", turned({ invertPan: true })],
       ["tilt inverted", turned({ invertTilt: true })],
       ["axes swapped", turned({ swapPanTilt: true })],
+      ["another model", with_({ model: "Spot 9" })],
+    ];
+    for (const [why, f] of geometry) expect(part(basisOf(f), 0), why).to.not.equal(part(base, 0));
+    // aiming: only the angles a pan/tilt is read as
+    const aiming: [string, BasisSource][] = [
+      ["turned", turned({ yaw: 90 })],
       ["recalibrated pan", turned({ panOffset: 3 })],
       ["recalibrated tilt", turned({ tiltOffset: -2 })],
       ["another pan travel", with_({}, { panMax: 360 })],
       ["another tilt travel", with_({}, { tiltMax: 180 })],
-      ["another model", with_({ model: "Spot 9" })],
     ];
-    for (const [why, f] of changes) expect(basisOf(f), why).to.not.equal(base);
+    for (const [why, f] of aiming) {
+      expect(part(basisOf(f), 0), why).to.equal(part(base, 0));
+      expect(part(basisOf(f), 1), why).to.not.equal(part(base, 1));
+    }
+    const stopped = basisOf(turned({ limits: { pan: [-30, 30] } }));
+    expect([part(stopped, 0), part(stopped, 1)]).to.deep.equal([part(base, 0), part(base, 1)]);
+    expect(part(stopped, 2)).to.not.equal(part(base, 2));
   });
 
   it("the basis ignores what does not turn the beam: a name, an address, a roll, defaults written out", () => {
@@ -78,11 +90,44 @@ describe("named positions: schema and staleness (T32)", () => {
   });
 
   it("positionStale lists the covered heads whose basis changed; a point never, an unpatched head apart", () => {
-    const p = { values: { a: { pan: 0.1, tilt: 0.2 }, b: { pan: 0.3, tilt: 0.4 }, c: { pan: 0.5, tilt: 0.5 }, d: { pan: 0.5, tilt: 0.5 } }, basis: { a: "1", b: "2", c: "3" } };
-    const now: Record<string, string> = { a: "1", b: "changed", d: "4" };
+    const p = { values: { a: { pan: 0.1, tilt: 0.2 }, b: { pan: 0.3, tilt: 0.4 }, c: { pan: 0.5, tilt: 0.5 }, d: { pan: 0.5, tilt: 0.5 } }, basis: { a: "g.a.s", b: "g.a.s", c: "g.a.s" } };
+    const at = (basis: string): HeadNow => ({ basis, legacy: "old", beyondStops: () => false });
+    const now: Record<string, HeadNow> = { a: at("g.a.s"), b: at("moved.a.s"), d: at("g.a.s") };
     // c is no longer patched (said apart), d was saved without a basis (cannot be judged)
     expect(positionStale(p, (f) => now[f])).to.deep.equal(["b"]);
-    expect(positionStale({ values: {}, basis: {} }, () => "x")).to.deep.equal([]);
+    expect(positionStale({ values: {}, basis: {} }, () => at("x.y.z"))).to.deep.equal([]);
+  });
+
+  it("positionStale: a correction of the calibration or the travel stales only the heads aimed at a point (2026-11-15)", () => {
+    const values = { pad: { pan: 0.3, tilt: 0.4 }, aimed: { pan: 0.6, tilt: 0.7 } };
+    const basis = { pad: "g.a.s", aimed: "g.a.s" };
+    const recalibrated = (): HeadNow => ({ basis: "g.recal.s", legacy: "old", beyondStops: () => false });
+    // set at the pad: its bytes are kept, never stale for a calibration; aimed at the point: stale
+    expect(positionStale({ values, basis, aim: { x: 0, y: 3, z: 0 }, aimed: ["aimed"] }, recalibrated)).to.deep.equal(["aimed"]);
+    // without `aimed`, an aim covers every head; without an aim, none is aimed
+    expect(positionStale({ values, basis, aim: { x: 0, y: 3, z: 0 } }, recalibrated)).to.deep.equal(["pad", "aimed"]);
+    expect(positionStale({ values, basis }, recalibrated)).to.deep.equal([]);
+  });
+
+  it("positionStale: new useful stops stale only a head whose stored pan/tilt reaches beyond them", () => {
+    const values = { inside: { pan: 0.5, tilt: 0.5 }, beyond: { pan: 0.9, tilt: 0.5 } };
+    const now = (): HeadNow => ({ basis: "g.a.stops", legacy: "old", beyondStops: (v) => v.pan > 0.6 });
+    expect(positionStale({ values, basis: { inside: "g.a.s", beyond: "g.a.s" } }, now)).to.deep.equal(["beyond"]);
+    // beyond stops it was saved with (unchanged since): not stale (« Vérifier le show » says the clipping apart)
+    expect(positionStale({ values, basis: { inside: "g.a.stops", beyond: "g.a.stops" } }, now)).to.deep.equal([]);
+  });
+
+  it("positionStale: a basis saved before the parts is compared whole, with the legacy fingerprint", () => {
+    const real = basisOf(head);
+    const legacy = legacyBasisOf(head);
+    expect(legacy).to.match(/^[0-9a-f]{12}$/);
+    const now = (f: BasisSource) => (): HeadNow => ({ basis: basisOf(f), legacy: legacyBasisOf(f), beyondStops: () => false });
+    const p = { values: { a: { pan: 0.3, tilt: 0.4 } }, basis: { a: legacy } };
+    expect(positionStale(p, now(head))).to.deep.equal([]);
+    expect(positionStale(p, now(turned({ panOffset: 2 })))).to.deep.equal(["a"]);
+    expect(positionStale({ ...p, basis: { a: real } }, now(turned({ panOffset: 2 })))).to.deep.equal([]);
+    // the stops are not in the legacy fingerprint
+    expect(legacyBasisOf(turned({ limits: { pan: [-30, 30] } }))).to.equal(legacy);
   });
 
   it("fillBasis keeps a given basis, the stored one for an unchanged head, else takes the head's basis now", () => {
@@ -148,7 +193,7 @@ describe("named positions: capture in the runtime (T32)", () => {
   it("positionBasis follows the patch: moved, the basis changes; unknown, none", () => {
     const { show, venue } = setup();
     const before = show.positionBasis("spot");
-    expect(before).to.match(/^[0-9a-f]{12}$/);
+    expect(before).to.match(/^[0-9a-f]{12}\.[0-9a-f]{12}\.[0-9a-f]{12}$/);
     venue.fixtures.put({ ...venue.fixtures.get("spot")!, name: "Spot renamed" });
     expect(show.positionBasis("spot")).to.equal(before);
     venue.fixtures.put({ ...venue.fixtures.get("spot")!, position: { x: 0, y: 2, z: 5 } });

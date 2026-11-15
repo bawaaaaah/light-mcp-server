@@ -194,11 +194,11 @@ describe("named positions: the commands (T32)", () => {
     during(100);
     await run("position.preset.save", { name: "Contre-plongée", id: "contre" });
     expect((await listed("contre")).aim).to.equal(undefined);
-    // moved, then recalibrated
+    // moved, then recalibrated: the recalibration stales only the position aimed at a point, a pad one keeps its bytes
     plugin.venue.fixtures.put({ ...plugin.venue.fixtures.get("spot")!, position: { x: -2, y: 2, z: 5 } });
     plugin.venue.fixtures.put({ ...plugin.venue.fixtures.get("spot2")!, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 4, tiltOffset: 0 } });
     expect((await listed(aimed.position.id)).stale).to.deep.equal(["spot", "spot2"]);
-    expect((await listed("contre")).stale).to.deep.equal(["spot", "spot2"]);
+    expect((await listed("contre")).stale).to.deep.equal(["spot"]);
     // recompute: aimed again at its point from the head's new place
     const re = (await run("position.preset.refresh", { id: aimed.position.id, how: "recompute", fixtures: ["spot"] })) as { position: Listed; refreshed: string[] };
     expect(re.refreshed).to.deep.equal(["spot"]);
@@ -209,12 +209,12 @@ describe("named positions: the commands (T32)", () => {
     expect((await failure(run("position.preset.refresh", { id: "contre", how: "recompute" }))).message).to.match(/position.preset.save|how: keep/);
     // keep: the pan/tilt stay, the position is fresh again
     const kept = (await run("position.preset.refresh", { id: "contre", how: "keep" })) as { position: Listed; refreshed: string[] };
-    expect(kept.refreshed).to.deep.equal(["spot", "spot2"]);
+    expect(kept.refreshed).to.deep.equal(["spot"]);
     expect(kept.position.values.spot).to.deep.equal({ pan: 0.3, tilt: 0.3 });
     expect(kept.position.stale).to.deep.equal([]);
     // a put that leaves basis out keeps it for an unchanged head and renews it for a changed one
     const put = (await run("position.preset.put", { position: { id: "contre", name: "Contre-plongée", values: { spot: { pan: 0.3, tilt: 0.3 }, spot2: { pan: 0.4, tilt: 0.3 } } } })) as Listed;
-    expect(put.basis).to.deep.equal(kept.position.basis);
+    expect(put.basis).to.deep.equal({ spot: kept.position.basis.spot, spot2: plugin.runtime.positionBasis("spot2") });
   });
 
   it("put refuses a fixture that is no moving head, values and a point together, and an unknown fixture", async () => {
@@ -276,6 +276,75 @@ describe("named positions: the commands (T32)", () => {
   type Issue = { level: string; where: string; message: string };
   const lint = async () => ((await run("show.lint")) as { issues: Issue[] }).issues;
   const follow = (id: string, position: string, move: object = {}) => run("look.put", { look: { id, name: id, canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { position }, fade: { seconds: 0 }, ...move } } });
+
+  /** Sets a head's orientation fields (the rest at their defaults). */
+  const orient = (id: string, o: object) => plugin.venue.fixtures.put({ ...plugin.venue.fixtures.get(id)!, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, ...plugin.venue.fixtures.get(id)!.orientation, ...o } });
+
+  it("keep after a recalibration takes an aimed head out of `aimed`: its pan/tilt no longer point at the point (2026-11-15)", async () => {
+    await run("position.preset.save", { name: "Chœur", id: "choeur", point: { x: 0, y: 3, z: 1.5 }, pantilt: true });
+    orient("spot", { panOffset: 4 });
+    expect((await listed("choeur")).stale).to.deep.equal(["spot"]);
+    const kept = (await run("position.preset.refresh", { id: "choeur", how: "keep" })) as { position: Listed & { aimed?: string[] }; leftAim?: string[] };
+    expect(kept.leftAim).to.deep.equal(["spot"]);
+    expect(kept.position.aimed).to.deep.equal(["spot2"]);
+    expect(kept.position.stale).to.deep.equal([]);
+    // recalibrated again: spot is now a pan/tilt kept as it is, never stale for a calibration; spot2 is still aimed
+    orient("spot", { panOffset: 8 });
+    orient("spot2", { tiltOffset: 3 });
+    expect((await listed("choeur")).stale).to.deep.equal(["spot2"]);
+    // the last aimed head kept: the aim point goes too
+    const last = (await run("position.preset.refresh", { id: "choeur", how: "keep" })) as { position: Listed & { aimed?: string[] } };
+    expect(last.position.aim).to.equal(undefined);
+    expect(last.position.aimed).to.equal(undefined);
+  });
+
+  it("keep without a change of aim leaves an aimed head in `aimed`: its pan/tilt still point there", async () => {
+    await run("position.preset.save", { name: "Chœur", id: "choeur", point: { x: 0, y: 3, z: 1.5 }, pantilt: true });
+    const kept = (await run("position.preset.refresh", { id: "choeur", how: "keep", fixtures: ["spot"] })) as { position: Listed & { aimed?: string[] }; leftAim?: string[] };
+    expect(kept.leftAim).to.equal(undefined);
+    expect(kept.position.aim).to.deep.equal({ x: 0, y: 3, z: 1.5 });
+  });
+
+  it("new useful stops stale a stored pan/tilt only beyond them; « Vérifier le show » says the clipping until readjusted", async () => {
+    await run("position.preset.put", { position: { id: "solo", name: "Solo", values: { spot: { pan: 0.9, tilt: 0.5 }, spot2: { pan: 0.5, tilt: 0.5 } } } });
+    orient("spot", { limits: { pan: [-30, 30] } });
+    orient("spot2", { limits: { pan: [-30, 30] } });
+    expect((await listed("solo")).stale).to.deep.equal(["spot"]);
+    const clipped = () => lint().then((issues) => issues.filter((i) => i.where === "position solo" && /butées utiles/.test(i.message)));
+    expect((await clipped()).map((i) => [i.level, i.message])).to.deep.equal([["attention", "« Solo » dépasse les butées utiles de Spot : écrêtée à la sortie, la lyre s'arrête à la butée ; la réajuster au pad (puis position.preset.save avec son id), ou élargir les butées"]]);
+    // kept as it is: no longer stale, still clipped
+    await run("position.preset.refresh", { id: "solo", how: "keep" });
+    expect((await listed("solo")).stale).to.deep.equal([]);
+    expect(await clipped()).to.have.length(1);
+    // readjusted within the stops: nothing more to say
+    await run("position.preset.put", { position: { id: "solo", name: "Solo", values: { spot: { pan: 0.52, tilt: 0.5 }, spot2: { pan: 0.5, tilt: 0.5 } } } });
+    expect(await clipped()).to.deep.equal([]);
+  });
+
+  it("recomputing or aiming beyond the useful stops says so: unreachable with limited", async () => {
+    await run("position.preset.save", { name: "Chœur", id: "choeur", point: { x: 0, y: 3, z: 1.5 }, pantilt: true });
+    // a tilt stop on both sides of the base axis: neither solution fits
+    orient("spot", { tiltOffset: 1, limits: { tilt: [-2, 2] } });
+    const re = (await run("position.preset.refresh", { id: "choeur", how: "recompute", fixtures: ["spot"] })) as { refreshed: string[]; unreachable?: { fixture: string; error: string; limited?: true }[] };
+    expect(re.refreshed).to.deep.equal([]);
+    expect(re.unreachable).to.deep.equal([{ fixture: "spot", error: re.unreachable![0]!.error, limited: true }]);
+    expect(re.unreachable![0]!.error).to.match(/au-delà des butées/);
+    const saved = (await run("position.preset.save", { name: "Autre", point: { x: 0, y: 3, z: 1.5 }, pantilt: true })) as { captured: string[]; unreachable?: { fixture: string; limited?: true }[] };
+    expect(saved.captured).to.deep.equal(["spot2"]);
+    expect(saved.unreachable).to.deep.equal([{ fixture: "spot", error: re.unreachable![0]!.error, limited: true }]);
+  });
+
+  it("« Vérifier le show » checks a look following a pan/tilt position against the stops on each head's own centre", async () => {
+    orient("spot", { limits: { pan: [-30, 30] } });
+    await run("position.preset.put", { position: { id: "far", name: "Loin", values: { spot: { pan: 0.9, tilt: 0.5 } } } });
+    await run("position.preset.put", { position: { id: "mid", name: "Milieu", values: { spot: { pan: 0.5, tilt: 0.5 } } } });
+    const beyond = () => lint().then((issues) => issues.filter((i) => i.where.startsWith("look ") && /dépasse les butées/.test(i.message)).map((i) => i.where));
+    // the move's own centre is beyond the stop, but the look follows a position within them: not said
+    await follow("suit-mid", "mid", { center: { pan: 0.95, tilt: 0.5 } });
+    // the position is beyond the stop: said, whatever the move's own centre
+    await follow("suit-far", "far", { center: { pan: 0.5, tilt: 0.5 } });
+    expect(await beyond()).to.deep.equal(["look suit-far"]);
+  });
 
   it("a look following a position places the heads it covers, read at render: readjusted, the look follows without a relaunch", async () => {
     await run("position.preset.put", { position: { id: "p", name: "Avant-scène", values: { spot: { pan: 0.2, tilt: 0.7 } } } });

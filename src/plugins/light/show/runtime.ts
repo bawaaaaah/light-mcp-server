@@ -12,7 +12,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
 import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
-import { aimAt, aimNear, boundPosition, type AimOptions } from "../venue/aim.js";
+import { aimAt, aimNear, angleBetween, boundPosition, pointing, type AimOptions } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
@@ -24,7 +24,8 @@ import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, PositionPresetSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type PositionPreset, type ShowSettings, type Snapshot, type Target } from "./model.js";
-import { basisOf } from "./position-presets.js";
+import { basisOf, legacyBasisOf, type HeadNow } from "./position-presets.js";
+import { beyondStops } from "../venue/stops-check.js";
 import { aimHead, clampPoint, type TargetHold, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
 import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
@@ -1678,7 +1679,7 @@ export class ShowRuntime {
    * head was sent (the solution closest to it, aimNear); or why it cannot (unknown, not covered, out of reach, no stage
    * position, a no-aim zone closed now).
    */
-  presetPosition(id: string, head: string, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string } {
+  presetPosition(id: string, head: string, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string; limited?: true } {
     const p = this.positionPresets.get(id);
     if (!p) return { error: say(`position nommée inconnue : ${id}`, `unknown named position: ${id}`) };
     if (p.point) return this.aimNow(head, p.point, from);
@@ -1688,11 +1689,13 @@ export class ShowRuntime {
 
   /**
    * Where `head` points to aim at `point` now: the solution closest to `from` (the position sent by default; never the
-   * long way round, aimNear), or why it cannot (out of reach, no stage position, a no-aim zone closed now).
+   * long way round, aimNear), or why it cannot (out of reach, no stage position, a no-aim zone closed now); `limited`
+   * when the point is in the travel but beyond the head's useful stops (T8).
    */
-  aimNow(head: string, point: Point3, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string } {
+  aimNow(head: string, point: Point3, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string; limited?: true } {
     const res = this.aimFor(head, point, from, this.closedNoAim());
-    return "error" in res ? { error: res.error } : res;
+    if (!("error" in res)) return res;
+    return { error: res.error, ...(res.hold.limited ? { limited: true as const } : {}) };
   }
 
   /** The axes a head's manual claim places: a named position recalled gives both, as it puts the head now. */
@@ -1739,10 +1742,33 @@ export class ShowRuntime {
 
   /** A fixture's basis now (show/position-presets.ts `basisOf`): undefined when it is not patched. */
   positionBasis(fixture: string): string | undefined {
+    return this.positionHeadNow(fixture)?.basis;
+  }
+
+  /** A covered head as `positionStale` judges it now (its basis, its stops): undefined when it is not patched. */
+  positionHeadNow(fixture: string): HeadNow | undefined {
     const patch = this.venue.fixtures.get(fixture);
     if (!patch) return undefined;
     const r = this.venue.resolve(fixture);
-    return basisOf({ patch, ...("error" in r ? {} : { panMax: r.panMax, tiltMax: r.tiltMax }) });
+    const src = { patch, ...("error" in r ? {} : { panMax: r.panMax, tiltMax: r.tiltMax }) };
+    const limits = patch.orientation?.limits;
+    return {
+      basis: basisOf(src),
+      legacy: legacyBasisOf(src),
+      beyondStops: (p) => !("error" in r) && beyondStops({ panMax: r.panMax, tiltMax: r.tiltMax, limits }, p),
+    };
+  }
+
+  /**
+   * Whether a stored pan/tilt of `head` points at `point` with the head as it is now (within 0.05°): its bytes still aim
+   * there. False for a head unpatched, without a stage position, or one the point is on.
+   */
+  pointsAt(head: string, p: Position, point: Point3): boolean {
+    const r = this.venue.resolve(head);
+    const setup = "error" in r ? undefined : aimSetupOf(r);
+    if (!setup) return false;
+    const towards = { x: point.x - setup.position.x, y: point.y - setup.position.y, z: point.z - setup.position.z };
+    return Math.hypot(towards.x, towards.y, towards.z) > 1e-6 && angleBetween(pointing(setup, p), towards) <= 0.05;
   }
 
   /** Why each moving head is where it is (engine/motion.ts, HeadStatus), on the last frame rendered. */

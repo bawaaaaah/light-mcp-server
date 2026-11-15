@@ -34,12 +34,12 @@ const SHAPE_AXES: Record<Move["shape"], { pan: boolean; tilt: boolean }> = {
  * shifted by the head's fan, within the travel (`movePosition` clamps to 0..1). Every drawn shape reaches each edge of
  * its box on the axes it moves; « aléatoire » draws its points anywhere in it.
  */
-function moveBox(move: Move, index: number, count: number): { min: Position; max: Position } {
+function moveBox(move: Move, index: number, count: number, center: Position = move.center): { min: Position; max: Position } {
   const fan = count > 1 ? move.fan * (2 * (index / (count - 1)) - 1) : 0;
   const c01 = (v: number) => Math.max(0, Math.min(1, v));
   const axes = SHAPE_AXES[move.shape];
-  const pan = move.center.pan + fan;
-  const tilt = move.center.tilt;
+  const pan = center.pan + fan;
+  const tilt = center.tilt;
   const sp = axes.pan ? move.size.pan : 0;
   const st = axes.tilt ? move.size.tilt : 0;
   return { min: { pan: c01(pan - sp), tilt: c01(tilt - st) }, max: { pan: c01(pan + sp), tilt: c01(tilt + st) } };
@@ -50,13 +50,16 @@ function moveBox(move: Move, index: number, count: number): { min: Position; max
  * some point of its cycle; a head without stops (undefined, or none set) is never listed. Decided on the box of the
  * move (`moveBox`): the stops bound each axis apart, so the box is inside when its two corners are, and a shape reaching
  * every edge of its box passes a stop as soon as its box does. « aléatoire » is named when its box passes a stop,
- * whatever the cycles drawn.
+ * whatever the cycles drawn. `centers` (a look following a named position, T32): each head's own centre instead of
+ * `move.center`; a head without one is not placed by the move, never listed.
  */
-export function moveBeyondStops(move: Move, heads: readonly (Stops | undefined)[]): number[] {
+export function moveBeyondStops(move: Move, heads: readonly (Stops | undefined)[], centers?: readonly (Position | undefined)[]): number[] {
   const out: number[] = [];
   heads.forEach((f, i) => {
     if (!f?.limits?.pan && !f?.limits?.tilt) return;
-    const box = moveBox(move, i, heads.length);
+    const center = centers ? centers[i] : move.center;
+    if (!center) return;
+    const box = moveBox(move, i, heads.length, center);
     if (beyondStops(f, box.min) || beyondStops(f, box.max)) out.push(i);
   });
   return out;

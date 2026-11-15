@@ -159,7 +159,7 @@ export function pointing(f: AimSetup, p: Position): { x: number; y: number; z: n
 }
 
 /** Angle in degrees between two vectors. */
-const angleBetween = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => {
+export const angleBetween = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => {
   const dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z));
   return deg(Math.acos(Math.max(-1, Math.min(1, dot))));
 };
