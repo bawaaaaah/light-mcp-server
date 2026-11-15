@@ -45,17 +45,37 @@ export function angleCandidates(a: { heading: number; tilt: number }): [number, 
   return out;
 }
 
-/** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach. */
-export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): (Position & { panDeg: number; tiltDeg: number }) | { error: string } {
+/** What aiming gives: a normalised pan/tilt (0..1, 0.5 = centre) with its angles in degrees, or why the point cannot be reached. */
+export type AimResult = (Position & { panDeg: number; tiltDeg: number }) | { error: string };
+
+/** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach: the solution closest to the centre. */
+export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): AimResult {
+  return aimNear(f, target);
+}
+
+/**
+ * Like `aimAt`, but among the solutions in range keeps the one closest to `prev` (the position the head is at,
+ * normalised), so that a point moving continuously never sends the head the long way round (T24): the two equivalent
+ * solutions (pan, tilt) and (pan ± 180°, −tilt) are 180° of pan apart, and switching between them from one frame to the
+ * next would swing the head half a turn. Compared in degrees of the head's own travel (calibration offsets taken off,
+ * as the candidates are), |Δpan| + |Δtilt|. Without `prev`, the solution closest to the centre (`aimAt`). On a tie
+ * (within 1e-6°), a positive tilt, as `aimAt`.
+ */
+export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }, prev?: Partial<Position>): AimResult {
   const raw = rawAngles(f, target);
   if (!raw) return { error: say("la cible est sur la fixture", "the target is on the fixture") };
-  // keep the solution in range closest to the centre
-  const fit = angleCandidates(raw)
+  const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
+  // where the solutions are measured from: the head's position in degrees of its travel, else the centre
+  const from: [number, number] = [finite(prev?.pan) ? (prev.pan - 0.5) * f.panMax : 0, finite(prev?.tilt) ? (prev.tilt - 0.5) * f.tiltMax : 0];
+  // on the base axis (or straight against it) any pan points the same way: the head keeps its own instead of turning
+  const onAxis = raw.tilt < 1e-6 || raw.tilt > 180 - 1e-6;
+  const dir = onAxis && finite(prev?.pan) ? { ...raw, heading: from[0] + f.panOffset } : raw;
+  const fit = angleCandidates(dir)
     .map(([p, t]) => [p - f.panOffset, t - f.tiltOffset] as [number, number])
     .filter(([p, t]) => Math.abs(p) <= f.panMax / 2 + 1e-9 && Math.abs(t) <= f.tiltMax / 2 + 1e-9)
-    // closest to the centre; on a tie, a positive tilt (the natural side for calibration)
+    // closest to where the head is (the centre without prev); on a tie, a positive tilt (the natural side for calibration)
     .sort((a, b) => {
-      const d = Math.abs(a[0]) + Math.abs(a[1]) - (Math.abs(b[0]) + Math.abs(b[1]));
+      const d = Math.abs(a[0] - from[0]) + Math.abs(a[1] - from[1]) - (Math.abs(b[0] - from[0]) + Math.abs(b[1] - from[1]));
       return Math.abs(d) > 1e-6 ? d : Number(a[1] < 0) - Number(b[1] < 0);
     })[0];
   if (!fit) return { error: say(`hors de portée (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`, `out of reach (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`) };
