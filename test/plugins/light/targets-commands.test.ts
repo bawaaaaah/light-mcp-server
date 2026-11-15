@@ -262,6 +262,19 @@ describe("targets: the commands (T24)", () => {
     expect(plugin.runtime.targets.get("t")).to.deep.include({ name: "Avant", engaged: true, point: { x: -1, y: 1, z: 1 } });
   });
 
+  it("a deleted look that followed a target deleted since comes back only once the target is restored first", async () => {
+    await run("target.put", { target: { id: "t", name: "T", group: "lyres" } });
+    await run("look.put", { look: { id: "suit", name: "Suit", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { target: "t" } } } });
+    await run("look.delete", { id: "suit", force: true });
+    await run("target.delete", { id: "t", force: true });
+    const look = ((await run("history.list", { collection: "looks", id: "suit" })) as { stamp: string }[])[0]!;
+    expect((await failure(run("history.restore", { collection: "looks", id: "suit", stamp: look.stamp }))).message).to.match(/cible inconnue : t|unknown target: t/);
+    const target = ((await run("history.list", { collection: "targets", id: "t" })) as { stamp: string }[])[0]!;
+    await run("history.restore", { collection: "targets", id: "t", stamp: target.stamp });
+    await run("history.restore", { collection: "looks", id: "suit", stamp: look.stamp });
+    expect(plugin.runtime.looks.get("suit")!.move!.at).to.deep.equal({ target: "t" });
+  });
+
   it("a proposal of target.put keeps the point and engagement, which are live", async () => {
     await run("target.put", { target: { id: "t", name: "T", group: "lyres", point: { x: 1, y: 1, z: 1 } } });
     await run("target.engage", { id: "t", on: true });

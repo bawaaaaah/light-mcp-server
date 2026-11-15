@@ -357,6 +357,64 @@ describe("targets in the engine (T24)", () => {
     expect(t.offBy("spot8", path.at(-1)!, { x: 3, y: 5, z: 0 })).to.be.below(0.5);
   });
 
+  it("a smoothed target engaged again mid-glide keeps gliding from where its point is, never jumps to the end (decision T-a)", () => {
+    const t = setup();
+    // 2 ms per step of 1/255 of the bounds: a whole width in 510 ms
+    t.target("t", { bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 10 } }, point: { x: 0, y: 2, z: 0 }, smoothing: { curve: "linear", msPerStep: 2 } });
+    t.show.engageTarget("t", true);
+    t.frame();
+    t.show.moveTarget("t", { x: 10 });
+    const xs: number[] = [];
+    for (let k = 0; k < 30; k++) {
+      // half-way through its glide, « Engager » pressed again
+      if (k === 10) t.show.engageTarget("t", true);
+      t.frame();
+      xs.push(t.show.targetPoint(t.show.targets.get("t")!).x);
+      t.clock.now += 20;
+    }
+    const before = xs[9]!;
+    expect(before).to.be.above(1).and.below(9);
+    // the frame of the second press: one step of the glide on, not the end
+    expect(xs[10]! - before).to.be.within(0, 0.5);
+    for (let k = 1; k < xs.length; k++) expect(xs[k]! - xs[k - 1]!, `frame ${k}`).to.be.within(0, 0.5);
+    expect(xs.at(-1)).to.equal(10);
+  });
+
+  it("a circle on a target that crosses a closed no-aim zone, or goes out of reach, takes up again without a jump", () => {
+    const t = setup();
+    t.show.zones.put({ id: "pupitre", name: "Pupitre", polygon: [[-0.5, 1.5], [0.5, 1.5], [0.5, 2.5], [-0.5, 2.5]], noAim: true });
+    const bounds = { min: { x: -20, y: -20, z: -20 }, max: { x: 20, y: 20, z: 20 } };
+    t.target("t", { bounds, point: { x: -1.5, y: 2, z: 1 } });
+    t.place("cercle", { shape: "cercle", size: { pan: 0.03, tilt: 0.03 }, at: { target: "t" } });
+    t.show.go("cercle");
+    t.run(1500);
+    // across the zone, 5 cm a frame: held inside it, then the circle again on the other side
+    const across: Frame[] = [];
+    let held = false;
+    for (let k = 0; k <= 60; k++) {
+      t.show.moveTarget("t", { x: -1.5 + k * 0.05 });
+      across.push(t.frame());
+      if (layer(t, "spot16").error) held = true;
+      t.clock.now += 20;
+      t.clock.beats += (0.02 * t.clock.bpm) / 60;
+    }
+    expect(held).to.equal(true);
+    expect(layer(t, "spot16").error).to.equal(undefined);
+    const taken = across.concat(t.run(1500));
+    expect(steepest(taken, "spot16")).to.be.below(0.05);
+    expect(steepest(taken, "spot8")).to.be.below(0.05);
+    // out of reach (above the heads, hung at 5 m), then back
+    t.show.moveTarget("t", { x: 1.5, y: 2, z: 12 });
+    const away = t.run(400);
+    expect(layer(t, "spot16").error).to.be.a("string");
+    t.show.moveTarget("t", { x: 1.5, y: 3, z: 1 });
+    const back = away.slice(-1).concat(t.run(1500));
+    expect(layer(t, "spot16").error).to.equal(undefined);
+    expect(steepest(back, "spot16")).to.be.below(0.05);
+    expect(steepest(back, "spot8")).to.be.below(0.05);
+    expect(t.show.lastErrors.filter((e) => !/Pupitre|portée|reach/.test(e))).to.deep.equal([]);
+  });
+
   it("target.fade sets how its heads take over when it is engaged", () => {
     const t = setup();
     t.target("vite", { fixtures: ["spot16"], fade: { seconds: 0 } });
