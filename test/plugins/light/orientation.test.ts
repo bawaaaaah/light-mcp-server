@@ -118,7 +118,7 @@ describe("fixture orientation", () => {
     expect(listed.find((f) => f.id === "bar-1")!.orientation).to.include({ invertPan: true, invertTilt: false, swapPanTilt: true, pitch: 10 });
   });
 
-  it("re-solves the inversions of a calibration while keeping the body's pitch, roll and swap, the pan offset folded into the yaw", async () => {
+  it("re-solves the inversions of a calibration while keeping the body's pitch, roll, swap and stops, the pan offset folded into the yaw", async () => {
     const dataRoot = join(mkdtempSync(join(tmpdir(), "light-solve-")), "data");
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
     copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
@@ -127,7 +127,7 @@ describe("fixture orientation", () => {
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     // the head these marks were taken on, its body stored slanted and rolled, pan wired backwards
     await run("venue.fixture.put", {
-      fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 2, y: 3, z: 5 }, mount: "hung", orientation: { yaw: 0, pitch: 20, roll: 45, invertPan: true, invertTilt: false, swapPanTilt: true, panOffset: 5, tiltOffset: 0 } },
+      fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 2, y: 3, z: 5 }, mount: "hung", orientation: { yaw: 0, pitch: 20, roll: 45, invertPan: true, invertTilt: false, swapPanTilt: true, panOffset: 5, tiltOffset: 0, limits: { pan: [-260, 260], tilt: [-130, 130] } } },
     });
     // the mark is the position really sent, on the frame `calibration.record` waits for: rendered here on demand
     (plugin as unknown as { nextFrame: () => Promise<boolean> }).nextFrame = () => Promise.resolve((plugin.engine.render(), true));
@@ -141,6 +141,7 @@ describe("fixture orientation", () => {
     const listed = (await run("venue.fixture.list")) as { id: string; orientation?: Record<string, unknown> }[];
     const o = listed.find((f) => f.id === "lyre")!.orientation!;
     expect(o).to.include({ pitch: 20, roll: 45, swapPanTilt: true, panOffset: 0 }); // the body kept, the pan offset folded into the yaw
+    expect(o.limits).to.deep.equal({ pan: [-260, 260], tilt: [-130, 130] }); // the useful stops (T8) survive a solve
     expect(o.invertPan).to.equal(result.invertPan); // the inversions are the solve's own (recalculated)
     expect(o.invertTilt).to.equal(result.invertTilt);
   });

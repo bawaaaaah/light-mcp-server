@@ -461,6 +461,21 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(await run("position.releaseTop", { fixtures: ["spot2"] })).to.not.have.property("refused");
     });
 
+    it("a head frozen hard stays where it is held when its useful stops change under it (T8)", async () => {
+      await run("position.set", { fixtures: ["spot"], pan: 0.9, tilt: 0.9 });
+      during(100);
+      const bytes = () => [...plugin.engine.output.get(1).slice(0, 4)];
+      const before = bytes();
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      const f = plugin.venue.fixtures.get("spot")!;
+      plugin.venue.fixtures.put({ ...f, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, limits: { pan: [-10, 10], tilt: [-10, 10] } } });
+      during(200);
+      expect(bytes()).to.deep.equal(before); // not bounded to the new stops while frozen
+      await run("motion.unfreeze", { fixtures: ["spot"] });
+      during(2000);
+      expect(plugin.runtime.sentPosition("spot")!.pan).to.be.closeTo(10 / 540 + 0.5, 1 / 255); // free again: bounded
+    });
+
     it("calibration.solve may solve a hard-frozen head but not apply: new inversions would move it", async () => {
       await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
       const err = await refusal(run("calibration.solve", { fixture: "spot", apply: true }));

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseQxf, findMode } from "../../../src/plugins/light/venue/qxf-import.js";
 import { MoveSchema, movePosition } from "../../../src/plugins/light/engine/move.js";
-import { aimAt, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, aimNear, boundPosition, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { emptyFrame, Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
@@ -175,6 +175,33 @@ describe("moving heads", () => {
       const offset = aimAt({ ...base, panOffset: 10 }, { x: 0, y: -5, z: 0 }) as { panDeg: number };
       expect(offset.panDeg).to.be.closeTo(-10, 1e-9);
       expect(aimAt({ ...base, panMax: 90, tiltMax: 90 }, { x: 0, y: 5, z: -1 })).to.have.property("error");
+    });
+
+    describe("useful stops (T8, orientation.limits, logical degrees)", () => {
+      it("keeps the solutions within the stops: the other one when the nearest is beyond, out of reach when none is", () => {
+        // a point to the side: (90°, 90°) is the nearest solution, (−90°, −90°) the other one
+        const side = { x: 5, y: 0, z: 0 };
+        expect((aimAt(base, side) as { panDeg: number }).panDeg).to.be.closeTo(90, 1e-9);
+        const other = aimAt({ ...base, limits: { pan: [-120, 45] } }, side) as { panDeg: number; tiltDeg: number };
+        expect([other.panDeg, other.tiltDeg].map((d) => Math.round(d))).to.deep.equal([-90, -90]);
+        const none = aimAt({ ...base, limits: { pan: [-45, 45] } }, side) as { error: string; limited?: true; reach?: object };
+        expect(none.limited).to.equal(true);
+        expect(none.error).to.match(/butées/);
+        expect(none.reach).to.deep.equal({ pan: 90, tilt: 90 });
+        // tilt too, and aimNear (the target's continuous aim) keeps to the stops as well
+        expect(aimNear({ ...base, limits: { tilt: [-30, 30] } }, side, { pan: 0.6, tilt: 0.8 })).to.have.property("limited", true);
+        // beyond the travel itself stays « out of reach », not « beyond the stops »
+        expect(aimAt({ ...base, panMax: 90, tiltMax: 90, limits: { pan: [-10, 10] } }, { x: 0, y: 5, z: -1 })).to.not.have.property("limited");
+      });
+
+      it("bounds a logical position to the stops, axis by axis; without stops the same object", () => {
+        const p = { pan: 0.9, tilt: 0.1 };
+        expect(boundPosition(base, p)).to.equal(p);
+        const b = boundPosition({ ...base, limits: { pan: [-90, 90] } }, p);
+        expect(b.pan).to.be.closeTo(90 / 540 + 0.5, 1e-12);
+        expect(b.tilt).to.equal(0.1);
+        expect(boundPosition({ ...base, limits: { tilt: [-27, 135] } }, p).tilt).to.be.closeTo(-27 / 270 + 0.5, 1e-12);
+      });
     });
   });
 
@@ -520,6 +547,32 @@ describe("moving heads", () => {
       expect(res).to.deep.include({ fixture: "spot-l", pan: 0.5, tilt: 0.5 });
       expect(pos(dmx(), 1)).to.deep.equal([32768, 32768]);
       expect(show.aim(["spot-r"], { x: 2, y: 2, z: 5 })[0]).to.have.property("error"); // on the fixture itself
+    });
+
+    it("bounds every position to the head's useful stops at the output, before the inversion (T8)", () => {
+      const { venue, show, dmx, pos, advance } = setup();
+      // spot-r has its pan inverted; stops: pan −90°..+90° of 540°, tilt −135°..0° of 270° (logical degrees)
+      const r = venue.fixtures.get("spot-r")!;
+      venue.fixtures.put({ ...r, orientation: { ...r.orientation!, limits: { pan: [-90, 90], tilt: [-135, 0] } } });
+      const lo = Math.round((-90 / 540 + 0.5) * 65535);
+      const hi = Math.round((90 / 540 + 0.5) * 65535);
+      show.setPosition(["spot-l", "spot-r"], { pan: 1, tilt: 1 }); // the pad, beyond the stops
+      let b = dmx();
+      expect(pos(b, 1)).to.deep.equal([65535, 65535]); // no stops: untouched
+      expect(pos(b, 11)).to.deep.equal([65535 - hi, 32768]); // bounded to +90°, then inverted; tilt to 0°
+      // what is read back as sent is the bounded position (a hold does not head back for the unbounded one)
+      expect(show.sentPosition("spot-r")!.pan).to.be.closeTo(90 / 540 + 0.5, 1 / 65535);
+      show.releasePositions();
+      // a wide circle of a look never leaves the stops
+      show.looks.put({ id: "rond", name: "Rond", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "cercle", size: { pan: 0.5, tilt: 0.5 }, every: { beats: 4 } } });
+      show.go("rond");
+      for (let i = 0; i < 16; i++) {
+        advance(0.25);
+        b = dmx();
+        const [pan, tilt] = pos(b, 11);
+        expect(65535 - pan!).to.be.within(lo - 1, hi + 1);
+        expect(tilt).to.be.at.most(32768);
+      }
     });
 
     it("keeps the heads in place on Blackout", () => {

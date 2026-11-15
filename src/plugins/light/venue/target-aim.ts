@@ -36,6 +36,8 @@ export interface TargetHold {
   /** out-of-reach: the angles asked (degrees), absent when the point is on the head itself (`onFixture`). */
   reach?: { pan: number; tilt: number };
   onFixture?: true;
+  /** out-of-reach: the point is within the travel but beyond the head's useful stops (T8, `orientation.limits`). */
+  limited?: true;
 }
 
 export type HeadAim = { pan: number; tilt: number } | ({ held: true; message: string } & TargetHold);
@@ -49,6 +51,7 @@ export function holdMessage(h: TargetHold): string {
       return say("position sur la scène inconnue", "stage position unknown");
     case "out-of-reach":
       if (h.onFixture || !h.reach) return say("la cible est sur la fixture", "the target is on the fixture");
+      if (h.limited) return say(`au-delà des butées (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`, `beyond the stops (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`);
       return say(`hors de portée (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`, `out of reach (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`);
   }
 }
@@ -73,7 +76,7 @@ export function aimHead(setup: AimSetup | undefined, point: Point3, prev: Partia
   if (zone) return held({ reason: "no-aim", zone: zone.name });
   if (!setup) return held({ reason: "no-position" });
   const res = aimNear(setup, point, prev);
-  if ("error" in res) return held({ reason: "out-of-reach", ...(res.reach ? { reach: res.reach } : {}), ...(res.onFixture ? { onFixture: true as const } : {}) });
+  if ("error" in res) return held({ reason: "out-of-reach", ...(res.reach ? { reach: res.reach } : {}), ...(res.onFixture ? { onFixture: true as const } : {}), ...(res.limited ? { limited: true as const } : {}) });
   return { pan: res.pan, tilt: res.tilt };
 }
 

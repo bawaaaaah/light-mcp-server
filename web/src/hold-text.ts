@@ -16,6 +16,7 @@ export function holdText(t: Texts, a: Pick<AxisReport, "error" | "hold">): strin
     case "no-position":
       return w.holdNoPosition;
     case "out-of-reach":
+      if (h.reach && !h.onFixture && h.limited) return w.holdBeyondStops.replace("{pan}", () => String(h.reach!.pan)).replace("{tilt}", () => String(h.reach!.tilt));
       return h.reach && !h.onFixture ? w.holdOutOfReach.replace("{pan}", () => String(h.reach!.pan)).replace("{tilt}", () => String(h.reach!.tilt)) : w.holdOnFixture;
   }
 }

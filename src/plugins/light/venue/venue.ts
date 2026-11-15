@@ -34,12 +34,17 @@ import {
   type PatchedRange,
   type PatchGap,
 } from "./patch-check.js";
-import { pointing, type AimSetup } from "./aim.js";
+import { boundPosition, pointing, type AimSetup } from "./aim.js";
 import { beamDirection, isHung } from "./orientation.js";
 import { landing, type Zone } from "./stage.js";
 import { say } from "../../../core/lang.js";
 import { slotAt, wheelFrame, wheelOf, type LookPaint, type Wheel, type WheelFrame, type WheelHeld } from "./color-wheel.js";
 import { composeTracks, motionOffsets, tracksOf, verbatimOffsets, type ResolvedTracks, type TrackLayer } from "./tracks.js";
+
+/** A range of logical degrees [from, to], from ≤ to (T8 stops). */
+export const DegreeRangeSchema = z
+  .tuple([z.number().finite(), z.number().finite()])
+  .refine(([a, b]) => a <= b, { error: () => say("butée : le début doit être au plus la fin", "stop: the start must be at most the end") });
 
 export const PatchedFixtureSchema = z.object({
   id: z.string(),
@@ -70,6 +75,12 @@ export const PatchedFixtureSchema = z.object({
       /** Calibration offsets in degrees. */
       panOffset: z.number().default(0),
       tiltOffset: z.number().default(0),
+      /**
+       * Useful stops (T8): per axis the range it may point in, in logical degrees (0 = the centre of the travel, before
+       * the offsets; aim.ts `AimLimits`). Aiming beyond them is out of reach, the output is bounded to them. Absent:
+       * the whole travel.
+       */
+      limits: z.object({ pan: DegreeRangeSchema.optional(), tilt: DegreeRangeSchema.optional() }).optional(),
     })
     .optional(),
   notes: z.string().optional(),
@@ -206,7 +217,7 @@ export function aimSetupOf(r: ResolvedFixture): AimSetup | undefined {
   const f = r.patch;
   if (!f.position) return undefined;
   const o = f.orientation;
-  return { position: f.position, hung: isHung(f), yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0 };
+  return { position: f.position, hung: isHung(f), yaw: o?.yaw ?? 0, panMax: r.panMax, tiltMax: r.tiltMax, panOffset: o?.panOffset ?? 0, tiltOffset: o?.tiltOffset ?? 0, ...(o?.limits ? { limits: o.limits } : {}) };
 }
 
 /** A mode's lens zoom channel (coarse), and whether a higher value opens the beam. */
@@ -947,9 +958,14 @@ export class Venue {
     return w;
   }
 
-  /** Logical position → pan/tilt channels (inversion, swap, 16-bit). */
-  writePosition(r: ResolvedFixture, p: Position, write: (offset: number, value: number) => void): void {
+  /**
+   * Logical position → pan/tilt channels (inversion, swap, 16-bit), first bounded to the head's useful stops (T8,
+   * `orientation.limits`: a guard on the bytes, before the inversion). `unbounded`: written as given — a head frozen
+   * hard (T26) stays where it is held, even when its stops have changed since.
+   */
+  writePosition(r: ResolvedFixture, at: Position, write: (offset: number, value: number) => void, { unbounded = false }: { unbounded?: boolean } = {}): void {
     const o = r.patch.orientation;
+    const p = unbounded || !o?.limits ? at : boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: o.limits }, at);
     let pan = o?.invertPan ? 1 - p.pan : p.pan;
     let tilt = o?.invertTilt ? 1 - p.tilt : p.tilt;
     if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];

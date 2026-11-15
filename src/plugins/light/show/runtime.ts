@@ -2596,10 +2596,16 @@ export class ShowRuntime {
       forced ??= this.consoleSlots();
       const parked = forced.get(r.patch.universe);
       const at = r.patch.address - 1;
-      this.venue.writePosition(r, held, (offset, value) => {
-        const index = at + offset;
-        if (index < 512 && !parked?.has(index)) buf[index] = value;
-      });
+      // as held, not bounded again: a stop changed while the head is frozen must not move it
+      this.venue.writePosition(
+        r,
+        held,
+        (offset, value) => {
+          const index = at + offset;
+          if (index < 512 && !parked?.has(index)) buf[index] = value;
+        },
+        { unbounded: true },
+      );
     }
   }
 

@@ -18,6 +18,36 @@ export interface AimSetup {
   tiltMax: number;
   panOffset: number;
   tiltOffset: number;
+  /** Useful stops (T8), in logical degrees: absent = the whole travel (`AimLimits`). */
+  limits?: AimLimits;
+}
+
+/**
+ * A moving head's useful stops (T8; docs/specs/venue-fixtures-stage.md, « Lyres »): per axis, the range it may point in,
+ * in **logical degrees** — the frame of the logical position, `(p − 0.5) × travel`, 0 = the centre of the travel, before
+ * the calibration offsets (the `panDeg`/`tiltDeg` of `aimAt`). An axis left out: its whole travel. One frame for aiming
+ * (a point beyond a stop is out of reach) and for the output (`boundPosition`, a guard on the bytes).
+ */
+export interface AimLimits {
+  pan?: readonly [number, number] | undefined;
+  tilt?: readonly [number, number] | undefined;
+}
+
+/** Whether logical angles (degrees) lie within the stops. */
+export function withinLimits(limits: AimLimits | undefined, panDeg: number, tiltDeg: number): boolean {
+  const inside = (r: readonly [number, number] | undefined, v: number) => !r || (v >= r[0] - 1e-9 && v <= r[1] + 1e-9);
+  return inside(limits?.pan, panDeg) && inside(limits?.tilt, tiltDeg);
+}
+
+/**
+ * A logical position (0..1) brought within the stops: each axis clamped to its range converted to 0..1 of the travel.
+ * Without stops the very same object is returned (the output stays the same to the byte).
+ */
+export function boundPosition(f: Pick<AimSetup, "panMax" | "tiltMax" | "limits">, p: Position): Position {
+  const l = f.limits;
+  if (!l?.pan && !l?.tilt) return p;
+  const clampTo = (v: number, r: readonly [number, number] | undefined, travel: number) => (r && travel > 0 ? Math.max(r[0] / travel + 0.5, Math.min(r[1] / travel + 0.5, v)) : v);
+  return { pan: clampTo(p.pan, l.pan, f.panMax), tilt: clampTo(p.tilt, l.tilt, f.tiltMax) };
 }
 
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -52,7 +82,7 @@ export type AimResult = (Position & { panDeg: number; tiltDeg: number }) | AimEr
  * on the head itself; `reach`: the angles asked, degrees) so a report made outside a request (the motion layer, T24)
  * can be said again in the language of whoever reads it.
  */
-export type AimError = { error: string; onFixture?: true; reach?: { pan: number; tilt: number } };
+export type AimError = { error: string; onFixture?: true; reach?: { pan: number; tilt: number }; limited?: true };
 
 /** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach: the solution closest to the centre. */
 export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): AimResult {
@@ -76,9 +106,12 @@ export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }
   // on the base axis (or straight against it) any pan points the same way: the head keeps its own instead of turning
   const onAxis = raw.tilt < 1e-6 || raw.tilt > 180 - 1e-6;
   const dir = onAxis && finite(prev?.pan) ? { ...raw, heading: from[0] + f.panOffset } : raw;
-  const fit = angleCandidates(dir)
+  const inTravel = angleCandidates(dir)
     .map(([p, t]) => [p - f.panOffset, t - f.tiltOffset] as [number, number])
-    .filter(([p, t]) => Math.abs(p) <= f.panMax / 2 + 1e-9 && Math.abs(t) <= f.tiltMax / 2 + 1e-9)
+    .filter(([p, t]) => Math.abs(p) <= f.panMax / 2 + 1e-9 && Math.abs(t) <= f.tiltMax / 2 + 1e-9);
+  // the useful stops (T8): a solution in the travel but beyond a stop is out of reach too, said so
+  const fit = inTravel
+    .filter(([p, t]) => withinLimits(f.limits, p, t))
     // closest to where the head is (the centre without prev); on a tie, a positive tilt (the natural side for calibration)
     .sort((a, b) => {
       const d = Math.abs(a[0] - from[0]) + Math.abs(a[1] - from[1]) - (Math.abs(b[0] - from[0]) + Math.abs(b[1] - from[1]));
@@ -86,6 +119,7 @@ export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }
     })[0];
   if (!fit) {
     const reach = { pan: Math.round(raw.heading), tilt: Math.round(raw.tilt) };
+    if (inTravel.length) return { error: say(`au-delà des butées (pan ${reach.pan}°, tilt ${reach.tilt}°)`, `beyond the stops (pan ${reach.pan}°, tilt ${reach.tilt}°)`), reach, limited: true };
     return { error: say(`hors de portée (pan ${reach.pan}°, tilt ${reach.tilt}°)`, `out of reach (pan ${reach.pan}°, tilt ${reach.tilt}°)`), reach };
   }
   const [panDeg, tiltDeg] = fit;
