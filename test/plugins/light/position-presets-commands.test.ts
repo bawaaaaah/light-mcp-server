@@ -720,4 +720,22 @@ describe("named positions: the commands (T32)", () => {
     await run("position.preset.save", { name: "Point", point: { x: 0, y: 3, z: 1.5 } });
     expect([bytes(), bytes()]).to.deep.equal(before);
   });
+  it("the interface reads which position a head holds (position.list recalled), a look's heads (look.preview) and a position widget (lot 4, 7)", async () => {
+    await run("position.preset.put", { position: { id: "p", name: "P", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await run("position.preset.go", { id: "p" });
+    type Head = { id: string; recalled?: string };
+    const heads = async () => (await run("position.list")) as Head[];
+    expect((await heads()).find((h) => h.id === "spot")!.recalled).to.equal("p");
+    expect((await heads()).find((h) => h.id === "spot2")!).to.not.have.property("recalled");
+    // the pad takes it back by hand: no longer holding the position
+    await run("position.set", { fixtures: ["spot"], pan: 0.4 });
+    expect((await heads()).find((h) => h.id === "spot")!).to.not.have.property("recalled");
+    const look = { id: "l", name: "L", canvas: "lyres", technique: { kind: "aucune" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } };
+    expect(((await run("look.preview", { look: { ...look, move: { shape: "fixe", at: { position: "p" } } } })) as { heads?: string[] }).heads).to.deep.equal(["spot", "spot2"]);
+    expect(((await run("look.preview", { look: { ...look, move: { shape: "fixe", group: "lyres" } } })) as { heads?: string[] }).heads).to.deep.equal(["spot", "spot2"]);
+    expect((await run("look.preview", { look })) as object).to.not.have.property("heads");
+    // a « position » widget names the position: deleting it is refused while the widget is there
+    await run("dashboard.put", { dashboard: { id: "d", name: "D", widgets: [{ id: "w", kind: "position", target: "p", x: 0, y: 0 }] } });
+    expect((await failure(run("position.preset.delete", { id: "p" }))).message).to.match(/widget|D/);
+  });
 });

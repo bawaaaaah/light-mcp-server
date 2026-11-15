@@ -7,7 +7,7 @@ import type { ChannelFader, Group, Look } from "../show/model.js";
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview", "channel-fader", "snapshot", "grand-master", "motion-lock", "target"]),
+  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview", "channel-fader", "snapshot", "grand-master", "motion-lock", "target", "position"]),
   /**
    * Grid position (columns × rows of the dashboard), by quarters of a cell: whole cells with the
    * magnetic grid, quarters without it.
@@ -16,7 +16,7 @@ export const WidgetSchema = z.object({
   y: z.number().min(0).multipleOf(0.25),
   w: z.number().min(0.25).multipleOf(0.25).default(2),
   h: z.number().min(0.25).multipleOf(0.25).default(1),
-  /** Target: look id, group id (faders; XY pad: its moving heads, none = all), "song:section", snapshot id, 3D target id (target pad, T24), or label text. */
+  /** Target: look id, group id (faders; XY pad: its moving heads, none = all), "song:section", snapshot id, 3D target id (target pad, T24), named position id (its recall button, T32), or label text. */
   target: z.string().optional(),
   label: z.string().optional(),
   mode: z.enum(["trigger", "latch", "momentary", "toggle"]).optional(),

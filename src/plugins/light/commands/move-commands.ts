@@ -73,7 +73,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "position.list",
     title: "Lyres",
     description:
-      "Moving heads selected by fixtures, a group (selectors and sub-groups included), or all, with their pan/tilt travel, manual position and why each is where it is: sent = the position really sent after the rules and guard; rest = where it goes when unclaimed; motion = per axis the winning layer, every claim still present (layers, one entry per claim, strongest first, rest last), owner, glide and error, then masked and released claims. The same report is pushed on light:motion when it changes.",
+      "Moving heads selected by fixtures, a group (selectors and sub-groups included), or all, with their pan/tilt travel, manual position (recalled = the named position it was recalled to and still holds by hand, T32) and why each is where it is: sent = the position really sent after the rules and guard; rest = where it goes when unclaimed; motion = per axis the winning layer, every claim still present (layers, one entry per claim, strongest first, rest last), owner, glide and error, then masked and released claims. The same report is pushed on light:motion when it changes.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design", "live"],
@@ -85,7 +85,8 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         .map(({ id, ...why }) => {
           const r = show.venue.resolve(id);
           const f = show.venue.fixtures.get(id)!;
-          return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null, ...why };
+          const recalled = show.recalledPreset(id);
+          return { id, name: f.name, panMax: "error" in r ? undefined : r.panMax, tiltMax: "error" in r ? undefined : r.tiltMax, manual: show.manualPosition(id) ?? null, ...(recalled === undefined ? {} : { recalled }), ...why };
         });
     },
   });

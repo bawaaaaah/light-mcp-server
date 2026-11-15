@@ -1272,7 +1272,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.preview",
     title: "Aperçu d'un look",
-    description: "Steps a look (saved or not) generates on its canvas: one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. Nothing is played.",
+    description: "Steps a look (saved or not) generates on its canvas (and, for a look with a move, `heads`: the moving heads its move places): one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. Nothing is played.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
@@ -1281,7 +1281,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const canvas = venue.canvases.get(look.canvas);
       if (!canvas) throw new Error(say(`canevas inconnu : ${look.canvas}`, `unknown canvas: ${look.canvas}`));
       const steps = show.stepsOf(look);
-      return { cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
+      // the moving heads its move places (T32, the look editor's coverage of a named position): none for an unknown group
+      let heads: string[] | undefined;
+      if (look.move) {
+        try {
+          heads = show.movedBy(look);
+        } catch {
+          heads = [];
+        }
+      }
+      return { ...(heads ? { heads } : {}), cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
     },
   });
   reg.register({
