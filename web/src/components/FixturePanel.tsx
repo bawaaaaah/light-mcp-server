@@ -22,6 +22,7 @@ import type { SearchItem } from "../search-picker";
 import { XyPad } from "./XyPad";
 import { FixturePositions } from "./FixturePositions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
+import { openManualCalibration } from "../calibrationLink";
 
 interface ChannelMode {
   name: string;
@@ -329,6 +330,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
                 <>
                   <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls />
                   <FixturePositions fixture={fixture} canSave={may("show:write")} />
+                  {may("show:write") && <button type="button" className="ghost panel-calibrate" title={t.manualCal.openHelp} onClick={() => openManualCalibration(fixture.id)}>{t.manualCal.open}<span aria-hidden="true"> →</span></button>}
                 </>
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>

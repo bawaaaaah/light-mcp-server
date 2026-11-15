@@ -4717,6 +4717,283 @@ test("guided calibration of a moving head", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ---- manual calibration (T8, lot 6): the assistant's « Manuelle » tab
+type CalHead = { id: string; mode?: string; position?: { x: number; y: number; z: number }; mount?: string; orientation?: { yaw?: number; panOffset?: number; tiltOffset?: number; invertTilt?: boolean; swapPanTilt?: boolean; limits?: { pan?: [number, number]; tilt?: [number, number] } } };
+type CalTravel = { model: { panMax?: number; tiltMax?: number } | null; own: { panMax?: number; tiltMax?: number } | null; panMax: number; tiltMax: number };
+const calHead = async (page: Page) => ((await api(page, "venue.fixture.list")) as CalHead[]).find((f) => f.id === "spot")!;
+const calManual = async (page: Page) => ((await api(page, "position.list", { fixtures: ["spot"] })) as { id: string; manual: { pan: number; tilt: number } | null }[])[0]?.manual ?? null;
+
+/** The moving head hung above the stage and a floor mark it can reach, as the guided calibration test sets them. */
+async function calSetup(page: Page): Promise<CalHead> {
+  const spot = await calHead(page);
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 2, z: 5 }, mount: "hung" } });
+  await api(page, "stage.zone.put", { zone: { id: "marque", name: "Marque", type: "stage", polygon: [[-3, 0], [-2, 0], [-2, 1], [-3, 1]] } });
+  await api(page, "position.release", { fixtures: ["spot"] });
+  return spot;
+}
+/** The head as it was, its travel corrections gone, nothing held. */
+async function calRestore(page: Page, spot: CalHead): Promise<void> {
+  await api(page, "venue.fixture.put", { fixture: spot });
+  await api(page, "venue.fixture.travel.set", { fixture: "spot", scope: "model", panMax: null, tiltMax: null });
+  await api(page, "venue.fixture.travel.set", { fixture: "spot", scope: "fixture", panMax: null, tiltMax: null });
+  await api(page, "position.release", { fixtures: ["spot"] });
+}
+/** Opens the Lieu page's assistant on its manual tab, confirms the head may move, aims at the mark. */
+async function calOpenManual(page: Page, { confirm = true, aim = true } = {}): Promise<Locator> {
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  await page.getByText("Calibrer les lyres").click();
+  const box = page.locator(".calibration");
+  await box.getByRole("tab", { name: "Manuelle" }).click();
+  if (confirm) await box.getByRole("group", { name: "La lyre va bouger en direct" }).getByRole("button", { name: "Faire bouger la lyre" }).click();
+  if (aim) {
+    await box.getByLabel("Repère").selectOption("marque");
+    await box.getByRole("button", { name: "Viser le repère" }).click();
+    await expect(box.locator(".calibration-pad .xy")).toBeVisible();
+  }
+  return box;
+}
+
+test("manual calibration: asked once, then each field writes the orientation and the head aims again", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const spot = await calSetup(page);
+  try {
+    const box = await calOpenManual(page, { confirm: false, aim: false });
+    // the output is live: nothing moves before the confirmation
+    await expect(box.getByTestId("cal-output")).toContainText("Sortie en direct");
+    const ask = box.getByRole("group", { name: "La lyre va bouger en direct" });
+    await expect(ask).toContainText("Lyre");
+    await expect(box.getByRole("button", { name: "Viser le repère" })).toHaveCount(0);
+    await page.screenshot({ path: "test-results/t8-manual-confirm.png", fullPage: true });
+    await ask.getByRole("button", { name: "Faire bouger la lyre" }).click();
+    // asked once: another head or mark does not ask again; leaving the tab and coming back does
+    await box.getByLabel("Repère").selectOption("marque");
+    await box.getByRole("button", { name: "Viser le repère" }).click();
+    await expect(box.locator(".calibration-pad .xy")).toBeVisible();
+    await expect.poll(() => calManual(page)).not.toBeNull();
+    const aimed = (await calManual(page))!;
+
+    // the heading: typed with a comma, written on Enter, the head aims the mark again
+    const yaw = box.getByLabel("Cap (°)", { exact: true });
+    await yaw.fill("12,5");
+    await yaw.press("Enter");
+    await expect.poll(async () => (await calHead(page)).orientation?.yaw).toBe(12.5);
+    await expect.poll(async () => (await calManual(page))?.pan).not.toBe(aimed.pan);
+    // the pan offset by the arrows: three presses, one write
+    const panOffset = box.getByLabel("Décalage pan (°)", { exact: true });
+    await panOffset.focus();
+    for (let i = 0; i < 3; i++) await panOffset.press("ArrowUp");
+    await expect.poll(async () => (await calHead(page)).orientation?.panOffset).toBe(0.3);
+    // the tilt offset by its + button (a finger), Shift + arrow for a whole degree
+    await box.getByRole("button", { name: "Décalage tilt (°) · plus 0,1°" }).click();
+    await expect.poll(async () => (await calHead(page)).orientation?.tiltOffset).toBe(0.1);
+    // a switch
+    await box.getByRole("button", { name: "Inverser Y (tilt)", exact: true }).click();
+    await expect.poll(async () => (await calHead(page)).orientation?.invertTilt).toBe(true);
+    await expect(box.getByRole("button", { name: "Inverser Y (tilt)", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+    // the stops: both ends, written when the second is left
+    await box.getByLabel("Butée pan · de").fill("-100");
+    await box.getByLabel("Butée pan · à").fill("100");
+    await box.getByLabel("Butée pan · à").press("Tab");
+    await expect.poll(async () => (await calHead(page)).orientation?.limits?.pan).toEqual([-100, 100]);
+    // beyond the travel: refused here, with the travel, nothing written
+    await box.getByLabel("Butée pan · de").fill("-300");
+    await box.getByLabel("Butée pan · de").press("Enter");
+    await expect(box.locator(".manual-stop").first().getByRole("alert")).toContainText("hors de la course (± 270°)");
+    expect((await calHead(page)).orientation?.limits?.pan).toEqual([-100, 100]);
+    await box.getByRole("button", { name: "Retirer · Butée pan" }).click();
+    await expect.poll(async () => (await calHead(page)).orientation?.limits).toBeUndefined();
+
+    // the travel for the model: the modes keeping their own are said
+    await box.getByLabel("Course pan (°)").fill("500");
+    await box.getByRole("button", { name: "Corriger pour ce modèle" }).click();
+    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).model?.panMax).toBe(500);
+    await expect(box.getByTestId("manual-keeping")).toContainText("« Basic »");
+    await expect(box.getByTestId("manual-travel-now")).toContainText("pan 500° (le modèle)");
+    // and for this fixture only, over its model
+    await box.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await box.getByLabel("Course tilt (°)").fill("250");
+    await box.getByRole("button", { name: "Corriger pour cet appareil" }).click();
+    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).own?.tiltMax).toBe(250);
+    await expect(box.getByTestId("manual-travel-now")).toContainText("tilt 250° (cet appareil)");
+    // out of the schema's bounds: said, not sent
+    await box.getByLabel("Course pan (°)").fill("2000");
+    await expect(box.getByText("La course va de 1 à 1080°.")).toBeVisible();
+    await expect(box.getByRole("button", { name: "Corriger pour cet appareil" })).toBeDisabled();
+    await box.getByLabel("Course pan (°)").fill("500");
+    await box.getByRole("button", { name: "Retirer la correction de l'appareil" }).click();
+    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).own).toBeNull();
+    await box.getByRole("radio", { name: "Ce modèle" }).click();
+    await box.getByRole("button", { name: "Retirer la correction du modèle" }).click();
+    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).model).toBeNull();
+    await box.screenshot({ path: "test-results/t8-manual-desktop.png" });
+
+    // leaving the tab: opening it again asks again
+    await box.getByRole("tab", { name: "Guidée" }).click();
+    await box.getByRole("tab", { name: "Manuelle" }).click();
+    await expect(box.getByRole("group", { name: "La lyre va bouger en direct" })).toBeVisible();
+  } finally {
+    await calRestore(page, spot);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("manual calibration: the correction pad moves the head around the aim, then the gap is corrected on the mark", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const spot = await calSetup(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  try {
+    const box = await calOpenManual(page);
+    await expect.poll(() => calManual(page)).not.toBeNull();
+    const center = (await calManual(page))!;
+    // a 16-bit head: ± 10° by default, the real step said
+    await expect(box.getByRole("radio", { name: "± 10°" })).toHaveAttribute("aria-checked", "true");
+    await expect(box.getByTestId("manual-step")).toContainText("canal fin");
+    await expect(box.getByTestId("manual-finer")).toHaveCount(0);
+    // the pad by its arrows (deterministic): a hundredth of ± 10° a press, around the computed aim
+    const pad = box.locator(".calibration-pad .xy .pad");
+    await pad.focus();
+    for (let i = 0; i < 5; i++) await pad.press("ArrowRight");
+    for (let i = 0; i < 3; i++) await pad.press("ArrowUp");
+    await expect.poll(async () => Math.round(((await calManual(page))!.pan - center.pan) * 540 * 10) / 10).toBe(1);
+    await expect.poll(async () => Math.round(((await calManual(page))!.tilt - center.tilt) * 270 * 10) / 10).toBe(0.6);
+    // measured: the gap before and after, nothing written yet
+    await box.getByRole("button", { name: "Mesurer l'écart" }).click();
+    await expect(box.getByTestId("manual-gap")).toContainText("avant");
+    await expect(box.locator(".manual-cal-report")).toContainText("Décalage pan");
+    expect((await calHead(page)).orientation?.panOffset ?? 0).toBe(0);
+    await box.screenshot({ path: "test-results/t8-manual-correct.png" });
+    // applied: the offsets written, the head keeps its aim
+    await box.getByRole("button", { name: "Appliquer" }).click();
+    await expect(box.locator(".manual-cal-report")).toContainText("Correction appliquée");
+    const o = (await calHead(page)).orientation!;
+    expect(Math.abs(o.panOffset ?? 0) + Math.abs(o.tiltOffset ?? 0)).toBeGreaterThan(0);
+    if (o.panOffset) await expect(box.getByLabel("Décalage pan (°)", { exact: true })).not.toHaveValue("0");
+
+    // a narrower pad: ± 2°
+    await box.getByRole("radio", { name: "± 2°" }).click();
+    await expect(box.getByRole("radio", { name: "± 2°" })).toHaveAttribute("aria-checked", "true");
+
+    // a stop just around where the head is: the pad pushed past it is said, and the server's note too
+    const held = (await calManual(page))!;
+    const at = (held.pan - 0.5) * 540;
+    await api(page, "venue.fixture.orient", { id: "spot", limits: { pan: [Math.round((at - 0.3) * 10) / 10, Math.round((at + 0.3) * 10) / 10] } });
+    await pad.focus();
+    await pad.press("Shift+ArrowRight");
+    await expect(box.getByText(/Le pad demande au-delà de la butée \(pan\)/)).toBeVisible();
+    await box.getByRole("button", { name: "Mesurer l'écart" }).click();
+    await expect(box.locator(".manual-cal-report")).toContainText("au-delà de la butée");
+    await api(page, "venue.fixture.orient", { id: "spot", limits: null });
+
+    // a look moving the head: the server's refusal stays where the operator works
+    await api(page, "look.put", { look: { id: "manual-motion", name: "Calibration manuelle mouvement", canvas, technique: { kind: "aucune" }, channels: { targets: [{ fixture: "spot", offset: 0 }], steps: [[40]] } } });
+    await api(page, "position.release", { fixtures: ["spot"] });
+    await api(page, "look.go", { id: "manual-motion" });
+    await box.getByRole("button", { name: "Mesurer l'écart" }).click();
+    await expect(box.locator(".manual-cal-correct").getByRole("alert")).toContainText("un look la déplace");
+  } finally {
+    await api(page, "look.stop", { id: "manual-motion" }).catch(() => undefined);
+    await api(page, "look.delete", { id: "manual-motion", force: true }).catch(() => undefined);
+    await calRestore(page, spot);
+  }
+  expect(errors.filter((e) => !(e.includes("status of 422") && e.includes("calibration.correct")))).toEqual([]);
+});
+
+test("manual calibration: an 8-bit head moves by whole steps, opens wider and is offered its 16-bit mode", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const spot = await calSetup(page);
+  try {
+    await api(page, "venue.fixture.put", { fixture: { ...(await calHead(page)), mode: "Basic" } });
+    const box = await calOpenManual(page);
+    // 360° / 255 = 1.4° a step: ± 45° by default, whole steps, the 16-bit mode named with a way to change
+    await expect(box.getByRole("radio", { name: "± 45°" })).toHaveAttribute("aria-checked", "true");
+    await expect(box.getByTestId("manual-step")).toContainText("sans canal fin");
+    await expect(box.getByTestId("manual-step")).toContainText("pan 1,41°");
+    await expect(box.getByTestId("manual-finer")).toContainText("« Standard »");
+    await box.getByTestId("manual-finer").getByText("Changer de mode DMX").click();
+    await expect(box.getByTestId("manual-finer").locator("fieldset")).toBeVisible();
+    await box.screenshot({ path: "test-results/t8-manual-8bit.png" });
+    // the pad's arrow lands on the 8-bit grid
+    const pad = box.locator(".calibration-pad .xy .pad");
+    await expect.poll(() => calManual(page)).not.toBeNull();
+    const before = (await calManual(page))!;
+    await pad.focus();
+    await pad.press("ArrowRight");
+    await expect.poll(async () => (await calManual(page))!.pan).not.toBe(before.pan);
+    const pan = (await calManual(page))!.pan;
+    expect(Math.abs(pan * 255 - Math.round(pan * 255))).toBeLessThan(1e-6);
+    // back in the 16-bit mode: ± 10°, no mode to offer
+    await api(page, "venue.fixture.put", { fixture: { ...(await calHead(page)), mode: "Standard" } });
+    await expect(box.getByTestId("manual-finer")).toHaveCount(0);
+    await expect(box.getByTestId("manual-step")).not.toContainText("sans canal fin");
+  } finally {
+    await calRestore(page, spot);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("manual calibration: opened from the fixture's panel, refused while frozen hard, touch and phone sizes", async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+  const page = await ctx.newPage();
+  const errors = watchErrors(page);
+  await login(page);
+  const spot = await calSetup(page);
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
+    const body = page.locator('.stage-plan g.fixture[data-fixture="spot"]').first();
+    const at = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.5, 0.5], [0.85, 0.85], [0.15, 0.15]]) {
+      await body.click({ position: { x: at.width * fx!, y: at.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    await page.locator(".fixture-panel").getByRole("button", { name: "Calibration manuelle" }).click();
+    // the assistant opens on its manual tab, on this head
+    await expect(page.locator("details.calibration-box")).toHaveAttribute("open", "");
+    const box = page.locator(".calibration");
+    await expect(box.getByRole("tab", { name: "Manuelle" })).toHaveAttribute("aria-selected", "true");
+    await expect(box.getByLabel("Lyres")).toHaveValue("spot");
+    await box.getByRole("button", { name: "Faire bouger la lyre" }).click();
+    await box.getByLabel("Repère").selectOption("marque");
+    await box.getByRole("button", { name: "Viser le repère" }).click();
+    await expect(box.locator(".calibration-pad .xy")).toBeVisible();
+    await box.scrollIntoViewIfNeeded();
+    await box.screenshot({ path: "test-results/t8-manual-tablet.png" });
+
+    // frozen hard: aiming and correcting are off with the reason, a switch is refused by the server and said
+    await asDesk(page, "motion.freeze", { fixtures: ["spot"], level: "hard" });
+    await expect(box.getByText(/^Lyre figée en dur/)).toBeVisible();
+    await expect(box.getByRole("button", { name: "Viser de nouveau" })).toBeDisabled();
+    await expect(box.getByRole("button", { name: "Mesurer l'écart" })).toBeDisabled();
+    await box.getByRole("button", { name: "Échanger pan et tilt", exact: true }).click();
+    await expect(box.locator(".manual-cal-orient").getByRole("alert")).toBeVisible();
+    expect((await calHead(page)).orientation?.swapPanTilt ?? false).toBe(false);
+    await asDesk(page, "motion.unfreeze", { fixtures: ["spot"] });
+    await expect(box.getByRole("button", { name: "Viser de nouveau" })).toBeEnabled();
+
+    // a phone: nothing wider than the screen, every control of the tab a finger's size
+    await page.setViewportSize({ width: 390, height: 844 });
+    await box.getByRole("button", { name: "Viser de nouveau" }).scrollIntoViewIfNeeded();
+    expect(await page.evaluate<number>("document.documentElement.scrollWidth")).toBeLessThanOrEqual(390);
+    const small = await box.locator(".cal-tabs button, .manual-cal button, .manual-cal input").evaluateAll((items) =>
+      items.filter((i) => i.getClientRects().length > 0 && i.getBoundingClientRect().height < 44).map((i) => `${i.tagName} ${i.getAttribute("aria-label") ?? i.textContent}`),
+    );
+    expect(small).toEqual([]);
+    await box.screenshot({ path: "test-results/t8-manual-phone.png" });
+  } finally {
+    await asDesk(page, "motion.unfreeze", { fixtures: ["spot"] }).catch(() => undefined);
+    await calRestore(page, spot);
+    await ctx.close();
+  }
+  expect(errors.filter((e) => !e.includes("venue.fixture.orient"))).toEqual([]);
+});
+
 test("group editor: nested DCAs multiply", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

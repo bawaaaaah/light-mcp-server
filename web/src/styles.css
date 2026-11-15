@@ -1552,6 +1552,149 @@ table.cues select {
   width: 100%;
   aspect-ratio: 1;
 }
+/* Calibration tabs (T8): « Guidée » and « Manuelle » above the head and mark they share */
+.cal-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3em;
+  margin: 0.4em 0 0.6em;
+}
+.calibration [role="tabpanel"] {
+  margin-top: 0.6em;
+}
+/* « La lyre va bouger en direct »: asked once when the manual tab opens on a live output */
+.cal-confirm {
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 0.6em 0.9em;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  max-width: 40em;
+}
+.cal-confirm p {
+  margin: 0.3em 0;
+}
+/* The manual tab: one framed section per step, side by side when there is room */
+.manual-cal {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22em), 1fr));
+  gap: 0.8em;
+  align-items: start;
+}
+.manual-cal > .hint,
+.manual-cal > .warn {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.manual-cal section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5em 0.8em 0.7em;
+  min-width: 0;
+}
+.manual-cal section h4 {
+  margin: 0.2em 0 0.4em;
+}
+.manual-cal section p {
+  margin: 0.4em 0;
+}
+.manual-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em 1em;
+  align-items: flex-start;
+}
+.manual-field > label,
+.manual-field > span:first-child {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.manual-field input {
+  width: 6em;
+}
+.manual-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+}
+.manual-input button {
+  min-width: 2.2em;
+  padding-inline: 0.4em;
+}
+.manual-switches {
+  display: grid;
+  gap: 0.2em;
+  max-width: 22em;
+  margin-top: 0.5em;
+}
+.manual-switches .invert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+.manual-stop {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.manual-stop legend {
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.manual-stop-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  align-items: center;
+}
+.manual-stop-fields label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.manual-stop-fields input {
+  width: 4.5em;
+}
+/* where the stop leaves the head free, over the whole travel */
+.manual-stop-bar {
+  position: relative;
+  height: 6px;
+  max-width: 14em;
+  margin: 0.4em 0 0.2em;
+  border-radius: 3px;
+  background: var(--line);
+}
+.manual-stop-bar span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.manual-finer details summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.manual-cal-report .ok {
+  color: var(--on);
+}
+.fixture-panel .panel-calibrate {
+  align-self: flex-start;
+  color: var(--accent);
+  padding-inline: 0.2em;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .manual-input button {
+    min-width: 44px;
+  }
+  .fixture-panel .panel-calibrate {
+    min-height: 44px;
+  }
+}
 
 /* Group editor */
 .checklists {
