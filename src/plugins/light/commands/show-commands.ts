@@ -16,6 +16,7 @@ import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKeyOrUndefined, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { trackNamesProblem } from "../venue/tracks.js";
+import { axesOf, finerModes, stepDeg } from "../venue/travel.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
@@ -458,6 +459,66 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       headsOfFixture(fixture); // an unknown fixture is an error
       putHeads(fixture, scope, undefined);
       return headsOfFixture(fixture).view;
+    },
+  });
+  // ---- real travel (T8): a moving head's pan/tilt travel when its definition is wrong, per model, overridable per fixture
+  /** A moving head's travel: from the definition, its model's and its own corrections, what applies, and the output's precision. */
+  const travelOfFixture = (fixtureId: string) => {
+    const f = venue.fixtures.get(fixtureId);
+    if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
+    const r = venue.resolve(fixtureId);
+    if ("error" in r) throw new Error(r.error);
+    if (!r.pan && !r.tilt) throw new Error(say(`${f.name} : pas de pan/tilt`, `${f.name}: no pan/tilt`));
+    const key = keyOrUndefined(f);
+    const model = (key && venue.models.get(key)?.overrides.travel) || null;
+    const own = f.overrides?.travel ?? null;
+    const axes = axesOf(r.def, r.mode);
+    const from = (axis: "panMax" | "tiltMax") => (own?.[axis] !== undefined ? "fixture" : model?.[axis] !== undefined ? "model" : "definition");
+    return {
+      fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode },
+      definition: { panMax: r.mode.panMax ?? r.def.panMax ?? 540, tiltMax: r.mode.tiltMax ?? r.def.tiltMax ?? 270 },
+      model,
+      own,
+      panMax: r.panMax,
+      tiltMax: r.tiltMax,
+      applies: { panMax: from("panMax"), tiltMax: from("tiltMax") },
+      // one step of the output, degrees: the correction pad cannot be finer than this
+      fine: { pan: axes.pan.fine, tilt: axes.tilt.fine },
+      step: { pan: stepDeg(r.panMax, axes.pan.fine), tilt: stepDeg(r.tiltMax, axes.tilt.fine) },
+      finerModes: finerModes(r.def, r.mode),
+    };
+  };
+  const travelAxis = z.number().finite().min(1).max(1080).nullable().optional();
+  reg.register({
+    name: "venue.fixture.travel",
+    title: "Course d'une lyre",
+    description:
+      "A moving head's real pan/tilt travel in degrees: the definition's (its mode's, else its own, else 540/270), the correction of its model and its own, the travel that applies and where it comes from per axis. fine: whether its mode drives each axis with a fine channel; step: one step of the output in degrees (travel / 65535 with a fine channel, travel / 255 without); finerModes: other DMX modes of its definition that drive with a fine channel an axis this mode drives without (venue.fixture.mode changes it).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({ fixture: z.string() }),
+    run: ({ fixture }) => travelOfFixture(fixture),
+  });
+  reg.register({
+    name: "venue.fixture.travel.set",
+    title: "Corriger la course d'une lyre",
+    description:
+      "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model) or for this fixture only (over its model's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ fixture: z.string(), scope: headsScope, panMax: travelAxis, tiltMax: travelAxis }),
+    run: ({ fixture, scope, panMax, tiltMax }) => {
+      const view = travelOfFixture(fixture);
+      const current = (scope === "model" ? view.model : view.own) ?? {};
+      const next = { ...current };
+      if (panMax === null) delete next.panMax;
+      else if (panMax !== undefined) next.panMax = panMax;
+      if (tiltMax === null) delete next.tiltMax;
+      else if (tiltMax !== undefined) next.tiltMax = tiltMax;
+      // a model named without a letter or digit is refused (modelKey): its fixtures are set one by one
+      venue.putOverridePart(fixture, scope, "travel", Object.keys(next).length ? next : undefined);
+      return travelOfFixture(fixture);
     },
   });
   // ---- colour wheel (T18): the colour → slot correspondence, per model, overridable per fixture (venue/color-wheel.ts)

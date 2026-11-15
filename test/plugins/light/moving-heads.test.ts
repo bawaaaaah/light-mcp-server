@@ -812,4 +812,53 @@ describe("a head driven by the command layer (the pad's path)", () => {
       await run("venue.fixture.delete", { id: "ghost" });
     }
   });
+
+  it("corrects a model's travel, overridable per fixture axis by axis; aiming follows, the bytes of a position do not (T8)", async () => {
+    type Travel = { panMax: number; tiltMax: number; definition: { panMax: number; tiltMax: number }; applies: { panMax: string; tiltMax: string }; fine: { pan: boolean; tilt: boolean }; step: { pan: number; tilt: number }; finerModes: string[]; model: object | null; own: object | null };
+    await run("venue.fixture.put", { fixture: { id: "spot-b", name: "Lyre basique", manufacturer: "Test", model: "Spot 7", mode: "Basic", universe: 2, address: 1, position: { x: 3, y: 2, z: 5 }, mount: "hung" } });
+    try {
+      const travel = async (fixture: string) => (await run("venue.fixture.travel", { fixture })) as Travel;
+      const spot = await travel("spot");
+      expect(spot).to.deep.include({ panMax: 540, tiltMax: 270, model: null, own: null, finerModes: [] });
+      expect(spot.applies).to.deep.equal({ panMax: "definition", tiltMax: "definition" });
+      expect(spot.fine).to.deep.equal({ pan: true, tilt: true });
+      expect(spot.step.pan).to.be.closeTo(540 / 65535, 1e-12);
+      // a coarse mode of a model that has a 16-bit one: said, with the step of an 8-bit axis
+      const basic = await travel("spot-b");
+      expect(basic.definition).to.deep.equal({ panMax: 360, tiltMax: 180 }); // the mode's own physical section
+      expect(basic.fine).to.deep.equal({ pan: false, tilt: false });
+      expect(basic.step.tilt).to.be.closeTo(180 / 255, 1e-12);
+      expect(basic.finerModes).to.deep.equal(["Standard"]);
+      // where an aim lands, in logical units, before the correction
+      const aim = async () => ((await run("position.aim", { fixtures: ["spot"], point: { x: 2, y: 3, z: 0 } })) as { results: { pan: number }[] }).results[0]!.pan;
+      const before = await aim();
+      // the model's: both of its fixtures follow
+      expect(await run("venue.fixture.travel.set", { fixture: "spot", panMax: 630 })).to.deep.include({ panMax: 630, tiltMax: 270, model: { panMax: 630 } });
+      expect((await travel("spot-b")).panMax).to.equal(630);
+      expect((await travel("spot-b")).applies.panMax).to.equal("model");
+      const after = await aim();
+      expect((after - 0.5) * 630).to.be.closeTo((before - 0.5) * 540, 1e-6); // the same angle, on a longer travel
+      // one fixture's own correction, axis by axis over its model's
+      const own = (await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", tiltMax: 265 })) as Travel;
+      expect([own.panMax, own.tiltMax]).to.deep.equal([630, 265]);
+      expect(own.applies).to.deep.equal({ panMax: "model", tiltMax: "fixture" });
+      expect((await travel("spot")).tiltMax).to.equal(270);
+      // a manual position sends the same bytes whatever the travel
+      await run("position.set", { fixtures: ["spot"], pan: 0.25, tilt: 0.75 });
+      expect(at(render(), 1)).to.be.closeTo(0.25 * 65535, 1);
+      await run("venue.fixture.travel.set", { fixture: "spot", panMax: null });
+      expect(at(render(), 1)).to.be.closeTo(0.25 * 65535, 1);
+      expect((await travel("spot")).panMax).to.equal(540);
+      expect(plugin.venue.models.get("test_spot7")).to.equal(undefined); // nothing left of the model's correction
+      await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", tiltMax: null });
+      expect(plugin.venue.fixtures.get("spot-b")).to.not.have.property("overrides");
+      await run("venue.fixture.travel", { fixture: "bar" }).then(
+        () => expect.fail("a fixture without pan/tilt has no travel"),
+        (e: Error) => expect(e.message).to.match(/pan\/tilt/),
+      );
+    } finally {
+      await run("venue.fixture.delete", { id: "spot-b" });
+      await run("position.release", { fixtures: ["spot"] });
+    }
+  });
 });

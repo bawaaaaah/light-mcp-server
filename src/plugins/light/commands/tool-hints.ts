@@ -169,6 +169,7 @@ export const HINTS: Record<string, string> = {
   "venue.fixture.orient": "",
   "venue.fixture.presence": "I",
   "venue.fixture.put": "DI",
+  "venue.fixture.travel.set": "I",
   "venue.grouping.apply": "",
   "venue.positions.import": "DI",
   "venue.tracks.clear": "DI",

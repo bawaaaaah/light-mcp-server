@@ -740,7 +740,9 @@ export class Venue {
         // no head with a component to paint: the dimmer follows the painted level, as on a lamp, or nothing would dose it
         const levelDimmer = [...heads.values()].every((c) => Object.keys(c).length === 0);
         const tracks = tracksOf(def, mode, this.overridesOf(patch).tracks);
-        result = { ...(tracks ? { tracks } : {}), patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: mode.panMax ?? def.panMax ?? 540, tiltMax: mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
+        // the real travel (T8): the fixture's or its model's correction first, then the mode, the definition, 540°/270°
+        const travel = this.overridesOf(patch).travel;
+        result = { ...(tracks ? { tracks } : {}), patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: travel?.panMax ?? mode.panMax ?? def.panMax ?? 540, tiltMax: travel?.tiltMax ?? mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
       }
     }
     this.resolved.set(fixtureId, result);

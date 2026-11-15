@@ -205,6 +205,8 @@ export const TITLES_EN: Record<string, string> = {
   "venue.fixture.orient": "Orient a fixture",
   "venue.fixture.presence": "Hardware installed or absent",
   "venue.fixture.put": "Patch a fixture",
+  "venue.fixture.travel": "Moving head travel",
+  "venue.fixture.travel.set": "Correct a moving head's travel",
   "venue.grouping.apply": "Create type groups",
   "venue.grouping.propose": "Propose type groups",
   "venue.library": "Fixture library",

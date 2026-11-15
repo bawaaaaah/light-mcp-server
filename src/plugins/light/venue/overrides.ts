@@ -4,8 +4,8 @@
  * and overridable for **one fixture** of the patch. Each part belongs to one feature, which owns its
  * schema here: `wheel` the colour wheel's colour → slot correspondence (T18), `heads` the heads deduced
  * from a definition without <Head> and the accent (halo) one (T21), `tracks` which channels follow the
- * transitions (T5). A missing part means: the definition as it is. A fixture's own part replaces its
- * model's as a whole (mergeOverrides), except `heads` (`accent`, `follow`) and `tracks` (`fade`; `enabled` is
+ * transitions (T5), `travel` a moving head's real pan/tilt travel (T8). A missing part means: the definition as it is. A fixture's own part replaces its
+ * model's as a whole (mergeOverrides), except `heads` (`accent`, `follow`), `travel` (`panMax`, `tiltMax`) and `tracks` (`fade`; `enabled` is
  * the fixture's only), merged field by field.
  */
 import { z } from "zod";
@@ -62,10 +62,21 @@ export const TrackOverridesSchema = z
   .strip();
 export type TrackOverrides = z.infer<typeof TrackOverridesSchema>;
 
+/**
+ * T8 — a moving head's real travel in degrees, when the definition is wrong (a file written from a manual: 540°/270°
+ * where the head turns 630°/265°). Each axis left out: the definition's (its mode's, else its own, else 540/270).
+ */
+export const TravelOverridesSchema = z.object({
+  panMax: z.number().finite().min(1).max(1080).optional(),
+  tiltMax: z.number().finite().min(1).max(1080).optional(),
+});
+export type TravelOverrides = z.infer<typeof TravelOverridesSchema>;
+
 export const FixtureOverridesSchema = z.object({
   wheel: WheelOverridesSchema.optional(),
   heads: HeadOverridesSchema.optional(),
   tracks: TrackOverridesSchema.optional(),
+  travel: TravelOverridesSchema.optional(),
 });
 export type FixtureOverrides = z.infer<typeof FixtureOverridesSchema>;
 
@@ -106,6 +117,8 @@ export const modelKeyOrUndefined = (manufacturer: string, model: string): string
 export function mergeOverrides(model: FixtureOverrides | undefined, fixture: FixtureOverrides | undefined): FixtureOverrides {
   const merged: FixtureOverrides = { ...(model ?? {}), ...Object.fromEntries(Object.entries(fixture ?? {}).filter(([, v]) => v !== undefined)) };
   if (model?.heads && fixture?.heads) merged.heads = { ...model.heads, ...Object.fromEntries(Object.entries(fixture.heads).filter(([, v]) => v !== undefined)) };
+  // the travel axis by axis: a fixture correcting its tilt alone keeps its model's pan (T8)
+  if (model?.travel && fixture?.travel) merged.travel = { ...model.travel, ...Object.fromEntries(Object.entries(fixture.travel).filter(([, v]) => v !== undefined)) };
   const fade = fixture?.tracks?.fade ?? model?.tracks?.fade;
   const enabled = fixture?.tracks?.enabled;
   if (fade || enabled !== undefined) merged.tracks = { ...(enabled !== undefined ? { enabled } : {}), ...(fade ? { fade } : {}) };
