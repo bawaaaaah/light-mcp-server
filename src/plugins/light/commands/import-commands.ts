@@ -12,6 +12,7 @@ import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.
 import { parseQxw } from "../presets/qxw-import.js";
 import { parseQxf } from "../venue/qxf-import.js";
 import { definitionFileName } from "../venue/definition-files.js";
+import { exportDefinition } from "../venue/definition-export.js";
 import { mergeImport } from "../presets/merge-import.js";
 
 /** Fingerprints of what the last import wrote, per collection and id (re-import « mode hybride »). */
@@ -53,6 +54,22 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       s.runtime.venue.refreshDefinitions();
       return { file, manufacturer: def.manufacturer, model: def.model, modes: def.modes.map((m) => m.name) };
     },
+  });
+  reg.register({
+    name: "fixture.definition.export",
+    title: "Exporter une définition de projecteur",
+    description:
+      "A fixture definition of the library as a QLC+ .qxf file, to use in QLC+ or on another machine: by its model (manufacturer + model, as venue.library lists them) or by a patched fixture's (fixture). Returns file (the name QLC+ gives it, Manufacturer-Model.qxf), source (the library file), xml (the file's text; base64 too when its bytes are not valid UTF-8). Without corrections, the library file byte for byte. corrections: true writes this venue's corrections where a .qxf has a place for them (a wheel slot's real colour, the heads deduced from the channel names as <Head>) — the model's, or with fixture its own over its model's — and lists in notExported what QLC+ cannot hold (fadeable tracks, a halo that follows or stays dark, slots never chosen or answering other colours, the wheel's change, a fixture's inversions).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup"],
+    schema: z.object({
+      fixture: z.string().optional().describe("a patched fixture: its model's definition (and its own corrections)"),
+      manufacturer: z.string().optional(),
+      model: z.string().optional(),
+      corrections: z.boolean().default(false).describe("write this venue's corrections into the file where QLC+ has a place for them"),
+    }),
+    run: (args) => exportDefinition(s.runtime.venue, args),
   });
   reg.register({
     name: "import.qxw",

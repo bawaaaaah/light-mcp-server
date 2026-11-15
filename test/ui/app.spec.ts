@@ -2871,6 +2871,41 @@ test("venue: the fixture menu shows the zones deduced for a wash and corrects it
   expect(errors).toEqual([]);
 });
 
+test("venue: export a definition as a .qxf, from the library and from a fixture's menu, with this venue's corrections", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await api(page, "venue.fixture.put", { fixture: { id: "wash-qxf", name: "Wash qxf", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 2, address: 300 } });
+  const original = readFileSync(new URL("../fixtures/wash-zones.qxf", import.meta.url), "utf8");
+  try {
+    await page.locator("nav.pages").getByRole("button", { name: "Lieu" }).click();
+    // the library: pick the model, download its file as it is, under QLC+'s name
+    const library = page.locator("section", { has: page.getByRole("heading", { name: /^Bibliothèque/ }) });
+    await library.getByRole("searchbox").fill("Wash Zones");
+    await library.getByRole("combobox", { name: "Définition" }).selectOption("Test|Wash Zones");
+    const plain = page.waitForEvent("download");
+    await library.getByRole("button", { name: "⤓ Exporter le .qxf" }).click();
+    const file = await plain;
+    expect(file.suggestedFilename()).toBe("Test-Wash-Zones.qxf");
+    expect(readFileSync(await file.path(), "utf8")).toBe(original);
+    await expect(library.getByRole("status")).toContainText("Test-Wash-Zones.qxf téléchargé.");
+    // the fixture's menu, with the corrections: the deduced heads written, said
+    await page.locator("tr", { hasText: "Wash qxf" }).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages de l'appareil" });
+    const box = menu.getByTestId("qxf-export");
+    await box.getByRole("checkbox", { name: "avec les corrections de ce lieu" }).check();
+    const corrected = page.waitForEvent("download");
+    await box.getByRole("button", { name: "⤓ Exporter le .qxf" }).click();
+    const xml = readFileSync(await (await corrected).path(), "utf8");
+    expect(xml.match(/<Head>\s*<Channel>/g)).toHaveLength(4); // (the file's comment names <Head> too)
+    await expect(box.getByRole("status")).toContainText("4 têtes déclarées");
+    await page.screenshot({ path: "test-results/qxf-export-menu.png" });
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "wash-qxf" });
+  }
+  expect(errors).toEqual([]);
+});
+
 
 test("venue: the fixture menu from the keyboard, focus kept inside and given back, colours as one radio group", async ({ page }) => {
   const errors = watchErrors(page);

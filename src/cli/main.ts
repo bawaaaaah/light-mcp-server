@@ -10,7 +10,7 @@ import { ConfigStore } from "../core/config-store.js";
 import { bootstrap } from "../index.js";
 import { configPath as resolveConfigPath, dataRoot } from "../core/paths.js";
 import { getEnvBool } from "../core/env.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { connect, CliError, localServerUrl, reachable, type Caller } from "./client.js";
 import { applyRestore, packArchive, readArchive, restoreBackupDir, type FolderDiff, type RestorePreview } from "../plugins/light/data/archive.js";
 import { definitionDirsFor, FixturePolicySchema, type FixturePolicy, type FixtureSummary } from "../plugins/light/data/archive-fixtures.js";
@@ -34,6 +34,9 @@ const USAGE = `light <commande>
   export mid [--song id]          fichier MIDI d'un chant (notes des looks, Program Change des programmes)
   export programs [--shell f]     un clip Ableton .alc par programme de règles (Program Change au lancement)
   export ableton [--shell f]      MIDI Effect Rack depuis la coquille (data/private/)
+  export qxf <fabricant> <modèle> | --fixture id [--corrections] [--out f]
+                                  définition .qxf de la bibliothèque (QLC+) ; --corrections : avec celles de ce lieu ;
+                                  --out : le fichier (un dossier : sous le nom QLC+ Fabricant-Modèle.qxf), sinon la sortie
   export liveset --setlist id --als f --track nom
                                   pose la setlist dans une copie du Live Set (Live fermé)
   osc-table                       adresses OSC
@@ -183,6 +186,9 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
       limit: { type: "string" },
       fixtures: { type: "string" },
       "keep-machine": { type: "string" },
+      fixture: { type: "string" },
+      corrections: { type: "boolean", default: false },
+      out: { type: "string" },
     },
   });
   const caller = await connect({ configPath, dataRoot: DATA_ROOT, url: values.url, offline: values.offline, token: async () => (await machine()).token });
@@ -225,10 +231,23 @@ async function runCommand(name: string, argv: string[]): Promise<number> {
         else if (kind === "programs") json(await caller.call("export.ableton.programs", values.shell ? { shell: values.shell } : {}));
         else if (kind === "board") console.log(await caller.call<string>("export.board", values.song ? { song: values.song } : {}));
         else if (kind === "ableton") json(await caller.call("export.ableton.rack", values.shell ? { shell: values.shell } : {}));
-        else if (kind === "liveset") {
+        else if (kind === "qxf") {
+          const [, manufacturer, model] = positionals;
+          if (!values.fixture && (!manufacturer || !model)) throw new CliError("usage : light export qxf <fabricant> <modèle> | --fixture id [--corrections] [--out fichier]");
+          type R = { file: string; xml: string; base64?: string; notExported: { message: string }[] };
+          const r = await caller.call<R>("fixture.definition.export", { ...(values.fixture ? { fixture: values.fixture } : { manufacturer, model }), corrections: values.corrections });
+          const bytes = r.base64 ? Buffer.from(r.base64, "base64") : Buffer.from(r.xml, "utf8");
+          if (!values.out) process.stdout.write(bytes);
+          else {
+            const target = existsSync(values.out) && statSync(values.out).isDirectory() ? path.join(values.out, r.file) : values.out;
+            writeFileSync(target, bytes);
+            console.error(`écrit : ${target}`);
+          }
+          for (const n of r.notExported) console.error(`non exporté : ${n.message}`);
+        } else if (kind === "liveset") {
           if (!values.setlist || !values.als || !values.track) throw new CliError("usage : light export liveset --setlist <id> --als <fichier> --track <piste>");
           json(await caller.call("export.liveset", { setlist: values.setlist, als: values.als, track: values.track }));
-        } else throw new CliError("usage : light export cuesheet | notes | board | mid | programs | ableton | liveset");
+        } else throw new CliError("usage : light export cuesheet | notes | board | mid | programs | ableton | qxf | liveset");
         return 0;
       }
       case "osc-table":

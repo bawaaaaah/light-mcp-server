@@ -1947,6 +1947,26 @@ table.rules td {
 .widget-menu .fixture-place input {
   width: 5.5em;
 }
+/* « Exporter le .qxf » in the fixture menu: the same quiet legend as the place */
+.widget-menu .fixture-qxf {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.widget-menu .fixture-qxf legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.qxf-export .row {
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+.qxf-export ul {
+  margin: 0.2em 0 0;
+  padding-left: 1.2em;
+}
 /* fixtures sharing channels: a sentence per pair, wrapped (a .badge would keep it on one line) */
 .widget-menu .overlap-alert {
   background: color-mix(in srgb, var(--danger) 18%, transparent);

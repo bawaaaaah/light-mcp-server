@@ -406,6 +406,8 @@ export class Venue {
   readonly definitions: FixtureDefinition[] = [];
   /** The file name of each definition, in the order of `definitions`. */
   private definitionSources: string[] = [];
+  /** The full path of each definition's file, in the order of `definitions`. */
+  private definitionPaths: string[] = [];
   readonly fixtures: Collection<PatchedFixture>;
   readonly canvases: Collection<Canvas>;
   /** Per-model corrections of the definitions (venue/overrides.ts), overridden by a fixture's own. */
@@ -499,6 +501,7 @@ export class Venue {
     this.definitionStamp = stamp;
     this.definitions.length = 0;
     this.definitionSources = [];
+    this.definitionPaths = [];
     const names = new Map<string, number>();
     for (const f of files) names.set(path.basename(f), (names.get(path.basename(f)) ?? 0) + 1);
     this.store.loadErrors.splice(0, this.store.loadErrors.length, ...this.store.loadErrors.filter((e) => !this.definitionErrors.includes(e)));
@@ -508,6 +511,7 @@ export class Venue {
         this.definitions.push(parseQxf(readFileSync(f, "utf8")));
         // two library folders may hold the same file name: then the message says the folder
         this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));
+        this.definitionPaths.push(f);
       } catch (err) {
         this.definitionErrors.push(`définition ${path.basename(f)} : ${(err as Error).message}`);
       }
@@ -518,6 +522,16 @@ export class Venue {
 
   definitionFor(manufacturer: string, model: string): FixtureDefinition | undefined {
     return findDefinition(this.definitions, manufacturer, model);
+  }
+
+  /**
+   * The library file of a model's definition, as `definitionFor` finds it (the first one wins): its full path and its
+   * name as the library lists it. Undefined for a model without a file (missing, or QLC+'s built-in generic dimmer).
+   */
+  definitionFileFor(manufacturer: string, model: string): { def: FixtureDefinition; path: string; source: string } | undefined {
+    const def = this.definitionFor(manufacturer, model);
+    const i = def ? this.definitions.indexOf(def) : -1;
+    return def && i >= 0 ? { def, path: this.definitionPaths[i]!, source: this.definitionSources[i]! } : undefined;
   }
 
   /**

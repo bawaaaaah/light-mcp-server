@@ -290,12 +290,39 @@ async function saveDownload(route: string, fallback: string): Promise<void> {
     throw new ApiError(res.status, body.error ?? res.statusText);
   }
   const name = /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallback;
-  const url = URL.createObjectURL(await res.blob());
+  saveBlob(await res.blob(), name);
+}
+
+/** Saves a file made in the page (a Blob) under `name`, as a download. */
+export function saveBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** What `fixture.definition.export` returns: the .qxf file and, with corrections, what was written and what could not be. */
+export interface DefinitionExport {
+  file: string;
+  source: string;
+  xml: string;
+  base64?: string;
+  corrected: boolean;
+  applied: { part: string; message: string }[];
+  notExported: { part: string; message: string }[];
+}
+
+/**
+ * Downloads a library definition as a QLC+ .qxf file (`fixture.definition.export`): by a patched fixture or by its
+ * model, with this venue's corrections or not. The bytes are the library file's (base64 when they are not UTF-8).
+ */
+export async function downloadDefinition(args: { fixture: string } | { manufacturer: string; model: string }, corrections: boolean): Promise<DefinitionExport> {
+  const r = await cmd<DefinitionExport>("fixture.definition.export", { ...args, corrections });
+  const body = r.base64 ? Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0)) : r.xml;
+  saveBlob(new Blob([body], { type: "application/xml" }), r.file);
+  return r;
 }
 
 export function downloadArchive(withVenue: boolean): Promise<void> {

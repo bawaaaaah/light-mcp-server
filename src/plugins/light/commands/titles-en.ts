@@ -40,6 +40,7 @@ export const TITLES_EN: Record<string, string> = {
   "fader.list": "Channel faders",
   "fader.put": "Channel fader",
   "fixture.definition.add": "Add a fixture definition",
+  "fixture.definition.export": "Export a fixture definition",
   "fixture.channel.mode": "Set a channel's working mode",
   "fixture.reset": "Reset the fixture",
   "grandmaster.set": "Grand master",

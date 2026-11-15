@@ -181,8 +181,8 @@ function accentFor(mode: FixtureMode, overrides: HeadOverrides | undefined): rea
   return accent.length === 0 || accent.some((n) => mode.channels.includes(n)) ? accent : undefined;
 }
 
-/** The heads a mode has before any accent: declared, deduced from the names, or one for the whole fixture. */
-function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: { offsets: number[] }[]; deduced: boolean } {
+/** The heads a mode has before any accent: declared, deduced from the names, or none (one colour for the whole fixture). The .qxf export (qxf-export.ts) declares the deduced ones. */
+export function partsOf(def: FixtureDefinition, mode: FixtureMode): { parts: { offsets: number[] }[]; deduced: boolean } {
   if (mode.heads.length) return { parts: mode.heads.map((offsets) => ({ offsets: [...offsets] })), deduced: false };
   // each channel's plain colour, read once
   const colours = mode.channels.map((name) => {
