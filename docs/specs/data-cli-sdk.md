@@ -75,6 +75,7 @@ Adaptateur mince sur la couche de commandes. **Serveur en marche** : la CLI pass
 | `light import qxw <fichier> [--apply]` | import d'un workspace QLC+ : proposition, puis `--apply` pour écrire |
 | `light export cuesheet [--setlist id]` / `notes [--csv]` / `board [--song id]` | feuille de conduite, table des notes, planche SVG d'un chant |
 | `light export ableton [--shell f]` | MIDI Effect Rack depuis la coquille |
+| `light export qxf <fabricant> <modèle> \| --fixture id [--corrections] [--out f]` | définition `.qxf` de la bibliothèque pour QLC+, octet pour octet, ou avec les corrections de ce lieu (`fixture.definition.export`, voir [lieu](venue-fixtures-stage.md), « Exporter une définition ») ; `--out` un dossier : sous le nom QLC+ ; sans `--out` : sur la sortie standard ; ce qui ne passe pas est dit sur la sortie d'erreur |
 | `light export liveset --setlist id --als f --track nom` | pose la setlist dans une copie du Live Set (Live fermé) |
 | `light show list` / `new <nom> [--from id] [--venue current\|copy\|new]` / `open <id>` / `rename <nom>` / `reset [--with-venue]` | shows de la machine (voir plus haut) |
 | `light venue list` / `positions <lieu> [--apply]` ; `light show venue set <lieu> [--show id]` / `detach [--show id]` | lieux de la machine et shows qui les partagent ; reprise des positions d'un autre lieu (aperçu sans `--apply`) ; rattacher un show à un lieu ou lui en donner une copie |
