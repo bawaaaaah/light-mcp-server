@@ -40,38 +40,27 @@ export interface StageLayout {
  * What to draw: the zones, the placed fixtures and `points` (the 3D targets seen from above, T24: a target outside the
  * zones widens the frame instead of being cut at its edge), with a margin (0.8 m; 0.3 m around the row alone); the
  * fixtures with no stage position go on a row in front of the stage (at least 3 m wide, 1.2 m per fixture), 0.8 m
- * before its front.
+ * before its front. The row is placed from the zones and the fixtures only: a target dragged downstage widens the
+ * frame, it never moves the row.
  */
 export function stageLayout(fixtures: readonly FramedFixture[], zones: readonly FramedZone[], points: readonly StageXY[] = []): StageLayout {
-  const pts: [number, number][] = [
+  const base: [number, number][] = [
     ...zones.flatMap((z) => z.polygon),
     ...fixtures.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number]),
-    ...points.map((p) => [p.x, p.y] as [number, number]),
   ];
   const unplaced = fixtures.filter((f) => !f.position);
   const rowHalf = Math.max(1.5, unplaced.length * 0.6);
-  let minX = -rowHalf;
-  let maxX = rowHalf;
-  let minY: number;
-  let maxY: number;
-  let rowY = 0;
-  if (pts.length) {
-    minX = Math.min(...pts.map((p) => p[0]));
-    maxX = Math.max(...pts.map((p) => p[0]));
-    minY = Math.min(...pts.map((p) => p[1]));
-    maxY = Math.max(...pts.map((p) => p[1]));
-    if (unplaced.length) {
-      rowY = Math.min(minY, 0) - 0.8; // a row in front of the stage
-      minY = rowY - 0.3;
-      minX = Math.min(minX, -rowHalf);
-      maxX = Math.max(maxX, rowHalf);
-    }
-  } else [minY, maxY] = [rowY - 0.3, rowY + 0.3]; // nothing placed yet: just the row
-  const m = pts.length ? 0.8 : 0.3;
+  const rowY = base.length ? Math.min(...base.map((p) => p[1]), 0) - 0.8 : 0; // a row in front of the stage
+  const box: [number, number][] = [...base, ...points.map((p) => [p.x, p.y] as [number, number])];
+  const m = box.length ? 0.8 : 0.3;
+  if (!box.length) box.push([-rowHalf, rowY - 0.3], [rowHalf, rowY + 0.3]); // nothing placed yet: just the row
+  else if (unplaced.length) box.push([-rowHalf, rowY - 0.3], [rowHalf, rowY]);
+  const xs = box.map((p) => p[0]);
+  const ys = box.map((p) => p[1]);
   const pos = new Map<string, StageXY>();
   for (const f of fixtures) if (f.position) pos.set(f.id, { x: f.position.x, y: f.position.y });
   unplaced.forEach((f, i) => pos.set(f.id, { x: -rowHalf + (2 * rowHalf * (i + 0.5)) / unplaced.length, y: rowY }));
-  return { minX: minX - m, maxX: maxX + m, minY: minY - m, maxY: maxY + m, pos, unplaced: unplaced.length };
+  return { minX: Math.min(...xs) - m, maxX: Math.max(...xs) + m, minY: Math.min(...ys) - m, maxY: Math.max(...ys) + m, pos, unplaced: unplaced.length };
 }
 
 export interface StageFrame {

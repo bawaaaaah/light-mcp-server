@@ -98,6 +98,8 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
   const formId = useId();
   const form = useRef<HTMLFormElement | null>(null);
   const opener = useRef<HTMLElement | null>(null);
+  /** « + Ajouter »: unmounted while a new target's form is open, it takes the focus back when that form closes. */
+  const addButton = useRef<HTMLButtonElement | null>(null);
   const pendingFade = useRef<(() => { value: MoveFade | undefined } | null) | null>(null);
   // the target being edited deleted meanwhile (another screen, the AI): the form closes
   useEffect(() => {
@@ -107,7 +109,8 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
   const isOpen = draft !== null;
   useEffect(() => {
     if (isOpen) form.current?.querySelector<HTMLInputElement>("input")?.focus();
-    else if (opener.current?.isConnected) opener.current.focus();
+    // what opened it gone (« + Ajouter » while the form was open, a row deleted meanwhile): « + Ajouter » takes it
+    else if (opener.current) (opener.current.isConnected ? opener.current : addButton.current)?.focus();
   }, [isOpen]);
 
   const dirty = (): boolean => draft !== null && JSON.stringify(draft) !== opened.current;
@@ -202,7 +205,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
         </ul>
       )}
       {!draft && (
-        <button aria-expanded={false} onClick={(e) => open({ name: "", fixtures: [], group: "", bounds: null }, e.currentTarget)}>
+        <button ref={addButton} aria-expanded={false} onClick={(e) => open({ name: "", fixtures: [], group: "", bounds: null }, e.currentTarget)}>
           + {w.add}
         </button>
       )}

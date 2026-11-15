@@ -410,7 +410,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
       fadeField.focus();
       return;
     }
-    if (aimOnTarget && look.move?.enabled !== false && !look.move?.at?.target) {
+    if (look.move && look.move.enabled !== false && aimOnTarget && !look.move.at?.target) {
       // « Cible » without a target would save the pan/tilt centre instead: say it and take the operator to the list
       setError(t.targets.pickFirst);
       targetPicker.current?.querySelector<HTMLElement>('input[type="search"], button')?.focus();
@@ -580,7 +580,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         <>
           <h3>
             <label className="row">
-              <input type="checkbox" checked={Boolean(look.move)} onChange={(e) => set({ move: e.target.checked ? MOVE : undefined })} /> {t.moveFx}
+              <input type="checkbox" checked={Boolean(look.move)} onChange={(e) => (set({ move: e.target.checked ? MOVE : undefined }), e.target.checked || setAimOnTarget(false))} /> {t.moveFx}
             </label>
           </h3>
           {!look.move && <p className="hint">{t.moveNoneHelp}</p>}

@@ -7922,14 +7922,14 @@ test("target pad: a drag moves the reticle at 25 writes a second at most, the ke
     for (let i = 1; i < writes.length; i++) expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(35);
     const x = (await listedTarget(page, "t24"))!.point.x;
     expect(writes.at(-1)!.body).toMatchObject({ id: "t24", x });
-    // the keys: 10 cm, Shift 1 m; Page up / down: the height
+    // the keys: 10 cm, Shift 1 m; Page up / down: the height, 1 m (as on the Z fader)
     await plan.focus();
     await page.keyboard.press("ArrowRight");
     await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x).toBeCloseTo(x + 0.1, 5);
     await page.keyboard.press("Shift+ArrowUp");
     await expect.poll(async () => (await listedTarget(page, "t24"))!.point.y).toBeCloseTo(4, 5);
     await page.keyboard.press("PageUp");
-    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.z).toBeCloseTo(1.1, 5);
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.z).toBeCloseTo(2, 5);
     // the Z fader, in metres across the bounds: its top is the highest point (4 m)
     const track = pad.locator(".target-z .track");
     const t = (await track.boundingBox())!;
@@ -8076,10 +8076,19 @@ test("venue: « Cibles » creates, edits and deletes a target (asking when a loo
     await expect(form.getByText("Sans bornes propres", { exact: false })).toHaveCount(0);
     // a bound that is not a number, or a minimum above its maximum: said at the field, which is marked invalid
     const xMin = form.getByRole("textbox", { name: "X min (m)" });
+    const xMax = form.getByRole("textbox", { name: "X max (m)" });
+    // where X max stands from X min (the page may scroll to the field in error)
+    const gapOf = async () => {
+      const [a, b] = [(await xMin.boundingBox())!, (await xMax.boundingBox())!];
+      return { dx: b.x - a.x, dy: b.y - a.y };
+    };
+    const before = await gapOf();
     await xMin.fill("abc");
     await form.getByRole("button", { name: "Enregistrer" }).click();
     await expect(xMin).toHaveAttribute("aria-invalid", "true");
     await expect(form.locator(".target-bounds .error")).toHaveText("Un nombre en mètres");
+    // the error under X min never moves X max
+    expect(await gapOf()).toEqual(before);
     await expect(xMin).toBeFocused();
     await xMin.fill("99");
     await expect(form.locator(".target-bounds .error")).toHaveText("Au-dessus de son maximum");
@@ -8087,6 +8096,8 @@ test("venue: « Cibles » creates, edits and deletes a target (asking when a loo
     await form.getByRole("checkbox", { name: "Volume de la scène" }).check();
     await form.getByRole("button", { name: "Enregistrer" }).click();
     await expect(form).toHaveCount(0);
+    // the new target's form gone, « + Nouvelle cible » (what opened it) has the focus back
+    await expect(section.getByRole("button", { name: "+ Nouvelle cible" })).toBeFocused();
     const row = section.locator(".target-row", { hasText: "Chanteur test" });
     await expect(row).toContainText("1 lyre");
     id = (await row.getAttribute("data-target"))!;
@@ -8222,11 +8233,11 @@ test("target pad: a write still on the wire when the widget changes target goes 
   await asDesk(page, "target.put", { target: { id: "t24-b", name: "Cible B", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
   try {
     await withTargetPad(page, async (pad) => {
-      const bodies: { id: string }[] = [];
-      // a slow link: each target.set takes 300 ms, so the last point of the drag is still pending when the target changes
+      const bodies: { id: string; at: number }[] = [];
+      // a slow link: each target.set takes 1.5 s, so the last point of the drag is still pending when the target changes
       await page.route("**/commands/target.set", async (route) => {
-        bodies.push(route.request().postDataJSON() as { id: string });
-        await new Promise((r) => setTimeout(r, 300));
+        bodies.push({ ...(route.request().postDataJSON() as { id: string }), at: Date.now() });
+        await new Promise((r) => setTimeout(r, 1500));
         await route.continue();
       });
       const plan = pad.getByRole("slider", { name: "Cible test, vue de dessus" });
@@ -8239,9 +8250,12 @@ test("target pad: a write still on the wire when the widget changes target goes 
       await pad.locator(".target-pad-heading").click({ button: "right" });
       await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("combobox").first().selectOption("t24-b");
       await expect(pad.locator(".target-pad-heading strong")).toHaveText("Cible B");
+      const changedAt = Date.now();
       await page.keyboard.press("Escape");
-      await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x, { timeout: 5000 }).toBeGreaterThan(0.5);
-      await page.waitForTimeout(700);
+      await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x, { timeout: 10000 }).toBeGreaterThan(0.5);
+      await page.waitForTimeout(1700);
+      // not vacuous: a write of the old target left after the widget showed B, and still went to the old target
+      expect(bodies.some((b) => b.id === "t24" && b.at > changedAt)).toBe(true);
       expect(bodies.map((b) => b.id)).not.toContain("t24-b");
       expect((await listedTarget(page, "t24-b"))!.point).toEqual({ x: 0, y: 3, z: 1 });
       await page.unroute("**/commands/target.set");
@@ -8277,6 +8291,13 @@ test("look editor: « Cible » with no target picked refuses to save and takes t
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor).toHaveCount(0);
     expect(((await api(page, "look.get", { id: "t24-fixe" })) as { move: { at?: unknown } }).move.at).toEqual({ target: "t24-deux" });
+    // « Cible », then no movement at all: nothing to aim, the look saves without one
+    await page.getByRole("button", { name: "Modifier T24 fixe" }).click();
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-checked", "true");
+    await editor.getByRole("checkbox", { name: "Mouvement (lyres)" }).uncheck();
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t24-fixe" })) as { move?: unknown }).move).toBeUndefined();
   } finally {
     await asDesk(page, "look.delete", { id: "t24-fixe", force: true });
     await asDesk(page, "target.delete", { id: "t24-un", force: true });

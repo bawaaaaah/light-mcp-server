@@ -37,7 +37,7 @@ const W = 400;
 const LABEL_PX = 12;
 const HEAD_PX = 6;
 const RING_PX = 11;
-/** Keyboard steps (metres): an arrow, Shift + arrow, Page up / Page down. */
+/** Keyboard steps (metres): an arrow; Shift + arrow and Page up / Page down (the height, as on the Z fader). */
 const STEP = 0.1;
 const BIG_STEP = 1;
 
@@ -229,8 +229,8 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
       ArrowRight: { x: point.x + step },
       ArrowUp: { y: point.y + step },
       ArrowDown: { y: point.y - step },
-      PageUp: { z: point.z + step },
-      PageDown: { z: point.z - step },
+      PageUp: { z: point.z + BIG_STEP },
+      PageDown: { z: point.z - BIG_STEP },
       // a slider's ends: the X bounds (and the page does not scroll)
       Home: { x: bounds.min.x },
       End: { x: bounds.max.x },
@@ -261,12 +261,24 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
   const heightText = `${t.targets.z} ${metres(t, point.z)} m`;
   const zoneLabel = LABEL * 0.9;
   const ownHeads = placed.filter((f) => stateOf.has(f.id));
+  // a forbidden zone's dashed outline, edge by edge: the height is never written across it
+  const outlines = zones
+    .filter((z) => z.noAim)
+    .flatMap((z) =>
+      z.polygon.map(([x0, y0], i) => {
+        const [x1, y1] = z.polygon[(i + 1) % z.polygon.length]!;
+        const [ax, bx, ay, by] = [sx(x0), sx(x1), sy(y0), sy(y1)];
+        return { x0: Math.min(ax, bx) - unit, x1: Math.max(ax, bx) + unit, y0: Math.min(ay, by) - unit, y1: Math.max(ay, by) + unit };
+      }),
+    );
   const labels = placeLabels(
     [
       // the reticle and the target's heads first: no name is written over them
       { id: "#ring", x: rx, below: ry + 0.3 * LABEL, above: ry + 0.3 * LABEL, width: 3.4 * ring },
       ...ownHeads.map((f) => ({ id: `#head-${f.id}`, x: sx(f.position!.x), below: sy(f.position!.y) + 0.3 * LABEL, above: sy(f.position!.y) + 0.3 * LABEL, width: 3 * HEAD_PX * unit })),
-      { id: "#point", x: rx, below: ry + ring * 1.7 + LABEL, above: ry - ring * 1.7 - LABEL * 0.3, width: textWidth(heightText, LABEL) },
+      { id: "#point", x: rx, below: ry + ring * 1.7 + LABEL, above: ry - ring * 1.7 - LABEL * 0.3, width: textWidth(heightText, LABEL), avoid: outlines },
+      // the other placed fixtures, greyed: a zone's name does not cover their dot
+      ...placed.filter((f) => !stateOf.has(f.id)).map((f) => ({ id: `#fixture-${f.id}`, x: sx(f.position!.x), below: sy(f.position!.y) + 0.3 * LABEL, above: sy(f.position!.y) + 0.3 * LABEL, width: 2 * HEAD_PX * unit })),
       ...zones.map((z) => {
         const xs = z.polygon.map((p) => p[0]);
         const ys = z.polygon.map((p) => p[1]);

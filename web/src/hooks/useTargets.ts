@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { cmd } from "../api";
 import { control } from "../ws";
+import { keepPatched, type PointPatch } from "../target-patches";
 
 /** A point of the stage, metres (stage.ts: X stage left → right seen from the audience, Y front → upstage, Z up). */
 export interface Point3 {
@@ -72,6 +73,10 @@ class TargetsStore {
   private stop: (() => void) | undefined;
   /** Every name a target had while this page was open: a deleted one is still called by it, not by its id. */
   private readonly lastNames = new Map<string, string>();
+  /** The number of the latest target.list started. */
+  private started = 0;
+  /** The points target.set answered, kept against a list started before them (target-patches.ts). */
+  private patches = new Map<string, PointPatch<Point3>>();
 
   subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn);
@@ -99,8 +104,15 @@ class TargetsStore {
       return;
     }
     this.reading = true;
+    const read = ++this.started;
     void cmd<TargetRow[]>("target.list")
-      .then((list) => this.set(list, true))
+      .then((list) => {
+        // a list started before the last target.set and answered after it would move the pad back: keep its point
+        const fresh = keepPatched(list, read, this.patches);
+        this.patches = fresh.patches;
+        if (fresh.stale) this.again = true;
+        this.set(fresh.list, true);
+      })
       .catch(() => undefined)
       .finally(() => {
         this.reading = false;
@@ -113,6 +125,7 @@ class TargetsStore {
 
   /** The point target.set answered (the pad that moved it): shown at once, without waiting for a list. */
   patchPoint(id: string, point: Point3): void {
+    this.patches.set(id, { read: this.started, point });
     const row = this.row(id);
     if (!row || (row.point.x === point.x && row.point.y === point.y && row.point.z === point.z)) return;
     this.set(

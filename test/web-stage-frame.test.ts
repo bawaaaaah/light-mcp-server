@@ -33,6 +33,10 @@ describe("stage frame (top view)", () => {
     expect([l.minX, l.maxX, l.minY, l.maxY].map((v) => Math.round(v * 100) / 100)).to.deep.equal([-4.8, 7.8, -1.9, 9.8]);
     expect(l.pos.get("a")).to.deep.equal({ x: 0, y: -0.8 });
     expect(l.unplaced).to.equal(1);
+    // a target dragged downstage widens the frame, the row stays where the zones put it
+    const front = stageLayout([{ id: "a" }, { id: "b", position: { x: 0, y: 3 } }], [zone], [{ x: 0, y: -5 }]);
+    expect(front.pos.get("a")).to.deep.equal({ x: 0, y: -0.8 });
+    expect(Math.round(front.minY * 100) / 100).to.equal(-5.8);
     // a target inside the zones changes nothing
     expect(stageLayout([], [zone], [{ x: 1, y: 1 }])).to.deep.include({ minX: -4.8, maxX: 4.8, minY: -0.8, maxY: 6.8 });
   });

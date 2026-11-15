@@ -4643,11 +4643,15 @@ fieldset.group-lock legend {
   display: grid;
   gap: 0.4em;
 }
+/* two columns of a fixed width, the label of a fixed width: a minimum's error, below it, never moves its maximum */
 .target-form .target-bounds-axis {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 14em));
+  align-items: start;
   gap: 0.4em 1em;
+}
+.target-form .target-bounds label > span {
+  flex: 0 0 4em;
 }
 .target-form .target-bounds input {
   width: 6em;

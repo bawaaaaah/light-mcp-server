@@ -42,5 +42,8 @@ describe("placing fixtures on the stage plan", () => {
     const at = (id: string, x: number) => ({ id, x, below: 100, above: 70, width: 60 });
     const shown = placeLabels([at("a", 100), at("b", 130), at("c", 160), at("d", 300)], 10);
     expect([...shown]).to.deep.equal([["a", 100], ["b", 70], ["d", 100]]); // c has no room left
+    // a box to avoid (an outline under the name): the name goes above it, the others are not kept off it
+    const line = { x0: 0, x1: 400, y0: 99, y1: 101 };
+    expect([...placeLabels([{ ...at("a", 100), avoid: [line] }, at("d", 300)], 10)]).to.deep.equal([["a", 70], ["d", 100]]);
   });
 });

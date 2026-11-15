@@ -63,19 +63,29 @@ export function inFrame(p: P, a: P, b: P): boolean {
 /** A name's width in the drawing, from its length (an average letter: 0.58 of the font size). */
 export const textWidth = (text: string, fontSize: number): number => text.length * fontSize * 0.58;
 
+/** A box of the drawing (its units) a name must not touch. */
+export interface LabelBox {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
 /**
  * Fixture names on the plan without overlap: each under its fixture (`below`, a baseline), else above
  * it (`above`), else left out (its name stays on hover), in the order given. `size`: the font size.
+ * `avoid`: boxes this name alone must stay off too (a forbidden zone's dashed outline under the target's height).
  * Returns the baseline of each name shown.
  */
-export function placeLabels(items: readonly { id: string; x: number; below: number; above: number; width: number }[], size: number): Map<string, number> {
-  const kept: { x0: number; x1: number; y0: number; y1: number }[] = [];
+export function placeLabels(items: readonly { id: string; x: number; below: number; above: number; width: number; avoid?: readonly LabelBox[] }[], size: number): Map<string, number> {
+  const kept: LabelBox[] = [];
   const shown = new Map<string, number>();
   const gap = size * 0.2;
+  const hits = (box: LabelBox, k: LabelBox): boolean => box.x0 < k.x1 && k.x0 < box.x1 && box.y0 < k.y1 && k.y0 < box.y1;
   for (const it of items) {
     for (const y of [it.below, it.above]) {
       const box = { x0: it.x - it.width / 2 - gap, x1: it.x + it.width / 2 + gap, y0: y - size * 0.8, y1: y + size * 0.25 };
-      if (kept.some((k) => box.x0 < k.x1 && k.x0 < box.x1 && box.y0 < k.y1 && k.y0 < box.y1)) continue;
+      if (kept.some((k) => hits(box, k)) || it.avoid?.some((k) => hits(box, k))) continue;
       kept.push(box);
       shown.set(it.id, y);
       break;
