@@ -862,16 +862,25 @@ describe("a head driven by the command layer (the pad's path)", () => {
       // where an aim lands, in logical units, before the correction
       const aim = async () => ((await run("position.aim", { fixtures: ["spot"], point: { x: 2, y: 3, z: 0 } })) as { results: { pan: number }[] }).results[0]!.pan;
       const before = await aim();
-      // the model's: both of its fixtures follow
-      expect(await run("venue.fixture.travel.set", { fixture: "spot", panMax: 630 })).to.deep.include({ panMax: 630, tiltMax: 270, model: { panMax: 630 } });
-      expect((await travel("spot-b")).panMax).to.equal(630);
-      expect((await travel("spot-b")).applies.panMax).to.equal("model");
+      // the model's: its fixtures follow, but a mode declaring its own travel keeps it (decision E3), said in the answer
+      expect(await run("venue.fixture.travel.set", { fixture: "spot", panMax: 630 })).to.deep.include({ panMax: 630, tiltMax: 270, model: { panMax: 630 }, modesKeepingTravel: ["Basic"] });
+      expect((await travel("spot")).applies.panMax).to.equal("model");
+      expect((await travel("spot-b")).panMax).to.equal(360);
+      expect((await travel("spot-b")).applies.panMax).to.equal("definition");
       const after = await aim();
       expect((after - 0.5) * 630).to.be.closeTo((before - 0.5) * 540, 1e-6); // the same angle, on a longer travel
-      // one fixture's own correction, axis by axis over its model's
-      const own = (await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", tiltMax: 265 })) as Travel;
+      // one fixture's own correction, axis by axis, over its mode's and its model's
+      let own = (await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", tiltMax: 265 })) as Travel;
+      expect([own.panMax, own.tiltMax]).to.deep.equal([360, 265]);
+      expect(own.applies).to.deep.equal({ panMax: "definition", tiltMax: "fixture" });
+      own = (await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", panMax: 350 })) as Travel;
+      expect([own.panMax, own.tiltMax]).to.deep.equal([350, 265]); // the fixture's own beats its mode's
+      await run("venue.fixture.travel.set", { fixture: "spot-b", scope: "fixture", panMax: null });
+      // a mode without its own travel: the fixture's tilt beside its model's pan
+      own = (await run("venue.fixture.travel.set", { fixture: "spot", scope: "fixture", tiltMax: 265 })) as Travel;
       expect([own.panMax, own.tiltMax]).to.deep.equal([630, 265]);
       expect(own.applies).to.deep.equal({ panMax: "model", tiltMax: "fixture" });
+      await run("venue.fixture.travel.set", { fixture: "spot", scope: "fixture", tiltMax: null });
       expect((await travel("spot")).tiltMax).to.equal(270);
       // a manual position sends the same bytes whatever the travel
       await run("position.set", { fixtures: ["spot"], pan: 0.25, tilt: 0.75 });

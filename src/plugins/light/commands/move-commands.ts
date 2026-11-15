@@ -5,7 +5,8 @@
 import { z } from "zod";
 import { CommandError, type CommandRegistry, type Origin } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
-import { calibrate, correctionOf, type CalibrationSample } from "../venue/aim.js";
+import { boundPosition, calibrate, correctionOf, type CalibrationSample } from "../venue/aim.js";
+import type { Position } from "../engine/move.js";
 import { aimSetupOf } from "../venue/venue.js";
 import { isHung } from "../venue/orientation.js";
 import { zoneAimPoint } from "../venue/stage.js";
@@ -375,7 +376,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
    * is not a mark aimed by hand), held by no look or target, not gliding, arrived where the pad asked. `then`: what the
    * operator does once that is fixed.
    */
-  const aimedByHand = async (f: { id: string; name: string }, then: { fr: string; en: string }) => {
+  const aimedByHand = async (f: { id: string; name: string }, then: { fr: string; en: string }): Promise<{ sent: Position; beyondStops: boolean }> => {
     const fixture = f.id;
     if (show.motionLock(fixture) === "hard")
       throw new CommandError(
@@ -395,16 +396,26 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     if (axes.some((a) => a.layer === "target"))
       throw new Error(say(`${f.name} : une cible la tient ; la viser d'abord à la main (pad XY), puis ${then.fr}`, `${f.name}: a target holds it; aim it by hand first (XY pad), then ${then.en}`));
     if (axes.some((a) => a.moving)) throw new Error(say(`${f.name} : elle glisse encore ; attendre qu'elle soit arrêtée`, `${f.name}: it is still gliding; wait until it stops`));
+    // the pad's position as the output can reach it: a pad pushed beyond a stop (T8) leaves the head at the stop, arrived
+    const asked = { pan: status.pan.target ?? sent.pan, tilt: status.tilt.target ?? sent.tilt };
+    const r = show.venue.resolve(fixture);
+    const reachable = "error" in r ? asked : boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: r.patch.orientation?.limits }, asked);
+    const manual = axes.filter((a) => a.layer === "manual" && a.target !== undefined);
     // a speed rule holds a head back on its way to the pad's position: the mark would be a point of its course
-    if (axes.some((a) => a.layer === "manual" && a.target !== undefined && Math.abs(sent[a.axis] - a.target) > ARRIVED))
+    if (manual.some((a) => Math.abs(sent[a.axis] - reachable[a.axis]) > ARRIVED))
       throw new Error(
         say(
           `${f.name} : la lyre n'est pas encore arrivée (une règle de vitesse la ralentit, ou la console DMX ou un fader tient son pan/tilt) ; attendre, puis ${then.fr}`,
           `${f.name}: the head has not arrived yet (a speed rule slows it, or the DMX console or a fader holds its pan/tilt); wait, then ${then.en}`,
         ),
       );
-    return sent;
+    return { sent, beyondStops: manual.some((a) => Math.abs(reachable[a.axis] - asked[a.axis]) > 1e-9) };
   };
+  /** Said with a mark taken while the pad asks beyond a stop: the head stands at the stop, which is what is measured. */
+  const BEYOND_STOPS_NOTE = say(
+    "le pad demande au-delà de la butée : la lyre est restée à la butée, c'est cette position qui compte",
+    "the pad asks beyond the stop: the head stayed at the stop, that position is the one that counts",
+  );
   reg.register({
     name: "calibration.record",
     title: "Enregistrer un repère",
@@ -414,9 +425,9 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0) }),
     run: async ({ fixture, zone, point, height }) => {
-      const { f } = head(fixture);
-      const sent = await aimedByHand(f, { fr: "enregistrer", en: "record" });
-      const o = f.orientation;
+      const { sent, beyondStops } = await aimedByHand(head(fixture).f, { fr: "enregistrer", en: "record" });
+      // read again after the frame waited for: the orientation may have changed meanwhile
+      const o = head(fixture).f.orientation;
       // the output values, as the fixture really receives them (current inversion and swap)
       let pan = o?.invertPan ? 1 - sent.pan : sent.pan;
       let tilt = o?.invertTilt ? 1 - sent.tilt : sent.tilt;
@@ -424,7 +435,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       const list = samples.get(fixture) ?? [];
       list.push({ target: pointOf(zone, point, height), pan, tilt });
       samples.set(fixture, list);
-      return { fixture, samples: list.length, ready: list.length >= 2 };
+      return { fixture, samples: list.length, ready: list.length >= 2, ...(beyondStops ? { note: BEYOND_STOPS_NOTE } : {}) };
     },
   });
   reg.register({ name: "calibration.list", title: "Repères enregistrés", description: "Calibration marks recorded for a head.", right: "dashboards:view", readOnly: true, profiles: ["setup"], schema: z.object({ fixture: z.string() }), run: ({ fixture }) => samples.get(fixture) ?? [] });
@@ -465,14 +476,15 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "calibration.correct",
     title: "Corriger sur un repère",
     description:
-      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's centre at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and aims the head at the spot again: it should not move. One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
+      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's centre at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and aims the head at the spot again from where it is held (the same solution, never a half turn): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0), apply: z.boolean().default(false) }),
     run: async ({ fixture, zone, point, height, apply }) => {
-      const { f, r } = head(fixture);
       const target = pointOf(zone, point, height);
-      const held = await aimedByHand(f, { fr: "corriger", en: "correct" });
+      const { sent: held, beyondStops } = await aimedByHand(head(fixture).f, { fr: "corriger", en: "correct" });
+      // read again after the frame waited for: the patch may have changed meanwhile (another correction, a new travel)
+      const { f, r } = head(fixture);
       const result = correctionOf(aimSetupOf(r)!, target, held);
       if ("error" in result) throw new Error(result.error);
       const large = Math.max(Math.abs(result.panOffsetDelta), Math.abs(result.tiltOffsetDelta)) > LARGE_CORRECTION;
@@ -485,10 +497,11 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       let aimed: { pan?: number; tilt?: number; error?: string } | undefined;
       if (apply) {
         show.venue.fixtures.put({ ...f, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, ...f.orientation, panOffset: result.panOffset, tiltOffset: result.tiltOffset } });
-        const [again] = show.aim([fixture], target);
+        // aimed again from where it is held: the solution it is on, not the one closest to the centre (a half turn)
+        const [again] = show.aim([fixture], target, held);
         aimed = again && { ...(again.pan !== undefined ? { pan: again.pan, tilt: again.tilt } : {}), ...(again.error ? { error: again.error } : {}) };
       }
-      return { fixture, target, applied: apply, ...result, ...(advice ? { advice } : {}), ...(aimed ? { aimed } : {}) };
+      return { fixture, target, applied: apply, ...result, ...(advice ? { advice } : {}), ...(aimed ? { aimed } : {}), ...(beyondStops ? { note: BEYOND_STOPS_NOTE } : {}) };
     },
   });
 }

@@ -64,7 +64,8 @@ export type TrackOverrides = z.infer<typeof TrackOverridesSchema>;
 
 /**
  * T8 — a moving head's real travel in degrees, when the definition is wrong (a file written from a manual: 540°/270°
- * where the head turns 630°/265°). Each axis left out: the definition's (its mode's, else its own, else 540/270).
+ * where the head turns 630°/265°). Each axis left out: the definition's (its mode's, else its own, else 540/270). A
+ * model's correction leaves a mode declaring its own travel alone, a fixture's always applies (decision E3, `travelOf`).
  */
 export const TravelOverridesSchema = z.object({
   panMax: z.number().finite().min(1).max(1080).optional(),

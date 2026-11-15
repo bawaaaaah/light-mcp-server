@@ -5,8 +5,41 @@
  * interface can offer to change mode (T6). Pure.
  */
 import type { FixtureDefinition, FixtureMode } from "./qxf-import.js";
+import type { TravelOverrides } from "./overrides.js";
 
 export type Axis = "pan" | "tilt";
+type TravelKey = "panMax" | "tiltMax";
+const TRAVEL_KEYS = ["panMax", "tiltMax"] as const;
+const FALLBACK: Record<TravelKey, number> = { panMax: 540, tiltMax: 270 };
+
+/** Where the travel of an axis comes from: the fixture's own correction, its model's, or the definition (its mode's, else its own). */
+export type TravelSource = "fixture" | "model" | "definition";
+
+/**
+ * The travel that applies, axis by axis (decision E3 of the user): the fixture's own correction, else the mode's own
+ * travel (a model's correction leaves a mode that declares its own alone: the maker wrote it for that mode), else the
+ * model's correction, else the definition's, else 540°/270°.
+ */
+export function travelOf(def: FixtureDefinition, mode: FixtureMode, model: TravelOverrides | undefined, own: TravelOverrides | undefined): Record<TravelKey, number> & { applies: Record<TravelKey, TravelSource> } {
+  const one = (k: TravelKey): [number, TravelSource] => {
+    const fixture = own?.[k];
+    if (fixture !== undefined) return [fixture, "fixture"];
+    const ofMode = mode[k];
+    if (ofMode !== undefined) return [ofMode, "definition"];
+    const ofModel = model?.[k];
+    if (ofModel !== undefined) return [ofModel, "model"];
+    return [def[k] ?? FALLBACK[k], "definition"];
+  };
+  const [panMax, panFrom] = one("panMax");
+  const [tiltMax, tiltFrom] = one("tiltMax");
+  return { panMax, tiltMax, applies: { panMax: panFrom, tiltMax: tiltFrom } };
+}
+
+/** The modes of a definition a model's travel correction does not affect (decision E3): those declaring their own travel on an axis it corrects. */
+export function modesKeepingTravel(def: FixtureDefinition, model: TravelOverrides | undefined): string[] {
+  if (!model) return [];
+  return def.modes.filter((m) => TRAVEL_KEYS.some((k) => model[k] !== undefined && m[k] !== undefined)).map((m) => m.name);
+}
 
 /** Per axis, whether the mode drives it at all and whether with its fine channel. */
 export function axesOf(def: FixtureDefinition, mode: FixtureMode): Record<Axis, { coarse: boolean; fine: boolean }> {

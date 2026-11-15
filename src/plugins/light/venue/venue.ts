@@ -6,7 +6,8 @@
  * per fixture, raw values for special channels) and the venue converts it. A show written on a
  * canvas therefore plays on another venue's kit unchanged — only the canvas rendering differs.
  */
-import { FixtureOverridesSchema, mergeOverrides, modelKey, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides } from "./overrides.js";
+import { FixtureOverridesSchema, mergeOverrides, modelKey, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides, type TravelOverrides } from "./overrides.js";
+import { travelOf } from "./travel.js";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -578,6 +579,12 @@ export class Venue {
     return mergeOverrides(key ? this.models.get(key)?.overrides : undefined, patch.overrides);
   }
 
+  /** The travel correction of a fixture's model (T8), apart from its own: a model's applies to modes without their own travel only. */
+  modelTravelOf(patch: PatchedFixture): TravelOverrides | undefined {
+    const key = modelKeyOrUndefined(patch.manufacturer, patch.model);
+    return key ? this.models.get(key)?.overrides.travel : undefined;
+  }
+
   /**
    * Writes one part of the overrides (venue/overrides.ts) of a fixture (`scope` fixture) or of its model (`model`), or
    * removes it with `undefined`; the other parts stay as they are. An empty fixture part leaves no `overrides`, an empty
@@ -740,9 +747,10 @@ export class Venue {
         // no head with a component to paint: the dimmer follows the painted level, as on a lamp, or nothing would dose it
         const levelDimmer = [...heads.values()].every((c) => Object.keys(c).length === 0);
         const tracks = tracksOf(def, mode, this.overridesOf(patch).tracks);
-        // the real travel (T8): the fixture's or its model's correction first, then the mode, the definition, 540°/270°
-        const travel = this.overridesOf(patch).travel;
-        result = { ...(tracks ? { tracks } : {}), patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax: travel?.panMax ?? mode.panMax ?? def.panMax ?? 540, tiltMax: travel?.tiltMax ?? mode.tiltMax ?? def.tiltMax ?? 270, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
+        // the real travel (T8, decision E3): the fixture's own correction first, then the mode's own travel (a model's
+        // correction does not touch a mode that declares its own), then the model's correction, the definition, 540°/270°
+        const { panMax, tiltMax } = travelOf(def, mode, this.modelTravelOf(patch), patch.overrides?.travel);
+        result = { ...(tracks ? { tracks } : {}), patch, def, mode, heads, accent: found.accent, follow: corrected?.follow ?? true, deducedHeads: found.deduced, escapedColours: found.escaped, dimmers, strobes, pan, tilt, panMax, tiltMax, beamAngle: mode.beamAngle ?? def.beamAngle, beamAngleMin: mode.beamAngleMin ?? def.beamAngleMin, zoom: zoomOf(def, mode), wheel, shutterOpen, lampOnly, levelDimmer };
       }
     }
     this.resolved.set(fixtureId, result);
@@ -967,18 +975,31 @@ export class Venue {
    */
   writePosition(r: ResolvedFixture, at: Position, write: (offset: number, value: number) => void, { unbounded = false }: { unbounded?: boolean } = {}): void {
     const o = r.patch.orientation;
-    const p = unbounded || !o?.limits ? at : boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: o.limits }, at);
-    let pan = o?.invertPan ? 1 - p.pan : p.pan;
-    let tilt = o?.invertTilt ? 1 - p.tilt : p.tilt;
-    if (o?.swapPanTilt) [pan, tilt] = [tilt, pan];
-    const put = (ch: CoarseFine | undefined, v: number) => {
+    const stops = unbounded || !o?.limits ? undefined : { panMax: r.panMax, tiltMax: r.tiltMax, limits: o.limits };
+    const p = stops ? boundPosition(stops, at) : at;
+    // each logical axis → its channel (swap) and its direction (inversion)
+    const put = (axis: "pan" | "tilt") => {
+      const ch = (o?.swapPanTilt ? (axis === "pan" ? r.tilt : r.pan) : r[axis]) ?? undefined;
       if (!ch) return;
+      const inverted = axis === "pan" ? o?.invertPan : o?.invertTilt;
+      const v = inverted ? 1 - p[axis] : p[axis];
       const v16 = Math.round(Math.max(0, Math.min(1, v)) * 65535);
-      write(ch.coarse, v16 >> 8);
+      let coarse = v16 >> 8;
+      // an 8-bit axis truncates: a stop could be passed by up to one step, so the byte is brought back inside (T8)
+      if (stops && ch.fine === undefined) {
+        const read = (byte: number) => (inverted ? 1 - byte / 255 : byte / 255);
+        const inside = (byte: number) => boundPosition(stops, { pan: 0.5, tilt: 0.5, [axis]: read(byte) })[axis];
+        for (let n = 0; n < 2; n++) {
+          const gap = inside(coarse) - read(coarse);
+          if (Math.abs(gap) < 1e-9) break;
+          coarse = Math.max(0, Math.min(255, coarse + (gap > 0 === !inverted ? 1 : -1)));
+        }
+      }
+      write(ch.coarse, coarse);
       if (ch.fine !== undefined) write(ch.fine, v16 & 255);
     };
-    put(r.pan, pan);
-    put(r.tilt, tilt);
+    put("pan");
+    put("tilt");
   }
 
   /**

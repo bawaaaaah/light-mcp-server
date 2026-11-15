@@ -13,10 +13,11 @@ import type { DmxEngine } from "../engine/dmx-engine.js";
 import { CanvasSchema, DegreeRangeSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
-import { modelKeyOrUndefined, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
+import { modelKeyOrUndefined, TravelOverridesSchema, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { trackNamesProblem } from "../venue/tracks.js";
-import { axesOf, finerModes, stepDeg } from "../venue/travel.js";
+import { finerModes, modesKeepingTravel, stepDeg, travelOf } from "../venue/travel.js";
+import { stopsOutsideTravel } from "../venue/stops-check.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
@@ -295,7 +296,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.orient",
     title: "Orienter une fixture",
     description:
-      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); swapPanTilt exchanges its pan and tilt channels. Manual calibration (T8): panOffset / tiltOffset, degrees where the beam really falls for a given position (aiming takes them off; the pad's positions do not change); limits, the useful stops per axis as [from, to] in logical degrees (0 = centre of the travel, before the offsets): aiming beyond them is refused as out of reach and the output is bounded to them; an axis given null removes its stop, limits null both. Each of these stays as stored when not given. Inverting or swapping is refused while the head is frozen hard.",
+      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); swapPanTilt exchanges its pan and tilt channels. Manual calibration (T8): panOffset / tiltOffset, degrees where the beam really falls for a given position (aiming takes them off; the pad's positions do not change); limits, the useful stops per axis as [from, to] in logical degrees (0 = centre of the travel, before the offsets): aiming beyond them is refused as out of reach and the output is bounded to them (a stop given beyond ± half the travel is refused); an axis given null removes its stop, limits null both. Each of these stays as stored when not given. Inverting or swapping is refused while the head is frozen hard.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({
@@ -346,6 +347,18 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         }
         if (next.pan || next.tilt) orientation.limits = next;
         else delete orientation.limits;
+        // a stop given beyond the travel is a typing slip (or a travel to correct first): it would bound nothing there
+        const r = venue.resolve(fixtureId);
+        if (limits && !("error" in r)) {
+          const outside = stopsOutsideTravel({ pan: limits.pan ?? undefined, tilt: limits.tilt ?? undefined }, r);
+          if (outside.length)
+            throw new Error(
+              say(
+                `${f.name} : butée hors de la course (${outside.map((s) => `${s.axis} ± ${s.half}°`).join(", ")}) ; corriger la course d'abord (venue.fixture.travel.set) si elle est fausse`,
+                `${f.name}: stop outside the travel (${outside.map((s) => `${s.axis} ± ${s.half}°`).join(", ")}); correct the travel first (venue.fixture.travel.set) if it is wrong`,
+              ),
+            );
+        }
       }
       keepFrozenFlips(fixtureId, f.orientation, orientation);
       const saved = venue.fixtures.put({ ...f, orientation });
@@ -469,11 +482,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     const r = venue.resolve(fixtureId);
     if ("error" in r) throw new Error(r.error);
     if (!r.pan && !r.tilt) throw new Error(say(`${f.name} : pas de pan/tilt`, `${f.name}: no pan/tilt`));
-    const key = keyOrUndefined(f);
-    const model = (key && venue.models.get(key)?.overrides.travel) || null;
+    const model = venue.modelTravelOf(f) ?? null;
     const own = f.overrides?.travel ?? null;
-    const axes = axesOf(r.def, r.mode);
-    const from = (axis: "panMax" | "tiltMax") => (own?.[axis] !== undefined ? "fixture" : model?.[axis] !== undefined ? "model" : "definition");
+    // the channels that really carry each logical axis (a head wired with pan and tilt swapped: the other one)
+    const swap = f.orientation?.swapPanTilt ?? false;
+    const fine = { pan: (swap ? r.tilt : r.pan)?.fine !== undefined, tilt: (swap ? r.pan : r.tilt)?.fine !== undefined };
+    const { applies } = travelOf(r.def, r.mode, model ?? undefined, own ?? undefined);
     return {
       fixture: { id: f.id, name: f.name, manufacturer: f.manufacturer, model: f.model, mode: f.mode },
       definition: { panMax: r.mode.panMax ?? r.def.panMax ?? 540, tiltMax: r.mode.tiltMax ?? r.def.tiltMax ?? 270 },
@@ -481,19 +495,22 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       own,
       panMax: r.panMax,
       tiltMax: r.tiltMax,
-      applies: { panMax: from("panMax"), tiltMax: from("tiltMax") },
+      applies,
+      // decision E3: the modes of its model that keep their own travel, whatever the model's correction
+      modesKeepingTravel: modesKeepingTravel(r.def, model ?? undefined),
       // one step of the output, degrees: the correction pad cannot be finer than this
-      fine: { pan: axes.pan.fine, tilt: axes.tilt.fine },
-      step: { pan: stepDeg(r.panMax, axes.pan.fine), tilt: stepDeg(r.tiltMax, axes.tilt.fine) },
+      fine,
+      step: { pan: stepDeg(r.panMax, fine.pan), tilt: stepDeg(r.tiltMax, fine.tilt) },
       finerModes: finerModes(r.def, r.mode),
     };
   };
-  const travelAxis = z.number().finite().min(1).max(1080).nullable().optional();
+  // the bounds of a travel are the stored correction's (overrides.ts); null takes it back
+  const travelAxis = { panMax: TravelOverridesSchema.shape.panMax.nullable(), tiltMax: TravelOverridesSchema.shape.tiltMax.nullable() };
   reg.register({
     name: "venue.fixture.travel",
     title: "Course d'une lyre",
     description:
-      "A moving head's real pan/tilt travel in degrees: the definition's (its mode's, else its own, else 540/270), the correction of its model and its own, the travel that applies and where it comes from per axis. fine: whether its mode drives each axis with a fine channel; step: one step of the output in degrees (travel / 65535 with a fine channel, travel / 255 without); finerModes: other DMX modes of its definition that drive with a fine channel an axis this mode drives without (venue.fixture.mode changes it).",
+      "A moving head's real pan/tilt travel in degrees: the definition's (its mode's, else its own, else 540/270), the correction of its model and its own, the travel that applies and where it comes from per axis (the fixture's own correction, else the mode's own travel when the definition gives the mode one, else the model's correction, else the definition's); modesKeepingTravel: the modes of the definition that keep their own travel whatever the model's correction. fine: whether its mode drives each axis with a fine channel; step: one step of the output in degrees (travel / 65535 with a fine channel, travel / 255 without); finerModes: other DMX modes of its definition that drive with a fine channel an axis this mode drives without (venue.fixture.mode changes it).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -504,10 +521,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.travel.set",
     title: "Corriger la course d'une lyre",
     description:
-      "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model) or for this fixture only (over its model's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
+      "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model, in the DMX modes that declare no travel of their own: a mode that declares one keeps it, listed in modesKeepingTravel) or for this fixture only (over its model's and its mode's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ fixture: z.string(), scope: headsScope, panMax: travelAxis, tiltMax: travelAxis }),
+    schema: z.object({ fixture: z.string(), scope: headsScope, ...travelAxis }),
     run: ({ fixture, scope, panMax, tiltMax }) => {
       const view = travelOfFixture(fixture);
       const current = (scope === "model" ? view.model : view.own) ?? {};

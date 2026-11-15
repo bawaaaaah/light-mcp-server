@@ -221,11 +221,15 @@ describe("fixture orientation", () => {
     const expected = aimAt(truth, other) as { pan: number; tilt: number };
     expect(res.results[0]!.pan).to.be.closeTo(expected.pan, 0.001);
     expect(res.results[0]!.tilt).to.be.closeTo(expected.tilt, 0.001);
-    // a look holding the head: refused, as calibration.record
+    // a look holding the head: refused, as calibration.record, for that very reason
+    await run("venue.canvas.put", { canvas: { id: "c1", name: "C1", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "lyre", head: -1 }] }] } });
+    await run("look.put", { look: { id: "fixe", name: "Fixe", canvas: "c1", technique: { kind: "aucune" }, move: { shape: "fixe", center: { pan: 0.4, tilt: 0.6 }, fade: { seconds: 0 } } } });
     await run("position.release", { fixtures: ["lyre"] });
+    await run("look.go", { id: "fixe" });
+    for (let i = 0; i < 5; i++) plugin.engine.render();
     await run("calibration.correct", { fixture: "lyre", point: mark }).then(
       () => expect.fail("the head must be aimed by hand"),
-      (e: Error) => expect(e.message).to.match(/main|hand|glisse|gliding|arrivée|arrived/),
+      (e: Error) => expect(e.message).to.equal("Lyre : un look la déplace ; la viser d'abord à la main (pad XY), puis corriger"),
     );
   });
 

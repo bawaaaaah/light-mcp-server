@@ -12,7 +12,7 @@ import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
 import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
-import { aimAt } from "../venue/aim.js";
+import { aimAt, aimNear, boundPosition } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
@@ -1944,15 +1944,19 @@ export class ShowRuntime {
     return sent;
   }
 
-  /** Points fixtures at a point of the stage (metres); returns per-fixture results. */
-  aim(fixtures: string[], target: { x: number; y: number; z: number }): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
+  /**
+   * Points fixtures at a point of the stage (metres); returns per-fixture results. The solution closest to the centre of
+   * the travel, or with `near` the one closest to that position (a head re-aimed where it already points stays on its
+   * side instead of turning half a turn, T8).
+   */
+  aim(fixtures: string[], target: { x: number; y: number; z: number }, near?: Position): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
     return fixtures.map((id) => {
       const f = this.venue.fixtures.get(id);
       const r = this.venue.resolve(id);
       if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`) };
       if (!r.pan && !r.tilt) return { fixture: id, error: say("pas de pan/tilt", "no pan/tilt") };
       if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown") };
-      const res = aimAt(aimSetupOf(r)!, target);
+      const res = near ? aimNear(aimSetupOf(r)!, target, near) : aimAt(aimSetupOf(r)!, target);
       if ("error" in res) return { fixture: id, error: res.error };
       this.setPosition([id], res);
       return { fixture: id, pan: res.pan, tilt: res.tilt };
@@ -2541,6 +2545,8 @@ export class ShowRuntime {
     }
     // a head under a hard lock (T26) does not move, whoever writes its pan/tilt but the DMX console (decision Q4)
     this.freezeHard(buffers);
+    // the useful stops (T8) hold over whatever wrote pan/tilt after the motion layer, but the DMX console
+    this.boundToStops(buffers);
     const rules = this.rulesInForce();
     const locked = rules.filter((r) => r.locked);
     if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
@@ -2606,6 +2612,36 @@ export class ShowRuntime {
         },
         { unbounded: true },
       );
+    }
+  }
+
+  /**
+   * T8, useful stops: the pan/tilt bytes of each head with stops (`orientation.limits`) are read back from the output,
+   * bounded and written again — the motion layer bounds what it writes (Venue.writePosition), but a channel fader on
+   * pan/tilt or a raw channel of a fixture patched over it writes after it. The slots the DMX console forces stay its
+   * own (its last resort, as for the hard lock); a head frozen hard stays where it is held (freezeHard, unbounded).
+   */
+  private boundToStops(buffers: Uint8Array[]): void {
+    let forced: ReadonlyMap<number, ReadonlySet<number>> | undefined;
+    const time = this.now();
+    for (const head of this.movingHeads()) {
+      const r = this.venue.resolve(head);
+      if ("error" in r || !r.patch.orientation?.limits) continue;
+      if (this.motionLock(head) === "hard" && this.heldAt(head, time)) continue;
+      const buf = buffers[r.patch.universe - 1];
+      if (!buf) continue;
+      const read = this.venue.sentPosition(r, buf);
+      const now = { pan: read.pan ?? 0.5, tilt: read.tilt ?? 0.5 };
+      const bounded = boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: r.patch.orientation.limits }, now);
+      // within one 16-bit step: what writePosition itself sent for a position at the stop (its rounding)
+      if (Math.abs(bounded.pan - now.pan) <= 1 / 65535 && Math.abs(bounded.tilt - now.tilt) <= 1 / 65535) continue;
+      forced ??= this.consoleSlots();
+      const parked = forced.get(r.patch.universe);
+      const at = r.patch.address - 1;
+      this.venue.writePosition(r, bounded, (offset, value) => {
+        const index = at + offset;
+        if (index < 512 && !parked?.has(index)) buf[index] = value;
+      });
     }
   }
 
