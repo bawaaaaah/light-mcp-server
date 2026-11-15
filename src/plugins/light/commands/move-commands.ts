@@ -54,7 +54,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       const names = refused.map(nameOf).join(", ");
       throw new CommandError(
         "failed",
-        say(`lyres figées (tout, pad compris) : ${names} ; les défiger d'abord (« Figer les lyres », en haut de l'écran)`, `moving heads frozen (everything, pad included): ${names}; unfreeze them first (« Freeze the heads », at the top of the screen)`),
+        say(`lyres figées (tout, pad compris) : ${names} ; les défiger d'abord (« Figer les lyres », en haut de l'écran)`, `moving heads frozen (everything, pad included): ${names}; unfreeze them first (“Freeze the heads”, at the top of the screen)`),
         { refused },
       );
     }

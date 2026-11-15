@@ -328,7 +328,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
           "failed",
           say(
             `lyres figées (tout, pad compris) : ${frozen.map((f) => f.name).join(", ")} ; inverser ou permuter leur pan/tilt les déplacerait, rien n'est déplacé ; les défiger d'abord (« Figer les lyres », en haut de l'écran)`,
-            `moving heads frozen (everything, pad included): ${frozen.map((f) => f.name).join(", ")}; inverting or swapping their pan/tilt would move them, nothing is moved; unfreeze them first (« Freeze the heads », at the top of the screen)`,
+            `moving heads frozen (everything, pad included): ${frozen.map((f) => f.name).join(", ")}; inverting or swapping their pan/tilt would move them, nothing is moved; unfreeze them first (“Freeze the heads”, at the top of the screen)`,
           ),
           { refused: frozen.map((f) => f.id) },
         );
