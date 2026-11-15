@@ -89,6 +89,12 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     const deg = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString(isFrench(t) ? "fr" : "en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}°`;
     return `${deg(d.pan)}${sep}${deg(d.tilt)}`;
   };
+  /**
+   * A correction pad's « arrived »: within one and a half real steps of the output on each axis. The pad-wide tolerance
+   * (1.5 / 255 of the travel: 3° of pan) would hide the point asked on a ± 2° pad.
+   */
+  const onGrid = (a: Position, b: Position | null): boolean =>
+    span !== undefined && b !== null && (["pan", "tilt"] as const).every((axis) => Math.abs(a[axis] - b[axis]) <= (1.5 * span.step[axis]) / span.travel[axis]);
   /** A value moved by an arrow, on the pad's grid: thousandths of the travel, or the output's own steps on a correction pad. */
   const moved = (axis: Axis, v: number): number => (span ? quantize(v, span.fine[axis]) : clamp(v));
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
@@ -612,7 +618,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
           </span>
         )}
         {restControls && head && <span className="rest-dot" data-testid="xy-rest-dot" aria-hidden="true" style={{ left: `${placed(head.rest).pan * 100}%`, top: `${(1 - placed(head.rest).tilt) * 100}%` }} />}
-        {pos && (!sameSent || !samePoint(pos, firstSent)) && (
+        {pos && (!sameSent || !(span ? onGrid(pos, firstSent) : samePoint(pos, firstSent))) && (
           <span className="dot requested" data-testid="xy-requested-dot" aria-hidden="true" style={{ left: `${placed(pos).pan * 100}%`, top: `${(1 - placed(pos).tilt) * 100}%` }} />
         )}
         {scopedHeads.map((h) => {
