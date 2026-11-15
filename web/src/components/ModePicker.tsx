@@ -28,7 +28,7 @@ export const SEARCH_FROM = 8;
  * named again. `focusOnOpen`: the search, else the current row, else the first, takes the focus when it appears
  * (a list opened from a button).
  */
-export function ModePicker({ title, items, onPick, disabled, heading = true, focusOnOpen = false }: { title: string; items: readonly ModeItem[]; onPick: (item: ModeItem) => void; disabled?: boolean; heading?: boolean; focusOnOpen?: boolean }): ReactElement {
+export function ModePicker({ title, items, onPick, disabled, heading = true, focusOnOpen = false, currentLabel }: { title: string; items: readonly ModeItem[]; onPick: (item: ModeItem) => void; disabled?: boolean; heading?: boolean; focusOnOpen?: boolean; /** The word after the current row (« en cours » by default: a mode; « choisie » for a look's target). */ currentLabel?: string }): ReactElement {
   const t = useT();
   const id = useId();
   const [query, setQuery] = useState("");
@@ -70,7 +70,7 @@ export function ModePicker({ title, items, onPick, disabled, heading = true, foc
               <span className="name">
                 {i.current && <span aria-hidden>● </span>}
                 {i.label}
-                {i.current && <small className="now"> · {t.fixtureMode.current}</small>}
+                {i.current && <small className="now"> · {currentLabel ?? t.fixtureMode.current}</small>}
               </span>
               {i.detail && <small className="detail">{i.detail}</small>}
             </button>

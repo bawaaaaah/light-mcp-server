@@ -3901,7 +3901,7 @@ test("look editor: random choices, as for the order of the steps", async ({ page
   await editor.getByLabel("Tirage au hasard").check();
   await expect(editor.getByLabel("Tirage au hasard")).toBeChecked();
   await editor.getByLabel("Mouvement (lyres)").check();
-  await editor.getByLabel("Forme").selectOption("aleatoire");
+  await editor.getByRole("combobox", { name: /^Forme/ }).selectOption("aleatoire");
   await editor.getByLabel("Ordre mélangé").check();
   await expect(editor.locator(".preview-row .cell")).toHaveCount(8);
   await page.screenshot({ path: "test-results/look-random.png", fullPage: true });
@@ -7877,7 +7877,7 @@ async function withTargetPad(page: Page, body: (pad: Locator) => Promise<void>):
   await asDesk(page, "target.put", { target: { id: "t24", name: "Cible test", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
   const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
   const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
-  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t24-pad", kind: "target", target: "t24", x: 0, y: bottom, w: 4, h: 5 }] } });
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t24-pad", kind: "target", target: "t24", x: 0, y: bottom, w: 6, h: 6 }] } });
   try {
     await page.reload();
     const pad = page.getByTestId("target-pad");
@@ -7900,9 +7900,9 @@ test("target pad: a drag moves the reticle at 25 writes a second at most, the ke
     const plan = pad.getByRole("slider", { name: "Cible test, vue de dessus" });
     await expect(plan).toHaveAttribute("aria-valuetext", "x 0 · y 3 · z 1 m");
     await expect(pad.getByTestId("target-status")).toHaveText("Non engagée · 1 lyre");
-    const writes: unknown[] = [];
+    const writes: { at: number; body: { id: string; x?: number; y?: number } }[] = [];
     page.on("request", (r) => {
-      if (r.url().endsWith("/commands/target.set")) writes.push(r.postDataJSON());
+      if (r.url().endsWith("/commands/target.set")) writes.push({ at: Date.now(), body: r.postDataJSON() as { id: string; x?: number } });
     });
     const box = (await plan.boundingBox())!;
     const reticle = pad.getByTestId("target-reticle");
@@ -7917,7 +7917,11 @@ test("target pad: a drag moves the reticle at 25 writes a second at most, the ke
     await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x).toBeLessThan(-0.5);
     expect((await reticle.boundingBox())!.x).toBeLessThan(before.x - 20);
     expect(writes.length).toBeLessThan(12); // the latest only, never one write per pointer sample
+    // at most 25 a second: never two writes less than 40 ms apart (35 ms here: the test's own clock), the last one
+    // carries the point the finger stopped at, for the target it was made for
+    for (let i = 1; i < writes.length; i++) expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(35);
     const x = (await listedTarget(page, "t24"))!.point.x;
+    expect(writes.at(-1)!.body).toMatchObject({ id: "t24", x });
     // the keys: 10 cm, Shift 1 m; Page up / down: the height
     await plan.focus();
     await page.keyboard.press("ArrowRight");
@@ -7946,7 +7950,7 @@ test("target pad: « Engager » follows, a second press puts it back on top, the
     const engage = pad.getByTestId("target-engage");
     const status = pad.getByTestId("target-status");
     await expect(engage).toHaveAttribute("aria-pressed", "false");
-    await expect(pad.getByTestId("target-disengage")).toBeDisabled();
+    await expect(pad.getByTestId("target-disengage")).toHaveAttribute("aria-disabled", "true");
     await engage.click();
     await expect(engage).toHaveAttribute("aria-pressed", "true");
     await expect(status).toHaveText("1 lyre suit");
@@ -8022,10 +8026,23 @@ test("target pad: the widget's menu chooses its target; on a touch tablet and a 
         expect((await other.locator(".target-z .track").boundingBox())!.width).toBeGreaterThanOrEqual(44);
         expect(await other.locator(".target-pad-plan").evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { touchAction: string } }).getComputedStyle(el).touchAction)).toBe("none");
         expect(await touch.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
-        // a finger moves the point
+        // a finger moves the point: a tap, then a drag (the page does not scroll under it)
         const box = (await other.locator(".target-pad-plan").boundingBox())!;
         await touch.touchscreen.tap(box.x + box.width * 0.85, box.y + box.height * 0.5);
         await expect.poll(async () => (await listedTarget(touch, "t24-autre"))!.point.x).toBeGreaterThan(0.5);
+        const cdp = await ctx.newCDPSession(touch);
+        const scrollBefore = await touch.evaluate<number>("window.scrollY");
+        const from = { x: Math.round(box.x + box.width * 0.8), y: Math.round(box.y + box.height * 0.5) };
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+        for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x - Math.round((i * box.width * 0.6) / 8), y: from.y }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await expect.poll(async () => (await listedTarget(touch, "t24-autre"))!.point.x).toBeLessThan(-0.5);
+        expect(await touch.evaluate<number>("window.scrollY")).toBe(scrollBefore);
+        // the words keep their size: 12 px for the line and the position, 14 px for the name
+        const size = (l: Locator) => l.evaluate((el) => parseFloat((globalThis as unknown as { getComputedStyle(e: unknown): { fontSize: string } }).getComputedStyle(el).fontSize));
+        expect(await size(other.getByTestId("target-status"))).toBeGreaterThanOrEqual(12);
+        expect(await size(other.locator(".target-pad-where"))).toBeGreaterThanOrEqual(12);
+        expect(await size(other.locator(".target-pad-heading strong"))).toBeGreaterThanOrEqual(14);
         await touch.screenshot({ path: `test-results/t24-pad-${name}.png` });
         expect(touchErrors).toEqual([]);
         await ctx.close();
@@ -8051,6 +8068,23 @@ test("venue: « Cibles » creates, edits and deletes a target (asking when a loo
     const form = section.getByRole("form", { name: "Nouvelle cible" });
     await form.getByLabel("Nom").fill("Chanteur test");
     await form.getByRole("checkbox", { name: "Lyre" }).check();
+    // its own bounds, unticked: they start from the stage volume really used (the server's), not a made-up box
+    const volume = (await asDesk(page, "target.volume")) as { min: Record<string, number>; max: Record<string, number> };
+    await form.getByRole("checkbox", { name: "Volume de la scène" }).uncheck();
+    await expect(form.getByRole("textbox", { name: "X max (m)" })).toHaveValue(String(volume.max.x));
+    await expect(form.getByRole("textbox", { name: "Z max (m)" })).toHaveValue(String(volume.max.z));
+    await expect(form.getByText("Sans bornes propres", { exact: false })).toHaveCount(0);
+    // a bound that is not a number, or a minimum above its maximum: said at the field, which is marked invalid
+    const xMin = form.getByRole("textbox", { name: "X min (m)" });
+    await xMin.fill("abc");
+    await form.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(xMin).toHaveAttribute("aria-invalid", "true");
+    await expect(form.locator(".target-bounds .error")).toHaveText("Un nombre en mètres");
+    await expect(xMin).toBeFocused();
+    await xMin.fill("99");
+    await expect(form.locator(".target-bounds .error")).toHaveText("Au-dessus de son maximum");
+    await form.screenshot({ path: "test-results/t24-venue-bounds-invalid.png" });
+    await form.getByRole("checkbox", { name: "Volume de la scène" }).check();
     await form.getByRole("button", { name: "Enregistrer" }).click();
     await expect(form).toHaveCount(0);
     const row = section.locator(".target-row", { hasText: "Chanteur test" });
@@ -8061,6 +8095,21 @@ test("venue: « Cibles » creates, edits and deletes a target (asking when a loo
     const onPlan = page.locator("#venue-stage svg").locator(`[data-target="${id}"]`);
     await expect(onPlan).toHaveAttribute("aria-label", "Cible Chanteur test, à 1,5 m de haut");
     await expect(onPlan.locator(".plan-target-label")).toHaveText("Chanteur test · 1,5 m");
+    // a target outside the zones widens the plan (D2): its reticle stays inside the drawing, from above and from the front
+    await asDesk(page, "target.put", { target: { id: "t24-loin", name: "Loin", fixtures: ["spot"], bounds: { min: { x: -14, y: -2, z: 0 }, max: { x: 14, y: 14, z: 7 } }, point: { x: 12, y: 12, z: 6 } } });
+    const far = page.locator("#venue-stage svg").locator('[data-target="t24-loin"] .plan-target');
+    const plan = page.locator("#venue-stage svg:has([data-target])");
+    for (const view of ["Dessus", "Face"]) {
+      await page.locator("#venue-stage").getByRole("button", { name: view, exact: true }).click();
+      await expect(far).toHaveCount(1);
+      const [r, b] = [(await far.boundingBox())!, (await plan.boundingBox())!];
+      expect(r.x).toBeGreaterThanOrEqual(b.x - 0.5);
+      expect(r.y).toBeGreaterThanOrEqual(b.y - 0.5);
+      expect(r.x + r.width).toBeLessThanOrEqual(b.x + b.width + 0.5);
+      expect(r.y + r.height).toBeLessThanOrEqual(b.y + b.height + 0.5);
+    }
+    await page.locator("#venue-stage").getByRole("button", { name: "Dessus", exact: true }).click();
+    await asDesk(page, "target.delete", { id: "t24-loin", force: true });
     // its own bounds: the stage volume unticked, Z up to 3 m
     await row.getByRole("button", { name: "Modifier la cible Chanteur test" }).click();
     const edit = section.locator("form.target-form");
@@ -8100,19 +8149,21 @@ test("look editor: the « Cible » centre of the shape picks a target and writes
     await page.locator("nav.pages button", { hasText: "Show" }).click();
     await page.getByRole("button", { name: "Modifier T24 cercle" }).click();
     const editor = page.locator(".look-editor");
-    await expect(editor.getByTestId("move-aim-center")).toHaveAttribute("aria-pressed", "true");
+    await expect(editor.getByTestId("move-aim-center")).toHaveAttribute("aria-checked", "true");
     await editor.getByTestId("move-aim-target").click();
-    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-pressed", "true");
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-checked", "true");
     await expect(editor.getByText("Centre pan", { exact: true })).toHaveCount(0);
-    await editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible du look/ }).click();
+    // the only target: picked at once, said « choisie » (not « en cours »: a look's target is a choice, not a mode)
     await expect(editor.getByRole("button", { name: /Cible du look/ })).toHaveAttribute("aria-current", "true");
+    await expect(editor.getByRole("button", { name: /Cible du look/ })).toContainText("· choisie");
+    await editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible du look/ }).click();
     await page.screenshot({ path: "test-results/t24-look-target.png" });
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor).toHaveCount(0);
     expect(((await api(page, "look.get", { id: "t24-cercle" })) as { move: { at?: { target: string } } }).move.at).toEqual({ target: "t24-look" });
     // back to the pan/tilt centre: the target is no longer followed
     await page.getByRole("button", { name: "Modifier T24 cercle" }).click();
-    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-pressed", "true");
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-checked", "true");
     await editor.getByTestId("move-aim-center").click();
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor).toHaveCount(0);
@@ -8121,5 +8172,165 @@ test("look editor: the « Cible » centre of the shape picks a target and writes
     await asDesk(page, "look.delete", { id: "t24-cercle", force: true });
     await asDesk(page, "target.delete", { id: "t24-look", force: true });
   }
+  expect(errors).toEqual([]);
+});
+
+test("target pad: without commands:position it is drawn and sends nothing; while arranging, its presses are the grid's", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withTargetPad(page, async (pad) => {
+    // arranging: « Engager » engages nothing, the widget is selected and can be dragged (nothing disabled)
+    await page.getByRole("button", { name: "✎" }).click();
+    const engage = pad.getByTestId("target-engage");
+    await expect(engage).not.toHaveAttribute("disabled");
+    await expect(engage).toHaveAttribute("aria-disabled", "true");
+    await engage.click({ force: true });
+    await expect(page.locator('.dgrid .cell[data-widget="t24-pad"]')).toHaveClass(/selected/);
+    expect((await listedTarget(page, "t24"))!.engaged).toBe(false);
+    await page.getByRole("button", { name: "✔" }).click();
+    // read only (no commands:position): drawn, nothing sent
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+    const reader = await ctx.newPage();
+    const readerErrors = watchErrors(reader);
+    const sent: string[] = [];
+    reader.on("request", (r) => {
+      if (/\/commands\/target\.(set|engage)$/.test(r.url())) sent.push(r.url());
+    });
+    await login(reader, "1357");
+    const other = reader.getByTestId("target-pad");
+    await other.scrollIntoViewIfNeeded();
+    const plan = other.getByRole("slider", { name: "Cible test, vue de dessus" });
+    await expect(plan).toHaveAttribute("aria-disabled", "true");
+    const box = (await plan.boundingBox())!;
+    await reader.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
+    await other.getByTestId("target-engage").click({ force: true });
+    await reader.waitForTimeout(300);
+    expect(sent).toEqual([]);
+    expect((await listedTarget(page, "t24"))!).toMatchObject({ engaged: false, point: { x: 0, y: 3, z: 1 } });
+    await expect(other.getByTestId("target-reticle")).toBeVisible();
+    expect(readerErrors).toEqual([]);
+    await ctx.close();
+  });
+  expect(errors).toEqual([]);
+});
+
+test("target pad: a write still on the wire when the widget changes target goes to the target it was made for", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await asDesk(page, "target.put", { target: { id: "t24-b", name: "Cible B", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
+  try {
+    await withTargetPad(page, async (pad) => {
+      const bodies: { id: string }[] = [];
+      // a slow link: each target.set takes 300 ms, so the last point of the drag is still pending when the target changes
+      await page.route("**/commands/target.set", async (route) => {
+        bodies.push(route.request().postDataJSON() as { id: string });
+        await new Promise((r) => setTimeout(r, 300));
+        await route.continue();
+      });
+      const plan = pad.getByRole("slider", { name: "Cible test, vue de dessus" });
+      const box = (await plan.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(box.x + box.width / 2 + i * (box.width / 30), box.y + box.height / 2);
+      await page.mouse.up();
+      // the widget now shows target B
+      await pad.locator(".target-pad-heading").click({ button: "right" });
+      await page.getByRole("dialog", { name: "Réglages du widget" }).getByRole("combobox").first().selectOption("t24-b");
+      await expect(pad.locator(".target-pad-heading strong")).toHaveText("Cible B");
+      await page.keyboard.press("Escape");
+      await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x, { timeout: 5000 }).toBeGreaterThan(0.5);
+      await page.waitForTimeout(700);
+      expect(bodies.map((b) => b.id)).not.toContain("t24-b");
+      expect((await listedTarget(page, "t24-b"))!.point).toEqual({ x: 0, y: 3, z: 1 });
+      await page.unroute("**/commands/target.set");
+    });
+  } finally {
+    await asDesk(page, "target.delete", { id: "t24-b", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("look editor: « Cible » with no target picked refuses to save and takes the focus to the list; the last pick comes back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await asDesk(page, "target.put", { target: { id: "t24-un", name: "Cible un", fixtures: ["spot"] } });
+  await asDesk(page, "target.put", { target: { id: "t24-deux", name: "Cible deux", fixtures: ["spot"] } });
+  await asDesk(page, "look.put", { look: { id: "t24-fixe", name: "T24 fixe", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "fixe" } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier T24 fixe" }).click();
+    const editor = page.locator(".look-editor");
+    await editor.getByTestId("move-aim-target").click();
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor.locator(".error", { hasText: "Choisir la cible suivie" })).toBeVisible();
+    await expect(editor.locator(".move-aim-target :focus")).toHaveCount(1);
+    expect(((await api(page, "look.get", { id: "t24-fixe" })) as { move: { at?: unknown } }).move.at).toBeUndefined();
+    // picked, then Position, then Cible again: the same target, without picking it again
+    await editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible deux/ }).click();
+    await editor.getByTestId("move-aim-center").click();
+    await editor.getByTestId("move-aim-target").click();
+    await expect(editor.getByRole("button", { name: /Cible deux/ })).toHaveAttribute("aria-current", "true");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t24-fixe" })) as { move: { at?: unknown } }).move.at).toEqual({ target: "t24-deux" });
+  } finally {
+    await asDesk(page, "look.delete", { id: "t24-fixe", force: true });
+    await asDesk(page, "target.delete", { id: "t24-un", force: true });
+    await asDesk(page, "target.delete", { id: "t24-deux", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("XY pad: a drag writes at most 25 times a second, the last point last (useThrottledSend)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const pad = page.locator(".xy .pad").first();
+  await expect(pad).toBeVisible();
+  const writes: { at: number; body: { pan?: number; tilt?: number } }[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/commands/position.set")) writes.push({ at: Date.now(), body: r.postDataJSON() as { pan?: number } });
+  });
+  const box = (await pad.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.5);
+  await page.mouse.down();
+  for (let i = 1; i <= 15; i++) {
+    await page.mouse.move(box.x + box.width * (0.2 + i * 0.04), box.y + box.height * 0.5);
+    await page.waitForTimeout(5);
+  }
+  await page.mouse.up();
+  await expect(page.locator(".xy-position").first()).toHaveText("80 / 50");
+  await page.waitForTimeout(200);
+  expect(writes.length).toBeGreaterThan(0);
+  expect(writes.length).toBeLessThan(15);
+  for (let i = 1; i < writes.length; i++) expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(35);
+  expect(writes.at(-1)!.body.pan).toBeCloseTo(0.8, 2);
+  await page.getByRole("button", { name: "Rendre la main", exact: true }).first().click();
+  expect(errors).toEqual([]);
+});
+
+test("target pad: in English the line says why a head holds in English (the server's reason as data)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withTargetPad(page, async () => {
+    await asDesk(page, "target.engage", { id: "t24", on: true });
+    await asDesk(page, "stage.zone.put", { zone: { id: "t24-desk", name: "Desk test", type: "floor", polygon: [[-1, 2], [1, 2], [1, 4], [-1, 4]], noAim: true } });
+    try {
+      await page.evaluate(() => localStorage.setItem("lang", "en"));
+      await page.reload();
+      const pad = page.getByTestId("target-pad");
+      await pad.scrollIntoViewIfNeeded();
+      await expect(pad.getByTestId("target-status")).toHaveText("1 held, towards a no-aim zone (“Desk test”): Lyre");
+      await page.screenshot({ path: "test-results/t24-pad-held-en.png" });
+    } finally {
+      await page.evaluate(() => localStorage.removeItem("lang"));
+      await asDesk(page, "stage.zone.delete", { id: "t24-desk" });
+    }
+  });
   expect(errors).toEqual([]);
 });

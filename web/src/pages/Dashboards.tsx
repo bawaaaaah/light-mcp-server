@@ -9,8 +9,8 @@ import { asksBeforeLaunch } from "../preview-first";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
-import { TargetPad } from "../components/TargetPad";
-import { useTargets } from "../hooks/useTargets";
+import { TargetWidget, type PadFixture, type PadZone } from "../components/TargetPad";
+import { useTargetNames } from "../hooks/useTargets";
 import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
 import { sharedRanges, type FixtureFunctions } from "../fader-functions";
@@ -128,7 +128,7 @@ const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 4, h: 5 }, preview: { w: 6, h: 4 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 } };
 
 type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
 
@@ -171,8 +171,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   useEffect(readChannels, [readChannels]);
   useCommandEvents(["venue.fixture.", "show.open", "show.venue", "import."], readChannels);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
-  /** The show's 3D targets (T24): the target widgets and their menu. */
-  const { targets, loaded: targetsLoaded } = useTargets();
+  /** The show's 3D targets (T24), their names only: the menus (each pad reads its own target). */
+  const { names: targets } = useTargetNames();
   /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
   const [namedFolders, setNamedFolders] = useState<string[]>([]);
   const [edit, setEdit] = useState(false);
@@ -456,6 +456,18 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
       setError(e.message);
     });
   const dash = dashboards[current];
+  // the target pads' plan (T24): the venue's fixtures and zones, read once for all of them, only when there is one
+  const hasTargetPad = Boolean(dash?.widgets.some((w) => w.kind === "target"));
+  const [targetStage, setTargetStage] = useState<{ fixtures: PadFixture[]; zones: PadZone[] }>({ fixtures: [], zones: [] });
+  const hasTargetPadRef = useRef(hasTargetPad);
+  hasTargetPadRef.current = hasTargetPad;
+  // stable: useCommandEvents keeps the function it was first given
+  const readTargetStage = useCallback(() => {
+    if (!hasTargetPadRef.current) return;
+    void Promise.all([cmd<PadFixture[]>("venue.fixture.list"), cmd<PadZone[]>("stage.zone.list")]).then(([fixtures, zones]) => setTargetStage({ fixtures, zones }), () => undefined);
+  }, []);
+  useEffect(readTargetStage, [readTargetStage, hasTargetPad]);
+  useCommandEvents(["venue.", "stage.", "show.open", "import.", "history."], readTargetStage);
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
   // a look deleted while its sheet is open: forget it, or a look put back under the same id would bring the sheet back
   useEffect(() => {
@@ -751,13 +763,10 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} onError={setError} />;
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
-      case "target": {
-        // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu
-        if (!w.target) return <div className="fill missing">{t.targets.unbound}</div>;
-        const row = targets.find((x) => x.id === w.target);
-        if (!row) return <div className="fill missing">{targetsLoaded ? t.targets.missing.replace("{id}", () => w.target!) : "…"}</div>;
-        return <TargetPad target={row} label={w.label} onError={setError} disabled={!may("commands:position")} interactive={!edit} />;
-      }
+      case "target":
+        // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu. Keyed by the target:
+        // another target is another pad (its pending write goes out for the target it was made for)
+        return <TargetWidget key={w.target ?? ""} id={w.target || undefined} label={w.label} stage={targetStage} onError={setError} disabled={!may("commands:position")} interactive={!edit} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;

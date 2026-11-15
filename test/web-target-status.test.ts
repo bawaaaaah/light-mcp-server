@@ -52,4 +52,45 @@ describe("target pad: the state of each head", () => {
     ]);
     expect(targetParts([])).to.deep.equal([]);
   });
+
+  it("a tilt alone held for the target holds the head; the reason in the screen's words", () => {
+    const pan = axis("target", "target:t");
+    const tilt = { ...axis("target", "target:t", "hors de portée (pan 0°, tilt 180°)"), hold: { reason: "out-of-reach" as const, reach: { pan: 0, tilt: 180 } } };
+    const states = targetHeads([head("a", pan, { tilt })], "t", true, { reason: (a) => (a.hold ? `out of reach (tilt ${a.hold.reach!.tilt}°)` : a.error!) });
+    expect(states).to.deep.equal([{ id: "a", name: "A", state: "held", reason: "out of reach (tilt 180°)" }]);
+  });
+
+  it("says what masks a head (the soft lock, another target) and a head handed back with nothing below as at rest", () => {
+    const states = targetHeads(
+      [
+        head("a", axis("lock", null), { lock: "soft" }),
+        head("b", { ...axis("target", "target:u"), name: "Cible U" }),
+        head("c", axis("rest", null), { released: [{ owner: "target:t" }] }),
+        head("d", axis("look", "look:x"), { released: [{ owner: "target:t" }] }),
+      ],
+      "t",
+      true,
+      { softLock: "le verrou souple" },
+    );
+    expect(states.map((h) => [h.state, h.by])).to.deep.equal([
+      ["masked", "le verrou souple"],
+      ["masked", "Cible U"],
+      ["resting", undefined],
+      ["released", undefined],
+    ]);
+    expect(targetParts(states).map((p) => [p.state, p.by, p.names])).to.deep.equal([
+      ["released", undefined, ["D"]],
+      ["resting", undefined, ["C"]],
+      ["masked", "le verrou souple", ["A"]],
+      ["masked", "Cible U", ["B"]],
+    ]);
+  });
+
+  it("not engaged: « Non engagée » first, counting every head, then the frozen ones", () => {
+    const states = targetHeads([head("a", axis("rest", null)), head("b", axis("lock", null), { lock: "hard" }), head("c", axis("rest", null))], "t", false);
+    expect(targetParts(states)).to.deep.equal([
+      { state: "idle", names: ["A", "B", "C"] },
+      { state: "frozen", names: ["B"] },
+    ]);
+  });
 });

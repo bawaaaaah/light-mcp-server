@@ -4443,9 +4443,19 @@ fieldset.group-lock legend {
 }
 .target-pad-plan .tp-head-mark {
   fill: var(--bg);
-  font-size: 10px;
   font-weight: 700;
   pointer-events: none;
+}
+/* a frozen head's padlock: drawn, so it keeps its shape at any size (an emoji does not) */
+.target-pad-plan .tp-head-lock {
+  pointer-events: none;
+}
+.target-pad-plan .tp-head-lock rect {
+  fill: var(--bg);
+  stroke: none;
+}
+.target-pad-plan .tp-head-lock path {
+  stroke: var(--bg);
 }
 .target-pad-plan .tp-reticle {
   fill: none;
@@ -4483,14 +4493,16 @@ fieldset.group-lock legend {
   --wc: var(--target-color);
 }
 .target-pad .target-z .value {
-  font-size: 0.75rem;
+  font-size: 12px;
   white-space: nowrap;
 }
+/* the widget's words keep a legible size whatever the cell: 12 px for the position and the line, 14 px for the name */
 .target-pad-status {
   display: grid;
   gap: 0.1em;
   min-width: 0;
-  font-size: 0.75rem;
+  font-size: 12px;
+  line-height: 1.3;
 }
 .target-pad-heading {
   display: flex;
@@ -4500,16 +4512,39 @@ fieldset.group-lock legend {
   min-width: 0;
 }
 .target-pad-heading strong {
-  font-size: 0.85rem;
+  font-size: 14px;
+}
+.target-pad-heading small {
+  font-size: 12px;
 }
 .target-pad-where,
 .target-pad-line {
   color: var(--muted);
 }
-.target-pad-line {
+/* the status line: two lines at most, then an ellipsis; a press shows it whole */
+.target-pad .target-pad-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.target-pad .target-pad-line.open {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+}
+.target-pad .target-pad-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .target-pad-actions {
   display: flex;
@@ -4594,19 +4629,39 @@ fieldset.group-lock legend {
   gap: 0.2em 0.8em;
 }
 .target-form .target-heads label,
-.target-form .target-bounds label {
+.target-form .target-bounds label,
+.target-form .target-volume {
   display: inline-flex;
   align-items: center;
   gap: 0.3em;
 }
+.target-form .target-bounds label {
+  flex-wrap: wrap;
+}
+/* one row per axis: its minimum and its maximum side by side */
 .target-form .target-bounds {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9em, 1fr));
   gap: 0.4em;
+}
+.target-form .target-bounds-axis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.4em 1em;
 }
 .target-form .target-bounds input {
   width: 6em;
   min-width: 0;
+}
+.target-form .target-bounds .error {
+  flex-basis: 100%;
+}
+.target-form .warning {
+  margin: 0;
+  color: var(--warn, var(--danger));
+}
+.target-form .swatches .swatch {
+  min-height: 0;
 }
 @media (max-width: 600px), (pointer: coarse) {
   .targets-panel button,
@@ -4618,9 +4673,21 @@ fieldset.group-lock legend {
   }
   .target-form input[type="checkbox"] {
     min-width: 24px;
+    min-height: 24px;
+    margin: 0;
   }
-  .target-form .target-heads label {
+  .target-form .target-heads label,
+  .target-form .target-volume {
     min-height: 44px;
+  }
+  /* round swatches, 44 px to the finger */
+  .target-form .swatches .swatch {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .targets-panel .target-delete {
+    min-width: 44px;
   }
 }
 /* A target on the venue's plan: a reticle in its colour, its height written beside it */
@@ -4640,7 +4707,7 @@ fieldset.group-lock legend {
 .plan-target-label {
   fill: var(--target-color, var(--layer-target));
   paint-order: stroke;
-  stroke: #12141a;
+  stroke: var(--bg);
   stroke-width: 3px;
   pointer-events: none;
 }
@@ -4659,7 +4726,12 @@ fieldset.group-lock legend {
   font-size: 0.85rem;
   color: var(--muted);
 }
-.move-aim button[aria-pressed="true"] {
+.move-aim-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+.move-aim button[aria-checked="true"] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 20%, var(--panel));
 }

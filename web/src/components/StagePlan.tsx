@@ -248,8 +248,12 @@ export function StagePlan({
   useCommandEvents(["position.", "panic", "show."], readHeads);
 
   // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front (stage-frame.ts).
-  // the targets (T24) are not framed: the plan keeps its frame (a target outside the zones is cut at the edge)
-  const layout = useMemo(() => stageLayout(shown.fixtures, shown.zones), [shown]);
+  // the targets (T24) are framed too (D2): a target outside the zones widens the plan instead of being cut at its edge;
+  // from the front, at their height. The fixtures with no position keep their row in front.
+  const targetSpots = targets.map((tg) => (front ? { x: tg.point.x, y: tg.point.z } : { x: tg.point.x, y: tg.point.y }));
+  const targetKey = targetSpots.map((p) => `${p.x},${p.y}`).join(";");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the targets' places, not the list's identity (read again after every command)
+  const layout = useMemo(() => stageLayout(shown.fixtures, shown.zones, targetSpots), [shown, targetKey]);
 
   const W = 800;
   // upstage at the top, audience at the bottom
@@ -291,7 +295,7 @@ export function StagePlan({
   };
   // targets (T24): where they are on this view (from the front, at their height), their reticle's size, their label
   const targetRing = Math.max(7, Math.min(16, 0.2 * scale));
-  const drawnTargets = targets.map((tg) => ({ ...tg, at: front ? { x: tg.point.x, y: tg.point.z } : { x: tg.point.x, y: tg.point.y }, label: `${tg.name} · ${metresText(tg.point.z, t.decimalMark)} m` }));
+  const drawnTargets = targets.map((tg, i) => ({ ...tg, at: targetSpots[i]!, label: `${tg.name} · ${metresText(tg.point.z, t.decimalMark)} m` }));
   // names under their fixture, else above, never over another; where they stand still (not dragged); the targets' after
   const names = placeLabels(
     [
@@ -307,9 +311,11 @@ export function StagePlan({
   // room for the names past the edges of the stage
   const pad = { left: 0, right: 0, top: 0, bottom: 0 };
   for (const [id, y] of names) {
+    // a fixture's name, or a target's label (its point widened the frame, its label gets room as a name does)
     const f = fixtures.find((fx) => fx.id === id);
-    if (!f) continue; // a target's label: the plan does not grow for it
-    const [x, half] = [sx(layout.pos.get(id)!.x), textWidth(f.name, nameSize) / 2 + 2];
+    const tg = f ? undefined : drawnTargets.find((d) => `target:${d.id}` === id);
+    if (!f && !tg) continue;
+    const [x, half] = f ? [sx(layout.pos.get(id)!.x), textWidth(f.name, nameSize) / 2 + 2] : [sx(tg!.at.x), textWidth(tg!.label, nameSize) / 2 + 2];
     pad.left = Math.max(pad.left, half - x);
     pad.right = Math.max(pad.right, x + half - W);
     pad.top = Math.max(pad.top, nameSize - y);

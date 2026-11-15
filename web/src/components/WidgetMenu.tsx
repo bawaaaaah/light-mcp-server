@@ -179,7 +179,7 @@ export function WidgetMenu({
       )}
       {targets.length > 0 && (
         <label className="field">
-          <span>{widget.kind === "look" ? t.assignLook : t.assignTarget}</span>
+          <span>{widget.kind === "look" ? t.assignLook : widget.kind === "target" ? t.targets.aimTarget : t.assignTarget}</span>
           <select value={widget.target ?? ""} onChange={(e) => onChange({ target: e.target.value || undefined })}>
             <option value="">{widget.kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
             {targets.map((x) => (

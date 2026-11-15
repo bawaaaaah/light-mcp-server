@@ -4,7 +4,7 @@
  * a group, bounds (the stage volume by default), smoothing of the point, how the heads arrive, colour. The point and
  * the engagement are live state: moved and engaged from the target pad, MIDI, OSC or the AI, never by this form.
  */
-import { useCallback, useEffect, useId, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
@@ -22,9 +22,10 @@ interface Named {
   name: string;
 }
 type Axis = "x" | "y" | "z";
+type End = "min" | "max";
 const AXES: readonly Axis[] = ["x", "y", "z"];
 /** The bounds as typed: strings, so a field being typed (« -1, », empty) is not rewritten under the cursor. */
-type BoundsText = Record<"min" | "max", Record<Axis, string>>;
+type BoundsText = Record<End, Record<Axis, string>>;
 
 interface Draft {
   /** Absent: a new target. */
@@ -53,44 +54,98 @@ const draftOf = (row: TargetRow): Draft => ({
   ...(row.fade ? { fade: row.fade } : {}),
   ...(row.color ? { color: row.color } : {}),
 });
-/** The bounds typed, as numbers; undefined when one is not a number or a minimum is above its maximum. */
-function parsedBounds(b: BoundsText): Box3 | undefined {
-  const num = (v: string) => (v.trim() === "" ? NaN : Number(v.replace(",", ".")));
-  const out = { min: { x: num(b.min.x), y: num(b.min.y), z: num(b.min.z) }, max: { x: num(b.max.x), y: num(b.max.y), z: num(b.max.z) } };
-  return AXES.every((a) => Number.isFinite(out.min[a]) && Number.isFinite(out.max[a]) && out.min[a] <= out.max[a]) ? out : undefined;
+/** What the form compares to see whether a target changed elsewhere since it opened (not its point nor its engagement). */
+const settingsOf = (row: TargetRow): string => JSON.stringify([row.name, row.fixtures, row.group, row.bounds, row.smoothing, row.fade, row.color]);
+
+const num = (v: string): number => (v.trim() === "" ? NaN : Number(v.replace(",", ".")));
+/** Per bound typed, what is wrong with it: not a number, or a minimum above its maximum (said at the minimum). */
+function boundsProblems(b: BoundsText): Partial<Record<`${End}-${Axis}`, "number" | "order">> {
+  const out: Partial<Record<`${End}-${Axis}`, "number" | "order">> = {};
+  for (const a of AXES) {
+    const [lo, hi] = [num(b.min[a]), num(b.max[a])];
+    if (!Number.isFinite(lo)) out[`min-${a}`] = "number";
+    if (!Number.isFinite(hi)) out[`max-${a}`] = "number";
+    if (Number.isFinite(lo) && Number.isFinite(hi) && lo > hi) out[`min-${a}`] = "order";
+  }
+  return out;
 }
+const parsedBounds = (b: BoundsText): Box3 => ({ min: { x: num(b.min.x), y: num(b.min.y), z: num(b.min.z) }, max: { x: num(b.max.x), y: num(b.max.y), z: num(b.max.z) } });
 
 export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetRow[]; onError: (message: string) => void; onChanged: () => void }): ReactElement {
   const t = useT();
   const w = t.targets;
   const [heads, setHeads] = useState<Named[]>([]);
   const [groups, setGroups] = useState<Named[]>([]);
+  const [showFade, setShowFade] = useState<MoveFade | undefined>(undefined);
+  /** The stage volume as the server sees it (target.volume): a new target's bounds start from it. */
+  const [stageVolume, setStageVolume] = useState<Box3 | undefined>(undefined);
   const read = useCallback(() => {
     void cmd<Named[]>("position.list").then((list) => setHeads(list.map((h) => ({ id: h.id, name: h.name }))), () => undefined);
     void cmd<Named[]>("group.list").then((list) => setGroups(list.map((g) => ({ id: g.id, name: g.name }))), () => undefined);
+    // « automatique » says the show's own glide, as the look editor does
+    void cmd<{ moveFade: MoveFade }>("show.settings").then((s) => setShowFade(s.moveFade), () => undefined);
+    void cmd<Box3>("target.volume").then(setStageVolume, () => undefined);
   }, []);
   useEffect(read, [read]);
-  useCommandEvents(["venue.", "group.", "show.", "import.", "history."], read);
+  useCommandEvents(["venue.", "stage.", "group.", "show.", "import.", "history."], read);
   const [draft, setDraft] = useState<Draft | null>(null);
+  /** The draft as it opened: Close and « Modifier » on another row ask before dropping changes. */
+  const opened = useRef<string>("");
+  /** The target's settings when its draft opened: changed elsewhere since (another screen, the AI), the form says so. */
+  const base = useRef<string>("");
   const [problem, setProblem] = useState("");
+  const [tried, setTried] = useState(false);
   const formId = useId();
+  const form = useRef<HTMLFormElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const pendingFade = useRef<(() => { value: MoveFade | undefined } | null) | null>(null);
   // the target being edited deleted meanwhile (another screen, the AI): the form closes
   useEffect(() => {
     if (draft?.id && !targets.some((x) => x.id === draft.id)) setDraft(null);
   }, [targets, draft?.id]);
+  // the form takes the focus when it opens (its name), and gives it back to what opened it when it closes
+  const isOpen = draft !== null;
+  useEffect(() => {
+    if (isOpen) form.current?.querySelector<HTMLInputElement>("input")?.focus();
+    else if (opener.current?.isConnected) opener.current.focus();
+  }, [isOpen]);
+
+  const dirty = (): boolean => draft !== null && JSON.stringify(draft) !== opened.current;
+  /** Opens `next` (or closes, null), asking first when the draft open has changes. */
+  const open = (next: Draft | null, from?: HTMLElement): void => {
+    if (dirty() && !confirm(w.discardDraft)) return;
+    if (from) opener.current = from;
+    setProblem("");
+    setTried(false);
+    opened.current = next ? JSON.stringify(next) : "";
+    const row = next?.id ? targets.find((x) => x.id === next.id) : undefined;
+    base.current = row ? settingsOf(row) : "";
+    setDraft(next);
+  };
+  const current = draft?.id ? targets.find((x) => x.id === draft.id) : undefined;
+  const changedElsewhere = Boolean(current && base.current && settingsOf(current) !== base.current);
 
   const set = (patch: Partial<Draft>) => {
     setProblem("");
     setDraft((d) => (d ? { ...d, ...patch } : d));
   };
+  const problems = draft?.bounds ? boundsProblems(draft.bounds) : {};
   const save = async (): Promise<void> => {
     if (!draft) return;
+    setTried(true);
     if (!draft.name.trim()) return setProblem(w.nameRequired);
+    const wrong = AXES.flatMap((a) => (["min", "max"] as const).map((end) => `${end}-${a}` as const)).find((k) => problems[k]);
+    if (wrong) {
+      form.current?.querySelector<HTMLInputElement>(`.target-bounds input[data-bound="${wrong}"]`)?.focus();
+      return setProblem(w.boundsInvalid);
+    }
+    // a unit picked for the arrival and not committed yet goes with this Save
+    const fade = pendingFade.current ? pendingFade.current() : { value: draft.fade };
+    if (!fade) return;
     const bounds = draft.bounds ? parsedBounds(draft.bounds) : undefined;
-    if (draft.bounds && !bounds) return setProblem(w.boundsInvalid);
-    const id = draft.id ?? uniqueId(slug(draft.name, "cible"), targets.map((x) => x.id));
-    const current = targets.find((x) => x.id === draft.id);
     try {
+      // a new id is checked against the targets as they are now: one created elsewhere meanwhile is not replaced
+      const id = draft.id ?? uniqueId(slug(draft.name, "cible"), (await cmd<TargetRow[]>("target.list")).map((x) => x.id));
       await cmd("target.put", {
         target: {
           id,
@@ -99,11 +154,12 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
           ...(draft.group ? { group: draft.group } : {}),
           ...(bounds ? { bounds } : {}),
           ...(draft.smoothing ? { smoothing: draft.smoothing } : {}),
-          ...(draft.fade ? { fade: draft.fade } : {}),
+          ...(fade.value ? { fade: fade.value } : {}),
           ...(draft.color ? { color: draft.color } : {}),
           ...(current?.notes ? { notes: current.notes } : {}),
         },
       });
+      opened.current = "";
       setDraft(null);
       onChanged();
     } catch (error) {
@@ -113,6 +169,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
 
   const headCount = (n: number) => (n === 1 ? w.headCountOne : w.headCountMany.replace("{n}", () => String(n)));
   const m = (v: number) => metresText(v, t.decimalMark);
+  const groupKnown = !draft?.group || groups.some((g) => g.id === draft.group);
 
   return (
     <div className="targets-panel">
@@ -129,14 +186,14 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
               <small>{headCount(row.heads.length)}</small>
               {row.engaged && <span className="badge">{w.engagedBadge}</span>}
               <small className="grow">{w.point.replace("{x}", () => m(row.point.x)).replace("{y}", () => m(row.point.y)).replace("{z}", () => m(row.point.z))}</small>
-              <button aria-label={w.editing.replace("{name}", () => row.name)} title={w.editing.replace("{name}", () => row.name)} aria-expanded={draft?.id === row.id} aria-controls={draft?.id === row.id ? formId : undefined} onClick={() => (setProblem(""), setDraft(draftOf(row)))}>
+              <button aria-label={w.editing.replace("{name}", () => row.name)} title={w.editing.replace("{name}", () => row.name)} aria-expanded={draft?.id === row.id} aria-controls={draft?.id === row.id ? formId : undefined} onClick={(e) => open(draftOf(row), e.currentTarget)}>
                 {t.edit}
               </button>
               <button
-                className="ghost"
+                className="ghost target-delete"
                 aria-label={`${t.delete} ${row.name}`}
                 title={`${t.delete} ${row.name}`}
-                onClick={() => void confirmDelete("target", row.id, row.name, t).then((done) => done && onChanged(), (e: Error) => onError(e.message))}
+                onClick={() => void confirmDelete("target", row.id, row.name, t, row.engaged ? w.deleteEngaged : undefined).then((done) => done && onChanged(), (e: Error) => onError(e.message))}
               >
                 ✕
               </button>
@@ -145,12 +202,13 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
         </ul>
       )}
       {!draft && (
-        <button aria-expanded={false} onClick={() => (setProblem(""), setDraft({ name: "", fixtures: [], group: "", bounds: null }))}>
+        <button aria-expanded={false} onClick={(e) => open({ name: "", fixtures: [], group: "", bounds: null }, e.currentTarget)}>
           + {w.add}
         </button>
       )}
       {draft && (
         <form
+          ref={form}
           id={formId}
           className="target-form"
           aria-label={draft.id ? w.editing.replace("{name}", () => quoted(t, draft.name)) : w.creating}
@@ -186,6 +244,8 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
               <span>{w.group}</span>
               <select value={draft.group} onChange={(e) => set({ group: e.target.value })}>
                 <option value="">{w.noGroup}</option>
+                {/* a group deleted since: said, and can be left for another */}
+                {!groupKnown && <option value={draft.group}>{w.groupGone.replace("{id}", () => draft.group)}</option>}
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
@@ -196,31 +256,51 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
           </fieldset>
           <fieldset>
             <legend>{w.bounds}</legend>
-            <label title={w.stageVolumeHelp}>
+            <label className="target-volume">
               <input
                 type="checkbox"
                 checked={draft.bounds === null}
                 onChange={(e) => {
-                  const shown = targets.find((x) => x.id === draft.id)?.effectiveBounds ?? { min: { x: -5, y: 0, z: 0 }, max: { x: 5, y: 8, z: 4 } };
-                  set({ bounds: e.target.checked ? null : boundsText(shown) });
+                  // the bounds start from the volume really used: the target's own, else the stage's as the server sees it
+                  const from = current?.effectiveBounds ?? stageVolume;
+                  set({ bounds: e.target.checked || !from ? null : boundsText(from) });
                 }}
-              />{" "}
-              {w.stageVolume}
+              />
+              <span>{w.stageVolume}</span>
             </label>
-            <p className="hint">{w.stageVolumeHelp}</p>
+            {draft.bounds === null && <p className="hint">{w.stageVolumeHelp}</p>}
             {draft.bounds && (
               <div className="target-bounds">
-                {(["min", "max"] as const).flatMap((end) =>
-                  AXES.map((a) => {
-                    const label = (end === "min" ? w.boundsMin : w.boundsMax).replace("{axis}", a.toUpperCase());
-                    return (
-                      <label key={`${end}-${a}`}>
-                        <span>{label}</span>
-                        <input type="text" inputMode="decimal" aria-label={label} value={draft.bounds![end][a]} onChange={(e) => set({ bounds: { ...draft.bounds!, [end]: { ...draft.bounds![end], [a]: e.target.value } } })} />
-                      </label>
-                    );
-                  }),
-                )}
+                {AXES.map((a) => (
+                  <div key={a} className="target-bounds-axis">
+                    {(["min", "max"] as const).map((end) => {
+                      const label = (end === "min" ? w.boundsMin : w.boundsMax).replace("{axis}", a.toUpperCase());
+                      // said near the field once a Save was tried: « - » on the way to « -1 » is not an error yet
+                      const wrong = tried ? problems[`${end}-${a}`] : undefined;
+                      const errorId = `${formId}-${end}-${a}`;
+                      return (
+                        <label key={end}>
+                          <span>{label}</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            aria-label={label}
+                            data-bound={`${end}-${a}`}
+                            aria-invalid={Boolean(wrong) || undefined}
+                            aria-describedby={wrong ? errorId : undefined}
+                            value={draft.bounds![end][a]}
+                            onChange={(e) => set({ bounds: { ...draft.bounds!, [end]: { ...draft.bounds![end], [a]: e.target.value } } })}
+                          />
+                          {wrong && (
+                            <small id={errorId} className="error">
+                              {wrong === "number" ? w.boundsNumber : w.boundsOrder}
+                            </small>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </fieldset>
@@ -228,7 +308,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
             <SmoothingField value={draft.smoothing} onChange={(smoothing) => set({ smoothing })} />
             <label className="field" title={w.fadeHelp}>
               <span>{w.fade}</span>
-              <MoveFadeInput automatic label={w.fade} value={draft.fade} onChange={(fade) => set({ fade })} />
+              <MoveFadeInput automatic automaticValue={showFade} label={w.fade} value={draft.fade} onChange={(fade) => set({ fade })} pendingRef={pendingFade} />
             </label>
           </div>
           <div className="field">
@@ -250,11 +330,16 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
               ))}
             </div>
           </div>
+          {changedElsewhere && (
+            <p className="warning" role="status">
+              {w.changedElsewhere}
+            </p>
+          )}
           <div className="row">
             <button type="submit" className="primary">
               {t.save}
             </button>
-            <button type="button" className="ghost" onClick={() => setDraft(null)}>
+            <button type="button" className="ghost" onClick={() => open(null)}>
               {t.close}
             </button>
             {problem && (

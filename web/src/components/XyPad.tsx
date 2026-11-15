@@ -9,6 +9,7 @@ import { useMotionLock } from "../hooks/useMotionLock";
 import { needRight, useLockRights } from "./MotionLockButton";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 import { useThrottledSend } from "../hooks/useThrottledSend";
+import { holdText } from "../hold-text";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -298,7 +299,16 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     }
     return [...byText.values()].sort((a, b) => rankOf(a.layer) - rankOf(b.layer) || b.count - a.count);
   };
-  const axisErrors = (axis: Axis): string[] => [...new Set(scopedHeads.map((h) => h.motion?.[axis].error).filter((error): error is string => Boolean(error)))];
+  // a hold for a target is said in the interface's language (its reason as data), any other error as the server says it
+  const axisErrors = (axis: Axis): string[] =>
+    [
+      ...new Set(
+        scopedHeads.flatMap((h) => {
+          const a = h.motion?.[axis];
+          return a?.error ? [holdText(t, a)] : [];
+        }),
+      ),
+    ];
   const panChips = chipsOf("pan");
   const tiltChips = chipsOf("tilt");
   /** Pan and tilt held alike: one line says both (a Live cell has room for one line of layers). */

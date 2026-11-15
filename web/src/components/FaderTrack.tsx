@@ -36,7 +36,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
  *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
  *  (a channel cut into functions, T6) the ranges around its value show on its left and the range input names
  *  the one it is in; `travel` is the fader's own range of DMX values (the whole travel by default). */
-export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true, valueText, keyStep = 0.001 }: {
+export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true, valueText, keyStep = 0.001, pageStep }: {
   label: string;
   value: number;
   sent?: number;
@@ -53,6 +53,8 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
   valueText?: string;
   /** How far an arrow key moves it (0..1; default one step of 1000): a target's height moves by 10 cm. */
   keyStep?: number;
+  /** How far Page up / Page down move it (0..1): a target's height by 1 m, as on its plan; absent, the browser's own step. */
+  pageStep?: number;
 }): ReactElement {
   const track = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -105,9 +107,10 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
         onChange={(e) => onChange(Number(e.currentTarget.value) / 1000)}
         onKeyDown={(e) => {
           const delta = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
-          if (!delta) return;
+          const page = pageStep === undefined ? 0 : e.key === "PageUp" ? 1 : e.key === "PageDown" ? -1 : 0;
+          if (!delta && !page) return;
           e.preventDefault();
-          onChange(Math.min(1, Math.max(0, Math.round((value + delta * keyStep) * 1000) / 1000)));
+          onChange(Math.min(1, Math.max(0, Math.round((value + (delta ? delta * keyStep : page * pageStep!)) * 1000) / 1000)));
         }}
       />
       <span className="fader-rail" aria-hidden />

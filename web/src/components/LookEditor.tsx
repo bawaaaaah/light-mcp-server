@@ -23,7 +23,7 @@ import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 import { ModePicker } from "./ModePicker";
-import { useTargets } from "../hooks/useTargets";
+import { targetsStore, useTargets } from "../hooks/useTargets";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
 
 export type { MoveFade };
@@ -112,6 +112,7 @@ export function MoveFadeInput({
   onInvalid,
   savedHint = false,
   errorSlot,
+  pendingRef,
 }: {
   value: MoveFade | undefined;
   onChange: (value: MoveFade | undefined) => void;
@@ -124,6 +125,11 @@ export function MoveFadeInput({
   savedHint?: boolean;
   /** Where the error goes, in the page's flow (its own line under a settings row); without it, under the field. */
   errorSlot?: HTMLElement | null;
+  /**
+   * Filled with what a Save should write now: a unit picked (or a number typed) and not committed yet goes with it,
+   * never lost because the field was not left first; null while the text is not a valid duration (its error is shown).
+   */
+  pendingRef?: React.MutableRefObject<(() => { value: MoveFade | undefined } | null) | null>;
 }): ReactElement {
   const t = useT();
   /** The text being typed; committed only whole, on blur or Enter, never keystroke by keystroke (« 45 » is not « 4 »). */
@@ -214,6 +220,18 @@ export function MoveFadeInput({
     if (sameFade(parsed.value, value)) return;
     onChange(parsed.value);
   };
+  if (pendingRef)
+    pendingRef.current = () => {
+      if (draft === null) return { value };
+      const parsed = parse(draft);
+      if ("error" in parsed) {
+        setError(parsed.error);
+        field.current?.focus();
+        return null;
+      }
+      commit();
+      return { value: parsed.value };
+    };
   /** Escape gives the committed value back: the draft and its error go, nothing is saved. */
   const revert = (): void => {
     setDraft(null);
@@ -308,9 +326,21 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
   /** The show's 3D targets (T24): the « Cible » centre of the shape picks one. */
-  const { targets } = useTargets();
+  const { targets, loaded: targetsLoaded } = useTargets();
   /** « Cible » chosen as the centre of the shape, before a target is picked (none is written until then). */
   const [aimOnTarget, setAimOnTarget] = useState(() => Boolean(initial.move?.at?.target));
+  /** The target last picked: back to « Position » and then « Cible » again, it is picked again. */
+  const lastTarget = useRef(initial.move?.at?.target);
+  /** The target list, where a Save refused for want of a target takes the focus. */
+  const targetPicker = useRef<HTMLDivElement | null>(null);
+  const aimId = useId();
+  const aimAtTarget = (): void => {
+    setAimOnTarget(true);
+    if (look.move?.at?.target) return;
+    // the last one picked, else the only one there is
+    const again = lastTarget.current && targets.some((x) => x.id === lastTarget.current) ? lastTarget.current : targets.length === 1 ? targets[0]!.id : undefined;
+    if (again) setMove({ at: { target: again } });
+  };
   const [showMoveFade, setShowMoveFade] = useState<MoveFade | undefined>(undefined);
   /** The glide field while its text is not a valid duration: Save waits for it. */
   const invalidFade = useRef<HTMLInputElement | null>(null);
@@ -378,6 +408,12 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
       // A glide being corrected is never saved as another value: say it and take the operator back to it.
       setError(t.moveFadeFix);
       fadeField.focus();
+      return;
+    }
+    if (aimOnTarget && look.move?.enabled !== false && !look.move?.at?.target) {
+      // « Cible » without a target would save the pan/tilt centre instead: say it and take the operator to the list
+      setError(t.targets.pickFirst);
+      targetPicker.current?.querySelector<HTMLElement>('input[type="search"], button')?.focus();
       return;
     }
     try {
@@ -572,25 +608,33 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                 </select>
               </label>
               <fieldset className="move-aim field">
-                <legend>{t.targets.aimMode}</legend>
-                <button type="button" aria-pressed={!aimOnTarget} data-testid="move-aim-center" onClick={() => (setAimOnTarget(false), setMove({ at: undefined }))}>
-                  {t.targets.aimCenter}
-                </button>
-                <button type="button" aria-pressed={aimOnTarget} data-testid="move-aim-target" title={t.targets.aimTargetHelp} onClick={() => setAimOnTarget(true)}>
-                  ◎ {t.targets.aimTarget}
-                </button>
+                <legend id={`${aimId}-legend`}>{t.targets.aimMode}</legend>
+                <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${aimId}-legend`}>
+                  <button type="button" role="radio" aria-checked={!aimOnTarget} data-testid="move-aim-center" onClick={() => (setAimOnTarget(false), setMove({ at: undefined }))}>
+                    {t.targets.aimCenter}
+                  </button>
+                  <button type="button" role="radio" aria-checked={aimOnTarget} data-testid="move-aim-target" onClick={aimAtTarget}>
+                    <span aria-hidden="true">◎ </span>
+                    {t.targets.aimTarget}
+                  </button>
+                </div>
               </fieldset>
               {aimOnTarget && (
-                <div className="field move-aim-target">
-                  {look.move.at?.target && !targets.some((x) => x.id === look.move!.at!.target) && <p className="error">{t.targets.gone.replace("{id}", () => look.move!.at!.target!)}</p>}
+                <div className="field move-aim-target" ref={targetPicker}>
+                  {/* said once the targets are read: never « supprimée » or « aucune » for a moment while they load */}
+                  {targetsLoaded && look.move.at?.target && !targets.some((x) => x.id === look.move!.at!.target) && <p className="error">{t.targets.gone.replace("{name}", () => targetsStore.lastName(look.move!.at!.target!))}</p>}
                   {targets.length ? (
                     <ModePicker
                       title={t.targets.pick}
+                      currentLabel={t.targets.current}
                       items={targets.map((x) => ({ key: x.id, label: x.name, detail: x.engaged ? t.targets.engagedBadge : undefined, current: look.move?.at?.target === x.id }))}
-                      onPick={(item) => setMove({ at: { target: item.key } })}
+                      onPick={(item) => {
+                        lastTarget.current = item.key;
+                        setMove({ at: { target: item.key } });
+                      }}
                     />
                   ) : (
-                    <p className="hint">{t.targets.pickNone}</p>
+                    targetsLoaded && <p className="hint">{t.targets.pickNone}</p>
                   )}
                   <small className="hint">{t.targets.aimTargetHelp}</small>
                 </div>

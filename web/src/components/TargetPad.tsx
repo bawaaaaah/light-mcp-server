@@ -5,26 +5,26 @@
  * A drag sends target.set {x, y} at most every 40 ms (useThrottledSend, as the XY pad); « Engager » engages it, and a
  * second press puts it back on top (decision T-a). The status line says, from the motion layer, what each head does.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useThrottledSend } from "../hooks/useThrottledSend";
-import type { Point3, TargetRow } from "../hooks/useTargets";
+import { targetsStore, useTarget, type Point3, type TargetRow } from "../hooks/useTargets";
 import { fittedBox, pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { placeLabels, textWidth } from "../plan-tools";
 import { metresText, targetHeads, targetParts, type TargetPart } from "../target-status";
+import { holdText } from "../hold-text";
 import { FaderTrack } from "./FaderTrack";
 import type { Texts } from "../i18n";
 
-interface PadFixture {
+export interface PadFixture {
   id: string;
   name: string;
   position?: { x: number; y: number; z: number };
   absent?: boolean;
 }
-interface PadZone {
+export interface PadZone {
   id: string;
   name: string;
   polygon: [number, number][];
@@ -34,10 +34,10 @@ interface PadZone {
 /** The drawing's width (units); its height follows the stage. */
 const W = 400;
 /** Sizes on screen (px), whatever the pad's size: the drawing's units are scaled back to them. */
-const LABEL_PX = 11;
+const LABEL_PX = 12;
 const HEAD_PX = 6;
 const RING_PX = 11;
-/** Keyboard steps (metres): an arrow, Shift + arrow. */
+/** Keyboard steps (metres): an arrow, Shift + arrow, Page up / Page down. */
 const STEP = 0.1;
 const BIG_STEP = 1;
 
@@ -53,83 +53,122 @@ function partText(t: Texts, part: TargetPart): string {
     template
       .replace("{n}", () => String(n))
       .replace("{names}", () => part.names.join(", "))
-      .replace("{reason}", () => part.reason ?? "");
+      .replace("{reason}", () => part.reason ?? "")
+      .replace("{by}", () => part.by ?? t.targets.stronger);
   const w = t.targets;
+  const one = n === 1;
   switch (part.state) {
     case "follows":
-      return fill(n === 1 ? w.followsOne : w.followsMany);
+      return fill(one ? w.followsOne : w.followsMany);
     case "held":
-      return fill(n === 1 ? w.heldOne : w.heldMany);
+      return fill(one ? w.heldOne : w.heldMany);
     case "manual":
-      return fill(n === 1 ? w.manualOne : w.manualMany);
+      return fill(one ? w.manualOne : w.manualMany);
     case "released":
-      return fill(n === 1 ? w.releasedOne : w.releasedMany);
+      return fill(one ? w.releasedOne : w.releasedMany);
+    case "resting":
+      return fill(one ? w.restingOne : w.restingMany);
     case "masked":
-      return fill(n === 1 ? w.maskedOne : w.maskedMany);
+      return fill(one ? w.maskedOne : w.maskedMany);
     case "frozen":
-      return fill(n === 1 ? w.frozenOne : w.frozenMany);
+      return fill(one ? w.frozenOne : w.frozenMany);
     case "waiting":
       return w.waiting;
     case "idle":
-      return fill(n === 1 ? w.idleOne : w.idleMany);
+      return fill(one ? w.idleOne : w.idleMany);
   }
 }
 
-export function TargetPad({ target: row, label, onError, disabled = false, interactive = true }: {
-  /** The target, as useTargets reads it. */
+/** A padlock drawn in the plan (a frozen head): a vector glyph, legible at any size, unlike an emoji. */
+function Padlock({ x, y, size }: { x: number; y: number; size: number }): ReactElement {
+  const s = size / 10;
+  return (
+    <g className="tp-head-lock" transform={`translate(${x} ${y}) scale(${s})`}>
+      <path d="M-2.6 -1 v-1.6 a2.6 2.6 0 0 1 5.2 0 v1.6" fill="none" strokeWidth={1.4} />
+      <rect x={-3.6} y={-1} width={7.2} height={5.4} rx={1} />
+    </g>
+  );
+}
+
+type Write = { id: string; point: Partial<Point3> };
+
+/**
+ * The widget of a target in a dashboard: its pad, or why it has none (no target chosen, the target deleted — said by
+ * its last known name). Keyed by the target's id by the caller: another target is another pad, its send loop included.
+ */
+export function TargetWidget({ id, label, stage, onError, disabled = false, interactive = true }: {
+  id: string | undefined;
+  label?: string;
+  stage: { fixtures: PadFixture[]; zones: PadZone[] };
+  onError: (message: string) => void;
+  disabled?: boolean;
+  interactive?: boolean;
+}): ReactElement {
+  const t = useT();
+  const { row, loaded } = useTarget(id);
+  if (!id) return <div className="fill missing">{t.targets.unbound}</div>;
+  if (!row) return <div className="fill missing">{loaded ? t.targets.missing.replace("{name}", () => targetsStore.lastName(id)) : "…"}</div>;
+  return <TargetPad target={row} label={label} stage={stage} onError={onError} disabled={disabled} interactive={interactive} />;
+}
+
+export function TargetPad({ target: row, label, stage, onError, disabled = false, interactive = true }: {
+  /** The target, as target.list reads it. */
   target: TargetRow;
   label?: string;
+  /** The venue's fixtures and zones, read once by the page for all its pads. */
+  stage: { fixtures: PadFixture[]; zones: PadZone[] };
   onError: (message: string) => void;
   /** No right to move the heads (commands:position): drawn, nothing sent. */
   disabled?: boolean;
-  /** false while the dashboard is arranged: the presses are the grid's. */
+  /** false while the dashboard is arranged: the presses are the grid's (nothing is disabled: the widget is still dragged). */
   interactive?: boolean;
 }): ReactElement {
   const t = useT();
   const name = label ?? row.name;
   const off = disabled || !interactive;
-  const [fixtures, setFixtures] = useState<PadFixture[]>([]);
-  const [zones, setZones] = useState<PadZone[]>([]);
-  const readStage = useCallback(() => {
-    void cmd<PadFixture[]>("venue.fixture.list").then(setFixtures, () => undefined);
-    void cmd<PadZone[]>("stage.zone.list").then(setZones, () => undefined);
-  }, []);
-  useEffect(readStage, [readStage]);
-  useCommandEvents(["venue.", "stage.", "show.open", "import.", "history."], readStage);
+  const { fixtures, zones } = stage;
 
   const headIds = useMemo(() => row.heads.map((h) => h.id), [row.heads]);
-  const { heads: motion, markGesture } = useMotionHeads({ fixtures: headIds });
+  // the status line reads light:motion (pushed as it changes): no gesture polling of position.list for this pad
+  const { heads: motion } = useMotionHeads({ fixtures: headIds });
   const states = targetHeads(
     row.heads.map((h) => ({ id: h.id, name: h.name, motion: motion.find((m) => m.id === h.id)?.motion ?? null })),
     row.id,
     row.engaged,
+    { reason: (a) => holdText(t, a), softLock: t.targets.softLock },
   );
   const parts = targetParts(states);
   const stateOf = new Map(states.map((s) => [s.id, s.state]));
 
-  // the point shown: the one asked while a gesture is under way, else the server's
+  // the point shown: the one asked while a gesture is under way (or its writes are on the wire), else the server's
   const [local, setLocal] = useState<Point3 | null>(null);
   const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
   const bounds = row.effectiveBounds;
   const point = local ?? row.point;
-  const targetId = useRef(row.id);
-  targetId.current = row.id;
-  const sender = useThrottledSend<Partial<Point3>>(
-    async (p) => {
+  const sender = useThrottledSend<Write>(
+    async ({ id, point: p }) => {
       try {
-        await cmd("target.set", { id: targetId.current, ...p });
+        // each write carries the target it was made for (captured at the gesture), never the one shown now
+        const reply = await cmd<{ id: string; point: Point3 }>("target.set", { id, ...p });
+        if (reply?.point) targetsStore.patchPoint(id, reply.point);
       } catch (error) {
+        setLocal(null); // the reticle goes back to the server's point, not left on the one refused
         onError((error as Error).message);
       }
     },
-    { merge: (a, b) => ({ ...a, ...b }), onSettled: markGesture },
+    {
+      // the axes of one target go out together; a write for another target is never folded into it
+      merge: (a, b) => (a.id === b.id ? { id: b.id, point: { ...a.point, ...b.point } } : b),
+      onSettled: () => letGo(),
+    },
   );
-  // the server's point once the gesture has landed: a remote move (MIDI, another screen) shows again
-  useEffect(() => {
-    if (!dragging && sender.idle()) setLocal(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new point from the server lets the asked one go
-  }, [row.point.x, row.point.y, row.point.z]);
-  useEffect(() => setLocal(null), [row.id]);
+  /** The gesture is over and its writes have landed: the server's point (patched from target.set's answer) shows again. */
+  const letGo = (): void => {
+    if (!draggingRef.current && sender.idle()) setLocal(null);
+  };
+  // a new read of the target (a remote move: MIDI, another screen) shows once no gesture of this pad is under way
+  useEffect(letGo, [row]); // eslint-disable-line react-hooks/exhaustive-deps -- a new row, whatever changed in it
 
   const move = (p: Partial<Point3>): void => {
     if (off) return;
@@ -141,12 +180,11 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
     setLocal(next);
     const changed: Partial<Point3> = {};
     for (const a of ["x", "y", "z"] as const) if (p[a] !== undefined) changed[a] = next[a];
-    sender.send(changed);
-    markGesture();
+    sender.send({ id: row.id, point: changed });
   };
 
-  // the frame: the target's bounds, the zones and the placed fixtures (stage-frame.ts, as the venue's plan)
-  // framed on what the point can reach and the target's own heads: the rest of the stage is cut at the edges
+  // the frame: what the point can reach (the bounds), the target's own placed heads and its point (stage-frame.ts, as
+  // the venue's plan): the rest of the stage is cut at the edges
   const boundsZone = { polygon: [[bounds.min.x, bounds.min.y], [bounds.max.x, bounds.min.y], [bounds.max.x, bounds.max.y], [bounds.min.x, bounds.max.y]] as [number, number][] };
   const placed = fixtures.filter((f) => f.position && !f.absent);
   const layout = stageLayout(
@@ -180,7 +218,9 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
     if (activePointer.current !== e.pointerId) return;
     activePointer.current = null;
     rectAtDown.current = null;
+    draggingRef.current = false;
     setDragging(false);
+    letGo();
   };
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const step = e.shiftKey ? BIG_STEP : STEP;
@@ -191,6 +231,9 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
       ArrowDown: { y: point.y - step },
       PageUp: { z: point.z + step },
       PageDown: { z: point.z - step },
+      // a slider's ends: the X bounds (and the page does not scroll)
+      Home: { x: bounds.min.x },
+      End: { x: bounds.max.x },
     };
     const p = by[e.key];
     if (!p) return;
@@ -203,26 +246,33 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
   const nz = zSpan > 0 ? (point.z - bounds.min.z) / zSpan : 0;
   const hintId = useId();
   const statusId = useId();
+  const engageHelpId = useId();
+  const [lineOpen, setLineOpen] = useState(false);
 
   const engage = (on: boolean): void => {
+    if (off) return; // arranging: the press is the grid's; without the right: nothing is sent
     void cmd("target.engage", { id: row.id, on }).catch((error: Error) => onError(error.message));
   };
 
-  // the reticle and its height, then the zones' names, without overlap (plan-tools.ts)
+  // the reticle, the heads and the height, then the zones' names: no name over the reticle or a head (plan-tools.ts)
   const rx = sx(point.x);
   const ry = sy(point.y);
   const ring = Math.max(RING_PX * unit, Math.min(2 * RING_PX * unit, 0.3 * scale));
   const heightText = `${t.targets.z} ${metres(t, point.z)} m`;
+  const zoneLabel = LABEL * 0.9;
+  const ownHeads = placed.filter((f) => stateOf.has(f.id));
   const labels = placeLabels(
     [
-      // the reticle itself first: no name is written over it
-      { id: "#ring", x: rx, below: ry + 0.3 * LABEL, above: ry + 0.3 * LABEL, width: 3.2 * ring },
-      { id: "#point", x: rx, below: ry + ring + LABEL * 1.1, above: ry - ring - LABEL * 0.4, width: textWidth(heightText, LABEL) },
+      // the reticle and the target's heads first: no name is written over them
+      { id: "#ring", x: rx, below: ry + 0.3 * LABEL, above: ry + 0.3 * LABEL, width: 3.4 * ring },
+      ...ownHeads.map((f) => ({ id: `#head-${f.id}`, x: sx(f.position!.x), below: sy(f.position!.y) + 0.3 * LABEL, above: sy(f.position!.y) + 0.3 * LABEL, width: 3 * HEAD_PX * unit })),
+      { id: "#point", x: rx, below: ry + ring * 1.7 + LABEL, above: ry - ring * 1.7 - LABEL * 0.3, width: textWidth(heightText, LABEL) },
       ...zones.map((z) => {
         const xs = z.polygon.map((p) => p[0]);
         const ys = z.polygon.map((p) => p[1]);
         const cx = sx((Math.min(...xs) + Math.max(...xs)) / 2);
-        return { id: z.id, x: cx, below: sy(Math.min(...ys)) - 4, above: sy(Math.max(...ys)) + LABEL, width: textWidth(z.name, LABEL * 0.85) };
+        // inside the zone, clear of its outline: above its front edge, else under its back edge
+        return { id: z.id, x: cx, below: sy(Math.min(...ys)) - 0.45 * zoneLabel, above: sy(Math.max(...ys)) + 1.15 * zoneLabel, width: textWidth(z.name, zoneLabel) };
       }),
     ],
     LABEL,
@@ -257,6 +307,7 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
             rectAtDown.current = e.currentTarget.getBoundingClientRect();
             activePointer.current = e.pointerId;
             e.currentTarget.setPointerCapture(e.pointerId);
+            draggingRef.current = true;
             setDragging(true);
             move(fromEvent(e));
           }}
@@ -265,6 +316,7 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
           }}
           onPointerUp={endPointer}
           onPointerCancel={endPointer}
+          onLostPointerCapture={endPointer}
         >
           <rect className="tp-ground" x={0} y={0} width={W} height={H} />
           {zones.map((z) => (
@@ -276,28 +328,16 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
             if (y === undefined) return null;
             const xs = z.polygon.map((p) => p[0]);
             return (
-              <text key={`n-${z.id}`} className="tp-zone-name" x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: LABEL * 0.85 }}>
+              <text key={`n-${z.id}`} className="tp-zone-name" x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: zoneLabel }}>
                 {z.name}
               </text>
             );
           })}
-          {placed.map((f) => {
-            const state = stateOf.get(f.id);
-            const p = f.position!;
-            return state === undefined ? (
-              <circle key={f.id} className="tp-fixture" cx={sx(p.x)} cy={sy(p.y)} r={HEAD_PX * 0.6 * unit} />
-            ) : (
-              <g key={f.id} className="tp-head" data-state={state} data-fixture={f.id}>
-                <circle cx={sx(p.x)} cy={sy(p.y)} r={HEAD_PX * unit} />
-                {/* a held or frozen head carries a mark, never the colour alone */}
-                {(state === "held" || state === "frozen") && (
-                  <text x={sx(p.x)} y={sy(p.y) + HEAD_PX * 0.6 * unit} textAnchor="middle" className="tp-head-mark" style={{ fontSize: HEAD_PX * 1.6 * unit }}>
-                    {state === "held" ? "!" : "🔒"}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+          {placed
+            .filter((f) => !stateOf.has(f.id))
+            .map((f) => (
+              <circle key={f.id} className="tp-fixture" cx={sx(f.position!.x)} cy={sy(f.position!.y)} r={HEAD_PX * 0.6 * unit} />
+            ))}
           <g className="tp-reticle" data-testid="target-reticle" transform={`translate(${rx} ${ry})`}>
             <circle r={ring} />
             <line x1={-ring * 1.6} x2={-ring * 0.45} y1={0} y2={0} />
@@ -306,6 +346,23 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
             <line y1={ring * 0.45} y2={ring * 1.6} x1={0} x2={0} />
             <circle r={2.5 * unit} className="tp-reticle-dot" />
           </g>
+          {/* the target's heads over the reticle: a head right under the point stays visible */}
+          {ownHeads.map((f) => {
+            const state = stateOf.get(f.id)!;
+            const [x, y] = [sx(f.position!.x), sy(f.position!.y)];
+            return (
+              <g key={f.id} className="tp-head" data-state={state} data-fixture={f.id}>
+                <circle cx={x} cy={y} r={HEAD_PX * unit} />
+                {/* a held or frozen head carries a mark, never the colour alone */}
+                {state === "held" && (
+                  <text x={x} y={y + HEAD_PX * 0.6 * unit} textAnchor="middle" className="tp-head-mark" style={{ fontSize: HEAD_PX * 1.7 * unit }}>
+                    !
+                  </text>
+                )}
+                {state === "frozen" && <Padlock x={x} y={y - 0.3 * unit} size={HEAD_PX * 1.5 * unit} />}
+              </g>
+            );
+          })}
           {labels.has("#point") && (
             <text className="tp-height" x={rx} y={labels.get("#point")} textAnchor="middle" style={{ fontSize: LABEL, strokeWidth: 3 * unit }}>
               {heightText}
@@ -319,10 +376,11 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
           <FaderTrack
             label={t.targets.zLabel.replace("{name}", () => name)}
             value={clampTo(nz, 0, 1)}
-            disabled={off}
+            disabled={disabled}
             interactive={!off}
             valueText={`${shown(point.z)} m`}
             keyStep={zSpan > 0 ? STEP / zSpan : STEP}
+            pageStep={zSpan > 0 ? BIG_STEP / zSpan : BIG_STEP}
             onChange={(level) => move({ z: bounds.min.z + level * zSpan })}
           />
           <small aria-hidden="true">{t.targets.z}</small>
@@ -331,28 +389,35 @@ export function TargetPad({ target: row, label, onError, disabled = false, inter
       <span id={hintId} className="sr-only">
         {t.targets.keysHelp}
       </span>
-      <div className="target-pad-status" aria-live="polite" aria-atomic="true">
+      <div className="target-pad-status">
         <div className="target-pad-heading">
           <strong>{name}</strong>
           <small className="target-pad-where">{where}</small>
         </div>
-        <small id={statusId} className="target-pad-line" data-testid="target-status" title={line}>
-          {line}
-        </small>
+        {/* two lines at most; a press shows it whole (a tablet has no tooltip) */}
+        <button type="button" className={`target-pad-line${lineOpen ? " open" : ""}`} aria-expanded={lineOpen} title={lineOpen ? undefined : t.targets.lineMore} onClick={() => setLineOpen((o) => !o)}>
+          <span id={statusId} data-testid="target-status" aria-live="polite" aria-atomic="true">
+            {line}
+          </span>
+        </button>
       </div>
+      <span id={engageHelpId} className="sr-only">
+        {row.engaged ? t.targets.reengageHelp : t.targets.engageHelp}
+      </span>
       <div className="row target-pad-actions">
         <button
           className={row.engaged ? "on" : ""}
           aria-pressed={row.engaged}
+          aria-describedby={engageHelpId}
+          aria-disabled={off || undefined}
           data-testid="target-engage"
           title={row.engaged ? t.targets.reengageHelp : t.targets.engageHelp}
-          disabled={off}
           onClick={() => engage(true)}
         >
           <span aria-hidden="true">{row.engaged ? "◉ " : "◎ "}</span>
           {t.targets.engage}
         </button>
-        <button data-testid="target-disengage" title={t.targets.disengageHelp} disabled={off || !row.engaged} onClick={() => engage(false)}>
+        <button data-testid="target-disengage" title={t.targets.disengageHelp} aria-disabled={off || !row.engaged || undefined} onClick={() => row.engaged && engage(false)}>
           {t.targets.disengage}
         </button>
       </div>

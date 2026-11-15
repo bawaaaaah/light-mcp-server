@@ -37,11 +37,17 @@ export interface StageLayout {
 }
 
 /**
- * What to draw: the zones and the placed fixtures, with a margin (0.8 m; 0.3 m around the row alone); the fixtures with
- * no stage position go on a row in front of the stage (at least 3 m wide, 1.2 m per fixture), 0.8 m before its front.
+ * What to draw: the zones, the placed fixtures and `points` (the 3D targets seen from above, T24: a target outside the
+ * zones widens the frame instead of being cut at its edge), with a margin (0.8 m; 0.3 m around the row alone); the
+ * fixtures with no stage position go on a row in front of the stage (at least 3 m wide, 1.2 m per fixture), 0.8 m
+ * before its front.
  */
-export function stageLayout(fixtures: readonly FramedFixture[], zones: readonly FramedZone[]): StageLayout {
-  const pts: [number, number][] = [...zones.flatMap((z) => z.polygon), ...fixtures.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number])];
+export function stageLayout(fixtures: readonly FramedFixture[], zones: readonly FramedZone[], points: readonly StageXY[] = []): StageLayout {
+  const pts: [number, number][] = [
+    ...zones.flatMap((z) => z.polygon),
+    ...fixtures.filter((f) => f.position).map((f) => [f.position!.x, f.position!.y] as [number, number]),
+    ...points.map((p) => [p.x, p.y] as [number, number]),
+  ];
   const unplaced = fixtures.filter((f) => !f.position);
   const rowHalf = Math.max(1.5, unplaced.length * 0.6);
   let minX = -rowHalf;

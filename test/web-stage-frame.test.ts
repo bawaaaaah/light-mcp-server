@@ -27,6 +27,16 @@ describe("stage frame (top view)", () => {
     ]);
   });
 
+  it("widens the frame for a 3D target outside the zones, keeping the row of the unplaced fixtures (D2)", () => {
+    const l = stageLayout([{ id: "a" }, { id: "b", position: { x: 0, y: 3 } }], [zone], [{ x: 7, y: 9 }]);
+    // the target at x 7, y 9: 0.8 m around it; the row of « a » still in front, at y -0.8
+    expect([l.minX, l.maxX, l.minY, l.maxY].map((v) => Math.round(v * 100) / 100)).to.deep.equal([-4.8, 7.8, -1.9, 9.8]);
+    expect(l.pos.get("a")).to.deep.equal({ x: 0, y: -0.8 });
+    expect(l.unplaced).to.equal(1);
+    // a target inside the zones changes nothing
+    expect(stageLayout([], [zone], [{ x: 1, y: 1 }])).to.deep.include({ minX: -4.8, maxX: 4.8, minY: -0.8, maxY: 6.8 });
+  });
+
   it("with nothing placed, frames the row alone", () => {
     const l = stageLayout([{ id: "a" }], []);
     expect([l.minX, l.maxX, l.minY, l.maxY]).to.deep.equal([-1.8, 1.8, -0.6, 0.6]);
