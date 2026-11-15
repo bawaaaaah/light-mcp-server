@@ -25,7 +25,35 @@ export interface Bounds {
 /** Why a head cannot follow the point: it stays where it is (the motion layer's hold, T25 R14). */
 export type HoldReason = "out-of-reach" | "no-aim" | "no-position";
 
-export type HeadAim = { pan: number; tilt: number } | { held: true; reason: HoldReason; message: string };
+/**
+ * Why a head holds, as data (T24, lot 4): the motion layer reports it outside any request, so its message is French;
+ * a screen in English, or `target.list` answering in English, says it again from this (`holdMessage`).
+ */
+export interface TargetHold {
+  reason: HoldReason;
+  /** no-aim: the zone's name. */
+  zone?: string;
+  /** out-of-reach: the angles asked (degrees), absent when the point is on the head itself (`onFixture`). */
+  reach?: { pan: number; tilt: number };
+  onFixture?: true;
+}
+
+export type HeadAim = { pan: number; tilt: number } | ({ held: true; message: string } & TargetHold);
+
+/** A hold said in the language of the request being answered. */
+export function holdMessage(h: TargetHold): string {
+  switch (h.reason) {
+    case "no-aim":
+      return say(`vers une zone interdite (« ${h.zone ?? ""} »)`, `towards a no-aim zone (“${h.zone ?? ""}”)`);
+    case "no-position":
+      return say("position sur la scène inconnue", "stage position unknown");
+    case "out-of-reach":
+      if (h.onFixture || !h.reach) return say("la cible est sur la fixture", "the target is on the fixture");
+      return say(`hors de portée (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`, `out of reach (pan ${h.reach.pan}°, tilt ${h.reach.tilt}°)`);
+  }
+}
+
+const held = (hold: TargetHold): HeadAim => ({ held: true, ...hold, message: holdMessage(hold) });
 
 /** How high above a no-aim zone's floor a point is still in it: a standing person's head and more (stage.ts `beamCrosses`). */
 const NO_AIM_HEIGHT = 2.5;
@@ -42,10 +70,10 @@ export function forbiddenZoneAt(point: Point3, noAim: readonly Zone[]): Zone | u
  */
 export function aimHead(setup: AimSetup | undefined, point: Point3, prev: Partial<Position> | undefined, noAim: readonly Zone[] = []): HeadAim {
   const zone = forbiddenZoneAt(point, noAim);
-  if (zone) return { held: true, reason: "no-aim", message: say(`vers une zone interdite (« ${zone.name} »)`, `towards a no-aim zone (“${zone.name}”)`) };
-  if (!setup) return { held: true, reason: "no-position", message: say("position sur la scène inconnue", "stage position unknown") };
+  if (zone) return held({ reason: "no-aim", zone: zone.name });
+  if (!setup) return held({ reason: "no-position" });
   const res = aimNear(setup, point, prev);
-  if ("error" in res) return { held: true, reason: "out-of-reach", message: res.error };
+  if ("error" in res) return held({ reason: "out-of-reach", ...(res.reach ? { reach: res.reach } : {}), ...(res.onFixture ? { onFixture: true as const } : {}) });
   return { pan: res.pan, tilt: res.tilt };
 }
 

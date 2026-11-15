@@ -175,6 +175,7 @@ export const TITLES_EN: Record<string, string> = {
   "target.put": "Target",
   "target.set": "Move a target",
   "target.zone": "Target on a zone",
+  "target.volume": "Stage volume",
   "tempo.get": "Tempo",
   "tempo.set": "Set the tempo",
   "tempo.tap": "Tap tempo",

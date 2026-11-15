@@ -46,7 +46,13 @@ export function angleCandidates(a: { heading: number; tilt: number }): [number, 
 }
 
 /** What aiming gives: a normalised pan/tilt (0..1, 0.5 = centre) with its angles in degrees, or why the point cannot be reached. */
-export type AimResult = (Position & { panDeg: number; tiltDeg: number }) | { error: string };
+export type AimResult = (Position & { panDeg: number; tiltDeg: number }) | AimError;
+/**
+ * Why a point cannot be aimed: the message in the request's language, and what it is made of (`onFixture`: the point is
+ * on the head itself; `reach`: the angles asked, degrees) so a report made outside a request (the motion layer, T24)
+ * can be said again in the language of whoever reads it.
+ */
+export type AimError = { error: string; onFixture?: true; reach?: { pan: number; tilt: number } };
 
 /** Normalised pan/tilt (0..1, 0.5 = centre), or an error when the point is out of reach: the solution closest to the centre. */
 export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }): AimResult {
@@ -63,7 +69,7 @@ export function aimAt(f: AimSetup, target: { x: number; y: number; z: number }):
  */
 export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }, prev?: Partial<Position>): AimResult {
   const raw = rawAngles(f, target);
-  if (!raw) return { error: say("la cible est sur la fixture", "the target is on the fixture") };
+  if (!raw) return { error: say("la cible est sur la fixture", "the target is on the fixture"), onFixture: true };
   const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v);
   // where the solutions are measured from: the head's position in degrees of its travel, else the centre
   const from: [number, number] = [finite(prev?.pan) ? (prev.pan - 0.5) * f.panMax : 0, finite(prev?.tilt) ? (prev.tilt - 0.5) * f.tiltMax : 0];
@@ -78,7 +84,10 @@ export function aimNear(f: AimSetup, target: { x: number; y: number; z: number }
       const d = Math.abs(a[0] - from[0]) + Math.abs(a[1] - from[1]) - (Math.abs(b[0] - from[0]) + Math.abs(b[1] - from[1]));
       return Math.abs(d) > 1e-6 ? d : Number(a[1] < 0) - Number(b[1] < 0);
     })[0];
-  if (!fit) return { error: say(`hors de portée (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`, `out of reach (pan ${Math.round(raw.heading)}°, tilt ${Math.round(raw.tilt)}°)`) };
+  if (!fit) {
+    const reach = { pan: Math.round(raw.heading), tilt: Math.round(raw.tilt) };
+    return { error: say(`hors de portée (pan ${reach.pan}°, tilt ${reach.tilt}°)`, `out of reach (pan ${reach.pan}°, tilt ${reach.tilt}°)`), reach };
+  }
   const [panDeg, tiltDeg] = fit;
   return { pan: panDeg / f.panMax + 0.5, tilt: tiltDeg / f.tiltMax + 0.5, panDeg, tiltDeg };
 }

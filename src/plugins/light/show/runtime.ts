@@ -24,7 +24,7 @@ import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot, type Target } from "./model.js";
-import { aimHead, clampPoint, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
+import { aimHead, clampPoint, type TargetHold, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
 import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
 import { ownerNamer } from "./motion-report.js";
@@ -83,6 +83,8 @@ interface MotionRun {
    * would drift with the shape. `compose` leaves the new table in it; only `render` keeps it.
    */
   bases: ReadonlyMap<string, Position>;
+  /** Why a head held for a target on this frame, by its error message (T24, lot 4: the screens say it in their language). */
+  holds?: ReadonlyMap<string, TargetHold>;
 }
 
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
@@ -289,6 +291,8 @@ export class ShowRuntime {
   private sentPositions: ReadonlyMap<string, Position> = new Map();
   /** MotionRun.bases of the last frame really rendered. */
   private aimBases: ReadonlyMap<string, Position> = new Map();
+  /** MotionRun.holds of the last frame really rendered. */
+  private aimHolds: ReadonlyMap<string, TargetHold> = new Map();
   /** Targets whose point has a glide in `targetGlide`: those a real frame does not read are forgotten at its end (a look restarted later glides from where the point is). */
   private readonly glidingTargets = new Set<string>();
   /** The targets whose point a real frame read (render): undefined outside one. */
@@ -1784,10 +1788,17 @@ export class ShowRuntime {
    * Where `head` points to follow `point`: the solution closest to `from` (never the long way round), or why it holds
    * there (out of reach, the point in a no-aim zone closed now, no stage position).
    */
-  private aimFor(head: string, point: Point3, from: Position | undefined, noAim: readonly Zone[]): Position | { error: string } {
+  private aimFor(head: string, point: Point3, from: Position | undefined, noAim: readonly Zone[]): Position | { error: string; hold: TargetHold } {
     const r = this.venue.resolve(head);
     const res = aimHead("error" in r ? undefined : aimSetupOf(r), point, from, noAim);
-    return "held" in res ? { error: res.message } : res;
+    if (!("held" in res)) return res;
+    const { held: _held, message, ...hold } = res;
+    return { error: message, hold };
+  }
+
+  /** Why a head holds for a target, as data, from the error the motion report gives (the last frame rendered). */
+  holdOf(error: string): TargetHold | undefined {
+    return this.aimHolds.get(error);
   }
 
   /** The no-aim zones closed now: those no playing look of their `allowLooks` opens (the guard's reading). */
@@ -1822,6 +1833,7 @@ export class ShowRuntime {
       this.motionState = run.state;
       this.lastMotion = run.status;
       this.aimBases = run.bases;
+      this.aimHolds = run.holds ?? new Map();
       // a target's glide nobody read this frame is forgotten (a look following it stopped, the target deleted): read
       // again later, its point starts where it is instead of gliding from a stale value
       for (const id of this.glidingTargets)
@@ -2148,6 +2160,7 @@ export class ShowRuntime {
     if (movers.length) {
       let noAim: Zone[] | undefined;
       const bases = new Map<string, Position>();
+      const holds = new Map<string, TargetHold>();
       // a claim with a shape aims from its own last base on that head (MotionRun.bases); without one, from the position
       // sent (the frames strictBounds plays after its first follow the layer's own course: what render last sent)
       const aim = (head: string, point: Point3, claim: MotionClaim): Position | { error: string } => {
@@ -2158,6 +2171,7 @@ export class ShowRuntime {
           const kept = "error" in res ? last : res;
           if (kept) bases.set(key, kept);
         }
+        if ("error" in res) holds.set(res.error, res.hold);
         return res;
       };
       const resolved = resolveMotion(
@@ -2181,6 +2195,7 @@ export class ShowRuntime {
       motion.state = resolved.next;
       motion.status = resolved.status;
       motion.bases = bases;
+      motion.holds = holds;
     } else if (motion.status.size) motion.status = new Map();
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and

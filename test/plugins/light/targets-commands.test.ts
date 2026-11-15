@@ -9,6 +9,7 @@ import { MidiMapper, MappingSchema } from "../../../src/plugins/light/midi/mappi
 import { parseMidi } from "../../../src/plugins/light/midi/parse.js";
 import { usesOf, type ShowParts } from "../../../src/plugins/light/show/references.js";
 import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-report.js";
+import { inLang } from "../../../src/core/lang.js";
 
 /**
  * Targets through their commands (T24, lot 2; docs/specs/venue-fixtures-stage.md, « Cible »): target.put / .set /
@@ -149,11 +150,21 @@ describe("targets: the commands (T24)", () => {
     const held = (await listed("b")).heads[0]!;
     expect(held).to.include({ state: "held" });
     expect(held.reason).to.match(/hors de portée|out of reach/);
+    // the motion layer reports it outside any request (French); the hold as data lets English be said (lot 4, U1)
+    const report = ((await run("position.list")) as HeadMotionEntry[]).find((h) => h.id === "spot2")!.motion!;
+    expect(report.pan.hold ?? report.tilt.hold).to.deep.include({ reason: "out-of-reach" });
+    const english = ((await inLang("en", () => run("target.list"))) as Listed[]).find((t) => t.id === "b")!.heads[0]!;
+    expect(english.reason).to.match(/^(out of reach|the target is on the fixture)/);
     // « rendre la main » releases the target on its heads; target:<id> is said
     expect(await run("position.releaseTop", { fixtures: ["spot2"] })).to.deep.equal({ fixtures: [{ fixture: "spot2", released: ["target:b"] }] });
     during(100);
     expect((await listed("b")).heads[0]).to.include({ state: "released" });
     expect(await run("target.engage", { id: "b", on: false })).to.deep.include({ engaged: false });
+  });
+
+  it("target.volume gives the stage volume, a new target's bounds in the venue's form (lot 4)", async () => {
+    await run("target.put", { target: { id: "t", name: "T", group: "lyres" } });
+    expect(await run("target.volume")).to.deep.equal((await listed("t")).effectiveBounds);
   });
 
   it("target.zone puts the point on a zone, and refuses a closed no-aim zone", async () => {

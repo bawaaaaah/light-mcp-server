@@ -5,6 +5,7 @@
  */
 import type { Position } from "../engine/move.js";
 import { ownerOfClaimKey, type AxisLayer, type AxisStatus, type HeadStatus, type LockLevel } from "../engine/motion.js";
+import type { TargetHold } from "../venue/target-aim.js";
 
 /** An owner of the motion layer ("manual", "look:<id>", "target:<id>") and, for a look or a target, its name. */
 export interface OwnerRef {
@@ -30,6 +31,8 @@ export interface AxisReport {
   to?: number;
   remainingMs?: number;
   error?: string;
+  /** A head held for a target (T24): why, as data, for a screen to say it in its language (`error` is French). */
+  hold?: TargetHold;
 }
 
 export interface HeadMotion {
@@ -51,7 +54,10 @@ function refs(owners: Iterable<string>, nameOf: (owner: string) => string | unde
   return out;
 }
 
-function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined): AxisReport {
+type HoldOf = (error: string) => TargetHold | undefined;
+
+function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined, holdOf?: HoldOf): AxisReport {
+  const hold = a.error === undefined ? undefined : holdOf?.(a.error);
   const name = a.owner ? nameOf(a.owner) : undefined;
   return {
     layer: a.layer,
@@ -66,15 +72,16 @@ function axisReport(a: AxisStatus, nameOf: (owner: string) => string | undefined
     ...(a.moving && a.target !== undefined ? { to: a.target } : {}),
     ...(a.moving && a.remainingMs !== undefined ? { remainingMs: Math.round(a.remainingMs) } : {}),
     ...(a.error === undefined ? {} : { error: a.error }),
+    ...(hold ? { hold } : {}),
   };
 }
 
 /** The report of one head, from its status on the last frame. */
-export function headMotion(status: HeadStatus, nameOf: (owner: string) => string | undefined): HeadMotion {
+export function headMotion(status: HeadStatus, nameOf: (owner: string) => string | undefined, holdOf?: HoldOf): HeadMotion {
   return {
     lock: status.lock,
-    pan: axisReport(status.pan, nameOf),
-    tilt: axisReport(status.tilt, nameOf),
+    pan: axisReport(status.pan, nameOf, holdOf),
+    tilt: axisReport(status.tilt, nameOf, holdOf),
     masked: refs(status.masked, nameOf),
     released: refs(status.released.map(ownerOfClaimKey), nameOf),
   };
@@ -112,6 +119,8 @@ export interface MotionSource {
   readonly looks: { get(id: string): { name: string } | undefined };
   /** T24: the targets, to name an owner "target:<id>". */
   readonly targets?: { get(id: string): { name: string } | undefined };
+  /** T24: why a head holds for a target, as data, from its error. */
+  holdOf?(error: string): TargetHold | undefined;
 }
 
 /** Every installed moving head, why it is where it is. */
@@ -126,7 +135,7 @@ export function motionEntries(show: MotionSource): HeadMotionEntry[] {
       id,
       sent: show.sentPosition(id) ?? null,
       rest: rest ? { pan: rest.pan, tilt: rest.tilt, set: true } : { pan: 0.5, tilt: 0.5, set: false },
-      motion: s ? headMotion(s, nameOf) : null,
+      motion: s ? headMotion(s, nameOf, show.holdOf ? (e) => show.holdOf!(e) : undefined) : null,
     };
   });
 }

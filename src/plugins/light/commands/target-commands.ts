@@ -10,7 +10,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import { StagePointSchema, TargetSchema, type Target } from "../show/model.js";
 import { inUseMessage } from "../show/references.js";
 import { claimKey } from "../engine/motion.js";
-import { clampPoint, forbiddenZoneAt, fromNormal, type Point3, type StageAxis } from "../venue/target-aim.js";
+import { clampPoint, forbiddenZoneAt, fromNormal, holdMessage, type Point3, type StageAxis } from "../venue/target-aim.js";
 import { zoneAimPoint } from "../venue/stage.js";
 import { say } from "../../../core/lang.js";
 
@@ -45,8 +45,14 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     const status = show.motionStatus().get(head);
     const owner = `target:${t.id}`;
     if (!t.engaged || !status) return { state: "idle" };
-    const mine = [status.pan, status.tilt].find((a) => a.owner === owner);
-    if (mine) return mine.error ? { state: "held", reason: mine.error } : { state: "follows" };
+    // an axis of the head the target holds but cannot place (pan or tilt alone: a tilt out of reach) holds the head
+    const mine = [status.pan, status.tilt].filter((a) => a.owner === owner);
+    const error = mine.find((a) => a.error !== undefined)?.error;
+    if (error !== undefined) {
+      const hold = show.holdOf(error);
+      return { state: "held", reason: hold ? holdMessage(hold) : error };
+    }
+    if (mine.length) return { state: "follows" };
     if (status.released.includes(claimKey({ owner, order: t.engagedAt ?? 0 }))) return { state: "released" };
     return { state: "masked", by: status.pan.owner ?? status.tilt.owner, layer: status.pan.layer };
   };
@@ -76,6 +82,18 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
         sharesWith: sharing(t, all),
       }));
     },
+  });
+
+  reg.register({
+    name: "target.volume",
+    title: "Volume de la scène",
+    description:
+      "The stage volume (metres, {min,max}): the bounds of a target without bounds of its own — the zones' box 0.5 m around (else a 10 × 8 m stage widened to the placed fixtures), from the floor to 0.5 m above the highest fixture. What a new target's bounds start from in the venue's form.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design", "live"],
+    schema: z.object({}),
+    run: () => show.targetBounds({}),
   });
 
   reg.register({
