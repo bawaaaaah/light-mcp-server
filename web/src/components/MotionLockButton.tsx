@@ -6,7 +6,7 @@ import type { Texts } from "../i18n";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock, type MotionLockView } from "../hooks/useMotionLock";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
-import { groupLevels, planLock, stricter, tapTarget, type LockLevel, type LockPlan, type LockRights } from "../motionLock";
+import { groupLevels, planGlobalPress, planLock, stricter, tapTarget, type LockLevel, type LockPlan, type LockRights } from "../motionLock";
 import { useFloatingMenu } from "./menu";
 
 /** How long a press held still opens the level menu (decision Q1: a long press or the chevron), as elsewhere. */
@@ -35,19 +35,25 @@ interface LockScope {
    * the bar says the global level and adds « · 1 en dur », the menu names them « à part ».
    */
   apart?: { soft: number; hard: number };
+  /** Every head (decision W1): whether all the installed heads are frozen, which makes the press « défiger tout ». */
+  allFrozen?: boolean;
 }
 
 /**
  * Every head: the top bar, a widget without group (the global lock; its « Défiger » lifts everything, decision U2). It
  * shows the global level, not the strictest: one head frozen hard on its own under a soft global lock is « 🔒 Figées ·
- * 1 en dur », not « Figées — tout ».
+ * 1 en dur », not « Figées — tout ». Decision W1: once every installed head is frozen, by the global or their own
+ * locks, it shows them frozen (« Figées — tout » when all are hard), and the press is then « défiger tout ».
  */
 function globalScope(view: MotionLockView): LockScope {
   const { lock, movingHeads } = view;
   // the installed heads only (an absent head or an id out of the patch is not counted), as the server counts them
-  const hard = lock.level === "hard" ? 0 : movingHeads.hard;
-  const apart = { soft: lock.level === "off" ? movingHeads.frozen - hard : 0, hard };
-  return { shown: lock.level, base: lock.level, top: lock.effective, total: movingHeads.total, frozen: movingHeads.frozen, target: {}, globalHolds: false, apart };
+  const { total, frozen } = movingHeads;
+  const allFrozen = total > 0 ? frozen === total : lock.level !== "off";
+  const shown: LockLevel = total > 0 && frozen === total ? (movingHeads.hard === total ? "hard" : "soft") : lock.level;
+  const hard = shown === "hard" ? 0 : movingHeads.hard;
+  const apart = { soft: lock.level === "off" ? frozen - movingHeads.hard : 0, hard };
+  return { shown, base: lock.level, top: lock.effective, total, frozen, target: {}, globalHolds: false, apart, allFrozen };
 }
 
 /** A group's heads (members resolved by the server: selectors, sub-groups), from their own and the global levels. */
@@ -124,8 +130,19 @@ export function showLockToast(text: string): void {
 export function LockToastHost(): ReactElement {
   const [message, setMessage] = useState<ToastMessage>({ text: "", seq: 0 });
   useEffect(() => {
-    toastListeners.add(setMessage);
-    return () => void toastListeners.delete(setMessage);
+    // the region is emptied, then the text set on the next frame: the same message said twice in a row is announced
+    // again (a text that does not change is not), and shown afresh
+    let frame = 0;
+    const listener = (next: ToastMessage) => {
+      window.cancelAnimationFrame(frame);
+      setMessage({ text: "", seq: next.seq });
+      frame = window.requestAnimationFrame(() => setMessage((m) => (m.seq === next.seq ? next : m)));
+    };
+    toastListeners.add(listener);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      toastListeners.delete(listener);
+    };
   }, []);
   useEffect(() => {
     if (!message.text) return;
@@ -196,10 +213,9 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
   const reason = (plan: LockPlan): string | undefined => (scope.empty ? (scope.empty === "deleted" ? t.motionLock.groupDeleted : t.motionLock.groupNoHeads) : reasonOf(t, plan));
   const stillGlobal = () => say((scope.total > 1 ? t.motionLock.stillGlobalMany : t.motionLock.stillGlobalOne).replace("{names}", () => label ?? t.heads));
 
-  /** Sends `wanted`, or arms it first when it loosens a hard lock; returns whether it was sent. */
-  const choose = (wanted: LockLevel): boolean => {
+  /** Sends `wanted` (by `plan`), or arms it first when it loosens a hard lock; returns whether it was sent. */
+  const choose = (wanted: LockLevel, plan: LockPlan = planFor(wanted)): boolean => {
     if (scope.empty) return false;
-    const plan = planFor(wanted);
     if (!plan.calls) {
       // a group frozen by the global lock: its own commands cannot free it, say so rather than nothing
       if (plan.blocked === "same" && scope.globalHolds && wanted !== scope.shown) stillGlobal();
@@ -217,9 +233,11 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
   };
 
   const partial = scope.frozen > 0 && scope.frozen < scope.total;
-  // decision V2: a role that may not unfreeze freezes soft what is still free
-  const tap = tapTarget(scope.shown, scope.frozen < scope.total, rights.position);
-  const tapReason = reason(planFor(tap));
+  // every head (decision W1): freeze while a head is free, free everything once all are frozen; a group (decision V2):
+  // a role that may not unfreeze freezes soft what is still free
+  const tap: LockLevel = scope.allFrozen === undefined ? tapTarget(scope.shown, scope.frozen < scope.total, rights.position) : scope.allFrozen ? "off" : "soft";
+  const tapPlan = scope.allFrozen === undefined ? planFor(tap) : planGlobalPress({ base: scope.base, top: scope.top }, scope.allFrozen, rights);
+  const tapReason = reason(tapPlan);
   const stateText = scope.empty ? (scope.empty === "deleted" ? t.motionLock.groupDeletedShort : t.motionLock.groupNoHeadsShort) : scope.shown === "off" ? t.motionLock.free : scope.shown === "soft" ? t.motionLock.soft : t.motionLock.hard;
   const icon = scope.empty || scope.shown === "off" ? "" : scope.shown === "soft" ? "🔒 " : "🔒🔒 ";
   const help = scope.shown === "off" ? t.motionLock.helpFree : scope.shown === "soft" ? t.motionLock.helpSoft : t.motionLock.helpHard;
@@ -263,7 +281,7 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
         onClick={() => {
           if (inert) return;
           if (tapReason) say(tapReason);
-          else choose(tap);
+          else choose(tap, tapPlan);
         }}
         onContextMenu={(e) => {
           cancelPress();

@@ -194,30 +194,50 @@ describe("motion lock commands (T26, lot 3)", () => {
       expect(lock().heads).to.deep.equal({});
     });
 
-    it("the global toggle frees everything when anything is frozen, per head included (decision U2)", async () => {
+    it("the global toggle freezes while a head is free and frees everything once all are frozen (decisions U2, W1)", async () => {
       await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
-      await run("motion.freeze", { toggle: true }); // spot is frozen: everything is freed
+      await run("motion.freeze", { toggle: true }); // spot2 is free: the press freezes, spot stays hard
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot: "hard" } });
+      await run("motion.freeze", { toggle: true }); // every head frozen: everything is freed
       expect(lock()).to.deep.equal({ level: "off", heads: {} });
       await run("motion.freeze", { toggle: true, level: "hard" }); // nothing frozen: the global lock at the level given
       expect(lock()).to.deep.equal({ level: "hard", heads: {} });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+      // one head soft alone: the press freezes the others, never frees it
       await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot2: "soft" } });
       await run("motion.freeze", { toggle: true });
       expect(lock()).to.deep.equal({ level: "off", heads: {} });
       expect(plugin.state().motionLock.effective).to.equal("off");
     });
 
-    it("the global toggle ignores an id no longer in the patch: it freezes at once; unfreeze still clears it (decision U2)", async () => {
+    it("three heads hard, soft and free: the first press freezes the free one, the second frees them all (decision W1)", async () => {
+      plugin.venue.fixtures.put({ id: "spot3", name: "Spot 3", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 21, position: { x: 0, y: 2, z: 5 }, mount: "hung" });
+      await run("motion.freeze", { fixtures: ["spot"], level: "hard" });
+      await run("motion.freeze", { fixtures: ["spot2"] });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot: "hard", spot2: "soft" } });
+      expect(plugin.state().movingHeads).to.deep.include({ total: 3, frozen: 3 });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "off", heads: {} });
+    });
+
+    it("the global toggle counts the installed heads only: an orphan id or an absent head never makes it unfreeze (decisions U2, W1)", async () => {
       plugin.runtime.setMotionLock({ level: "off", heads: { ghost: "hard" } }); // left by show.venue.set
-      await run("motion.freeze", { toggle: true }); // nothing patched is frozen: the first press freezes
+      await run("motion.freeze", { toggle: true }); // nothing installed is frozen: the first press freezes
       expect(lock()).to.deep.equal({ level: "soft", heads: { ghost: "hard" } });
       await run("motion.freeze", { toggle: true }); // the second frees everything, the orphan included
       expect(lock()).to.deep.equal({ level: "off", heads: {} });
       plugin.runtime.setMotionLock({ level: "off", heads: { ghost: "hard" } });
       await run("motion.unfreeze");
       expect(lock()).to.deep.equal({ level: "off", heads: {} });
-      // an absent head is still patched: frozen on its own, it counts
+      // an absent head frozen on its own is not installed: the installed one is free, the press freezes
       await run("motion.freeze", { fixtures: ["spot2"] });
       await run("venue.fixture.presence", { fixtures: ["spot2"], present: false });
+      await run("motion.freeze", { toggle: true });
+      expect(lock()).to.deep.equal({ level: "soft", heads: { spot2: "soft" } });
       await run("motion.freeze", { toggle: true });
       expect(lock()).to.deep.equal({ level: "off", heads: {} });
     });
@@ -284,6 +304,9 @@ describe("motion lock commands (T26, lot 3)", () => {
         await run("motion.unfreeze", {}, from("ui"));
         await run("motion.freeze", { toggle: true, fixtures: ["spot2"] }, from(origin));
         expect(lock().heads).to.deep.equal({ spot2: "soft" });
+        // decision W1: one head frozen alone, the other free: the global toggle freezes rather than being refused
+        await run("motion.freeze", { toggle: true }, from(origin));
+        expect(lock()).to.deep.equal({ level: "soft", heads: { spot2: "soft" } });
         await run("motion.unfreeze", {}, from("ui"));
       }
     });

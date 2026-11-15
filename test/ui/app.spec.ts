@@ -7526,7 +7526,9 @@ test("motion lock: the fixture menu freezes one head, the patch shows 🔒, the 
     await choice.getByRole("radio", { name: "🔒🔒 figé — tout" }).click();
     const row = page.locator("#venue-patch tr", { hasText: "Lyre" });
     await expect(row.getByTestId("patch-lock")).toHaveText("🔒🔒");
-    await expect(page.getByTestId("motion-lock-bar").locator(".motion-lock-main")).toHaveText("Lyres libres· 1 en dur");
+    // decision W1: the only head frozen hard on its own is every head frozen hard, said so; the press would free it
+    await expect(page.getByTestId("motion-lock-bar").locator(".motion-lock-main")).toHaveText("🔒🔒 Figées — tout");
+    await expect(page.getByTestId("motion-lock-bar").locator(".motion-lock-main")).toHaveAttribute("aria-pressed", "true");
     await expect(choice.getByRole("radio", { name: "🔒🔒 figé — tout" })).toHaveAttribute("aria-checked", "true");
     await page.screenshot({ path: "test-results/t26-fixture-menu.png" });
     // back to free: a hard lock asks twice
@@ -7713,6 +7715,47 @@ test("motion lock: a double click, or Enter held, never confirms unfreezing a ha
     await expect(chevron).toBeFocused();
   } finally {
     await asDesk(page, "motion.unfreeze");
+  }
+  expect(errors).toEqual([]);
+});
+
+test("motion lock: the desk's press with one head frozen hard alone freezes the others soft, then frees everything (decision W1)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await asDesk(page, "venue.fixture.put", { fixture: { id: "spot2", name: "Lyre 2", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 20 } });
+  const bar = page.getByTestId("motion-lock-bar");
+  const main = bar.locator(".motion-lock-main");
+  try {
+    await asDesk(page, "motion.freeze", { fixtures: ["spot2"], level: "hard" });
+    await expect(main).toHaveText("Lyres libres· 1 en dur");
+    await expect(main).toHaveAttribute("aria-pressed", "false");
+    // a head is free: the press freezes soft at once, no second press, the hard head left as it is
+    await main.click();
+    await expect.poll(() => headLock(page)).toBe("soft");
+    expect(await headLock(page, "spot2")).toBe("hard");
+    await expect(bar.locator("button.armed")).toHaveCount(0);
+    await expect(main).toHaveText("🔒 Figées· 1 en dur");
+    await expect(main).toHaveAttribute("aria-pressed", "true");
+    // every head frozen: the press frees everything, asked twice since one is hard
+    await page.waitForTimeout(600);
+    await main.click();
+    await expect(main).toHaveText("Appuyer encore pour défiger");
+    await page.waitForTimeout(600);
+    await main.click();
+    await expect.poll(() => headLock(page)).toBe("off");
+    expect(await headLock(page, "spot2")).toBe("off");
+    // every head frozen on its own (one soft, one hard), the global lock off: shown frozen, « Figées » checked
+    await asDesk(page, "motion.freeze", { fixtures: ["spot"] });
+    await asDesk(page, "motion.freeze", { fixtures: ["spot2"], level: "hard" });
+    await expect(main).toHaveText("🔒 Figées· 1 en dur");
+    await expect(main).toHaveAttribute("aria-pressed", "true");
+    await bar.getByRole("button", { name: "Niveau du verrou des lyres" }).click();
+    const menu = page.getByRole("menu", { name: "Niveau du verrou des lyres" });
+    await expect(menu.locator('[aria-checked="true"]')).toHaveAttribute("data-level", "soft");
+    await page.keyboard.press("Escape");
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+    await asDesk(page, "venue.fixture.delete", { id: "spot2", force: true });
   }
   expect(errors).toEqual([]);
 });

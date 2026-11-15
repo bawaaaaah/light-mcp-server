@@ -61,6 +61,18 @@ export function planLock(state: { base: LockLevel; top: LockLevel }, wanted: Loc
  */
 export const tapTarget = (shown: LockLevel, someFree = false, mayLoosen = true): LockLevel => (shown === "off" || (someFree && !mayLoosen) ? "soft" : "off");
 
+/**
+ * One press of a control over every head (the top bar, a widget without group), decision W1: while some installed head
+ * is free, it freezes soft (the global level: the free heads), never loosening a head already frozen and never asking
+ * twice, for every role that may freeze; only once every head is frozen does it free everything (decision U2), asking
+ * twice when anything is hard, for a role with commands:position.
+ */
+export function planGlobalPress(state: { base: LockLevel; top: LockLevel }, allFrozen: boolean, rights: LockRights): LockPlan {
+  if (allFrozen) return planLock(state, "off", rights);
+  if (!rights.freeze) return { blocked: "freeze" };
+  return { calls: [{ command: "motion.freeze", args: { level: "soft" } }], confirm: false };
+}
+
 /** The levels of a group's heads: the loosest own level (what freezing hardens from) and the strictest (what loosening starts from). */
 export function groupLevels(own: readonly LockLevel[]): { base: LockLevel; top: LockLevel } {
   if (!own.length) return { base: "off", top: "off" };

@@ -250,7 +250,12 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
    * included). An id no longer in the patch (left by show.venue.set) does not count: the toggle must not need a blank
    * press to clear it; motion.unfreeze without a target, and a toggle that frees, still clear it (decision U2).
    */
-  const anyFrozen = (lock: MotionLockState) => lock.level !== "off" || Object.keys(lock.heads).some((id) => show.venue.fixtures.get(id) !== undefined);
+  /**
+   * Decision W1 (amends U2): whether every installed moving head is frozen, by the global or its own lock (as a
+   * « Figer les lyres » mapping counts it); without an installed head, whether anything is frozen at all.
+   */
+  const allFrozen = (lock: MotionLockState, heads: readonly string[]): boolean =>
+    heads.length > 0 ? heads.every((id) => show.motionLock(id) !== "off") : lock.level !== "off" || Object.keys(lock.heads).some((id) => show.venue.fixtures.get(id) !== undefined);
   /**
    * Decision V1 of 2026-11-14: from MIDI, loosening touches only a soft lock — a hard one stays hard (someone may be up
    * by a head: unfreezing it is the interface's, where it asks a second press). Elsewhere, `to` as asked.
@@ -284,7 +289,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "motion.freeze",
     title: "Figer les lyres",
     description:
-      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: anything frozen, globally or per head still patched → everything freed, else the global lock at that level; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays); when that would change nothing, it freezes the free heads soft instead, and is refused only when every head is frozen hard. Returns the lock levels and each head's effective level.",
+      "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: every installed head frozen, by the global or its own lock → everything freed, else the global lock at that level, never loosening a head already frozen; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays), and is refused when every head is frozen hard. Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ level: z.enum(["soft", "hard"]).default("soft"), toggle: z.boolean().default(false) }),
@@ -304,15 +309,13 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur, ids));
       } else {
         ids = show.movingHeads();
-        // decision U2: the global toggle frees everything when anything patched is frozen, else freezes at the level given
-        const freeze: MotionLockState = { level: stricter(cur.level, level), heads: cur.heads };
-        const free = toggle && anyFrozen(cur);
+        // decision W1 (amends U2): while some installed head is free, the global toggle freezes (the global level, so
+        // the free heads; a head already frozen is never loosened); only once every head is frozen does it free
+        // everything, from an origin that may loosen (V1: MIDI loosens soft only; U3: automatic origins never)
+        const free = toggle && allFrozen(cur, ids);
         if (free) mayLoosen(ctx.origin);
-        next = free ? loosenAll(cur, loosenFor(ctx.origin, "off")) : freeze;
-        // decision V1: from MIDI, a press that could only keep a hard lock while some head is free freezes the free
-        // heads instead (MIDI may always freeze): one head frozen hard on its own does not make the button useless
-        if (free && sameLock(cur, next) && ctx.origin === "midi" && ids.some((id) => show.motionLock(id) === "off")) next = freeze;
-        else if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
+        next = free ? loosenAll(cur, loosenFor(ctx.origin, "off")) : { level: stricter(cur.level, level), heads: cur.heads };
+        if (free) refuseHardFromMidi(ctx.origin, cur, next, anyHard(cur));
       }
       show.setMotionLock(next);
       return lockReport(ids);

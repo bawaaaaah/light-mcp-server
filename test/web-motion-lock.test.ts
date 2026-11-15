@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { groupLevels, planLock, tapTarget } from "../web/src/motionLock.js";
+import { groupLevels, planGlobalPress, planLock, tapTarget } from "../web/src/motionLock.js";
 import { ARM_MS, CONFIRM_MIN_MS, confirms } from "../web/src/confirm.js";
 
 describe("motion lock controls: which commands a choice sends (T26, lot 4)", () => {
@@ -18,6 +18,17 @@ describe("motion lock controls: which commands a choice sends (T26, lot 4)", () 
     expect(tapTarget("hard", true, false)).to.equal("soft");
     expect(tapTarget("hard", true, true)).to.equal("off");
     expect(tapTarget("soft", false, false)).to.equal("off");
+  });
+
+  it("a press over every head freezes soft while a head is free, frees everything once all are frozen (decision W1)", () => {
+    // « Lyres libres · 1 en dur »: the desk's press only freezes soft, no loosening, no second press
+    expect(planGlobalPress(at("off", "hard"), false, desk)).to.deep.equal({ calls: [freeze("soft")], confirm: false });
+    expect(planGlobalPress(at("off", "hard"), false, volunteer)).to.deep.equal({ calls: [freeze("soft")], confirm: false });
+    expect(planGlobalPress(at("off"), false, nobody)).to.deep.equal({ blocked: "freeze" });
+    // every head frozen: « défiger tout », twice when anything is hard, for commands:position only
+    expect(planGlobalPress(at("soft", "hard"), true, desk)).to.deep.equal({ calls: [unfreeze("off")], confirm: true });
+    expect(planGlobalPress(at("off", "soft"), true, desk)).to.deep.equal({ calls: [unfreeze("off")], confirm: false });
+    expect(planGlobalPress(at("soft"), true, volunteer)).to.deep.equal({ blocked: "position" });
   });
 
   it("freezes only harder, unfreezes only looser, as the server does", () => {
