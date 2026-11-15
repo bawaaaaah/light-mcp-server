@@ -44,6 +44,17 @@ export function quantize(v: number, fine: boolean): number {
   return Math.round(clamp01(v) * n) / n;
 }
 
+/** A logical value kept on the pad (within `center ± half` degrees) and on the output's grid: where an arrow may take it. */
+export function onPad(s: PadSpan, axis: Axis, v: number): number {
+  const reach = s.half / s.travel[axis];
+  return quantize(Math.max(s.center[axis] - reach, Math.min(s.center[axis] + reach, v)), s.fine[axis]);
+}
+
+/** The pad's centre on the output's grid: what « Origine » (Home) sends. */
+export function padCenter(s: PadSpan): Point {
+  return { pan: quantize(s.center.pan, s.fine.pan), tilt: quantize(s.center.tilt, s.fine.tilt) };
+}
+
 /** Pad fraction (0..1 across, 0..1 up) → logical position: the centre at 0.5, the edges at ± `half` degrees. */
 export function padToLogical(s: PadSpan, x: number, y: number): Point {
   const at = (axis: Axis, f: number) => quantize(s.center[axis] + ((clamp01(f) - 0.5) * 2 * s.half) / s.travel[axis], s.fine[axis]);

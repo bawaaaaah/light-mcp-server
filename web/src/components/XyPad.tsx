@@ -10,7 +10,7 @@ import { needRight, useLockRights } from "./MotionLockButton";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 import { useThrottledSend } from "../hooks/useThrottledSend";
 import { holdText } from "../hold-text";
-import { arrowStep, logicalToPad, offsetDeg, padToLogical, quantize, type PadSpan } from "../correctionPad";
+import { arrowStep, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, type PadSpan } from "../correctionPad";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -95,8 +95,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
    */
   const onGrid = (a: Position, b: Position | null): boolean =>
     span !== undefined && b !== null && (["pan", "tilt"] as const).every((axis) => Math.abs(a[axis] - b[axis]) <= (1.5 * span.step[axis]) / span.travel[axis]);
-  /** A value moved by an arrow, on the pad's grid: thousandths of the travel, or the output's own steps on a correction pad. */
-  const moved = (axis: Axis, v: number): number => (span ? quantize(v, span.fine[axis]) : clamp(v));
+  /** A value moved by an arrow, on the pad's grid: within the travel, or on a correction pad within its span and on the output's own steps. */
+  const moved = (axis: Axis, v: number): number => (span ? onPad(span, axis, v) : clamp(v));
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
   // « Figer les lyres » (T26): every targeted head frozen hard → the pad is off, with the reason and « Défiger »; frozen
@@ -458,7 +458,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     if (!loaded || !scopedHeads.length) return;
     if (event.key === "Home") {
       keyBurst.current = null;
-      send(span ? { ...span.center } : { pan: 0.5, tilt: 0.5 }); // explicit manual centre (a correction pad's: the computed aim), unlike return-to-rest
+      send(span ? padCenter(span) : { pan: 0.5, tilt: 0.5 }); // explicit manual centre (a correction pad's: the computed aim), unlike return-to-rest
       return;
     }
     if (!axis) return;
@@ -482,7 +482,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
       return;
     }
     keyBurst.current = null;
-    const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? (span ? span.center : { pan: 0.5, tilt: 0.5 });
+    const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? (span ? padCenter(span) : { pan: 0.5, tilt: 0.5 });
     send({ ...at, [axis]: moved(axis, at[axis] + delta) });
   };
 
@@ -578,9 +578,9 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         className="pad"
         role="slider"
         aria-label={label ?? t.heads}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={sameSent && firstSent ? Math.round(firstSent.pan * 100) : undefined}
+        aria-valuemin={span ? -span.half : 0}
+        aria-valuemax={span ? span.half : 100}
+        aria-valuenow={sameSent && firstSent ? (span ? Math.round(offsetDeg(span, firstSent).pan * 100) / 100 : Math.round(firstSent.pan * 100)) : undefined}
         aria-describedby={`${hintId} ${statusId}`}
         aria-valuetext={
           sameSent && firstSent

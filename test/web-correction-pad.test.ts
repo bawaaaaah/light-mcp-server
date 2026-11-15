@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { arrowStep, defaultSpan, logicalToPad, offsetDeg, padToLogical, quantize, type PadSpan } from "../web/src/correctionPad.js";
+import { arrowStep, defaultSpan, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, quantize, type PadSpan } from "../web/src/correctionPad.js";
 
 /** A 16-bit head on 540° / 270°, aimed off-centre. */
 const fine: PadSpan = { center: { pan: 0.6, tilt: 0.3 }, half: 10, travel: { pan: 540, tilt: 270 }, step: { pan: 540 / 65535, tilt: 270 / 65535 }, fine: { pan: true, tilt: true } };
@@ -28,9 +28,13 @@ describe("correction pad (T8): ± a few degrees around the computed aim, on the 
 
   it("moves by whole 8-bit steps without a fine channel, by 16-bit ones with it", () => {
     const p = padToLogical(coarse, 0.513, 0.5);
-    expect((p.pan * 255) % 1).to.be.closeTo(0, 1e-9);
+    expect(p.pan * 255).to.be.closeTo(Math.round(p.pan * 255), 1e-9);
     expect(quantize(0.50001, true) * 65535).to.be.closeTo(Math.round(0.50001 * 65535), 1e-9);
     expect(quantize(1.2, false)).to.equal(1);
+    // rounded to the nearest step, not truncated
+    expect(quantize(100.6 / 255, false)).to.equal(101 / 255);
+    expect(quantize(100.4 / 255, false)).to.equal(100 / 255);
+    expect(quantize((1000 + 0.7) / 65535, true)).to.equal(1001 / 65535);
   });
 
   it("steps an arrow by a hundredth of the pad (Shift a tenth), never under one real step; Alt one real step", () => {
@@ -38,6 +42,15 @@ describe("correction pad (T8): ± a few degrees around the computed aim, on the 
     expect(arrowStep(fine, "pan", { shift: true }) * 540).to.be.closeTo(2, 1e-9);
     expect(arrowStep(fine, "tilt", { finest: true })).to.be.closeTo(1 / 65535, 1e-12);
     expect(arrowStep(coarse, "pan")).to.be.closeTo(1 / 255, 1e-12); // 0.9° asked, 2.1° a step: one step
-    expect((arrowStep(coarse, "pan", { shift: true }) * 255) % 1).to.be.closeTo(0, 1e-9); // whole steps
+    const whole = arrowStep(coarse, "pan", { shift: true }) * 255;
+    expect(whole).to.be.closeTo(Math.round(whole), 1e-9); // whole steps
+  });
+
+  it("keeps an arrow on the pad (centre ± half) and on the grid; « Origine » sends the centre on the grid", () => {
+    expect(offsetDeg(fine, { ...fine.center, pan: onPad(fine, "pan", 0.99) }).pan).to.be.closeTo(10, 540 / 65535);
+    expect(offsetDeg(fine, { ...fine.center, tilt: onPad(fine, "tilt", 0) }).tilt).to.be.closeTo(-10, 270 / 65535);
+    const c = padCenter({ ...coarse, center: { pan: 0.6001, tilt: 0.3 } });
+    expect(c.pan * 255).to.be.closeTo(Math.round(c.pan * 255), 1e-9);
+    expect(c.pan).to.be.closeTo(0.6001, 0.5 / 255);
   });
 });
