@@ -1,6 +1,6 @@
 /**
  * The DMX mode of a patched fixture, in its menu (T6, docs/specs/venue-fixtures-stage.md, « Mode DMX d'un
- * appareil »): its definition's modes in a list (ModePicker), the current one marked. Picking another asks
+ * appareil »): its definition's modes in a list (SearchPicker), the current one marked. Picking another asks
  * venue.fixture.mode for its plan first (dryRun: what moves, what is lost, overlaps, canvas cells left dark,
  * looks restarted) and shows it; « Appliquer » writes it — after a confirmation naming the losses and the
  * overlaps, then forced. On a venue shared with other shows, the two ways are offered first; choosing one
@@ -14,7 +14,8 @@ import { useT } from "../App";
 import type { Texts } from "../i18n";
 import { control } from "../ws";
 import { quoted } from "../typography";
-import { ModePicker, type ModeItem } from "./ModePicker";
+import { SearchPicker } from "./SearchPicker";
+import type { SearchItem } from "../search-picker";
 
 interface Plan {
   unchanged?: true;
@@ -109,7 +110,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
   }, [plan]);
   useEffect(() => {
     // kept until its target is on screen: a render of the parent may come before the one that shows it
-    const target = focusNext.current === "status" ? status.current : focusNext.current === "current" ? box.current?.querySelector<HTMLElement>('.mode-list button[aria-current="true"]') : null;
+    const target = focusNext.current === "status" ? status.current : focusNext.current === "current" ? box.current?.querySelector<HTMLElement>('.search-list button[aria-current="true"]') : null;
     if (!target) return;
     focusNext.current = null;
     target.focus();
@@ -190,7 +191,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     }
   };
 
-  const items: ModeItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: tm.channels.replace("{n}", String(m.channels)), current: m.name === fixture.mode }));
+  const items: SearchItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: tm.channels.replace("{n}", String(m.channels)), current: m.name === fixture.mode }));
   const others = plan?.sharedWith ?? [];
   const lostList = plan ? losses(plan) : [];
   const nothing = plan && !plan.moved.length && !lostList.length && !plan.cellsWithoutRender.length;
@@ -202,7 +203,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
       ) : (
         <>
           <small className="hint">{tm.dmxHelp}</small>
-          <ModePicker title={tm.dmxTitle} heading={false} items={items} disabled={busy} onPick={(i) => preview(i.key)} />
+          <SearchPicker title={tm.dmxTitle} heading={false} searchLabel={tm.search} items={items} disabled={busy} onPick={(i) => preview(i.key)} />
         </>
       )}
       {plan && (

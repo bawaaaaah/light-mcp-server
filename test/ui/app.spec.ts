@@ -3166,6 +3166,57 @@ test("venue plan: the panel sets a channel's working mode by name, reads the one
   expect(errors).toEqual([]);
 });
 
+test("search picker: the arrows go from the search to the rows, Escape first empties the search, Enter takes the only row left (T32)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  await api(page, "venue.fixture.put", { fixture: modePar({ position: { x: 2, y: 1, z: 4 } }) });
+  try {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
+    const body = page.locator('.stage-plan g.fixture[data-fixture="mode-par"]').first();
+    const box = (await body.boundingBox())!;
+    for (const [fx, fy] of [[0.5, 0.5], [0.85, 0.85], [0.15, 0.15]]) {
+      await body.click({ position: { x: box.width * fx!, y: box.height * fy! }, timeout: 1500 }).catch(() => undefined);
+      if (await page.locator(".fixture-panel").isVisible()) break;
+    }
+    const button = page.locator(".fixture-panel").getByRole("button", { name: /^Program : / });
+    await button.click();
+    const list = page.getByRole("dialog", { name: /^Program — / });
+    const search = list.getByRole("searchbox", { name: "Rechercher un mode" });
+    await expect(search).toBeFocused();
+    // without case or accents, by every word: the variant found keeps its mode in view above it
+    await search.fill("AUTO 2");
+    await expect(list.locator(".search-list li")).toHaveCount(2);
+    await expect(list.locator("li.variant")).toHaveText(/Auto 2/);
+    // Down goes to the first row, Down again to the next, Up back, Up again to the search
+    await page.keyboard.press("ArrowDown");
+    await expect(list.locator(".search-list button").first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(list.getByRole("button", { name: /^Auto 2/ })).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await expect(search).toBeFocused();
+    // Escape empties the search and keeps the list open; a second one closes it
+    await page.keyboard.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(list).toBeVisible();
+    await expect(list.locator("li.variant", { hasText: "Auto 3" })).toBeVisible();
+    // Enter takes the only row the search leaves
+    await search.fill("auto 3");
+    await expect(list.locator("li.variant")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect(list).toHaveCount(0);
+    await expect(button).toContainText("Auto 3");
+    await button.click();
+    await expect(search).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(list).toHaveCount(0);
+  } finally {
+    await api(page, "venue.fixture.delete", { id: "mode-par", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("live: a channel fader on a channel cut into functions shows its ranges when it has room, and never leaves its cell", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

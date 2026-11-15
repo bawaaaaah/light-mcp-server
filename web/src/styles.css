@@ -3448,16 +3448,17 @@ fieldset.checklist .checklist-search {
   color: var(--accent);
 }
 
-/* T6: a list of modes picked by name (a fixture's DMX modes, a channel's working modes): one row per mode,
-   variants indented under theirs, the values on the right, room on the left for a thumbnail (T19) */
-.mode-picker {
+/* T6, T32: the shared list picked by name with a search (SearchPicker: a fixture's DMX modes, a channel's working
+   modes, a look's target, a named position): one row per item, variants indented under theirs, the detail on the
+   right, room on the left for a thumbnail (T19) or a colour swatch */
+.search-picker {
   display: grid;
   gap: 0.4em;
 }
-.mode-picker h4 {
+.search-picker h4 {
   margin: 0;
 }
-.mode-picker .mode-list {
+.search-picker .search-list {
   display: grid;
   gap: 0.2em;
   max-height: 16em;
@@ -3466,7 +3467,7 @@ fieldset.checklist .checklist-search {
   padding: 0;
   list-style: none;
 }
-.mode-picker .mode-list button {
+.search-picker .search-list button {
   display: flex;
   align-items: center;
   gap: 0.5em;
@@ -3474,24 +3475,38 @@ fieldset.checklist .checklist-search {
   min-height: 44px;
   text-align: start;
 }
-.mode-picker .mode-list li.variant button {
+.search-picker .search-list li.variant button {
   padding-inline-start: 2em;
 }
-.mode-picker .mode-list .thumb {
+.search-picker .search-list .thumb {
   flex: none;
   width: 0;
 }
-.mode-picker .mode-list .name {
+.search-picker .search-list .thumb:has(.swatch) {
+  width: 1em;
+}
+.search-picker .search-list .swatch {
+  display: block;
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text) 30%, transparent);
+}
+.search-picker .search-list .badge {
+  color: var(--warn);
+  font-weight: 600;
+}
+.search-picker .search-list .name {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.mode-picker .mode-list .detail {
+.search-picker .search-list .detail {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.mode-picker .mode-list button.chosen {
+.search-picker .search-list button.chosen {
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;

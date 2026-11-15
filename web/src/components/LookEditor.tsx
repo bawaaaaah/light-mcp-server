@@ -22,7 +22,7 @@ import { labelOf, slug, splitList, uniqueId } from "../util";
 import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
-import { ModePicker } from "./ModePicker";
+import { SearchPicker } from "./SearchPicker";
 import { targetsStore, useTargets } from "../hooks/useTargets";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
 
@@ -624,7 +624,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                   {/* said once the targets are read: never « supprimée » or « aucune » for a moment while they load */}
                   {targetsLoaded && look.move.at?.target && !targets.some((x) => x.id === look.move!.at!.target) && <p className="error">{t.targets.gone.replace("{name}", () => targetsStore.lastName(look.move!.at!.target!))}</p>}
                   {targets.length ? (
-                    <ModePicker
+                    <SearchPicker
                       title={t.targets.pick}
                       currentLabel={t.targets.current}
                       items={targets.map((x) => ({ key: x.id, label: x.name, detail: x.engaged ? t.targets.engagedBadge : undefined, current: look.move?.at?.target === x.id }))}

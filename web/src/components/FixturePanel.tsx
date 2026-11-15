@@ -17,7 +17,8 @@ import { rangeAt, type NamedRange } from "../fader-functions";
 import { quoted } from "../typography";
 import { stream } from "../ws";
 import { FaderTrack } from "./FaderTrack";
-import { ModePicker, type ModeItem } from "./ModePicker";
+import { SearchPicker } from "./SearchPicker";
+import type { SearchItem } from "../search-picker";
 import { XyPad } from "./XyPad";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 
@@ -52,11 +53,12 @@ interface ModeSet {
  * otherwise land after every fader, off screen): the focus goes in when it opens, Escape or a click
  * elsewhere closes it; the panel gives the focus back to the button.
  */
-function ChannelModeMenu({ anchor, title, items, onPick, onClose }: { anchor: DOMRect; title: string; items: ModeItem[]; onPick: (i: ModeItem) => void; onClose: () => void }): ReactElement {
+function ChannelModeMenu({ anchor, title, items, onPick, onClose }: { anchor: DOMRect; title: string; items: SearchItem[]; onPick: (i: SearchItem) => void; onClose: () => void }): ReactElement {
+  const t = useT();
   const { box, style } = useFloatingMenu({ x: anchor.left, y: anchor.bottom + 4 }, onClose, anchor.top - 4);
   return (
     <div ref={box} className="widget-menu mode-menu" role="dialog" aria-label={title} style={style}>
-      <ModePicker title={title} heading={false} focusOnOpen items={items} onPick={onPick} />
+      <SearchPicker title={title} heading={false} focusOnOpen searchLabel={t.fixtureMode.search} items={items} onPick={onPick} />
     </div>
   );
 }
@@ -237,17 +239,17 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
       })
       .catch((e: Error) => onError(e.message));
   };
-  const modeItems = (c: ChannelRow): ModeItem[] => {
+  const modeItems = (c: ChannelRow): SearchItem[] => {
     const now = modeOf(c, outOf(c));
     const range = (r: { min: number; max: number }) => `${r.min}–${r.max}`;
     return (c.modes ?? []).flatMap((m) => {
       // a mode's own row sets its first variant: it shows that variant's values, the ones it sends
-      const row: ModeItem = { key: `m:${m.name}:${m.min}`, label: m.name, detail: range(m.variants[0]!), current: m.variants.length < 2 && now?.mode === m };
+      const row: SearchItem = { key: `m:${m.name}:${m.min}`, label: m.name, detail: range(m.variants[0]!), current: m.variants.length < 2 && now?.mode === m };
       if (m.variants.length < 2) return [row];
       return [row, ...m.variants.map((v) => ({ key: `v:${v.name}:${v.min}`, label: v.name, detail: range(v), parent: row.key, current: now?.variant === v }))];
     });
   };
-  const onModePick = (c: ChannelRow, item: ModeItem) => {
+  const onModePick = (c: ChannelRow, item: SearchItem) => {
     for (const m of c.modes ?? []) {
       if (item.key === `m:${m.name}:${m.min}`) return pickMode(c, m);
       const v = m.variants.find((x) => item.key === `v:${x.name}:${x.min}`);
