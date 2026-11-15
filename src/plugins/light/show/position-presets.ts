@@ -1,6 +1,6 @@
 /**
  * Named positions (T32; docs/specs/venue-fixtures-stage.md, « Positions nommées »): the pure part. What gives a head's
- stored pan/tilt its meaning (`basisOf`), which heads of a position are stale (`positionStale`), and the basis a write
+ * stored pan/tilt its meaning (`basisOf`), which heads of a position are stale (`positionStale`), and the basis a write
  * keeps (`fillBasis`). No venue, no clock: the callers pass the fixtures as they are now.
  */
 import { createHash } from "node:crypto";
@@ -91,8 +91,11 @@ export const aimedHeads = (p: Pick<PositionPreset, "values" | "aim" | "aimed">):
  * - moved, rehung, inverted, swapped, given another definition (the `geometry` part changed): every head;
  * - turned or recalibrated, its travel corrected (the `aiming` part): only the heads aimed at a point (`aimedHeads`),
  *   whose pan/tilt no longer point there; a pan/tilt set at the pad keeps its bytes and stays fresh;
- * - given new useful stops (the `stops` part) its stored pan/tilt reaches beyond: it would be clipped at the output.
- * A basis saved before the parts is compared whole (`legacyBasisOf`). `now` gives a head as it is now, undefined when
+ * - given new useful stops (the `stops` part), or a correction of the `aiming` part, that leaves its stored pan/tilt
+ *   beyond its stops: it would be clipped at the output (a pad position already beyond a stop is stale at the first
+ *   correction of the calibration, the travel or the stops).
+ * A basis saved before the parts is compared whole (`legacyBasisOf`), and is stale beyond the stops as well (they are
+ * not in it). `now` gives a head as it is now, undefined when
  * it is no longer patched (said apart, not stale). A head saved without a basis cannot be judged: never stale. A 3D
  * point is never stale (it has no basis). Computed on demand (list, « Vérifier le show »), never per frame.
  */
@@ -104,11 +107,11 @@ export function positionStale(p: Pick<PositionPreset, "values" | "basis" | "aim"
     const cur = now(head);
     if (saved === undefined || cur === undefined || saved === cur.basis) return false;
     const parts = saved.split(".");
-    if (parts.length !== 3) return saved !== cur.legacy;
+    if (parts.length !== 3) return saved !== cur.legacy || cur.beyondStops(p.values[head]!);
     const [geometry, aiming, stops] = cur.basis.split(".");
     if (parts[0] !== geometry) return true;
     if (parts[1] !== aiming && aimed.has(head)) return true;
-    return parts[2] !== stops && cur.beyondStops(p.values[head]!);
+    return (parts[1] !== aiming || parts[2] !== stops) && cur.beyondStops(p.values[head]!);
   });
 }
 

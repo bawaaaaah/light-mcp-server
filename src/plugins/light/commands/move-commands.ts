@@ -509,8 +509,10 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
         } else {
           // aimed again from where it is held: the solution it is on, not the one closest to the centre (a half turn);
           // without the stops and a little past the travel's edge (the output bounds it), for the same reason
+          // `aimed` says what the output sends: the solution bounded by the stops (unchanged by the write), as Venue.writePosition bounds it
           const [again] = show.aim([fixture], target, held, { ignoreStops: true, slack: KEPT_SLACK });
-          aimed = again && { ...(again.pan !== undefined ? { pan: again.pan, tilt: again.tilt } : {}), ...(again.error ? { error: again.error } : {}) };
+          const sent = again?.pan !== undefined && again.tilt !== undefined ? boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: r.patch.orientation?.limits }, { pan: again.pan, tilt: again.tilt }) : undefined;
+          aimed = again && { ...(sent ? { pan: sent.pan, tilt: sent.tilt } : {}), ...(again.error ? { error: again.error } : {}) };
         }
       }
       return { fixture, target, applied: apply, ...result, ...(advice ? { advice } : {}), ...(aimed ? { aimed } : {}), ...(beyondStops ? { note: BEYOND_STOPS_NOTE } : {}) };

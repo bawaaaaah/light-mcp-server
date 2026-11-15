@@ -117,6 +117,24 @@ describe("useful stops and manual calibration: review fixes (T8)", () => {
     }
   });
 
+  it("aimed again on a mark almost under a head held against a stop: says what the output sends, bounded by the stop", async () => {
+    const stop = 31.37;
+    const { plugin, run, frames } = await withHead({ ...HUNG, limits: { pan: [-200, stop] } });
+    // the pad pushed beyond the stop, the beam almost straight down
+    await run("position.set", { fixtures: ["lyre"], pan: 0.9, tilt: 0.52 });
+    frames(60);
+    // the mark a few centimetres beside the point under the head: its pan is undetermined, the head is aimed again
+    // (not kept), and the solution closest to where it is held lies past the stop
+    const done = (await run("calibration.correct", { fixture: "lyre", point: { x: 2.05, y: 3, z: 0 }, apply: true })) as Correction & { aimed: { pan: number; tilt: number } };
+    expect(done.panUndetermined).to.equal(true);
+    expect(done.afterDeg).to.be.above(0.05);
+    expect((done.aimed.pan - 0.5) * 540).to.be.at.most(stop + 1e-9);
+    frames(60);
+    const sent = plugin.runtime.sentPosition("lyre")!;
+    expect(Math.abs(done.aimed.pan - sent.pan)).to.be.below(1 / 65535);
+    expect(Math.abs(done.aimed.tilt - sent.tilt)).to.be.below(1 / 65535);
+  });
+
   it("keeps a head held at the very edge of its travel, without stops, where it is after apply", async () => {
     const { plugin, run, frames } = await withHead(HUNG);
     const believed: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };

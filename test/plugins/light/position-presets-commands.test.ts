@@ -346,6 +346,30 @@ describe("named positions: the commands (T32)", () => {
     expect(await beyond()).to.deep.equal(["look suit-far"]);
   });
 
+  it("« Vérifier le show » spreads the fan of a look following a pan/tilt position among the covered heads only, as the render does", async () => {
+    plugin.venue.fixtures.put({ id: "spot3", name: "Spot 3", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 31, position: { x: 2, y: 2, z: 5 }, mount: "hung" });
+    plugin.venue.fixtures.put({ id: "spot4", name: "Spot 4", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 41, position: { x: 3, y: 2, z: 5 }, mount: "hung" });
+    const four = ["spot", "spot2", "spot3", "spot4"];
+    plugin.venue.canvases.put({ id: "quatre", name: "Quatre", topology: "line", cells: 4, render: four.map((fixture, i) => ({ from: i, to: i, targets: [{ fixture, head: -1 }] })) });
+    for (const id of four) orient(id, { limits: { pan: [-40, 40] } });
+    const panMax = (plugin.venue.resolve("spot") as { panMax: number }).panMax;
+    const at35 = { pan: 0.5 + 35 / panMax, tilt: 0.5 };
+    const lookOn = (id: string, position: string, fan: number) => run("look.put", { look: { id, name: id, canvas: "quatre", technique: { kind: "aucune" }, move: { shape: "fixe", at: { position }, fan, fade: { seconds: 0 } } } });
+    const beyond = (look: string) => lint().then((issues) => issues.filter((i) => i.where === `look ${look}` && /dépasse les butées/.test(i.message)).map((i) => i.message));
+    // the second and third heads covered: the fan is ± 0.02 between those two (the third at 35° + 0.02 of the travel,
+    // past 40°), not a third of it as among the four heads of the canvas
+    await run("position.preset.put", { position: { id: "middle", name: "Milieu", values: { spot2: at35, spot3: at35 } } });
+    await lookOn("fan-two", "middle", 0.02);
+    const two = await beyond("fan-two");
+    expect(two).to.have.length(1);
+    expect(two[0]).to.include("Spot 3");
+    expect(two[0]).to.not.include("Spot 2");
+    // a single head covered gets no fan at all, wherever it sits in the canvas
+    await run("position.preset.put", { position: { id: "last", name: "Dernière", values: { spot4: at35 } } });
+    await lookOn("fan-one", "last", 0.1);
+    expect(await beyond("fan-one")).to.deep.equal([]);
+  });
+
   it("a look following a position places the heads it covers, read at render: readjusted, the look follows without a relaunch", async () => {
     await run("position.preset.put", { position: { id: "p", name: "Avant-scène", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
     await follow("suit", "p");

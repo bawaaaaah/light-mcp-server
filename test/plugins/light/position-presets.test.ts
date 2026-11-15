@@ -6,6 +6,7 @@ import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { PositionPresetSchema } from "../../../src/plugins/light/show/model.js";
 import { basisOf, fillBasis, legacyBasisOf, positionStale, type BasisSource, type HeadNow } from "../../../src/plugins/light/show/position-presets.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
+import { beyondStops } from "../../../src/plugins/light/venue/stops-check.js";
 import { Venue } from "../../../src/plugins/light/venue/venue.js";
 
 /**
@@ -120,7 +121,8 @@ describe("named positions: schema and staleness (T32)", () => {
   it("positionStale: a basis saved before the parts is compared whole, with the legacy fingerprint", () => {
     const real = basisOf(head);
     const legacy = legacyBasisOf(head);
-    expect(legacy).to.match(/^[0-9a-f]{12}$/);
+    // the single fingerprint `basisOf` gave this head before the parts (1bfb57c^): bases saved then must still match
+    expect(legacy).to.equal("e1f759514d3a");
     const now = (f: BasisSource) => (): HeadNow => ({ basis: basisOf(f), legacy: legacyBasisOf(f), beyondStops: () => false });
     const p = { values: { a: { pan: 0.3, tilt: 0.4 } }, basis: { a: legacy } };
     expect(positionStale(p, now(head))).to.deep.equal([]);
@@ -128,6 +130,30 @@ describe("named positions: schema and staleness (T32)", () => {
     expect(positionStale({ ...p, basis: { a: real } }, now(turned({ panOffset: 2 })))).to.deep.equal([]);
     // the stops are not in the legacy fingerprint
     expect(legacyBasisOf(turned({ limits: { pan: [-30, 30] } }))).to.equal(legacy);
+  });
+
+  /** A head as `positionStale` judges it, from a real fixture: its bases now and its own stops (stops-check.ts). */
+  const judged = (f: BasisSource): HeadNow => ({ basis: basisOf(f), legacy: legacyBasisOf(f), beyondStops: (v) => beyondStops({ panMax: f.panMax!, tiltMax: f.tiltMax!, limits: f.patch.orientation?.limits }, v) });
+
+  it("positionStale: a correction of the travel that takes a pad position past an unchanged stop stales it", () => {
+    // pan stop ± 100°: 0.68 of a 540° travel is 97.2°, inside; of a 630° travel, 113.4°, beyond
+    const stopped = turned({ limits: { pan: [-100, 100] } });
+    const p = { values: { a: { pan: 0.68, tilt: 0.5 } }, basis: { a: basisOf(stopped) } };
+    expect(positionStale(p, () => judged(stopped))).to.deep.equal([]);
+    const corrected: BasisSource = { ...stopped, panMax: 630 };
+    expect(basisOf(corrected).split(".")[2]).to.equal(basisOf(stopped).split(".")[2]);
+    expect(positionStale(p, () => judged(corrected))).to.deep.equal(["a"]);
+    // still within the stop after the correction: a pad position keeps its bytes, fresh
+    expect(positionStale({ ...p, values: { a: { pan: 0.6, tilt: 0.5 } } }, () => judged(corrected))).to.deep.equal([]);
+  });
+
+  it("positionStale: a basis saved before the parts is stale beyond the stops, even when the legacy fingerprint is unchanged", () => {
+    const p = { values: { a: { pan: 0.68, tilt: 0.5 } }, basis: { a: legacyBasisOf(head) } };
+    // the stops are not in the legacy fingerprint: it matches, yet the stored pan/tilt reaches beyond the new stop
+    const stopped = turned({ limits: { pan: [-30, 30] } });
+    expect(legacyBasisOf(stopped)).to.equal(legacyBasisOf(head));
+    expect(positionStale(p, () => judged(stopped))).to.deep.equal(["a"]);
+    expect(positionStale({ ...p, values: { a: { pan: 0.52, tilt: 0.5 } } }, () => judged(stopped))).to.deep.equal([]);
   });
 
   it("fillBasis keeps a given basis, the stored one for an unchanged head, else takes the head's basis now", () => {

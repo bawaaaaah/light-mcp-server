@@ -639,8 +639,10 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
           } catch {
             moved = [];
           }
-          const centers = named ? moved.map((h) => (Object.hasOwn(named.values, h) ? named.values[h] : undefined)) : undefined;
-          for (const i of moveBeyondStops(l.move, moved.map(stopsOf), centers)) touched.add(moved[i]!);
+          // the fan is spread among the covered heads only, as the render spreads it
+          const covered = named ? moved.filter((h) => Object.hasOwn(named.values, h)) : moved;
+          const centers = named ? covered.map((h) => named.values[h]) : undefined;
+          for (const i of moveBeyondStops(l.move, covered.map(stopsOf), centers)) touched.add(covered[i]!);
         }
         // its raw pan/tilt steps, read as the motion layer reads them
         if (l.channels)
