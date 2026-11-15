@@ -51,7 +51,7 @@ export function QxfExport({ target }: { target: { fixture: string } | { manufact
         {t.qxfExportHelp}
       </small>
       {/* focusable once filled: a long report scrolls inside, from the keyboard too */}
-      <div ref={report} className="hint qxf-report" role="status" tabIndex={done ? 0 : undefined}>
+      <div ref={report} className="hint qxf-report" role="status" aria-label={t.qxfReport} tabIndex={done ? 0 : undefined}>
         {done && (
           <>
             <span>{t.qxfExported.replace("{file}", () => done.file)}</span>

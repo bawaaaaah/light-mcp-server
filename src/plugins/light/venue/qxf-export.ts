@@ -389,7 +389,7 @@ export function lostAccents(before: FixtureDefinition, after: FixtureDefinition,
   return out;
 }
 
-/** Names Windows reserves for devices, whatever the extension (`CON.qxf` cannot be saved there). */
+/** Names Windows reserves for devices, whatever follows the first dot (`CON.qxf`, `CON.v2.qxf` cannot be saved there). */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /** A short stable fingerprint of a text (FNV-1a, 32 bits, hex). */
@@ -418,5 +418,6 @@ export function qxfFileName(manufacturer: string, model: string): string {
     .replace(/-+\.qxf$/, ".qxf");
   const stem = name.slice(0, -".qxf".length);
   if (lossy) return `${stem === "definition" ? "" : `${stem}-`}${fingerprint(`${manufacturer}\u0000${model}`)}.qxf`;
-  return WINDOWS_RESERVED.test(stem) ? `${stem}_.qxf` : name;
+  // Windows reads the name before the first dot: « CON.v2.qxf » is reserved too
+  return WINDOWS_RESERVED.test(stem.split(".")[0]!) ? `${stem}_.qxf` : name;
 }

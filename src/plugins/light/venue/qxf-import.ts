@@ -169,15 +169,17 @@ function isResetCapability(name: string, preset?: string, channel?: string): boo
 /**
  * Deduces a range's tags from its name and QLC+ preset (and its channel's name, for a Reset*
  * preset); the user can correct them later. A colour slot's preset (ColorMacro, ColorDoubleMacro) does not make
- * it a built-in macro: only its name can.
+ * it a built-in macro: only its name, or its channel's name, can.
  */
 export function capabilityTags(name: string, preset?: string, channel?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const haystack = `${name} ${preset ?? ""}`;
   if (/sound|music|audio/i.test(haystack)) tags.add("soundActive");
   if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
-  // a colour wheel slot's preset (ColorMacro, ColorDoubleMacro) is a colour, not a built-in macro
-  if (/macro|built-?in/i.test(`${name} ${/^Color(Double)?Macro$/.test(preset ?? "") ? "" : (preset ?? "")}`)) tags.add("builtinMacro");
+  // a colour wheel slot's preset (ColorMacro, ColorDoubleMacro) is a colour, not a built-in macro, unless its channel is
+  // itself named a macro (« Color Macros » of a RGB PAR or bar: the device's own colour programs)
+  const colourSlot = /^Color(Double)?Macro$/.test(preset ?? "") && !/macro/i.test(channel ?? "");
+  if (/macro|built-?in/i.test(`${name} ${colourSlot ? "" : (preset ?? "")}`)) tags.add("builtinMacro");
   if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
   if (isResetCapability(name, preset, channel)) tags.add("reset");
   if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");

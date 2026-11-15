@@ -1977,6 +1977,9 @@ table.rules td {
   overflow-wrap: anywhere;
   font-size: 0.85rem;
 }
+.qxf-export .qxf-report:not(:empty) {
+  margin-top: 0.4em;
+}
 @media (pointer: coarse) {
   .qxf-export button,
   .qxf-export label.inline {

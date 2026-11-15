@@ -63,13 +63,14 @@ export function exportDefinition(venue: Venue, args: { fixture?: string; manufac
   const latin1 = text === undefined;
   const source = text ?? bytes.toString("latin1");
   const encoded = (out: string) => (latin1 ? { base64: Buffer.from(out, "latin1").toString("base64") } : {});
-  const base = { file: qxfFileName(found.def.manufacturer, found.def.model), source: found.source, manufacturer: found.def.manufacturer, model: found.def.model };
+  // the file's names as written there: the library's UTF-8 reading of a Latin-1 file loses its accents (« Éclairage »)
+  const def = latin1 ? parseQxf(source) : found.def;
+  const base = { file: qxfFileName(def.manufacturer, def.model), source: found.source, manufacturer: found.def.manufacturer, model: found.def.model };
   if (!args.corrections) return { ...base, xml: source, ...encoded(source), corrected: false, applied: [], notExported: [] };
 
   const key = modelKeyOrUndefined(found.def.manufacturer, found.def.model);
   const overrides: FixtureOverrides = patch ? venue.overridesOf(patch) : ((key ? venue.models.get(key)?.overrides : undefined) ?? {});
-  // planned on the text as it is edited (its names as written there), not on the library's UTF-8 reading
-  const def = latin1 ? parseQxf(source) : found.def;
+  // planned on the text as it is edited (def: its names as written there), not on the library's UTF-8 reading
   const { corrections, promised, notExported } = planCorrections(def, overrides);
   let written: ReturnType<typeof writeQxfCorrections>;
   let again: ReturnType<typeof parseQxf>;

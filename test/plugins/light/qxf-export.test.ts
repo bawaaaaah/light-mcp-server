@@ -77,6 +77,9 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
     // names Windows reserves for devices
     expect(qxfFileName("CON", "")).to.equal("CON_.qxf");
     expect(qxfFileName("", "lpt1")).to.equal("lpt1_.qxf");
+    // Windows reads the name before the first dot
+    expect(qxfFileName("NUL.v2", "")).to.equal("NUL.v2_.qxf");
+    expect(qxfFileName("Acme.CON", "")).to.equal("Acme.CON.qxf");
     expect(qxfFileName("Con", "Spot")).to.equal("Con-Spot.qxf");
   });
 
@@ -225,6 +228,15 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
     expect(Buffer.from(exportDefinition(venue, { fixture: "spot" }).base64!, "base64").equals(latin)).to.equal(true);
   });
 
+  it("names an ISO-8859-1 file from its Latin-1 reading, its accented manufacturer kept", () => {
+    const text = fixtureText("wheel-spot.qxf").replace('encoding="UTF-8"', 'encoding="ISO-8859-1"').replace("<Manufacturer>Test</Manufacturer>", "<Manufacturer>Éclairage</Manufacturer>");
+    const { venue } = makeVenue({ "latin-spot.qxf": Buffer.from(text, "latin1") });
+    // the library reads the file as UTF-8, « É » lost: its name compares as « clairage »
+    const out = exportDefinition(venue, { manufacturer: "Clairage", model: "Wheel Spot" });
+    expect(out.source).to.equal("latin-spot.qxf");
+    expect(out.file).to.equal("Eclairage-Wheel-Spot.qxf");
+  });
+
   it("only says written what the file, read again, carries: names as the import reads them, duplicates refused", () => {
     const orange = { wheel: { slots: { "20": { color: "#ff6600" } } } };
     const exportWith = (xml: string) => {
@@ -293,6 +305,10 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
     expect(capabilityTags("Macro 1", "ColorMacro")).to.include("builtinMacro");
     expect(capabilityTags("Effect", "GenericMacro")).to.include("builtinMacro");
     expect(parseQxf(fixtureText("wheel-spot.qxf")).channels.get("Color Wheel")!.capabilities[1]!.tags).to.deep.equal([]);
+    // a channel named a macro (a RGB PAR's « Color Macros ») keeps its colour programs under « no built-in macros »
+    expect(capabilityTags("Red", "ColorMacro", "Color Macros")).to.include("builtinMacro");
+    expect(capabilityTags("Red / Green", "ColorDoubleMacro", "Colour macro")).to.include("builtinMacro");
+    expect(capabilityTags("Red", "ColorMacro", "Color Wheel")).to.deep.equal([]);
   });
 
   it("is a command: MCP, HTTP and the CLI call fixture.definition.export", async () => {
