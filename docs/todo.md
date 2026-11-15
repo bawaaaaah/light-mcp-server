@@ -275,6 +275,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **À préciser** : le Blackout garde déjà la position ; **Panic** ne doit pas faire bouger les lyres ; la sécurité des zones interdites s'applique toujours. À sauvegarder dans l'instantané (T16).
 - **Rang** : facile à moyen pour le verrou global et par lyre ; le reste suit T25. **Phase 3**, le verrou global dès que T25 est décidé.
 - **Vu en passant au test d'interface du lot 4 (2026-11-14), hors verrou, non corrigé** : sur un téléphone, la poignée du fader Master passe au-dessus de la barre collante du Live quand on fait défiler (ordre d'empilement du fader à revoir).
+- **Limites connues du verrou (T26, 2026-11-15)** : sans lyre installée (toutes absentes, ou lieu sans lyre) et un verrou global posé, le widget global affiche « 🔒 Figées » mais son appui et « Libres » ne font rien (le verrou ne tient alors aucune lyre ; `motion.unfreeze` ou une bascule MIDI le lèvent) ; l'auto-test rejoue encore un mapping qui lance `snapshot.recall` ou `panic` (avec instantané de secours) et peut changer le verrou sans le remettre.
 
 ### T27 — Zones de visée dessinées (batterie, piano, choristes, public…), visibles sur le pad XY
 - **Besoin** : dessiner des **zones nommées** sur la scène, que les lyres peuvent viser, et les **voir sur le pad XY**.

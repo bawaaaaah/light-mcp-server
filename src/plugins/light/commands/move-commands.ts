@@ -246,13 +246,10 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
       );
   };
   /**
-   * Anything frozen at all: the global level, or the own lock of a fixture in the open venue's patch (an absent head
-   * included). An id no longer in the patch (left by show.venue.set) does not count: the toggle must not need a blank
-   * press to clear it; motion.unfreeze without a target, and a toggle that frees, still clear it (decision U2).
-   */
-  /**
    * Decision W1 (amends U2): whether every installed moving head is frozen, by the global or its own lock (as a
-   * « Figer les lyres » mapping counts it); without an installed head, whether anything is frozen at all.
+   * « Figer les lyres » mapping counts it); without an installed head, whether anything is frozen at all — the global
+   * level, or the own lock of a fixture still in the open venue's patch (an id left by show.venue.set does not count;
+   * motion.unfreeze without a target, and a toggle that frees, still clear it, decision U2).
    */
   const allFrozen = (lock: MotionLockState, heads: readonly string[]): boolean =>
     heads.length > 0 ? heads.every((id) => show.motionLock(id) !== "off") : lock.level !== "off" || Object.keys(lock.heads).some((id) => show.venue.fixtures.get(id) !== undefined);
