@@ -3,13 +3,14 @@ import { createPortal } from "react-dom";
 import { ApiError, cmd } from "../api";
 import { useT } from "../App";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
-import { quoted } from "../typography";
+import { isFrench, quoted } from "../typography";
 import { pressesLeft } from "../motionPresses";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { needRight, useLockRights } from "./MotionLockButton";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 import { useThrottledSend } from "../hooks/useThrottledSend";
 import { holdText } from "../hold-text";
+import { arrowStep, logicalToPad, offsetDeg, padToLogical, quantize, type PadSpan } from "../correctionPad";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -28,6 +29,11 @@ type XyPadProps = {
   restControls?: boolean;
   /** A Live cell: the « i » sits in the button row, where the fixed-height cell keeps its room (elsewhere: by the count). */
   compact?: boolean;
+  /**
+   * Correction pad (T8, manual calibration): the pad covers ± `span.half` degrees around `span.center` (the aim the
+   * calibration computes) instead of the whole travel, on the output's grid (correctionPad.ts). Absent: the whole travel.
+   */
+  span?: PadSpan;
 };
 
 type Axis = "pan" | "tilt";
@@ -68,8 +74,23 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span }: XyPadProps): ReactElement {
   const t = useT();
+  /** A logical position → where it sits on the pad (0..1 across and up), kept on the pad's edge when beyond it. */
+  const placed = (p: Position): Position => {
+    if (!span) return p;
+    const at = logicalToPad(span, p);
+    return { pan: Math.max(0, Math.min(1, at.pan)), tilt: Math.max(0, Math.min(1, at.tilt)) };
+  };
+  /** Where a position is, as read: percent of the travel, or on a correction pad its offset from the centre in degrees. */
+  const positionText = (p: Position, sep: string): string => {
+    if (!span) return `${Math.round(p.pan * 100)}${sep}${Math.round(p.tilt * 100)}`;
+    const d = offsetDeg(span, p);
+    const deg = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString(isFrench(t) ? "fr" : "en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}°`;
+    return `${deg(d.pan)}${sep}${deg(d.tilt)}`;
+  };
+  /** A value moved by an arrow, on the pad's grid: thousandths of the travel, or the output's own steps on a correction pad. */
+  const moved = (axis: Axis, v: number): number => (span ? quantize(v, span.fine[axis]) : clamp(v));
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
   // « Figer les lyres » (T26): every targeted head frozen hard → the pad is off, with the reason and « Défiger »; frozen
@@ -247,7 +268,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const fromEvent = (event: React.PointerEvent): Position => {
     // Layout may change during a gesture; the pad's geometry at pointerdown remains the gesture's reference.
     const rect = dragRect.current ?? pad.current!.getBoundingClientRect();
-    return { pan: clamp((event.clientX - rect.left) / rect.width), tilt: clamp(1 - (event.clientY - rect.top) / rect.height) };
+    const [x, y] = [(event.clientX - rect.left) / rect.width, 1 - (event.clientY - rect.top) / rect.height];
+    return span ? padToLogical(span, x, y) : { pan: clamp(x), tilt: clamp(y) };
   };
   const endPointer = (event: React.PointerEvent): void => {
     if (activePointer.current !== event.pointerId) return;
@@ -420,16 +442,17 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
 
   const onKeyDown = (event: React.KeyboardEvent): void => {
     if (disabled) return;
-    const step = event.shiftKey ? 0.1 : 0.01;
     const axis = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "pan" : event.key === "ArrowUp" || event.key === "ArrowDown" ? "tilt" : undefined;
     if (event.key !== "Home" && !axis) return;
+    // a correction pad: a hundredth of the pad (Shift a tenth, Alt one real step of the output); else 1 % of the travel (Shift 10 %)
+    const step = span && axis ? arrowStep(span, axis, { shift: event.shiftKey, finest: event.altKey }) : event.shiftKey ? 0.1 : 0.01;
     event.preventDefault();
     event.stopPropagation(); // the stage plan's arrows (turn, nudge) are not for the pad
     // Until the scope is resolved the pad does not know its heads: an arrow would send the centre to whatever it targets.
     if (!loaded || !scopedHeads.length) return;
     if (event.key === "Home") {
       keyBurst.current = null;
-      send({ pan: 0.5, tilt: 0.5 }); // explicit manual centre, unlike return-to-rest
+      send(span ? { ...span.center } : { pan: 0.5, tilt: 0.5 }); // explicit manual centre (a correction pad's: the computed aim), unlike return-to-rest
       return;
     }
     if (!axis) return;
@@ -446,15 +469,15 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
       const next = new Map<string, Position>();
       for (const h of scopedHeads) {
         const from = base.get(h.id) ?? h.sent;
-        if (from) next.set(h.id, { ...from, [axis]: clamp(from[axis] + delta) });
+        if (from) next.set(h.id, { ...from, [axis]: moved(axis, from[axis] + delta) });
       }
       keyBurst.current = { base: next, at: now };
       sendBatch([...next].map(([id, point]) => ({ target: { fixtures: [id] }, point })), null);
       return;
     }
     keyBurst.current = null;
-    const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? { pan: 0.5, tilt: 0.5 };
-    send({ ...at, [axis]: clamp(at[axis] + delta) });
+    const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? (span ? span.center : { pan: 0.5, tilt: 0.5 });
+    send({ ...at, [axis]: moved(axis, at[axis] + delta) });
   };
 
   const legend = (
@@ -553,7 +576,15 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         aria-valuemax={100}
         aria-valuenow={sameSent && firstSent ? Math.round(firstSent.pan * 100) : undefined}
         aria-describedby={`${hintId} ${statusId}`}
-        aria-valuetext={sameSent && firstSent ? `pan ${Math.round(firstSent.pan * 100)} %, tilt ${Math.round(firstSent.tilt * 100)} %` : firstSent ? t.motionMixed : "—"}
+        aria-valuetext={
+          sameSent && firstSent
+            ? span
+              ? `pan ${positionText(firstSent, ", tilt ")}`
+              : `pan ${Math.round(firstSent.pan * 100)} %, tilt ${Math.round(firstSent.tilt * 100)} %`
+            : firstSent
+              ? t.motionMixed
+              : "—"
+        }
         aria-disabled={disabled || undefined}
         tabIndex={disabled ? -1 : 0}
         onKeyDown={onKeyDown}
@@ -580,9 +611,9 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
             🔒🔒
           </span>
         )}
-        {restControls && head && <span className="rest-dot" data-testid="xy-rest-dot" aria-hidden="true" style={{ left: `${head.rest.pan * 100}%`, top: `${(1 - head.rest.tilt) * 100}%` }} />}
+        {restControls && head && <span className="rest-dot" data-testid="xy-rest-dot" aria-hidden="true" style={{ left: `${placed(head.rest).pan * 100}%`, top: `${(1 - placed(head.rest).tilt) * 100}%` }} />}
         {pos && (!sameSent || !samePoint(pos, firstSent)) && (
-          <span className="dot requested" data-testid="xy-requested-dot" aria-hidden="true" style={{ left: `${pos.pan * 100}%`, top: `${(1 - pos.tilt) * 100}%` }} />
+          <span className="dot requested" data-testid="xy-requested-dot" aria-hidden="true" style={{ left: `${placed(pos).pan * 100}%`, top: `${(1 - placed(pos).tilt) * 100}%` }} />
         )}
         {scopedHeads.map((h) => {
           const point = h.sent;
@@ -596,7 +627,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
               data-fixture={h.id}
               data-layer={layer}
               aria-hidden="true"
-              style={{ left: `${point.pan * 100}%`, top: `${(1 - point.tilt) * 100}%` }}
+              style={{ left: `${placed(point).pan * 100}%`, top: `${(1 - placed(point).tilt) * 100}%` }}
             />
           );
         })}
@@ -610,7 +641,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
               {lockChip.text}
             </small>
           )}
-          <small className="xy-position">{shown ? `${Math.round(shown.pan * 100)} / ${Math.round(shown.tilt * 100)}` : "—"}</small>
+          <small className="xy-position">{shown ? positionText(shown, " / ") : "—"}</small>
           <span id={statusId} className="xy-layers" role="group" aria-label={t.motionLayerStatus}>
             {axisRows.map((row) => {
               const errors = [...new Set(row.axes.flatMap(axisErrors))]; // pan and tilt held for the same reason: said once
