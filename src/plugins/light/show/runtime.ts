@@ -23,7 +23,8 @@ import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGroup
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
-import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type ShowSettings, type Snapshot, type Target } from "./model.js";
+import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, PositionPresetSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type PositionPreset, type ShowSettings, type Snapshot, type Target } from "./model.js";
+import { basisOf } from "./position-presets.js";
 import { aimHead, clampPoint, type TargetHold, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
 import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
@@ -77,6 +78,8 @@ interface MotionRun {
   bpm: number;
   sent?: ReadonlyMap<string, Position> | undefined;
   status: ReadonlyMap<string, HeadStatus>;
+  /** The logical position the layer gave each head (T32 `lastPositions`); `compose` leaves it, only `render` keeps it. */
+  positions?: ReadonlyMap<string, Position>;
   /**
    * The base each claim with a shape aimed a head at on the previous frame (`claimKey@head`, T24): a shape around a
    * point aims the point from its last base, not from the position sent (base + the shape's offset), or the base
@@ -247,6 +250,8 @@ export class ShowRuntime {
   readonly snapshots: Collection<Snapshot>;
   /** Targets (T24): 3D points the moving heads follow, engaged by hand or followed by a look's `move.at.target`. */
   readonly targets: Collection<Target>;
+  /** Named positions (T32, collection `positions`): pan/tilt per head or a 3D point, recalled by hand or followed by a look. */
+  readonly positionPresets: Collection<PositionPreset>;
   settings: ShowSettings;
   /** Values moved by the rules on the last frame (for the UI and the AI). */
   lastClamps: Clamp[] = [];
@@ -299,6 +304,11 @@ export class ShowRuntime {
   private targetsRead: Set<string> | undefined;
   private lastMotion: ReadonlyMap<string, HeadStatus> = new Map();
   /**
+   * The logical position the motion layer gave each head on the last frame really rendered (T32): before the rules and
+   * the guard, so that saving a position keeps what was asked, not a byte a rule bounded.
+   */
+  private lastPositions: ReadonlyMap<string, Position> = new Map();
+  /**
    * « Figer les lyres » (T26): the effective lock level of each head, from the show's `motionLock` (the stricter of the
    * global lock and the head's own). A hook: everything that reads the lock goes through it.
    */
@@ -345,6 +355,7 @@ export class ShowRuntime {
     this.zones = venue.store.collection("zones", ZoneSchema);
     this.snapshots = store.collection("snapshots", SnapshotSchema);
     this.targets = store.collection("targets", TargetSchema);
+    this.positionPresets = store.collection("positions", PositionPresetSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
     this.lockHeld = heldOf(this.settings.motionLock);
@@ -976,6 +987,7 @@ export class ShowRuntime {
     // the layer starts afresh; what was sent is kept, so that the heads glide from where they are
     this.motionState = emptyMotionState();
     this.lastMotion = new Map();
+    this.lastPositions = new Map();
     this.activeProgram = undefined;
     this.resets.clear();
     this.atRest.clear();
@@ -1524,6 +1536,28 @@ export class ShowRuntime {
     return { pan: manual.pan ?? sent?.pan ?? 0.5, tilt: manual.tilt ?? sent?.tilt ?? 0.5 };
   }
 
+  /**
+   * Where a head is now, as saving a named position captures it (T32): per axis, the manual position when it holds that
+   * axis (where the pad or a recall asked it to go, even while it glides there), else the position the motion layer gave
+   * it on the last frame rendered (a look's shape at that instant, a target, its rest — before the rules and the guard),
+   * else the centre. An instant capture: during a fade or a glide it is the value of the moment.
+   */
+  positionNow(fixture: string): Position {
+    const manual = this.manualPosition(fixture);
+    const last = this.lastPositions.get(fixture);
+    const status = this.lastMotion.get(fixture);
+    const axis = (a: Axis): number => (manual && (!status || status[a].layer === "manual") ? manual[a] : (last?.[a] ?? manual?.[a] ?? 0.5));
+    return { pan: axis("pan"), tilt: axis("tilt") };
+  }
+
+  /** A fixture's basis now (show/position-presets.ts `basisOf`): undefined when it is not patched. */
+  positionBasis(fixture: string): string | undefined {
+    const patch = this.venue.fixtures.get(fixture);
+    if (!patch) return undefined;
+    const r = this.venue.resolve(fixture);
+    return basisOf({ patch, ...("error" in r ? {} : { panMax: r.panMax, tiltMax: r.tiltMax }) });
+  }
+
   /** Why each moving head is where it is (engine/motion.ts, HeadStatus), on the last frame rendered. */
   motionStatus(): ReadonlyMap<string, HeadStatus> {
     return this.lastMotion;
@@ -1832,6 +1866,7 @@ export class ShowRuntime {
       }
       this.motionState = run.state;
       this.lastMotion = run.status;
+      this.lastPositions = run.positions ?? new Map();
       this.aimBases = run.bases;
       this.aimHolds = run.holds ?? new Map();
       // a target's glide nobody read this frame is forgotten (a look following it stopped, the target deleted): read
@@ -2194,6 +2229,7 @@ export class ShowRuntime {
       for (const [head, status] of resolved.status) for (const axis of [status.pan, status.tilt]) if (axis.error && !errors.includes(`${head}: ${axis.error}`)) errors.push(`${head}: ${axis.error}`);
       motion.state = resolved.next;
       motion.status = resolved.status;
+      motion.positions = resolved.positions;
       motion.bases = bases;
       motion.holds = holds;
     } else if (motion.status.size) motion.status = new Map();

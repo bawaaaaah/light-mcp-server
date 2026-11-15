@@ -7,6 +7,7 @@ import { TimingSchema } from "../engine/player.js";
 import { MoveFadeSchema, MoveSchema, DEFAULT_MOVE_FADE, RestPositionSchema } from "../engine/move.js";
 import { normalizeFolder } from "./folders.js";
 import { MotionLockSchema, MotionLockStateSchema } from "./motion-lock.js";
+import { say } from "../../../core/lang.js";
 
 export const PaletteSchema = z.object({
   id: z.string(),
@@ -152,6 +153,38 @@ export const TargetSchema = z.object({
   notes: z.string().optional(),
 });
 export type Target = z.infer<typeof TargetSchema>;
+
+/** A logical pan/tilt (0..1 of the travel, 0.5 = centre), as a named position stores it per head. */
+export const PresetValueSchema = z.object({ pan: z.number().min(0).max(1), tilt: z.number().min(0).max(1) });
+
+/**
+ * Named position (« position nommée », T32; docs/specs/venue-fixtures-stage.md, « Positions nommées »): where moving
+ * heads go, saved under a name, recalled by hand (a manual gesture of the motion layer) or followed by a look
+ * (`move.at.position`), both read at render: a position readjusted moves what follows it. One of two kinds, never both
+ * (decision Q3 of 2026-11-11): **pan/tilt** per covered head (`values`; the heads it covers, one, several or all,
+ * decision Q1), or a **3D point** of the stage (`point`) every placed head aims at. `basis` is the fingerprint of
+ * what gave each head's pan/tilt its meaning when saved (position, mount, orientation, travel, definition):
+ * one that changed makes the position stale for that head, said and never corrected silently (decision Q4).
+ */
+export const PositionPresetSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    /** Pan/tilt per covered head (fixture id). */
+    values: z.record(z.string(), PresetValueSchema).default({}),
+    /** Or a point of the stage (metres): each placed head aims at it (aimNear, from where it is). */
+    point: StagePointSchema.optional(),
+    /** A pan/tilt position aimed at a point when saved: what a stale head is recomputed from (decision Q4, « la recalculer »). */
+    aim: StagePointSchema.optional(),
+    /** Per covered head: the fingerprint of its geometry when its pan/tilt was saved (show/position-presets.ts basisOf). */
+    basis: z.record(z.string(), z.string()).default({}),
+    color: z.string().optional(),
+    tags: z.array(z.string()).default([]),
+    notes: z.string().optional(),
+  })
+  .refine((p) => (Object.keys(p.values).length > 0) !== (p.point !== undefined), { error: () => say("pan/tilt par lyre (values) ou un point (point) : l'un des deux, pas les deux", "pan/tilt per head (values) or a point (point): one of the two, not both") })
+  .refine((p) => p.aim === undefined || p.point === undefined, { error: () => say("aim ne va qu'avec une position pan/tilt", "aim only goes with a pan/tilt position") });
+export type PositionPreset = z.infer<typeof PositionPresetSchema>;
 
 /** What a snapshot keeps of a target (T24, decision Q4 of 2026-11-11): its point and whether it is engaged. */
 export const SnapshotTargetSchema = z.object({ point: StagePointSchema, engaged: z.boolean(), engagedAt: z.number().int().optional() });
