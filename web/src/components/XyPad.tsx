@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { ApiError, cmd } from "../api";
 import { useT } from "../App";
@@ -8,6 +8,7 @@ import { pressesLeft } from "../motionPresses";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { needRight, useLockRights } from "./MotionLockButton";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
+import { useThrottledSend } from "../hooks/useThrottledSend";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -64,7 +65,7 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
 
 /**
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
- * kept, so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
+ * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
 export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false }: XyPadProps): ReactElement {
   const t = useT();
@@ -109,8 +110,6 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const releaseFocusAt = useRef(0);
   const dragRect = useRef<DOMRect | null>(null);
   const activePointer = useRef<number | null>(null);
-  const pending = useRef<WriteBatch | null>(null);
-  const inFlight = useRef<Promise<void> | null>(null);
   /** Per-head base of the current key burst on mixed heads, and when its last key was pressed. */
   const keyBurst = useRef<{ base: Map<string, Position>; at: number } | null>(null);
   const hintId = useId();
@@ -123,42 +122,36 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   /** Heads a gesture left in place (frozen hard on a partly frozen group): said in the status line, not as an error. */
   const refusedRef = useRef<(ids: string[]) => void>(() => undefined);
 
-  /** Latest wins: never enqueue behind an in-flight request; its completion sends only the current pending batch. */
-  const pump = useCallback(() => {
-    if (inFlight.current || !pending.current) return;
-    const batch = pending.current;
-    pending.current = null;
-    inFlight.current = Promise.all(
-      batch.writes.map(async (write) => {
-        try {
-          const reply = await cmd<{ refused?: string[] }>("position.set", { ...write.target, ...write.point });
-          if (reply?.refused?.length) refusedRef.current(reply.refused);
-        } catch (error) {
-          // frozen hard between the gesture and the light:motion update that turns the pad off: said as heads left in
-          // place, not as an error banner
-          const refused = error instanceof ApiError ? error.detail?.refused : undefined;
-          if (Array.isArray(refused)) refusedRef.current(refused.filter((id): id is string => typeof id === "string"));
-          else onErrorRef.current((error as Error).message);
-        }
-      }),
-    ).then(() => undefined).finally(() => {
-      inFlight.current = null;
-      markGesture(); // one last read follows even a slow final write, then the local-activity window expires
-      pump();
-    });
-  }, [markGesture]);
+  /** Latest wins: never enqueued behind an in-flight request; at most one batch every 40 ms (useThrottledSend). */
+  const sender = useThrottledSend<WriteBatch>(
+    async (batch) => {
+      await Promise.all(
+        batch.writes.map(async (write) => {
+          try {
+            const reply = await cmd<{ refused?: string[] }>("position.set", { ...write.target, ...write.point });
+            if (reply?.refused?.length) refusedRef.current(reply.refused);
+          } catch (error) {
+            // frozen hard between the gesture and the light:motion update that turns the pad off: said as heads left in
+            // place, not as an error banner
+            const refused = error instanceof ApiError ? error.detail?.refused : undefined;
+            if (Array.isArray(refused)) refusedRef.current(refused.filter((id): id is string => typeof id === "string"));
+            else onErrorRef.current((error as Error).message);
+          }
+        }),
+      );
+    },
+    // one last read follows even a slow final write, then the local-activity window expires
+    { onSettled: markGesture },
+  );
 
   const sendBatch = (writes: PositionWrite[], requested: Position | null): void => {
     setPos(requested);
     setKeyboardHint("");
-    pending.current = { writes: writes.map((write) => ({ target: cloneTarget(write.target), point: { ...write.point } })) };
+    sender.send({ writes: writes.map((write) => ({ target: cloneTarget(write.target), point: { ...write.point } })) });
     markGesture();
-    pump();
   };
   const send = (point: Position): void => sendBatch([{ target: targetRef.current, point }], point);
 
-  // On unmount, the in-flight completion still pumps the one pending value; no timer or promise chain remains.
-  useEffect(() => () => pump(), [pump]);
   useEffect(() => {
     // The last point of a gesture still goes out: each write carries the target it was made for (cloned).
     dragRect.current = null;
@@ -172,7 +165,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   useEffect(() => refresh(), [refresh, resync]);
   const manualSignature = scopedHeads.map((h) => `${h.id}:${h.manual?.pan},${h.manual?.tilt}`).join("|");
   useEffect(() => {
-    if (dragging || pending.current || inFlight.current || !pos) return;
+    if (dragging || !sender.idle() || !pos) return;
     // Only a changed manual report can supersede the requested point; motion/sent-only events must not pull it back.
     if (!scopedHeads.length || !scopedHeads.every((h) => samePoint(h.manual, pos))) setPos(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the signature is the manual value, not the frequently updated sent report
@@ -267,11 +260,9 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     try {
       if (name !== "position.rest.set" && name !== "position.rest.clear") {
         // Discard the trailing gesture and await only the request already on the wire, never a backlog.
-        pending.current = null;
         keyBurst.current = null;
         setPos(null);
-        const writing = inFlight.current;
-        if (writing) await writing;
+        await sender.drop();
       }
       await cmd(name, { ...actionTarget, ...args });
       if (name === "position.rest.set") setConfirmation(t.restSaved);
@@ -612,7 +603,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
           <small className="xy-position">{shown ? `${Math.round(shown.pan * 100)} / ${Math.round(shown.tilt * 100)}` : "—"}</small>
           <span id={statusId} className="xy-layers" role="group" aria-label={t.motionLayerStatus}>
             {axisRows.map((row) => {
-              const errors = row.axes.flatMap(axisErrors);
+              const errors = [...new Set(row.axes.flatMap(axisErrors))]; // pan and tilt held for the same reason: said once
               return (
                 <span key={row.axes.join(" ")} data-axis={row.axes.join(" ")} data-layer={row.chips.length === 1 ? row.chips[0]!.layer : "mixed"} title={[rowText(row), ...errors].join("\n")}>
                   {`${axisName(row.axes)}${t.colon}`.replace(/ /g, "\u00a0")}{"\u00a0"}
