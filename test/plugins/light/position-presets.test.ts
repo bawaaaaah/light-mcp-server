@@ -15,7 +15,7 @@ import { Venue } from "../../../src/plugins/light/venue/venue.js";
  */
 describe("named positions: schema and staleness (T32)", () => {
   const head: BasisSource = {
-    patch: { manufacturer: "Test", model: "Spot 7", mode: "Standard", position: { x: 1, y: 2, z: 5 }, mount: "hung", orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0 } },
+    patch: { manufacturer: "Test", model: "Spot 7", position: { x: 1, y: 2, z: 5 }, mount: "hung", orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0 } },
     panMax: 540,
     tiltMax: 270,
   };
@@ -41,7 +41,7 @@ describe("named positions: schema and staleness (T32)", () => {
       ["placed nowhere", with_({ position: undefined })],
       ["rehung", with_({ mount: "floor" })],
       ["turned", turned({ yaw: 90 })],
-      ["tilted", turned({ pitch: -90 })],
+      ["turned upside up", turned({ pitch: 90 })],
       ["pan inverted", turned({ invertPan: true })],
       ["tilt inverted", turned({ invertTilt: true })],
       ["axes swapped", turned({ swapPanTilt: true })],
@@ -49,7 +49,6 @@ describe("named positions: schema and staleness (T32)", () => {
       ["recalibrated tilt", turned({ tiltOffset: -2 })],
       ["another pan travel", with_({}, { panMax: 360 })],
       ["another tilt travel", with_({}, { tiltMax: 180 })],
-      ["another mode", with_({ mode: "Basic" })],
       ["another model", with_({ model: "Spot 9" })],
     ];
     for (const [why, f] of changes) expect(basisOf(f), why).to.not.equal(base);
@@ -64,12 +63,26 @@ describe("named positions: schema and staleness (T32)", () => {
     expect(basisOf(with_({ orientation: undefined }))).to.equal(base);
   });
 
+  it("the basis reads the mount as the aiming does (hung or not), the heading modulo 360, never the DMX mode (P2)", () => {
+    const base = basisOf(head);
+    // a truss and a hook both hang the head; a pitch towards the floor says hung as well
+    expect(basisOf(with_({ mount: "truss" }))).to.equal(base);
+    expect(basisOf(turned({ pitch: -90 }))).to.equal(base);
+    expect(basisOf(with_({ mount: "floor" }))).to.equal(basisOf(with_({ mount: "stand" })));
+    expect(basisOf(with_({ mount: "floor" }))).to.not.equal(base);
+    expect(basisOf(turned({ yaw: 360 }))).to.equal(base);
+    expect(basisOf(turned({ yaw: -90 }))).to.equal(basisOf(turned({ yaw: 270 })));
+    // switching between the 8-bit and 16-bit modes (T6) keeps the position fresh: the travel is already in it
+    const patch = { ...head.patch, mode: "Basic" } as BasisSource["patch"];
+    expect(basisOf({ ...head, patch })).to.equal(base);
+  });
+
   it("positionStale lists the covered heads whose basis changed; a point never, an unpatched head apart", () => {
     const p = { values: { a: { pan: 0.1, tilt: 0.2 }, b: { pan: 0.3, tilt: 0.4 }, c: { pan: 0.5, tilt: 0.5 }, d: { pan: 0.5, tilt: 0.5 } }, basis: { a: "1", b: "2", c: "3" } };
     const now: Record<string, string> = { a: "1", b: "changed", d: "4" };
     // c is no longer patched (said apart), d was saved without a basis (cannot be judged)
     expect(positionStale(p, (f) => now[f])).to.deep.equal(["b"]);
-    expect(positionStale({ values: {}, basis: {}, point: { x: 0, y: 0, z: 0 } }, () => "x")).to.deep.equal([]);
+    expect(positionStale({ values: {}, basis: {} }, () => "x")).to.deep.equal([]);
   });
 
   it("fillBasis keeps a given basis, the stored one for an unchanged head, else takes the head's basis now", () => {

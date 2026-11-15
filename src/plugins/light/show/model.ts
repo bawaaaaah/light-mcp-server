@@ -169,13 +169,18 @@ export const PresetValueSchema = z.object({ pan: z.number().min(0).max(1), tilt:
 export const PositionPresetSchema = z
   .object({
     id: z.string(),
-    name: z.string(),
+    name: z.string().min(1),
     /** Pan/tilt per covered head (fixture id). */
     values: z.record(z.string(), PresetValueSchema).default({}),
     /** Or a point of the stage (metres): each placed head aims at it (aimNear, from where it is). */
     point: StagePointSchema.optional(),
     /** A pan/tilt position aimed at a point when saved: what a stale head is recomputed from (decision Q4, « la recalculer »). */
     aim: StagePointSchema.optional(),
+    /**
+     * The covered heads whose pan/tilt come from `aim` (aimed at it when saved, or recomputed from it): only those are
+     * recomputed. Absent with an `aim`: every covered head (as saved before it existed).
+     */
+    aimed: z.array(z.string()).optional(),
     /** Per covered head: the fingerprint of its geometry when its pan/tilt was saved (show/position-presets.ts basisOf). */
     basis: z.record(z.string(), z.string()).default({}),
     color: z.string().optional(),
@@ -183,7 +188,8 @@ export const PositionPresetSchema = z
     notes: z.string().optional(),
   })
   .refine((p) => (Object.keys(p.values).length > 0) !== (p.point !== undefined), { error: () => say("pan/tilt par lyre (values) ou un point (point) : l'un des deux, pas les deux", "pan/tilt per head (values) or a point (point): one of the two, not both") })
-  .refine((p) => p.aim === undefined || p.point === undefined, { error: () => say("aim ne va qu'avec une position pan/tilt", "aim only goes with a pan/tilt position") });
+  .refine((p) => p.aim === undefined || p.point === undefined, { error: () => say("aim ne va qu'avec une position pan/tilt", "aim only goes with a pan/tilt position") })
+  .refine((p) => p.aimed === undefined || (p.aim !== undefined && p.aimed.every((h) => Object.hasOwn(p.values, h))), { error: () => say("aimed : des lyres couvertes, et seulement avec aim", "aimed: covered heads, and only with aim") });
 export type PositionPreset = z.infer<typeof PositionPresetSchema>;
 
 /** What a snapshot keeps of a target (T24, decision Q4 of 2026-11-11): its point and whether it is engaged. */

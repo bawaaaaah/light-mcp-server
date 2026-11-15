@@ -931,6 +931,65 @@ describe("motion layer (pure)", () => {
     });
   });
 
+  describe("the same owner placing anew (T32 P1, T24 B2)", () => {
+    const preset = (rev: string, fade?: MotionDuration): MotionClaim => ({ owner: "look:l", layer: "look", order: 1, heads: ["h1"], base: { kind: "preset", id: "p" }, rev, ...(fade ? { fade } : {}) });
+
+    it("a named position readjusted (a new rev) glides over moveFade, even for a claim that cuts in", () => {
+      let at: Position = { pan: 0.2, tilt: 0.7 };
+      const sim = new Sim({ ctx: { presetOf: () => at } });
+      sim.claims = [preset("1", SEC(0))];
+      sim.run(0, 100);
+      expect(sim.last.positions.get("h1")).to.deep.equal({ pan: 0.2, tilt: 0.7 });
+      at = { pan: 0.8, tilt: 0.3 };
+      sim.claims = [preset("2", SEC(0))];
+      const glide = sim.run(120, 1200);
+      expect(maxStep([{ pan: 0.2, tilt: 0.7 }, ...glide])).to.be.at.most(bound(0.6, 1000));
+      expect(glide.at(-1)).to.deep.equal({ pan: 0.8, tilt: 0.3 });
+    });
+
+    it("the same rev is no transition: an unchanged position keeps a shape running", () => {
+      const sim = new Sim({ ctx: { presetOf: () => ({ pan: 0.5, tilt: 0.5 }) } });
+      sim.claims = [preset("1", SEC(0))];
+      sim.run(0, 100);
+      sim.claims = [preset("1", SEC(0))];
+      sim.frame(120);
+      expect(sim.last.status.get("h1")!.pan.moving).to.equal(false);
+    });
+
+    it("the same owner that stops placing a head holds it where it is, never at an older held value", () => {
+      let point: { x: number; y: number; z: number } | undefined = { x: 0, y: 0, z: 0 };
+      const sim = new Sim({ ctx: { aim: () => ({ pan: 0.2, tilt: 0.7 }) } });
+      const claim = (): MotionClaim => ({ owner: "look:l", layer: "look", order: 1, heads: ["h1"], base: point ? { kind: "point", ...point } : { kind: "hold" }, fade: SEC(0.5) });
+      sim.claims = [claim()];
+      sim.run(0, 1000);
+      expect(sim.last.positions.get("h1")).to.deep.equal({ pan: 0.2, tilt: 0.7 });
+      // the target deleted: the look holds the head where it is
+      point = undefined;
+      sim.claims = [claim()];
+      const held = sim.run(1020, 1400);
+      expect(maxStep([{ pan: 0.2, tilt: 0.7 }, ...held])).to.equal(0);
+      expect(held.at(-1)).to.deep.equal({ pan: 0.2, tilt: 0.7 });
+    });
+
+    it("a held axis placed again by the same owner glides there (a target restored while the look plays)", () => {
+      let aim: Position = { pan: 0.2, tilt: 0.7 };
+      let point = true;
+      const sim = new Sim({ ctx: { aim: () => aim } });
+      const claim = (): MotionClaim => ({ owner: "look:l", layer: "look", order: 1, heads: ["h1"], base: point ? { kind: "point", x: 0, y: 0, z: 0 } : { kind: "hold" }, fade: SEC(0.5) });
+      sim.claims = [claim()];
+      sim.run(0, 1000);
+      point = false;
+      sim.claims = [claim()];
+      sim.run(1020, 1200);
+      point = true;
+      aim = { pan: 0.8, tilt: 0.3 };
+      sim.claims = [claim()];
+      const back = sim.run(1220, 1900);
+      expect(maxStep([{ pan: 0.2, tilt: 0.7 }, ...back])).to.be.at.most(bound(0.6, 500));
+      expect(back.at(-1)).to.deep.equal({ pan: 0.8, tilt: 0.3 });
+    });
+  });
+
   describe("purity (strictBounds samples future frames)", () => {
     it("never mutates the state it is given: the same input gives the same output", () => {
       const sim = new Sim({ settings: { moveFade: SEC(1) } });

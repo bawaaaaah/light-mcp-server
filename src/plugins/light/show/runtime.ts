@@ -6,12 +6,12 @@
  * groups that exclude them) → intensity per fixture = grand master × the master of every DCA covering
  * it, each once (show/dca.ts) → venue.toDmx, raw dimmers dosed like painted ones → channel faders.
  */
-import type { Collection, FolderStore } from "../data/store.js";
+import { stableStringify, type Collection, type FolderStore } from "../data/store.js";
 import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
-import { claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
+import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
 import { aimAt } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
@@ -74,6 +74,12 @@ interface ManualPosition {
   order: number;
   /** It glides there over the show's `moveFade` (a destination recalled) instead of following the gesture at once. */
   glide: boolean;
+  /**
+   * The pad given one axis while a recall (or any manual glide) still glides the other (T32): that older claim keeps
+   * the axes not given, so they carry on gliding instead of jumping, until they arrive (`settleTrails`): they then
+   * become this entry's fixed position, where they arrived.
+   */
+  trail?: { axes: readonly Axis[]; claim: Omit<ManualPosition, "trail"> };
 }
 
 /** One pass of the motion layer: the state it starts from, what was really sent and the tempo; `compose` leaves the next state and the status in it. */
@@ -313,6 +319,16 @@ export class ShowRuntime {
    * the guard, so that saving a position keeps what was asked, not a byte a rule bounded.
    */
   private lastPositions: ReadonlyMap<string, Position> = new Map();
+  /**
+   * The revision of a named position's placing part (T32, `MotionClaim.rev`): its pan/tilt or its point, so that a
+   * readjustment glides the heads following it, a rename or a new colour does not. One per stored object.
+   */
+  private readonly presetRevs = new WeakMap<PositionPreset, string>();
+  /**
+   * The heads a look following a named position last claimed through it (T32), kept while the position exists: deleted,
+   * the look holds those heads where they are, and only those (the others stay with the layer below).
+   */
+  private readonly lookCoverage = new Map<string, readonly string[]>();
   /**
    * « Figer les lyres » (T26): the effective lock level of each head, from the show's `motionLock` (the stricter of the
    * global lock and the head's own). A hook: everything that reads the lock goes through it.
@@ -993,6 +1009,7 @@ export class ShowRuntime {
     this.motionState = emptyMotionState();
     this.lastMotion = new Map();
     this.lastPositions = new Map();
+    this.lookCoverage.clear();
     this.activeProgram = undefined;
     this.resets.clear();
     this.atRest.clear();
@@ -1520,11 +1537,49 @@ export class ShowRuntime {
    */
   setPosition(fixtures: string[], p: Partial<Position>, how: "direct" | "glide" = "direct"): void {
     const order = ++this.launches;
+    const given = AXES.filter((a) => p[a] !== undefined);
     for (const f of fixtures) {
-      // over a named position recalled, the axis not given stays where the position puts it
-      const cur = this.manualAxes(f);
+      const prev = this.manualPositions.get(f);
+      const trail = this.trailOf(f, prev, given);
+      // over a named position recalled, the axis not given stays where the position puts it; one still gliding there
+      // is left to the trailing claim
+      const cur: Partial<Position> = { ...(prev?.trail ? prev.position : this.manualAxes(f)) };
+      for (const a of trail?.axes ?? []) delete cur[a];
       const position = { ...cur, ...(p.pan === undefined ? {} : { pan: p.pan }), ...(p.tilt === undefined ? {} : { tilt: p.tilt }) };
-      this.manualPositions.set(f, { position, order, glide: how === "glide" });
+      this.manualPositions.set(f, { position, order, glide: how === "glide", ...(trail ? { trail } : {}) });
+    }
+  }
+
+  /**
+   * The axes not `given` that the head's manual claim still glides on the last frame (a recall on its way): the claim
+   * that glides them keeps them (`ManualPosition.trail`). A trail already there keeps those of its axes not given.
+   */
+  private trailOf(head: string, prev: ManualPosition | undefined, given: readonly Axis[]): ManualPosition["trail"] {
+    if (!prev) return undefined;
+    if (prev.trail) {
+      const left = prev.trail.axes.filter((a) => !given.includes(a));
+      return left.length ? { axes: left, claim: prev.trail.claim } : undefined;
+    }
+    if (!prev.glide) return undefined;
+    const status = this.lastMotion.get(head);
+    const key = claimKey({ owner: "manual", order: prev.order });
+    const axes = AXES.filter((a) => !given.includes(a) && status?.[a].moving === true && status[a].claims[0] === key);
+    return axes.length ? { axes, claim: { position: prev.position, order: prev.order, glide: prev.glide, ...(prev.preset === undefined ? {} : { preset: prev.preset }) } } : undefined;
+  }
+
+  /**
+   * After a frame: a trailing axis (`ManualPosition.trail`) that arrived, or that its claim no longer holds, becomes the
+   * entry's own fixed position where it is, as the pad over a recall keeps it.
+   */
+  private settleTrails(): void {
+    for (const [head, m] of this.manualPositions) {
+      if (!m.trail) continue;
+      const status = this.lastMotion.get(head);
+      const key = claimKey({ owner: "manual", order: m.trail.claim.order });
+      const still = m.trail.axes.filter((a) => status?.[a].moving === true && status[a].claims[0] === key);
+      for (const a of m.trail.axes) if (!still.includes(a) && status) m.position = { ...m.position, [a]: status[a].target ?? status[a].position };
+      if (still.length) m.trail = { ...m.trail, axes: still };
+      else delete m.trail;
     }
   }
 
@@ -1542,6 +1597,15 @@ export class ShowRuntime {
   recallPreset(id: string, fixtures: string[]): void {
     const order = ++this.launches;
     for (const f of fixtures) this.manualPositions.set(f, { position: {}, preset: id, order, glide: true });
+  }
+
+  /** The revision of what a named position places (`presetRevs`); undefined when no position has that id. */
+  private presetRev(id: string): string | undefined {
+    const p = this.positionPresets.get(id);
+    if (!p) return undefined;
+    let rev = this.presetRevs.get(p);
+    if (rev === undefined) this.presetRevs.set(p, (rev = stableStringify({ values: p.values, point: p.point ?? null })));
+    return rev;
   }
 
   /** The named position a head was recalled to and still holds by hand, if any (T32). */
@@ -1574,7 +1638,18 @@ export class ShowRuntime {
   /** The axes a head's manual claim places: a named position recalled gives both, as it puts the head now. */
   private manualAxes(fixture: string): Partial<Position> | undefined {
     const m = this.manualPositions.get(fixture);
-    if (!m?.preset) return m?.position;
+    if (!m) return undefined;
+    const own = this.entryAxes(fixture, m);
+    if (!m.trail) return own;
+    const trailing = this.entryAxes(fixture, m.trail.claim);
+    const out: Partial<Position> = { ...own };
+    for (const a of m.trail.axes) if (trailing[a] !== undefined) out[a] = trailing[a];
+    return out;
+  }
+
+  /** The axes one manual entry places, a recalled named position read as it puts the head now. */
+  private entryAxes(fixture: string, m: Omit<ManualPosition, "trail">): Partial<Position> {
+    if (!m.preset) return m.position;
     const at = this.presetPosition(m.preset, fixture);
     return "error" in at ? { ...this.sentPositions.get(fixture) } : at;
   }
@@ -1721,9 +1796,17 @@ export class ShowRuntime {
           if (named !== undefined) {
             const p = this.positionPresets.get(named);
             if (!p) errors.push(say(`look « ${look.name} » : position nommée inconnue : ${named}`, `look “${look.name}”: unknown named position: ${named}`));
-            // gone, it still claims its heads: the layer holds them where they are (R14), even mid-show
-            const covered = p && !p.point ? moved.filter((h) => Object.hasOwn(p.values, h)) : moved;
-            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
+            // gone, it still claims the heads it covered last: the layer holds them where they are (R14), even mid-show
+            let covered: readonly string[];
+            if (p) {
+              covered = p.point ? moved : moved.filter((h) => Object.hasOwn(p.values, h));
+              this.lookCoverage.set(look.id, covered);
+            } else {
+              const last = this.lookCoverage.get(look.id);
+              covered = last ? moved.filter((h) => last.includes(h)) : moved;
+            }
+            const rev = this.presetRev(named);
+            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) }, ...(rev === undefined ? {} : { rev }) });
           } else if (at !== undefined && !target) {
             errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
             if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
@@ -1759,7 +1842,16 @@ export class ShowRuntime {
       const mine = this.targetHeads(t).filter((h) => isHead.has(h));
       if (mine.length) claims.push({ owner: `target:${t.id}`, layer: "target", order: t.engagedAt ?? 0, heads: mine, base: { kind: "point", ...this.targetPoint(t) }, ...(t.fade ? { fade: t.fade } : {}) });
     }
-    for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: m.preset === undefined ? { kind: "fixed", ...m.position } : { kind: "preset", id: m.preset }, ...(m.glide ? {} : { fade: DIRECT }) });
+    const manualClaim = (f: string, m: Omit<ManualPosition, "trail">): MotionClaim => {
+      const rev = m.preset === undefined ? undefined : this.presetRev(m.preset);
+      return { owner: "manual", layer: "manual", order: m.order, heads: [f], base: m.preset === undefined ? { kind: "fixed", ...m.position } : { kind: "preset", id: m.preset }, ...(m.glide ? {} : { fade: DIRECT }), ...(rev === undefined ? {} : { rev }) };
+    };
+    for (const [f, m] of this.manualPositions) {
+      if (!isHead.has(f)) continue;
+      claims.push(manualClaim(f, m));
+      // the older claim still gliding the axes the pad did not give (it loses the others to the newer claim)
+      if (m.trail) claims.push(manualClaim(f, m.trail.claim));
+    }
     return claims;
   }
 
@@ -1939,6 +2031,7 @@ export class ShowRuntime {
       this.motionState = run.state;
       this.lastMotion = run.status;
       this.lastPositions = run.positions ?? new Map();
+      this.settleTrails();
       this.aimBases = run.bases;
       this.aimHolds = run.holds ?? new Map();
       // a target's glide nobody read this frame is forgotten (a look following it stopped, the target deleted): read

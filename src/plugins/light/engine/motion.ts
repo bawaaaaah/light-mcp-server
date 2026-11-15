@@ -13,6 +13,7 @@
  * - **How**: whenever the owner of an axis changes, the axis glides from the position really sent
  *   (read back after the guard) to the new owner's, never a jump: a cubic leaving at the speed the head
  *   had and landing at rest (engine/hermite.ts), over a duration fixed when the transition starts.
+ *   The same owner glides too when its named position is readjusted (`rev`, T32) or when it places a head it held.
  *
  * Pure: no clock, no venue. The caller gives the time, the tempo and what was sent; `resolveMotion`
  * never mutates its state, it returns the next one (sampling future frames, `strictBounds`, must not
@@ -85,6 +86,11 @@ export interface MotionClaim {
   fade?: MoveFade;
   /** Its position changes by itself without a shape: a look's raw pan/tilt over steps that write other bytes. */
   animated?: true;
+  /**
+   * The revision of what its base reads (a named position, T32): when it changes under the same owner, the axis glides
+   * to the new value over the show's `moveFade` (never `fade`: a look cutting in still glides on a readjustment).
+   */
+  rev?: string;
 }
 
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
@@ -153,6 +159,10 @@ interface AxisState {
   error?: string;
   /** Set by a new Panic on an axis already held: the next frame enters the hold again, on the position sent then. */
   refreeze?: true;
+  /** The axis is held (lock, hold, a claim in error): a frame that places it again glides from where it is held. */
+  frozen?: true;
+  /** The winning claim's `rev` (T32): a new one under the same owner is a readjustment, glided. */
+  rev?: string;
 }
 
 interface HeadState {
@@ -396,21 +406,25 @@ function stepAxis(o: Owner, f: AxisFrame): AxisState {
   const order = o.claim?.order ?? 0;
   // only a running transition carries a speed: after a cut, a hold, a pad drag or a shape, the head starts at rest
   const v = prev && prev.dur > 0 && now > prev.t ? prev.v : 0;
-  const fresh = { owner: o.owner, layer: o.layer, rank, order, value: current, target: current, t: now, v, from: current, t0: now, dur: 0, v0: 0, held: current };
+  const rev = o.claim?.rev;
+  const fresh: AxisState = { owner: o.owner, layer: o.layer, rank, order, value: current, target: current, t: now, v, from: current, t0: now, dur: 0, v0: 0, held: current, ...(rev === undefined ? {} : { rev }) };
   let s: AxisState;
   let cut = false;
   if (o.target === undefined) {
-    // lock, hold, or a claim that cannot place the head: frozen where it was on the first held frame
-    const entering = changed || (o.error !== undefined && prev.error === undefined);
-    s = entering ? { ...fresh, error: o.error } : { ...prev, layer: o.layer, rank, order, error: o.error };
+    // lock, hold, or a claim that cannot place the head: frozen where it was on the first held frame — also when the
+    // same owner stops placing it (a target or a named position deleted while a look follows it), never an old `held`
+    const entering = changed || prev.frozen !== true || (o.error !== undefined && prev.error === undefined);
+    s = entering ? { ...fresh, error: o.error, frozen: true } : { ...prev, layer: o.layer, rank, order, error: o.error };
     // a lock frozen by the runtime (T26 `held`): there, whatever was sent (a restart under the lock sends it back there)
     if (o.held !== undefined) s.held = o.held;
     s.value = s.held;
   } else {
-    if (changed || prev.error !== undefined) {
-      // a new owner (or a claim back in reach): glide from what was really sent, at the speed it had
+    // the same owner whose base was readjusted (a named position saved again, T32, decision P1): glide there too
+    const readjusted = !changed && prev.rev !== rev;
+    if (changed || prev.error !== undefined || prev.frozen === true || readjusted) {
+      // a new owner (or a claim back in reach, or placing again): glide from what was really sent, at the speed it had
       const releasing = prev !== undefined && (prev.rank < rank || (prev.rank === rank && order < prev.order));
-      const fade = o.claim && !releasing ? (o.claim.fade ?? f.moveFade) : f.moveFade;
+      const fade = o.claim && !releasing && !readjusted ? (o.claim.fade ?? f.moveFade) : f.moveFade;
       // a lock lifted (T26) is never a jump: at least UNLOCK_MIN_MS, unless the axis is set to cut (T5 tracks); the pad
       // taking a head over under a soft lock is no release, it stays direct
       const ms = motionDurationMs(fade, f.bpm);

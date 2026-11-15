@@ -5,32 +5,33 @@
  */
 import { createHash } from "node:crypto";
 import { stableStringify } from "../data/store.js";
+import { isHung } from "../venue/orientation.js";
 import type { PatchedFixture } from "../venue/venue.js";
 import type { PositionPreset } from "./model.js";
 
 /** What of a fixture gives a logical pan/tilt its direction on the stage: its geometry, its travel, its definition. */
 export interface BasisSource {
-  patch: Pick<PatchedFixture, "manufacturer" | "model" | "mode" | "position" | "mount" | "orientation">;
+  patch: Pick<PatchedFixture, "manufacturer" | "model" | "position" | "mount" | "orientation">;
   /** Degrees of travel (the definition's, or its overrides'); absent when the definition cannot be read. */
   panMax?: number;
   tiltMax?: number;
 }
 
 /**
- * A short fingerprint of what makes a stored pan/tilt point where it pointed: the stage position, the mount, the
- * orientation fields that turn the beam (heading, pitch, inversions, swap, calibration offsets), the pan/tilt travel and
- * the definition with its mode. Nothing else: a renamed fixture, a new colour, another address or universe, its roll
- * (a bar's, not a head's) leave a position fresh. Defaults are filled in so that an orientation written out with its
- * default values is the same basis as none.
+ * A short fingerprint of what makes a stored pan/tilt point where it pointed: the stage position, whether the head
+ * hangs (what the aiming reads of the mount and the pitch, `isHung`: a truss and a hook are the same), its heading
+ * (modulo 360), its inversions, swap and calibration offsets, the pan/tilt travel and the definition. Nothing else: a
+ * renamed fixture, a new colour, another address or universe, its roll (a bar's, not a head's), its 8-bit or 16-bit mode
+ * (T6, decision P2: the travel is already in it) leave a position fresh. Defaults are filled in so that an orientation
+ * written out with its default values is the same basis as none.
  */
 export function basisOf(f: BasisSource): string {
   const o = f.patch.orientation;
   const geometry = {
-    model: [f.patch.manufacturer, f.patch.model, f.patch.mode],
+    model: [f.patch.manufacturer, f.patch.model],
     position: f.patch.position ?? null,
-    mount: f.patch.mount ?? null,
-    yaw: o?.yaw ?? 0,
-    pitch: o?.pitch ?? null,
+    hung: isHung(f.patch),
+    yaw: (((o?.yaw ?? 0) % 360) + 360) % 360,
     invertPan: o?.invertPan ?? false,
     invertTilt: o?.invertTilt ?? false,
     swapPanTilt: o?.swapPanTilt ?? false,
@@ -45,14 +46,17 @@ export function basisOf(f: BasisSource): string {
 /** The heads a position covers: those of its pan/tilt; a point covers none by itself (every placed head aims at it). */
 export const coveredHeads = (p: Pick<PositionPreset, "values">): string[] => Object.keys(p.values);
 
+/** The covered heads whose pan/tilt come from the position's `aim` (recomputable from it): none without an aim. */
+export const aimedHeads = (p: Pick<PositionPreset, "values" | "aim" | "aimed">): string[] => (p.aim ? (p.aimed ?? coveredHeads(p)).filter((h) => Object.hasOwn(p.values, h)) : []);
+
 /**
  * The covered heads whose basis changed since the position was saved: moved, rehung, turned, recalibrated, given another
- * mode or definition. `basisNow` gives a fixture's basis now, undefined when it is no longer patched (said apart, not
+ * definition. `basisNow` gives a fixture's basis now, undefined when it is no longer patched (said apart, not
  * stale). A head saved without a basis cannot be judged: never stale. A 3D point is never stale (it has no basis).
  * Computed on demand (list, « Vérifier le show »), never per frame.
  */
-export function positionStale(p: Pick<PositionPreset, "values" | "basis" | "point">, basisNow: (fixture: string) => string | undefined): string[] {
-  if (p.point) return [];
+export function positionStale(p: Pick<PositionPreset, "values" | "basis">, basisNow: (fixture: string) => string | undefined): string[] {
+  // a point has no values: nothing covered, never stale
   return coveredHeads(p).filter((head) => {
     const saved = p.basis[head];
     const now = basisNow(head);
