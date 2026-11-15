@@ -105,7 +105,13 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
         if (scoped) throw new CommandError("invalid", say("un point n'a pas de lyres : chaque lyre placée le vise au rappel (ne pas donner fixtures ni group)", "a point has no heads: every placed head aims at it when recalled (give neither fixtures nor group)"));
         return { position: describe(presets.put({ ...design, point, values: {}, basis: {} })) };
       }
-      if (cur?.point) throw new CommandError("invalid", say(`« ${cur.name} » est un point : donner point pour le déplacer`, `“${cur.name}” is a point: give point to move it`));
+      if (cur?.point)
+        throw new CommandError(
+          "invalid",
+          pantilt
+            ? say(`« ${cur.name} » est un point : il ne devient pas une position pan/tilt (le supprimer et enregistrer de nouveau)`, `“${cur.name}” is a point: it does not become a pan/tilt position (delete it and save again)`)
+            : say(`« ${cur.name} » est un point : donner point pour le déplacer`, `“${cur.name}” is a point: give point to move it`),
+        );
       if (pantilt && !point) throw new CommandError("invalid", say("pantilt va avec point : le point à viser", "pantilt goes with point: the point to aim at"));
       const installed = new Set(show.movingHeads());
       const heads = scoped ? pick.targets({ fixtures, group }) : cur ? coveredHeads(cur).filter((h) => installed.has(h)) : [...installed];

@@ -58,11 +58,12 @@ export const MoveSchema = z.object({
    */
   enabled: z.boolean().optional(),
   /**
-   * Where the shape is centred instead of `center`. `target` (T24): a target's point, aimed head by head (the shape
-   * drawn around each head's own aim); the target need not be engaged. Other keys (T27 zones, T32 named positions) are
-   * not declared yet: zod strips them.
+   * Where the shape is centred instead of `center`, one of: `target` (T24): a target's point, aimed head by head (the
+   * shape drawn around each head's own aim); the target need not be engaged. `position` (T32): a named position, read at
+   * render (a position readjusted moves the look): its pan/tilt for each head it covers (the look's other heads are left
+   * to the layer below), or its point aimed head by head. Other keys (T27 zones) are not declared yet: zod strips them.
    */
-  at: z.object({ target: z.string().optional() }).optional(),
+  at: z.object({ target: z.string().optional(), position: z.string().optional() }).optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;
 

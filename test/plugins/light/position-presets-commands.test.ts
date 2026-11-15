@@ -259,4 +259,114 @@ describe("named positions: the commands (T32)", () => {
     expect(layer("spot").error).to.match(/unknown position/);
     expect((await run("position.releaseTop", { fixtures: ["spot"] })) as object).to.deep.equal({ fixtures: [{ fixture: "spot", released: ["manual"] }] });
   });
+
+  // ---- lot 6: a look following a named position (move.at.position), its errors and « Vérifier le show »
+  type Issue = { level: string; where: string; message: string };
+  const lint = async () => ((await run("show.lint")) as { issues: Issue[] }).issues;
+  const follow = (id: string, position: string, move: object = {}) => run("look.put", { look: { id, name: id, canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { position }, fade: { seconds: 0 }, ...move } } });
+
+  it("a look following a position places the heads it covers, read at render: readjusted, the look follows without a relaunch", async () => {
+    await run("position.preset.put", { position: { id: "p", name: "Avant-scène", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await follow("suit", "p");
+    await run("look.go", { id: "suit" });
+    during(100);
+    near(sent("spot"), { pan: 0.2, tilt: 0.7 });
+    expect(layer("spot")).to.include({ layer: "look", owner: "look:suit" });
+    // spot2 is not covered: the layer below (its rest) keeps it
+    expect(layer("spot2").layer).to.equal("rest");
+    await run("position.preset.put", { position: { id: "p", name: "Avant-scène", values: { spot: { pan: 0.3, tilt: 0.6 }, spot2: { pan: 0.7, tilt: 0.6 } } } });
+    during(100);
+    near(sent("spot"), { pan: 0.3, tilt: 0.6 });
+    near(sent("spot2"), { pan: 0.7, tilt: 0.6 });
+    expect(layer("spot2")).to.include({ layer: "look", owner: "look:suit" });
+    // a shape around it: drawn around each head's own position
+    await follow("cercle", "p", { shape: "cercle", size: { pan: 0.05, tilt: 0.05 }, every: { seconds: 1 } });
+    await run("look.go", { id: "cercle" });
+    during(400);
+    const s = layer("spot");
+    expect(s.owner).to.equal("look:cercle");
+    expect(Math.abs(s.position - 0.3)).to.be.at.most(0.051);
+    // the position is used by the looks: its delete is refused, the references name them
+    expect(((await run("show.references", { kind: "position", id: "p" })) as { uses: string[] }).uses).to.deep.equal(["look « suit » (mouvement)", "look « cercle » (mouvement)"]);
+    expect((await failure(run("position.preset.delete", { id: "p" }))).message).to.match(/suit/);
+  });
+
+  it("a look following a point aims it head by head; recalled by hand over it, the manual layer wins", async () => {
+    await run("position.preset.save", { name: "Pupitre", id: "pupitre", point: { x: 0, y: 3, z: 1.5 } });
+    await follow("vise", "pupitre");
+    await run("look.go", { id: "vise" });
+    during(100);
+    near(sent("spot"), plugin.runtime.aimNow("spot", { x: 0, y: 3, z: 1.5 }) as { pan: number; tilt: number });
+    near(sent("spot2"), plugin.runtime.aimNow("spot2", { x: 0, y: 3, z: 1.5 }) as { pan: number; tilt: number });
+    await run("position.preset.put", { position: { id: "q", name: "Q", values: { spot: { pan: 0.1, tilt: 0.1 } } } });
+    await run("position.preset.go", { id: "q" });
+    during(1300);
+    expect(layer("spot").layer).to.equal("manual");
+    near(sent("spot"), { pan: 0.1, tilt: 0.1 });
+    // « Rendre la main » gives it back to the look, gliding
+    await run("position.releaseTop", { fixtures: ["spot"] });
+    during(1300);
+    expect(layer("spot").owner).to.equal("look:vise");
+  });
+
+  it("look.put refuses an unknown position and a target with a position; a position deleted with force holds the heads and is said", async () => {
+    expect((await failure(follow("x", "ghost"))).message).to.match(/position nommée inconnue : ghost|unknown named position: ghost/);
+    await run("target.put", { target: { id: "t", name: "T", group: "lyres" } });
+    await run("position.preset.put", { position: { id: "p", name: "P", values: { spot: { pan: 0.2, tilt: 0.7 }, spot2: { pan: 0.2, tilt: 0.7 } } } });
+    expect((await failure(run("look.put", { look: { id: "x", name: "x", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { target: "t", position: "p" } } } }))).message).to.match(/pas les deux|not both/);
+    await follow("suit", "p");
+    await run("look.go", { id: "suit" });
+    during(100);
+    const at = sent("spot");
+    await run("position.preset.delete", { id: "p", force: true });
+    during(200);
+    near(sent("spot"), at);
+    expect(plugin.runtime.lastErrors.some((e) => /position nommée inconnue : p|unknown named position: p/.test(e))).to.equal(true);
+    expect((await lint()).filter((i) => i.where === "look suit").map((i) => i.level)).to.deep.equal(["erreur"]);
+    // a look already following it stays editable (renamed), as for a target
+    await run("look.put", { look: { id: "suit", name: "Suit 2", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { position: "p" } } } });
+  });
+
+  it("« Vérifier le show » says the stale positions with their choices, uncovered heads of a look, a mapping and a fixture gone", async () => {
+    await run("position.preset.save", { name: "Chœur", id: "choeur", point: { x: 0, y: 3, z: 1.5 }, pantilt: true });
+    await run("position.preset.put", { position: { id: "solo", name: "Solo", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await follow("suit", "solo");
+    await run("midi.mapping.put", { mapping: { id: "m", label: "Pad", input: { type: "note", channel: 1, number: 36 }, on: { command: "position.preset.go", args: { id: "ghost" } } } });
+    expect((await lint()).filter((i) => i.where.startsWith("position ") || i.where === "look suit" || i.where === "mapping m")).to.deep.equal([
+      { level: "erreur", where: "mapping m", message: "position nommée inconnue ghost" },
+      { level: "info", where: "look suit", message: "la position « Solo » ne couvre pas Spot 2 : ces lyres restent à la couche du dessous" },
+    ]);
+    plugin.venue.fixtures.put({ ...plugin.venue.fixtures.get("spot")!, position: { x: -2, y: 2, z: 5 } });
+    const stale = (await lint()).filter((i) => i.where.startsWith("position "));
+    expect(stale.map((i) => [i.where, i.level])).to.deep.equal([
+      ["position choeur", "attention"],
+      ["position solo", "attention"],
+    ]);
+    // with an aim point the three choices are said, without one the two others
+    expect(stale[0]!.message).to.match(/recalculer.*how: recompute.*à la main.*position.preset.save.*telle quelle.*how: keep/);
+    expect(stale[1]!.message).to.not.match(/recalculer/);
+    expect(stale[1]!.message).to.match(/à la main.*telle quelle/);
+    await run("position.preset.refresh", { id: "solo", how: "keep" });
+    await run("position.preset.refresh", { id: "choeur", how: "recompute" });
+    expect((await lint()).filter((i) => i.where.startsWith("position "))).to.deep.equal([]);
+    // a covered fixture deleted with force: said, ignored by a recall
+    await run("venue.fixture.delete", { id: "spot", force: true });
+    expect((await lint()).filter((i) => i.where === "position solo").map((i) => i.message)).to.deep.equal(["« Solo » couvre des projecteurs qui ne sont plus dans le patch (spot) : ignorés au rappel", "« Solo » ne couvre aucune lyre installée"]);
+    expect((await failure(run("position.preset.go", { id: "solo" }))).message).to.match(/rien à rappeler|nothing to recall/);
+  });
+
+  it("a show that names no position in use sends the same bytes with positions saved", async () => {
+    await run("look.put", { look: { id: "c", name: "C", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "cercle", every: { seconds: 2 } } } });
+    await run("look.go", { id: "c" });
+    const bytes = () => {
+      const buf = new Uint8Array(512);
+      plugin.runtime.render([buf]);
+      return [...buf.slice(0, 30)];
+    };
+    during(300);
+    const before = [bytes(), bytes()];
+    await run("position.preset.put", { position: { id: "p", name: "P", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await run("position.preset.save", { name: "Point", point: { x: 0, y: 3, z: 1.5 } });
+    expect([bytes(), bytes()]).to.deep.equal(before);
+  });
 });

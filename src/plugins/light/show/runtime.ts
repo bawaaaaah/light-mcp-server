@@ -1712,10 +1712,19 @@ export class ShowRuntime {
       if (look.move) {
         try {
           const moved = this.movedBy(look);
+          // centred on a named position (T32, move.at.position), read at render: its pan/tilt on the heads it covers
+          // (the look's others go to the layer below), or its point aimed head by head; a position gone holds the heads
+          const named = look.move.at?.position;
           // centred on a target's point (T24, move.at.target), aimed head by head; a target gone holds the heads where they are
-          const at = look.move.at?.target;
+          const at = named === undefined ? look.move.at?.target : undefined;
           const target = at === undefined ? undefined : this.targets.get(at);
-          if (at !== undefined && !target) {
+          if (named !== undefined) {
+            const p = this.positionPresets.get(named);
+            if (!p) errors.push(say(`look « ${look.name} » : position nommée inconnue : ${named}`, `look “${look.name}”: unknown named position: ${named}`));
+            // gone, it still claims its heads: the layer holds them where they are (R14), even mid-show
+            const covered = p && !p.point ? moved.filter((h) => Object.hasOwn(p.values, h)) : moved;
+            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
+          } else if (at !== undefined && !target) {
             errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
             if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
           } else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
