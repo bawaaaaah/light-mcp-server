@@ -61,6 +61,18 @@ export interface TempoSource {
   state(): { beats: number; bpm?: number };
 }
 
+/** What a look following a named position covers through it (T32, `ShowRuntime.lookCoverage`). */
+interface LookCoverage {
+  order?: number;
+  heads: readonly string[];
+  late: readonly string[];
+}
+
+/** The heads of `moved` a named position places: all of them for a point, else those it has a pan/tilt for. */
+function coveredBy(p: PositionPreset, moved: readonly string[]): string[] {
+  return p.point ? [...moved] : moved.filter((h) => Object.hasOwn(p.values, h));
+}
+
 /** A manual position (XY pad, aiming, a named position recalled): one claim of the motion layer per head. */
 interface ManualPosition {
   /** The axes it places: one alone leaves the other to the layer below. Ignored when `preset` is set. */
@@ -325,10 +337,13 @@ export class ShowRuntime {
    */
   private readonly presetRevs = new WeakMap<PositionPreset, string>();
   /**
-   * The heads a look following a named position last claimed through it (T32), kept while the position exists: deleted,
-   * the look holds those heads where they are, and only those (the others stay with the layer below).
+   * The heads a look following a named position covers through it (T32), kept while the position exists and noted
+   * when it is saved or deleted: deleted, the look holds those heads where they are, and only those (the others stay
+   * with the layer below). `order`: the launch it was last seen under (undefined: noted before any frame of the look);
+   * `late`: the heads that entered the coverage under that launch, which glide in over `moveFade` whatever the look's
+   * own fade (decision P1: never a jump), until the look is launched again.
    */
-  private readonly lookCoverage = new Map<string, readonly string[]>();
+  private readonly lookCoverage = new Map<string, LookCoverage>();
   /**
    * « Figer les lyres » (T26): the effective lock level of each head, from the show's `motionLock` (the stricter of the
    * global lock and the head's own). A hook: everything that reads the lock goes through it.
@@ -385,6 +400,8 @@ export class ShowRuntime {
       if (e.collection === "fixtures" || e.collection === "models") this.atRest.clear();
     });
     store.onChange((e) => {
+      // a named position saved (a command, a version restored): the looks following it know at once what it covers
+      if (e.collection === "positions" && e.kind === "put") this.notePositionCoverage(e.id);
       // A look or palette edited while playing restarts with the new definition (effects stay editable live);
       // renamed, filed in a folder or annotated, it plays on untouched.
       if (e.collection === "looks") {
@@ -1563,7 +1580,9 @@ export class ShowRuntime {
     if (!prev.glide) return undefined;
     const status = this.lastMotion.get(head);
     const key = claimKey({ owner: "manual", order: prev.order });
-    const axes = AXES.filter((a) => !given.includes(a) && status?.[a].moving === true && status[a].claims[0] === key);
+    // a recall no frame has resolved yet (pressed, then the pad before the next frame) is still on its way
+    const gliding = (a: Axis) => (status?.[a].claims.includes(key) === true ? status[a].moving && status[a].claims[0] === key : true);
+    const axes = AXES.filter((a) => !given.includes(a) && gliding(a));
     return axes.length ? { axes, claim: { position: prev.position, order: prev.order, glide: prev.glide, ...(prev.preset === undefined ? {} : { preset: prev.preset }) } } : undefined;
   }
 
@@ -1597,6 +1616,47 @@ export class ShowRuntime {
   recallPreset(id: string, fixtures: string[]): void {
     const order = ++this.launches;
     for (const f of fixtures) this.manualPositions.set(f, { position: {}, preset: id, order, glide: true });
+  }
+
+  /**
+   * Deletes a named position (T32), its coverage noted first for the looks following it: deleted, they hold the heads
+   * it covered, even a look never played or stopped since.
+   */
+  deletePositionPreset(id: string): boolean {
+    this.notePositionCoverage(id);
+    return this.positionPresets.delete(id);
+  }
+
+  /** Notes what the named position `id` covers for each look following it (`lookCoverage`); nothing when it is gone. */
+  private notePositionCoverage(id: string): void {
+    const p = this.positionPresets.get(id);
+    if (!p) return;
+    for (const look of this.looks.list()) {
+      if (look.move?.at?.position !== id) continue;
+      let moved: string[];
+      try {
+        moved = this.movedBy(look);
+      } catch {
+        continue;
+      }
+      this.coverLook(look.id, undefined, coveredBy(p, moved));
+    }
+  }
+
+  /**
+   * Records the heads a look covers through its named position (`lookCoverage`) and returns the entry it claims with.
+   * `order` undefined (noted outside a frame) keeps the launch known. An older launch still fading out reads the entry
+   * without rewriting it: the newer launch keeps its own.
+   */
+  private coverLook(lookId: string, order: number | undefined, heads: readonly string[]): LookCoverage {
+    const last = this.lookCoverage.get(lookId);
+    if (order !== undefined && last?.order !== undefined && order < last.order) return { order, heads, late: [] };
+    const at = order ?? last?.order;
+    const same = last !== undefined && at !== undefined && last.order === at;
+    const late = same ? [...last.late.filter((h) => heads.includes(h)), ...heads.filter((h) => !last.heads.includes(h) && !last.late.includes(h))] : [];
+    const entry: LookCoverage = { ...(at === undefined ? {} : { order: at }), heads, late };
+    this.lookCoverage.set(lookId, entry);
+    return entry;
   }
 
   /** The revision of what a named position places (`presetRevs`); undefined when no position has that id. */
@@ -1796,17 +1856,12 @@ export class ShowRuntime {
           if (named !== undefined) {
             const p = this.positionPresets.get(named);
             if (!p) errors.push(say(`look « ${look.name} » : position nommée inconnue : ${named}`, `look “${look.name}”: unknown named position: ${named}`));
-            // gone, it still claims the heads it covered last: the layer holds them where they are (R14), even mid-show
-            let covered: readonly string[];
-            if (p) {
-              covered = p.point ? moved : moved.filter((h) => Object.hasOwn(p.values, h));
-              this.lookCoverage.set(look.id, covered);
-            } else {
-              const last = this.lookCoverage.get(look.id);
-              covered = last ? moved.filter((h) => last.includes(h)) : moved;
-            }
+            // gone, it still claims the heads it covered last: the layer holds them where they are (R14), even mid-show;
+            // with no coverage known, it claims nothing (the unknown position is said)
+            const last = this.lookCoverage.get(look.id);
+            const { heads: covered, late } = this.coverLook(look.id, own.order, p ? coveredBy(p, moved) : last ? moved.filter((h) => last.heads.includes(h)) : []);
             const rev = this.presetRev(named);
-            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) }, ...(rev === undefined ? {} : { rev }) });
+            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) }, ...(rev === undefined ? {} : { rev }), ...(late.length ? { late } : {}) });
           } else if (at !== undefined && !target) {
             errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
             if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });

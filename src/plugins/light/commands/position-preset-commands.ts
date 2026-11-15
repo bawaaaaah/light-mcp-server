@@ -271,7 +271,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       const p = presets.get(id);
       const { uses } = (await reg.invoke("show.references", { kind: "position", id }, ctx)) as { uses: string[] };
       if (uses.length && !force) throw new Error(inUseMessage(p?.name ?? id, uses));
-      return { deleted: presets.delete(id) };
+      return { deleted: show.deletePositionPreset(id) };
     },
   });
 }

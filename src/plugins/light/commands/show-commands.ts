@@ -1668,7 +1668,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         return show.positionPresets.validate({ ...parsed, basis: fillBasis(parsed, typeof o.id === "string" ? show.positionPresets.get(o.id) : undefined, (f) => show.positionBasis(f)) });
       },
       get: (i: string) => show.positionPresets.get(i),
-      delete: (i: string) => show.positionPresets.delete(i),
+      delete: (i: string) => show.deletePositionPreset(i),
       put: (v: unknown) => show.positionPresets.put(v),
     },
     // a creation of intention.put (no id) gets its generated id when proposed (show.propose pins it, T15b); a

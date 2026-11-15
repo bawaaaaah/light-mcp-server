@@ -493,6 +493,89 @@ describe("named positions: the commands (T32)", () => {
     expect(await run("position.releaseTop", { fixtures: ["spot"] })).to.deep.equal({ fixtures: [{ fixture: "spot", released: ["manual"] }] });
   });
 
+  it("the pad on one axis right after a recall, before any frame: the other axis glides there, never jumps", async () => {
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.9, tilt: 0.9 } } } });
+    await run("position.preset.go", { id: "d" });
+    await run("position.set", { fixtures: ["spot"], pan: 0.5 });
+    expect(maxStep("spot", 300)).to.be.below(0.05);
+    expect(sent("spot").pan).to.be.closeTo(0.5, 1e-4);
+    during(1000);
+    near(sent("spot"), { pan: 0.5, tilt: 0.9 });
+    expect(plugin.runtime.manualPosition("spot")).to.deep.equal({ pan: 0.5, tilt: 0.9 });
+  });
+
+  it("a head entering the coverage of a position a look follows with no fade glides in (P1), however it gets there", async () => {
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await follow("suit", "d");
+    await run("look.go", { id: "suit" });
+    during(500);
+    expect(layer("spot2").layer).to.equal("rest");
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 }, spot2: { pan: 0.95, tilt: 0.05 } } } });
+    expect(maxStep("spot2", 1500)).to.be.below(0.05);
+    near(sent("spot2"), { pan: 0.95, tilt: 0.05 });
+    expect(layer("spot2").owner).to.equal("look:suit");
+    // out again, then back through a version put back: still a glide
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    during(1500);
+    const [version] = (await run("history.list", { collection: "positions", id: "d" })) as { stamp: string }[];
+    expect(version).to.not.equal(undefined);
+    await run("history.restore", { collection: "positions", id: "d", stamp: version!.stamp });
+    expect(maxStep("spot2", 1500)).to.be.below(0.05);
+    near(sent("spot2"), { pan: 0.95, tilt: 0.05 });
+  });
+
+  it("a position deleted holds what it covered for a look never played, or stopped since it changed", async () => {
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await follow("suit", "d");
+    await run("position.preset.delete", { id: "d", force: true });
+    await run("look.go", { id: "suit" });
+    during(300);
+    expect(layer("spot").owner).to.equal("look:suit");
+    expect(layer("spot2").layer).to.equal("rest");
+    // played, stopped, the position changed to cover the other head, then deleted: the look holds that one only
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    during(1500);
+    await run("look.stop", { id: "suit" });
+    during(3000);
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot2: { pan: 0.3, tilt: 0.6 } } } });
+    await run("position.preset.delete", { id: "d", force: true });
+    await run("look.go", { id: "suit" });
+    during(300);
+    expect(layer("spot").layer).to.equal("rest");
+    expect(layer("spot2").owner).to.equal("look:suit");
+    // a look naming a position this show never had (written by hand): no coverage known, it claims nothing
+    plugin.runtime.looks.put({ ...plugin.runtime.looks.get("suit")!, id: "fantome", name: "Fantôme", move: { ...plugin.runtime.looks.get("suit")!.move!, at: { position: "ghost" } } });
+    await run("look.stop", { id: "suit" });
+    await run("look.go", { id: "fantome" });
+    during(3000);
+    expect(layer("spot").layer).to.equal("rest");
+    expect(layer("spot2").layer).to.equal("rest");
+  });
+
+  it("a position saved notes at once what it covers for the looks following it, even stopped", async () => {
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
+    await follow("suit", "d");
+    await run("look.go", { id: "suit" });
+    during(500);
+    await run("look.stop", { id: "suit" });
+    during(3000);
+    await run("position.preset.put", { position: { id: "d", name: "D", values: { spot2: { pan: 0.3, tilt: 0.6 } } } });
+    // gone without the command (the store alone): what the last save covered is known
+    plugin.runtime.positionPresets.delete("d");
+    await run("look.go", { id: "suit" });
+    during(300);
+    expect(layer("spot").layer).to.equal("rest");
+    expect(layer("spot2").owner).to.equal("look:suit");
+  });
+
+  it("save aimed at another point: the heads aimed at the old one are no longer aimed", async () => {
+    await run("position.preset.save", { name: "Chœur", id: "choeur", point: { x: 0, y: 3, z: 1.5 }, pantilt: true });
+    expect(((await listed("choeur")) as Listed & { aimed?: string[] }).aimed).to.deep.equal(["spot", "spot2"]);
+    const re = (await run("position.preset.save", { id: "choeur", fixtures: ["spot"], point: { x: 1, y: 3, z: 1.5 }, pantilt: true })) as { position: Listed & { aimed?: string[] } };
+    expect(re.position.aim).to.deep.equal({ x: 1, y: 3, z: 1.5 });
+    expect(re.position.aimed).to.deep.equal(["spot"]);
+  });
+
   it("go without heads on a pan/tilt position names nothing as not covered", async () => {
     await run("position.preset.put", { position: { id: "d", name: "D", values: { spot: { pan: 0.2, tilt: 0.7 } } } });
     const res = (await run("position.preset.go", { id: "d" })) as { fixtures: string[]; notCovered?: string[] };

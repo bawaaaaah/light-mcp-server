@@ -91,6 +91,11 @@ export interface MotionClaim {
    * to the new value over the show's `moveFade` (never `fade`: a look cutting in still glides on a readjustment).
    */
   rev?: string;
+  /**
+   * Heads that entered this claim after it was launched (a named position followed by a look that now covers them,
+   * T32): taking one over glides over the show's `moveFade`, never `fade` (decision P1: a head never jumps).
+   */
+  late?: readonly string[];
 }
 
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
@@ -380,6 +385,8 @@ interface AxisFrame {
   moveFade: MoveFade;
   bpm: number;
   cut: boolean;
+  /** The head is among its claim's `late` heads: taken over over `moveFade`. */
+  late: boolean;
 }
 
 /**
@@ -421,10 +428,10 @@ function stepAxis(o: Owner, f: AxisFrame): AxisState {
   } else {
     // the same owner whose base was readjusted (a named position saved again, T32, decision P1): glide there too
     const readjusted = !changed && prev.rev !== rev;
-    if (changed || prev.error !== undefined || prev.frozen === true || readjusted) {
+    if (changed || prev.frozen === true || readjusted) {
       // a new owner (or a claim back in reach, or placing again): glide from what was really sent, at the speed it had
       const releasing = prev !== undefined && (prev.rank < rank || (prev.rank === rank && order < prev.order));
-      const fade = o.claim && !releasing && !readjusted ? (o.claim.fade ?? f.moveFade) : f.moveFade;
+      const fade = o.claim && !releasing && !readjusted && !f.late ? (o.claim.fade ?? f.moveFade) : f.moveFade;
       // a lock lifted (T26) is never a jump: at least UNLOCK_MIN_MS, unless the axis is set to cut (T5 tracks); the pad
       // taking a head over under a soft lock is no release, it stays direct
       const ms = motionDurationMs(fade, f.bpm);
@@ -496,7 +503,7 @@ export function resolveMotion(input: MotionInput, state: MotionState): MotionRes
       const sentAxis = sent?.[axis];
       const current = finite(sentAxis) ? clamp01(sentAxis) : (prev?.value ?? rest[axis]);
       const cut = input.axisMode?.(head, axis) === "cut";
-      const s = stepAxis(o, { prev, current, now, rank: rankOf(o.layer, lock), moveFade, bpm: input.bpm, cut });
+      const s = stepAxis(o, { prev, current, now, rank: rankOf(o.layer, lock), moveFade, bpm: input.bpm, cut, late: o.claim?.late?.includes(head) === true });
       next[axis] = s;
       pos[axis] = s.value;
       const moving = s.dur > 0 && s.value !== o.target;

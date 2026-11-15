@@ -947,6 +947,17 @@ describe("motion layer (pure)", () => {
       expect(glide.at(-1)).to.deep.equal({ pan: 0.8, tilt: 0.3 });
     });
 
+    it("a head entering a claim that cuts in after its launch (`late`) glides there over moveFade; the others cut", () => {
+      const sim = new Sim({ heads: ["h1", "h2"], ctx: { presetOf: () => ({ pan: 0.8, tilt: 0.3 }) } });
+      sim.run(0, 100);
+      sim.claims = [{ ...preset("1", SEC(0)), heads: ["h1", "h2"], late: ["h2"] }];
+      sim.frame(120);
+      expect(sim.last.positions.get("h1")).to.deep.equal({ pan: 0.8, tilt: 0.3 });
+      const entering = [sim.last.positions.get("h2")!, ...sim.run(140, 1200, "h2")];
+      expect(maxStep([{ pan: 0.5, tilt: 0.5 }, ...entering])).to.be.at.most(bound(0.3, 1000));
+      expect(entering.at(-1)).to.deep.equal({ pan: 0.8, tilt: 0.3 });
+    });
+
     it("the same rev is no transition: an unchanged position keeps a shape running", () => {
       const sim = new Sim({ ctx: { presetOf: () => ({ pan: 0.5, tilt: 0.5 }) } });
       sim.claims = [preset("1", SEC(0))];
