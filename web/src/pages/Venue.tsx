@@ -9,7 +9,7 @@ import { StagePlan, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
-import { QxfExport } from "../components/QxfExport";
+import { hasQxfFile, QxfExport } from "../components/QxfExport";
 import { ZoneMenu } from "../components/ZoneMenu";
 import { confirmDelete } from "../components/confirmDelete";
 import { CanvasEditor } from "../components/CanvasEditor";
@@ -517,7 +517,7 @@ export function VenuePage(): ReactElement {
             </button>
           </div>
           {/* QLC+'s built-in generic dimmer has no file to export */}
-          {def && !(def.manufacturer === "Generic" && def.model === "Generic") && <QxfExport key={draft.def} target={{ manufacturer: def.manufacturer, model: def.model }} />}
+          {def && hasQxfFile(def.manufacturer, def.model) && <QxfExport key={draft.def} target={{ manufacturer: def.manufacturer, model: def.model }} />}
         </section>
       </div>
       <section id="venue-stage">

@@ -2884,7 +2884,7 @@ test("venue: export a definition as a .qxf, from the library and from a fixture'
     await library.getByRole("searchbox").fill("Wash Zones");
     await library.getByRole("combobox", { name: "Définition" }).selectOption("Test|Wash Zones");
     const plain = page.waitForEvent("download");
-    await library.getByRole("button", { name: "⤓ Exporter le .qxf" }).click();
+    await library.getByRole("button", { name: "Exporter le .qxf" }).click();
     const file = await plain;
     expect(file.suggestedFilename()).toBe("Test-Wash-Zones.qxf");
     expect(readFileSync(await file.path(), "utf8")).toBe(original);
@@ -2895,13 +2895,65 @@ test("venue: export a definition as a .qxf, from the library and from a fixture'
     const box = menu.getByTestId("qxf-export");
     await box.getByRole("checkbox", { name: "avec les corrections de ce lieu" }).check();
     const corrected = page.waitForEvent("download");
-    await box.getByRole("button", { name: "⤓ Exporter le .qxf" }).click();
+    await box.getByRole("button", { name: "Exporter le .qxf" }).click();
     const xml = readFileSync(await (await corrected).path(), "utf8");
     expect(xml.match(/<Head>\s*<Channel>/g)).toHaveLength(4); // (the file's comment names <Head> too)
     await expect(box.getByRole("status")).toContainText("4 têtes déclarées");
     await page.screenshot({ path: "test-results/qxf-export-menu.png" });
+    // an error is said where the button is, the report region kept (emptied)
+    await page.route("**/api/plugins/light/commands/fixture.definition.export", (route) => route.fulfill({ status: 500, json: { ok: false, error: "export en échec pour le test" } }));
+    await box.getByRole("button", { name: "Exporter le .qxf" }).click();
+    await expect(box.getByRole("alert")).toContainText("export en échec pour le test");
+    await expect(box.getByRole("status")).toBeEmpty();
+    await page.unroute("**/api/plugins/light/commands/fixture.definition.export");
   } finally {
     await api(page, "venue.fixture.delete", { id: "wash-qxf" });
+  }
+  expect(errors.filter((e) => !/fixture\.definition\.export/.test(e))).toEqual([]);
+});
+
+test("venue: the .qxf export report says what does not pass, bounded and fully visible in the fixture menu (desktop and phone)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page, "9999");
+  // a wheel correction QLC+ cannot hold, slot by slot: a long report
+  const slots = Object.fromEntries(["0", "16", "32", "48", "64"].map((k) => [k, { answers: ["#ff0000", "#00ff00"], off: true }]));
+  await api(page, "venue.wheel.put", { id: "spot", scope: "fixture", wheel: { slots, change: "black" } });
+  try {
+    for (const size of [
+      { width: 1400, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(size);
+      await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+      const row = page.locator("tr", { hasText: "Lyre" }).filter({ has: page.locator("td") }).first();
+      await row.click({ button: "right" });
+      const menu = page.getByRole("dialog", { name: "Réglages de l'appareil", exact: true });
+      const box = menu.getByTestId("qxf-export");
+      // the box before the button, and the help shown, not only on hover
+      await expect(box.locator(".row > *").first()).toHaveJSProperty("tagName", "LABEL");
+      await expect(box).toContainText("Télécharger la définition au format QLC+");
+      await box.getByRole("checkbox", { name: "avec les corrections de ce lieu" }).check();
+      const download = page.waitForEvent("download");
+      await box.getByRole("button", { name: "Exporter le .qxf" }).click();
+      expect((await download).suggestedFilename()).toBe("Test-Spot-7.qxf");
+      const report = box.getByRole("status");
+      await expect(report).toContainText("Ne passe pas dans un .qxf");
+      await expect(report).toContainText("« jamais choisie » n'existe pas dans QLC+");
+      await expect(report).toContainText("par le noir");
+      // fully visible: inside the window and inside the menu's visible part
+      await expect
+        .poll(async () => {
+          const r = (await report.boundingBox())!;
+          const m = (await menu.boundingBox())!;
+          return r.y >= Math.max(0, m.y) - 1 && r.y + r.height <= Math.min(size.height, m.y + m.height) + 1 && r.x >= 0 && r.x + r.width <= size.width + 1;
+        })
+        .toBe(true);
+      await page.screenshot({ path: `test-results/qxf-export-report-${size.width}.png` });
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    }
+  } finally {
+    await api(page, "venue.wheel.clear", { id: "spot", scope: "fixture" });
   }
   expect(errors).toEqual([]);
 });

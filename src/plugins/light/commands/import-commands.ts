@@ -59,7 +59,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     name: "fixture.definition.export",
     title: "Exporter une définition de projecteur",
     description:
-      "A fixture definition of the library as a QLC+ .qxf file, to use in QLC+ or on another machine: by its model (manufacturer + model, as venue.library lists them) or by a patched fixture's (fixture). Returns file (the name QLC+ gives it, Manufacturer-Model.qxf), source (the library file), xml (the file's text; base64 too when its bytes are not valid UTF-8). Without corrections, the library file byte for byte. corrections: true writes this venue's corrections where a .qxf has a place for them (a wheel slot's real colour, the heads deduced from the channel names as <Head>) — the model's, or with fixture its own over its model's — and lists in notExported what QLC+ cannot hold (fadeable tracks, a halo that follows or stays dark, slots never chosen or answering other colours, the wheel's change, a fixture's inversions).",
+      "A fixture definition of the library as a QLC+ .qxf file, to use in QLC+ or on another machine: by its model (manufacturer + model, as venue.library lists them) or by a patched fixture's (fixture), not both. Returns file (the name QLC+ gives it, Manufacturer-Model.qxf), source (the library file), xml (the file's text; when its bytes are not valid UTF-8, read as Latin-1, and base64 holds the bytes to save). Without corrections, the library file byte for byte. corrections: true writes this venue's corrections where a .qxf has a place for them (a wheel slot's real colour, the heads deduced from the channel names as <Head>; applied lists only what the file, read again, really carries) — the model's, or with fixture its own over its model's — and lists in notExported what QLC+ cannot hold (fadeable tracks, a halo that follows or stays dark, slots never chosen or answering other colours, the wheel's change, a fixture's inversions).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup"],
@@ -68,7 +68,8 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       manufacturer: z.string().optional(),
       model: z.string().optional(),
       corrections: z.boolean().default(false).describe("write this venue's corrections into the file where QLC+ has a place for them"),
-    }),
+    })
+      .refine((a) => a.fixture === undefined || (a.manufacturer === undefined && a.model === undefined), { error: () => say("donner fixture, ou manufacturer et model, pas les deux", "give fixture, or manufacturer and model, not both") }),
     run: (args) => exportDefinition(s.runtime.venue, args),
   });
   reg.register({

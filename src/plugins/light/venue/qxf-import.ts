@@ -4,6 +4,7 @@
  * Pure: takes the XML text.
  */
 import { XMLParser } from "fast-xml-parser";
+import { GENERIC_DIMMER_NAMES, sameName } from "./names.js";
 
 export type ColorComponent = "red" | "green" | "blue" | "white" | "amber" | "uv" | "cyan" | "magenta" | "yellow" | "lime" | "warmWhite" | "coldWhite";
 
@@ -167,14 +168,16 @@ function isResetCapability(name: string, preset?: string, channel?: string): boo
 
 /**
  * Deduces a range's tags from its name and QLC+ preset (and its channel's name, for a Reset*
- * preset); the user can correct them later.
+ * preset); the user can correct them later. A colour slot's preset (ColorMacro, ColorDoubleMacro) does not make
+ * it a built-in macro: only its name can.
  */
 export function capabilityTags(name: string, preset?: string, channel?: string): CapabilityTag[] {
   const tags = new Set<CapabilityTag>();
   const haystack = `${name} ${preset ?? ""}`;
   if (/sound|music|audio/i.test(haystack)) tags.add("soundActive");
   if (/auto(matic)?|pre-?programm|program|show\b|chase/i.test(haystack) && !/manual/i.test(haystack)) tags.add("autoProgram");
-  if (/macro|built-?in/i.test(haystack)) tags.add("builtinMacro");
+  // a colour wheel slot's preset (ColorMacro, ColorDoubleMacro) is a colour, not a built-in macro
+  if (/macro|built-?in/i.test(`${name} ${/^Color(Double)?Macro$/.test(preset ?? "") ? "" : (preset ?? "")}`)) tags.add("builtinMacro");
   if (/strobe/i.test(haystack) && !/off|open/i.test(name)) tags.add("strobe");
   if (isResetCapability(name, preset, channel)) tags.add("reset");
   if (/\buv\b|ultra ?violet/i.test(haystack)) tags.add("uv");
@@ -321,17 +324,8 @@ export function findMode(def: FixtureDefinition, name: string, channels?: number
   return sameCount.length === 1 ? sameCount[0] : undefined;
 }
 
-/** Letters NFD does not decompose, folded to their usual Latin spelling (« Straße » = « Strasse »). */
-const FOLDED: Record<string, string> = { ß: "ss", ø: "o", æ: "ae", œ: "oe", đ: "d", ł: "l", ı: "i", þ: "th", ð: "d" };
-/**
- * A manufacturer's or a model's name as definitions are looked up: accents folded (« Éclairage » is
- * « eclairage »), case, spaces and punctuation dropped (« Spot 900 » is « Spot900 »). Empty when the
- * name holds no letter or digit of the Latin alphabet.
- */
-export const normaliseName = (s: string): string =>
-  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[ßøæœđłıþð]/g, (c) => FOLDED[c]!).replace(/[^a-z0-9]/g, "");
-
-export const sameName = (a: string, b: string): boolean => normaliseName(a) === normaliseName(b);
+/** Name comparison lives in names.ts (shared with the interface); kept importable from here. */
+export { normaliseName, sameName } from "./names.js";
 
 /** Most channels a QLC+ generic dimmer pack can have (its editor allows up to 512; packs stay small). */
 const GENERIC_DIMMER_MAX = 64;
@@ -341,8 +335,7 @@ const GENERIC_DIMMER_MAX = 64;
  * .qxf file, QLC+ creates it in the code. Every channel is an intensity channel.
  */
 export const GENERIC_DIMMER: FixtureDefinition = {
-  manufacturer: "Generic",
-  model: "Generic",
+  ...GENERIC_DIMMER_NAMES,
   type: "Dimmer",
   channels: new Map(
     Array.from({ length: GENERIC_DIMMER_MAX }, (_, i): [string, FixtureChannel] => {

@@ -293,14 +293,20 @@ async function saveDownload(route: string, fallback: string): Promise<void> {
   saveBlob(await res.blob(), name);
 }
 
-/** Saves a file made in the page (a Blob) under `name`, as a download. */
+/**
+ * Saves a file made in the page (a Blob) under `name`, as a download. The link is put in the page for the click
+ * (some browsers ignore a click on a detached one) and the URL is let go a moment later, once the download started.
+ */
 export function saveBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.hidden = true;
+  document.body.append(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** What `fixture.definition.export` returns: the .qxf file and, with corrections, what was written and what could not be. */
@@ -316,7 +322,7 @@ export interface DefinitionExport {
 
 /**
  * Downloads a library definition as a QLC+ .qxf file (`fixture.definition.export`): by a patched fixture or by its
- * model, with this venue's corrections or not. The bytes are the library file's (base64 when they are not UTF-8).
+ * model, with this venue's corrections or not. The bytes are the file's (base64 when they are not UTF-8).
  */
 export async function downloadDefinition(args: { fixture: string } | { manufacturer: string; model: string }, corrections: boolean): Promise<DefinitionExport> {
   const r = await cmd<DefinitionExport>("fixture.definition.export", { ...args, corrections });

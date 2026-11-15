@@ -8,21 +8,22 @@ import { systemContext } from "../../../src/plugins/light/commands/registry.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { exportDefinition } from "../../../src/plugins/light/venue/definition-export.js";
 import { headsOf } from "../../../src/plugins/light/venue/heads.js";
-import { applyQxfCorrections, planCorrections, qxfFileName } from "../../../src/plugins/light/venue/qxf-export.js";
-import { parseQxf, type FixtureDefinition } from "../../../src/plugins/light/venue/qxf-import.js";
+import { applyQxfCorrections, planCorrections, qxfFileName, writeQxfCorrections } from "../../../src/plugins/light/venue/qxf-export.js";
+import { capabilityTags, parseQxf, type FixtureDefinition } from "../../../src/plugins/light/venue/qxf-import.js";
 import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
-const FIXTURES = ["wheel-spot.qxf", "wash-zones.qxf", "spot.qxf", "par-rgb.qxf"];
+const FIXTURES = ["wheel-spot.qxf", "wash-zones.qxf", "spot.qxf", "par-rgb.qxf", "mode-par.qxf", "bar4.qxf"];
 const fixtureText = (name: string) => readFileSync(new URL(`../../fixtures/${name}`, import.meta.url), "utf8");
 
 /** A definition as plain data, to compare two readings (Map → entries). */
 const plain = (d: FixtureDefinition) => ({ ...d, channels: [...d.channels.entries()] });
 
-function makeVenue(): { venue: Venue; defs: string } {
+function makeVenue(files: Record<string, string | Buffer> = {}): { venue: Venue; defs: string } {
   const dir = mkdtempSync(join(tmpdir(), "light-qxf-export-"));
   const defs = join(dir, "fixtures");
   mkdirSync(defs);
   for (const f of FIXTURES) copyFileSync(new URL(`../../fixtures/${f}`, import.meta.url), join(defs, f));
+  for (const [f, content] of Object.entries(files)) writeFileSync(join(defs, f), content);
   const venue = new Venue(new FolderStore(join(dir, "venue")), [defs]);
   venue.fixtures.put({ id: "spot", name: "Spot", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 1 });
   venue.fixtures.put({ id: "wash", name: "Wash", manufacturer: "Test", model: "Wash Zones", mode: "18 Channel", universe: 1, address: 20 });
@@ -67,6 +68,16 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
     expect(qxfFileName("Acme", "Spot 900")).to.equal("Acme-Spot-900.qxf");
     expect(qxfFileName("Éclairage", "Wash (v2)")).to.equal("Eclairage-Wash-v2.qxf");
     expect(qxfFileName("A/B", "C  D")).to.equal("A-B-C-D.qxf");
+    expect(qxfFileName("Straße", "Spot")).to.equal("Strasse-Spot.qxf");
+    // another script: a fingerprint of the full names, so that two such models never share a file
+    const jp = qxfFileName("Acme", "日本語");
+    expect(jp).to.match(/^Acme-[0-9a-f]{8}\.qxf$/);
+    expect(qxfFileName("Acme", "中文")).to.not.equal(jp);
+    expect(qxfFileName("Акме", "Спот")).to.match(/^[0-9a-f]{8}\.qxf$/);
+    // names Windows reserves for devices
+    expect(qxfFileName("CON", "")).to.equal("CON_.qxf");
+    expect(qxfFileName("", "lpt1")).to.equal("lpt1_.qxf");
+    expect(qxfFileName("Con", "Spot")).to.equal("Con-Spot.qxf");
   });
 
   it("refuses the built-in generic dimmer and an unknown model or fixture", () => {
@@ -161,13 +172,127 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
   });
 
   it("round-trips every test definition through the corrections without losing anything else", () => {
+    const withoutHeads = (d: FixtureDefinition) => plain({ ...d, modes: d.modes.map((m) => ({ ...m, heads: [] })) });
     for (const f of FIXTURES) {
       const xml = fixtureText(f);
       const def = parseQxf(xml);
-      const { corrections } = planCorrections(def, {});
+      // a real retouch of every wheel slot that has a colour preset or none, when the definition has a wheel
+      const wheel = [...def.channels.values()].find((c) => c.attribute === "colorWheel");
+      const slots = Object.fromEntries((wheel?.capabilities ?? []).filter((c) => !c.preset || /^Color(Double)?Macro$/.test(c.preset)).map((c) => [String(c.min), { color: "#123456" }]));
+      const { corrections, applied } = planCorrections(def, wheel ? { wheel: { slots } } : {});
       const again = parseQxf(applyQxfCorrections(xml, corrections));
-      expect(plain({ ...again, modes: again.modes.map((m) => ({ ...m, heads: [] })) })).to.deep.equal(plain({ ...def, modes: def.modes.map((m) => ({ ...m, heads: [] })) }), f);
+      // the retouched slots carry the new colour, and nothing else moved
+      const retouched = new Set(Object.keys(slots).map(Number));
+      const recolour = (d: FixtureDefinition) => ({ ...d, channels: new Map([...d.channels].map(([n, c]) => [n, n === wheel?.name ? { ...c, capabilities: c.capabilities.map((x) => (retouched.has(x.min) ? { ...x, color: "#123456", preset: x.preset ?? (x.color ? undefined : "ColorMacro"), tags: [] } : x)) } : c])) });
+      expect(withoutHeads(again)).to.deep.equal(withoutHeads(recolour(def)), f);
+      if (wheel) expect(applied.filter((n) => n.part === "wheel")).to.have.length.above(0, f);
+      // the heads: those the file declared, kept; those deduced, declared as planned
+      for (const [i, mode] of def.modes.entries()) {
+        const planned = corrections.heads?.find((h) => h.mode === mode.name);
+        expect(again.modes[i]!.heads).to.deep.equal(planned ? planned.heads : mode.heads, `${f} ${mode.name}`);
+      }
     }
+  });
+
+  it("keeps a byte-order mark and CRLF line ends when it writes corrections", () => {
+    const crlf = `\uFEFF${fixtureText("wheel-spot.qxf").replace(/\n/g, "\r\n")}`;
+    const { venue } = makeVenue({ "wheel-spot.qxf": Buffer.from(crlf, "utf8") });
+    venue.putOverridePart("spot", "model", "wheel", { slots: { "20": { color: "#FF6600" } } });
+    const out = exportDefinition(venue, { fixture: "spot", corrections: true });
+    expect(out.xml).to.equal(crlf.replace('Res1="#ff8000">Orange', 'Res1="#ff6600">Orange'));
+    expect(out.base64).to.equal(undefined);
+    // and the deduced heads, inserted with the file's own line ends
+    const wash = `\uFEFF${fixtureText("wash-zones.qxf").replace(/\n/g, "\r\n")}`;
+    const heads = exportDefinition(makeVenue({ "wash-zones.qxf": Buffer.from(wash, "utf8") }).venue, { fixture: "wash", corrections: true });
+    expect(heads.xml.startsWith("\uFEFF")).to.equal(true);
+    expect(heads.xml.replace(/\r\n/g, "")).to.not.include("\n");
+    expect(parseQxf(heads.xml).modes[0]!.heads).to.have.length(4);
+  });
+
+  it("writes corrections into an ISO-8859-1 file byte for byte, the retouch apart", () => {
+    const text = fixtureText("wheel-spot.qxf").replace('encoding="UTF-8"', 'encoding="ISO-8859-1"').replace("light-mcp-server tests", "Café");
+    const latin = Buffer.from(text, "latin1");
+    const { venue } = makeVenue({ "wheel-spot.qxf": latin });
+    venue.putOverridePart("spot", "model", "wheel", { slots: { "20": { color: "#FF6600" } } });
+    const out = exportDefinition(venue, { fixture: "spot", corrections: true });
+    expect(out.corrected).to.equal(true);
+    expect(out.applied.map((n) => n.part)).to.deep.equal(["wheel"]);
+    const bytes = Buffer.from(out.base64!, "base64");
+    expect(bytes.equals(Buffer.from(text.replace('Res1="#ff8000">Orange', 'Res1="#ff6600">Orange'), "latin1"))).to.equal(true);
+    expect(bytes.includes(Buffer.from([0x43, 0x61, 0x66, 0xe9]))).to.equal(true); // « Café » in Latin-1
+    expect(out.xml).to.include("Café").and.not.include("\uFFFD");
+    // without corrections: the very bytes
+    expect(Buffer.from(exportDefinition(venue, { fixture: "spot" }).base64!, "base64").equals(latin)).to.equal(true);
+  });
+
+  it("only says written what the file, read again, carries: names as the import reads them, duplicates refused", () => {
+    const orange = { wheel: { slots: { "20": { color: "#ff6600" } } } };
+    const exportWith = (xml: string) => {
+      const { venue } = makeVenue({ "wheel-spot.qxf": xml });
+      venue.putOverridePart("spot", "model", "wheel", orange.wheel);
+      return exportDefinition(venue, { fixture: "spot", corrections: true });
+    };
+    const wheelSpot = fixtureText("wheel-spot.qxf");
+    // a name with spaces around it, or with a numeric reference the import keeps as written: still found
+    for (const xml of [wheelSpot.replace('<Channel Name="Color Wheel">', '<Channel Name=" Color Wheel ">'), wheelSpot.replaceAll("Color Wheel", "Color &#87;heel"), wheelSpot.replaceAll("Color Wheel", "Color &amp; Wheel")]) {
+      const out = exportWith(xml);
+      expect(out.corrected).to.equal(true);
+      expect(out.applied).to.have.length(1);
+      expect(out.notExported).to.deep.equal([]);
+    }
+    // a DOCTYPE entity in the name: the import expands it, this writer cannot find it: not said written
+    const entity = exportWith(wheelSpot.replace("<!DOCTYPE FixtureDefinition>", '<!DOCTYPE FixtureDefinition [ <!ENTITY w "Wheel"> <!-- a > b --> ]>').replaceAll("Color Wheel", "Color &w;"));
+    expect(entity.corrected).to.equal(false);
+    expect(entity.applied).to.deep.equal([]);
+    expect(entity.notExported.map((n) => n.message).join("\n")).to.match(/n'a pas pu être écrite|could not be written/);
+    // two channels of that name: refused, said once
+    const twice = exportWith(wheelSpot.replace(' <Channel Name="Dimmer"', ' <Channel Name="Color Wheel">\n  <Group Byte="0">Colour</Group>\n  <Capability Min="0" Max="19" Preset="ColorMacro" Res1="#ffffff">A</Capability>\n  <Capability Min="20" Max="255" Preset="ColorMacro" Res1="#000000">B</Capability>\n </Channel>\n <Channel Name="Dimmer"'));
+    expect(twice.corrected).to.equal(false);
+    expect(twice.applied).to.deep.equal([]);
+    expect(twice.notExported.map((n) => n.message)).to.have.length(1).and.satisfy((m: string[]) => /plusieurs canaux|several channels/.test(m[0]!));
+    // two modes of one name: their heads are not declared, said once
+    const wash = fixtureText("wash-zones.qxf").replace(/( <Mode Name="18 Channel">[\s\S]*?<\/Mode>\n)/, "$1$1");
+    const modes = exportDefinition(makeVenue({ "wash-zones.qxf": wash }).venue, { fixture: "wash", corrections: true });
+    expect(modes.corrected).to.equal(false);
+    expect(modes.applied).to.deep.equal([]);
+    expect(modes.notExported.map((n) => n.message)).to.have.length(1).and.satisfy((m: string[]) => /plusieurs modes|several modes/.test(m[0]!));
+    // the writer alone says the refusal too
+    expect(writeQxfCorrections(wash, { heads: [{ mode: "18 Channel", heads: [[2, 3]] }] }).refused.map((r) => r.key)).to.deep.equal(["mode:18 Channel"]);
+  });
+
+  it("exports with corrections a file it cannot edit when there is nothing to write, and names the file when there is", () => {
+    const wheelSpot = fixtureText("wheel-spot.qxf");
+    for (const xml of [wheelSpot.replace('Byte="0"', "Byte=0"), wheelSpot.replace("</Creator>", "</creator>"), `${wheelSpot}<x>`]) {
+      const { venue } = makeVenue({ "wheel-spot.qxf": xml });
+      const none = exportDefinition(venue, { fixture: "spot", corrections: true });
+      expect(none.corrected).to.equal(false);
+      expect(none.xml).to.equal(xml);
+      venue.putOverridePart("spot", "model", "wheel", { slots: { "20": { color: "#ff6600" } } });
+      expect(() => exportDefinition(venue, { fixture: "spot", corrections: true })).to.throw(/^wheel-spot\.qxf : .*(ne peuvent pas être écrites|cannot be written)/);
+    }
+    // a numeric reference beyond Unicode in a name: kept as written, no failure
+    const big = wheelSpot.replace('<Channel Name="Pan"', '<Channel Name="P&#x110000;an"').replace(">Pan<", ">P&#x110000;an<");
+    const bigVenue = makeVenue({ "wheel-spot.qxf": big }).venue;
+    bigVenue.putOverridePart("spot", "model", "wheel", { slots: { "20": { color: "#ff6600" } } });
+    const out = exportDefinition(bigVenue, { fixture: "spot", corrections: true });
+    expect(out.applied).to.have.length(1);
+    expect(out.xml).to.include("P&#x110000;an");
+  });
+
+  it("opens a self-closing <Physical/> to write the travel", () => {
+    const wash = fixtureText("wash-zones.qxf").replace("</FixtureDefinition>", ' <Physical Note="x"/>\n</FixtureDefinition>');
+    const out = applyQxfCorrections(wash, { travel: { panMax: 630, tiltMax: 200 } });
+    expect(out).to.include(' <Physical Note="x">\n  <Focus Type="Head" PanMax="630" TiltMax="200"/>\n </Physical>\n</FixtureDefinition>');
+    const again = parseQxf(out);
+    expect([again.panMax, again.tiltMax]).to.deep.equal([630, 200]);
+  });
+
+  it("does not tag a colour slot's preset as a built-in macro", () => {
+    expect(capabilityTags("Red", "ColorMacro")).to.deep.equal([]);
+    expect(capabilityTags("Red / Green", "ColorDoubleMacro")).to.deep.equal([]);
+    expect(capabilityTags("Macro 1", "ColorMacro")).to.include("builtinMacro");
+    expect(capabilityTags("Effect", "GenericMacro")).to.include("builtinMacro");
+    expect(parseQxf(fixtureText("wheel-spot.qxf")).channels.get("Color Wheel")!.capabilities[1]!.tags).to.deep.equal([]);
   });
 
   it("is a command: MCP, HTTP and the CLI call fixture.definition.export", async () => {
@@ -180,5 +305,9 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
     expect(out.file).to.equal("Test-Wheel-Spot.qxf");
     expect(out.xml).to.equal(fixtureText("wheel-spot.qxf"));
     expect(plugin.commands.list().find((c) => c.name === "fixture.definition.export")?.readOnly).to.equal(true);
+    // a fixture or a model, not both
+    let refused: Error | undefined;
+    await plugin.commands.invoke("fixture.definition.export", { fixture: "x", manufacturer: "Test", model: "Wheel Spot" }, systemContext()).catch((e: Error) => (refused = e));
+    expect(refused?.message).to.match(/pas les deux|not both/);
   });
 });

@@ -62,6 +62,39 @@ describe("CLI light (offline)", function () {
     expect(light("call", "show.reset", "{}", "--check").code).to.not.equal(0); // no proposal for that one: said, not run
   });
 
+  it("exports a library definition as a .qxf: to stdout, to a file, into a folder; non-UTF-8 bytes as they are", () => {
+    const wheel = readFileSync(new URL("../fixtures/wheel-spot.qxf", import.meta.url));
+    writeFileSync(join(dir, "data", "fixtures", "wheel-spot.qxf"), wheel);
+    const latin = Buffer.from(wheel.toString("utf8").replace("Wheel Spot", "Latin Spot").replace("light-mcp-server tests", "Café"), "latin1");
+    writeFileSync(join(dir, "data", "fixtures", "latin-spot.qxf"), latin);
+    // stdout: the file byte for byte
+    const out = spawnSync(process.execPath, ["--import", "tsx", main, "export", "qxf", "Test", "Wheel Spot"], { env });
+    expect(out.status).to.equal(0);
+    expect(out.stdout.equals(wheel)).to.equal(true);
+    // --out file, then refused over an existing file without --force
+    const file = join(dir, "spot.qxf");
+    expect(light("export", "qxf", "Test", "Wheel Spot", "--out", file).code).to.equal(0);
+    expect(readFileSync(file).equals(wheel)).to.equal(true);
+    const again = light("export", "qxf", "Test", "Wheel Spot", "--out", file);
+    expect(again.code).to.equal(1);
+    expect(again.err).to.match(/existe déjà/);
+    expect(light("export", "qxf", "Test", "Wheel Spot", "--out", file, "--force").code).to.equal(0);
+    // a folder named with a trailing slash: created, the file under QLC+'s name; the Latin-1 bytes kept (base64)
+    const folder = join(dir, "qxf-out") + "/";
+    const r = light("export", "qxf", "Test", "Latin Spot", "--out", folder);
+    expect(r.code).to.equal(0);
+    expect(r.err).to.include(join(dir, "qxf-out", "Test-Latin-Spot.qxf"));
+    expect(readFileSync(join(dir, "qxf-out", "Test-Latin-Spot.qxf")).equals(latin)).to.equal(true);
+    // what the corrections wrote is said; a fixture together with a model is refused
+    expect(light("call", "venue.fixture.put", JSON.stringify({ fixture: { id: "cli-spot", name: "Spot CLI", manufacturer: "Test", model: "Wheel Spot", mode: "Standard", universe: 1, address: 200 } })).code).to.equal(0);
+    expect(light("call", "venue.wheel.put", JSON.stringify({ id: "cli-spot", scope: "model", wheel: { slots: { "20": { color: "#ff6600" } } } })).code).to.equal(0);
+    const corrected = light("export", "qxf", "--fixture", "cli-spot", "--corrections", "--out", join(dir, "qxf-out"));
+    expect(corrected.code).to.equal(0);
+    expect(corrected.err).to.match(/écrit dans le fichier : .*#ff6600/);
+    expect(readFileSync(join(dir, "qxf-out", "Test-Wheel-Spot.qxf"), "utf8")).to.include('Res1="#ff6600">Orange');
+    expect(light("export", "qxf", "Test", "Wheel Spot", "--fixture", "cli-spot").code).to.equal(1);
+  });
+
   it("packs a .lightshow and reports errors with a non-zero exit code", () => {
     const out = join(dir, "backup.lightshow");
     expect(light("pack", out).code).to.equal(0);

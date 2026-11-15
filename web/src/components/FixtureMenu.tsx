@@ -4,7 +4,7 @@ import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { DmxModeSection } from "./DmxModeSection";
-import { QxfExport } from "./QxfExport";
+import { hasQxfFile, QxfExport } from "./QxfExport";
 import { FixtureHeads } from "./FixtureHeads";
 import { WheelEntry } from "./WheelEditor";
 import { TracksEntry } from "./TracksEditor";
@@ -305,7 +305,7 @@ export function FixtureMenu({
       </fieldset>
       <DmxModeSection fixture={fixture} onSaved={onSaved} />
       {/* QLC+'s built-in generic dimmer has no file to export */}
-      {fixture.model && !(fixture.manufacturer === "Generic" && fixture.model === "Generic") && (
+      {hasQxfFile(fixture.manufacturer, fixture.model) && (
         <fieldset className="fixture-qxf">
           <legend>{t.qxfLegend}</legend>
           <QxfExport target={{ fixture: fixture.id }} />

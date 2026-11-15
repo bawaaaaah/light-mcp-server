@@ -5,9 +5,10 @@
  */
 import { readFileSync } from "node:fs";
 import { say } from "../../../core/lang.js";
-import { applyQxfCorrections, lostAccents, planCorrections, qxfFileName, type ExportNote } from "./qxf-export.js";
+import { lostAccents, planCorrections, qxfFileName, settleCorrections, writeQxfCorrections, type ExportNote } from "./qxf-export.js";
 import { modelKeyOrUndefined, type FixtureOverrides } from "./overrides.js";
-import { GENERIC_DIMMER, parseQxf, sameName } from "./qxf-import.js";
+import { isGenericDimmer } from "./names.js";
+import { parseQxf } from "./qxf-import.js";
 import type { Venue } from "./venue.js";
 
 export interface DefinitionExport {
@@ -17,9 +18,9 @@ export interface DefinitionExport {
   source: string;
   manufacturer: string;
   model: string;
-  /** The file's text (UTF-8). */
+  /** The file's text: read as UTF-8, or byte for byte as Latin-1 when its bytes are not valid UTF-8. */
   xml: string;
-  /** The file's bytes in base64, only when they are not valid UTF-8: `xml` is then a lossy reading of them. */
+  /** The file's bytes in base64, only when they are not valid UTF-8: they are then what to save, not `xml`. */
   base64?: string;
   /** Whether the text differs from the library file (corrections written). */
   corrected: boolean;
@@ -43,6 +44,8 @@ function utf8(bytes: Uint8Array): string | undefined {
  * the model's (`manufacturer` + `model`), or the fixture's merged over its model's (`fixture`) — and the rest named.
  */
 export function exportDefinition(venue: Venue, args: { fixture?: string; manufacturer?: string; model?: string; corrections?: boolean }): DefinitionExport {
+  if (args.fixture !== undefined && (args.manufacturer !== undefined || args.model !== undefined))
+    throw new Error(say("donner fixture, ou manufacturer et model, pas les deux", "give fixture, or manufacturer and model, not both"));
   venue.refreshDefinitions();
   const patch = args.fixture !== undefined ? venue.fixtures.get(args.fixture) : undefined;
   if (args.fixture !== undefined && !patch) throw new Error(say(`fixture inconnue : ${args.fixture}`, `unknown fixture: ${args.fixture}`));
@@ -51,26 +54,38 @@ export function exportDefinition(venue: Venue, args: { fixture?: string; manufac
   if (!manufacturer || !model) throw new Error(say("donner fixture, ou manufacturer et model", "give fixture, or manufacturer and model"));
   const found = venue.definitionFileFor(manufacturer, model);
   if (!found) {
-    if (sameName(manufacturer, GENERIC_DIMMER.manufacturer) && sameName(model, GENERIC_DIMMER.model))
-      throw new Error(say("le gradateur générique est intégré à QLC+ : il n'a pas de fichier .qxf", "the generic dimmer is built into QLC+: it has no .qxf file"));
+    if (isGenericDimmer(manufacturer, model)) throw new Error(say("le gradateur générique est intégré à QLC+ : il n'a pas de fichier .qxf", "the generic dimmer is built into QLC+: it has no .qxf file"));
     throw new Error(say(`aucune définition dans la bibliothèque pour ${manufacturer} ${model}`, `no definition in the library for ${manufacturer} ${model}`));
   }
   const bytes = readFileSync(found.path);
   const text = utf8(bytes);
+  // not UTF-8 (an ISO-8859-1 file): read byte for byte as Latin-1, so that every byte but the retouches comes back
+  const latin1 = text === undefined;
+  const source = text ?? bytes.toString("latin1");
+  const encoded = (out: string) => (latin1 ? { base64: Buffer.from(out, "latin1").toString("base64") } : {});
   const base = { file: qxfFileName(found.def.manufacturer, found.def.model), source: found.source, manufacturer: found.def.manufacturer, model: found.def.model };
-  if (!args.corrections) return { ...base, xml: text ?? bytes.toString("utf8"), ...(text === undefined ? { base64: bytes.toString("base64") } : {}), corrected: false, applied: [], notExported: [] };
+  if (!args.corrections) return { ...base, xml: source, ...encoded(source), corrected: false, applied: [], notExported: [] };
 
   const key = modelKeyOrUndefined(found.def.manufacturer, found.def.model);
   const overrides: FixtureOverrides = patch ? venue.overridesOf(patch) : ((key ? venue.models.get(key)?.overrides : undefined) ?? {});
-  const source = text ?? bytes.toString("utf8");
-  const { corrections, applied, notExported } = planCorrections(found.def, overrides);
-  const xml = applyQxfCorrections(source, corrections);
-  // read again as an import would: a file this server writes must be one it (and QLC+) can read
-  const again = parseQxf(xml);
-  notExported.push(...lostAccents(found.def, again, overrides));
+  // planned on the text as it is edited (its names as written there), not on the library's UTF-8 reading
+  const def = latin1 ? parseQxf(source) : found.def;
+  const { corrections, promised, notExported } = planCorrections(def, overrides);
+  let written: ReturnType<typeof writeQxfCorrections>;
+  let again: ReturnType<typeof parseQxf>;
+  try {
+    written = writeQxfCorrections(source, corrections);
+    // read again as an import would: a file this server writes must be one it (and QLC+) can read
+    again = parseQxf(written.xml);
+  } catch (err) {
+    const why = (err as Error).message;
+    throw new Error(say(`${found.source} : les corrections ne peuvent pas être écrites dans ce fichier (${why}) ; l'exporter sans corrections`, `${found.source}: the corrections cannot be written into this file (${why}); export it without corrections`));
+  }
+  const settled = settleCorrections(promised, again, written.refused);
+  notExported.push(...settled.notExported, ...lostAccents(def, again, overrides));
   const o = patch?.orientation;
   if (o && (o.invertPan || o.invertTilt || o.swapPanTilt || o.panOffset || o.tiltOffset))
     notExported.push({ part: "orientation", message: say("inversions et décalages pan/tilt de l'appareil : propres à son accrochage, QLC+ les règle dans le workspace, pas dans la définition", "the fixture's pan/tilt inversions and offsets: they belong to how it hangs, QLC+ sets them in the workspace, not in the definition") });
-  const corrected = xml !== source;
-  return { ...base, xml, ...(text === undefined && !corrected ? { base64: bytes.toString("base64") } : {}), corrected, applied, notExported };
+  const xml = written.xml;
+  return { ...base, xml, ...encoded(xml), corrected: xml !== source, applied: settled.applied, notExported };
 }

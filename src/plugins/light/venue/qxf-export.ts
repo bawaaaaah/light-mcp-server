@@ -8,6 +8,7 @@
  */
 import { say } from "../../../core/lang.js";
 import { definitionFileName } from "./definition-files.js";
+import { foldLatin } from "./names.js";
 import { headsOf, partsOf } from "./heads.js";
 import type { FixtureOverrides } from "./overrides.js";
 import type { FixtureDefinition } from "./qxf-import.js";
@@ -26,6 +27,26 @@ export interface QxfCorrections {
 export interface ExportNote {
   part: "wheel" | "heads" | "tracks" | "travel" | "orientation";
   message: string;
+}
+
+/**
+ * A retouch the writer refused (the file names two channels or two modes alike: which one QLC+ keeps is not
+ * certain), with the key of the promises it covers (`channel:<name>`, `mode:<name>`).
+ */
+export interface RefusedRetouch {
+  key: string;
+  note: ExportNote;
+}
+
+/**
+ * What `planCorrections` promises to write, checked once the written file is read again (`settleCorrections`):
+ * `note` when it is there, `missed` when it is not. `key` ties it to a refusal of the writer.
+ */
+export interface PromisedRetouch {
+  key: string;
+  note: ExportNote;
+  missed: ExportNote;
+  written: (again: FixtureDefinition) => boolean;
 }
 
 // ---- a minimal XML scanner: element positions, enough to edit a .qxf in place
@@ -48,11 +69,19 @@ interface XmlElement {
   /** `<` of the end tag (= openEnd for a self-closing one); just after the element. */
   closeStart: number;
   end: number;
+  /** Written `<X/>`: no end tag, no content. */
+  selfClosing: boolean;
   children: XmlElement[];
 }
 
+/**
+ * An attribute's value as the import reads it (fast-xml-parser, qxf-import.ts): trimmed, the five predefined entities
+ * decoded in one pass, nothing else (a numeric reference stays as written there too). Names compared through this
+ * match those of the parsed definition; a DOCTYPE's own entities do not, and what is then not written is caught when
+ * the file is read again.
+ */
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-const decode = (s: string): string => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) => (e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : (ENTITIES[e] ?? m)));
+const decode = (s: string): string => s.trim().replace(/&(amp|lt|gt|quot|apos);/g, (_m, e: string) => ENTITIES[e]!);
 const escapeAttr = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 const NAME_RE = /[^\s/>=]+/y;
@@ -73,7 +102,12 @@ function scan(xml: string): XmlElement[] {
     if (xml.startsWith("<!--", i)) next = skipTo("-->", i + 4);
     else if (xml.startsWith("<![CDATA[", i)) next = skipTo("]]>", i + 9);
     else if (xml.startsWith("<?", i)) next = skipTo("?>", i + 2);
-    else if (xml.startsWith("<!", i)) next = skipTo(">", i + 2);
+    else if (xml.startsWith("<!", i)) {
+      // a DOCTYPE with an internal subset (`[ <!ENTITY …> ]`) ends at the `>` after its `]`
+      const gt = skipTo(">", i + 2);
+      const bracket = xml.indexOf("[", i);
+      next = bracket >= 0 && bracket < gt ? skipTo(">", skipTo("]", bracket + 1)) : gt;
+    }
     else if (xml[i + 1] === "/") {
       next = skipTo(">", i + 2);
       const name = xml.slice(i + 2, next - 1).trim();
@@ -102,7 +136,7 @@ function scan(xml: string): XmlElement[] {
       const c = close.exec(xml);
       if (!c) throw new Error(`bad tag <${name}>`);
       next = close.lastIndex;
-      const el: XmlElement = { name, attrs, start: i, attrsEnd, openEnd: next, closeStart: next, end: next, children: [] };
+      const el: XmlElement = { name, attrs, start: i, attrsEnd, openEnd: next, closeStart: next, end: next, selfClosing: !!c[1], children: [] };
       (stack.at(-1)?.children ?? roots).push(el);
       if (!c[1]) stack.push(el);
     }
@@ -143,11 +177,23 @@ const eol = (xml: string) => (xml.includes("\r\n") ? "\r\n" : "\n");
 /** A wheel slot's colour can be written: a plain range, or one QLC+ reads as a colour (ColorMacro, ColorDoubleMacro). */
 const COLOUR_PRESET = /^Color(Double)?Macro$/;
 
+/** Writes the corrections into a `.qxf` text (`writeQxfCorrections`), its text only. */
+export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
+  return writeQxfCorrections(xml, c).xml;
+}
+
+/** Whether a set of corrections asks for anything at all. */
+const asksNothing = (c: QxfCorrections): boolean => !c.wheel?.length && !c.heads?.length && c.travel?.panMax === undefined && c.travel?.tiltMax === undefined;
+
 /**
  * Writes the corrections into a `.qxf` text; returns the text unchanged (the same string) when there is nothing to
- * write. A slot or a mode not found is skipped (`planCorrections` only asks for what the definition has).
+ * write, without reading it (a file the import accepts but this scanner would not still exports). A slot or a mode
+ * not found is skipped (`planCorrections` only asks for what the definition has); a channel or a mode the file names
+ * twice is refused (`refused`): which of the two QLC+ keeps is not certain. Throws on a text it cannot scan.
  */
-export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
+export function writeQxfCorrections(xml: string, c: QxfCorrections): { xml: string; refused: RefusedRetouch[] } {
+  const refused: RefusedRetouch[] = [];
+  if (asksNothing(c)) return { xml, refused };
   const root = scan(xml).find((e) => e.name === "FixtureDefinition");
   if (!root) throw new Error("not a QLC+ fixture definition");
   const edits: Edit[] = [];
@@ -157,9 +203,18 @@ export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
     const i = inner ? indentOf(xml, inner) : undefined;
     return { outer: o, inner: i ?? `${o} ` };
   };
+  /** The one element of that name, or undefined (none, or several: then refused once, with `note`). */
+  const theOne = (list: XmlElement[], name: string, key: string, note: () => ExportNote) => {
+    const found = list.filter((el) => attr(el, "Name") === name);
+    if (found.length > 1 && !refused.some((r) => r.key === key)) refused.push({ key, note: note() });
+    return found.length === 1 ? found[0] : undefined;
+  };
 
   for (const w of c.wheel ?? []) {
-    const channel = childrenNamed(root, "Channel").find((ch) => attr(ch, "Name") === w.channel);
+    const channel = theOne(childrenNamed(root, "Channel"), w.channel, `channel:${w.channel}`, () => ({
+      part: "wheel",
+      message: say(`roue « ${w.channel} » : plusieurs canaux portent ce nom dans le fichier, ses couleurs n'y sont pas écrites`, `wheel “${w.channel}”: several channels bear this name in the file, its colours are not written`),
+    }));
     if (!channel) continue;
     for (const cap of childrenNamed(channel, "Capability")) {
       const hex = w.slots[Number(attr(cap, "Min"))];
@@ -173,7 +228,10 @@ export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
   }
 
   for (const h of c.heads ?? []) {
-    const mode = childrenNamed(root, "Mode").find((m) => attr(m, "Name") === h.mode);
+    const mode = theOne(childrenNamed(root, "Mode"), h.mode, `mode:${h.mode}`, () => ({
+      part: "heads",
+      message: say(`mode « ${h.mode} » : plusieurs modes portent ce nom dans le fichier, ses têtes n'y sont pas déclarées`, `mode “${h.mode}”: several modes bear this name in the file, its heads are not declared`),
+    }));
     if (!mode || childrenNamed(mode, "Head").length || !h.heads.length) continue;
     const last = childrenNamed(mode, "Channel").at(-1) ?? mode.children.at(-1);
     const { inner } = unit(mode, mode.children[0]);
@@ -199,6 +257,10 @@ export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
       const step = inner.slice(outer.length) || " ";
       const at = root.children.at(-1)?.end ?? root.openEnd;
       edits.push({ at, end: at, text: `${nl}${inner}<Physical>${nl}${inner}${step}${focusTag}${nl}${inner}</Physical>` });
+    } else if (rootPhysical.selfClosing) {
+      // `<Physical/>`: opened up to hold the <Focus>, its attributes kept
+      const { outer, inner } = unit(rootPhysical, undefined);
+      edits.push({ at: rootPhysical.attrsEnd, end: rootPhysical.openEnd, text: `>${nl}${inner}${focusTag}${nl}${outer}</Physical>` });
     } else if (!childrenNamed(rootPhysical, "Focus").length) {
       const { inner } = unit(rootPhysical, rootPhysical.children[0]);
       const at = rootPhysical.children.at(-1)?.end ?? rootPhysical.openEnd;
@@ -206,13 +268,13 @@ export function applyQxfCorrections(xml: string, c: QxfCorrections): string {
     }
   }
 
-  if (!edits.length) return xml;
+  if (!edits.length) return { xml, refused };
   // from the end, so that each edit keeps the positions of those before it; two insertions at one place (Res1, then
   // Preset) end up in the reverse order they were pushed: `Preset="ColorMacro" Res1="…"`, as QLC+ writes them
   edits.sort((a, b) => b.at - a.at);
   let out = xml;
   for (const e of edits) out = out.slice(0, e.at) + e.text + out.slice(e.end);
-  return out;
+  return { xml: out, refused };
 }
 
 /** The DMX value a wheel slot override is keyed by. */
@@ -224,8 +286,8 @@ const slotKey = (min: number) => String(min);
  * The deduced heads are written too: they are how this server reads the definition (heads.ts), whether or not a
  * correction touched them.
  */
-export function planCorrections(def: FixtureDefinition, o: FixtureOverrides): { corrections: QxfCorrections; applied: ExportNote[]; notExported: ExportNote[] } {
-  const applied: ExportNote[] = [];
+export function planCorrections(def: FixtureDefinition, o: FixtureOverrides): { corrections: QxfCorrections; promised: PromisedRetouch[]; applied: ExportNote[]; notExported: ExportNote[] } {
+  const promised: PromisedRetouch[] = [];
   const notExported: ExportNote[] = [];
   const corrections: QxfCorrections = {};
 
@@ -246,7 +308,16 @@ export function planCorrections(def: FixtureDefinition, o: FixtureOverrides): { 
         if (cap.preset && !COLOUR_PRESET.test(cap.preset)) notExported.push({ part: "wheel", message: say(`roue « ${name} », case « ${cap.name} » : son préréglage QLC+ (${cap.preset}) n'a pas de couleur, ${hex} n'y est pas écrit`, `wheel “${name}”, slot “${cap.name}”: its QLC+ preset (${cap.preset}) has no colour, ${hex} is not written`) });
         else if (cap.color !== hex) {
           slots[cap.min] = hex;
-          applied.push({ part: "wheel", message: say(`roue « ${name} », case « ${cap.name} » : couleur ${hex}${cap.color ? ` (au lieu de ${cap.color})` : ""}`, `wheel “${name}”, slot “${cap.name}”: colour ${hex}${cap.color ? ` (instead of ${cap.color})` : ""}`) });
+          const min = cap.min;
+          promised.push({
+            key: `channel:${name}`,
+            note: { part: "wheel", message: say(`roue « ${name} », case « ${cap.name} » : couleur ${hex}${cap.color ? ` (au lieu de ${cap.color})` : ""}`, `wheel “${name}”, slot “${cap.name}”: colour ${hex}${cap.color ? ` (instead of ${cap.color})` : ""}`) },
+            missed: { part: "wheel", message: say(`roue « ${name} », case « ${cap.name} » : la couleur ${hex} n'a pas pu être écrite (le fichier relu ne la porte pas)`, `wheel “${name}”, slot “${cap.name}”: colour ${hex} could not be written (the file read again does not carry it)`) },
+            written: (again) => {
+              const slotsAgain = again.channels.get(name)?.capabilities.filter((x) => x.min === min) ?? [];
+              return slotsAgain.length > 0 && slotsAgain.every((x) => x.color === hex);
+            },
+          });
         }
       }
       if (slot.answers?.length) notExported.push({ part: "wheel", message: say(`roue « ${name} », case « ${cap.name} » : les couleurs auxquelles elle répond (${slot.answers.join(", ")}) n'existent pas dans QLC+`, `wheel “${name}”, slot “${cap.name}”: the colours it answers to (${slot.answers.join(", ")}) do not exist in QLC+`) });
@@ -263,7 +334,16 @@ export function planCorrections(def: FixtureDefinition, o: FixtureOverrides): { 
     if (!deduced) continue;
     const heads = parts.map((p) => [...p.offsets].sort((a, b) => a - b));
     (corrections.heads ??= []).push({ mode: mode.name, heads });
-    applied.push({ part: "heads", message: say(`mode « ${mode.name} » : ${heads.length} têtes déclarées (déduites des noms des canaux)`, `mode “${mode.name}”: ${heads.length} heads declared (deduced from the channel names)`) });
+    const wanted = JSON.stringify(heads);
+    promised.push({
+      key: `mode:${mode.name}`,
+      note: { part: "heads", message: say(`mode « ${mode.name} » : ${heads.length} têtes déclarées (déduites des noms des canaux)`, `mode “${mode.name}”: ${heads.length} heads declared (deduced from the channel names)`) },
+      missed: { part: "heads", message: say(`mode « ${mode.name} » : les têtes déduites n'ont pas pu être déclarées (le fichier relu ne les porte pas)`, `mode “${mode.name}”: the deduced heads could not be declared (the file read again does not carry them)`) },
+      written: (again) => {
+        const modes = again.modes.filter((m) => m.name === mode.name);
+        return modes.length > 0 && modes.every((m) => JSON.stringify(m.heads) === wanted);
+      },
+    });
   }
   if (o.heads?.follow === false)
     notExported.push({ part: "heads", message: say("halo : « reste éteint sauf peint » est un réglage de ce serveur, QLC+ n'a pas de tête d'accent", "halo: “stays dark unless painted” is a setting of this server, QLC+ has no accent head") });
@@ -271,7 +351,21 @@ export function planCorrections(def: FixtureDefinition, o: FixtureOverrides): { 
   if (o.tracks && (o.tracks.enabled !== undefined || o.tracks.fade))
     notExported.push({ part: "tracks", message: say("pistes fondables : QLC+ n'a pas de liste des canaux qui suivent les fondus dans une définition", "fadeable tracks: QLC+ has no list of the channels that follow the fades in a definition") });
 
-  return { corrections, applied, notExported };
+  return { corrections, promised, applied: promised.map((p) => p.note), notExported };
+}
+
+/**
+ * Each promise of `planCorrections` checked on the written file read again: `applied` what it really carries,
+ * `notExported` what it does not (a refusal of the writer said once for all the promises it covers, else `missed`).
+ */
+export function settleCorrections(promised: PromisedRetouch[], again: FixtureDefinition, refused: RefusedRetouch[]): { applied: ExportNote[]; notExported: ExportNote[] } {
+  const applied: ExportNote[] = [];
+  const notExported: ExportNote[] = refused.map((r) => r.note);
+  for (const p of promised) {
+    if (p.written(again)) applied.push(p.note);
+    else if (!refused.some((r) => r.key === p.key)) notExported.push(p.missed);
+  }
+  return { applied, notExported };
 }
 
 /**
@@ -295,13 +389,34 @@ export function lostAccents(before: FixtureDefinition, after: FixtureDefinition,
   return out;
 }
 
+/** Names Windows reserves for devices, whatever the extension (`CON.qxf` cannot be saved there). */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/** A short stable fingerprint of a text (FNV-1a, 32 bits, hex). */
+function fingerprint(s: string): string {
+  let h = 0x811c9dc5;
+  for (const c of s) {
+    h ^= c.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 /**
  * The file name QLC+ gives a definition, `Manufacturer-Model.qxf` (spaces as `-`), kept plain as the library's
- * names are (definitionFileName: accents dropped, other signs as `-`), without doubled or trailing dashes.
+ * names are (definitionFileName: accents dropped, other signs as `-`), without doubled or trailing dashes. Letters
+ * with a usual Latin spelling are folded (« Straße » as « Strasse »); a name with letters of another script, which
+ * the plain name drops, gets a fingerprint of the full names, so two such models never share a file name; a name
+ * Windows reserves (CON, NUL, COM1…) gets a `_`.
  */
 export function qxfFileName(manufacturer: string, model: string): string {
-  const part = (s: string) => s.trim().replace(/[^\p{L}\p{N}_.]+/gu, "-").replace(/^-+|-+$/g, "");
-  return definitionFileName([part(manufacturer), part(model)].filter(Boolean).join("-"))
+  const part = (s: string) => foldLatin(s.trim()).replace(/[^\p{L}\p{N}_.]+/gu, "-").replace(/^-+|-+$/g, "");
+  const parts = [part(manufacturer), part(model)];
+  const lossy = parts.some((p) => /[^A-Za-z0-9_.-]/.test(p));
+  const name = definitionFileName(parts.filter(Boolean).join("-"))
     .replace(/-{2,}/g, "-")
     .replace(/-+\.qxf$/, ".qxf");
+  const stem = name.slice(0, -".qxf".length);
+  if (lossy) return `${stem === "definition" ? "" : `${stem}-`}${fingerprint(`${manufacturer}\u0000${model}`)}.qxf`;
+  return WINDOWS_RESERVED.test(stem) ? `${stem}_.qxf` : name;
 }

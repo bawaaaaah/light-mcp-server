@@ -1967,6 +1967,26 @@ table.rules td {
   margin: 0.2em 0 0;
   padding-left: 1.2em;
 }
+.qxf-export > .hint {
+  display: block;
+}
+/* the report stays bounded: a long one scrolls inside (and the menu brings it into view) */
+.qxf-export .qxf-report {
+  max-height: min(14em, 35vh);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+@media (pointer: coarse) {
+  .qxf-export button,
+  .qxf-export label.inline {
+    min-height: 44px;
+  }
+  .qxf-export label.inline {
+    display: inline-flex;
+    align-items: center;
+  }
+}
 /* fixtures sharing channels: a sentence per pair, wrapped (a .badge would keep it on one line) */
 .widget-menu .overlap-alert {
   background: color-mix(in srgb, var(--danger) 18%, transparent);
