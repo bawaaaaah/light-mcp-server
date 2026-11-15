@@ -63,8 +63,13 @@ export interface TempoSource {
 
 /** A manual position (XY pad, aiming, a named position recalled): one claim of the motion layer per head. */
 interface ManualPosition {
-  /** The axes it places: one alone leaves the other to the layer below. */
+  /** The axes it places: one alone leaves the other to the layer below. Ignored when `preset` is set. */
   position: Partial<Position>;
+  /**
+   * A named position recalled (T32): both axes read from it on every frame (`ctx.presetOf`), so that a position
+   * readjusted moves the heads that recalled it. A gesture over it (the pad) turns the entry into a fixed position.
+   */
+  preset?: string;
   /** The launch order of the command that set it (the counter of the look launches): a transition watches it. */
   order: number;
   /** It glides there over the show's `moveFade` (a destination recalled) instead of following the gesture at once. */
@@ -1516,7 +1521,8 @@ export class ShowRuntime {
   setPosition(fixtures: string[], p: Partial<Position>, how: "direct" | "glide" = "direct"): void {
     const order = ++this.launches;
     for (const f of fixtures) {
-      const cur = this.manualPositions.get(f)?.position;
+      // over a named position recalled, the axis not given stays where the position puts it
+      const cur = this.manualAxes(f);
       const position = { ...cur, ...(p.pan === undefined ? {} : { pan: p.pan }), ...(p.tilt === undefined ? {} : { tilt: p.tilt }) };
       this.manualPositions.set(f, { position, order, glide: how === "glide" });
     }
@@ -1528,17 +1534,62 @@ export class ShowRuntime {
     return ids.filter((f) => this.manualPositions.delete(f));
   }
 
+  /**
+   * Recalls a named position on heads (T32, decision Q2: a manual gesture): one manual claim per head reading the
+   * position on every frame, gliding there over the show's `moveFade`. Released like the pad (« Rendre la main »,
+   * position.release, the Panic). The caller picks the heads (covered, placed, unlocked).
+   */
+  recallPreset(id: string, fixtures: string[]): void {
+    const order = ++this.launches;
+    for (const f of fixtures) this.manualPositions.set(f, { position: {}, preset: id, order, glide: true });
+  }
+
+  /** The named position a head was recalled to and still holds by hand, if any (T32). */
+  recalledPreset(fixture: string): string | undefined {
+    return this.manualPositions.get(fixture)?.preset;
+  }
+
+  /**
+   * Where a named position puts a head now (T32): its pan/tilt for a covered head; for a point, the aim from where the
+   * head was sent (the solution closest to it, aimNear); or why it cannot (unknown, not covered, out of reach, no stage
+   * position, a no-aim zone closed now).
+   */
+  presetPosition(id: string, head: string, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string } {
+    const p = this.positionPresets.get(id);
+    if (!p) return { error: say(`position nommée inconnue : ${id}`, `unknown named position: ${id}`) };
+    if (p.point) return this.aimNow(head, p.point, from);
+    const v = Object.hasOwn(p.values, head) ? p.values[head] : undefined;
+    return v ? { pan: v.pan, tilt: v.tilt } : { error: say(`« ${p.name} » ne couvre pas cette lyre`, `“${p.name}” does not cover this head`) };
+  }
+
+  /**
+   * Where `head` points to aim at `point` now: the solution closest to `from` (the position sent by default; never the
+   * long way round, aimNear), or why it cannot (out of reach, no stage position, a no-aim zone closed now).
+   */
+  aimNow(head: string, point: Point3, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string } {
+    const res = this.aimFor(head, point, from, this.closedNoAim());
+    return "error" in res ? { error: res.error } : res;
+  }
+
+  /** The axes a head's manual claim places: a named position recalled gives both, as it puts the head now. */
+  private manualAxes(fixture: string): Partial<Position> | undefined {
+    const m = this.manualPositions.get(fixture);
+    if (!m?.preset) return m?.position;
+    const at = this.presetPosition(m.preset, fixture);
+    return "error" in at ? { ...this.sentPositions.get(fixture) } : at;
+  }
+
   /** The manual position of a head, if any; an axis it does not place is where the head was last sent. */
   manualPosition(fixture: string): Position | undefined {
-    const manual = this.manualPositions.get(fixture)?.position;
+    const manual = this.manualAxes(fixture);
     if (!manual) return undefined;
     const sent = this.sentPositions.get(fixture);
     return { pan: manual.pan ?? sent?.pan ?? 0.5, tilt: manual.tilt ?? sent?.tilt ?? 0.5 };
   }
 
   /**
-   * Where a head is now, as saving a named position captures it (T32): per axis, the manual position when it holds that
-   * axis (where the pad or a recall asked it to go, even while it glides there), else the position the motion layer gave
+   * Where a head is now, as saving a named position captures it (T32): per axis, the manual position when one is set and
+   * no lock holds the axis (where the pad or a recall asked it to go, even while it glides there), else the position the motion layer gave
    * it on the last frame rendered (a look's shape at that instant, a target, its rest — before the rules and the guard),
    * else the centre. An instant capture: during a fade or a glide it is the value of the moment.
    */
@@ -1546,7 +1597,8 @@ export class ShowRuntime {
     const manual = this.manualPosition(fixture);
     const last = this.lastPositions.get(fixture);
     const status = this.lastMotion.get(fixture);
-    const axis = (a: Axis): number => (manual && (!status || status[a].layer === "manual") ? manual[a] : (last?.[a] ?? manual?.[a] ?? 0.5));
+    // the manual position holds an axis unless a lock does (a hard lock masks it: the head is not going there)
+    const axis = (a: Axis): number => (manual && status?.[a].layer !== "lock" ? manual[a] : (last?.[a] ?? manual?.[a] ?? 0.5));
     return { pan: axis("pan"), tilt: axis("tilt") };
   }
 
@@ -1698,7 +1750,7 @@ export class ShowRuntime {
       const mine = this.targetHeads(t).filter((h) => isHead.has(h));
       if (mine.length) claims.push({ owner: `target:${t.id}`, layer: "target", order: t.engagedAt ?? 0, heads: mine, base: { kind: "point", ...this.targetPoint(t) }, ...(t.fade ? { fade: t.fade } : {}) });
     }
-    for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: { kind: "fixed", ...m.position }, ...(m.glide ? {} : { fade: DIRECT }) });
+    for (const [f, m] of this.manualPositions) if (isHead.has(f)) claims.push({ owner: "manual", layer: "manual", order: m.order, heads: [f], base: m.preset === undefined ? { kind: "fixed", ...m.position } : { kind: "preset", id: m.preset }, ...(m.glide ? {} : { fade: DIRECT }) });
     return claims;
   }
 
@@ -1833,6 +1885,17 @@ export class ShowRuntime {
   /** Why a head holds for a target, as data, from the error the motion report gives (the last frame rendered). */
   holdOf(error: string): TargetHold | undefined {
     return this.aimHolds.get(error);
+  }
+
+  /**
+   * `ctx.presetOf` of the motion layer (T32): a named position for one head of a claim, read at render. A point aims as
+   * a target does (`aim`: from the claim's last base for a shape, else from the position sent); undefined for an id
+   * that names no position (the layer holds the head and says so).
+   */
+  private presetOfClaim(id: string, head: string, claim: MotionClaim, aim: (head: string, point: Point3, claim: MotionClaim) => Position | { error: string }): Position | { error: string } | undefined {
+    const p = this.positionPresets.get(id);
+    if (!p) return undefined;
+    return p.point ? aim(head, p.point, claim) : this.presetPosition(id, head);
   }
 
   /** The no-aim zones closed now: those no playing look of their `allowLooks` opens (the guard's reading). */
@@ -2217,7 +2280,7 @@ export class ShowRuntime {
           bpm: motion.bpm,
           ...(motion.sent ? { sent: motion.sent } : {}),
           settings: { moveFade: this.settings.moveFade, rest: this.settings.restPositions },
-          ctx: { aim },
+          ctx: { aim, presetOf: (id, head, claim) => this.presetOfClaim(id, head, claim, aim) },
           lock: this.motionLock,
           heldOf: (head) => this.heldAt(head, now),
           axisMode: (head, axis) => this.axisMode(head, axis),

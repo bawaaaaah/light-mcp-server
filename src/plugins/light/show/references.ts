@@ -1,7 +1,8 @@
 /**
- * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention or a target (T24) is used in the show: groups, channel faders,
- * MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:` tag, a move following a
- * target), targets (a fixture, a group), rules (a fixture) and the safe state.
+ * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention, a target (T24) or a named position (T32) is used in the
+ * show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
+ * tag, a move following a target or a named position), targets (a fixture, a group), named positions (a fixture), rules (a fixture) and the safe
+ * state. A snapshot holds no named position.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
  * forced, so a QLC+ import's look-alike objects (three DCAs all named « Master ») cannot be
  * cleaned up by mistake.
@@ -9,15 +10,15 @@
 import { say } from "../../../core/lang.js";
 import { AMBIANCE } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
-export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target";
+export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target" | "position";
 
 /**
  * A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). A
  * fixture is also named by any command's `args.fixture` or `args.fixtures` (position.set, venue.fixture.presence…).
  */
-const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target." };
+const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -26,9 +27,11 @@ export interface ShowParts {
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown>; targets?: Record<string, unknown> }[];
   /** The looks play on a canvas (`look.canvas`); a move may follow a target (`move.at.target`, T24). */
-  looks: { id: string; name: string; canvas: string; move?: { group?: string; at?: { target?: string } }; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
+  looks: { id: string; name: string; canvas: string; move?: { group?: string; at?: { target?: string; position?: string } }; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
   /** Targets (T24): the heads they move, as a list and a group. */
   targets?: { id: string; name: string; fixtures: string[]; group?: string }[];
+  /** Named positions (T32): the heads a pan/tilt position covers. */
+  positions?: { id: string; name: string; values: Record<string, unknown> }[];
   /** The canvases render onto fixtures (cell ranges → heads). */
   canvases?: { id: string; name: string; render: { targets: { fixture: string }[] }[] }[];
   songs: { id: string; title: string; mood?: string[]; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
@@ -61,6 +64,8 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
   if (kind === "group") for (const t of show.targets ?? []) if (t.group === id) uses.push(say(`cible « ${t.name} »`, `target “${t.name}”`));
   if (kind === "fixture") for (const t of show.targets ?? []) if (t.fixtures.includes(id)) uses.push(say(`cible « ${t.name} »`, `target “${t.name}”`));
   if (kind === "target") for (const l of show.looks) if (l.move?.at?.target === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
+  if (kind === "fixture") for (const p of show.positions ?? []) if (Object.hasOwn(p.values, id)) uses.push(say(`position nommée « ${p.name} »`, `named position “${p.name}”`));
+  if (kind === "position") for (const l of show.looks) if (l.move?.at?.position === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
   if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
   const canvasLooks = new Set(kind === "canvas" ? show.looks.filter((l) => l.canvas === id).map((l) => l.id) : []);
   if (kind === "canvas") for (const l of show.looks) if (l.canvas === id) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
@@ -70,7 +75,7 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
     const inIt =
-      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" ? false : s.looks.some((l) => canvasLooks.has(l));
+      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" || kind === "position" ? false : s.looks.some((l) => canvasLooks.has(l));
     if (!inIt) continue;
     // A snapshot the Panic or the startup recalls: the delete confirmation must say so.
     const roles = [s.id === show.safeSnapshot ? say("secours du Panic", "the Panic's fallback") : "", s.id === show.startupSnapshot ? say("instantané de démarrage", "the startup snapshot") : ""].filter(Boolean);

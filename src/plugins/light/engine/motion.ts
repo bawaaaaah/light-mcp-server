@@ -89,7 +89,11 @@ export interface MotionClaim {
 
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
 export interface MotionContext {
-  presetOf?: (id: string, head: string) => Position | undefined;
+  /**
+   * A named position (T32) for `head`: its pan/tilt, or why it cannot place the head (not covered, a point out of
+   * reach), or undefined when no position has that id. `claim`: the claim citing it (a point aims as `aim` does).
+   */
+  presetOf?: (id: string, head: string, claim: MotionClaim) => Position | { error: string } | undefined;
   /**
    * Position aiming `head` at a point, or null (or why) when the head cannot: out of reach, a no-aim zone, no stage
    * position. `claim`: the claim aiming (a claim with a shape aims from its own last base, not from the position sent).
@@ -262,8 +266,9 @@ function evaluate(c: MotionClaim, head: string, ctx: MotionContext | undefined):
   else if (b.kind === "fixed") base = { pan: b.pan, tilt: b.tilt };
   else if (b.kind === "hold") return { pos: {} };
   else if (b.kind === "preset") {
-    const p = ctx?.presetOf?.(b.id, head);
+    const p = ctx?.presetOf?.(b.id, head, c);
     if (!p) return { error: `unknown position « ${b.id} »` };
+    if ("error" in p) return { error: p.error };
     base = p;
   } else {
     const p = ctx?.aim?.(head, { x: b.x, y: b.y, z: b.z }, c);

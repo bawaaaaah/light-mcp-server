@@ -12,6 +12,7 @@ import { say } from "../../../core/lang.js";
 import { motionEntries } from "../show/motion-report.js";
 import { stricter, type HeadLock, type MotionLockState } from "../show/motion-lock.js";
 import type { LockLevel } from "../engine/motion.js";
+import { HeadsSchema, registerPositionPresetCommands } from "./position-preset-commands.js";
 
 /**
  * Who may loosen the motion lock (T26, decision U3 of 2026-11-14): the interface, a MIDI control a person mapped, an AI
@@ -21,7 +22,7 @@ import type { LockLevel } from "../engine/motion.js";
 export const UNFREEZE_ORIGINS: readonly Origin[] = ["ui", "midi", "mcp", "cli", "system"];
 
 /** Fixtures given directly or through a group, kept to the moving heads. */
-const Target = z.object({ fixtures: z.array(z.string()).optional(), group: z.string().optional() });
+const Target = HeadsSchema;
 
 /**
  * Beyond this gap between the position asked by hand and the one sent, a head is not there yet (a speed rule holds it
@@ -63,6 +64,8 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
   };
   /** `refused` in a reply only when some heads were left out. */
   const refusedOf = (refused: string[]) => (refused.length ? { refused } : {});
+  // named positions (T32): the same heads and the same hard-lock refusal as position.set
+  registerPositionPresetCommands(reg, show, { targets, unlocked });
 
   reg.register({
     name: "position.list",

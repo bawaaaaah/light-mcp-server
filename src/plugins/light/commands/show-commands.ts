@@ -23,6 +23,7 @@ import { clampPoint } from "../venue/target-aim.js";
 import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, StagePointSchema, TargetSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
+import { fillBasis } from "../show/position-presets.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
 import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPath, withFolder } from "../show/folders.js";
 import { IntentionSchema, INTENTION_REFS_HELP, newIntentionId, type AmbiguousRef } from "../knowledge/intentions.js";
@@ -141,6 +142,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     snapshots: show.snapshots.list(),
     looks: show.looks.list(),
     targets: show.targets.list(),
+    positions: show.positionPresets.list(),
     canvases: venue.canvases.list(),
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     rules: show.rules.list(),
@@ -1256,11 +1258,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key) or a target is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target: a move following it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target or a named position is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target", "position"]), id: z.string() }),
     // an intention of the personal library also serves the other shows of this machine: the plugin says which (T15)
     run: ({ kind, id: i }) => ({ uses: kind === "intention" && intentionReferences ? intentionReferences(i) : usesOf(kind, i, parts()) }),
   });
@@ -1531,8 +1533,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     intentions: { coll: intentions, put: "intention.put", key: "intention" },
     // a target's design (T24): put back through target.put, its point and engagement (live) kept as they are now
     targets: { coll: show.targets, put: "target.put", key: "target" },
+    // a named position (T32): put back through position.preset.put, with the basis it had (its freshness then)
+    positions: { coll: show.positionPresets, put: "position.preset.put", key: "position" },
   } as const;
-  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets"]);
+  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets", "positions"]);
   /** Putting a canvas back is checked as any canvas put (looks of exact steps, a shared venue): `force` passes it on. */
   const restoreForce = z.boolean().default(false).describe("canvases: put it back even if looks of exact steps no longer line up with its cells (as venue.canvas.put)");
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
@@ -1552,7 +1556,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.list",
     title: "Versions",
-    description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention or target of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
+    description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention, target or named position of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1562,7 +1566,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.deleted",
     title: "Récemment supprimés",
-    description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions or targets of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
+    description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions, targets or named positions of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1652,6 +1656,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       delete: (i: string) => show.targets.delete(i),
       put: (v: unknown) => show.targets.put(v),
     },
+    // a named position (T32): its basis filled as position.preset.put fills it, so that a diff shows no basis noise
+    positions: {
+      validate: (v: unknown) => {
+        const o = (v && typeof v === "object" ? v : {}) as { id?: unknown };
+        const parsed = show.positionPresets.validate(v);
+        return show.positionPresets.validate({ ...parsed, basis: fillBasis(parsed, typeof o.id === "string" ? show.positionPresets.get(o.id) : undefined, (f) => show.positionBasis(f)) });
+      },
+      get: (i: string) => show.positionPresets.get(i),
+      delete: (i: string) => show.positionPresets.delete(i),
+      put: (v: unknown) => show.positionPresets.put(v),
+    },
     // a creation of intention.put (no id) gets its generated id when proposed (show.propose pins it, T15b); a
     // lone show.diff reads it as new. A label without a letter or a digit is refused, as the command does
     intentions: {
@@ -1681,6 +1696,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     "rule.put": { collection: (a) => (a.where === "venue" ? "venueRules" : "rules"), key: "rule", keep: ["where"] },
     "venue.fixture.put": { collection: () => "fixtures", key: "fixture" },
     "target.put": { collection: () => "targets", key: "target" },
+    "position.preset.put": { collection: () => "positions", key: "position" },
     "venue.canvas.put": {
       collection: () => "canvases",
       key: "canvas",
@@ -1743,7 +1759,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "show.diff",
     title: "Ce que changerait un enregistrement",
     description:
-      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases, targets) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, target.put, venue.canvas.put, venue.canvas.edit: the canvas its operations would write, without adapting steps). A target's point and engagement are live state: kept as they are. Several changes to apply together: show.propose.",
+      "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases, targets, positions) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, target.put, position.preset.put, venue.canvas.put, venue.canvas.edit: the canvas its operations would write, without adapting steps). A target's point and engagement are live state: kept as they are. Several changes to apply together: show.propose.",
     right: "show:propose",
     readOnly: true,
     profiles: ["setup", "design"],
