@@ -16,6 +16,7 @@ export const TITLES_EN: Record<string, string> = {
   "backup.restore": "Restore a backup",
   blackout: "Blackout",
   "calibration.clear": "Clear the marks",
+  "calibration.correct": "Correct on a mark",
   "calibration.list": "Saved marks",
   "calibration.record": "Record a mark",
   "calibration.solve": "Compute the calibration",

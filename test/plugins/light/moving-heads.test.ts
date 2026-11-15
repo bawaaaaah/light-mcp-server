@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseQxf, findMode } from "../../../src/plugins/light/venue/qxf-import.js";
 import { MoveSchema, movePosition } from "../../../src/plugins/light/engine/move.js";
-import { aimAt, aimNear, boundPosition, calibrate, type AimSetup, type CalibrationSample } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, aimNear, boundPosition, calibrate, correctionOf, pointing, type AimSetup, type CalibrationSample, type Correction } from "../../../src/plugins/light/venue/aim.js";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
 import { emptyFrame, Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
@@ -243,6 +243,54 @@ describe("moving heads", () => {
 
     it("needs at least two marks", () => {
       expect(calibrate(truth, record().slice(0, 1))).to.have.property("error");
+    });
+  });
+
+  describe("manual calibration: one mark corrects the rigid error (T8, correctionOf)", () => {
+    const marks = [{ x: 0, y: 1, z: 0 }, { x: 4, y: 2, z: 0 }, { x: 2.5, y: 5.5, z: 0.5 }];
+    /** Angle between where a setup says the head points at `p` and the mark, as seen from the real head. */
+    const miss = (real: AimSetup, believed: AimSetup, target: { x: number; y: number; z: number }) => {
+      const aimed = aimAt(believed, target) as { pan: number; tilt: number };
+      const d = pointing(real, aimed);
+      const v = { x: target.x - real.position.x, y: target.y - real.position.y, z: target.z - real.position.z };
+      return (Math.acos(Math.min(1, (d.x * v.x + d.y * v.y + d.z * v.z) / Math.hypot(v.x, v.y, v.z))) * 180) / Math.PI;
+    };
+    for (const [name, position, hung] of [["hung", { x: 2, y: 3, z: 5 }, true], ["standing", { x: 1, y: 6, z: 0.3 }, false]] as const)
+      it(`a ${name} head with its yaw 7° off and its tilt 3° off: below 0.2° on the mark and on two others`, () => {
+        const real: AimSetup = { position, hung, yaw: 37, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 3 };
+        const believed: AimSetup = { ...real, yaw: 30, tiltOffset: 0 };
+        for (const target of marks) expect(miss(real, believed, target)).to.be.above(2); // wrong before
+        // the operator aims the first mark with the calibration as it is, then corrects by hand until the beam is on it
+        const held = aimAt(real, marks[0]!) as { pan: number; tilt: number };
+        const c = correctionOf(believed, marks[0]!, held) as Correction;
+        expect(c.beforeDeg).to.be.above(2);
+        expect(c.afterDeg).to.be.below(0.2);
+        expect(Math.abs(c.tiltOffsetDelta)).to.be.closeTo(3, 0.05);
+        expect(Math.abs(c.panOffsetDelta)).to.be.closeTo(7, 0.05); // a yaw error is a pan offset for a vertical pan axis
+        const corrected = { ...believed, panOffset: c.panOffset, tiltOffset: c.tiltOffset };
+        for (const target of marks) expect(miss(real, corrected, target), JSON.stringify(target)).to.be.below(0.2);
+      });
+
+    it("does not correct a pan wired backwards with one mark: the others stay wrong (two marks: the guided calibration)", () => {
+      const real: AimSetup = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 30, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+      // what the head really does at a logical position p: as the real setup at 1 − pan
+      const flipped = (p: { pan: number; tilt: number }) => ({ pan: 1 - p.pan, tilt: p.tilt });
+      const held = flipped(aimAt(real, marks[0]!) as { pan: number; tilt: number });
+      const c = correctionOf(real, marks[0]!, held) as Correction;
+      expect(c.afterDeg).to.be.below(0.2); // right on the mark itself
+      const corrected = { ...real, panOffset: c.panOffset, tiltOffset: c.tiltOffset };
+      const aimed = aimAt(corrected, marks[1]!) as { pan: number; tilt: number };
+      const d = pointing(real, flipped(aimed));
+      const v = { x: marks[1]!.x - 2, y: marks[1]!.y - 3, z: -5 };
+      const off = (Math.acos(Math.min(1, (d.x * v.x + d.y * v.y + d.z * v.z) / Math.hypot(v.x, v.y, v.z))) * 180) / Math.PI;
+      expect(off).to.be.above(5);
+    });
+
+    it("leaves the pan offset alone for a mark on the head's base axis, and refuses a mark on the head", () => {
+      const f: AimSetup = { position: { x: 0, y: 0, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 4, tiltOffset: 0 };
+      const c = correctionOf(f, { x: 0, y: 0, z: 0 }, { pan: 0.7, tilt: 0.5 }) as Correction;
+      expect(c).to.include({ panOffset: 4, panOffsetDelta: 0, panUndetermined: true });
+      expect(correctionOf(f, { x: 0, y: 0, z: 5 }, { pan: 0.5, tilt: 0.5 })).to.have.property("onFixture", true);
     });
   });
 

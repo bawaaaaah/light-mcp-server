@@ -143,6 +143,61 @@ export function pointing(f: AimSetup, p: Position): { x: number; y: number; z: n
   return directionOf(f, { heading: (p.pan - 0.5) * f.panMax + f.panOffset, tilt: (p.tilt - 0.5) * f.tiltMax + f.tiltOffset });
 }
 
+/** Angle in degrees between two vectors. */
+const angleBetween = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => {
+  const dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z));
+  return deg(Math.acos(Math.max(-1, Math.min(1, dot))));
+};
+
+/** What one aimed mark corrects (`correctionOf`): the new offsets, how much they change, and the error before and after on that mark. */
+export interface Correction {
+  panOffset: number;
+  tiltOffset: number;
+  panOffsetDelta: number;
+  tiltOffsetDelta: number;
+  /** Angle between where the current calibration says the held position points and the mark, degrees. */
+  beforeDeg: number;
+  /** The same with the corrected offsets: 0 but for rounding, or the pan left alone on the base axis. */
+  afterDeg: number;
+  /** The mark lies (almost) on the head's base axis: any pan points there, so the pan offset is left as it was. */
+  panUndetermined?: true;
+}
+
+/** Below this tilt (degrees from the base axis), a mark says nothing about the pan. */
+const AXIS_TILT = 2;
+
+/**
+ * Manual calibration (T8): the head has been put by hand (logical position `held`, inversions undone) where its beam
+ * really falls on a known mark; the offsets that make the current calibration agree. Of the two equivalent solutions
+ * (pan, tilt) and (pan ± 180°, −tilt) the one the head is on is the closest to where the current calibration says it
+ * points; the pan offset is wrapped to −180..180. One mark gives two gaps for two unknowns: it corrects the **rigid**
+ * error only — a wrong heading (for a head whose pan axis is vertical a yaw error is a pan offset) and a tilt offset.
+ * A wrong inversion, travel or a mechanical play need two marks or more (`calibrate`) or the fields. Pure.
+ */
+export function correctionOf(f: AimSetup, target: { x: number; y: number; z: number }, held: Position): Correction | AimError {
+  const raw = rawAngles(f, target);
+  if (!raw) return { error: say("le repère est sur la fixture", "the mark is on the fixture"), onFixture: true };
+  const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+  const logical: [number, number] = [(held.pan - 0.5) * f.panMax, (held.tilt - 0.5) * f.tiltMax];
+  const now: [number, number] = [logical[0] + f.panOffset, logical[1] + f.tiltOffset];
+  const [p, t] = angleCandidates(raw).sort((a, b) => Math.abs(wrap(a[0] - now[0])) + Math.abs(a[1] - now[1]) - (Math.abs(wrap(b[0] - now[0])) + Math.abs(b[1] - now[1])))[0]!;
+  const round = (v: number) => Math.round(v * 100) / 100;
+  const panUndetermined = raw.tilt < AXIS_TILT || raw.tilt > 180 - AXIS_TILT;
+  const panOffset = panUndetermined ? f.panOffset : round(wrap(p - logical[0]));
+  const tiltOffset = round(t - logical[1]);
+  const towards = { x: target.x - f.position.x, y: target.y - f.position.y, z: target.z - f.position.z };
+  const errorWith = (s: AimSetup) => round(angleBetween(pointing(s, held), towards));
+  return {
+    panOffset,
+    tiltOffset,
+    panOffsetDelta: round(wrap(panOffset - f.panOffset)),
+    tiltOffsetDelta: round(tiltOffset - f.tiltOffset),
+    beforeDeg: errorWith(f),
+    afterDeg: errorWith({ ...f, panOffset, tiltOffset }),
+    ...(panUndetermined ? { panUndetermined: true as const } : {}),
+  };
+}
+
 /** A calibration sample: the head aimed by hand at a known point, in output (DMX) values 0..1. */
 export interface CalibrationSample {
   target: { x: number; y: number; z: number };

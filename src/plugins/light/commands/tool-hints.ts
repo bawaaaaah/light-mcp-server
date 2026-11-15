@@ -38,6 +38,7 @@ export const HINTS: Record<string, string> = {
   "backup.restore": "DI",
   blackout: "I",
   "calibration.clear": "DI",
+  "calibration.correct": "DI",
   "calibration.record": "",
   "calibration.solve": "DI",
   "dashboard.delete": "DI",

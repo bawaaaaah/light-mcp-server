@@ -187,6 +187,48 @@ describe("fixture orientation", () => {
     expect(o.invertTilt).to.equal(result.invertTilt);
   });
 
+  it("corrects the offsets on one mark aimed by hand, writes them once and aims the mark again without moving (T8, calibration.correct)", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-correct-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    // stored with its heading estimated by eye (30°), the head really turned 37° and its tilt 3° off; stops kept through
+    await run("venue.fixture.put", {
+      fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 2, y: 3, z: 5 }, mount: "hung", orientation: { yaw: 30, pitch: -90, roll: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, limits: { pan: [-200, 200] } } },
+    });
+    (plugin as unknown as { nextFrame: () => Promise<boolean> }).nextFrame = () => Promise.resolve((plugin.engine.render(), true));
+    const truth = { position: { x: 2, y: 3, z: 5 }, hung: true, yaw: 37, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 3 };
+    const mark = { x: 0, y: 1, z: 0 };
+    const real = aimAt(truth, mark) as { pan: number; tilt: number };
+    await run("position.aim", { fixtures: ["lyre"], point: mark }); // aimed with the calibration as it is: off the mark
+    await run("position.set", { fixtures: ["lyre"], pan: real.pan, tilt: real.tilt }); // corrected by hand on the pad
+    type Corrected = { panOffset: number; tiltOffset: number; beforeDeg: number; afterDeg: number; applied: boolean; aimed?: { pan: number; tilt: number }; advice?: string };
+    const dry = (await run("calibration.correct", { fixture: "lyre", point: mark })) as Corrected;
+    expect(dry.applied).to.equal(false);
+    expect(dry.beforeDeg).to.be.above(2);
+    expect(plugin.venue.fixtures.get("lyre")!.orientation).to.include({ panOffset: 0, tiltOffset: 0 }); // nothing written
+    const done = (await run("calibration.correct", { fixture: "lyre", point: mark, apply: true })) as Corrected;
+    expect(done.afterDeg).to.be.below(0.2);
+    expect(done).to.not.have.property("advice");
+    expect(plugin.venue.fixtures.get("lyre")!.orientation).to.deep.include({ yaw: 30, pitch: -90, panOffset: dry.panOffset, tiltOffset: dry.tiltOffset, limits: { pan: [-200, 200] } });
+    expect(done.aimed!.pan).to.be.closeTo(real.pan, 1e-3); // aimed again with the new offsets: where the hand put it
+    expect(done.aimed!.tilt).to.be.closeTo(real.tilt, 1e-3);
+    // and another mark is now aimed right
+    const other = { x: 4, y: 2, z: 0 };
+    const res = (await run("position.aim", { fixtures: ["lyre"], point: other })) as { results: { pan: number; tilt: number }[] };
+    const expected = aimAt(truth, other) as { pan: number; tilt: number };
+    expect(res.results[0]!.pan).to.be.closeTo(expected.pan, 0.001);
+    expect(res.results[0]!.tilt).to.be.closeTo(expected.tilt, 0.001);
+    // a look holding the head: refused, as calibration.record
+    await run("position.release", { fixtures: ["lyre"] });
+    await run("calibration.correct", { fixture: "lyre", point: mark }).then(
+      () => expect.fail("the head must be aimed by hand"),
+      (e: Error) => expect(e.message).to.match(/main|hand|glisse|gliding|arrivée|arrived/),
+    );
+  });
+
   it("hangs a moving head pointed at the floor, whatever its mount; the mount decides otherwise", () => {
     const o = (pitch?: number) => ({ yaw: 0, pitch, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0 });
     expect(isHung({ mount: "floor", orientation: o(-90) })).to.equal(true);
