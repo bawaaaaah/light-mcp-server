@@ -100,3 +100,13 @@ export function stageFrame(layout: Pick<StageLayout, "minX" | "maxX" | "minY" | 
 export function pointerToDrawing(e: { clientX: number; clientY: number }, rect: { left: number; top: number; width: number; height: number }, VW: number, VH: number, pad: { left: number; top: number }): { px: number; py: number } {
   return { px: ((e.clientX - rect.left) / rect.width) * VW - pad.left, py: ((e.clientY - rect.top) / rect.height) * VH - pad.top };
 }
+
+/**
+ * The box a drawing `VW` × `VH` really takes inside `rect` when it is fitted whole and centred (an SVG with
+ * preserveAspectRatio « xMidYMid meet »: the target pad, T24): what pointerToDrawing needs as its rect.
+ */
+export function fittedBox(rect: { left: number; top: number; width: number; height: number }, VW: number, VH: number): { left: number; top: number; width: number; height: number } {
+  const k = Math.min(rect.width / VW, rect.height / VH);
+  const [width, height] = [VW * k, VH * k];
+  return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+}

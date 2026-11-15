@@ -22,6 +22,8 @@ import { labelOf, slug, splitList, uniqueId } from "../util";
 import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
+import { ModePicker } from "./ModePicker";
+import { useTargets } from "../hooks/useTargets";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
 
 export type { MoveFade };
@@ -40,6 +42,8 @@ interface Move {
   group?: string;
   /** « Ne pas bouger les lyres » (T26): false keeps the settings but moves no head. */
   enabled?: boolean;
+  /** Centred on a 3D target's point instead of `center` (T24): aimed head by head, engaged or not. */
+  at?: { target?: string };
 }
 export interface LookDraft {
   id: string;
@@ -303,6 +307,10 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
   const [hasHeads, setHasHeads] = useState(false);
+  /** The show's 3D targets (T24): the « Cible » centre of the shape picks one. */
+  const { targets } = useTargets();
+  /** « Cible » chosen as the centre of the shape, before a target is picked (none is written until then). */
+  const [aimOnTarget, setAimOnTarget] = useState(() => Boolean(initial.move?.at?.target));
   const [showMoveFade, setShowMoveFade] = useState<MoveFade | undefined>(undefined);
   /** The glide field while its text is not a valid duration: Save waits for it. */
   const invalidFade = useRef<HTMLInputElement | null>(null);
@@ -563,14 +571,39 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                   ))}
                 </select>
               </label>
-              {(["pan", "tilt"] as const).map((axis) => (
-                <label key={axis} className="field">
-                  <span>
-                    {t.center} {axis}
-                  </span>
-                  <input type="range" min={0} max={1} step={0.01} value={look.move!.center[axis]} onChange={(e) => setMove({ center: { ...look.move!.center, [axis]: Number(e.target.value) } })} />
-                </label>
-              ))}
+              <fieldset className="move-aim field">
+                <legend>{t.targets.aimMode}</legend>
+                <button type="button" aria-pressed={!aimOnTarget} data-testid="move-aim-center" onClick={() => (setAimOnTarget(false), setMove({ at: undefined }))}>
+                  {t.targets.aimCenter}
+                </button>
+                <button type="button" aria-pressed={aimOnTarget} data-testid="move-aim-target" title={t.targets.aimTargetHelp} onClick={() => setAimOnTarget(true)}>
+                  ◎ {t.targets.aimTarget}
+                </button>
+              </fieldset>
+              {aimOnTarget && (
+                <div className="field move-aim-target">
+                  {look.move.at?.target && !targets.some((x) => x.id === look.move!.at!.target) && <p className="error">{t.targets.gone.replace("{id}", () => look.move!.at!.target!)}</p>}
+                  {targets.length ? (
+                    <ModePicker
+                      title={t.targets.pick}
+                      items={targets.map((x) => ({ key: x.id, label: x.name, detail: x.engaged ? t.targets.engagedBadge : undefined, current: look.move?.at?.target === x.id }))}
+                      onPick={(item) => setMove({ at: { target: item.key } })}
+                    />
+                  ) : (
+                    <p className="hint">{t.targets.pickNone}</p>
+                  )}
+                  <small className="hint">{t.targets.aimTargetHelp}</small>
+                </div>
+              )}
+              {!aimOnTarget &&
+                (["pan", "tilt"] as const).map((axis) => (
+                  <label key={axis} className="field">
+                    <span>
+                      {t.center} {axis}
+                    </span>
+                    <input type="range" min={0} max={1} step={0.01} value={look.move!.center[axis]} onChange={(e) => setMove({ center: { ...look.move!.center, [axis]: Number(e.target.value) } })} />
+                  </label>
+                ))}
               {look.move.shape !== "fixe" &&
                 (["pan", "tilt"] as const).map((axis) => (
                   <label key={axis} className="field">

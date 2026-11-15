@@ -9,6 +9,8 @@ import { asksBeforeLaunch } from "../preview-first";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
+import { TargetPad } from "../components/TargetPad";
+import { useTargets } from "../hooks/useTargets";
 import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
 import { sharedRanges, type FixtureFunctions } from "../fader-functions";
@@ -32,7 +34,7 @@ import { microphone } from "../audio/microphone";
 import { quoted } from "../typography";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target";
 interface Widget {
   id: string;
   kind: Kind;
@@ -120,13 +122,13 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "motion-lock", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "motion-lock", "preview", "channel-fader"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, preview: { w: 6, h: 4 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 4, h: 5 }, preview: { w: 6, h: 4 } };
 
 type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
 
@@ -169,6 +171,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   useEffect(readChannels, [readChannels]);
   useCommandEvents(["venue.fixture.", "show.open", "show.venue", "import."], readChannels);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
+  /** The show's 3D targets (T24): the target widgets and their menu. */
+  const { targets, loaded: targetsLoaded } = useTargets();
   /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
   const [namedFolders, setNamedFolders] = useState<string[]>([]);
   const [edit, setEdit] = useState(false);
@@ -747,6 +751,13 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} onError={setError} />;
       case "xy":
         return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
+      case "target": {
+        // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu
+        if (!w.target) return <div className="fill missing">{t.targets.unbound}</div>;
+        const row = targets.find((x) => x.id === w.target);
+        if (!row) return <div className="fill missing">{targetsLoaded ? t.targets.missing.replace("{id}", () => w.target!) : "…"}</div>;
+        return <TargetPad target={row} label={w.label} onError={setError} disabled={!may("commands:position")} interactive={!edit} />;
+      }
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
@@ -1099,6 +1110,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             {sel.kind === "look" && looks.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             {(sel.kind === "group-fader" || sel.kind === "xy" || sel.kind === "motion-lock") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            {sel.kind === "target" && targets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
           <input placeholder={t.labelText} aria-label={t.labelText} value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           {(sel.kind === "look" || sel.kind === "blackout") && (
@@ -1304,6 +1316,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           groups={groups}
           faders={faders}
           snapshots={snapshots}
+          targets={targets}
           exclusives={editor ? sets : undefined}
           onGroupsChange={refresh}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}

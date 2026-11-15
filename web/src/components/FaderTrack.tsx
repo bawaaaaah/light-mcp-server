@@ -36,7 +36,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
  *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
  *  (a channel cut into functions, T6) the ranges around its value show on its left and the range input names
  *  the one it is in; `travel` is the fader's own range of DMX values (the whole travel by default). */
-export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true }: {
+export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true, valueText, keyStep = 0.001 }: {
   label: string;
   value: number;
   sent?: number;
@@ -49,6 +49,10 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
   rangesLabel?: string;
   /** false: the ranges are said by the range input only, no column beside the track (a widget one cell wide). */
   ladder?: boolean;
+  /** What the value says to assistive tools when it is not a level (a target's height in metres, T24). */
+  valueText?: string;
+  /** How far an arrow key moves it (0..1; default one step of 1000): a target's height moves by 10 cm. */
+  keyStep?: number;
 }): ReactElement {
   const track = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -95,7 +99,7 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
         step={1}
         aria-label={label}
         aria-orientation="vertical"
-        aria-valuetext={dmx === undefined ? undefined : `${dmx}${inRange?.name ? ` — ${inRange.name}` : ""}`}
+        aria-valuetext={dmx === undefined ? valueText : `${dmx}${inRange?.name ? ` — ${inRange.name}` : ""}`}
         disabled={disabled}
         value={Math.round(value * 1000)}
         onChange={(e) => onChange(Number(e.currentTarget.value) / 1000)}
@@ -103,7 +107,7 @@ export function FaderTrack({ label, value, sent, disabled, interactive, onChange
           const delta = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
           if (!delta) return;
           e.preventDefault();
-          onChange(Math.min(1, Math.max(0, (Math.round(value * 1000) + delta) / 1000)));
+          onChange(Math.min(1, Math.max(0, Math.round((value + delta * keyStep) * 1000) / 1000)));
         }}
       />
       <span className="fader-rail" aria-hidden />

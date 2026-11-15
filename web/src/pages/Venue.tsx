@@ -12,6 +12,8 @@ import { FixtureMenu } from "../components/FixtureMenu";
 import { ZoneMenu } from "../components/ZoneMenu";
 import { confirmDelete } from "../components/confirmDelete";
 import { CanvasEditor } from "../components/CanvasEditor";
+import { TargetsPanel } from "../components/TargetsPanel";
+import { useTargets } from "../hooks/useTargets";
 import { RecentlyDeleted } from "../components/Versions";
 import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
@@ -77,6 +79,8 @@ export function VenuePage(): ReactElement {
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
+  /** The show's 3D targets (T24): drawn on the plan, managed in « Cibles » under it. */
+  const { targets, refresh: refreshTargets } = useTargets();
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState({ name: "", def: "", mode: "", universe: 1, address: 1, role: "" });
   const [canvasDraft, setCanvasDraft] = useState({ name: "", topology: "line", fixtures: [] as string[] });
@@ -202,6 +206,7 @@ export function VenuePage(): ReactElement {
       <nav className="jump" aria-label={t.onThisPage}>
         <a href="#venue-patch" onClick={(e) => jumpTo(e, "venue-patch")}>{t.patch}</a>
         <a href="#venue-stage" onClick={(e) => jumpTo(e, "venue-stage")}>{t.stagePreview}</a>
+        <a href="#venue-targets" onClick={(e) => jumpTo(e, "venue-targets")}>{t.targets.title}</a>
         <a href="#venue-rules" onClick={(e) => jumpTo(e, "venue-rules")}>{t.rulesTitle}</a>
       </nav>
       <div className="cols" id="venue-patch">
@@ -529,6 +534,7 @@ export function VenuePage(): ReactElement {
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
           onFixtureMenu={(f, at) => setMenu({ id: f.id, ...at })}
           onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}
+          targets={targets}
         />
         <p className="hint">{t.zoneHint}</p>
         {zoneMenu &&
@@ -549,6 +555,12 @@ export function VenuePage(): ReactElement {
           <summary>{t.calibrationTitle}</summary>
           <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} follow={heldId ?? undefined} onError={setError} onApplied={refresh} />
         </details>
+      </section>
+      <section id="venue-targets">
+        <h2>
+          {t.targets.title} ({targets.length})
+        </h2>
+        <TargetsPanel targets={targets} onError={setError} onChanged={refreshTargets} />
       </section>
       <section id="venue-rules">
         <h2>{t.rulesTitle}</h2>

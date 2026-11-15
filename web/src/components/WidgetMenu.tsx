@@ -8,7 +8,7 @@ import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock";
+export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target";
 export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 export interface MenuWidget {
   id: string;
@@ -108,6 +108,7 @@ export function WidgetMenu({
   groups,
   faders,
   snapshots = [],
+  targets: targetList = [],
   exclusives,
   onGroupsChange,
   onChange,
@@ -121,6 +122,8 @@ export function WidgetMenu({
   groups: Named[];
   faders: Named[];
   snapshots?: Named[];
+  /** The show's 3D targets (T24): a target widget picks its own here. */
+  targets?: Named[];
   /** The show's exclusive sets, when this user may change them: a look button's set is chosen here. */
   exclusives?: ExclusiveSet[];
   /** A set changed: the groups to read again. */
@@ -148,7 +151,7 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
-  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" || widget.kind === "motion-lock" ? groups : widget.kind === "snapshot" ? snapshots : [];
+  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" || widget.kind === "motion-lock" ? groups : widget.kind === "snapshot" ? snapshots : widget.kind === "target" ? targetList : [];
   const learn = () => {
     if (!action) return;
     setLearning(true);

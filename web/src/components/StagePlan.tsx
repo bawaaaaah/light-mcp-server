@@ -27,6 +27,7 @@ import { useContextMenu } from "./menu";
 import { moveZone } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
+import { metresText } from "../target-status";
 import { useStored } from "../hooks/useStored";
 import { FixturePanel } from "./FixturePanel";
 
@@ -70,6 +71,14 @@ function beam(o?: { yaw: number; pitch?: number }): { x: number; y: number; z: n
   const pitch = ((o?.pitch ?? 0) * Math.PI) / 180;
   return { x: Math.sin(yaw) * Math.cos(pitch), y: -Math.cos(yaw) * Math.cos(pitch), z: Math.sin(pitch) };
 }
+/** A 3D target (T24) drawn on the plan: a reticle in its colour, its height beside it (dashed while not engaged). */
+export interface PlanTarget {
+  id: string;
+  name: string;
+  point: { x: number; y: number; z: number };
+  color?: string;
+  engaged: boolean;
+}
 export interface PlanZone {
   id: string;
   name: string;
@@ -106,6 +115,7 @@ export function StagePlan({
   controls,
   collapsed = false,
   height,
+  targets = [],
 }: {
   fixtures: PlanFixture[];
   zones: PlanZone[];
@@ -136,6 +146,8 @@ export function StagePlan({
   collapsed?: boolean;
   /** A height chosen for the drawing (px), which fits inside; none: from its width. */
   height?: number;
+  /** 3D targets to draw (the venue's plan, T24): at their point seen from above, or at their height from the front. */
+  targets?: PlanTarget[];
 }): ReactElement {
   const t = useT();
   const [liveColors, setColors] = useState<Record<string, string[]>>({});
@@ -236,6 +248,7 @@ export function StagePlan({
   useCommandEvents(["position.", "panic", "show."], readHeads);
 
   // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front (stage-frame.ts).
+  // the targets (T24) are not framed: the plan keeps its frame (a target outside the zones is cut at the edge)
   const layout = useMemo(() => stageLayout(shown.fixtures, shown.zones), [shown]);
 
   const W = 800;
@@ -276,19 +289,26 @@ export function StagePlan({
     const halfWidth = Math.abs((w / 2) * Math.cos(turn)) + Math.abs((h / 2) * Math.sin(turn));
     return { cols, w, h, o, angle, halfHeight, halfWidth };
   };
-  // names under their fixture, else above, never over another; where they stand still (not dragged)
+  // targets (T24): where they are on this view (from the front, at their height), their reticle's size, their label
+  const targetRing = Math.max(7, Math.min(16, 0.2 * scale));
+  const drawnTargets = targets.map((tg) => ({ ...tg, at: front ? { x: tg.point.x, y: tg.point.z } : { x: tg.point.x, y: tg.point.y }, label: `${tg.name} · ${metresText(tg.point.z, t.decimalMark)} m` }));
+  // names under their fixture, else above, never over another; where they stand still (not dragged); the targets' after
   const names = placeLabels(
-    fixtures.map((f) => {
-      const p = layout.pos.get(f.id)!;
-      const { halfHeight } = bodyOf(f);
-      return { id: f.id, x: sx(p.x), below: sy(p.y) + halfHeight + nameSize * 1.3, above: sy(p.y) - halfHeight - nameSize * 0.5, width: textWidth(f.name, nameSize) };
-    }),
+    [
+      ...fixtures.map((f) => {
+        const p = layout.pos.get(f.id)!;
+        const { halfHeight } = bodyOf(f);
+        return { id: f.id, x: sx(p.x), below: sy(p.y) + halfHeight + nameSize * 1.3, above: sy(p.y) - halfHeight - nameSize * 0.5, width: textWidth(f.name, nameSize) };
+      }),
+      ...drawnTargets.map((tg) => ({ id: `target:${tg.id}`, x: sx(tg.at.x), below: sy(tg.at.y) + targetRing + nameSize * 1.1, above: sy(tg.at.y) - targetRing - nameSize * 0.4, width: textWidth(tg.label, nameSize) })),
+    ],
     nameSize,
   );
   // room for the names past the edges of the stage
   const pad = { left: 0, right: 0, top: 0, bottom: 0 };
   for (const [id, y] of names) {
-    const f = fixtures.find((fx) => fx.id === id)!;
+    const f = fixtures.find((fx) => fx.id === id);
+    if (!f) continue; // a target's label: the plan does not grow for it
     const [x, half] = [sx(layout.pos.get(id)!.x), textWidth(f.name, nameSize) / 2 + 2];
     pad.left = Math.max(pad.left, half - x);
     pad.right = Math.max(pad.right, x + half - W);
@@ -769,6 +789,29 @@ export function StagePlan({
             </g>
           );
         })}
+        {!in3d &&
+          drawnTargets.map((tg) => {
+            const [x, y] = [sx(tg.at.x), sy(tg.at.y)];
+            const labelY = names.get(`target:${tg.id}`);
+            const r = targetRing;
+            return (
+              <g key={`target-${tg.id}`} data-target={tg.id} role="img" aria-label={t.targets.onPlan.replace("{name}", () => tg.name).replace("{z}", () => metresText(tg.point.z, t.decimalMark))} style={tg.color ? ({ "--target-color": tg.color } as React.CSSProperties) : undefined}>
+                <g className={tg.engaged ? "plan-target" : "plan-target idle"} transform={`translate(${x} ${y})`}>
+                  <circle r={r} />
+                  <line x1={-r * 1.6} x2={-r * 0.45} y1={0} y2={0} />
+                  <line x1={r * 0.45} x2={r * 1.6} y1={0} y2={0} />
+                  <line y1={-r * 1.6} y2={-r * 0.45} x1={0} x2={0} />
+                  <line y1={r * 0.45} y2={r * 1.6} x1={0} x2={0} />
+                  <circle r={2} className="plan-target-dot" />
+                </g>
+                {labelY !== undefined && (
+                  <text className="plan-target-label" x={x} y={labelY} textAnchor="middle" style={{ fontSize: `${nameSize}px` }}>
+                    {tg.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
         {band && <rect className="plan-band" x={Math.min(sx(band.from.x), sx(band.at.x))} y={Math.min(sy(band.from.y), sy(band.at.y))} width={Math.abs(sx(band.at.x) - sx(band.from.x))} height={Math.abs(sy(band.at.y) - sy(band.from.y))} />}
       </svg>
       </div>

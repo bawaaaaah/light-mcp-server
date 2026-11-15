@@ -4357,3 +4357,314 @@ fieldset.group-lock legend {
 .motion-lock-menu button[data-level="soft"] .check {
   color: var(--layer-lock);
 }
+
+/* Target pad (T24): the stage from above, a Z fader beside it, the status line and « Engager » under them.
+   Colours are the motion layers' (the target's own when it has one); a state also has its text and its mark. */
+.target-pad {
+  --target-color: var(--layer-target);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  min-height: 0;
+}
+.target-pad.dragging,
+.target-pad-plan {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.target-pad-main {
+  display: flex;
+  flex: 1;
+  gap: 0.4em;
+  min-height: 0;
+}
+.target-pad-plan {
+  flex: 1;
+  min-width: 0;
+  min-height: 7em;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  touch-action: none;
+  cursor: crosshair;
+}
+.target-pad-plan[aria-disabled="true"] {
+  cursor: default;
+}
+.target-pad-plan .tp-ground {
+  fill: var(--bg);
+}
+/* the strokes keep their width on screen whatever the drawing's scale */
+.target-pad-plan :is(.tp-zone, .tp-bounds, .tp-fixture, .tp-head circle, .tp-reticle circle, .tp-reticle line) {
+  vector-effect: non-scaling-stroke;
+}
+.target-pad-plan .tp-zone {
+  fill: color-mix(in srgb, var(--panel) 70%, transparent);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.target-pad-plan .tp-zone.no-aim {
+  stroke: var(--danger);
+  stroke-dasharray: 5 4;
+}
+.target-pad-plan .tp-zone-name {
+  fill: var(--muted);
+  pointer-events: none;
+}
+.target-pad-plan .tp-bounds {
+  fill: none;
+  stroke: var(--target-color);
+  stroke-opacity: 0.45;
+  stroke-dasharray: 2 4;
+}
+.target-pad-plan .tp-fixture {
+  fill: var(--line);
+  stroke: var(--muted);
+  stroke-opacity: 0.5;
+}
+.target-pad-plan .tp-head circle {
+  fill: var(--layer-color, var(--muted));
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+.target-pad-plan .tp-head[data-state="follows"] { --layer-color: var(--target-color); }
+.target-pad-plan .tp-head[data-state="held"] { --layer-color: var(--layer-hold); }
+.target-pad-plan .tp-head[data-state="manual"] { --layer-color: var(--layer-manual); }
+.target-pad-plan .tp-head[data-state="frozen"] { --layer-color: var(--layer-lock); }
+.target-pad-plan .tp-head[data-state="released"],
+.target-pad-plan .tp-head[data-state="masked"] { --layer-color: var(--layer-look); }
+/* not following (idle, masked, released): a ring, the following ones are filled */
+.target-pad-plan .tp-head:not([data-state="follows"]):not([data-state="held"]):not([data-state="frozen"]) circle {
+  fill: var(--bg);
+  stroke: var(--layer-color, var(--muted));
+  stroke-width: 2;
+}
+.target-pad-plan .tp-head-mark {
+  fill: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.target-pad-plan .tp-reticle {
+  fill: none;
+  stroke: var(--target-color);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.target-pad-plan .tp-reticle-dot {
+  fill: var(--target-color);
+  stroke: none;
+}
+.target-pad:not([data-engaged]) .tp-reticle {
+  stroke-dasharray: 4 3;
+}
+.target-pad-plan .tp-height {
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--bg);
+  pointer-events: none;
+}
+.target-pad-plan:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.target-pad .target-z {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+  gap: 0.1em;
+}
+.target-pad .target-z .track {
+  flex: 1;
+  min-height: 48px;
+  --wc: var(--target-color);
+}
+.target-pad .target-z .value {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.target-pad-status {
+  display: grid;
+  gap: 0.1em;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+.target-pad-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.6em;
+  align-items: baseline;
+  min-width: 0;
+}
+.target-pad-heading strong {
+  font-size: 0.85rem;
+}
+.target-pad-where,
+.target-pad-line {
+  color: var(--muted);
+}
+.target-pad-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.target-pad-actions {
+  display: flex;
+  gap: 0.4em;
+  flex-wrap: nowrap;
+}
+.target-pad-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.35em 0.6em;
+}
+.target-pad-actions button[aria-pressed="true"] {
+  border-color: var(--target-color);
+  background: color-mix(in srgb, var(--target-color) 22%, var(--panel));
+}
+.cell .target-pad {
+  height: 100%;
+}
+.dgrid.fine .cell .target-pad-plan {
+  min-height: 60px;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .target-pad-actions button {
+    min-height: 44px;
+  }
+  .target-pad .target-z {
+    min-width: 56px;
+  }
+  .target-pad .target-z .track {
+    width: 44px;
+  }
+}
+
+/* The venue's « Cibles » section (T24) */
+.targets-panel ul.target-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.6em;
+  display: grid;
+  gap: 0.3em;
+}
+.targets-panel .target-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em 0.6em;
+  padding: 0.35em 0.5em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.targets-panel .target-swatch {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 50%;
+  background: var(--target-color, var(--layer-target));
+  flex: 0 0 auto;
+}
+.targets-panel .target-row small {
+  color: var(--muted);
+}
+.targets-panel .target-row .grow {
+  flex: 1 1 auto;
+}
+.target-form {
+  display: grid;
+  gap: 0.6em;
+  padding: 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-width: 52em;
+}
+.target-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 0.4em 0.6em 0.6em;
+  min-width: 0;
+}
+.target-form .target-heads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.8em;
+}
+.target-form .target-heads label,
+.target-form .target-bounds label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.target-form .target-bounds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9em, 1fr));
+  gap: 0.4em;
+}
+.target-form .target-bounds input {
+  width: 6em;
+  min-width: 0;
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .targets-panel button,
+  .target-form input[type="checkbox"],
+  .target-form button,
+  .target-form select,
+  .target-form input {
+    min-height: 44px;
+  }
+  .target-form input[type="checkbox"] {
+    min-width: 24px;
+  }
+  .target-form .target-heads label {
+    min-height: 44px;
+  }
+}
+/* A target on the venue's plan: a reticle in its colour, its height written beside it */
+.plan-target {
+  fill: none;
+  stroke: var(--target-color, var(--layer-target));
+  stroke-width: 2;
+  pointer-events: none;
+}
+.plan-target .plan-target-dot {
+  fill: var(--target-color, var(--layer-target));
+  stroke: none;
+}
+.plan-target.idle {
+  stroke-dasharray: 4 3;
+}
+.plan-target-label {
+  fill: var(--target-color, var(--layer-target));
+  paint-order: stroke;
+  stroke: #12141a;
+  stroke-width: 3px;
+  pointer-events: none;
+}
+/* The look editor's centre of the shape: the pan/tilt position or a target (T24) */
+.move-aim {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.move-aim legend {
+  padding: 0;
+  margin-bottom: 0.2em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.move-aim button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .move-aim button {
+    min-height: 44px;
+  }
+}

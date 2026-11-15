@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { pointerToDrawing, stageFrame, stageLayout } from "../web/src/stage-frame.js";
+import { fittedBox, pointerToDrawing, stageFrame, stageLayout } from "../web/src/stage-frame.js";
 
 /** The frame of the top view of the stage (T24, lot 3): what the live plan draws, and metres ↔ drawing units. */
 describe("stage frame (top view)", () => {
@@ -57,5 +57,12 @@ describe("stage frame (top view)", () => {
     // the viewBox is twice the box on screen, starting 20 units before the stage
     expect(pointerToDrawing({ clientX: 300, clientY: 150 }, rect, 800, 400, { left: 20, top: 10 })).to.deep.equal({ px: 380, py: 190 });
     expect(pointerToDrawing({ clientX: 100, clientY: 50 }, rect, 800, 400, { left: 0, top: 0 })).to.deep.equal({ px: 0, py: 0 });
+  });
+
+  it("finds the box a drawing fitted whole takes inside a wider or a taller element", () => {
+    // 800 × 400 in 600 × 600: the width fits, a band above and below
+    expect(fittedBox({ left: 10, top: 20, width: 600, height: 600 }, 800, 400)).to.deep.equal({ left: 10, top: 170, width: 600, height: 300 });
+    // in 1000 × 200: the height fits, a band on each side
+    expect(fittedBox({ left: 0, top: 0, width: 1000, height: 200 }, 800, 400)).to.deep.equal({ left: 300, top: 0, width: 400, height: 200 });
   });
 });

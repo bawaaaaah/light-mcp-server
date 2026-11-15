@@ -7863,3 +7863,263 @@ test("motion lock: the group editor shows the real state under the global lock (
   }
   expect(errors).toEqual([]);
 });
+
+// ---- 3D target (T24, lot 4): the target pad widget, the venue's « Cibles » section, the plan, the look editor's « Cible »
+
+type ListedTarget = { id: string; point: { x: number; y: number; z: number }; engaged: boolean; engagedAt?: number; bounds?: { min: { z: number }; max: { z: number } } };
+const listedTarget = async (page: Page, id: string) => ((await asDesk(page, "target.list")) as ListedTarget[]).find((x) => x.id === id);
+const T24_BOUNDS = { min: { x: -4, y: 0, z: 0 }, max: { x: 4, y: 6, z: 4 } };
+
+/** The moving head placed on the stage (the UI server patches it unplaced), a target on it, and its pad at the bottom of the Live. */
+async function withTargetPad(page: Page, body: (pad: Locator) => Promise<void>): Promise<void> {
+  const spot = ((await asDesk(page, "venue.fixture.list")) as { id: string }[]).find((f) => f.id === "spot")!;
+  await asDesk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung" } });
+  await asDesk(page, "target.put", { target: { id: "t24", name: "Cible test", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t24-pad", kind: "target", target: "t24", x: 0, y: bottom, w: 4, h: 5 }] } });
+  try {
+    await page.reload();
+    const pad = page.getByTestId("target-pad");
+    await pad.scrollIntoViewIfNeeded();
+    await body(pad);
+  } finally {
+    await asDesk(page, "motion.unfreeze");
+    await asDesk(page, "position.home", {});
+    await api(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "target.delete", { id: "t24", force: true });
+    await asDesk(page, "venue.fixture.put", { fixture: spot });
+  }
+}
+
+test("target pad: a drag moves the reticle at 25 writes a second at most, the keys and the Z fader move it too", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withTargetPad(page, async (pad) => {
+    const plan = pad.getByRole("slider", { name: "Cible test, vue de dessus" });
+    await expect(plan).toHaveAttribute("aria-valuetext", "x 0 · y 3 · z 1 m");
+    await expect(pad.getByTestId("target-status")).toHaveText("Non engagée · 1 lyre");
+    const writes: unknown[] = [];
+    page.on("request", (r) => {
+      if (r.url().endsWith("/commands/target.set")) writes.push(r.postDataJSON());
+    });
+    const box = (await plan.boundingBox())!;
+    const reticle = pad.getByTestId("target-reticle");
+    const before = (await reticle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) {
+      await page.mouse.move(box.x + box.width / 2 - i * (box.width / 40), box.y + box.height / 2);
+      await page.waitForTimeout(5);
+    }
+    await page.mouse.up();
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x).toBeLessThan(-0.5);
+    expect((await reticle.boundingBox())!.x).toBeLessThan(before.x - 20);
+    expect(writes.length).toBeLessThan(12); // the latest only, never one write per pointer sample
+    const x = (await listedTarget(page, "t24"))!.point.x;
+    // the keys: 10 cm, Shift 1 m; Page up / down: the height
+    await plan.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x).toBeCloseTo(x + 0.1, 5);
+    await page.keyboard.press("Shift+ArrowUp");
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.y).toBeCloseTo(4, 5);
+    await page.keyboard.press("PageUp");
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.z).toBeCloseTo(1.1, 5);
+    // the Z fader, in metres across the bounds: its top is the highest point (4 m)
+    const track = pad.locator(".target-z .track");
+    const t = (await track.boundingBox())!;
+    await page.mouse.click(t.x + t.width / 2, t.y + 1);
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.z).toBe(4);
+    await expect(pad.getByRole("slider", { name: "Hauteur de Cible test" })).toHaveAttribute("aria-valuetext", "4 m");
+    await expect(pad.locator(".tp-height")).toHaveText("Z 4 m");
+    await page.screenshot({ path: "test-results/t24-pad-desktop.png" });
+  });
+  expect(errors).toEqual([]);
+});
+
+test("target pad: « Engager » follows, a second press puts it back on top, the line says who follows, holds or is taken by hand", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withTargetPad(page, async (pad) => {
+    const engage = pad.getByTestId("target-engage");
+    const status = pad.getByTestId("target-status");
+    await expect(engage).toHaveAttribute("aria-pressed", "false");
+    await expect(pad.getByTestId("target-disengage")).toBeDisabled();
+    await engage.click();
+    await expect(engage).toHaveAttribute("aria-pressed", "true");
+    await expect(status).toHaveText("1 lyre suit");
+    const first = (await listedTarget(page, "t24"))!.engagedAt!;
+    // decision T-a: pressed again, engaged again on top (a new order), never disengaged
+    await page.waitForTimeout(20);
+    await engage.click();
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.engagedAt!).toBeGreaterThan(first);
+    await expect(engage).toHaveAttribute("aria-pressed", "true");
+    // taken back by hand at the XY pad: said by name
+    await asDesk(page, "position.set", { fixtures: ["spot"], pan: 0.4, tilt: 0.6 });
+    await expect(status).toHaveText("1 reprise à la main : Lyre");
+    await asDesk(page, "position.releaseTop", { fixtures: ["spot"] });
+    await expect(status).toHaveText("1 lyre suit");
+    // the point in a closed no-aim zone: held where it is, with the reason
+    await asDesk(page, "stage.zone.put", { zone: { id: "t24-pupitre", name: "Pupitre test", type: "floor", polygon: [[-1, 2], [1, 2], [1, 4], [-1, 4]], noAim: true } });
+    try {
+      await expect(status).toHaveText("1 tenue, vers une zone interdite (« Pupitre test ») : Lyre");
+      await expect(pad.locator('.tp-head[data-state="held"] .tp-head-mark')).toHaveText("!");
+      await page.screenshot({ path: "test-results/t24-pad-held.png" });
+    } finally {
+      await asDesk(page, "stage.zone.delete", { id: "t24-pupitre" });
+    }
+    await expect(status).toHaveText("1 lyre suit");
+    await pad.getByTestId("target-disengage").click();
+    await expect(engage).toHaveAttribute("aria-pressed", "false");
+    await expect(status).toHaveText("Non engagée · 1 lyre");
+  });
+  expect(errors).toEqual([]);
+});
+
+test("target pad: under a hard lock the target still moves, the frozen head is listed (decision T-b)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withTargetPad(page, async (pad) => {
+    await pad.getByTestId("target-engage").click();
+    await expect(pad.getByTestId("target-status")).toHaveText("1 lyre suit");
+    await asDesk(page, "motion.freeze", { fixtures: ["spot"], level: "hard" });
+    await expect(pad.getByTestId("target-status")).toHaveText("🔒🔒 1 figée par le verrou : Lyre");
+    const plan = pad.getByRole("slider", { name: "Cible test, vue de dessus" });
+    await plan.focus();
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => (await listedTarget(page, "t24"))!.point.x).toBe(1);
+    await expect(pad.getByTestId("target-status")).toHaveText("🔒🔒 1 figée par le verrou : Lyre");
+  });
+  expect(errors).toEqual([]);
+});
+
+test("target pad: the widget's menu chooses its target; on a touch tablet and a phone its controls are 44 px", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await asDesk(page, "target.put", { target: { id: "t24-autre", name: "Autre cible", fixtures: ["spot"] } });
+  try {
+    await withTargetPad(page, async (pad) => {
+      await pad.locator(".target-pad-heading").click({ button: "right" });
+      const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+      await menu.getByRole("combobox").first().selectOption("t24-autre");
+      await expect(pad.locator(".target-pad-heading strong")).toHaveText("Autre cible");
+      await page.keyboard.press("Escape");
+      for (const [name, viewport] of [
+        ["tablet", { width: 1180, height: 820 }],
+        ["phone", { width: 390, height: 844 }],
+      ] as const) {
+        const ctx = await browser.newContext({ hasTouch: true, isMobile: name === "phone", viewport, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+        const touch = await ctx.newPage();
+        const touchErrors = watchErrors(touch);
+        await login(touch);
+        const other = touch.getByTestId("target-pad");
+        await other.scrollIntoViewIfNeeded();
+        for (const control of [other.getByTestId("target-engage"), other.getByTestId("target-disengage")]) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect((await other.locator(".target-z .track").boundingBox())!.width).toBeGreaterThanOrEqual(44);
+        expect(await other.locator(".target-pad-plan").evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { touchAction: string } }).getComputedStyle(el).touchAction)).toBe("none");
+        expect(await touch.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
+        // a finger moves the point
+        const box = (await other.locator(".target-pad-plan").boundingBox())!;
+        await touch.touchscreen.tap(box.x + box.width * 0.85, box.y + box.height * 0.5);
+        await expect.poll(async () => (await listedTarget(touch, "t24-autre"))!.point.x).toBeGreaterThan(0.5);
+        await touch.screenshot({ path: `test-results/t24-pad-${name}.png` });
+        expect(touchErrors).toEqual([]);
+        await ctx.close();
+      }
+    });
+  } finally {
+    await asDesk(page, "target.delete", { id: "t24-autre", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("venue: « Cibles » creates, edits and deletes a target (asking when a look follows it); the plan draws it with its height", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const section = page.locator("#venue-targets");
+  let id = "";
+  try {
+    await section.scrollIntoViewIfNeeded();
+    await section.getByRole("button", { name: "+ Nouvelle cible" }).click();
+    const form = section.getByRole("form", { name: "Nouvelle cible" });
+    await form.getByLabel("Nom").fill("Chanteur test");
+    await form.getByRole("checkbox", { name: "Lyre" }).check();
+    await form.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(form).toHaveCount(0);
+    const row = section.locator(".target-row", { hasText: "Chanteur test" });
+    await expect(row).toContainText("1 lyre");
+    id = (await row.getAttribute("data-target"))!;
+    expect((await asDesk(page, "target.list")) as { id: string; fixtures: string[] }[]).toContainEqual(expect.objectContaining({ id, fixtures: ["spot"] }));
+    // on the plan: a reticle, named with its height
+    const onPlan = page.locator("#venue-stage svg").locator(`[data-target="${id}"]`);
+    await expect(onPlan).toHaveAttribute("aria-label", "Cible Chanteur test, à 1,5 m de haut");
+    await expect(onPlan.locator(".plan-target-label")).toHaveText("Chanteur test · 1,5 m");
+    // its own bounds: the stage volume unticked, Z up to 3 m
+    await row.getByRole("button", { name: "Modifier la cible Chanteur test" }).click();
+    const edit = section.locator("form.target-form");
+    await edit.getByRole("checkbox", { name: "Volume de la scène" }).uncheck();
+    await edit.getByRole("textbox", { name: "Z max (m)" }).fill("3");
+    await edit.getByRole("button", { name: "Enregistrer" }).click();
+    await expect(edit).toHaveCount(0);
+    await expect.poll(async () => (await listedTarget(page, id))?.bounds?.max.z).toBe(3);
+    await page.locator("#venue-stage").screenshot({ path: "test-results/t24-venue-plan.png" });
+    await section.screenshot({ path: "test-results/t24-venue-targets.png" });
+    // followed by a look: the question says so, and the delete is forced on yes
+    await asDesk(page, "look.put", { look: { id: "t24-suit", name: "T24 suit", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "fixe", at: { target: id } } } });
+    let asked = "";
+    page.once("dialog", (d) => {
+      asked = d.message();
+      void d.accept();
+    });
+    await row.getByRole("button", { name: "Supprimer Chanteur test" }).click();
+    await expect(section.locator(".target-row", { hasText: "Chanteur test" })).toHaveCount(0);
+    expect(asked).toContain("T24 suit");
+    expect(await listedTarget(page, id)).toBeUndefined();
+  } finally {
+    await asDesk(page, "look.delete", { id: "t24-suit", force: true });
+    if (id) await asDesk(page, "target.delete", { id, force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("look editor: the « Cible » centre of the shape picks a target and writes move.at.target", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await asDesk(page, "target.put", { target: { id: "t24-look", name: "Cible du look", fixtures: ["spot"] } });
+  await asDesk(page, "look.put", { look: { id: "t24-cercle", name: "T24 cercle", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "cercle", size: { pan: 0.1, tilt: 0.1 } } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier T24 cercle" }).click();
+    const editor = page.locator(".look-editor");
+    await expect(editor.getByTestId("move-aim-center")).toHaveAttribute("aria-pressed", "true");
+    await editor.getByTestId("move-aim-target").click();
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-pressed", "true");
+    await expect(editor.getByText("Centre pan", { exact: true })).toHaveCount(0);
+    await editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible du look/ }).click();
+    await expect(editor.getByRole("button", { name: /Cible du look/ })).toHaveAttribute("aria-current", "true");
+    await page.screenshot({ path: "test-results/t24-look-target.png" });
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t24-cercle" })) as { move: { at?: { target: string } } }).move.at).toEqual({ target: "t24-look" });
+    // back to the pan/tilt centre: the target is no longer followed
+    await page.getByRole("button", { name: "Modifier T24 cercle" }).click();
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-pressed", "true");
+    await editor.getByTestId("move-aim-center").click();
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t24-cercle" })) as { move: { at?: unknown } }).move.at).toBeUndefined();
+  } finally {
+    await asDesk(page, "look.delete", { id: "t24-cercle", force: true });
+    await asDesk(page, "target.delete", { id: "t24-look", force: true });
+  }
+  expect(errors).toEqual([]);
+});
