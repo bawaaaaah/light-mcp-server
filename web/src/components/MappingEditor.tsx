@@ -130,13 +130,13 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           )}
         </div>
         {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
-        <p className="hint">{modeLocked ? t.modeLockedHint : t.modeHints[m.mode]}</p>
+        <p className="hint">{modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
       </fieldset>
       <fieldset className="mapping-group">
         <legend>{t.midiDoSection}</legend>
         <div className="mapping-grid">
-          <label className="field">
+          <label className="field wide">
             <span>{t.action}</span>
             <select value={action} onChange={(e) => setAction({ action: e.target.value as Action, target: "" })}>
               {ACTIONS.map((a) => (
@@ -150,7 +150,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             <label className="field wide">
               <span>{t.target}</span>
               <select aria-label={t.target} value={target} onChange={(e) => setAction({ action, target: e.target.value })}>
-                <option value="">—</option>
+                <option value="">{action === "freeze" ? t.motionLock.allHeads : "—"}</option>
                 {targets.map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.name}

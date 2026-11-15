@@ -268,7 +268,7 @@ export function FixtureMenu({
                 levels={{ base: ownLock, top: ownLock }}
                 checked={stricter(ownLock, lockView.lock.level)}
                 target={{ fixtures: [fixture.id] }}
-                globalHolds={t.motionLock.stillGlobal.replace("{names}", () => fixture.name)}
+                globalHolds={t.motionLock.stillGlobalOne.replace("{names}", () => fixture.name)}
                 onDone={onSaved}
                 onError={setError}
               />

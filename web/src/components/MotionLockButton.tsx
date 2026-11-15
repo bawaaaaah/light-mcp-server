@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { can, cmd } from "../api";
 import { useMe, useT } from "../App";
@@ -30,12 +30,24 @@ interface LockScope {
   globalHolds: boolean;
   /** A group that no longer exists, or that has no moving head: nothing to freeze, said why. */
   empty?: "deleted" | "noHeads";
+  /**
+   * Every head (decision R4 of the second review): heads whose own lock is stricter than the global level, by level —
+   * the bar says the global level and adds « · 1 en dur », the menu names them « à part ».
+   */
+  apart?: { soft: number; hard: number };
 }
 
-/** Every head: the top bar, a widget without group (the global lock; its « Défiger » lifts everything, decision U2). */
+/**
+ * Every head: the top bar, a widget without group (the global lock; its « Défiger » lifts everything, decision U2). It
+ * shows the global level, not the strictest: one head frozen hard on its own under a soft global lock is « 🔒 Figées ·
+ * 1 en dur », not « Figées — tout ».
+ */
 function globalScope(view: MotionLockView): LockScope {
   const { lock, movingHeads } = view;
-  return { shown: lock.effective, base: lock.level, top: lock.effective, total: movingHeads.total, frozen: movingHeads.frozen, target: {}, globalHolds: false };
+  // the installed heads only (an absent head or an id out of the patch is not counted), as the server counts them
+  const hard = lock.level === "hard" ? 0 : movingHeads.hard;
+  const apart = { soft: lock.level === "off" ? movingHeads.frozen - hard : 0, hard };
+  return { shown: lock.level, base: lock.level, top: lock.effective, total: movingHeads.total, frozen: movingHeads.frozen, target: {}, globalHolds: false, apart };
 }
 
 /** A group's heads (members resolved by the server: selectors, sub-groups), from their own and the global levels. */
@@ -66,27 +78,70 @@ export function needRight(t: Texts, right: "commands:freeze" | "commands:positio
 /** Why a plan sends nothing, when a right is missing. */
 const reasonOf = (t: Texts, plan: LockPlan): string | undefined => (plan.calls ? undefined : plan.blocked === "freeze" ? needRight(t, "commands:freeze") : plan.blocked === "position" ? needRight(t, "commands:position") : undefined);
 
+/**
+ * What the state adds after the level: on every head, the heads frozen harder on their own (« · 1 en dur »; with the
+ * global lock off, « 1 sur 4 » too when some are frozen soft); on a group, « 1 sur 4 » when only some are frozen.
+ */
+function suffixOf(t: Texts, scope: LockScope, partial: boolean): string {
+  const ofTotal = (n: number) => t.motionLock.some.replace("{n}", String(n)).replace("{total}", String(scope.total));
+  const hard = (n: number) => t.motionLock.hardApart.replace("{n}", String(n));
+  if (!scope.apart) return partial ? ofTotal(scope.frozen) : "";
+  const { soft, hard: hardCount } = scope.apart;
+  if (scope.shown === "off" && soft > 0) return [ofTotal(scope.frozen), hardCount ? hard(hardCount) : ""].filter(Boolean).join(" · ");
+  return hardCount ? hard(hardCount) : "";
+}
+
+/** The menu's word on heads frozen apart from the global level (every head only): « 1 lyre figée en dur à part ». */
+function apartNotes(t: Texts, scope: LockScope): string[] {
+  if (!scope.apart) return [];
+  const say = (n: number, one: string, many: string) => (n === 1 ? one : many.replace("{n}", String(n)));
+  return [
+    scope.apart.hard ? say(scope.apart.hard, t.motionLock.apartHardOne, t.motionLock.apartHardMany) : "",
+    scope.apart.soft ? say(scope.apart.soft, t.motionLock.apartSoftOne, t.motionLock.apartSoftMany) : "",
+  ].filter(Boolean);
+}
+
 /** « Appuyer encore » said for what the second press does: free the heads, or free the pad (hard → soft). */
 const pressAgainFor = (t: Texts, level: LockLevel): string => (level === "soft" ? t.motionLock.pressAgainSoft : t.motionLock.pressAgain);
 
+type ToastMessage = { text: string; seq: number };
+const toastListeners = new Set<(message: ToastMessage) => void>();
+let toastSeq = 0;
+
+/** Says a lock control's message: the latest replaces the one shown (one at a time, never stacked), for NOTICE_MS. */
+export function showLockToast(text: string): void {
+  const message = { text, seq: ++toastSeq };
+  for (const listener of toastListeners) listener(message);
+}
+
 /**
- * A lock control's message, over everything at the bottom of the window (a portal): a Live cell's overflow, the Live's
- * sticky bar or the header's buttons never hide it, on a phone as on a desktop.
+ * The one host of the lock controls' messages, mounted once by the app: over everything at the bottom of the window (a
+ * portal), so a Live cell's overflow, the Live's sticky bar or the header's buttons never hide it, on a phone as on a
+ * desktop. The `role="status"` region stays mounted, empty between messages: only its text changes, which screen
+ * readers announce. Its timer depends on the message alone: a page that re-renders often (the Live, every 250 ms)
+ * never keeps it up.
  */
-export function LockToast({ message, onDone }: { message: string; onDone: () => void }): ReactElement | null {
+export function LockToastHost(): ReactElement {
+  const [message, setMessage] = useState<ToastMessage>({ text: "", seq: 0 });
   useEffect(() => {
-    if (!message) return;
-    const timer = window.setTimeout(onDone, NOTICE_MS);
+    toastListeners.add(setMessage);
+    return () => void toastListeners.delete(setMessage);
+  }, []);
+  useEffect(() => {
+    if (!message.text) return;
+    const timer = window.setTimeout(() => setMessage((m) => (m.seq === message.seq ? { text: "", seq: m.seq } : m)), NOTICE_MS);
     return () => window.clearTimeout(timer);
-  }, [message, onDone]);
-  return message
-    ? createPortal(
-        <div className="lock-toast" role="status" data-testid="lock-toast">
-          {message}
-        </div>,
-        document.body,
-      )
-    : null;
+  }, [message]);
+  return createPortal(
+    <div className="lock-toast-host" role="status">
+      {message.text && (
+        <div className="lock-toast" data-testid="lock-toast">
+          {message.text}
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
 }
 
 /**
@@ -119,7 +174,6 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
   const rights = useLockRights();
   const { armed, press: armPress, disarm } = useArm<LockPlan>();
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
-  const [notice, setNotice] = useState("");
   const [announced, setAnnounced] = useState("");
   const main = useRef<HTMLButtonElement>(null);
   const chevron = useRef<HTMLButtonElement>(null);
@@ -136,11 +190,11 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
   }, [shownNow, t, disarm]);
 
   if (variant === "bar" && scope.total === 0) return null;
-  const say = (message: string) => setNotice(message);
+  const say = showLockToast;
   const fail = (message: string) => (onError ? onError(message) : say(message));
   const planFor = (wanted: LockLevel): LockPlan => planLock({ base: scope.base, top: scope.top }, wanted, rights);
   const reason = (plan: LockPlan): string | undefined => (scope.empty ? (scope.empty === "deleted" ? t.motionLock.groupDeleted : t.motionLock.groupNoHeads) : reasonOf(t, plan));
-  const stillGlobal = () => say(t.motionLock.stillGlobal.replace("{names}", () => label ?? t.heads));
+  const stillGlobal = () => say((scope.total > 1 ? t.motionLock.stillGlobalMany : t.motionLock.stillGlobalOne).replace("{names}", () => label ?? t.heads));
 
   /** Sends `wanted`, or arms it first when it loosens a hard lock; returns whether it was sent. */
   const choose = (wanted: LockLevel): boolean => {
@@ -169,7 +223,7 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
   const stateText = scope.empty ? (scope.empty === "deleted" ? t.motionLock.groupDeletedShort : t.motionLock.groupNoHeadsShort) : scope.shown === "off" ? t.motionLock.free : scope.shown === "soft" ? t.motionLock.soft : t.motionLock.hard;
   const icon = scope.empty || scope.shown === "off" ? "" : scope.shown === "soft" ? "🔒 " : "🔒🔒 ";
   const help = scope.shown === "off" ? t.motionLock.helpFree : scope.shown === "soft" ? t.motionLock.helpSoft : t.motionLock.helpHard;
-  const some = partial ? t.motionLock.some.replace("{n}", String(scope.frozen)).replace("{total}", String(scope.total)) : "";
+  const some = suffixOf(t, scope, partial);
   const noRights = !rights.freeze && !rights.position;
   const openMenu = () => {
     const r = (chevron.current ?? main.current)?.getBoundingClientRect();
@@ -237,7 +291,7 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
       >
         {variant === "widget" && label && <span className="motion-lock-label">{label}</span>}
         <span className="motion-lock-state">{armed ? pressAgainFor(t, armed as LockLevel) : `${icon}${stateText}`}</span>
-        {some && !armed && <small className="motion-lock-some">{some}</small>}
+        {some && !armed && <small className="motion-lock-some">{variant === "bar" ? `· ${some}` : some}</small>}
       </button>
       <button
         ref={chevron}
@@ -262,12 +316,12 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {announced}
       </span>
-      <LockToast message={notice} onDone={() => setNotice("")} />
       {menuAt && (
         <LockMenu
           at={menuAt}
           shown={scope.shown}
           partial={partial}
+          notes={apartNotes(t, scope)}
           armed={armed as LockLevel | null}
           planFor={planFor}
           reason={reason}
@@ -283,9 +337,10 @@ function LockControl({ variant, label, inert = false, onError, scope }: LockButt
 }
 
 /** The three levels, the current one checked; a level the role may not choose is greyed with its reason. */
-function LockMenu({ at, shown, partial, armed, planFor, reason, onChoose, onClose }: { at: { x: number; y: number }; shown: LockLevel; partial: boolean; armed: LockLevel | null; planFor: (level: LockLevel) => LockPlan; reason: (plan: LockPlan) => string | undefined; onChoose: (level: LockLevel) => void; onClose: () => void }): ReactElement {
+function LockMenu({ at, shown, partial, notes, armed, planFor, reason, onChoose, onClose }: { at: { x: number; y: number }; shown: LockLevel; partial: boolean; notes: readonly string[]; armed: LockLevel | null; planFor: (level: LockLevel) => LockPlan; reason: (plan: LockPlan) => string | undefined; onChoose: (level: LockLevel) => void; onClose: () => void }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
+  const reasonId = useId();
   useEffect(() => {
     // the level checked takes the focus, not « Libres »: an Enter held on the chevron must not land on « Défiger »
     const items = box.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
@@ -294,6 +349,9 @@ function LockMenu({ at, shown, partial, armed, planFor, reason, onChoose, onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when it opens; `box` is a stable ref
   }, []);
   const names: Record<LockLevel, string> = { off: t.motionLock.menuFree, soft: `🔒 ${t.motionLock.menuSoft}`, hard: `🔒🔒 ${t.motionLock.menuHard}` };
+  const whys = LEVELS.map((level) => reason(planFor(level)));
+  // a greyed level's reason, said once under the levels (a long reason beside each one crushed its name)
+  const reasons = [...new Set(whys.filter((why): why is string => Boolean(why)))];
   const onKey = (e: ReactKeyboardEvent) => {
     if (e.repeat && (e.key === "Enter" || e.key === " ")) return e.preventDefault();
     if (e.key === "Tab") {
@@ -311,18 +369,26 @@ function LockMenu({ at, shown, partial, armed, planFor, reason, onChoose, onClos
   // in a portal: the sticky header's stacking context would put the Live's sticky bar over it
   return createPortal(
     <div ref={box} className="widget-menu motion-lock-menu" role="menu" aria-label={t.motionLock.choose} style={style} onKeyDown={onKey} onContextMenu={(e) => e.preventDefault()}>
-      {LEVELS.map((level) => {
-        const plan = planFor(level);
-        const why = reason(plan);
+      {LEVELS.map((level, i) => {
+        const why = whys[i];
         const checked = level === shown && !partial;
         return (
-          <button key={level} role="menuitemradio" aria-checked={checked} data-level={level} className={`${armed === level ? "armed" : ""}${checked ? " chosen" : ""}`.trim() || undefined} disabled={Boolean(why)} title={why} onClick={() => onChoose(level)}>
+          <button key={level} role="menuitemradio" aria-checked={checked} data-level={level} className={`${armed === level ? "armed" : ""}${checked ? " chosen" : ""}`.trim() || undefined} disabled={Boolean(why)} title={why} aria-describedby={why ? reasonId : undefined} onClick={() => onChoose(level)}>
             <span className="check" aria-hidden="true">{checked ? "●" : "○"}</span>
             {armed === level ? pressAgainFor(t, level) : names[level]}
-            {why && <small className="hint"> — {why}</small>}
           </button>
         );
       })}
+      {notes.map((note) => (
+        <small key={note} className="hint motion-lock-note" data-testid="motion-lock-note">
+          {note}
+        </small>
+      ))}
+      {reasons.length > 0 && (
+        <small id={reasonId} className="hint motion-lock-note" data-testid="motion-lock-reason">
+          {reasons.join(" · ")}
+        </small>
+      )}
     </div>,
     document.body,
   );
@@ -344,7 +410,8 @@ export function LockChoice({ label, names, levels, checked, target, globalHolds,
   const choose = (level: LockLevel) => {
     const plan = planLock(levels, level, rights);
     if (!plan.calls) {
-      if (plan.blocked === "same" && globalHolds && level !== checked) onError(globalHolds);
+      // said where it is seen, whatever holds the control (a fixture's context menu shows its own errors out of sight)
+      if (plan.blocked === "same" && globalHolds && level !== checked) showLockToast(globalHolds);
       return;
     }
     let toRun: LockPlan = plan;

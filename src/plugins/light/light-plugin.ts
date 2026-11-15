@@ -800,7 +800,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel }; movingHeads: { total: number; frozen: number } } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel }; movingHeads: { total: number; frozen: number; hard: number } } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -843,11 +843,14 @@ export class LightPlugin implements McpPlugin {
     return scoped.length > 0 && scoped.every((head) => this.runtime.motionLock(head) !== "off");
   }
 
-  /** How many moving heads are installed, and how many of them a lock holds (their effective level, T26). */
-  private movingHeadsSummary(): { total: number; frozen: number } {
-    if (!this.runtime) return { total: 0, frozen: 0 };
-    const heads = this.runtime.movingHeads();
-    return { total: heads.length, frozen: heads.filter((head) => this.runtime.motionLock(head) !== "off").length };
+  /**
+   * How many moving heads are installed, how many of them a lock holds and how many it holds hard (their effective
+   * level, T26): the top bar says the global level and « · 1 en dur » for heads frozen harder on their own.
+   */
+  private movingHeadsSummary(): { total: number; frozen: number; hard: number } {
+    if (!this.runtime) return { total: 0, frozen: 0, hard: 0 };
+    const levels = this.runtime.movingHeads().map((head) => this.runtime.motionLock(head));
+    return { total: levels.length, frozen: levels.filter((l) => l !== "off").length, hard: levels.filter((l) => l === "hard").length };
   }
 
   /** The lock levels, and the strictest effective level over the installed moving heads (off without a head). */

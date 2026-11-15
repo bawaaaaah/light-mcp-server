@@ -277,7 +277,7 @@ export async function lightState(): Promise<{
   /** « Figer les lyres » (T26): the global level, each head's own, and the strictest effective level of an installed head. */
   motionLock?: MotionLockSummary;
   /** The installed moving heads, and how many a lock holds. */
-  movingHeads?: { total: number; frozen: number };
+  movingHeads?: { total: number; frozen: number; hard: number };
 }> {
   return json(await fetch("/api/plugins/light/state", { headers: { authorization: `Bearer ${token}` } }));
 }

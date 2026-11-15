@@ -81,7 +81,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const disabled = disabledByCaller || allHard;
   // « Défiger » asks a second press, not sooner than CONFIRM_MIN_MS (a double tap, a held key), on the target as armed
   const { armed: unfreezeArmed, press: armUnfreeze, disarm: disarmUnfreeze } = useArm<MotionTarget>();
-  useEffect(() => disarmUnfreeze(), [allHard, disarmUnfreeze]);
+  // a calibration pad switches heads without a new key: the armed « Défiger » must not fire on the next head
+  useEffect(() => disarmUnfreeze(), [allHard, group, fixture, disarmUnfreeze]);
   /** Heads a gesture left in place (frozen hard on a partly frozen group), named in the status line until the lock changes. */
   const [refusedIds, setRefusedIds] = useState<string[]>([]);
   useEffect(() => setRefusedIds([]), [hardCount, group, fixture]);
@@ -395,7 +396,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     : hardCount > 0
       ? { level: "hard", text: `🔒🔒 ${(hardCount === 1 ? t.motionLock.padSomeHardOne : t.motionLock.padSomeHard).replace("{n}", String(hardCount))}` }
       : softCount > 0
-        ? { level: "soft", text: `🔒 ${scopedHeads.length > 1 ? t.motionLock.padSoftMany.replace("{n}", String(softCount)) : t.motionLock.padSoft}` }
+        ? { level: "soft", text: `🔒 ${scopedHeads.length > 1 ? (softCount === 1 ? t.motionLock.padSoftOne : t.motionLock.padSoftMany.replace("{n}", String(softCount))) : t.motionLock.padSoft}` }
         : null;
   // decision V4: heads held by the global lock are unfrozen from the top bar, not here; the pad's « Défiger » is only for
   // the head's or the group's own lock
@@ -614,7 +615,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
               const errors = row.axes.flatMap(axisErrors);
               return (
                 <span key={row.axes.join(" ")} data-axis={row.axes.join(" ")} data-layer={row.chips.length === 1 ? row.chips[0]!.layer : "mixed"} title={[rowText(row), ...errors].join("\n")}>
-                  {axisName(row.axes)}{t.colon}{" "}
+                  {`${axisName(row.axes)}${t.colon}`.replace(/ /g, "\u00a0")}{"\u00a0"}
                   {row.chips.map((chip, i) => (
                     <span key={chip.text} className="xy-chip" data-layer={chip.layer}>
                       {i > 0 && <span aria-hidden="true"> · </span>}
@@ -654,7 +655,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
       <div className="row xy-actions">
         {allHard && globalHard && (
           <small className="hint xy-lock-why" data-testid="xy-lock-global">
-            {t.motionLock.padGlobal}
+            {scopedHeads.length > 1 ? t.motionLock.padGlobalMany : t.motionLock.padGlobal}
           </small>
         )}
         {allHard && !globalHard && !disabledByCaller && lockRights.position && (

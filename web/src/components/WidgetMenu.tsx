@@ -178,7 +178,7 @@ export function WidgetMenu({
         <label className="field">
           <span>{widget.kind === "look" ? t.assignLook : t.assignTarget}</span>
           <select value={widget.target ?? ""} onChange={(e) => onChange({ target: e.target.value || undefined })}>
-            <option value="">—</option>
+            <option value="">{widget.kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
             {targets.map((x) => (
               <option key={x.id} value={x.id}>
                 {x.name}
@@ -264,7 +264,8 @@ export function WidgetMenu({
                   </div>
                   {playable && (
                     <div className="midi-settings">
-                      {(action.action === "look" || action.action === "blackout" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
+                      {/* a note on « Figer les lyres » too: « Déclencher » switches, « Marche / arrêt » or « Momentané » are other ways to play it */}
+                      {(action.action === "look" || action.action === "blackout" || action.action === "freeze" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
                         <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
                           {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                             <option key={mode} value={mode}>

@@ -206,7 +206,7 @@ function GroupLock({ group, edited, onError }: { group: string; edited: boolean;
         levels={levels}
         checked={shown.base === shown.top ? shown.base : null}
         target={{ group }}
-        globalHolds={t.motionLock.stillGlobal.replace("{names}", () => t.motionLock.group)}
+        globalHolds={t.motionLock.stillGlobalMany.replace("{names}", () => t.motionLock.group)}
         onError={onError}
       />
       <small className="hint" role="status">

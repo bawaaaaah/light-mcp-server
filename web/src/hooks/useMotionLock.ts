@@ -5,10 +5,10 @@ import { control } from "../ws";
 /** « Figer les lyres » as every control shows it (T26): the lock's levels and the installed moving heads. */
 export interface MotionLockView {
   lock: MotionLockSummary;
-  movingHeads: { total: number; frozen: number };
+  movingHeads: { total: number; frozen: number; hard: number };
 }
 
-type StatePayload = { motionLock?: MotionLockSummary; movingHeads?: { total: number; frozen: number } };
+type StatePayload = { motionLock?: MotionLockSummary; movingHeads?: { total: number; frozen: number; hard: number } };
 
 const FREE: MotionLockSummary = { level: "off", heads: {}, effective: "off" };
 let current: MotionLockView | null = null;
@@ -16,7 +16,7 @@ const listeners = new Set<() => void>();
 let started = false;
 
 function take(state: StatePayload): void {
-  const next: MotionLockView = { lock: state.motionLock ?? FREE, movingHeads: state.movingHeads ?? { total: 0, frozen: 0 } };
+  const next: MotionLockView = { lock: state.motionLock ?? FREE, movingHeads: state.movingHeads ?? { total: 0, frozen: 0, hard: 0 } };
   // the state topic speaks every second something changes elsewhere (standby, sources): keep the same object when the lock did not move
   if (current && JSON.stringify(current) === JSON.stringify(next)) return;
   current = next;

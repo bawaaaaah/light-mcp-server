@@ -662,6 +662,8 @@ textarea {
 }
 .xy-chip {
   color: var(--layer-color, var(--muted));
+  /* « ● Verrou » never split from its mark (a tablet's narrow cell cut it after the colon) */
+  white-space: nowrap;
 }
 .layer-mark {
   display: inline-block;
@@ -4222,6 +4224,11 @@ fieldset.checklist .checklist-search {
   outline: 3px dashed var(--warn);
   outline-offset: -4px;
 }
+.motion-lock-note {
+  display: block;
+  padding: 0 0.2em;
+  line-height: 1.35;
+}
 .motion-lock-menu .check {
   width: 1em;
   color: var(--layer-lock);
@@ -4234,6 +4241,8 @@ fieldset.checklist .checklist-search {
 .motion-lock.widget > button {
   font-size: 1rem;
   border-radius: 8px;
+  /* the label and « 1 sur 4 » never touch the cell's edges */
+  padding-block: 0.4em;
 }
 .motion-lock.widget .motion-lock-main {
   flex: 1;
@@ -4324,6 +4333,8 @@ fieldset.group-lock legend {
 }
 .lock-choice button {
   flex: 1 1 auto;
+  /* a lock is a press someone makes in a hurry, on a tablet as on a desktop: 44 px everywhere, like the pad's buttons */
+  min-height: 44px;
 }
 .lock-choice button[aria-checked="true"] {
   border-color: var(--layer-lock);
@@ -4332,11 +4343,6 @@ fieldset.group-lock legend {
 .lock-choice button.armed {
   outline: 3px dashed var(--warn);
   outline-offset: -4px;
-}
-@media (max-width: 600px), (pointer: coarse) {
-  .lock-choice button {
-    min-height: 44px;
-  }
 }
 @media (max-width: 600px), (pointer: coarse) {
   .look-no-move {
