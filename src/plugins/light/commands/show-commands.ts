@@ -10,7 +10,7 @@ import { displayHex } from "../engine/display.js";
 import { ANSWERING_ORIGINS, CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import { CanvasSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
+import { CanvasSchema, DegreeRangeSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKeyOrUndefined, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
@@ -294,11 +294,24 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "venue.fixture.orient",
     title: "Orienter une fixture",
     description:
-      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); both stay as stored when not given.",
+      "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); swapPanTilt exchanges its pan and tilt channels. Manual calibration (T8): panOffset / tiltOffset, degrees where the beam really falls for a given position (aiming takes them off; the pad's positions do not change); limits, the useful stops per axis as [from, to] in logical degrees (0 = centre of the travel, before the offsets): aiming beyond them is refused as out of reach and the output is bounded to them; an axis given null removes its stop, limits null both. Each of these stays as stored when not given. Inverting or swapping is refused while the head is frozen hard.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ id: z.string(), facing: z.enum(FACING_NAMES).optional(), yaw: z.number().optional(), pitch: z.number().min(-90).max(90).optional(), turn: z.number().optional(), roll: z.number().min(-180).max(180).optional(), invertPan: z.boolean().optional(), invertTilt: z.boolean().optional() }),
-    run: ({ id: fixtureId, facing, yaw, pitch, turn, roll, invertPan, invertTilt }) => {
+    schema: z.object({
+      id: z.string(),
+      facing: z.enum(FACING_NAMES).optional(),
+      yaw: z.number().optional(),
+      pitch: z.number().min(-90).max(90).optional(),
+      turn: z.number().optional(),
+      roll: z.number().min(-180).max(180).optional(),
+      invertPan: z.boolean().optional(),
+      invertTilt: z.boolean().optional(),
+      swapPanTilt: z.boolean().optional(),
+      panOffset: z.number().finite().min(-360).max(360).optional(),
+      tiltOffset: z.number().finite().min(-360).max(360).optional(),
+      limits: z.object({ pan: DegreeRangeSchema.nullable().optional(), tilt: DegreeRangeSchema.nullable().optional() }).nullable().optional(),
+    }),
+    run: ({ id: fixtureId, facing, yaw, pitch, turn, roll, invertPan, invertTilt, swapPanTilt, panOffset, tiltOffset, limits }) => {
       const f = venue.fixtures.get(fixtureId);
       if (!f) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
       let o = { yaw: f.orientation?.yaw ?? 0, pitch: f.orientation?.pitch ?? 0 };
@@ -318,7 +331,21 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         ...(roll !== undefined ? { roll } : {}),
         ...(invertPan !== undefined ? { invertPan } : {}),
         ...(invertTilt !== undefined ? { invertTilt } : {}),
+        ...(swapPanTilt !== undefined ? { swapPanTilt } : {}),
+        ...(panOffset !== undefined ? { panOffset } : {}),
+        ...(tiltOffset !== undefined ? { tiltOffset } : {}),
       };
+      // the stops (T8): an axis given replaces its own, null removes it; limits null removes both; not given, kept
+      if (limits !== undefined) {
+        const next = { ...orientation.limits };
+        for (const axis of ["pan", "tilt"] as const) {
+          const range = limits?.[axis];
+          if (limits === null || range === null) delete next[axis];
+          else if (range !== undefined) next[axis] = range;
+        }
+        if (next.pan || next.tilt) orientation.limits = next;
+        else delete orientation.limits;
+      }
       keepFrozenFlips(fixtureId, f.orientation, orientation);
       const saved = venue.fixtures.put({ ...f, orientation });
       return { fixture: saved, facing: facingOf(saved.orientation) };

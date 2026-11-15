@@ -118,6 +118,47 @@ describe("fixture orientation", () => {
     expect(listed.find((f) => f.id === "bar-1")!.orientation).to.include({ invertPan: true, invertTilt: false, swapPanTilt: true, pitch: 10 });
   });
 
+  it("writes the calibration offsets, the swap and the stops only when given (T8), keeping everything else", async () => {
+    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-orient-t8-")), "data");
+    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    await run("venue.fixture.put", { fixture: { id: "lyre", name: "Lyre", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1, position: { x: 0, y: 2, z: 5 }, mount: "hung", orientation: { yaw: 15, pitch: -90, roll: 10, invertPan: true, invertTilt: false, swapPanTilt: false, panOffset: 1, tiltOffset: 2 } } });
+    type O = { yaw: number; pitch: number; roll?: number; invertPan: boolean; invertTilt: boolean; swapPanTilt: boolean; panOffset: number; tiltOffset: number; limits?: { pan?: number[]; tilt?: number[] } };
+    const orient = async (args: object) => ((await run("venue.fixture.orient", { id: "lyre", ...args })) as { fixture: { orientation: O } }).fixture.orientation;
+    const stored = () => plugin.venue.fixtures.get("lyre")!.orientation as O;
+    const all = { yaw: 15, pitch: -90, roll: 10, invertPan: true, invertTilt: false, swapPanTilt: false, panOffset: 1, tiltOffset: 2 };
+    expect(await orient({ panOffset: -3.5 })).to.deep.equal({ ...all, panOffset: -3.5 });
+    expect(await orient({ tiltOffset: 4.25, swapPanTilt: true })).to.deep.equal({ ...all, panOffset: -3.5, tiltOffset: 4.25, swapPanTilt: true });
+    expect(await orient({ limits: { pan: [-120, 90] } })).to.deep.include({ limits: { pan: [-120, 90] } });
+    expect((await orient({ limits: { tilt: [-100, 30] } })).limits).to.deep.equal({ pan: [-120, 90], tilt: [-100, 30] }); // one axis kept beside the other
+    expect((await orient({ yaw: 20 })).limits).to.deep.equal({ pan: [-120, 90], tilt: [-100, 30] }); // not given: kept
+    expect((await orient({ limits: { pan: null } })).limits).to.deep.equal({ tilt: [-100, 30] });
+    expect(await orient({ limits: null })).to.not.have.property("limits");
+    expect(stored()).to.deep.equal({ ...all, yaw: 20, panOffset: -3.5, tiltOffset: 4.25, swapPanTilt: true });
+    // a reversed stop is refused, the orientation untouched
+    await run("venue.fixture.orient", { id: "lyre", limits: { pan: [30, -30] } }).then(
+      () => expect.fail("a stop's start is at most its end"),
+      (e: Error) => expect(e.message).to.match(/butée|stop/),
+    );
+    expect(stored()).to.not.have.property("limits");
+    // what orient wrote goes back through venue.fixture.put as it is (the patch's round trip)
+    await orient({ limits: { pan: [-10, 10] } });
+    const listed = ((await run("venue.fixture.list")) as { id: string }[]).find((f) => f.id === "lyre")!;
+    await run("venue.fixture.put", { fixture: listed });
+    expect(stored().limits).to.deep.equal({ pan: [-10, 10] });
+    // frozen hard: a swap would move it, refused; offsets and stops do not move it, allowed
+    await run("motion.freeze", { fixtures: ["lyre"], level: "hard" });
+    await run("venue.fixture.orient", { id: "lyre", swapPanTilt: false }).then(
+      () => expect.fail("a swap moves a frozen head"),
+      (e: Error) => expect(e.message).to.match(/figée|frozen/),
+    );
+    expect((await orient({ panOffset: 0, limits: { tilt: [-50, 50] } })).limits).to.deep.equal({ pan: [-10, 10], tilt: [-50, 50] });
+    await run("motion.unfreeze", { fixtures: ["lyre"] });
+  });
+
   it("re-solves the inversions of a calibration while keeping the body's pitch, roll, swap and stops, the pan offset folded into the yaw", async () => {
     const dataRoot = join(mkdtempSync(join(tmpdir(), "light-solve-")), "data");
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
