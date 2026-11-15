@@ -40,7 +40,7 @@ describe("targets: the commands (T24)", () => {
   beforeEach(async () => {
     const dataRoot = join(mkdtempSync(join(tmpdir(), "light-targets-cmds-")), "data");
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
-    copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
+    for (const f of ["spot.qxf", "par-rgb.qxf"]) copyFileSync(new URL(`../../fixtures/${f}`, import.meta.url), join(dataRoot, "fixtures", f));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
     now = 0;
     plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null, now: () => now });
@@ -68,6 +68,45 @@ describe("targets: the commands (T24)", () => {
     expect(edited.point).to.deep.equal({ x: 4.5, y: -0.5, z: 5.5 });
     expect((await failure(run("target.put", { target: { id: "x", name: "X", fixtures: ["ghost"] } }))).message).to.match(/ghost/);
     expect((await failure(run("target.put", { target: { id: "x", name: "X", group: "ghost" } }))).message).to.match(/ghost/);
+    // a fixture without pan or tilt cannot follow a point
+    plugin.venue.fixtures.put({ id: "par", name: "Par", manufacturer: "Test", model: "Par RGB", mode: "3 Channel", universe: 1, address: 21 });
+    expect((await failure(run("target.put", { target: { id: "x", name: "X", fixtures: ["par"] } }))).message).to.match(/« Par » n'est pas une lyre|“Par” is not a moving head/);
+  });
+
+  it("target.set takes nx past 0 or 1 (an OSC float) as its end; target.delete says the target was engaged", async () => {
+    await run("target.put", { target: { id: "t", name: "T", group: "lyres", point: { x: 0, y: 2, z: 1 }, bounds: { min: { x: -2, y: 0, z: 0 }, max: { x: 2, y: 4, z: 4 } } } });
+    expect(((await run("target.set", { id: "t", nx: 1.0000001 })) as Listed).point.x).to.equal(2);
+    expect(((await run("target.set", { id: "t", nx: -0.02, nz: 1.5 })) as Listed).point).to.deep.equal({ x: -2, y: 2, z: 4 });
+    await run("target.engage", { id: "t", on: true });
+    expect(await run("target.delete", { id: "t" })).to.deep.equal({ deleted: true, engaged: true });
+    await run("target.put", { target: { id: "u", name: "U", group: "lyres" } });
+    expect(await run("target.delete", { id: "u" })).to.deep.equal({ deleted: true });
+  });
+
+  it("target.engage on a target already engaged puts it back on top", async () => {
+    await run("target.put", { target: { id: "a", name: "A", fixtures: ["spot"] } });
+    await run("target.put", { target: { id: "b", name: "B", fixtures: ["spot"] } });
+    await run("target.engage", { id: "a", on: true });
+    await run("target.engage", { id: "b", on: true });
+    expect(await listed("a")).to.include({ priority: 2 });
+    await run("target.engage", { id: "a", on: true });
+    expect(await listed("a")).to.include({ priority: 1 });
+    during(1200);
+    expect(plugin.runtime.motionStatus().get("spot")!.pan.owner).to.equal("target:a");
+  });
+
+  it("look.put refuses a move following an unknown target; a proposal bounds a new target's point", async () => {
+    const look = (target: string) => ({ look: { id: "suit", name: "Suit", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { target } } } });
+    expect((await failure(run("look.put", look("ghost")))).message).to.match(/cible inconnue : ghost|unknown target: ghost/);
+    await run("target.put", { target: { id: "t", name: "T", group: "lyres" } });
+    await run("look.put", look("t"));
+    // a target deleted since (forced): the look stays editable, « Vérifier le show » says it
+    await run("target.delete", { id: "t", force: true });
+    await run("look.put", { look: { ...look("t").look, name: "Suit encore" } });
+    const p = (await run("show.propose", { changes: [{ command: "target.put", args: { target: { id: "n", name: "N", group: "lyres", point: { x: 99, y: 0, z: 0 } } } }] })) as { id: string; valid: boolean };
+    expect(p.valid).to.equal(true);
+    await run("show.apply", { id: p.id });
+    expect(plugin.runtime.targets.get("n")!.point).to.deep.equal({ x: 4.5, y: 0, z: 0 });
   });
 
   it("target.set moves the point in metres or 0..1 of its bounds, partially, and refuses x with nx", async () => {
@@ -125,6 +164,13 @@ describe("targets: the commands (T24)", () => {
     await run("stage.zone.put", { zone: { id: "pupitre", name: "Pupitre", polygon: [[-1, 0], [0, 0], [0, 1], [-1, 1]], noAim: true } });
     expect((await failure(run("target.zone", { id: "t", zone: "pupitre" }))).message).to.match(/Pupitre/);
     expect((await failure(run("target.zone", { id: "t", zone: "ghost" }))).message).to.match(/ghost/);
+    // what is checked is the point once bounded: a zone beyond the bounds lands on their edge, here in the lectern
+    await run("target.put", { target: { id: "b", name: "B", group: "lyres", point: { x: -1, y: 0.5, z: 0 }, bounds: { min: { x: -3, y: 0, z: 0 }, max: { x: -0.5, y: 3, z: 3 } } } });
+    await run("stage.zone.put", { zone: { id: "jardin", name: "Jardin", polygon: [[1, 0], [3, 0], [3, 1], [1, 1]] } });
+    expect((await failure(run("target.zone", { id: "b", zone: "jardin" }))).message).to.match(/Pupitre/);
+    // and a no-aim zone whose centre, bounded, lands outside it is no refusal
+    await run("stage.zone.put", { zone: { id: "loin", name: "Loin", polygon: [[2, 2], [3, 2], [3, 3], [2, 3]], noAim: true } });
+    expect(((await run("target.zone", { id: "b", zone: "loin" })) as Listed).point).to.deep.equal({ x: -0.5, y: 2.5, z: 1.5 });
   });
 
   it("target.delete is refused while a look, a mapping, a snapshot or a song uses it, unless forced; a target uses its fixtures and group", async () => {
@@ -195,13 +241,25 @@ describe("targets: the commands (T24)", () => {
   it("« Vérifier le show » names a look following a target gone, a target's unknown heads, and targets sharing heads", async () => {
     await run("target.put", { target: { id: "a", name: "A", group: "lyres" } });
     await run("target.put", { target: { id: "b", name: "B", fixtures: ["spot2"] } });
-    await run("look.put", { look: { id: "suit", name: "Suit", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { target: "ghost" } } } });
+    // a look following a target gone (look.put refuses an unknown one: written as a force-deleted target leaves it)
+    plugin.runtime.looks.put({ id: "suit", name: "Suit", canvas: "lyres", technique: { kind: "aucune" }, move: { shape: "fixe", at: { target: "ghost" } } } as never);
     plugin.runtime.targets.put({ id: "c", name: "C", fixtures: ["nobody"], point: { x: 0, y: 0, z: 0 } });
     const { issues } = (await run("show.lint")) as { issues: { level: string; where: string; message: string }[] };
     const about = (where: string) => issues.filter((i) => i.where === where).map((i) => `${i.level}: ${i.message}`);
     expect(about("look suit")).to.deep.include("erreur: cible inconnue ghost (mouvement) : ses lyres restent où elles sont");
     expect(about("cible c")).to.deep.equal(["erreur: projecteur inconnu nobody", "attention: « C » ne déplace aucune lyre installée"]);
     expect(about("cible a")).to.deep.equal(["info: « A » et « B » partagent Spot 2 : engagées ensemble, la dernière engagée les prend"]);
+  });
+
+  it("a version put back changes a target's design, not its point nor its engagement", async () => {
+    await run("target.put", { target: { id: "t", name: "Avant", group: "lyres", point: { x: 1, y: 1, z: 1 } } });
+    await run("target.put", { target: { id: "t", name: "Après", group: "lyres" } });
+    await run("target.engage", { id: "t", on: true });
+    await run("target.set", { id: "t", x: -1 });
+    const versions = (await run("history.list", { collection: "targets", id: "t" })) as { stamp: string }[];
+    expect(versions.length).to.be.above(0);
+    await run("history.restore", { collection: "targets", id: "t", stamp: versions.at(-1)!.stamp });
+    expect(plugin.runtime.targets.get("t")).to.deep.include({ name: "Avant", engaged: true, point: { x: -1, y: 1, z: 1 } });
   });
 
   it("a proposal of target.put keeps the point and engagement, which are live", async () => {

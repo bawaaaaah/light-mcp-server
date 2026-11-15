@@ -144,7 +144,7 @@ export const HINTS: Record<string, string> = {
   "stage.zone.delete": "DI",
   "stage.zone.put": "DI",
   "target.delete": "DI",
-  "target.engage": "I",
+  "target.engage": "",
   "target.put": "DI",
   "target.set": "I",
   "target.zone": "I",

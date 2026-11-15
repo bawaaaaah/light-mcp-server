@@ -77,6 +77,12 @@ interface MotionRun {
   bpm: number;
   sent?: ReadonlyMap<string, Position> | undefined;
   status: ReadonlyMap<string, HeadStatus>;
+  /**
+   * The base each claim with a shape aimed a head at on the previous frame (`claimKey@head`, T24): a shape around a
+   * point aims the point from its last base, not from the position sent (base + the shape's offset), or the base
+   * would drift with the shape. `compose` leaves the new table in it; only `render` keeps it.
+   */
+  bases: ReadonlyMap<string, Position>;
 }
 
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
@@ -86,6 +92,8 @@ const STRICT_ARRIVAL_MS = 600_000;
 
 /** The pad and the commands that follow a continuous gesture are direct (R8). */
 const DIRECT: MoveFade = { seconds: 0 };
+
+const STAGE_AXES: readonly StageAxis[] = ["x", "y", "z"];
 
 interface ActiveLook {
   look: Look;
@@ -279,6 +287,12 @@ export class ShowRuntime {
    */
   private motionState: MotionState = emptyMotionState();
   private sentPositions: ReadonlyMap<string, Position> = new Map();
+  /** MotionRun.bases of the last frame really rendered. */
+  private aimBases: ReadonlyMap<string, Position> = new Map();
+  /** Targets whose point has a glide in `targetGlide`: those a real frame does not read are forgotten at its end (a look restarted later glides from where the point is). */
+  private readonly glidingTargets = new Set<string>();
+  /** The targets whose point a real frame read (render): undefined outside one. */
+  private targetsRead: Set<string> | undefined;
   private lastMotion: ReadonlyMap<string, HeadStatus> = new Map();
   /**
    * « Figer les lyres » (T26): the effective lock level of each head, from the show's `motionLock` (the stricter of the
@@ -953,6 +967,8 @@ export class ShowRuntime {
     this.flashes.clear();
     this.manualPositions.clear();
     this.targetGlide = new Glide();
+    this.glidingTargets.clear();
+    this.aimBases = new Map();
     // the layer starts afresh; what was sent is kept, so that the heads glide from where they are
     this.motionState = emptyMotionState();
     this.lastMotion = new Map();
@@ -1431,15 +1447,20 @@ export class ShowRuntime {
 
   /** The moving heads while a frame is composed: listed once for the frame (compose, the claims, the read-back). */
   private frameHeads: string[] | undefined;
+  /** While a frame is composed: the stage volume and each target's heads (by target object), computed once for the frame. */
+  private frameTargets: { stage?: Bounds; heads: WeakMap<object, string[]> } | undefined;
 
   /** Runs `fn` with the moving heads listed once. */
   private withHeads<T>(fn: () => T): T {
     const had = this.frameHeads;
+    const hadTargets = this.frameTargets;
     this.frameHeads ??= this.movingHeads();
+    this.frameTargets ??= { heads: new WeakMap() };
     try {
       return fn();
     } finally {
       this.frameHeads = had;
+      this.frameTargets = hadTargets;
     }
   }
 
@@ -1697,7 +1718,10 @@ export class ShowRuntime {
 
   /** The box a target's point moves in: its own bounds, else the stage volume (zones, placed fixtures). */
   targetBounds(t: Pick<Target, "bounds">): Bounds {
-    return t.bounds ?? stageBounds(this.zones.list(), this.venue.installed());
+    if (t.bounds) return t.bounds;
+    const frame = this.frameTargets;
+    if (frame) return (frame.stage ??= stageBounds(this.zones.list(), this.venue.installed()));
+    return stageBounds(this.zones.list(), this.venue.installed());
   }
 
   /** Where a new target's point starts: the middle of its bounds (the stage volume without its own), at a standing person's face. */
@@ -1708,8 +1732,12 @@ export class ShowRuntime {
 
   /** The installed moving heads a target moves, each once: its fixtures in their order, then its group's by X. */
   targetHeads(t: Pick<Target, "fixtures" | "group">): string[] {
+    const cached = this.frameTargets?.heads.get(t);
+    if (cached) return cached;
     const heads = new Set(this.movingHeads());
-    return [...new Set([...t.fixtures.filter((f) => heads.has(f)), ...(t.group ? this.groupHeads(t.group) : [])])];
+    const mine = [...new Set([...t.fixtures.filter((f) => heads.has(f)), ...(t.group ? this.groupHeads(t.group) : [])])];
+    this.frameTargets?.heads.set(t, mine);
+    return mine;
   }
 
   /** Where a target's point is now: its point within its bounds, gliding per axis when it has a smoothing. */
@@ -1717,6 +1745,8 @@ export class ShowRuntime {
     const b = this.targetBounds(t);
     const p = clampPoint(t.point, b);
     if (!t.smoothing) return p;
+    this.glidingTargets.add(t.id);
+    this.targetsRead?.add(t.id);
     const now = this.now();
     const axis = (a: StageAxis) => fromNormal(a, this.targetGlide.value(`${t.id}:${a}`, toNormal(a, p[a], b), t.smoothing, now), b);
     return { x: axis("x"), y: axis("y"), z: axis("z") };
@@ -1732,14 +1762,15 @@ export class ShowRuntime {
   /**
    * Engages or disengages a target. Engaged, it claims its heads at the target layer, ordered by `engagedAt` (strictly
    * increasing: the last engaged wins a head two targets share, restart included); its point starts where it is (no
-   * glide of the point on engaging: the heads' transition is the motion layer's). Idempotent.
+   * glide of the point on engaging: the heads' transition is the motion layer's). Engaging a target already engaged
+   * puts it back on top (decision T-a): a new order, hence a new claim key, which also lifts a « Rendre la main » on it;
+   * its point keeps gliding where it is. Disengaging a target that is not engaged changes nothing.
    */
   engageTarget(id: string, on: boolean, at = Date.now()): Target {
     const t = this.targets.get(id);
     if (!t) throw new Error(say(`cible inconnue : ${id}`, `unknown target: ${id}`));
-    if (t.engaged === on) return t;
-    if (!on) return this.targets.putLive({ ...t, engaged: false });
-    for (const a of ["x", "y", "z"] as const) this.targetGlide.forget(`${id}:${a}`);
+    if (!on) return t.engaged ? this.targets.putLive({ ...t, engaged: false }) : t;
+    if (!t.engaged) for (const a of STAGE_AXES) this.targetGlide.forget(`${id}:${a}`);
     const last = Math.max(0, ...this.targets.list().map((x) => x.engagedAt ?? 0));
     return this.targets.putLive({ ...t, engaged: true, engagedAt: Math.max(Math.round(at), last + 1) });
   }
@@ -1750,17 +1781,17 @@ export class ShowRuntime {
   }
 
   /**
-   * Where `head` points to follow `point`: the solution closest to where it was sent (never the long way round), or why
-   * it holds there (out of reach, the point in a no-aim zone closed now, no stage position).
+   * Where `head` points to follow `point`: the solution closest to `from` (never the long way round), or why it holds
+   * there (out of reach, the point in a no-aim zone closed now, no stage position).
    */
-  private aimFor(head: string, point: Point3, sent: ReadonlyMap<string, Position> | undefined, noAim: readonly Zone[]): Position | { error: string } {
+  private aimFor(head: string, point: Point3, from: Position | undefined, noAim: readonly Zone[]): Position | { error: string } {
     const r = this.venue.resolve(head);
-    const res = aimHead("error" in r ? undefined : aimSetupOf(r), point, sent?.get(head) ?? this.sentPositions.get(head), noAim);
+    const res = aimHead("error" in r ? undefined : aimSetupOf(r), point, from, noAim);
     return "held" in res ? { error: res.message } : res;
   }
 
   /** The no-aim zones closed now: those no playing look of their `allowLooks` opens (the guard's reading). */
-  private closedNoAim(): Zone[] {
+  closedNoAim(): Zone[] {
     const playing = new Set(this.activeLooks());
     return this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
   }
@@ -1779,10 +1810,25 @@ export class ShowRuntime {
         if (a.t0 === undefined || a.dur === undefined) Object.assign(a, { t0: now, dur: Math.max(UNLOCK_MIN_MS, motionDurationMs(this.settings.moveFade, tempo.bpm ?? FALLBACK_BPM)) });
         else if (now - a.t0 >= a.dur) this.lockArrivals.delete(head);
       }
-      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion };
-      const errors = this.compose(buffers, now, tempo.beats, this.wheels, run);
+      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion, bases: this.aimBases };
+      const read = new Set<string>();
+      this.targetsRead = read;
+      let errors: string[];
+      try {
+        errors = this.compose(buffers, now, tempo.beats, this.wheels, run);
+      } finally {
+        this.targetsRead = undefined;
+      }
       this.motionState = run.state;
       this.lastMotion = run.status;
+      this.aimBases = run.bases;
+      // a target's glide nobody read this frame is forgotten (a look following it stopped, the target deleted): read
+      // again later, its point starts where it is instead of gliding from a stale value
+      for (const id of this.glidingTargets)
+        if (!read.has(id)) {
+          for (const a of STAGE_AXES) this.targetGlide.forget(`${id}:${a}`);
+          this.glidingTargets.delete(id);
+        }
       // Rules mask: last stage of the show's output.
       this.lastClamps = this.mask(buffers, this.rulesInForce());
       this.lastErrors = errors;
@@ -1812,7 +1858,7 @@ export class ShowRuntime {
       const seen = new Set<string>();
       const wheels = new Map(this.wheels); // played in memory: the wheels held on the output stay as they are
       // and so does the motion layer: its transitions are played from the state it has now, which is not kept
-      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: bpm ?? FALLBACK_BPM, status: this.lastMotion };
+      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: bpm ?? FALLBACK_BPM, status: this.lastMotion, bases: this.aimBases };
       const blank = () => Array.from({ length: universes }, () => new Uint8Array(512));
       const eachFixture = (out: Uint8Array[], visit: (r: ResolvedFixture, buf: Uint8Array) => Clamp[]): void => {
         for (const f of this.venue.installed()) {
@@ -2101,6 +2147,19 @@ export class ShowRuntime {
     const movers = this.movingHeads();
     if (movers.length) {
       let noAim: Zone[] | undefined;
+      const bases = new Map<string, Position>();
+      // a claim with a shape aims from its own last base on that head (MotionRun.bases); without one, from the position
+      // sent (the frames strictBounds plays after its first follow the layer's own course: what render last sent)
+      const aim = (head: string, point: Point3, claim: MotionClaim): Position | { error: string } => {
+        const key = claim.shape ? `${claimKey(claim)}@${head}` : undefined;
+        const last = key === undefined ? undefined : motion.bases.get(key);
+        const res = this.aimFor(head, point, last ?? motion.sent?.get(head) ?? this.sentPositions.get(head), (noAim ??= this.closedNoAim()));
+        if (key !== undefined) {
+          const kept = "error" in res ? last : res;
+          if (kept) bases.set(key, kept);
+        }
+        return res;
+      };
       const resolved = resolveMotion(
         {
           heads: movers,
@@ -2109,7 +2168,7 @@ export class ShowRuntime {
           bpm: motion.bpm,
           ...(motion.sent ? { sent: motion.sent } : {}),
           settings: { moveFade: this.settings.moveFade, rest: this.settings.restPositions },
-          ctx: { aim: (head, point) => this.aimFor(head, point, motion.sent, (noAim ??= this.closedNoAim())) },
+          ctx: { aim },
           lock: this.motionLock,
           heldOf: (head) => this.heldAt(head, now),
           axisMode: (head, axis) => this.axisMode(head, axis),
@@ -2121,6 +2180,7 @@ export class ShowRuntime {
       for (const [head, status] of resolved.status) for (const axis of [status.pan, status.tilt]) if (axis.error && !errors.includes(`${head}: ${axis.error}`)) errors.push(`${head}: ${axis.error}`);
       motion.state = resolved.next;
       motion.status = resolved.status;
+      motion.bases = bases;
     } else if (motion.status.size) motion.status = new Map();
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and

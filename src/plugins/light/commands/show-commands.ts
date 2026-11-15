@@ -19,7 +19,8 @@ import { trackNamesProblem } from "../venue/tracks.js";
 import { channelModes } from "../venue/channel-modes.js";
 import { slotValue, wheelCapabilities } from "../venue/color-wheel.js";
 import { sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
-import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, TargetSchema, type Look, type Snapshot } from "../show/model.js";
+import { clampPoint } from "../venue/target-aim.js";
+import { ChannelFaderSchema, FaderSmoothingSchema, GroupSchema, LookSchema, PaletteSchema, ShowSettingsSchema, StagePointSchema, TargetSchema, type Look, type Snapshot } from "../show/model.js";
 import { slugify, stableStringify } from "../data/store.js";
 import { swatchOf } from "../show/swatch.js";
 import { exclusiveMoves, nextExclusiveName } from "../show/exclusive.js";
@@ -995,9 +996,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const bad = look.channels.steps.findIndex((row) => row.length !== look.channels!.targets.length);
       if (bad >= 0) throw new Error(say(`canaux bruts : le pas ${bad + 1} a ${look.channels.steps[bad]!.length} valeur(s) pour ${look.channels.targets.length} canal(aux)`, `raw channels: step ${bad + 1} has ${look.channels.steps[bad]!.length} value(s) for ${look.channels.targets.length} channel(s)`));
     }
+    const stored = show.looks.get(look.id);
+    // a move following a target (T24) names one that exists; a look already following a target deleted since (with
+    // force) stays editable, « Vérifier le show » says it
+    const at = look.move?.at?.target;
+    if (at !== undefined && !show.targets.get(at) && at !== stored?.move?.at?.target) throw new Error(say(`cible inconnue : ${at}`, `unknown target: ${at}`));
     const folder = folderOf(look.tags);
     // only a move *into* a reserved name is refused: a look an older show already filed there stays editable
-    const stored = show.looks.get(look.id);
     if (folder !== undefined && isReservedFolder(folder) && folder !== (stored ? folderOf(stored.tags) : undefined)) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
     const tags = folder === undefined ? look.tags : withFolder(look.tags, folder);
     return sameTags(tags, look.tags) ? look : { ...look, tags };
@@ -1005,7 +1010,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; enabled = reserved, no effect yet). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
+    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; at = {target: id} centres the move on a target's point, aimed head by head, engaged or not (target.list; an unknown target is refused); enabled: false = « Ne pas bouger les lyres », holds the heads where they are while it is the top look). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
     // a look from the brief list (partial) is refused before anything else: saved, it would lose its steps or raw channels
@@ -1524,8 +1529,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     dashboards: { coll: dashboards, put: "dashboard.put", key: "dashboard" },
     canvases: { coll: venue.canvases, put: "venue.canvas.put", key: "canvas" },
     intentions: { coll: intentions, put: "intention.put", key: "intention" },
+    // a target's design (T24): put back through target.put, its point and engagement (live) kept as they are now
+    targets: { coll: show.targets, put: "target.put", key: "target" },
   } as const;
-  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions"]);
+  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets"]);
   /** Putting a canvas back is checked as any canvas put (looks of exact steps, a shared venue): `force` passes it on. */
   const restoreForce = z.boolean().default(false).describe("canvases: put it back even if looks of exact steps no longer line up with its cells (as venue.canvas.put)");
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
@@ -1545,7 +1552,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.list",
     title: "Versions",
-    description: "Earlier versions of a look, group, channel fader, dashboard, canvas or intention of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
+    description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention or target of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1555,7 +1562,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.deleted",
     title: "Récemment supprimés",
-    description: "Looks, groups, channel faders, dashboards, canvases (of the venue) or intentions of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
+    description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions or targets of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1565,7 +1572,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.restore",
     title: "Restaurer une version",
-    description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put; shared for a venue shared with other shows); the current version goes to the history in turn, so a restore is undone the same way.",
+    description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a target: its point and engagement, live, stay as they are; a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put; shared for a venue shared with other shows); the current version goes to the history in turn, so a restore is undone the same way.",
     right: "show:write",
     profiles: ["setup", "design"],
     schema: z.object({ collection: versioned, id: z.string(), stamp: z.string(), force: restoreForce, shared: sharedFlag }),
@@ -1635,7 +1642,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         if (cur) return show.targets.validate({ ...o, ...liveOfTarget(cur) });
         // a new one: where target.put would put it, not engaged
         const { point: _p, engaged: _e, engagedAt: _a, ...design } = o as Record<string, unknown>;
-        const point = o.point ?? show.newTargetPoint(TargetSchema.shape.bounds.safeParse(o.bounds).data);
+        const bounds = TargetSchema.shape.bounds.safeParse(o.bounds).data;
+        // bounded as target.put bounds it (a point that is not one is left for the schema to refuse)
+        const given = StagePointSchema.safeParse(o.point);
+        const point = given.success ? clampPoint(given.data, show.targetBounds(bounds ? { bounds } : {})) : (o.point ?? show.newTargetPoint(bounds));
         return show.targets.validate({ ...design, point });
       },
       get: (i: string) => show.targets.get(i),

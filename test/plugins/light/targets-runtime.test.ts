@@ -252,11 +252,131 @@ describe("targets in the engine (T24)", () => {
     expect(steepest(back, "spot16")).to.be.below(0.05);
     expect(layer(t, "spot16").owner).to.equal("look:a");
     expect(layer(t, "spot8").owner).to.equal("target:t");
-    // engaged again: a new claim, it takes the head again
-    t.show.engageTarget("t", false);
+    // engaged again, without being disengaged first (decision T-a): a new claim, it takes the head again
     t.show.engageTarget("t", true);
     t.run(1400);
     expect(layer(t, "spot16").owner).to.equal("target:t");
+  });
+
+  it("engaging a target already engaged puts it back on top and lifts « Rendre la main » on it (decision T-a)", () => {
+    const t = setup();
+    t.target("a", { fixtures: ["spot16"], point: { x: -3, y: 1, z: 0 } });
+    t.target("b", { fixtures: ["spot16"], point: { x: -1, y: 3, z: 0 } });
+    t.show.engageTarget("a", true, 1000);
+    t.show.engageTarget("b", true, 2000);
+    t.run(1400);
+    expect(layer(t, "spot16").owner).to.equal("target:b");
+    expect(t.show.engageTarget("a", true, 1500).engagedAt).to.equal(2001); // never before the last engaged
+    const back = t.run(1400);
+    expect(layer(t, "spot16").owner).to.equal("target:a");
+    expect(steepest(back, "spot16")).to.be.below(0.05);
+    expect(t.offBy("spot16", back.at(-1)!, { x: -3, y: 1, z: 0 })).to.be.below(0.5);
+    // released on its head twice (a, then b): « Engager » again brings the head back to it
+    t.show.releaseTop(["spot16"]);
+    t.show.releaseTop(["spot16"]);
+    t.run(200);
+    expect(layer(t, "spot16").layer).to.equal("rest");
+    t.show.engageTarget("b", true, 4000);
+    t.run(1400);
+    expect(layer(t, "spot16")).to.include({ layer: "target", owner: "target:b" });
+    // disengaging a target that is not engaged changes nothing
+    const off = t.show.engageTarget("a", false);
+    expect(t.show.engageTarget("a", false)).to.equal(off);
+    expect(off).to.include({ engaged: false, engagedAt: 2001 });
+  });
+
+  it("a shape around a target aims from its own base: a circle right below a head stays a circle, a large one never jumps", () => {
+    const t = setup();
+    // right below spot16 (hung at x −2, y 2): on its axis, the pan is free; the base must not drift with the circle
+    t.target("t", { point: { x: -2, y: 2, z: 0 } });
+    t.place("cercle", { shape: "cercle", size: { pan: 0.05, tilt: 0.05 }, at: { target: "t" } });
+    t.show.go("cercle");
+    const below = t.run(8000).slice(100);
+    const pans = below.map((f) => f.spot16.pan);
+    expect(Math.max(...pans) - Math.min(...pans)).to.be.below(0.11);
+    expect(steepest(below, "spot16")).to.be.below(0.02);
+    t.show.stop("cercle");
+    t.run(1500);
+    // a large circle around a point beside the axis: no half turn of the base
+    t.target("t", { point: { x: -2, y: 2.6, z: 0 } });
+    for (const size of [0.2, 0.3, 0.4]) {
+      const id = `c${size * 10}`;
+      t.place(id, { shape: "cercle", size: { pan: size, tilt: 0.02 }, at: { target: "t" } });
+      t.show.go(id);
+      const turning = t.run(6000).slice(100);
+      const range = turning.map((f) => f.spot16.pan);
+      expect(steepest(turning, "spot16"), `size ${size}`).to.be.below(0.03);
+      expect(Math.max(...range) - Math.min(...range), `size ${size}`).to.be.closeTo(2 * size, 0.01);
+      t.show.stop(id);
+      t.run(1500);
+    }
+  });
+
+  it("a look restarted on a smoothed target starts where its point is, not from the glide it left (deleted and re-created too)", () => {
+    const t = setup();
+    const bounds = { min: { x: -5, y: 0, z: 0 }, max: { x: 5, y: 8, z: 4 } };
+    t.target("t", { bounds, point: { x: -4, y: 2, z: 0 }, smoothing: { curve: "linear", msPerStep: 20 } });
+    t.place("suit", { shape: "fixe", at: { target: "t" }, fade: { seconds: 0 } });
+    t.show.go("suit");
+    t.run(1500);
+    t.show.stop("suit");
+    t.run(3000);
+    t.show.moveTarget("t", { x: 4 });
+    t.run(3000);
+    t.show.go("suit");
+    t.frame();
+    expect(t.show.targetPoint(t.show.targets.get("t")!).x).to.equal(4);
+    // deleted while followed, then created again elsewhere with the same id
+    t.run(200);
+    t.show.targets.delete("t");
+    t.run(200);
+    t.target("t", { bounds, point: { x: -3, y: 2, z: 0 }, smoothing: { curve: "linear", msPerStep: 20 } });
+    t.frame();
+    expect(t.show.targetPoint(t.show.targets.get("t")!).x).to.equal(-3);
+  });
+
+  it("a target crossing the line where the two aims swap: neither head jumps (the closest to where it is)", () => {
+    const t = setup();
+    const bounds = { min: { x: -5, y: -5, z: 0 }, max: { x: 5, y: 8, z: 4 } };
+    // one metre beside each head, along Y through its foot (target-aim.test.ts `sweep(…, 1, { across: true })`)
+    t.target("g", { fixtures: ["spot16"], bounds, point: { x: -1, y: -1, z: 0 } });
+    t.target("d", { fixtures: ["spot8"], bounds, point: { x: 3, y: -1, z: 0 } });
+    t.show.engageTarget("g", true, 1);
+    t.show.engageTarget("d", true, 2);
+    t.run(1400);
+    const path: Frame[] = [];
+    for (let k = -60; k <= 60; k++) {
+      t.show.moveTarget("g", { y: 2 + k * 0.05 });
+      t.show.moveTarget("d", { y: 2 + k * 0.05 });
+      path.push(t.frame());
+      t.clock.now += 20;
+    }
+    expect(steepest(path, "spot16")).to.be.below(0.1);
+    expect(steepest(path, "spot8")).to.be.below(0.1);
+    expect(t.offBy("spot16", path.at(-1)!, { x: -1, y: 5, z: 0 })).to.be.below(0.5);
+    expect(t.offBy("spot8", path.at(-1)!, { x: 3, y: 5, z: 0 })).to.be.below(0.5);
+  });
+
+  it("target.fade sets how its heads take over when it is engaged", () => {
+    const t = setup();
+    t.target("vite", { fixtures: ["spot16"], fade: { seconds: 0 } });
+    t.target("lent", { fixtures: ["spot8"], fade: { seconds: 3 } });
+    t.run(200);
+    t.show.engageTarget("vite", true, 1);
+    t.show.engageTarget("lent", true, 2);
+    const going = t.run(1400);
+    // direct: there on the first frames; over 3 s: still on its way after the show's 1 s
+    expect(t.offBy("spot16", going[1]!, { x: 0, y: 2, z: 0 })).to.be.below(0.5);
+    expect(t.offBy("spot8", going.at(-1)!, { x: 0, y: 2, z: 0 })).to.be.above(2);
+    const there = t.run(2000);
+    expect(t.offBy("spot8", there.at(-1)!, { x: 0, y: 2, z: 0 })).to.be.below(0.5);
+  });
+
+  it("a snapshot's point outside the target's bounds is put back bounded", () => {
+    const t = setup();
+    t.target("t", { bounds: { min: { x: -2, y: 0, z: 0 }, max: { x: 2, y: 4, z: 3 } } });
+    t.show.applySnapshot({ id: "s", name: "S", looks: [], groups: {}, faders: {}, targets: { t: { point: { x: 9, y: -9, z: 9 }, engaged: false } } } as never);
+    expect(t.show.targets.get("t")!.point).to.deep.equal({ x: 2, y: 0, z: 3 });
   });
 
   it("sends the same bytes when its targets are neither engaged nor followed", () => {

@@ -90,8 +90,11 @@ export interface MotionClaim {
 /** What the layer does not store: named positions, targets and aiming stay in their own objects. */
 export interface MotionContext {
   presetOf?: (id: string, head: string) => Position | undefined;
-  /** Position aiming `head` at a point, or null (or why) when the head cannot: out of reach, a no-aim zone, no stage position. */
-  aim?: (head: string, point: { x: number; y: number; z: number }) => Position | null | { error: string };
+  /**
+   * Position aiming `head` at a point, or null (or why) when the head cannot: out of reach, a no-aim zone, no stage
+   * position. `claim`: the claim aiming (a claim with a shape aims from its own last base, not from the position sent).
+   */
+  aim?: (head: string, point: { x: number; y: number; z: number }, claim: MotionClaim) => Position | null | { error: string };
 }
 
 export interface MotionSettings {
@@ -263,7 +266,7 @@ function evaluate(c: MotionClaim, head: string, ctx: MotionContext | undefined):
     if (!p) return { error: `unknown position « ${b.id} »` };
     base = p;
   } else {
-    const p = ctx?.aim?.(head, { x: b.x, y: b.y, z: b.z });
+    const p = ctx?.aim?.(head, { x: b.x, y: b.y, z: b.z }, c);
     if (!p) return { error: "point out of reach" };
     if ("error" in p) return { error: p.error };
     base = p;
