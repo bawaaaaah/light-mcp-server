@@ -252,6 +252,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **Existant** : `position.aim` sait viser une zone ou un point `{x, y, z}` en mètres, une fois, en posant une position manuelle ; il lui manque un **objet « cible » vivant** que l'on déplace en continu.
 - **Proposition** : un objet **Cible** (id, nom, X, Y, Z, lyres liées, lissage) ; la cible bouge → recalcul de pan/tilt de chaque lyre liée par `venue/aim.ts`, **dans le moteur** (pas côté navigateur) pour que MIDI, OSC, manette (T10), MCP et IA la pilotent aussi. Widget de dashboard « Cible » : pad XY sur le plan de la scène + fader Z ; apprentissage MIDI de X, Y, Z (T9).
 - **Limites** : lyre hors de portée ou visée vers une zone interdite aux lyres : signalé, la lyre garde sa dernière position permise (règles de zones déjà en place). Z borné au volume de la scène.
+- **Limite connue (essais du lot 4, 2026-11-15)** : un point qui passe à environ 1 cm de l'axe d'une lyre (juste sous une lyre accrochée) donne un **coup de pan bref** (de 12° à 48° en 60 ms dans l'essai) : près de l'axe, une petite distance sur la scène est un grand angle de pan. C'est la limite physique déjà dite dans la spec (« sur l'axe, la lyre garde son pan ») ; rien à corriger côté code, à garder en tête aux essais (éviter de faire passer la cible juste sous une lyre).
 - **Prérequis** : positions et orientations des lyres exactes (saisies ou T23), T7. **Rang** : moyen-dur ; **phase 3-4**.
 
 ### T25 — Revoir toute la gestion des mouvements via les looks
