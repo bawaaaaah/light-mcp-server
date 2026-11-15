@@ -28,6 +28,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [faders, setFaders] = useState<Named[]>([]);
   const [programs, setPrograms] = useState<Named[]>([]);
   const [snapshots, setSnapshots] = useState<Named[]>([]);
+  const [positions, setPositions] = useState<Named[]>([]);
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,10 +39,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     void cmd<Named[]>("fader.list").then(setFaders);
     void cmd<{ programs: Named[] }>("program.list").then((r) => setPrograms(r.programs));
     void cmd<Named[]>("snapshot.list").then(setSnapshots, () => undefined);
+    void cmd<Named[]>("position.preset.list").then(setPositions, () => undefined);
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })

@@ -3,7 +3,7 @@ import type { Texts } from "../i18n";
 import { quoted, beforeMark } from "../typography";
 
 /**
- * Deletes a look, a group, a channel fader, a canvas, a fixture, an intention or a 3D target after asking. When
+ * Deletes a look, a group, a channel fader, a canvas, a fixture, an intention, a 3D target or a named position after asking. When
  * something still uses it (a fader's DCA, a mapping, a dashboard, a look on a canvas, a song naming an
  * intention…: show.references, read at the moment of asking), the question says where first, and the
  * delete is forced only on that informed yes. `shared`: a warning put first (a fixture of a venue
@@ -12,7 +12,7 @@ import { quoted, beforeMark } from "../typography";
  * intention of the personal library other shows still name), it asks again with what went wrong, and
  * forces on that second yes. Resolves to whether it was deleted.
  */
-const DELETE_COMMAND = { look: "look.delete", group: "group.delete", fader: "fader.delete", canvas: "venue.canvas.delete", fixture: "venue.fixture.delete", intention: "intention.delete", target: "target.delete" } as const;
+const DELETE_COMMAND = { look: "look.delete", group: "group.delete", fader: "fader.delete", canvas: "venue.canvas.delete", fixture: "venue.fixture.delete", intention: "intention.delete", target: "target.delete", position: "position.preset.delete" } as const;
 
 /** The words of the questions, when deleting is not what the command does (an intention masked, not deleted). */
 export interface DeleteWording {

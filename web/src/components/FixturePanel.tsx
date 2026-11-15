@@ -20,6 +20,7 @@ import { FaderTrack } from "./FaderTrack";
 import { SearchPicker } from "./SearchPicker";
 import type { SearchItem } from "../search-picker";
 import { XyPad } from "./XyPad";
+import { FixturePositions } from "./FixturePositions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 
 interface ChannelMode {
@@ -327,6 +328,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               {may("commands:position") ? (
                 <>
                   <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls />
+                  <FixturePositions fixture={fixture} canRecall canSave={may("show:write")} />
                 </>
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>

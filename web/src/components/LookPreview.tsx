@@ -14,6 +14,8 @@ export interface Preview {
   steps: (string | null)[][];
   /** How often the look flashes (docs/specs/rules-limits.md); an older server does not send it. */
   flashes?: Flashes;
+  /** A look with a move: the moving heads it places (T32, the coverage of a named position). */
+  heads?: string[];
 }
 interface Timing {
   every: { beats?: number; seconds?: number };

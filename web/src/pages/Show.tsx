@@ -19,6 +19,7 @@ import { Proposals } from "../components/Proposals";
 import { TypeGroups } from "../components/TypeGroups";
 import { ThemePicker } from "../components/ThemePicker";
 import { IntentionsManager } from "../components/IntentionsManager";
+import { PositionsPanel } from "../components/PositionsPanel";
 import { themeLabel, themesOf, type KnowledgeMoods } from "../themes";
 
 interface Look {
@@ -903,8 +904,12 @@ export function ShowPage(): ReactElement {
           </tbody>
         </table>
       </section>
+      <section className="positions">
+        <h2>{t.positions.title}</h2>
+        <PositionsPanel onError={setError} />
+      </section>
       <section>
-        <RecentlyDeleted collections={["looks", "groups", "faders"]} onRestored={refresh} />
+        <RecentlyDeleted collections={["looks", "groups", "faders", "positions"]} onRestored={refresh} />
       </section>
     </div>
   );

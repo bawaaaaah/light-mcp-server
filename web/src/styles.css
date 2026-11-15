@@ -4802,3 +4802,187 @@ fieldset.group-lock legend {
     min-height: 44px;
   }
 }
+
+/* Named positions (T32): the fixture panel's tools, the Show page's list, the Live's button */
+.position-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  max-width: min(100%, 28em);
+  margin-top: 0.4em;
+}
+.position-tools .position-save-open {
+  align-self: flex-start;
+}
+.position-form {
+  display: grid;
+  gap: 0.5em;
+  padding: 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-width: 40em;
+}
+.position-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 0.4em 0.6em 0.6em;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2em 0.9em;
+}
+.position-form fieldset .hint {
+  flex-basis: 100%;
+}
+.position-form .choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.position-form .position-heads,
+.position-form .position-point {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 0.9em;
+}
+.position-form .position-point input {
+  width: 6em;
+  min-width: 0;
+}
+.position-form .swatches .swatch {
+  min-height: 0;
+}
+.positions-panel ul.position-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.6em;
+  display: grid;
+  gap: 0.4em;
+}
+.positions-panel .position-row {
+  display: grid;
+  gap: 0.4em;
+  padding: 0.35em 0.5em;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--position-color, var(--line));
+  border-radius: 8px;
+}
+.positions-panel .position-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em 0.6em;
+}
+.positions-panel .position-swatch {
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 50%;
+  background: var(--position-color, var(--muted));
+  flex: 0 0 auto;
+}
+.positions-panel .position-line small {
+  color: var(--muted);
+}
+.positions-panel .position-line .grow {
+  flex: 1 1 auto;
+}
+.positions-panel .position-stale .warning {
+  margin: 0;
+  color: var(--warn);
+}
+.positions-panel .position-stale .warning small {
+  color: var(--muted);
+}
+.positions-panel .position-choices {
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.positions-panel .position-pads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1em;
+}
+/* one square pad per head to adjust, as on the fixture panel (the pad's own « fill » would stretch it across the row) */
+.positions-panel .position-pads .xy {
+  flex: 0 1 18em;
+  max-width: min(100%, 18em);
+}
+.positions-panel .position-pads .xy .pad {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 1;
+}
+.badge.stale {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+.badge.recalled {
+  background: color-mix(in srgb, var(--on) 20%, transparent);
+  color: var(--text);
+  border: 1px solid var(--on);
+}
+.position-coverage {
+  margin: 0.2em 0;
+}
+.position-coverage.warning {
+  color: var(--warn);
+}
+/* the name and its state on one line when they fit, else two tight lines: a one-row cell keeps both in view */
+button.position-button {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: center;
+  gap: 0 0.4em;
+  line-height: 1.15;
+  padding-block: 0.15em;
+  overflow: hidden;
+}
+button.position-button .position-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.position-button .position-state {
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+button.position-button.on {
+  background: var(--on);
+  color: #062;
+  border-color: var(--on);
+  font-weight: 600;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--on) 40%, transparent), 0 0 18px color-mix(in srgb, var(--on) 45%, transparent);
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .positions-panel button,
+  .position-tools button,
+  .position-form button,
+  .position-form select,
+  .position-form input {
+    min-height: 44px;
+  }
+  .position-form input[type="checkbox"],
+  .position-form input[type="radio"] {
+    min-width: 24px;
+    min-height: 24px;
+    margin: 0;
+  }
+  .position-form .choice {
+    min-height: 44px;
+  }
+  .position-form .swatches .swatch {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .positions-panel .position-delete {
+    min-width: 44px;
+  }
+}

@@ -4,7 +4,7 @@ import { useT } from "../App";
 import type { Texts } from "../i18n";
 import { quoted, beforeMark } from "../typography";
 
-type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases";
+type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases" | "positions";
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
 
 /**

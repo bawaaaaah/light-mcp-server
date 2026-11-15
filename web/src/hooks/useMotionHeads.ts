@@ -5,7 +5,8 @@ import type { Position } from "../../../src/plugins/light/engine/move";
 import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-report";
 
 export type { Position };
-export type MotionHead = HeadMotionEntry & { name?: string; manual: Position | null };
+/** `recalled`: the named position the head was recalled to and still holds by hand (T32; position.list only). */
+export type MotionHead = HeadMotionEntry & { name?: string; manual: Position | null; recalled?: string };
 export type MotionTarget = { fixtures?: string[]; group?: string };
 
 /** The heads of one scope; `loaded` stays false until the server resolved that scope once. */

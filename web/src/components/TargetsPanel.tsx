@@ -10,7 +10,7 @@ import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import type { Box3, MoveFade, Smoothing, TargetRow } from "../hooks/useTargets";
 import { slug, uniqueId } from "../util";
-import { SWATCHES } from "../color";
+import { SwatchPicker } from "./SwatchPicker";
 import { quoted } from "../typography";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField } from "./SmoothingField";
@@ -314,25 +314,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
               <MoveFadeInput automatic automaticValue={showFade} label={w.fade} value={draft.fade} onChange={(fade) => set({ fade })} pendingRef={pendingFade} />
             </label>
           </div>
-          <div className="field">
-            <span>{w.color}</span>
-            <div className="swatches" role="radiogroup" aria-label={w.color}>
-              <button type="button" className={`swatch none ${!draft.color ? "chosen" : ""}`} role="radio" aria-checked={!draft.color} title={w.noColor} aria-label={w.noColor} onClick={() => set({ color: undefined })} />
-              {SWATCHES.map(([name, hex]) => (
-                <button
-                  type="button"
-                  key={hex}
-                  className={`swatch ${draft.color === hex ? "chosen" : ""}`}
-                  role="radio"
-                  aria-checked={draft.color === hex}
-                  title={t.swatchNames[name as keyof typeof t.swatchNames]}
-                  aria-label={t.swatchNames[name as keyof typeof t.swatchNames]}
-                  style={{ background: hex }}
-                  onClick={() => set({ color: hex })}
-                />
-              ))}
-            </div>
-          </div>
+          <SwatchPicker label={w.color} noneLabel={w.noColor} value={draft.color} onChange={(color) => set({ color })} />
           {changedElsewhere && (
             <p className="warning" role="status">
               {w.changedElsewhere}

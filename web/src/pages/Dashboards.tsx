@@ -11,6 +11,8 @@ import { useStored } from "../hooks/useStored";
 import { XyPad } from "../components/XyPad";
 import { TargetWidget, type PadFixture, type PadZone } from "../components/TargetPad";
 import { useTargetNames } from "../hooks/useTargets";
+import { usePositions } from "../hooks/usePositions";
+import { PositionButton } from "../components/PositionButton";
 import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
 import { sharedRanges, type FixtureFunctions } from "../fader-functions";
@@ -34,7 +36,7 @@ import { microphone } from "../audio/microphone";
 import { quoted } from "../typography";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target" | "position";
 interface Widget {
   id: string;
   kind: Kind;
@@ -122,7 +124,7 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "motion-lock", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
@@ -173,6 +175,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
   /** The show's 3D targets (T24), their names only: the menus (each pad reads its own target). */
   const { names: targets } = useTargetNames();
+  /** The show's named positions (T32): their buttons, menus and colours. */
+  const { positions } = usePositions();
+  const positionColor = (id: string | undefined) => positions.find((x) => x.id === id)?.color;
   /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
   const [namedFolders, setNamedFolders] = useState<string[]>([]);
   const [edit, setEdit] = useState(false);
@@ -370,7 +375,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     if (g) update((d) => ({ ...d, widgets: settle(d.widgets, g.id) }));
     dragging.current = false;
   };
-  const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot"].includes(w.kind));
+  const holdable = (w: Widget) => (w.kind === "look" || w.kind === "blackout" ? (w.mode ?? "latch") !== "momentary" : ["section", "label", "stop-all", "tap", "song-nav", "snapshot", "position"].includes(w.kind));
   const [error, setError] = useState("");
   const state = useTopic<{ blackout: boolean; panicUndo?: boolean; grandMaster?: number; grandMasterSmoothed?: boolean } | null>("light:state", null);
   // the grand master as dragged, until the server says it (a fader must not jump back mid-gesture)
@@ -767,6 +772,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu. Keyed by the target:
         // another target is another pad (its pending write goes out for the target it was made for)
         return <TargetWidget key={w.target ?? ""} id={w.target || undefined} label={w.label} stage={targetStage} onError={setError} disabled={!may("commands:position")} interactive={!edit} />;
+      case "position":
+        // a named position (T32): one button that recalls it, lit while its heads hold it
+        return <PositionButton id={w.target || undefined} label={w.label} disabled={!may("commands:position")} inert={edit} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
@@ -881,7 +889,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   };
 
   /** The colour a widget shows: its own, or its look's for « auto ». */
-  const colorOf = (w: Widget): string | undefined => (w.color === "auto" ? lookById.get(w.target ?? "")?.swatch : isHex(w.color) ? w.color : undefined);
+  const colorOf = (w: Widget): string | undefined =>
+    w.color === "auto" ? lookById.get(w.target ?? "")?.swatch : isHex(w.color) ? w.color : w.kind === "position" && !w.color ? positionColor(w.target) : undefined;
   const tint = (w: Widget) => {
     const c = colorOf(w);
     return c ? { className: " tinted", style: { "--wc": c, "--wc-text": textOn(c) } as React.CSSProperties } : { className: "", style: {} };
@@ -1041,6 +1050,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             {[
               ...looks.map((l) => ({ kind: "look" as Kind, id: l.id, name: l.name, color: l.swatch })),
               ...snapshots.map((x) => ({ kind: "snapshot" as Kind, id: x.id, name: `◉ ${x.name}`, color: undefined })),
+              ...positions.map((x) => ({ kind: "position" as Kind, id: x.id, name: `⌖ ${x.name}`, color: x.color })),
             ]
               .filter((c) => !paletteSearch || c.name.toLowerCase().includes(paletteSearch.toLowerCase()))
               .slice(0, 60)
@@ -1120,6 +1130,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             {(sel.kind === "group-fader" || sel.kind === "xy" || sel.kind === "motion-lock") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             {sel.kind === "target" && targets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            {sel.kind === "position" && positions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
           <input placeholder={t.labelText} aria-label={t.labelText} value={sel.label ?? ""} onChange={(e) => updateWidget(sel.id, { label: e.target.value || undefined })} />
           {(sel.kind === "look" || sel.kind === "blackout") && (
@@ -1326,6 +1337,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           faders={faders}
           snapshots={snapshots}
           targets={targets}
+          positions={positions}
           exclusives={editor ? sets : undefined}
           onGroupsChange={refresh}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}

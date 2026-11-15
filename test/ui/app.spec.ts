@@ -8493,3 +8493,300 @@ test("target pad: in English the line says why a head holds in English (the serv
   });
   expect(errors).toEqual([]);
 });
+
+/** T32: the venue's only moving head placed on the stage (a point can be aimed at), put back by `done`. */
+async function placedSpot(page: Page): Promise<{ done: () => Promise<void>; move: (x: number) => Promise<void> }> {
+  type Fixture = { id: string; position?: { x: number; y: number; z: number } };
+  const spot = ((await asDesk(page, "venue.fixture.list")) as Fixture[]).find((f) => f.id === "spot")!;
+  const at = (x: number) => asDesk(page, "venue.fixture.put", { fixture: { ...spot, position: { x, y: 1, z: 4 }, mount: "hung" } });
+  await at(0);
+  return {
+    move: async (x) => void (await at(x)),
+    done: async () => {
+      await asDesk(page, "motion.unfreeze");
+      await asDesk(page, "position.home", {});
+      await asDesk(page, "venue.fixture.put", { fixture: spot });
+    },
+  };
+}
+/** Opens the selected head's panel on the venue's plan (a click on the head's body, where nothing else covers it). */
+async function spotPanel(page: Page): Promise<Locator> {
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const body = page.locator('.stage-plan g.fixture[data-fixture="spot"] > g').first();
+  const bodyBox = (await body.boundingBox())!;
+  for (const [fx, fy] of [[0.85, 0.85], [0.15, 0.85], [0.85, 0.15], [0.15, 0.15]]) {
+    await body.click({ position: { x: bodyBox.width * fx!, y: bodyBox.height * fy! }, timeout: 1500 }).catch(() => undefined);
+    if (await page.locator(".fixture-panel").isVisible()) break;
+  }
+  const panel = page.locator(".fixture-panel");
+  await expect(panel).toBeVisible();
+  return panel;
+}
+type ListedPosition = { id: string; name: string; color?: string; values: Record<string, { pan: number; tilt: number }>; stale: string[]; aim?: object };
+const listedPositions = async (page: Page) => (await asDesk(page, "position.preset.list")) as ListedPosition[];
+const spotHead = async (page: Page) => ((await asDesk(page, "position.list")) as { id: string; recalled?: string; sent: { pan: number; tilt: number } | null }[]).find((h) => h.id === "spot")!;
+
+test("named positions: the fixture panel saves the pad's position, finds it by search and recalls it on the head (T32)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page, "9999");
+  const stage = await placedSpot(page);
+  // enough positions on the head for the list to offer a search
+  const seeds = Array.from({ length: 8 }, (_, i) => `t32-seed-${i}`);
+  for (const [i, id] of seeds.entries()) await asDesk(page, "position.preset.put", { position: { id, name: `Contre-plongée ${i + 1}`, values: { spot: { pan: 0.1 * i, tilt: 0.5 } } } });
+  try {
+    const panel = await spotPanel(page);
+    const pad = panel.locator(".xy .pad");
+    await pad.scrollIntoViewIfNeeded();
+    let box = (await pad.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.3);
+    await expect.poll(async () => Math.round(((await spotHead(page)).sent?.pan ?? 0) * 10)).toBe(7);
+    await panel.getByRole("button", { name: "Enregistrer cette position…" }).click();
+    const form = panel.getByRole("form", { name: "Enregistrer la position de « Lyre »" });
+    await expect(form.getByRole("textbox", { name: "Nom" })).toBeFocused();
+    // no name: said beside the button, nothing saved
+    await form.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(form.getByRole("alert")).toHaveText("Donner un nom à la position");
+    await form.getByRole("textbox", { name: "Nom" }).fill("Avant-scène T32");
+    await expect(form.getByRole("radio", { name: "Cette lyre (Lyre)" })).toBeChecked();
+    await form.getByRole("radio", { name: "vert" }).click();
+    await page.screenshot({ path: "test-results/t32-panel-save-desktop.png" });
+    await form.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Avant-scène T32 » enregistrée");
+    await expect(form).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "Enregistrer cette position…" })).toBeFocused();
+    const saved = (await listedPositions(page)).find((p) => p.name === "Avant-scène T32")!;
+    expect(saved.values.spot!.pan).toBeCloseTo(0.7, 1);
+    expect(saved.values.spot!.tilt).toBeCloseTo(0.7, 1);
+    expect(saved.color).toBe("#22c55e");
+    // the pad elsewhere, then the position found by a search without accents, and recalled on this head
+    await pad.scrollIntoViewIfNeeded();
+    box = (await pad.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.8);
+    await expect.poll(async () => Math.round(((await spotHead(page)).sent?.pan ?? 0) * 10)).toBe(2);
+    const picker = panel.getByRole("region", { name: "Rappeler une position" });
+    await picker.getByRole("searchbox", { name: "Rechercher" }).fill("avant scene");
+    await expect(picker.locator(".search-list button")).toHaveCount(1);
+    await picker.locator(".search-list button").click();
+    await expect.poll(async () => (await spotHead(page)).recalled).toBe(saved.id);
+    await expect.poll(async () => (await spotHead(page)).sent?.pan ?? 0, { timeout: 5000 }).toBeCloseTo(0.7, 1);
+    await expect(picker.locator(".search-list button")).toContainText("· rappelée");
+    await expect(picker.locator(".search-list button")).toHaveAttribute("aria-current", "true");
+    await page.screenshot({ path: "test-results/t32-panel-recall-desktop.png" });
+    // on a phone the form's controls are finger-sized and nothing spills sideways
+    await page.setViewportSize({ width: 390, height: 844 });
+    await panel.getByRole("button", { name: "Enregistrer cette position…" }).click();
+    const phoneForm = panel.getByRole("form", { name: "Enregistrer la position de « Lyre »" });
+    await phoneForm.getByRole("radio", { name: "Point de la scène (3D)" }).check();
+    await expect(phoneForm.getByRole("textbox", { name: "X (m)" })).toBeVisible();
+    for (const control of await phoneForm.locator("button, input:not([type=checkbox]):not([type=radio])").all()) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
+    await phoneForm.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "test-results/t32-panel-save-phone.png" });
+    await phoneForm.getByRole("textbox", { name: "Nom" }).press("Escape");
+    await expect(phoneForm).toHaveCount(0);
+    await expect(panel).toBeVisible();
+  } finally {
+    for (const p of await listedPositions(page)) if (p.id.startsWith("t32-") || p.name === "Avant-scène T32") await asDesk(page, "position.preset.delete", { id: p.id, force: true });
+    await stage.done();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("named positions: the Show page lists them, a stale one offers recompute, adjust by hand or keep; delete asks when used (T32)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page, "9999");
+  const stage = await placedSpot(page);
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  try {
+    await asDesk(page, "position.preset.save", { name: "Visée T32", point: { x: 0, y: 3, z: 0 }, pantilt: true, fixtures: ["spot"], color: "#3b82f6" });
+    await asDesk(page, "position.preset.put", { position: { id: "t32-douche", name: "Douche T32", values: { spot: { pan: 0.5, tilt: 0.8 } } } });
+    // the head moved on the stage: both are to review
+    await stage.move(0.5);
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const aimed = page.locator('.position-row[data-position="visee-t32"]');
+    const douche = page.locator('.position-row[data-position="t32-douche"]');
+    await expect(aimed.getByTestId("position-stale")).toHaveText("⚠ à revoir");
+    await expect(douche.getByTestId("position-stale")).toHaveText("⚠ à revoir");
+    await expect(douche.locator(".position-stale .warning")).toContainText("À revoir : Lyre");
+    // without an aim point it cannot be recomputed: the button says why
+    await expect(douche.getByRole("button", { name: "Recalculer" })).toBeDisabled();
+    await expect(douche.locator(".position-choices .hint")).toHaveText("Recalculer : seulement pour une position enregistrée en visant un point.");
+    await douche.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "test-results/t32-show-stale-desktop.png" });
+    // 1. recompute from the point it aimed at
+    await aimed.getByRole("button", { name: "Recalculer" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Recalculée : Lyre");
+    await expect(aimed.getByTestId("position-stale")).toHaveCount(0);
+    // 2. keep as it is
+    await douche.getByRole("button", { name: "Laisser telle quelle" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Gardée telle quelle : Lyre");
+    await expect(douche.getByTestId("position-stale")).toHaveCount(0);
+    expect((await listedPositions(page)).find((p) => p.id === "t32-douche")!.values.spot).toEqual({ pan: 0.5, tilt: 0.8 });
+    // 3. moved again: adjusted by hand, its head recalled and a pad to place it, then saved
+    await stage.move(1);
+    await expect(douche.getByTestId("position-stale")).toBeVisible();
+    await douche.getByRole("button", { name: "Modifier à la main" }).click();
+    await expect.poll(async () => (await spotHead(page)).recalled).toBe("t32-douche");
+    await expect(douche.getByTestId("position-recalled")).toHaveText("● rappelée");
+    const pad = douche.locator(".position-pads .xy .pad");
+    await pad.scrollIntoViewIfNeeded();
+    const box = (await pad.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.6);
+    await expect.poll(async () => Math.round(((await spotHead(page)).sent?.pan ?? 0) * 10)).toBe(3);
+    await page.screenshot({ path: "test-results/t32-show-by-hand-desktop.png" });
+    await douche.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Douche T32 » réenregistrée : Lyre");
+    await expect(douche.getByTestId("position-stale")).toHaveCount(0);
+    await expect(douche.locator(".position-pads")).toHaveCount(0);
+    expect((await listedPositions(page)).find((p) => p.id === "t32-douche")!.values.spot!.pan).toBeCloseTo(0.3, 1);
+    // renamed and recoloured: nothing captured, the values stay
+    await douche.getByRole("button", { name: "Modifier la position Douche T32" }).click();
+    const edit = douche.getByRole("form", { name: "Modifier la position « Douche T32 »" });
+    await edit.getByRole("textbox", { name: "Nom" }).fill("Douche bis T32");
+    await edit.getByRole("radio", { name: "rouge" }).click();
+    await edit.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(edit).toHaveCount(0);
+    await expect(douche.locator("strong")).toHaveText("Douche bis T32");
+    const renamed = (await listedPositions(page)).find((p) => p.id === "t32-douche")!;
+    expect(renamed.color).toBe("#ef4444");
+    expect(renamed.values.spot!.pan).toBeCloseTo(0.3, 1);
+    // used by a widget: deleting asks first, naming the use
+    await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t32-w", kind: "position", target: "t32-douche", x: 0, y: 40, w: 2, h: 1 }] } });
+    let question = "";
+    page.once("dialog", (d) => {
+      question = d.message();
+      void d.dismiss();
+    });
+    await douche.getByRole("button", { name: "Supprimer Douche bis T32" }).click();
+    await expect.poll(() => question).toContain("dashboard « Principal »");
+    expect((await listedPositions(page)).some((p) => p.id === "t32-douche")).toBe(true);
+    page.once("dialog", (d) => void d.accept());
+    await douche.getByRole("button", { name: "Supprimer Douche bis T32" }).click();
+    await expect(douche).toHaveCount(0);
+  } finally {
+    await api(page, "dashboard.put", { dashboard: dash });
+    for (const id of ["visee-t32", "t32-douche"]) await asDesk(page, "position.preset.delete", { id, force: true });
+    await stage.done();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("named positions: the Live widget recalls its position, lit while held, says the frozen heads; menu, MIDI and 44 px to the finger (T32)", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const stage = await placedSpot(page);
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+  await asDesk(page, "position.preset.put", { position: { id: "t32-w", name: "Face T32", color: "#a855f7", values: { spot: { pan: 0.3, tilt: 0.2 } } } });
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t32-pos", kind: "position", target: "t32-w", x: 0, y: bottom, w: 2, h: 1 }] } });
+  try {
+    await page.reload();
+    const button = page.getByTestId("position-button");
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toHaveText("Face T32");
+    // its colour, from the position
+    await expect(button.locator("xpath=..")).toHaveClass(/tinted/);
+    await button.click();
+    await expect.poll(async () => (await spotHead(page)).recalled).toBe("t32-w");
+    await expect(button).toHaveClass(/\bon\b/);
+    await expect(button).toContainText("● rappelée");
+    await expect.poll(async () => (await spotHead(page)).sent?.pan ?? 0, { timeout: 5000 }).toBeCloseTo(0.3, 1);
+    await page.screenshot({ path: "test-results/t32-widget-desktop.png" });
+    // « Rendre la main »: no longer held, no longer lit
+    await asDesk(page, "position.releaseTop", { fixtures: ["spot"] });
+    await expect(button).not.toHaveClass(/\bon\b/);
+    // frozen hard: nothing moves, and the toast names the head left in place
+    await asDesk(page, "motion.freeze", { level: "hard" });
+    await button.click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Figées par le verrou, laissées en place : Lyre");
+    await asDesk(page, "motion.unfreeze");
+    // its menu: the position chosen there, and MIDI like the other buttons
+    await button.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    await expect(menu.getByRole("heading")).toHaveText("Position nommée (lyres)");
+    await expect(menu.getByRole("combobox").first()).toHaveValue("t32-w");
+    await expect(menu.getByRole("button", { name: "Apprendre" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    for (const [name, viewport] of [
+      ["tablet", { width: 1180, height: 820 }],
+      ["phone", { width: 390, height: 844 }],
+    ] as const) {
+      const ctx = await browser.newContext({ hasTouch: true, isMobile: name === "phone", viewport, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+      const touch = await ctx.newPage();
+      const touchErrors = watchErrors(touch);
+      await login(touch);
+      const other = touch.getByTestId("position-button");
+      await other.scrollIntoViewIfNeeded();
+      expect((await other.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await other.tap();
+      await expect(other).toHaveClass(/\bon\b/);
+      expect(await touch.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
+      await touch.screenshot({ path: `test-results/t32-widget-${name}.png` });
+      await asDesk(touch, "position.releaseTop", { fixtures: ["spot"] });
+      expect(touchErrors).toEqual([]);
+      await ctx.close();
+    }
+  } finally {
+    await api(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "position.preset.delete", { id: "t32-w", force: true });
+    await stage.done();
+  }
+  // the recall refused under the hard lock is the one expected refusal
+  expect(errors.filter((e) => !/status of 422 .*position\.preset\.go/.test(e))).toEqual([]);
+});
+
+test("look editor: « Position nommée » picks a position, says which heads it covers and writes move.at.position (T32)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await asDesk(page, "group.put", { group: { id: "t32-lyres", name: "Lyres T32", members: { fixtures: ["spot"] } } });
+  await asDesk(page, "position.preset.put", { position: { id: "t32-look", name: "Contre T32", color: "#06b6d4", values: { spot: { pan: 0.4, tilt: 0.3 } } } });
+  await asDesk(page, "position.preset.put", { position: { id: "t32-look-2", name: "Autre T32", values: { spot: { pan: 0.6, tilt: 0.3 } } } });
+  await asDesk(page, "look.put", { look: { id: "t32-cercle", name: "T32 cercle", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "cercle", group: "t32-lyres", size: { pan: 0.1, tilt: 0.1 } } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier T32 cercle" }).click();
+    const editor = page.locator(".look-editor");
+    await expect(editor.getByTestId("move-aim-center")).toHaveAttribute("aria-checked", "true");
+    await editor.getByTestId("move-aim-position").click();
+    await expect(editor.getByTestId("move-aim-position")).toHaveAttribute("aria-checked", "true");
+    await expect(editor.getByText("Centre pan", { exact: true })).toHaveCount(0);
+    const list = editor.getByRole("region", { name: "Position suivie" });
+    // two positions: none is chosen for the operator, and Save says so
+    await expect(list.getByRole("button", { name: /Contre T32/ })).not.toHaveAttribute("aria-current", "true");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor.getByText("Choisir la position suivie, ou revenir à « Position (pan / tilt) ».")).toBeVisible();
+    await list.getByRole("button", { name: /Contre T32/ }).click();
+    await expect(list.getByRole("button", { name: /Contre T32/ })).toHaveAttribute("aria-current", "true");
+    await expect(list.getByRole("button", { name: /Contre T32/ })).toContainText("· choisie");
+    await expect(editor.getByTestId("position-coverage")).toHaveText("Couvre la lyre du look.");
+    await page.screenshot({ path: "test-results/t32-look-position-desktop.png" });
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t32-cercle" })) as { move: { at?: object } }).move.at).toEqual({ position: "t32-look" });
+    // the look follows the position: played, the head circles around its pan
+    await asDesk(page, "look.go", { id: "t32-cercle" });
+    await expect.poll(async () => Math.abs(((await spotHead(page)).sent?.pan ?? 0) - 0.4), { timeout: 5000 }).toBeLessThan(0.12);
+    await asDesk(page, "look.stop", { id: "t32-cercle" });
+    // a position that covers none of its heads: said as a warning
+    await asDesk(page, "group.put", { group: { id: "t32-lyres", name: "Lyres T32", members: { fixtures: [] } } });
+    await page.getByRole("button", { name: "Modifier T32 cercle" }).click();
+    await expect(editor.getByTestId("move-aim-position")).toHaveAttribute("aria-checked", "true");
+    await expect(editor.getByTestId("position-coverage")).toHaveText("Ne couvre aucune lyre du look : le look ne les bougera pas.");
+    // back to the pan/tilt centre
+    await editor.getByTestId("move-aim-center").click();
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t32-cercle" })) as { move: { at?: unknown } }).move.at).toBeUndefined();
+  } finally {
+    await asDesk(page, "look.delete", { id: "t32-cercle", force: true });
+    for (const id of ["t32-look", "t32-look-2"]) await asDesk(page, "position.preset.delete", { id, force: true });
+    await asDesk(page, "group.delete", { id: "t32-lyres", force: true });
+    await asDesk(page, "position.home", {});
+  }
+  expect(errors).toEqual([]);
+});

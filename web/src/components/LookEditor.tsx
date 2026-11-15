@@ -24,6 +24,7 @@ import { confirmDelete } from "./confirmDelete";
 import { Versions } from "./Versions";
 import { SearchPicker } from "./SearchPicker";
 import { targetsStore, useTargets } from "../hooks/useTargets";
+import { positionsStore, usePositions, type PositionRow } from "../hooks/usePositions";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
 
 export type { MoveFade };
@@ -42,8 +43,11 @@ interface Move {
   group?: string;
   /** « Ne pas bouger les lyres » (T26): false keeps the settings but moves no head. */
   enabled?: boolean;
-  /** Centred on a 3D target's point instead of `center` (T24): aimed head by head, engaged or not. */
-  at?: { target?: string };
+  /**
+   * Centred on a 3D target's point instead of `center` (T24): aimed head by head, engaged or not; or on a named
+   * position (T32), read when rendered: each covered head around its own pan/tilt, or aiming at its point.
+   */
+  at?: { target?: string; position?: string };
 }
 export interface LookDraft {
   id: string;
@@ -304,6 +308,46 @@ export function MoveFadeInput({
   );
 }
 
+/**
+ * Which of the look's moving heads a named position covers (T32, lot 7): all, some (the others are left to the layer
+ * below), none; a point is aimed at by every head. Said in words, by name, live as the look's heads change.
+ */
+function PositionCoverage({ position, moved, heads }: { position: PositionRow | undefined; moved: string[] | undefined; heads: Named[] }): ReactElement | null {
+  const t = useT();
+  const w = t.positions;
+  if (!position || !moved) return null;
+  if (position.kind === "point")
+    return (
+      <p className="hint position-coverage" data-testid="position-coverage">
+        {w.coverPoint}
+      </p>
+    );
+  const nameOf = (id: string) => heads.find((h) => h.id === id)?.name ?? id;
+  const covered = moved.filter((h) => Object.hasOwn(position.values, h));
+  const left = moved.filter((h) => !covered.includes(h));
+  const first = !covered.length
+    ? w.coverNone
+    : !left.length
+      ? covered.length === 1
+        ? w.coverOne
+        : w.coverAll.replace("{n}", String(covered.length))
+      : w.coverSome
+          .replace("{n}", String(covered.length))
+          .replace("{m}", String(moved.length))
+          .replace("{names}", () => covered.map(nameOf).join(", "));
+  return (
+    <p className={covered.length ? "hint position-coverage" : "warning position-coverage"} data-testid="position-coverage" role="status">
+      {first}
+      {left.length > 0 && covered.length > 0 && (
+        <>
+          {" "}
+          {w.uncovered.replace("{names}", () => left.map(nameOf).join(", "))}
+        </>
+      )}
+    </p>
+  );
+}
+
 export function LookEditor({ initial, existing, folders, onClose }: { initial: LookDraft; existing: string[]; folders?: string[]; onClose: (saved?: string) => void }): ReactElement {
   const t = useT();
   const [look, setLook] = useState<LookDraft>(initial);
@@ -324,22 +368,40 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   }, [error, previewError]);
   /** The folder as typed: the tags get it at once, but it is read back normalised only by the server (typing « Mon dossier » or « A/B » must keep its space or slash). */
   const [folderText, setFolderText] = useState(() => folderOf(initial.tags) ?? "");
-  const [hasHeads, setHasHeads] = useState(false);
+  /** The installed moving heads, by name: whether a move makes sense, and the coverage of a named position said by name. */
+  const [heads, setHeads] = useState<Named[]>([]);
+  const hasHeads = heads.length > 0;
   /** The show's 3D targets (T24): the « Cible » centre of the shape picks one. */
   const { targets, loaded: targetsLoaded } = useTargets();
-  /** « Cible » chosen as the centre of the shape, before a target is picked (none is written until then). */
-  const [aimOnTarget, setAimOnTarget] = useState(() => Boolean(initial.move?.at?.target));
+  /** The show's named positions (T32): the « Position nommée » centre of the shape picks one. */
+  const { positions, loaded: positionsLoaded } = usePositions();
+  /**
+   * The centre of the shape: its pan/tilt, a target or a named position — « Cible » or « Position nommée » chosen
+   * before one is picked (none is written until then).
+   */
+  const [aim, setAim] = useState<"center" | "target" | "position">(() => (initial.move?.at?.target ? "target" : initial.move?.at?.position ? "position" : "center"));
+  const aimOnTarget = aim === "target";
+  /** The position list, where a Save refused for want of a position takes the focus. */
+  const positionPicker = useRef<HTMLDivElement | null>(null);
   /** The target last picked: back to « Position » and then « Cible » again, it is picked again. */
   const lastTarget = useRef(initial.move?.at?.target);
   /** The target list, where a Save refused for want of a target takes the focus. */
   const targetPicker = useRef<HTMLDivElement | null>(null);
   const aimId = useId();
   const aimAtTarget = (): void => {
-    setAimOnTarget(true);
+    setAim("target");
     if (look.move?.at?.target) return;
     // the last one picked, else the only one there is
     const again = lastTarget.current && targets.some((x) => x.id === lastTarget.current) ? lastTarget.current : targets.length === 1 ? targets[0]!.id : undefined;
-    if (again) setMove({ at: { target: again } });
+    setMove({ at: again ? { target: again } : undefined });
+  };
+  /** The position last picked: back to another centre and then « Position nommée » again, it is picked again. */
+  const lastPosition = useRef(initial.move?.at?.position);
+  const aimAtPosition = (): void => {
+    setAim("position");
+    if (look.move?.at?.position) return;
+    const again = lastPosition.current && positions.some((x) => x.id === lastPosition.current) ? lastPosition.current : positions.length === 1 ? positions[0]!.id : undefined;
+    setMove({ at: again ? { position: again } : undefined });
   };
   const [showMoveFade, setShowMoveFade] = useState<MoveFade | undefined>(undefined);
   /** The glide field while its text is not a valid duration: Save waits for it. */
@@ -358,7 +420,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     void cmd<Named[]>("palette.list").then(setPalettes);
     void cmd<Named[]>("group.list").then(setGroups);
     void cmd<Named[]>("venue.fixture.list").then(setFixtures).catch(() => undefined);
-    void cmd<unknown[]>("position.list").then((h) => setHasHeads(h.length > 0));
+    void cmd<Named[]>("position.list").then((h) => setHeads(h.map((x) => ({ id: x.id, name: x.name }))));
     void cmd<{ moveFade: MoveFade }>("show.settings").then((settings) => setShowMoveFade(settings.moveFade)).catch(() => undefined);
   }, []);
 
@@ -414,6 +476,12 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
       // « Cible » without a target would save the pan/tilt centre instead: say it and take the operator to the list
       setError(t.targets.pickFirst);
       targetPicker.current?.querySelector<HTMLElement>('input[type="search"], button')?.focus();
+      return;
+    }
+    if (look.move && look.move.enabled !== false && aim === "position" && !look.move.at?.position) {
+      // « Position nommée » without a position would save the pan/tilt centre instead: said, the focus on the list
+      setError(t.positions.pickFirst);
+      positionPicker.current?.querySelector<HTMLElement>('input[type="search"], button')?.focus();
       return;
     }
     try {
@@ -580,7 +648,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
         <>
           <h3>
             <label className="row">
-              <input type="checkbox" checked={Boolean(look.move)} onChange={(e) => (set({ move: e.target.checked ? MOVE : undefined }), e.target.checked || setAimOnTarget(false))} /> {t.moveFx}
+              <input type="checkbox" checked={Boolean(look.move)} onChange={(e) => (set({ move: e.target.checked ? MOVE : undefined }), e.target.checked || setAim("center"))} /> {t.moveFx}
             </label>
           </h3>
           {!look.move && <p className="hint">{t.moveNoneHelp}</p>}
@@ -610,12 +678,16 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
               <fieldset className="move-aim field">
                 <legend id={`${aimId}-legend`}>{t.targets.aimMode}</legend>
                 <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${aimId}-legend`}>
-                  <button type="button" role="radio" aria-checked={!aimOnTarget} data-testid="move-aim-center" onClick={() => (setAimOnTarget(false), setMove({ at: undefined }))}>
+                  <button type="button" role="radio" aria-checked={aim === "center"} data-testid="move-aim-center" onClick={() => (setAim("center"), setMove({ at: undefined }))}>
                     {t.targets.aimCenter}
                   </button>
                   <button type="button" role="radio" aria-checked={aimOnTarget} data-testid="move-aim-target" onClick={aimAtTarget}>
                     <span aria-hidden="true">◎ </span>
                     {t.targets.aimTarget}
+                  </button>
+                  <button type="button" role="radio" aria-checked={aim === "position"} data-testid="move-aim-position" onClick={aimAtPosition}>
+                    <span aria-hidden="true">⌖ </span>
+                    {t.positions.aimPosition}
                   </button>
                 </div>
               </fieldset>
@@ -639,7 +711,37 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                   <small className="hint">{t.targets.aimTargetHelp}</small>
                 </div>
               )}
-              {!aimOnTarget &&
+              {aim === "position" && (
+                <div className="field move-aim-target" ref={positionPicker}>
+                  {/* said once the positions are read: never « supprimée » for a moment while they load */}
+                  {positionsLoaded && look.move.at?.position && !positions.some((x) => x.id === look.move!.at!.position) && <p className="error">{t.positions.lookGone.replace("{name}", () => positionsStore.lastName(look.move!.at!.position!))}</p>}
+                  {positions.length ? (
+                    <SearchPicker
+                      title={t.positions.pick}
+                      currentLabel={t.positions.current}
+                      items={positions.map((x) => ({
+                        key: x.id,
+                        label: x.name,
+                        ...(x.color ? { color: x.color } : {}),
+                        ...(x.stale.length ? { badge: t.positions.stale } : {}),
+                        detail: x.kind === "point" ? t.positions.kindPoint : x.covers.length === 1 ? t.positions.headCountOne : t.positions.headCountMany.replace("{n}", () => String(x.covers.length)),
+                        current: look.move?.at?.position === x.id,
+                      }))}
+                      onPick={(item) => {
+                        lastPosition.current = item.key;
+                        setMove({ at: { position: item.key } });
+                        // the refusal that asked for it is answered
+                        setError((e) => (e === t.positions.pickFirst ? "" : e));
+                      }}
+                    />
+                  ) : (
+                    positionsLoaded && <p className="hint">{t.positions.pickNone}</p>
+                  )}
+                  <PositionCoverage position={positions.find((x) => x.id === look.move?.at?.position)} moved={preview?.heads} heads={heads} />
+                  <small className="hint">{t.positions.aimPositionHelp}</small>
+                </div>
+              )}
+              {aim === "center" &&
                 (["pan", "tilt"] as const).map((axis) => (
                   <label key={axis} className="field">
                     <span>
