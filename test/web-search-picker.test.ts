@@ -48,4 +48,17 @@ describe("search picker: rows and keys", () => {
     expect(rowAfterKey("ArrowDown", -1, 0)).to.equal(undefined);
     expect(rowAfterKey("Enter", 0, 3)).to.equal(undefined);
   });
+
+  it("the arrows, Home and End pass over the rows that cannot be picked", () => {
+    const off = (...rows: number[]) => (k: number) => rows.includes(k);
+    expect(rowAfterKey("ArrowDown", -1, 4, off(0))).to.equal(1);
+    expect(rowAfterKey("ArrowDown", 1, 4, off(2))).to.equal(3);
+    expect(rowAfterKey("ArrowDown", 1, 4, off(2, 3))).to.equal(1);
+    expect(rowAfterKey("ArrowUp", 3, 4, off(1, 2))).to.equal(0);
+    expect(rowAfterKey("ArrowUp", 1, 4, off(0))).to.equal(-1);
+    expect(rowAfterKey("Home", 3, 4, off(0))).to.equal(1);
+    expect(rowAfterKey("End", 0, 4, off(3))).to.equal(2);
+    // nothing to pick (the whole list disabled): the focus stays in the search
+    expect(rowAfterKey("ArrowDown", -1, 3, () => true)).to.equal(undefined);
+  });
 });

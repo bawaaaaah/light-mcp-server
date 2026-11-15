@@ -46,7 +46,7 @@ export function SearchPicker<T extends SearchItem>({ title, items, onPick, disab
   /** The arrows from the search to the rows and between them, Home and End within the rows. */
   const move = (e: KeyboardEvent<HTMLElement>, at: number) => {
     const rows = [...(box.current?.querySelectorAll<HTMLButtonElement>(".search-list button") ?? [])];
-    const next = rowAfterKey(e.key, at, rows.length);
+    const next = rowAfterKey(e.key, at, rows.length, (k) => rows[k]?.disabled === true);
     if (next === undefined || (next < 0 && !searching)) return;
     e.preventDefault();
     if (next < 0) box.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
@@ -64,7 +64,7 @@ export function SearchPicker<T extends SearchItem>({ title, items, onPick, disab
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             // Enter takes the only row left by the search
-            if (e.key === "Enter" && query.trim() && picks.length === 1) {
+            if (e.key === "Enter" && query.trim() && picks.length === 1 && !disabled && !picks[0]!.disabled) {
               e.preventDefault();
               onPick(picks[0]!);
             } else if (e.key === "Escape" && query) {
@@ -78,7 +78,7 @@ export function SearchPicker<T extends SearchItem>({ title, items, onPick, disab
       <ul className="search-list">
         {shown.map((i, k) => (
           <li key={i.key} className={i.parent !== undefined ? "variant" : undefined}>
-            <button type="button" className={i.current ? "chosen" : undefined} aria-current={i.current ? "true" : undefined} disabled={disabled} onClick={() => onPick(i)} onKeyDown={(e) => move(e, k)}>
+            <button type="button" className={i.current ? "chosen" : undefined} aria-current={i.current ? "true" : undefined} disabled={disabled || i.disabled} onClick={() => onPick(i)} onKeyDown={(e) => move(e, k)}>
               <span className="thumb" aria-hidden>
                 {i.color && <span className="swatch" style={{ background: i.color }} />}
               </span>

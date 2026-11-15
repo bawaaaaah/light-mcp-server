@@ -18,6 +18,8 @@ export interface SearchItem {
   badge?: string;
   /** More words the item is found by (its tags, a former name). */
   keywords?: readonly string[];
+  /** Shown but not pickable (a position that covers none of the heads): the arrow keys pass over it. */
+  disabled?: boolean;
 }
 
 /** Lists longer than this get a search field. */
@@ -34,20 +36,22 @@ export function pickerRows<T extends SearchItem>(items: readonly T[], query: str
 }
 
 /**
- * Where a key moves the focus in a list of `count` rows, from row `at` (-1: the search field). Down from the field goes
- * to the first row, Up from the first row back to the field; Home and End go to the ends; other keys: undefined.
+ * Where a key moves the focus in a list of `count` rows, from row `at` (-1: the search field), passing over the rows
+ * `disabled` says cannot take it. Down from the field goes to the first row that can, Up from the first one back to the
+ * field; Home and End go to the first and last that can; other keys, or no row that can: undefined.
  */
-export function rowAfterKey(key: string, at: number, count: number): number | undefined {
-  if (count === 0) return undefined;
+export function rowAfterKey(key: string, at: number, count: number, disabled: (row: number) => boolean = () => false): number | undefined {
+  const rows = Array.from({ length: count }, (_, k) => k).filter((k) => !disabled(k));
+  if (!rows.length) return undefined;
   switch (key) {
     case "ArrowDown":
-      return Math.min(at + 1, count - 1);
+      return rows.find((k) => k > at) ?? (at < 0 ? undefined : at);
     case "ArrowUp":
-      return Math.max(at - 1, -1);
+      return [...rows].reverse().find((k) => k < at) ?? -1;
     case "Home":
-      return at < 0 ? undefined : 0;
+      return at < 0 ? undefined : rows[0];
     case "End":
-      return at < 0 ? undefined : count - 1;
+      return at < 0 ? undefined : rows[rows.length - 1];
     default:
       return undefined;
   }
