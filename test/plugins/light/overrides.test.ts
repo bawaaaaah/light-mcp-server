@@ -9,12 +9,12 @@ import { Venue } from "../../../src/plugins/light/venue/venue.js";
 
 describe("fixture overrides: a model's corrections, overridden by a fixture's own", () => {
   it("keys a model without case or punctuation", () => {
-    expect(modelKey("Mac Mah", "Spot 200")).to.equal(modelKey("mac-mah", "SPOT_200"));
+    expect(modelKey("Acme Lights", "Spot 900")).to.equal(modelKey("acme-lights", "SPOT_900"));
   });
 
-  it("keys a model as its definition is found: « Spot 200 » is « Spot200 », as sameName says", () => {
-    expect(modelKey("Acme", "Spot 200")).to.equal(modelKey("Acme", "Spot200"));
-    expect(sameName("Spot 200", "Spot200")).to.equal(true);
+  it("keys a model as its definition is found: « Spot 900 » is « Spot900 », as sameName says", () => {
+    expect(modelKey("Acme", "Spot 900")).to.equal(modelKey("Acme", "Spot900"));
+    expect(sameName("Spot 900", "Spot900")).to.equal(true);
   });
 
   it("keeps manufacturer and model apart: (« A », « B C ») and (« A B », « C ») are two models", () => {
@@ -65,14 +65,14 @@ describe("model keys of a venue opened", () => {
 
   it("gives no key, instead of refusing, to a name without a letter or digit", () => {
     expect(modelKeyOrUndefined("Acme", "★")).to.equal(undefined);
-    expect(modelKeyOrUndefined("Acme", "Spot 200")).to.equal(modelKey("Acme", "Spot 200"));
+    expect(modelKeyOrUndefined("Acme", "Spot 900")).to.equal(modelKey("Acme", "Spot 900"));
   });
 
   it("re-keys a model stored under the old key format, on disk too", () => {
     const root = mkdtempSync(join(tmpdir(), "light-models-"));
-    write(root, "acme-spot-200", "Acme", "Spot 200", { wheel: { doubles: false } }); // the old key: both names lower-cased, a dash between words
+    write(root, "acme-spot-900", "Acme", "Spot 900", { wheel: { doubles: false } }); // the old key: both names lower-cased, a dash between words
     const venue = open(root);
-    const key = modelKey("Acme", "Spot 200");
+    const key = modelKey("Acme", "Spot 900");
     expect(venue.models.list().map((m) => m.id)).to.deep.equal([key]);
     expect(venue.models.get(key)?.overrides.wheel).to.deep.equal({ doubles: false });
     expect(readdirSync(join(root, "models"))).to.deep.equal([`${key}.json`]);
@@ -80,9 +80,9 @@ describe("model keys of a venue opened", () => {
 
   it("merges into the record already under the right key: its parts stay, the old one adds those it lacks", () => {
     const root = mkdtempSync(join(tmpdir(), "light-models-"));
-    const key = modelKey("Acme", "Spot 200");
-    write(root, key, "Acme", "Spot 200", { heads: { follow: false } });
-    write(root, "acme-spot-200", "Acme", "Spot 200", { wheel: { doubles: false }, heads: { accent: [] } });
+    const key = modelKey("Acme", "Spot 900");
+    write(root, key, "Acme", "Spot 900", { heads: { follow: false } });
+    write(root, "acme-spot-900", "Acme", "Spot 900", { wheel: { doubles: false }, heads: { accent: [] } });
     write(root, "star", "★", "★", {}); // no key exists for it: left alone
     const venue = open(root);
     expect(venue.models.list().map((m) => m.id).sort()).to.deep.equal([key, "star"].sort());
@@ -91,10 +91,10 @@ describe("model keys of a venue opened", () => {
 
   it("merges two old ids that land on one key, losing no part", () => {
     const root = mkdtempSync(join(tmpdir(), "light-models-"));
-    write(root, "acme-spot-200", "Acme", "Spot 200", { wheel: { doubles: false } });
-    write(root, "acme-spot200", "Acme", "Spot200", { heads: { follow: false } });
+    write(root, "acme-spot-900", "Acme", "Spot 900", { wheel: { doubles: false } });
+    write(root, "acme-spot900", "Acme", "Spot900", { heads: { follow: false } });
     const venue = open(root);
-    const key = modelKey("Acme", "Spot 200");
+    const key = modelKey("Acme", "Spot 900");
     expect(venue.models.list().map((m) => m.id)).to.deep.equal([key]);
     expect(venue.models.get(key)?.overrides).to.deep.equal({ wheel: { doubles: false }, heads: { follow: false } });
   });
@@ -109,11 +109,11 @@ describe("model keys of a venue opened", () => {
 
   it("keeps the kept record's names when an old one merges into it", () => {
     const root = mkdtempSync(join(tmpdir(), "light-models-"));
-    const key = modelKey("Acme", "Spot 200");
-    write(root, key, "Acme", "Spot 200", { heads: { follow: false } });
-    write(root, "acme-spot-200", "ACME", "SPOT 200", { wheel: { doubles: false } }); // the same key, other casing
+    const key = modelKey("Acme", "Spot 900");
+    write(root, key, "Acme", "Spot 900", { heads: { follow: false } });
+    write(root, "acme-spot-900", "ACME", "SPOT 900", { wheel: { doubles: false } }); // the same key, other casing
     const venue = open(root);
-    expect(venue.models.get(key)).to.deep.include({ manufacturer: "Acme", model: "Spot 200" });
+    expect(venue.models.get(key)).to.deep.include({ manufacturer: "Acme", model: "Spot 900" });
     expect(venue.models.get(key)?.overrides).to.deep.equal({ heads: { follow: false }, wheel: { doubles: false } });
   });
 

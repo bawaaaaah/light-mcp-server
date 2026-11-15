@@ -325,7 +325,7 @@ export function findMode(def: FixtureDefinition, name: string, channels?: number
 const FOLDED: Record<string, string> = { ß: "ss", ø: "o", æ: "ae", œ: "oe", đ: "d", ł: "l", ı: "i", þ: "th", ð: "d" };
 /**
  * A manufacturer's or a model's name as definitions are looked up: accents folded (« Éclairage » is
- * « eclairage »), case, spaces and punctuation dropped (« Spot 200 » is « Spot200 »). Empty when the
+ * « eclairage »), case, spaces and punctuation dropped (« Spot 900 » is « Spot900 »). Empty when the
  * name holds no letter or digit of the Latin alphabet.
  */
 export const normaliseName = (s: string): string =>

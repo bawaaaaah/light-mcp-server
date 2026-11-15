@@ -41,7 +41,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - **Troisième revue (2026-11-11)** : un look qui peint et tient un canal de mode n'est plus dosé deux fois ; le gradateur machine suit une formule continue (`machineFade`) ; un octet brut dosé part de l'octet tenu (`rawOver` : plus de passage par le noir, plus de double dosage gradateur × couleur) ; un look relancé en pleine montée garde son entrée sur ses canaux bruts. 7 tests de plus, qui échouent sur l'ancien code.
 - **Quatrième revue (2026-11-11)** : trois classes de looks par projecteur (par couleurs, par gradateur, machine), octet tenu par classe et lu avant la passe brute, feuilles composées en calques ; un look « scène » gradateur + mode refond depuis le noir, deux looks sans rapport ne creusent plus de trou. **À décider** : le saut de `machineFade` à l'origine (look machine + look peint lancés ensemble) — mesurer `p` par la lumière réelle, ou lisser le gradateur dans le temps.
 - **Cinquième revue (2026-11-11)** : l'octet tenu est pesé par le poids des looks qui écrivent (un look à poids 0 ne le soulève plus : 14 → 231 en une trame avant) ; 4 tests de croisement gradateur/couleur. Limite connue : là où deux fondus se combinent, la rampe est plus raide qu'un fondu seul (jusqu'à ~45 par 100 ms), sans saut — même famille que IM2, que lisser le gradateur dans le temps bornerait.
-- **Vérifié sur le matériel (2026-11-11)**, avec l'utilisateur : lyre à lampe et roue (Spot 200, 14 canaux) et barre LED RGBW (SonicPulse Bar 10, 6 canaux), fondus de 3 s : couleur, look « scène » brut, lyre couleur + gobo. Tout fond en douceur, et sur la lyre seule la luminosité bouge (roue et gobo tiennent). Ces deux appareils ne sont pas forcément ceux du groupe extérieur d'origine : à revoir sur eux s'ils diffèrent.
+- **Vérifié sur le matériel (2026-11-11)**, avec l'utilisateur : lyre à lampe et roue (14 canaux) et barre LED RGBW (6 canaux), fondus de 3 s : couleur, look « scène » brut, lyre couleur + gobo. Tout fond en douceur, et sur la lyre seule la luminosité bouge (roue et gobo tiennent). Ces deux appareils ne sont pas forcément ceux du groupe extérieur d'origine : à revoir sur eux s'ils diffèrent.
 - ~~**Reste, par-delà les tests (critère de déploiement)** : vérification sur la régie avec l'utilisateur devant la machine~~ — **faite le 2026-11-11** (ligne ci-dessus).
 
 ### T4 — Lissage d'un fader DCA : la valeur tombe à moitié au clic
@@ -167,14 +167,14 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - Constat pendant les essais : la route de l'univers 1 visait en direct (`send: nodes`) une IP où plus rien ne répondait ; les envois échouaient (`output.status` → `stats.errors`, 938 sur 1 201) **sans que rien ne prévienne** : le moteur calculait juste, les projecteurs restaient éteints. La node, elle, répondait à la découverte sur une autre adresse (plage Art-Net 2.x.x.x, hors du sous-réseau) ; la route est passée en `broadcast` pour l'essai.
 - **Fait quand** : une route dont les envois échouent, ou dont la cible ne figure pas parmi les nodes découvertes alors qu'une node sort la même adresse Art-Net, est signalée (bandeau de la page Réglages et `output.status`), avec la proposition de la retarget ou de passer en broadcast ; test sur la logique de détection (pure).
 
-## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : Wash 1915Z-R, Spot 200, Fog Spray 3000 RGB)
+## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : une lyre wash, une lyre spot à roue, une machine à fumée RGB)
 
 Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts), [qxf-import.ts](../src/plugins/light/venue/qxf-import.ts)) et dans les `.qxf` de `data/fixtures/` (privé, rien de tout ça ne va dans le dépôt) :
 - **Doublons silencieux.** Le Wash existe en deux fichiers identiques à l'octet près, le Spot en deux versions différentes (l'une « générée d'après le manuel » par un agent, l'autre importée du manuel). `findDefinition` compare les noms sans casse ni ponctuation puis prend le **premier** trouvé : la définition utilisée dépend de l'ordre de lecture du dossier, sans avertissement.
 - **Wash : seule la zone 1 est pilotée.** Le `.qxf` n'a aucun `<Head>` ; sans tête déclarée, le moteur prend la **première** occurrence de chaque composante (Rouge 1, Vert 1…). En mode 29 canaux, les zones 2 et 3 et le halo RGB ne reçoivent jamais la couleur peinte.
 - **Wash : canaux sans plages nommées.** Macro, CTO, effet du halo et leurs vitesses sont une capacité unique 0-255 : pas de menu de mode possible (T6), pas de repère sur le fader. Ces définitions viennent d'un manuel, pas de la machine : à vérifier sur la lyre.
 - **Spot : bonne base pour les couleurs.** La roue a 10 couleurs pleines (avec leur `#rrggbb`), 10 doubles couleurs et une rotation.
-- **Fog Spray 3000 RGB : classé machine** (type Smoke, canal « Smoke Release »), donc jamais poussé à fond. En revanche « Color Fade Mode » et « Color Change Mode » sont des canaux de **mode** (6-255 = actif) : ils ne doivent pas être fondus (T5) et rien ne les empêche d'être activés ensemble ou avec les canaux RGB. Le patch lui-même est sain (adresse 60, 7 canaux, aucun chevauchement).
+- **Machine à fumée RGB : classée machine** (type Smoke, canal « Smoke Release »), donc jamais poussé à fond. En revanche « Color Fade Mode » et « Color Change Mode » sont des canaux de **mode** (6-255 = actif) : ils ne doivent pas être fondus (T5) et rien ne les empêche d'être activés ensemble ou avec les canaux RGB. Le patch lui-même est sain (adresse 60, 7 canaux, aucun chevauchement).
 - **Patch du show de test** : seul le Spot a une position et une orientation ; le Wash et le Fog n'en ont pas, donc ni faisceau juste ni aperçu fiable.
 
 ### T18 — Roue de couleurs : association automatique à la plus proche
@@ -325,7 +325,7 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 Questions en attente de l'utilisateur : voir `docs/plans/00-questions-en-attente.md` (fichier pas encore suivi par git).
 
 À mesurer ou valider sur le matériel :
-- Mesurer `changeMs` (fenêtre « au noir » de la roue, 300 ms par défaut) et juger violet → Magenta sur le Spot 200.
+- Mesurer `changeMs` (fenêtre « au noir » de la roue, 300 ms par défaut) et juger violet → Magenta sur la lyre spot à roue.
 - Valider la fenêtre de reset volontaire de 5 s, et milieu ou haut de la plage Reset.
 - Confirmer les origines autorisées du reset volontaire (`ui`, `cli`, `mcp` + `confirm`).
 

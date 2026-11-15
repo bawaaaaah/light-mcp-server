@@ -359,13 +359,13 @@ describe(".lightshow archives and the running library", () => {
   it("re-keys the model overrides of an archive with the old key, as opening the venue does", async () => {
     const venue = plugin.runtime.venue;
     mkdirSync(join(venue.store.root, "models"), { recursive: true });
-    // an archive made before the key changed: the model's corrections under « acme-spot-200 »
-    writeFileSync(join(venue.store.root, "models", "acme-spot-200.json"), JSON.stringify({ id: "acme-spot-200", manufacturer: "Acme", model: "Spot 200", overrides: { wheel: { doubles: false } } }));
+    // an archive made before the key changed: the model's corrections under « acme-spot-900 »
+    writeFileSync(join(venue.store.root, "models", "acme-spot-900.json"), JSON.stringify({ id: "acme-spot-900", manufacturer: "Acme", model: "Spot 900", overrides: { wheel: { doubles: false } } }));
     const { file } = (await run("backup.create")) as { file: string };
     await run("backup.restore", { file });
-    expect(venue.models.list().map((m) => m.id)).to.deep.equal([modelKey("Acme", "Spot 200")]);
-    expect(venue.models.get(modelKey("Acme", "Spot 200"))?.overrides.wheel).to.deep.equal({ doubles: false });
-    expect(readdirSync(join(venue.store.root, "models"))).to.deep.equal([`${modelKey("Acme", "Spot 200")}.json`]);
+    expect(venue.models.list().map((m) => m.id)).to.deep.equal([modelKey("Acme", "Spot 900")]);
+    expect(venue.models.get(modelKey("Acme", "Spot 900"))?.overrides.wheel).to.deep.equal({ doubles: false });
+    expect(readdirSync(join(venue.store.root, "models"))).to.deep.equal([`${modelKey("Acme", "Spot 900")}.json`]);
   });
 
   it("refuses an unknown policy", async () => {
