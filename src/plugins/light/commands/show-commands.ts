@@ -10,7 +10,8 @@ import { displayHex } from "../engine/display.js";
 import { ANSWERING_ORIGINS, CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import { flashProfile, MAX_FLASHES_PER_SECOND } from "../show/flashes.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import { CanvasSchema, DegreeRangeSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
+import { aimSetupOf, CanvasSchema, DegreeRangeSchema, PatchedFixtureSchema, type Canvas } from "../venue/venue.js";
+import { projectZone, type ProjectedZone } from "../venue/zone-project.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { modelKeyOrUndefined, TravelOverridesSchema, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
@@ -1036,6 +1037,42 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         const { outline: _stored, ...rest } = zone;
         return outline ? { ...rest, outline } : rest;
       }),
+  });
+  // T27, lot 5: the aiming zones as one head sees them. Kept per head setup and zone (the pad asks again on every change
+  // of the venue or the zones; most of those change neither), dropped whole past PROJECTION_CACHE entries.
+  const PROJECTION_CACHE = 512;
+  const projections = new Map<string, ProjectedZone>();
+  reg.register({
+    name: "stage.zone.project",
+    title: "Zones vues par une lyre",
+    description:
+      "The aiming zones (those with `aim`) as one moving head sees them, for its XY pad: each outline, taken at the zone's aiming height, in the head's logical pan/tilt (0..1, as position.set), aimed the closest to where position.aim {zone} sends it. `paths`: the runs within reach (`closed`: the whole outline, one loop); parts out of reach or beyond the head's useful stops (orientation.limits) are left out, never bent; `aim`: where position.aim {zone} sends the head (absent: out of reach); `reach`: full, partial or none. Empty `zones` with `reason` when the head has no stage position. Read-only.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["live", "design", "setup"],
+    schema: z.object({ fixture: z.string() }),
+    run: ({ fixture }) => {
+      const f = show.venue.fixtures.get(fixture);
+      const r = show.venue.resolve(fixture);
+      if (!f) throw new CommandError("invalid", say(`fixture inconnue : ${fixture}`, `unknown fixture: ${fixture}`));
+      if ("error" in r) throw new CommandError("failed", r.error);
+      if (!r.pan && !r.tilt) throw new CommandError("invalid", say(`${f.name} : pas de pan/tilt`, `${f.name}: no pan/tilt`));
+      const setup = aimSetupOf(r);
+      if (!setup) return { fixture, zones: [], reason: "no-position" as const };
+      const zones = show.zones.list().filter((zone) => zone.aim);
+      return {
+        fixture,
+        zones: zones.map((zone) => {
+          const key = JSON.stringify([setup, zone.id, zone.name, zone.polygon, zone.floorHeight, zone.aim]);
+          let projected = projections.get(key);
+          if (!projected) {
+            if (projections.size >= PROJECTION_CACHE) projections.clear();
+            projections.set(key, (projected = projectZone(setup, zone)));
+          }
+          return projected;
+        }),
+      };
+    },
   });
   reg.register({
     name: "stage.zone.put",

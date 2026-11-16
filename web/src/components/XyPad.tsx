@@ -12,6 +12,8 @@ import { useThrottledSend } from "../hooks/useThrottledSend";
 import { holdText } from "../hold-text";
 import { arrowStep, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, type PadSpan } from "../correctionPad";
 import { leftOut } from "../positionRecall";
+import { placeLabels, textWidth } from "../plan-tools";
+import { useZoneProjection, type ProjectedZone } from "../hooks/useZoneProjection";
 import { showLockToast } from "./MotionLockButton";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
@@ -43,7 +45,15 @@ type XyPadProps = {
    * aiming point (`position.aim {zone}`, layer Manuel). Absent: no chips.
    */
   zones?: readonly ZoneChip[];
+  /**
+   * A single head's pad (its panel, T27 lot 5): the aiming zones drawn as this head sees them, in pan/tilt
+   * (`stage.zone.project`), read-only. Not on a correction pad (`span`).
+   */
+  showZones?: boolean;
 };
+
+/** The projected zones' names on the pad (px). */
+const ZONE_LABEL_PX = 11;
 
 /** An aiming zone as a chip: its name and its colour (absent: the aiming zones' colour). */
 export type ZoneChip = { id: string; name: string; color?: string | undefined };
@@ -87,7 +97,7 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved, zones }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved, zones, showZones = false }: XyPadProps): ReactElement {
   const t = useT();
   /** A logical position → where it sits on the pad (0..1 across and up), kept on the pad's edge when beyond it. */
   const placed = (p: Position): Position => {
@@ -112,6 +122,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const moved = (axis: Axis, v: number): number => (span ? onPad(span, axis, v) : clamp(v));
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
+  // the aiming zones as this head sees them (T27, lot 5): its own pad only, never a group's (each head its own frame)
+  const projected = useZoneProjection(showZones && fixture && !span ? fixture : undefined);
   // « Figer les lyres » (T26): every targeted head frozen hard → the pad is off, with the reason and « Défiger »; frozen
   // soft → the pad still moves them; some frozen hard on a group → the others move (decision U1), those stay
   const lockView = useMotionLock();
@@ -156,6 +168,17 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const hintId = useId();
   const statusId = useId();
   const infoId = useId();
+  const zonesId = useId();
+  /** The pad's size on screen (px): the projected zones' names keep their size and never overlap. */
+  const [padSize, setPadSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const hasZones = projected.length > 0;
+  useEffect(() => {
+    const el = pad.current;
+    if (!hasZones || !el || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => setPadSize({ w: el.clientWidth, h: el.clientHeight }));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [hasZones]);
   const targetRef = useRef(target);
   targetRef.current = target;
   const onErrorRef = useRef(onError);
@@ -622,7 +645,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         aria-valuemin={span ? -span.half : 0}
         aria-valuemax={span ? span.half : 100}
         aria-valuenow={sameSent && firstSent ? (span ? Math.round(offsetDeg(span, firstSent).pan * 100) / 100 : Math.round(firstSent.pan * 100)) : undefined}
-        aria-describedby={`${hintId} ${statusId}`}
+        aria-describedby={`${hintId} ${statusId}${hasZones ? ` ${zonesId}` : ""}`}
         aria-valuetext={
           sameSent && firstSent
             ? span
@@ -653,6 +676,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         onPointerCancel={endPointer}
       >
         <span className="cross" />
+        {hasZones && <ZoneOutlines zones={projected} size={padSize} />}
         {allHard && (
           <span className="xy-lock-mark" aria-hidden="true">
             🔒🔒
@@ -680,6 +704,13 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         })}
       </div>
       <span id={hintId} className="sr-only">{t.padKeysHelp} {t.padDotsHelp}</span>
+      {hasZones && (
+        <span id={zonesId} className="sr-only" data-testid="xy-zones-text">
+          {`${t.zoneAim.projected.replace("{name}", () => label ?? t.heads)}${t.colon} ${projected
+            .map((z) => (z.reach === "full" ? z.name : `${z.name} (${z.reach === "partial" ? t.zoneAim.projectedPartial : t.zoneAim.projectedOut})`))
+            .join(", ")}. ${t.zoneAim.projectedHelp}`}
+        </span>
+      )}
       <div className="xy-status" aria-live={focused || restControls ? "polite" : undefined} aria-atomic="true">
         <div className="xy-heading">
           <label>{label ?? t.heads}</label>
@@ -804,5 +835,56 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The aiming zones as one head sees them (T27, lot 5), over its pad: each outline in its colour (the runs in reach; a
+ * dashed run is part of a zone partly out of reach), its aiming point marked, its name placed without overlap
+ * (`placeLabels`, as on the plan). Drawn under the dots and never in the way of a gesture (no pointer events).
+ */
+function ZoneOutlines({ zones, size }: { zones: readonly ProjectedZone[]; size: { w: number; h: number } }): ReactElement {
+  const shown = zones.filter((z) => z.reach !== "none");
+  const at = (p: [number, number]): { x: number; y: number } => ({ x: p[0] * size.w, y: (1 - p[1]) * size.h });
+  // each name outside its outline (under it, else over it), centred on it and kept within the pad: never over the
+  // aiming point, where the head's dot lands
+  const place = new Map(
+    shown.map((z) => {
+      const pts = z.paths.flat().map(at);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const width = textWidth(z.name, ZONE_LABEL_PX) + ZONE_LABEL_PX; // the colour dot before the name
+      const x = Math.min(Math.max((Math.min(...xs) + Math.max(...xs)) / 2, width / 2), Math.max(width / 2, size.w - width / 2));
+      return [z.id, { x, width, below: Math.max(...ys) + ZONE_LABEL_PX * 1.3, above: Math.min(...ys) - ZONE_LABEL_PX * 0.4 }] as const;
+    }),
+  );
+  const labels = size.w > 0 ? placeLabels(shown.map((z) => ({ id: z.id, ...place.get(z.id)! })), ZONE_LABEL_PX) : new Map<string, number>();
+  const points = (path: readonly [number, number][]) => path.map(([pan, tilt]) => `${pan},${1 - tilt}`).join(" ");
+  return (
+    <>
+      <svg className="xy-zones" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="xy-zones">
+        {shown.map((z) => (
+          <g key={z.id} data-zone={z.id} data-reach={z.reach} style={{ "--zone-color": z.color ?? "var(--aim-color)" } as React.CSSProperties}>
+            {z.paths.map((path, i) => (z.closed ? <polygon key={i} points={points(path)} /> : <polyline key={i} points={points(path)} />))}
+          </g>
+        ))}
+      </svg>
+      {shown.map((z) => {
+        const a = z.aim ? at(z.aim) : undefined;
+        const y = labels.get(z.id);
+        const x = place.get(z.id)!.x;
+        const style = { "--zone-color": z.color ?? "var(--aim-color)" } as React.CSSProperties;
+        return (
+          <span key={z.id} className="xy-zone" data-zone={z.id} aria-hidden="true">
+            {a && <span className="xy-zone-aim" style={{ ...style, left: `${a.x}px`, top: `${a.y}px` }} />}
+            {y !== undefined && (
+              <span className={z.reach === "partial" ? "xy-zone-name partial" : "xy-zone-name"} style={{ ...style, left: `${x}px`, top: `${y - ZONE_LABEL_PX * 0.85}px`, fontSize: `${ZONE_LABEL_PX}px` }}>
+                {z.name}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </>
   );
 }

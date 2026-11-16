@@ -731,6 +731,61 @@ textarea {
   min-height: 32px;
   font-size: 0.75rem;
 }
+/* T27, lot 5: the aiming zones as one head sees them, over its pad (read-only: no pointer event, under the dots) */
+.xy .xy-zones {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.xy .xy-zones :is(polygon, polyline) {
+  fill: none;
+  stroke: var(--zone-color);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.xy .xy-zones polygon {
+  fill: color-mix(in srgb, var(--zone-color) 12%, transparent);
+}
+/* a zone partly out of reach: its runs dashed, so a cut reads as « goes on beyond », not as the zone's edge */
+.xy .xy-zones [data-reach="partial"] polyline {
+  stroke-dasharray: 6 4;
+}
+.xy .xy-zone-aim {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid var(--zone-color);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.xy .xy-zone-name {
+  position: absolute;
+  transform: translateX(-50%);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+  text-shadow: 0 0 3px var(--bg), 0 0 2px var(--bg);
+  pointer-events: none;
+}
+.xy .xy-zone-name::before {
+  content: "";
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.3em;
+  border-radius: 50%;
+  background: var(--zone-color);
+}
+.xy .xy-zone-name.partial {
+  font-style: italic;
+}
 /* T27, lot 4: the aiming zones under a group's pad, one chip each (a press sends the heads there); one row that
    scrolls sideways in a Live cell, never pushing the pad out */
 .xy-zone-chips {

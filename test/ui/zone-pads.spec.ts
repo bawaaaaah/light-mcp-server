@@ -220,3 +220,82 @@ test("T27 lot 4: on a phone, the zone chips are 44 px high and scroll sideways i
   }
 });
 
+/** The panel of the moving head, opened from the venue's plan (a click on its body). */
+async function openSpotPanel(page: Page): Promise<Locator> {
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  await page.evaluate('document.querySelector(".stage-plan")?.scrollIntoView({ block: "center" })');
+  const body = page.locator('.stage-plan g.fixture[data-fixture="spot"]').first();
+  const box = (await body.boundingBox())!;
+  for (const [fx, fy] of [[0.5, 0.5], [0.85, 0.85], [0.15, 0.15]]) {
+    await body.click({ position: { x: box.width * fx!, y: box.height * fy! }, timeout: 1500 }).catch(() => undefined);
+    if (await page.locator(".fixture-panel").isVisible()) break;
+  }
+  const panel = page.locator(".fixture-panel");
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+test("T27 lot 5: a head's pad shows the aiming zones as it sees them, follows a zone moved and its stops, read-only", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withZones(page, async (spot) => {
+    const panel = await openSpotPanel(page);
+    const zones = panel.getByTestId("xy-zones");
+    const outline = zones.locator(`g[data-zone="${ZONE.id}"]`);
+    await expect(outline).toHaveAttribute("data-reach", "full");
+    await expect(outline.locator("polygon")).toHaveCount(1);
+    await expect(zones.locator(`g[data-zone="${PLAIN.id}"]`)).toHaveCount(0); // not an aiming zone
+    await expect(panel.locator(`.xy-zone[data-zone="${ZONE.id}"] .xy-zone-name`)).toHaveText(ZONE.name);
+    await expect(panel.getByTestId("xy-zones-text")).toContainText(`Zones de visée vues par Lyre : ${ZONE.name}`);
+    // its aiming point is where position.aim {zone} sends the head: the head's dot lands on it
+    await desk(page, "position.aim", { fixtures: ["spot"], zone: ZONE.id });
+    const mark = panel.locator(`.xy-zone[data-zone="${ZONE.id}"] .xy-zone-aim`);
+    const dot = panel.getByTestId("xy-sent-dot");
+    await expect
+      .poll(async () => {
+        const [a, b] = [(await mark.boundingBox())!, (await dot.boundingBox())!];
+        return Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2));
+      })
+      .toBeLessThan(3);
+    // read-only: a press on the outline is the pad's own gesture (the overlay takes no pointer)
+    expect(await zones.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { pointerEvents: string } }).getComputedStyle(el).pointerEvents)).toBe("none");
+    await panel.screenshot({ path: "test-results/t27-projected-desktop.png" });
+    // the zone moved: the outline follows without reopening the panel
+    const before = await outline.locator("polygon").getAttribute("points");
+    await desk(page, "stage.zone.put", { zone: { ...ZONE, polygon: [[-2, 2], [0, 2], [0, 4], [-2, 4]] } });
+    await expect.poll(() => outline.locator("polygon").getAttribute("points")).not.toBe(before);
+    // its stops (T8): the part beyond them is left out, the rest dashed
+    await desk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung", orientation: { limits: { tilt: [-30, 30] } } } });
+    await expect(outline).toHaveAttribute("data-reach", "partial");
+    await expect(outline.locator("polyline").first()).toBeAttached();
+    await expect(panel.getByTestId("xy-zones-text")).toContainText("en partie hors de portée");
+    await panel.screenshot({ path: "test-results/t27-projected-partial.png" });
+  });
+  expect(errors).toEqual([]);
+});
+
+for (const [name, viewport] of [["tablet", { width: 1180, height: 820 }], ["phone", { width: 390, height: 844 }]] as const) {
+  test(`T27 lot 5: the projected zones on a head's pad, ${name}`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport, hasTouch: true, isMobile: true, locale: "fr-FR" });
+    const page = await context.newPage();
+    const errors = watchErrors(page);
+    try {
+      await login(page);
+      await withZones(page, async () => {
+        const panel = await openSpotPanel(page);
+        const pad = panel.locator(".xy .pad");
+        await expect(pad.getByTestId("xy-zones").locator(`g[data-zone="${ZONE.id}"] polygon`)).toHaveCount(1);
+        await pad.scrollIntoViewIfNeeded();
+        // the name stays inside the pad
+        const [n, p] = [(await pad.locator(".xy-zone-name").first().boundingBox())!, (await pad.boundingBox())!];
+        expect(n.x).toBeGreaterThanOrEqual(p.x - 1);
+        expect(n.x + n.width).toBeLessThanOrEqual(p.x + p.width + 1);
+        await panel.screenshot({ path: `test-results/t27-projected-${name}.png` });
+      });
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}

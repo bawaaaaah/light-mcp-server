@@ -176,6 +176,7 @@ export const TITLES_EN: Record<string, string> = {
   "stage.query": "Query the stage",
   "stage.zone.delete": "Delete a zone",
   "stage.zone.list": "Zones",
+  "stage.zone.project": "Zones seen by a moving head",
   "stage.zone.put": "Zone",
   "target.delete": "Delete a target",
   "target.engage": "Engage a target",

@@ -328,7 +328,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               <h4>{t.panelMovement}</h4>
               {may("commands:position") ? (
                 <>
-                  <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls />
+                  <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls showZones />
                   <FixturePositions fixture={fixture} canSave={may("show:write")} />
                   {may("show:write") && <button type="button" className="ghost panel-calibrate" title={t.manualCal.openHelp} onClick={() => openManualCalibration(fixture.id)}>{t.manualCal.open}<span aria-hidden="true"> →</span></button>}
                 </>
