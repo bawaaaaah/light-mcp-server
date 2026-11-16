@@ -1,10 +1,10 @@
 import { expect } from "chai";
 import { MoveSchema } from "../../../src/plugins/light/engine/move.js";
 import { mixSeed, pathPosition, pathSequence, pathStep, PathSchema, stopOffset, travelPairs, type Path } from "../../../src/plugins/light/engine/path.js";
-import { checkPath, num, tripSamples, type PathHead } from "../../../src/plugins/light/venue/path-check.js";
+import { beamInZone, boxOf, checkPath, num, tripSamples, type PathHead } from "../../../src/plugins/light/venue/path-check.js";
 import { inLang } from "../../../src/core/lang.js";
-import { aimAt, type AimSetup } from "../../../src/plugins/light/venue/aim.js";
-import { ZoneSchema } from "../../../src/plugins/light/venue/stage.js";
+import { aimAt, pointing, type AimSetup } from "../../../src/plugins/light/venue/aim.js";
+import { beamCrosses, ZoneSchema } from "../../../src/plugins/light/venue/stage.js";
 
 /**
  * The path of a look's move (T28; docs/specs/engine-effects-timing.md, « Parcours »), pure: the order of its stops (loop,
@@ -263,5 +263,64 @@ describe("path order and weights (T28, review 1)", () => {
       const b = Array.from({ length: 8 }, (_, i) => pathSequence(p, look, 1)(i));
       expect(a).to.not.deep.equal(b);
     }
+  });
+});
+
+describe("path checks, review 2 (T28)", () => {
+  const rnd = (seed: number) => {
+    let a = seed >>> 0;
+    return () => ((a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296);
+  };
+
+  it("beamInZone says what the guard's beamCrosses says, stepping only over the zone", () => {
+    const r = rnd(7);
+    let crossing = 0;
+    for (let k = 0; k < 4000; k++) {
+      const x = r() * 12 - 6;
+      const y = r() * 10 - 2;
+      const w = 0.2 + r() * 2;
+      const zone = ZoneSchema.parse({ id: "z", name: "Z", polygon: [[x, y], [x + w, y], [x + w, y + w * (0.3 + r())], [x, y + w]], floorHeight: r() < 0.3 ? r() : 0, noAim: true });
+      const o = { x: r() * 10 - 5, y: r() * 4 - 1, z: 1 + r() * 6 };
+      const th = Math.PI * r();
+      const ph = 2 * Math.PI * r();
+      const d = { x: Math.sin(th) * Math.cos(ph), y: Math.sin(th) * Math.sin(ph), z: Math.cos(th) };
+      const want = beamCrosses(o, d, zone);
+      if (want) crossing++;
+      expect(beamInZone(o, d, boxOf(zone)), `case ${k}`).to.equal(want);
+    }
+    expect(crossing).to.be.greaterThan(30);
+  });
+
+  it("stays fast: 8 heads × 32 stops in random order with 4 no-aim zones near the beams", () => {
+    const pts = Array.from({ length: 32 }, (_, i) => ({ x: -6 + (12 * (i % 8)) / 7, y: 1 + Math.floor(i / 8) * 1.5, z: 0 }));
+    const big = PathSchema.parse({ stops: pts.map((point) => ({ point })), order: "random" });
+    const heads: PathHead[] = Array.from({ length: 8 }, (_, h) => {
+      const s: AimSetup = { position: { x: -7 + 2 * h, y: 0, z: 6 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+      return { id: `h${h}`, name: `H${h}`, panMax: 540, tiltMax: 270, setup: s, stops: pts.map((q) => { const a = aimAt(s, q); return "error" in a ? { error: a.error } : { pan: a.pan, tilt: a.tilt }; }) };
+    });
+    const zones = [[-2, 2.5], [2, 4], [0, 1.5], [4, 2]].map(([x, y], k) => ZoneSchema.parse({ id: `z${k}`, name: `Z${k}`, polygon: [[x! - 0.3, y! - 0.3], [x! + 0.3, y! - 0.3], [x! + 0.3, y! + 0.3], [x! - 0.3, y! + 0.3]], noAim: true }));
+    const run = () => checkPath({ path: big, heads, travelSeconds: 1, noAim: zones, stopName: (i) => `S${i}` });
+    run(); // compiled once
+    const times = [0, 1, 2].map(() => {
+      const t0 = performance.now();
+      run();
+      return performance.now() - t0;
+    });
+    expect(Math.min(...times)).to.be.below(50);
+    expect(run().some((w) => w.kind === "noAim")).to.equal(true);
+  });
+
+  it("a look aimed at a zone is said as the zone, never as « l'arrêt 1 »", () => {
+    const setup: AimSetup = { position: { x: 0, y: 0, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    const one = PathSchema.parse({ stops: [{ zone: "z" }] });
+    const at = aimAt(setup, { x: 0, y: 6, z: 0 }) as { pan: number; tilt: number };
+    const lectern = ZoneSchema.parse({ id: "p", name: "Pupitre", polygon: [[-1, 5], [1, 5], [1, 7], [-1, 7]], noAim: true });
+    const h: PathHead = { id: "h", name: "Lyre 3", panMax: 540, tiltMax: 270, setup, stops: [{ pan: at.pan, tilt: at.tilt }] };
+    const said = checkPath({ path: one, heads: [h], travelSeconds: 1, noAim: [lectern], stopName: () => "zone « Balcon »", zoneLook: true });
+    expect(said[0]!.message).to.equal("la zone « Balcon » vise « Pupitre » pour Lyre 3 : elle y restera éteinte (zone interdite aux lyres)");
+    const blind: PathHead = { ...h, stops: [{ error: "hors de portée" }] };
+    const nowhere = checkPath({ path: one, heads: [blind], travelSeconds: 1, noAim: [], stopName: () => "zone « Balcon »", zoneLook: true })[0]!.message;
+    expect(nowhere).to.equal("la zone « Balcon » n'est atteinte par aucune lyre — Lyre 3 : hors de portée : elle reste en place");
+    expect(pointing(setup, at).z).to.be.below(0);
   });
 });

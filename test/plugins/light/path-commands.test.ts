@@ -91,6 +91,27 @@ describe("zones and paths through the commands (T28)", () => {
     expect(mine.filter((i) => i.level === "attention")).to.deep.equal([]);
   });
 
+  it("look.put says nothing ahead for a look that does not move its heads (enabled: false), as the show check", async () => {
+    await run("stage.zone.put", { zone: { id: "pupitre", name: "Pupitre", polygon: [[-1, 3], [1, 3], [1, 4], [-1, 4]], noAim: true } });
+    const moving = (await run("look.put", { look: look({ at: { path: { stops } } }) })) as { warnings?: string[] };
+    expect(moving.warnings?.length).to.be.greaterThan(0);
+    const still = (await run("look.put", { look: look({ enabled: false, at: { path: { stops } } }) })) as { warnings?: string[] };
+    expect(still.warnings).to.equal(undefined);
+    const preview = (await run("look.preview", { look: look({ enabled: false, at: { path: { stops } } }) })) as { path?: { warnings: unknown[] } };
+    expect(preview.path?.warnings).to.deep.equal([]);
+  });
+
+  it("a look aimed at a zone is said as « la zone « X » », and the last names of deleted things are forgotten with the show", async () => {
+    await run("stage.zone.put", { zone: { id: "plafond", name: "Plafond", polygon: [[-3, -2], [3, -2], [3, -1], [-3, -1]], floorHeight: 9, aim: {} } });
+    const saved = (await run("look.put", { look: look({ at: { zone: "plafond" } }) })) as { warnings?: string[] };
+    expect(saved.warnings?.[0]).to.match(/^la zone « Plafond » n'est atteinte par aucune lyre/);
+    expect(saved.warnings?.[0]).to.not.match(/arrêt/);
+    await run("stage.zone.delete", { id: "plafond", force: true });
+    expect(plugin.runtime.goneName("zone", "plafond")).to.equal("Plafond");
+    plugin.runtime.resetLive();
+    expect(plugin.runtime.goneName("zone", "plafond")).to.equal("plafond");
+  });
+
   it("position.aim {zone} says the zone the heads hold (the Live's « Zones » widget) until a gesture or a release", async () => {
     const aimed = async () => ((await run("position.list")) as { id: string; aimed?: string }[]).find((h) => h.id === "spot")?.aimed;
     await run("position.aim", { zone: "cour" });

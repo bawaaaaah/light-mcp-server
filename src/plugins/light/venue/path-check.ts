@@ -17,7 +17,7 @@ import { lang, say } from "../../../core/lang.js";
 import { pathPosition, travelPairs, type Path, type StopPosition } from "../engine/path.js";
 import type { Position } from "../engine/move.js";
 import { pointing, type AimSetup } from "./aim.js";
-import { beamCrosses, type Zone } from "./stage.js";
+import { pointInPolygon, type Zone } from "./stage.js";
 
 /** One moving head as the checks see it. */
 export interface PathHead {
@@ -43,6 +43,8 @@ export interface PathCheckInput {
   noAim: readonly Zone[];
   /** How a stop is named in a message (« zone « Avant-scène » », « point (1 ; 2 ; 0) »…), by index. */
   stopName: (index: number) => string;
+  /** The report is a look aimed at a zone (`move.at.zone`, a path of one stop): said « la zone « X » », never « l'arrêt 1 ». */
+  zoneLook?: boolean;
   /** The tempo a cadence in beats was timed at, said in the speed warning (absent: a cadence in seconds). */
   bpm?: number;
 }
@@ -62,6 +64,8 @@ export interface PathWarning {
 export const NO_AIM_STEP_DEG = 1.5;
 export const NO_AIM_MIN_SAMPLES = 16;
 export const NO_AIM_MAX_SAMPLES = 400;
+/** The points sampled for one head over all its trips: beyond, each trip gets its share (16 at least). */
+export const NO_AIM_HEAD_BUDGET = 12000;
 
 const placed = (p: StopPosition): p is Position => !("error" in p);
 /** A number as the request's language writes it: a decimal comma in French, one decimal below 100. */
@@ -76,13 +80,74 @@ export function tripSamples(h: Pick<PathHead, "panMax" | "tiltMax">, a: Position
   return Math.min(NO_AIM_MAX_SAMPLES, Math.max(NO_AIM_MIN_SAMPLES, Math.ceil(deg / NO_AIM_STEP_DEG)));
 }
 
-/** The no-aim zones a head's beam falls into at `p`. */
-const zonesAt = (h: PathHead, p: Position, noAim: readonly Zone[]): Zone[] => noAim.filter((z) => beamCrosses(h.setup!.position, pointing(h.setup!, p), z));
+/** The height above its floor up to which a beam counts in a no-aim zone (`beamCrosses`' default, the guard's). */
+const NO_AIM_HEIGHT = 2.5;
+
+/** A zone's box seen from above, widened by a margin (the guard steps along the beam every 10 cm). */
+export interface ZoneBox {
+  zone: Zone;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+export const boxOf = (zone: Zone): ZoneBox => {
+  const xs = zone.polygon.map((q) => q[0]);
+  const ys = zone.polygon.map((q) => q[1]);
+  const m = 0.15;
+  return { zone, x0: Math.min(...xs) - m, x1: Math.max(...xs) + m, y0: Math.min(...ys) - m, y1: Math.max(...ys) + m };
+};
+
+/**
+ * Whether a beam crosses a zone up to `NO_AIM_HEIGHT` above its floor, as the guard's `beamCrosses` says (a step every
+ * 10 cm up to 20 m, stopped where the beam has hit that floor), but stepping only where it can: the part of the beam
+ * between the zone's floor and that height, over the zone's box seen from above (Liang-Barsky). Pure.
+ */
+export function beamInZone(o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, b: ZoneBox): boolean {
+  const floor = b.zone.floorHeight;
+  // the guard's first step already below the floor: the beam has hit the ground there
+  if (o.z + 0.1 * d.z < floor - 0.05) return false;
+  let t0 = 0.1;
+  let t1 = 20;
+  const [lo, hi] = [floor - 0.05, floor + NO_AIM_HEIGHT];
+  if (Math.abs(d.z) < 1e-12) {
+    if (o.z < lo || o.z > hi) return false;
+  } else {
+    const [ta, tb] = [(lo - o.z) / d.z, (hi - o.z) / d.z];
+    t0 = Math.max(t0, Math.min(ta, tb));
+    t1 = Math.min(t1, Math.max(ta, tb));
+  }
+  for (const [oo, dd, a0, a1] of [[o.x, d.x, b.x0, b.x1], [o.y, d.y, b.y0, b.y1]] as const) {
+    if (Math.abs(dd) < 1e-12) {
+      if (oo < a0 || oo > a1) return false;
+      continue;
+    }
+    const [ta, tb] = [(a0 - oo) / dd, (a1 - oo) / dd];
+    t0 = Math.max(t0, Math.min(ta, tb));
+    t1 = Math.min(t1, Math.max(ta, tb));
+  }
+  if (t0 > t1 + 0.1) return false;
+  for (let k = Math.max(1, Math.floor(t0 * 10)); k <= Math.min(200, Math.ceil(t1 * 10)); k++) {
+    const t = k / 10;
+    const z = o.z + t * d.z;
+    if (z < lo) return false;
+    if (z <= hi && pointInPolygon(o.x + t * d.x, o.y + t * d.y, b.zone.polygon)) return true;
+  }
+  return false;
+}
+
+/** The no-aim zones a head's beam falls into at `p` (`boxes`: theirs, `boxOf`). */
+const zonesAt = (h: PathHead, p: Position, boxes: readonly ZoneBox[]): Zone[] => {
+  const d = pointing(h.setup!, p);
+  return boxes.filter((b) => beamInZone(h.setup!.position, d, b)).map((b) => b.zone);
+};
 
 /** Every warning for a path, in a stable order: stops, then speed, then no-aim zones. */
 export function checkPath(input: PathCheckInput): PathWarning[] {
   const { path, heads, noAim, stopName } = input;
   const out: PathWarning[] = [];
+  /** How a stop is said at the start of a sentence: « l'arrêt 2 (zone « X ») », or « la zone « X » » for a zone look. */
+  const stopSaid = (i: number): string => (input.zoneLook ? say(`la ${stopName(i)}`, `the ${stopName(i)}`) : say(`l'arrêt ${i + 1} (${stopName(i)})`, `stop ${i + 1} (${stopName(i)})`));
   // stops nobody, or not every head, can reach: the cause head by head
   path.stops.forEach((_, i) => {
     const failing = heads.filter((h) => h.stops[i] && !placed(h.stops[i]!));
@@ -91,11 +156,12 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
     const whyEn = failing.map((h) => `${h.name}: ${(h.stops[i] as { error: string }).error}`).join("; ");
     const many = failing.length > 1;
     const holds = say(many ? "elles restent en place" : "elle reste en place", many ? "they hold" : "it holds");
-    const where = say(`l'arrêt ${i + 1} (${stopName(i)})`, `stop ${i + 1} (${stopName(i)})`);
-    const when = say("pendant les pas qui y mènent ou en partent", "during the steps that lead there or leave it");
+    const where = stopSaid(i);
+    // a zone look holds its heads for as long as it plays; a path, for the steps to and from that stop
+    const when = input.zoneLook ? "" : say(" pendant les pas qui y mènent ou en partent", " during the steps that lead there or leave it");
     if (failing.length === heads.length)
-      out.push({ kind: "nowhere", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} n'est atteint par aucune lyre — ${why} : ${holds} ${when}`, `${where} is reached by no head — ${whyEn}: ${holds} ${when}`) });
-    else out.push({ kind: "unreachable", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} est hors d'atteinte — ${why} : ${holds} ${when}`, `${where} is out of reach — ${whyEn}: ${holds} ${when}`) });
+      out.push({ kind: "nowhere", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} n'est ${input.zoneLook ? "atteinte" : "atteint"} par aucune lyre — ${why} : ${holds}${when}`, `${where} is reached by no head — ${whyEn}: ${holds}${when}`) });
+    else out.push({ kind: "unreachable", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} est hors d'atteinte — ${why} : ${holds}${when}`, `${where} is out of reach — ${whyEn}: ${holds}${when}`) });
   });
   const pairs = travelPairs(path);
   // speed, per head and per axis: the worst trip against the slowest rule that applies
@@ -128,6 +194,7 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
     }
   }
   if (!noAim.length) return out;
+  const boxes = noAim.map(boxOf);
   // no-aim zones: a stop landing in one (dark while it rests there), then the trips crossing one (dark while crossing)
   for (const h of heads) {
     if (!h.setup) continue;
@@ -135,7 +202,7 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
     path.stops.forEach((_, i) => {
       const p = h.stops[i];
       if (!p || !placed(p)) return;
-      const zones = zonesAt(h, p, noAim);
+      const zones = zonesAt(h, p, boxes);
       if (zones.length) onStop.set(i, zones);
       for (const z of zones)
         out.push({
@@ -143,7 +210,7 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
           stops: [i],
           heads: [h.id],
           zone: z.id,
-          message: say(`l'arrêt ${i + 1} (${stopName(i)}) vise « ${z.name} » pour ${h.name} : elle y restera éteinte (zone interdite aux lyres)`, `stop ${i + 1} (${stopName(i)}) aims ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`),
+          message: say(`${stopSaid(i)} vise « ${z.name} » pour ${h.name} : elle y restera éteinte (zone interdite aux lyres)`, `${stopSaid(i)} aims ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`),
         });
     });
     const crossed = new Map<string, { pair: [number, number]; count: number }>();
@@ -151,9 +218,16 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
       const [a, b] = [h.stops[pair[0]], h.stops[pair[1]]];
       if (!a || !b || !placed(a) || !placed(b)) continue;
       // the ends are the stops' own (said above): only the points between them
-      const n = tripSamples(h, a, b);
+      const n = Math.min(tripSamples(h, a, b), Math.max(NO_AIM_MIN_SAMPLES, Math.floor(NO_AIM_HEAD_BUDGET / pairs.length)));
       const hit = new Set<Zone>();
-      for (let k = 1; k < n; k++) for (const z of zonesAt(h, pathPosition(a, b, k / n), noAim)) hit.add(z);
+      // a zone already found on this trip is not looked for again: the rest of the trip tests the others only
+      let left = boxes;
+      for (let k = 1; k < n && left.length; k++) {
+        const found = zonesAt(h, pathPosition(a, b, k / n), left);
+        if (!found.length) continue;
+        for (const z of found) hit.add(z);
+        left = left.filter((x) => !hit.has(x.zone));
+      }
       for (const z of hit) {
         // a zone an end already lands in is no crossing of its own
         if (onStop.get(pair[0])?.includes(z) || onStop.get(pair[1])?.includes(z)) continue;

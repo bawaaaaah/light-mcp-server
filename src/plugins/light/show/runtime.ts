@@ -1147,6 +1147,8 @@ export class ShowRuntime {
     this.lastMotion = new Map();
     this.lastPositions = new Map();
     this.lookCoverage.clear();
+    // the last names of what the other show deleted (T28): never said for this one
+    this.goneNames.clear();
     this.activeProgram = undefined;
     this.resets.clear();
     this.atRest.clear();
@@ -2200,6 +2202,7 @@ export class ShowRuntime {
       travelSeconds: stepSeconds * path.travel,
       // a zone this look opens (allowLooks) does not darken it
       noAim: this.zones.list().filter((z) => z.noAim && !z.allowLooks.includes(look.id)),
+      ...(at.path ? {} : { zoneLook: true }),
       stopName: (i) => this.pathStopName(path.stops[i]!),
       ...(bpm === undefined ? {} : { bpm }),
     });

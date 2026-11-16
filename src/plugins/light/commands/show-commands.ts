@@ -1245,8 +1245,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const saved = show.looks.put(checkLook(migrateTags ? { ...look, tags: migrateTags(look.tags) } : look));
       // an ambiance: tag several intentions answer to stays a name (T15b): said, with which one it goes to
       const ambiguous = ambiguousTags?.(saved.tags) ?? [];
-      // a path (T28) said ahead: stops out of reach, trips too fast for a speed rule, trips crossing a no-aim zone
-      const warnings = show.pathReport(saved)?.warnings.map((w) => w.message) ?? [];
+      // a path or a zone (T28) said ahead: stops out of reach, trips too fast for a speed rule, a no-aim zone aimed at or
+      // crossed — not for a look that does not move its heads (« Ne pas bouger les lyres »), as « Vérifier le show »
+      const warnings = saved.move?.enabled === false ? [] : (show.pathReport(saved)?.warnings.map((w) => w.message) ?? []);
       return ambiguous.length || warnings.length ? { ...saved, ...(ambiguous.length ? { ambiguous } : {}), ...(warnings.length ? { warnings } : {}) } : saved;
     },
   });
@@ -1378,7 +1379,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.preview",
     title: "Aperçu d'un look",
-    description: "Steps a look (saved or not) generates on its canvas (and, for a look with a move, `heads`: the moving heads its move places — none for an empty or unknown group —; following a named position that is a point, `unreachable`: those of them that cannot aim at it now, with why): one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. Nothing is played.",
+    description: "Steps a look (saved or not) generates on its canvas (and, for a look with a move, `heads`: the moving heads its move places — none for an empty or unknown group —; following a named position that is a point, `unreachable`: those of them that cannot aim at it now, with why): one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. A look whose move has `at.path` (stops) or `at.zone` (T28) also gets `path`: `stops` (each stop named, and resolved head by head: pan/tilt or why the head cannot go there; `gone`: the last name of a zone, position or target deleted since) and `warnings` (stops out of reach, trips too fast for a speed rule, a no-aim zone aimed at or crossed; none with move.enabled false). A path without stops is refused. Nothing is played.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design"],
@@ -1407,7 +1408,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
           : [];
       // a path (T28): its stops resolved head by head, and its warnings (shown in the editor before saving)
       const path = show.pathReport(look);
-      return { ...(heads ? { heads } : {}), ...(unreachable.length ? { unreachable } : {}), ...(path ? { path: { stops: path.stops, warnings: path.warnings } } : {}), cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
+      return { ...(heads ? { heads } : {}), ...(unreachable.length ? { unreachable } : {}), ...(path ? { path: { stops: path.stops, warnings: look.move?.enabled === false ? [] : path.warnings } } : {}), cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
     },
   });
   reg.register({
