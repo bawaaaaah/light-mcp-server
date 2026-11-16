@@ -15,8 +15,7 @@ import { SearchPicker } from "./SearchPicker";
 import { stageFrame, stageLayout, type StageXY } from "../stage-frame";
 import { aimSpot, zoneAt } from "../zone-shape";
 import { placeLabels, textWidth } from "../plan-tools";
-import { radioTabIndex } from "../radio-keys";
-import { onRadioKey } from "../radio-group";
+import { SegmentedRadio } from "./SegmentedRadio";
 import { moveStop, typedNumber } from "../path-edit";
 import type { PositionRow } from "../hooks/usePositions";
 import type { TargetRow } from "../hooks/useTargets";
@@ -450,27 +449,20 @@ export function PathEditor({
         </label>
         <fieldset className="move-aim field">
           <legend id={`${id}-heads`}>{p.heads}</legend>
-          <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${id}-heads`} onKeyDown={(e) => onRadioKey(e, (k) => set({ heads: HEAD_MODES[k]! }))}>
-            {HEAD_MODES.map((m, k) => {
-              const off = headsMode(m);
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  role="radio"
-                  aria-checked={path.heads === m}
-                  tabIndex={radioTabIndex(path.heads === m, k, true)}
-                  data-testid={`path-heads-${m}`}
-                  title={off ? p.chacuneOnlyRandom : p.headsHelp[m]}
-                  aria-disabled={off || undefined}
-                  className={off ? "muted" : undefined}
-                  onClick={() => !off && set({ heads: m })}
-                >
-                  {p.headModes[m]}
-                </button>
-              );
-            })}
-          </div>
+          <SegmentedRadio
+            labelledBy={`${id}-heads`}
+            className="move-aim-choices"
+            buttonClassName=""
+            options={HEAD_MODES.map((m) => ({
+              value: m,
+              label: p.headModes[m],
+              testId: `path-heads-${m}`,
+              title: headsMode(m) ? p.chacuneOnlyRandom : p.headsHelp[m],
+              ...(headsMode(m) ? { disabled: true, className: "muted" } : {}),
+            }))}
+            value={path.heads}
+            onChange={(mode) => set({ heads: mode })}
+          />
           <small className="hint">{headsMode(path.heads) ? p.chacuneOnlyRandom : p.headsHelp[path.heads]}</small>
         </fieldset>
         {path.heads === "decales" && (

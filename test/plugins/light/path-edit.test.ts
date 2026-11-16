@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { moveStop, typedNumber } from "../../../web/src/path-edit.js";
-import { radioTabIndex, radioTarget } from "../../../web/src/radio-keys.js";
+import { radioTarget } from "../../../web/src/radio-keys.js";
 
 /** The look editor's path helpers (T28, review 1): pure, tested without a browser. */
 describe("look editor, path helpers (T28)", () => {
@@ -17,9 +17,7 @@ describe("look editor, path helpers (T28)", () => {
     for (const bad of ["", "-", ".", "abc", "1e400"]) expect(typedNumber(bad), bad).to.equal(undefined);
   });
 
-  it("radio groups: one stop in the Tab order, arrows wrap round and skip a disabled radio", () => {
-    expect([0, 1, 2].map((i) => radioTabIndex(i === 1, i, true))).to.deep.equal([-1, 0, -1]);
-    expect([0, 1, 2].map((i) => radioTabIndex(false, i, false))).to.deep.equal([0, -1, -1]);
+  it("radio groups (SegmentedRadio): arrows wrap round and skip a disabled radio, Home and End to the ends", () => {
     expect(radioTarget("ArrowRight", 2, 3)).to.equal(0);
     expect(radioTarget("ArrowLeft", 0, 3)).to.equal(2);
     expect(radioTarget("ArrowDown", 0, 3, (i) => i !== 1)).to.equal(2);

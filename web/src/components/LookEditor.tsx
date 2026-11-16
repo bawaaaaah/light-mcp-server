@@ -27,8 +27,7 @@ import { targetsStore, useTargets } from "../hooks/useTargets";
 import { positionsStore, usePositions, type PositionRow } from "../hooks/usePositions";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
 import { allWeightsZero, HEIGHT_MAX, lastName, NEW_PATH, PathEditor, PathWarnings, rememberZones, ZoneButtons, type PathDraft, type PathZone } from "./PathEditor";
-import { radioTabIndex } from "../radio-keys";
-import { onRadioKey } from "../radio-group";
+import { SegmentedRadio } from "./SegmentedRadio";
 
 export type { MoveFade };
 type Every = MoveFade;
@@ -781,15 +780,15 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
               </label>
               <fieldset className="move-aim field">
                 <legend id={`${aimId}-legend`}>{t.targets.aimMode}</legend>
-                {/* arrow keys choose, as native radios: one stop in the Tab order (radio-keys.ts) */}
-                <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${aimId}-legend`} onKeyDown={(e) => onRadioKey(e, (k) => AIM_CHOICES[k]!.choose())}>
-                  {AIM_CHOICES.map((c, k) => (
-                    <button key={c.mode} type="button" role="radio" aria-checked={aim === c.mode} tabIndex={radioTabIndex(aim === c.mode, k, true)} data-testid={`move-aim-${c.mode}`} onClick={c.choose}>
-                      {c.icon && <span aria-hidden="true">{c.icon} </span>}
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
+                {/* arrow keys choose, as native radios: one stop in the Tab order */}
+                <SegmentedRadio
+                  labelledBy={`${aimId}-legend`}
+                  className="move-aim-choices"
+                  buttonClassName=""
+                  options={AIM_CHOICES.map((c) => ({ value: c.mode, label: c.label, ...(c.icon ? { icon: c.icon } : {}), testId: `move-aim-${c.mode}` }))}
+                  value={aim}
+                  onChange={(mode) => AIM_CHOICES.find((c) => c.mode === mode)!.choose()}
+                />
               </fieldset>
               {aimOnTarget && (
                 <div className="field move-aim-target" ref={targetPicker}>

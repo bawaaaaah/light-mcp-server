@@ -1,12 +1,8 @@
 /**
- * A row of buttons with `role="radio"` (a `radiogroup`) driven from the keyboard as a native radio group (WAI-ARIA
- * « radio group » pattern): one stop in the Tab order — the checked button (`radioTabIndex`), the first one when none is
- * — and the arrow keys move both the focus and the choice, wrapping round; Home and End go to the ends; buttons marked
- * `aria-disabled="true"` are skipped. Pure (no DOM, no React): the key handler is `onRadioKey` (radio-group.ts).
+ * The keys of a row of `role="radio"` buttons (WAI-ARIA « radio group » pattern, `components/SegmentedRadio.tsx`): the
+ * arrows move to the next or previous choice, wrapping round; Home and End go to the first and the last; a choice that
+ * cannot be taken now (`aria-disabled`) is skipped. Pure (no DOM, no React): tested without a browser.
  */
-
-/** The tab index of one radio of a group: 0 for the checked one (or the first when none is), −1 for the others. */
-export const radioTabIndex = (checked: boolean, index: number, anyChecked: boolean): 0 | -1 => (checked || (!anyChecked && index === 0) ? 0 : -1);
 
 /** The index the key leads to among `count` radios, `enabled(i)` the ones that can be chosen; undefined for another key. */
 export function radioTarget(key: string, from: number, count: number, enabled: (i: number) => boolean = () => true): number | undefined {
