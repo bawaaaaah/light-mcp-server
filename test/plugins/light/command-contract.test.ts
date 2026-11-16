@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { ZodObject, ZodRawShape } from "zod";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
-import { HINTS, toolHints } from "../../../src/plugins/light/commands/tool-hints.js";
-import { commandTitle, TITLES_EN } from "../../../src/plugins/light/commands/titles-en.js";
+import { toolHints } from "../../../src/plugins/light/commands/tool-hints.js";
+import { commandTitle, type CommandDef } from "../../../src/plugins/light/commands/registry.js";
 import { inLang } from "../../../src/core/lang.js";
 
 /**
@@ -16,6 +16,12 @@ import { inLang } from "../../../src/core/lang.js";
 describe("command contract", () => {
   const plugin = new LightPlugin({ eventBus: new EventBus(), dataRoot: join(mkdtempSync(join(tmpdir(), "light-contract-")), "data"), midiNative: null });
   const commands = plugin.commands.list();
+  const def = (name: string): CommandDef => {
+    const found = plugin.commands.get(name);
+    if (!found) throw new Error(`unknown command ${name}`);
+    return found;
+  };
+  const hintsOf = (name: string) => toolHints(def(name));
 
   it("never flags as read-only a command that can write (apply / save)", () => {
     const writers = commands.filter((c) => {
@@ -31,15 +37,15 @@ describe("command contract", () => {
   });
 
   describe("English titles", () => {
-    it("gives every command an English title (a new one must be added to TITLES_EN)", () => {
-      expect(commands.filter((c) => !(c.name in TITLES_EN)).map((c) => c.name)).to.deep.equal([]);
-      expect(Object.keys(TITLES_EN).filter((n) => !commands.some((c) => c.name === n))).to.deep.equal([]);
+    it("gives every command an English title of its own (CommandDef.titleEn)", () => {
+      expect(commands.filter((c) => typeof c.titleEn !== "string" || !c.titleEn.trim()).map((c) => c.name)).to.deep.equal([]);
     });
 
     it("answers the French title by default and the English one on request", () => {
-      const def = commands.find((c) => c.name === "look.go")!;
-      expect(commandTitle(def)).to.equal(def.title);
-      expect(inLang("en", () => commandTitle(def))).to.equal(TITLES_EN["look.go"]);
+      const look = def("look.go");
+      expect(commandTitle(look)).to.equal(look.title);
+      expect(inLang("en", () => commandTitle(look))).to.equal(look.titleEn);
+      expect(look.titleEn).to.not.equal(look.title);
     });
   });
 
@@ -51,13 +57,12 @@ describe("command contract", () => {
       }
     });
 
-    it("classifies every command that writes (a new one must be added to HINTS)", () => {
-      expect(commands.filter((c) => !c.readOnly && !(c.name in HINTS)).map((c) => c.name)).to.deep.equal([]);
+    it("classifies every command that writes (CommandDef.hints)", () => {
+      expect(commands.filter((c) => !c.readOnly && c.hints === undefined).map((c) => c.name)).to.deep.equal([]);
     });
 
-    it("lists no command that does not exist (a renamed or removed one leaves a stale line)", () => {
-      const names = new Set(commands.map((c) => c.name));
-      expect(Object.keys(HINTS).filter((n) => !names.has(n))).to.deep.equal([]);
+    it("gives a read-only command no hint but open world", () => {
+      expect(commands.filter((c) => c.readOnly && c.hints !== undefined && c.hints !== "O").map((c) => c.name)).to.deep.equal([]);
     });
 
     it("never calls a read-only command destructive, and always idempotent", () => {
@@ -66,34 +71,34 @@ describe("command contract", () => {
 
     it("keeps the claims consistent: a delete is destructive, a step or a counter is not idempotent", () => {
       for (const c of commands.filter((x) => /\.delete$/.test(x.name))) expect(toolHints(c).destructiveHint, c.name).to.equal(true);
-      for (const name of ["look.go", "look.stop", "group.level", "tempo.set", "panic"]) expect(toolHints({ name }).idempotentHint, name).to.equal(true);
-      for (const name of ["setlist.next", "song.prev", "tempo.tap", "backup.create"]) expect(toolHints({ name }).idempotentHint, name).to.equal(false);
+      for (const name of ["look.go", "look.stop", "group.level", "tempo.set", "panic"]) expect(hintsOf(name).idempotentHint, name).to.equal(true);
+      for (const name of ["setlist.next", "song.prev", "tempo.tap", "backup.create"]) expect(hintsOf(name).idempotentHint, name).to.equal(false);
     });
 
     it("says what the handlers really do: relative or restarting is not idempotent, an overwrite without versions is destructive", () => {
       // `turn` adds to the heading, `create` makes a new group each time, a play rewinds, notes are stamped
-      for (const name of ["venue.fixture.orient", "look.exclusive", "song.play", "notes.set", "ableset.jump", "history.undo", "live.adjust"]) expect(toolHints({ name }).idempotentHint, name).to.equal(false);
+      for (const name of ["venue.fixture.orient", "look.exclusive", "song.play", "notes.set", "ableset.jump", "history.undo", "live.adjust"]) expect(hintsOf(name).idempotentHint, name).to.equal(false);
       // looks, groups, faders, dashboards and canvases keep versions; the rest is replaced for good
-      for (const name of ["look.put", "group.put", "fader.put", "dashboard.put", "venue.canvas.put", "venue.canvas.edit", "venue.canvas.auto"]) expect(toolHints({ name }).destructiveHint, name).to.equal(false);
+      for (const name of ["look.put", "group.put", "fader.put", "dashboard.put", "venue.canvas.put", "venue.canvas.edit", "venue.canvas.auto"]) expect(hintsOf(name).destructiveHint, name).to.equal(false);
       for (const name of ["venue.fixture.put", "stage.zone.put", "rule.put", "palette.put", "program.put", "midi.mapping.put", "song.put", "setlist.put", "notes.set", "calibration.solve", "midi.profile.save"])
-        expect(toolHints({ name }).destructiveHint, name).to.equal(true);
+        expect(hintsOf(name).destructiveHint, name).to.equal(true);
     });
 
     it("marks open world what talks to the network, devices or another program", () => {
-      for (const name of ["tempo.set", "midi.profile.save", "midi.profile.select", "midi.learn", "output.route", "ableset.jump", "nodes.discover", "selftest.run"]) expect(toolHints({ name }).openWorldHint, name).to.equal(true);
-      for (const name of ["look.go", "dmx.set", "blackout", "panic", "group.level"]) expect(toolHints({ name }).openWorldHint, name).to.equal(false);
+      for (const name of ["tempo.set", "midi.profile.save", "midi.profile.select", "midi.learn", "output.route", "ableset.jump", "nodes.discover", "selftest.run"]) expect(hintsOf(name).openWorldHint, name).to.equal(true);
+      for (const name of ["look.go", "dmx.set", "blackout", "panic", "group.level"]) expect(hintsOf(name).openWorldHint, name).to.equal(false);
     });
 
     it("treats a writer nobody classified as destructive and not idempotent", () => {
-      expect(toolHints({ name: "future.command" })).to.deep.equal({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
+      expect(toolHints({})).to.deep.equal({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
     });
 
     it("reaches the wire: the SDK sees the four hints on a registered tool", async () => {
       const tools: Record<string, { annotations?: Record<string, unknown> }> = {};
-      const server = { registerResource: () => undefined, registerPrompt: () => undefined, registerTool: (name: string, def: { annotations?: Record<string, unknown> }) => void (tools[name] = def) };
+      const server = { registerResource: () => undefined, registerPrompt: () => undefined, registerTool: (name: string, tool: { annotations?: Record<string, unknown> }) => void (tools[name] = tool) };
       plugin.registerTools(server as never);
       expect(Object.keys(tools)).to.have.length(commands.length);
-      for (const [name, def] of Object.entries(tools)) expect(Object.keys(def.annotations ?? {}).sort(), name).to.deep.equal(["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"]);
+      for (const [name, tool] of Object.entries(tools)) expect(Object.keys(tool.annotations ?? {}).sort(), name).to.deep.equal(["destructiveHint", "idempotentHint", "openWorldHint", "readOnlyHint"]);
       expect(tools.light_look_delete!.annotations).to.deep.equal({ readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
       expect(tools.light_nodes_discover!.annotations).to.deep.equal({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
     });

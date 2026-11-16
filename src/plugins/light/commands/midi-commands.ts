@@ -51,6 +51,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.status",
     title: "État MIDI",
+    titleEn: "MIDI status",
     description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
     right: "dashboards:view",
     readOnly: true,
@@ -62,6 +63,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.profile.save",
     title: "Enregistrer un profil d'entrées",
+    titleEn: "Save an input profile",
+    hints: "DIO",
     description: "Saves a MIDI input profile (watched inputs, feedback output, RTP-MIDI session) under a name, e.g. « local IAC » or « RTP régie ».",
     right: "midi:configure",
     profiles: ["setup"],
@@ -75,6 +78,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.journal",
     title: "Journal MIDI",
+    titleEn: "MIDI journal",
     description:
       "The last MIDI messages received (clock excepted, 300 at most), newest first, and what each did: the mappings it matched (with their mode: a note off in latch matches and does nothing), each command and whether it worked, and how long it took (ms). To tell why a note « did not work ». port filters by input name, note by note number.",
     right: "dashboards:view",
@@ -100,6 +104,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.rtp.sessions",
     title: "Sessions RTP-MIDI du réseau",
+    titleEn: "RTP-MIDI sessions on the network",
+    hints: "O",
     description:
       "The RTP-MIDI sessions announced on the network by Bonjour (another Mac's network session, an iPad, a console): name, host, address and port, whether the light is connected to it, whether it is kept (joined whenever seen), and this server's own session (self). Asks the network again first.",
     right: "dashboards:view",
@@ -116,6 +122,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.rtp.connect",
     title: "Rejoindre une session RTP-MIDI",
+    titleEn: "Join an RTP-MIDI session",
+    hints: "IO",
     description:
       "Joins an RTP-MIDI session: by its name as midi.rtp.sessions lists it, or by address and control port (a device Bonjour does not announce). Its messages then reach the mappings like any input (« RTP · <name> »). keep: joined again by itself whenever it is on the network, after a restart too.",
     right: "midi:configure",
@@ -134,6 +142,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.rtp.keep",
     title: "Rejoindre toujours une session RTP-MIDI",
+    titleEn: "Always join an RTP-MIDI session",
+    hints: "IO",
     description: "Whether the light joins an RTP-MIDI session (by its name) by itself whenever it is on the network, after a restart too; a session joined stays joined either way.",
     right: "midi:configure",
     profiles: ["setup"],
@@ -147,6 +157,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.rtp.disconnect",
     title: "Quitter une session RTP-MIDI",
+    titleEn: "Leave an RTP-MIDI session",
+    hints: "IO",
     description: "Leaves an RTP-MIDI session (by its name or address), and stops joining it by itself.",
     right: "midi:configure",
     profiles: ["setup"],
@@ -161,6 +173,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.profile.select",
     title: "Basculer de profil d'entrées",
+    titleEn: "Switch input profile",
+    hints: "IO",
     description: "Switches the active MIDI input profile (e.g. between local MIDI and RTP-MIDI) in one call.",
     right: "midi:configure",
     profiles: ["setup", "live"],
@@ -174,6 +188,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.mapping.list",
     title: "Mappings MIDI",
+    titleEn: "MIDI mappings",
     description: "Lists the show's MIDI mappings (input, mode, commands, feedback).",
     right: "dashboards:view",
     readOnly: true,
@@ -185,6 +200,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.mapping.put",
     title: "Créer ou modifier un mapping",
+    titleEn: "Create or edit a mapping",
+    hints: "DI",
     description: "Creates or replaces a MIDI mapping: input (note/CC/PC, channel, number), mode (trigger « Déclencher », latch, momentary « Momentané », toggle), threshold (raw value a CC or a note's velocity must exceed to answer, 0..126, 0 by default = immediate; toggle flips on every CC value above it), on/off commands, level argument for faders.",
     right: "midi:configure",
     profiles: ["setup", "design"],
@@ -199,6 +216,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.mapping.delete",
     title: "Supprimer un mapping",
+    titleEn: "Delete a mapping",
+    hints: "DI",
     description: "Deletes a MIDI mapping.",
     right: "midi:configure",
     profiles: ["setup"],
@@ -213,6 +232,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.learn",
     title: "Apprendre une entrée MIDI",
+    titleEn: "Learn a MIDI input",
+    hints: "O",
     description: "Waits for the next note, CC or program change on the watched inputs and returns it as a mapping input (learn mode).",
     right: "midi:configure",
     readOnly: true,
@@ -242,6 +263,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "midi.in",
     title: "Message Web MIDI",
+    titleEn: "Web MIDI message",
+    hints: "",
     description: "Relays MIDI bytes received by a browser (Web MIDI) into the hub.",
     right: "midi:input",
     schema: z.object({ port: z.string().default("Web MIDI"), bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3) }),
@@ -254,6 +277,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "tempo.get",
     title: "Tempo",
+    titleEn: "Tempo",
     description: "Current tempo: BPM, source (manual, tap, MIDI clock), whether the clock is received, beat position.",
     right: "dashboards:view",
     readOnly: true,
@@ -265,6 +289,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "tempo.tap",
     title: "Tap tempo",
+    titleEn: "Tap tempo",
+    hints: "",
     description: "Tap tempo: call on each beat; returns the BPM once two taps are in.",
     right: "commands:tempo",
     profiles: ["live"],
@@ -275,6 +301,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "tempo.set",
     title: "Régler le tempo",
+    titleEn: "Set the tempo",
+    hints: "IO",
     description:
       "Sets a manual BPM, or selects the tempo source (manual, tap, midi = follow MIDI clock, os2l = follow DJ software, link = follow the Ableton Link session's tempo (listening only), audio = the tempo heard by a microphone in the interface, with beatAgoMs: how long ago one of its beats fell, to put the looks on the music's beats).",
     right: "commands:tempo",
@@ -293,6 +321,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
   reg.register({
     name: "osc.table",
     title: "Table des adresses OSC",
+    titleEn: "OSC address table",
     description: "Every OSC address the server answers, with its parameters (same content as /light/help).",
     right: "dashboards:view",
     readOnly: true,

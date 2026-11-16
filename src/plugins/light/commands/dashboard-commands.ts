@@ -12,6 +12,7 @@ export function registerDashboardCommands(common: ShowCommandScope): void {
   reg.register({
     name: "dashboard.list",
     title: "Dashboards",
+    titleEn: "Dashboards",
     description: "Dashboards of the show (grid of widgets bound to looks, groups, songs, actions). Creates a default one from the show when none exists.",
     right: "dashboards:view",
     readOnly: true,
@@ -22,11 +23,13 @@ export function registerDashboardCommands(common: ShowCommandScope): void {
       return dashboards.list();
     },
   });
-  reg.register({ name: "dashboard.put", title: "Dashboard", description: "Creates or updates a dashboard (columns, widgets with grid position, target, mode, roles allowed).", right: "show:write", profiles: ["design"], schema: z.object({ dashboard: DashboardSchema }), run: ({ dashboard }) => dashboards.put(dashboard) });
-  reg.register({ name: "dashboard.delete", title: "Supprimer un dashboard", description: "Deletes a dashboard.", right: "show:write", profiles: ["design"], schema: idSchema, run: ({ id: i }) => ({ deleted: dashboards.delete(i) }) });
+  reg.register({ name: "dashboard.put", title: "Dashboard", titleEn: "Dashboard", hints: "I", description: "Creates or updates a dashboard (columns, widgets with grid position, target, mode, roles allowed).", right: "show:write", profiles: ["design"], schema: z.object({ dashboard: DashboardSchema }), run: ({ dashboard }) => dashboards.put(dashboard) });
+  reg.register({ name: "dashboard.delete", title: "Supprimer un dashboard", titleEn: "Delete a dashboard", hints: "DI", description: "Deletes a dashboard.", right: "show:write", profiles: ["design"], schema: idSchema, run: ({ id: i }) => ({ deleted: dashboards.delete(i) }) });
   reg.register({
     name: "dashboard.generate",
     title: "Générer un dashboard",
+    titleEn: "Generate a dashboard",
+    hints: "I",
     description: "Builds a dashboard from the show (safety bar, one row of buttons per exclusive group, group faders) and saves it.",
     right: "show:write",
     profiles: ["design"],

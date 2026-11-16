@@ -18,8 +18,8 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   const refuseBuiltin = (ruleId: string): void => {
     if (isBuiltinRule(ruleId)) throw new Error(say(`la règle ${ruleId} est intégrée au moteur : ni modifiable ni supprimable`, `rule ${ruleId} is built into the engine: it can be neither edited nor deleted`));
   };
-  reg.register({ name: "rule.list", title: "Règles", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), the engine's built-in ones (builtin: the Reset channel protection, locked, neither deletable nor editable: a Reset channel is held at rest, never at another maintenance range; fixture.reset lifts it on one fixture's channels for a few seconds), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ builtin: show.builtinRules(), venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
-  reg.register({ name: "rule.put", title: "Règle", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => {
+  reg.register({ name: "rule.list", title: "Règles", titleEn: "Rules", description: "Rules of the venue and of the show (min/max, allowed values, forbidden capabilities like sound-active), the engine's built-in ones (builtin: the Reset channel protection, locked, neither deletable nor editable: a Reset channel is held at rest, never at another maintenance range; fixture.reset lifts it on one fixture's channels for a few seconds), and the values they moved on the last frame.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => ({ builtin: show.builtinRules(), venue: show.venueRules.list(), show: show.rules.list(), clamps: show.lastClamps.slice(0, 100) }) });
+  reg.register({ name: "rule.put", title: "Règle", titleEn: "Rule", hints: "DI", description: "Creates or updates a rule. level: type (fixture model), venue or show; locked rules cannot be relaxed by more specific ones. maxHz bounds a strobe only where its definition gives frequencies in Hz (show.lint names the fixtures where it does nothing); hold bounds the time above a level, maxDegPerSecond the pan/tilt speed, steadySeconds how often a value may change, allowCapabilities the kinds of ranges allowed; onViolation (clamp, confirm, reject) says what a look launch does when the rule would bound it; appliesTo (origins such as mcp, roles) makes it a check on those callers' look launches instead of a bound on the output.", right: "show:write", profiles: ["setup"], schema: z.object({ where, rule: RuleSchema }), run: ({ where: w, rule }) => {
       refuseBuiltin(rule.id);
       return rulesOf(w).put(rule);
     },
@@ -27,6 +27,7 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   reg.register({
     name: "rule.effective",
     title: "Règles en vigueur",
+    titleEn: "Rules in force",
     description: "Effective rule on each channel of a fixture: every bound with the rule it comes from (most specific level and scope wins), plus the locked rules re-applied on top.",
     right: "dashboards:view",
     readOnly: true,
@@ -55,6 +56,7 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   reg.register({
     name: "program.list",
     title: "Programmes de règles",
+    titleEn: "Rule programs",
     description: "Rule programs (name, MIDI Program Change number 0-based and channel) and the active one. Rules tagged with a program apply only while it is active.",
     right: "dashboards:view",
     readOnly: true,
@@ -65,6 +67,8 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   reg.register({
     name: "program.put",
     title: "Programme de règles",
+    titleEn: "Rule program",
+    hints: "DI",
     description: "Creates or updates a rule program: name, MIDI Program Change (0-based like the MIDI byte; Live shows it +1, « #100 » = 99) and channel. A Program Change received on that channel activates it.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -78,6 +82,8 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   reg.register({
     name: "program.delete",
     title: "Supprimer un programme",
+    titleEn: "Delete a program",
+    hints: "DI",
     description: "Deletes a rule program (its rules stay, unused, until reassigned).",
     right: "show:write",
     profiles: ["setup"],
@@ -90,13 +96,15 @@ export function registerRuleCommands(common: ShowCommandScope): void {
   reg.register({
     name: "program.select",
     title: "Activer un programme",
+    titleEn: "Activate a program",
+    hints: "I",
     description: "Activates a rule program (or none, with id null): its rules apply from the next frame.",
     right: "commands:trigger",
     profiles: ["live", "design"],
     schema: z.object({ id: z.string().nullable() }),
     run: ({ id: i }) => ({ active: (show.selectProgram(i ?? undefined), show.activeProgram ?? null) }),
   });
-  reg.register({ name: "rule.delete", title: "Supprimer une règle", description: "Deletes a rule. The engine's built-in ones cannot be; a stored rule bearing a reserved id (saved before it was reserved) can.",
+  reg.register({ name: "rule.delete", title: "Supprimer une règle", titleEn: "Delete a rule", hints: "DI", description: "Deletes a rule. The engine's built-in ones cannot be; a stored rule bearing a reserved id (saved before it was reserved) can.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ where, id: z.string() }),

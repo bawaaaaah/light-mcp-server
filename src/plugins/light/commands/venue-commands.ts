@@ -24,6 +24,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.library",
     title: "Bibliothèque de fixtures",
+    titleEn: "Fixture library",
     description: "Fixture definitions available (manufacturer, model, modes with channel count and heads), the .qxf files then QLC+'s built-in generic dimmer.",
     right: "dashboards:view",
     readOnly: true,
@@ -37,6 +38,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.list",
     title: "Patch",
+    titleEn: "Patch",
     description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only; resolvesAs the manufacturer, model and mode it really plays when its model is an alias of another (library.merge); channels its DMX footprint, the channel count of its mode, missing when its definition or mode is not found).",
     right: "dashboards:view",
     readOnly: true,
@@ -55,6 +57,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.presence",
     title: "Matériel installé ou absent",
+    titleEn: "Hardware installed or absent",
+    hints: "I",
     description:
       "Says which fixtures of the venue are installed for the open show. An absent fixture stays in the patch (address, position, mode) but is dark, sends nothing on DMX and is left out of the address-overlap check; the venue and other shows are untouched. Give fixtures (ids) and/or tag (every fixture with that tag), and present true or false.",
     right: "show:write",
@@ -78,6 +82,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.channels",
     title: "Canaux des fixtures",
+    titleEn: "Fixture channels",
     description:
       "Channels of each patched fixture (with its model, universe, start address, type and marker colour) from its definition: offset (0-based from its address), name, attribute (intensity, color, strobe…), colour component of a colour channel and, for a channel cut into functions, its named ranges (min, max, name: a mode, a colour preset, a macro) and the same ranges read as working modes (modes: name, min, max, variants — consecutive ranges sharing a name once a number or a speed word is taken off, « Auto 1 », « Auto 2 » — and continuous for one wide range whose value is a speed; fixture.channel.mode sets one). Fixtures without a definition have none (give offsets by hand).",
     right: "dashboards:view",
@@ -102,6 +107,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.put",
     title: "Patcher une fixture",
+    titleEn: "Patch a fixture",
+    hints: "DI",
     description: "Creates or updates a patched fixture (manufacturer/model/mode from the library, universe, 1-based address, role, tags, position). A universe beyond the output's is refused (unless the fixture is already there); `warning` says what is patched anyway: channels shared with another fixture, a fixture ending past channel 512 (its last channels are dropped), a missing definition, absent for this show.",
     right: "show:write",
     profiles: ["setup"],
@@ -133,6 +140,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.orient",
     title: "Orienter une fixture",
+    titleEn: "Orient a fixture",
+    hints: "",
     description:
       "Where a fixture points at rest, for the stage plan and moving-head aiming: facing audience, upstage (the wall behind the stage), houseLeft (jardin, the audience's left), houseRight (cour, the audience's right), ceiling or floor (these two keep the heading); or yaw (degrees: 0 audience, 90 cour, 180 upstage, -90 jardin) and pitch (-90 floor .. 90 ceiling); or turn, degrees added to the heading. A moving head pointed at the floor hangs, at the ceiling stands. roll turns the body around its beam: 0 a bar lies across, 90 it stands (its first head at the bottom). For a moving head whose pan or tilt runs the other way round (a maker's wiring choice), invertPan / invertTilt flips the 0..1 position on its channel(s); swapPanTilt exchanges its pan and tilt channels. Manual calibration (T8): panOffset / tiltOffset, degrees where the beam really falls for a given position (aiming takes them off; the pad's positions do not change); limits, the useful stops per axis as [from, to] in logical degrees (0 = centre of the travel, before the offsets): aiming beyond them is refused as out of reach and the output is bounded to them (a stop given beyond ± half the travel is refused); an axis given null removes its stop, limits null both. Each of these stays as stored when not given. Inverting or swapping is refused while the head is frozen hard.",
     right: "show:write",
@@ -206,6 +215,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.mark",
     title: "Nommer ou colorer une fixture",
+    titleEn: "Name or colour a fixture",
+    hints: "I",
     description:
       "Renames a patched fixture and/or gives it a colour to tell it at a glance in the patch, on the stage and in the channel trees (#rrggbb; null removes it). The colour is never sent to the fixture. Its id, address and everything else stay.",
     right: "show:write",
@@ -222,6 +233,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.arrange",
     title: "Placer des fixtures",
+    titleEn: "Arrange fixtures",
+    hints: "I",
     description:
       "Places several fixtures at once, evenly spaced along one edge of a zone in the order given: front (the edge on the audience side), back, houseLeft (jardin side) or houseRight (cour side), from jardin to cour or from the front to the back; middle runs across the zone. height: metres above the zone floor (default from each mount: 5 hung, 1.8 on a stand, 3 on a wall, 0.3 on the floor); facing turns them all (as venue.fixture.orient).",
     right: "show:write",
@@ -246,6 +259,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "dmx.explain",
     title: "Pourquoi ce canal",
+    titleEn: "Why this channel",
     description: "Why a DMX channel has its value: output value, forcing from the DMX console, the fixture and channel it belongs to, the grand master and the DCAs dosing that fixture (own and effective levels), the channel faders and raw-channel looks writing it, and the rules that bounded it on the last frame. On a pan or tilt channel of a moving head: motion = who places that axis in the motion layer (layer manual/target/look/hold/rest/lock, owner and its look's name, the glide under way: from, to, remainingMs) and the claims it masks (masked); rawLooks then lists a look only when it holds the axis. On a colour channel: its head (fixture.head, accent for a halo) and the looks painting it (paintingLooks: those whose canvas reaches its head, in the order they compose; leaving for one fading out, covered for one a later look covers under looksMerge « last »). track: on a fixture whose tracks are enabled (venue.tracks.get), \"fade\" when the channel follows the transitions, \"jump\" when it jumps (pan/tilt left out).",
     right: "dashboards:view",
     readOnly: true,
@@ -259,6 +273,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.patch.check",
     title: "Vérifier le patch",
+    titleEn: "Check the patch",
     description: "The patch's problems: fixtures whose DMX channels overlap (two of the same model and mode on one address, wired as twins, are not reported) with the shared channels and a sentence, fixtures ending past channel 512 (beyondUniverse: their last channels are never sent), information notes (info: gaps, unused channels between two fixtures, as [{universe, gaps: [{universe, from, to, after, before}], message}] one line per universe; sameNames, fixtures of one model sharing a name; noPosition, moving heads or fixtures given a mount or a target zone but no stage position), and fixtures without a definition in the library (their channels are not decoded: add the .qxf), and duplicate definitions across the whole library (duplicateDefinitions: one model in several .qxf files, with the file used today, the first in reading order, and how the others differ; one structure under two names). `show.lint` reports only those of models the venue patches.",
     right: "dashboards:view",
     readOnly: true,
@@ -278,6 +293,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "fixture.reset",
     title: "Réinitialiser l'appareil",
+    titleEn: "Reset the fixture",
+    hints: "",
     description: `Resets a fixture on purpose: each of its Reset channels (ranges tagged reset in its definition) gets the middle of its Reset range (the « all » one when there are several) for ${RESET_WINDOW_MS / 1000} s, over the show and the DMX console, the built-in Reset protection lifted on those channels only (a twin on the same address shares them); then the protection comes back. A moving head swings and may go dark while it resets: not during a song. Ask the user first, naming the fixture and the range, and send confirm: true only on their yes. Only from the interface, an AI client or the command line (never MIDI, OSC, OS2L nor a song). Refused for a fixture without a Reset channel, during a Blackout or on output standby (checked before asking), or when another locked rule or the end of the universe (a channel past 512) keeps every Reset channel from its value; warning when it keeps some of them.`,
     right: "show:write",
     profiles: ["setup"],
@@ -330,6 +347,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.grouping.propose",
     title: "Proposer des groupes par type",
+    titleEn: "Propose type groups",
     description: `Proposes, without writing anything, a tag per kind of fixture (${TYPE_TAGS.join(", ")}, French words in any language: read from the definition's type, its pan/tilt and machine outputs) for the fixtures lacking it, and a group per kind of at least two fixtures that no group gathers yet (one selecting exactly that tag, or holding exactly those fixtures); a fixed type group made earlier (id type-<tag>) lacking fixtures of its kind is proposed for completion (complete.missing) instead. No group nor tag is renamed or removed, but a tag added brings its fixtures into the existing groups selecting by tags: affected lists them (show: another show on the same venue, which shares the fixtures' tags); tell the user before applying. Apply with venue.grouping.apply.`,
     right: "dashboards:view",
     readOnly: true,
@@ -340,6 +358,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.grouping.apply",
     title: "Créer des groupes par type",
+    titleEn: "Create type groups",
+    hints: "",
     description:
       "Applies what venue.grouping.propose proposes, for the kinds chosen only: tags adds each kind's tag to its fixtures lacking it (other tags untouched); groups creates a kind's group, live (selector on the tag: a fixture tagged later joins it; its fixtures get the tag) or fixed (the list of its fixtures today), or completes the fixed type group proposed for completion (live ignored). A kind with nothing proposed is refused, and then nothing is written. Tags added change the existing groups selecting by them (affected, as venue.grouping.propose says, in the answer). Not idempotent: a second call finds nothing proposed. Not atomic either: tags and groups are written one file after another, so a disk error midway leaves what was written before it (call venue.grouping.propose again to see what is left).",
     right: "show:write",
@@ -379,6 +399,8 @@ export function registerVenueCommands(common: ShowCommandScope): void {
   reg.register({
     name: "venue.fixture.delete",
     title: "Dépatcher",
+    titleEn: "Unpatch",
+    hints: "DI",
     description:
       "Removes a fixture from the patch. Refused while something in the open show uses it (groups, channel faders, raw channels of looks, canvases, rules scoped to it, MIDI mappings and song track actions naming it: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the fixture too, the error names them) or when one of the other shows' settings cannot be read (they are not checked). `usedBy` lists what was using it when forced. An id that is not in the patch: deleted false, nothing checked.",
     right: "show:write",
@@ -403,5 +425,5 @@ export function registerVenueCommands(common: ShowCommandScope): void {
       return { deleted, usedBy };
     },
   });
-  reg.register({ name: "venue.canvas.list", title: "Canevas", description: "Canvases of the venue and their rendering onto fixtures.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.canvases.list() });
+  reg.register({ name: "venue.canvas.list", title: "Canevas", titleEn: "Canvases", description: "Canvases of the venue and their rendering onto fixtures.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => venue.canvases.list() });
 }

@@ -56,6 +56,7 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
   reg.register({
     name: "history.list",
     title: "Versions",
+    titleEn: "Versions",
     description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention, target, named position or colour preset of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
     right: "show:write",
     readOnly: true,
@@ -66,6 +67,7 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
   reg.register({
     name: "history.deleted",
     title: "Récemment supprimés",
+    titleEn: "Recently deleted",
     description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions, targets, named positions or colour presets of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
     right: "show:write",
     readOnly: true,
@@ -76,6 +78,8 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
   reg.register({
     name: "history.restore",
     title: "Restaurer une version",
+    titleEn: "Restore a version",
+    hints: "I",
     description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a target: its point and engagement, live, stay as they are; a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put; shared for a venue shared with other shows); the current version goes to the history in turn, so a restore is undone the same way.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -92,6 +96,8 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
   reg.register({
     name: "history.undo",
     title: "Annuler une modification",
+    titleEn: "Undo a change",
+    hints: "",
     description:
       "Undoes one change to a look, group, channel fader, dashboard or canvas, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead. A canvas is put back as history.restore does (force, shared), and the looks whose steps that same change adapted (venue.canvas.edit with adapt) get their steps back with it, written together.",
     right: "show:write",

@@ -86,6 +86,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.list",
     title: "Presets de couleur",
+    titleEn: "Colour presets",
     description:
       "Colour presets the open show sees: one named colour each (#rrggbb), apart from the palettes. origin: show (stored in the open show, travels with it) or personal (the personal library of this machine, every show sees it); a show preset of the id of a personal one hides it (over: personal). favorite: its rank among the favourites (absent: not one), carried by the preset itself: a favourite of the personal library is one in every show, one of the show in this show. usedBy: MIDI mappings and song cues naming it. favorites: the favourite ids the open show sees, in their order (by rank, then name: the library's and the show's interleaved by their ranks).",
     right: "dashboards:view",
@@ -101,6 +102,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.put",
     title: "Preset de couleur",
+    titleEn: "Colour preset",
+    hints: "I",
     description: `Creates or changes a colour preset: name (${MAX_COLOUR_NAME} characters at most), color (#rrggbb, or #rrggbb+wNN with the white LED's part as a look writes it; never black), notes. Another preset of the same name is allowed and returned in duplicates. scope "show" (default) stores it in the open show; "personal" in the personal library of this machine (every show sees it, and a show's .lightshow archive carries a copy of the ones it cites: favourites, MIDI mappings, song cues). Without id: a creation, with a generated id (c-…, returned). With an id: that preset is written in that scope (an edit; or a copy of a personal one into the show, which then wins over it, or of a show one into the library). favorite: true makes it a favourite (last), false takes it out; absent: it stays as it was (a copy keeps the rank of what it copies). Versions of the show's presets are kept (history.list colours).`,
     right: "show:write",
     profiles: ["design"],
@@ -133,6 +136,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.delete",
     title: "Supprimer un preset de couleur",
+    titleEn: "Delete a colour preset",
+    hints: "DI",
     description:
       "Deletes a colour preset by id. scope: \"show\" the show's own only, \"personal\" the personal library's (for every show of this machine), none: the one the open show sees. Refused while MIDI mappings or song cues of the open show name it and it would become unknown, or, for a personal one, those of the other shows of this machine that have none of their own of that id, unless force (the error names them, detail.uses and detail.otherShows). A show preset covering a personal one of its id gives that one back (reverted), favourite or not as that one is.",
     right: "show:write",
@@ -158,6 +163,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.favorite",
     title: "Favori de couleur",
+    titleEn: "Colour favourite",
+    hints: "I",
     description: `Makes a colour preset a favourite (favorite: true; index places it among the favourites the open show sees, absent: last, or where it already is), moves it (with index) or takes it out (favorite: false). The rank is carried by the preset: a personal one is a favourite in every show of this machine, a show one in this show. The favourites seen are numbered again 1, 2, 3… (the presets whose rank changes are written). ${MAX_FAVORITES} favourites at most. Returns the favourites in their order.`,
     right: "show:write",
     profiles: ["design", "live"],
@@ -171,6 +178,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.order",
     title: "Ordre des favoris de couleur",
+    titleEn: "Order of the colour favourites",
+    hints: "I",
     description: "Puts the favourite colour presets the open show sees in this order: the ids given first, in their order, then the favourites not given, as they were (refused when an id given is not a favourite); their ranks are written on the presets (a personal one keeps its rank in the other shows). Returns the favourites in their order.",
     right: "show:write",
     profiles: ["design", "live"],
@@ -215,6 +224,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.apply",
     title: "Appliquer une couleur",
+    titleEn: "Apply a colour",
+    hints: "I",
     description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look painting that colour on the fixture is (every emitter the colour names: red, green, blue and the white LED part +wNN; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped; those no look playing paints in dark (the colour shows once a look lights them); names gives the names of the fixtures listed there.`,
     // a play action, like launching a look: the volunteer who may launch looks may colour them
     right: "commands:trigger",
@@ -244,6 +255,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.applied",
     title: "Couleurs appliquées",
+    titleEn: "Colours applied",
     description: "The colours applied by hand now (colour.apply): fixtures, by fixture id (#rrggbb); groups, by group id, the colour most of its fixtures holding one hold (absent: none holds one); all, the same over every fixture. A fixture whose colour is fading back to the looks is not listed.",
     right: "dashboards:view",
     readOnly: true,
@@ -269,6 +281,8 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.release",
     title: "Rendre la couleur",
+    titleEn: "Give the colour back",
+    hints: "I",
     description: `Gives the looks their colour back on fixtures, a group or, given neither, every fixture holding a colour applied by hand (colour.apply), fading (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}). Returns the fixtures released.`,
     right: "commands:trigger",
     profiles: ["live", "design"],

@@ -202,6 +202,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "knowledge.get",
     title: "Base de connaissances couleur",
+    titleEn: "Colour knowledge base",
     description:
       "Mood intentions → colours, energy and family, plus the design rules, by id (moods: id → mood). Layers, the most specific winning id by id: shipped (generic) < the user's private file < personal library (this machine, every show) < the open show. Each mood says its label (what to show: a new intention's id is generated, i-…), its former labels (aliases), its origin (generic, private, personal, show), what a show or personal one replaces (over) and what uses it in the open show (usedBy: songs by their mood, looks by their ambiance: tag, whether they name it by id or by name); `hidden` lists the intentions the show masks. A word names an intention by its id, else by its label or a former one (several may share a label: show > personal > private file > shipped). machine: true leaves the open show out (what this machine has, for the library section). " + INTENTION_REFS_HELP,
     right: "dashboards:view",
@@ -219,6 +220,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.put",
     title: "Intention",
+    titleEn: "Intention",
+    hints: "DI",
     description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, with a generated id (i-…, returned): several intentions may share a label (the other ones are returned in duplicates; a word naming that label goes to the most specific: show > personal > private file > shipped). With id: that id is written: an edit, a touch-up of a shipped or private one for the show (or for every show from the personal library), a copy into the show or into the library; the id never follows the label, which is free to change (songs and ambiance: tags name the id). A renamed one keeps its former labels in aliases (given aliases replace them), so that a word typed before still finds it. hidden: true (show only, an id known below) writes a mask as intention.delete does, but without its guard (history.restore and show.revert put a mask back this way): songs and looks still naming it are returned in usedBy, they now name an unknown intention. Intentions of the private file (data/private/knowledge.json) have their keyword's key as id: renaming a keyword there breaks what names it.`,
     right: "show:write",
     profiles: ["design"],
@@ -256,6 +259,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.delete",
     title: "Supprimer une intention",
+    titleEn: "Delete an intention",
+    hints: "DI",
     description:
       "Removes an intention, by id (or by a name: the one that name goes to, as songs read it). scope, as for intention.put: \"personal\" takes the personal library's, whatever the open show has of that key; \"show\" the show's own only; none, the one in use. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
     right: "show:write",
@@ -307,6 +312,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.library",
     title: "Bibliothèque d'intentions",
+    titleEn: "Intention library",
     description: "The intentions of the personal library of this machine (every show sees them), whatever show is open: each with what it replaces below (over: generic or private) and the shows of this machine naming it without an intention of their own of that key (shows).",
     right: "dashboards:view",
     readOnly: true,
@@ -322,6 +328,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "intention.preview",
     title: "Aperçu d'une intention",
+    titleEn: "Intention preview",
     description: `What look.from_intent would propose for an intention as typed, before it is saved: technique, timing, energy, explanation, the contrast (ΔE) between its first two colours and whether it is low (lowContrast, below ${LOW_CONTRAST}). Writes nothing; no canvas needed.`,
     right: "dashboards:view",
     readOnly: true,
@@ -340,6 +347,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "look.from_intent",
     title: "Look par intention",
+    titleEn: "Look from an intent",
+    hints: "I",
     description:
       "Proposes a look from an intention: intentions by id or by name (e.g. intimite, joie, or a label as knowledge.get gives it), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true. Its ambiance: tags name each intention by id when one intention only answers to the name (an unknown word stays as typed); a name several answer to stays a name (show.lint says it). " + INTENTION_REFS_HELP,
     right: "show:write",
@@ -358,6 +367,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "song.grid_fill",
     title: "Remplir la grille d'un chant",
+    titleEn: "Fill a song's grid",
+    hints: "I",
     description:
       "Gives every section without a look a proposed one, following the method: the song's mood is the guard rail, energy from the section (or its name: intro/couplet posé, refrain/pont dynamique, final/vamp survolté), dominant/accent swapped between neighbours for contrast. Also creates the song's exclusive group. Saved only if save is true.",
     right: "show:write",
@@ -395,6 +406,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",
+    titleEn: "Check the show",
     description: "Offline checks: unknown references (canvas, palette, look, group, channel fader, rule program, colour preset — a mapping or a song cue —, fixture, target — a look's move following a target gone, a target's fixtures or group, a mapping —, named position — a look's move following one gone, a mapping), targets moving no installed head, named positions covering fixtures no longer patched or no installed head, stale named positions (a covered head moved, rehung, inverted or given another definition since; turned, recalibrated or given a corrected travel, for the heads aimed at a point only; new useful stops its pan/tilt reaches beyond: with the choices to recompute it from its aim point, readjust it by hand, or keep it), named positions reaching beyond a head's useful stops (clipped at the output), looks following a named position that covers none of their heads, channel fader channels outside the fixture's mode, sections without look, MIDI inputs used twice, low contrast in two-colour techniques, identical looks on neighbouring sections, songs without mood, songs naming an unknown (or masked) intention (a keyword renamed in the private intentions file breaks what named it), intentions sharing a label, songs or looks naming by name an intention several answer to, keywords of the private intentions file that make one key, intention files left out unreadable, looks, groups or channel faders sharing a name, MIDI mappings with one label for different targets, fixtures whose DMX channels overlap or run past channel 512, fixtures without a definition, looks flashing faster than 3 times a second (photosensitive safety, at the show's fastest tempo), raw channels of looks that the rules bound, channel faders at 0 that darken the fixtures whose dimmer they dose, Reset channels made of maintenance ranges only (the built-in Reset protection cannot hold them at rest), canvases with reversed or out-of-bounds ranges, fixtures or heads not in the patch, looks of exact steps whose rows do not have one column per cell, looks writing only the fine pan/tilt channel of a moving head (it places nothing since the motion layer), looks whose move (around the named position it follows, head by head) or raw pan/tilt steps reach beyond a moving head's useful stops (orientation.limits: clipped at the output, the move stops there), useful stops narrower than 10° or reaching beyond the travel. Level info (nothing wrong, worth knowing): songs naming an intention of this machine (personal library, private file: the show's archives carry a copy), unused gaps in the patch, fixtures of one model sharing a name, moving heads or placed fixtures without a stage position, fixtures whose tracks are enabled with no channel ticked (nothing fades there), definitions without <Head> repeating a colour component out of any head (only one zone gets the colour), canvas cells that render nothing or one head on several cells, the type tags and groups venue.grouping.propose proposes, targets sharing moving heads (engaged together, the last engaged takes them), looks following a named position that leaves some of their heads uncovered (those stay with the layer below), and looks writing raw pan/tilt channels on moving heads (named with the heads and channels: since the motion layer they glide, go under the XY pad, and the last look launched wins instead of the highest byte).",
     right: "dashboards:view",
     readOnly: true,
@@ -910,6 +922,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "show.autopresets",
     title: "Presets automatiques",
+    titleEn: "Automatic presets",
+    hints: "I",
     description:
       "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten. The colours follow the knowledge base as merged for the show: an intention touched up in the show changes them, a masked one falls back to the built-in colours.",
     right: "show:write",

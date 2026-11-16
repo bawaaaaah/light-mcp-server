@@ -167,6 +167,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.diff",
     title: "Ce que changerait un enregistrement",
+    titleEn: "What a save would change",
     description:
       "Proposal before a write: what putting this object would change, field by field (path, before, after), checked by the same schema as the put command (defaults filled in), nothing written. new = it does not exist yet. Show it to the user and write only on their yes; the put command may still refuse it for its own reasons (a cycle, a partial look). Give a collection (looks, groups, faders, dashboards, palettes, zones, rules (show), venueRules, fixtures, canvases, targets, positions) and the object, or the put command and its arguments (look.put, group.put, fader.put, dashboard.put, palette.put, stage.zone.put, rule.put, venue.fixture.put, target.put, position.preset.put, venue.canvas.put, venue.canvas.edit: the canvas its operations would write, without adapting steps). A target's point and engagement are live state: kept as they are. Several changes to apply together: show.propose.",
     right: "show:propose",
@@ -278,6 +279,8 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.propose",
     title: "Proposer des changements",
+    titleEn: "Propose changes",
+    hints: "",
     description:
       "Holds several changes (put commands and their arguments, as show.diff takes them) as one proposal, nothing written: each is checked and described field by field. One change per canvas (a whole put, or one venue.canvas.edit with several operations). Someone who may write applies it all or nothing (show.apply, or the Show page), show.revert takes it back together. For an AI client: propose, show the user what it does, apply on their yes — or leave it for them in the interface.",
     right: "show:propose",
@@ -316,6 +319,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.proposals",
     title: "Propositions",
+    titleEn: "Proposals",
     description: "Proposals of the last day, newest first: who made them, from where, their status (pending, applied, reverted, discarded) and, for one not applied, what applying it now would change.",
     right: "show:propose",
     readOnly: true,
@@ -340,6 +344,8 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.apply",
     title: "Appliquer une proposition",
+    titleEn: "Apply a proposal",
+    hints: "",
     description: "Applies a pending (or reverted) proposal through the usual put commands and their checks, all or nothing: if one is refused, those already made are taken back and nothing has changed.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -392,6 +398,8 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.revert",
     title: "Défaire une proposition",
+    titleEn: "Revert a proposal",
+    hints: "D",
     description:
       "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed; a put refused midway puts everything back as it was (nothing half undone). show.apply applies it again (redo), except a mode change (venue.fixture.mode), which is run again instead. A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows). A mode change is taken back only over objects unchanged since (`detail.changed` lists the others; overwrite: true takes it back over them), and never while a later mode change still applied wrote the same objects (`detail.blockedBy`: take that one back first).",
     right: "show:write",
@@ -433,6 +441,8 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
   reg.register({
     name: "show.discard",
     title: "Écarter une proposition",
+    titleEn: "Discard a proposal",
+    hints: "DI",
     description: "Drops a pending proposal without applying it.",
     right: "show:propose",
     profiles: ["setup", "design"],

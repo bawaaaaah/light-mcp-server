@@ -25,6 +25,7 @@ export function registerNoteCommands(common: ShowCommandScope): void {
   reg.register({
     name: "notes.search",
     title: "Rechercher dans les notes",
+    titleEn: "Search the notes",
     description: "Searches the notes attached to every object (fixtures, zones, looks, groups, songs, mappings, dashboards…). Empty query = every annotated object.",
     right: "dashboards:view",
     readOnly: true,
@@ -46,6 +47,8 @@ export function registerNoteCommands(common: ShowCommandScope): void {
   reg.register({
     name: "notes.set",
     title: "Écrire une note",
+    titleEn: "Write a note",
+    hints: "D",
     description: "Sets (or clears with an empty text) the notes of any object: collection (fixtures, canvases, zones, rules, palettes, looks, groups, songs, mappings, dashboards) and id.",
     right: "show:write",
     profiles: ["setup", "design", "live"],

@@ -14,15 +14,17 @@ import type { ShowCommandScope } from "./show-command-scope.js";
 export function registerGroupCommands(common: ShowCommandScope): void {
   const { reg, show, intentionReferences, parts, removable, deletable } = common;
   // ---- groups
-  reg.register({ name: "group.list", title: "Groupes", description: "Groups (members, sub-groups, selector, master, exclusive, limits) with their effective level and fixtureCount, the fixtures they gather now (a live selector and sub-groups included).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => {
+  reg.register({ name: "group.list", title: "Groupes", titleEn: "Groups", description: "Groups (members, sub-groups, selector, master, exclusive, limits) with their effective level and fixtureCount, the fixtures they gather now (a live selector and sub-groups included).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => {
       const index = show.dcaIndex(); // one snapshot for every group's level
       return show.groups.list().map((g) => ({ ...g, effectiveLevel: show.effectiveLevel(g.id, index), fixtureCount: show.fixturesOf(g.id).size }));
     },
   });
-  reg.register({ name: "group.put", title: "Groupe", description: "Creates or updates a unified group: members (fixtures, looks, sub-groups), selector, optional master, exclusive, limits, included/excluded presets.", right: "show:write", profiles: ["setup", "design"], schema: z.object({ group: GroupSchema }), run: ({ group }) => show.groups.put(group) });
+  reg.register({ name: "group.put", title: "Groupe", titleEn: "Group", hints: "I", description: "Creates or updates a unified group: members (fixtures, looks, sub-groups), selector, optional master, exclusive, limits, included/excluded presets.", right: "show:write", profiles: ["setup", "design"], schema: z.object({ group: GroupSchema }), run: ({ group }) => show.groups.put(group) });
   reg.register({
     name: "group.delete",
     title: "Supprimer un groupe",
+    titleEn: "Delete a group",
+    hints: "DI",
     description: "Deletes a group. Refused while something uses it (sub-group, channel fader DCA, mapping, dashboard, snapshot, song), unless force.",
     right: "show:write",
     profiles: ["setup"],
@@ -32,6 +34,8 @@ export function registerGroupCommands(common: ShowCommandScope): void {
   reg.register({
     name: "look.exclusive",
     title: "Groupe exclusif d'un look",
+    titleEn: "Exclusive group of a look",
+    hints: "",
     description:
       "Puts looks in one exclusive group, as radio buttons: starting one releases only the others of that group, never those of another exclusive group. Takes them out of their other exclusive groups. `group`: an exclusive group's id; `create`: a new exclusive group (its name, or « Exclusif n »); neither: in no exclusive group.",
     right: "show:write",
@@ -58,6 +62,7 @@ export function registerGroupCommands(common: ShowCommandScope): void {
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
+    titleEn: "Where it is used",
     description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target, a named position, a stage zone or a colour preset (MIDI mappings and song cues naming it) is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), the patch and rules (a zone: fixtures aiming at it, rules scoped to it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
@@ -74,10 +79,12 @@ export function registerGroupCommands(common: ShowCommandScope): void {
     if (g.playback) show.syncPlayback(groupId);
     return { id: groupId, level: master.level, mute: master.mute, effectiveLevel: show.effectiveLevel(groupId) };
   };
-  reg.register({ name: "group.level", title: "Niveau de groupe", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
+  reg.register({ name: "group.level", title: "Niveau de groupe", titleEn: "Group level", hints: "I", description: "Sets a group master level (0..1); adds a master to the group if it has none.", right: "commands:level", profiles: ["live", "design"], schema: z.object({ id: z.string(), level: z.number().min(0).max(1) }), run: ({ id: i, level }) => withMaster(i, { level }) });
   reg.register({
     name: "grandmaster.set",
     title: "Grand master",
+    titleEn: "Grand master",
+    hints: "I",
     description: "Sets the grand master (0..1): it doses every fixture's intensity above all the DCAs. Kept with the show.",
     right: "commands:level",
     profiles: ["live", "design"],
@@ -89,6 +96,8 @@ export function registerGroupCommands(common: ShowCommandScope): void {
   reg.register({
     name: "live.adjust",
     title: "Retouche en direct",
+    titleEn: "Live tweak",
+    hints: "",
     description:
       "Live touch-ups during the service, for an AI client, within the rules and the DCA limits, without asking each time — only while the show's « IA en live » setting (liveAi) is on, off by default. One call: a DCA level by a small step (delta up to ±0.25, or a level at most 0.25 from the current one) and its mute, a look started or stopped (never a manual-only or danger look; rules that refuse or ask still do). Returns what was done and what plays now.",
     right: "commands:level",
@@ -131,6 +140,6 @@ export function registerGroupCommands(common: ShowCommandScope): void {
       return { done, playing: show.activeLooks(), dca: dca ? { id: dca.id, ...show.groups.get(dca.id)!.master, effectiveLevel: show.effectiveLevel(dca.id) } : undefined };
     },
   });
-  reg.register({ name: "group.mute", title: "Mute de groupe", description: "Mutes or unmutes a group master (the level is kept).", right: "commands:level", profiles: ["live"], schema: z.object({ id: z.string(), mute: z.boolean() }), run: ({ id: i, mute }) => withMaster(i, { mute }) });
-  reg.register({ name: "group.flash", title: "Flash de groupe", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
+  reg.register({ name: "group.mute", title: "Mute de groupe", titleEn: "Group mute", hints: "I", description: "Mutes or unmutes a group master (the level is kept).", right: "commands:level", profiles: ["live"], schema: z.object({ id: z.string(), mute: z.boolean() }), run: ({ id: i, mute }) => withMaster(i, { mute }) });
+  reg.register({ name: "group.flash", title: "Flash de groupe", titleEn: "Group flash", hints: "I", description: "Holds a group at 100 % while on.", right: "commands:trigger", profiles: ["live"], schema: z.object({ id: z.string(), on: z.boolean() }), run: ({ id: i, on }) => (show.setFlash(i, on), { id: i, flash: on }) });
 }

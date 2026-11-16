@@ -45,10 +45,12 @@ export function recallStartupSnapshot(engine: DmxEngine, show: ShowRuntime): { i
 export function registerSnapshotCommands(common: ShowCommandScope): void {
   const { reg, engine, show, idSchema } = common;
   // ---- snapshots: the whole live state, saved ahead (the safe state of « Panic neutre »)
-  reg.register({ name: "snapshot.list", title: "Instantanés", description: "Snapshots of the show: the whole live state saved ahead (looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.snapshots.list() });
+  reg.register({ name: "snapshot.list", title: "Instantanés", titleEn: "Snapshots", description: "Snapshots of the show: the whole live state saved ahead (looks playing, DCA levels and mutes, channel faders, grand master, rule program, Blackout).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.snapshots.list() });
   reg.register({
     name: "snapshot.save",
     title: "Enregistrer un instantané",
+    titleEn: "Save a snapshot",
+    hints: "D",
     description: "Saves what plays now and every level as a snapshot (a new one, or over `id`).",
     right: "show:write",
     profiles: ["design", "live"],
@@ -62,6 +64,8 @@ export function registerSnapshotCommands(common: ShowCommandScope): void {
   reg.register({
     name: "snapshot.recall",
     title: "Rappeler un instantané",
+    titleEn: "Recall a snapshot",
+    hints: "I",
     description: "Puts a snapshot back at once: only its looks play, its DCA, faders, grand master, program and Blackout are set. Objects deleted since are skipped and listed.",
     right: "commands:snapshot",
     profiles: ["live", "design"],
@@ -76,6 +80,8 @@ export function registerSnapshotCommands(common: ShowCommandScope): void {
   reg.register({
     name: "snapshot.delete",
     title: "Supprimer un instantané",
+    titleEn: "Delete a snapshot",
+    hints: "DI",
     description: "Deletes a snapshot (and unsets it as the safe or startup snapshot).",
     right: "show:write",
     profiles: ["design"],
@@ -115,6 +121,8 @@ export function registerSnapshotCommands(common: ShowCommandScope): void {
   reg.register({
     name: "panic",
     title: "Panic neutre",
+    titleEn: "Neutral panic",
+    hints: "I",
     description:
       "Safety: stops every look and the colours applied by hand (colour.apply), a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, disengages every target, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
     right: "commands:panic",
@@ -131,6 +139,8 @@ export function registerSnapshotCommands(common: ShowCommandScope): void {
   reg.register({
     name: "panic.undo",
     title: "Annuler le Panic",
+    titleEn: "Undo the panic",
+    hints: "I",
     description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement, the colours applied by hand, at once); the DMX console forcing and hand-aimed heads it released stay released.",
     right: "commands:panic",
     profiles: ["live"],

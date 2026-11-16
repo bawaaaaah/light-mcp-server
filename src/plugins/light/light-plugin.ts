@@ -20,7 +20,6 @@ import { registerCoreCommands } from "./commands/core-commands.js";
 import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { recallStartupSnapshot, registerShowCommands } from "./commands/show-commands.js";
 import { registerTracksCommands } from "./commands/tracks-commands.js";
-import { commandTitle } from "./commands/titles-en.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { registerTargetCommands } from "./commands/target-commands.js";
 import { backupPath, registerFileCommands, runAutoBackup, sharedWith, showsOnVenueOrThrow, type FileServices } from "./commands/file-commands.js";
@@ -62,7 +61,7 @@ import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
 import { openApiDocument } from "./commands/openapi.js";
 import { getPackageVersion } from "../../core/version.js";
-import { CommandError, CommandRegistry, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
+import { CommandError, CommandRegistry, commandTitle, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { toolHints } from "./commands/tool-hints.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
@@ -397,6 +396,7 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "activity.list",
       title: "Activité récente",
+      titleEn: "Recent activity",
       description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on (targetLabel: an intention's label, its id being generated), and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader, dashboard or canvas: what history.undo takes (with the line's at and until) to put it back as it was. collection, on a history.restore or history.undo line: the collection it acted on (such a line on a canvas has an undo too).",
       right: "show:write",
       readOnly: true,
@@ -426,6 +426,8 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "link.status",
       title: "Ableton Link",
+      titleEn: "Ableton Link",
+      hints: "O",
       description: "The Ableton Link session heard on the network (listening only, while the tempo source is « link »): peers, sessions, the tempo of the session with the most peers, and whether its beats are placed (`phase`: its time measured from a peer, the light's beats fall on the session's).",
       right: "dashboards:view",
       readOnly: true,
@@ -436,6 +438,8 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "ableset.status",
       title: "AbleSet",
+      titleEn: "AbleSet",
+      hints: "O",
       description: "AbleSet (setlist for Ableton Live) followed over OSC: on or off, where it is, connected (its heartbeat), the song and section it plays, and whether the show had the last one asked.",
       right: "dashboards:view",
       readOnly: true,
@@ -446,6 +450,8 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "ableset.jump",
       title: "Aller dans AbleSet",
+      titleEn: "Jump in AbleSet",
+      hints: "O",
       description: "Moves AbleSet to a song of the show (id or title) and, optionally, one of its sections (id or name): AbleSet receives the song's title and the section's name. While the follower is on, the light then follows AbleSet there as it plays.",
       right: "commands:trigger",
       profiles: ["live"],
@@ -464,6 +470,8 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "ableset.configure",
       title: "Suivre AbleSet",
+      titleEn: "Follow AbleSet",
+      hints: "IO",
       description: "Turns the AbleSet follower on or off and says where AbleSet runs (host, default this machine; port 39051). While AbleSet plays, the section of the same name in the song of the same title starts (as a song's timeline would: never a manual-only look). Kept in the machine config.",
       right: "midi:configure",
       profiles: ["setup"],
@@ -492,6 +500,7 @@ export class LightPlugin implements McpPlugin {
     this.commands.register({
       name: "os2l.status",
       title: "DJ (OS2L)",
+      titleEn: "DJ (OS2L)",
       description: "DJ software connected over OS2L (VirtualDJ…): port, DJ computers with their tempo and beats received, the last buttons pressed. Their beats lead the tempo unless the MIDI clock plays; a button plays the look (or recalls the snapshot) of its name.",
       right: "dashboards:view",
       readOnly: true,

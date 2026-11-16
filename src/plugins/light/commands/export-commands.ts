@@ -35,6 +35,7 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "export.notes",
     title: "Table des notes et CC",
+    titleEn: "Note and CC table",
     description: "The show's MIDI table: note (with Live's name), channel, action, mode; then the CCs. Markdown or CSV.",
     right: "dashboards:view",
     readOnly: true,
@@ -61,6 +62,8 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "export.ableton.rack",
     title: "Rack Ableton",
+    titleEn: "Ableton rack",
+    hints: "I",
     description:
       "Builds a MIDI Effect Rack (.adg) with one chain per note mapping, named after its action, on a one-key zone; danger/manual actions in red. Clones the shell rack exported by your Live (file inside data/private). Writes data/exports/<name>.adg.",
     right: "show:write",
@@ -93,6 +96,8 @@ export function registerExportCommands(reg: CommandRegistry, runtime: ShowRuntim
   reg.register({
     name: "export.ableton.programs",
     title: "Clips des programmes",
+    titleEn: "Program clips",
+    hints: "I",
     description:
       "One Ableton clip (.alc) per rule program that has a Program Change: launching it in Live sends that Program Change, which activates the program (« Prière #100 »). Clones the shell clip exported by your Live (data/private), changing only the clip name and Program Change. Writes data/exports/programmes/.",
     right: "show:write",

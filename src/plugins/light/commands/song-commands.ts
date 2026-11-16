@@ -99,6 +99,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "song.list",
     title: "Chants",
+    titleEn: "Songs",
     description: "Songs of the show with their sections (look, cue, idea, position in bars). mood holds intentions by id (or a word); moodLabels says them as people read them (two of one label each with where it lives: “Joie (shipped)”).",
     right: "dashboards:view",
     readOnly: true,
@@ -112,6 +113,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "song.put",
     title: "Chant",
+    titleEn: "Song",
+    hints: "DI",
     description: "Creates or updates a song: title, key, BPM, mood (intentions: their id as knowledge.get gives it, or a name: a name one intention only answers to is stored as its id, an unknown word stays a word; guard rail), palette, sections (name, look, cue « repère », idea, bars, optional atBar), timeline actions (cues: any non-song command with its args, at a 0-based bar and beat, fired in playback), start position in the DAW (startBeat). A name several intentions answer to stays a name and is returned in ambiguous (the one it goes to, the candidates). " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
@@ -135,10 +138,12 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       return ambiguous.length ? { ...saved, ambiguous } : saved;
     },
   });
-  reg.register({ name: "song.delete", title: "Supprimer un chant", description: "Deletes a song.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => ({ deleted: s.songs.delete(i) }) });
+  reg.register({ name: "song.delete", title: "Supprimer un chant", titleEn: "Delete a song", hints: "DI", description: "Deletes a song.", right: "show:write", profiles: ["design"], schema: id, run: ({ id: i }) => ({ deleted: s.songs.delete(i) }) });
   reg.register({
     name: "song.select",
     title: "Sélectionner un chant",
+    titleEn: "Select a song",
+    hints: "I",
     description: "Makes a song current (sets the manual tempo to its BPM unless the tempo follows the MIDI clock) and starts its first section.",
     right: "commands:trigger",
     profiles: ["live"],
@@ -157,6 +162,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "song.play",
     title: "Lecture du chant",
+    titleEn: "Play the song",
+    hints: "",
     description:
       "Internal transport, for playing without a DAW: the song runs on the engine tempo (its BPM unless the tempo follows the MIDI clock) from a section or a bar, sections start by themselves and timeline actions fire. Stops at the end of the song. A running MIDI clock (DAW playing) always takes precedence.",
     right: "commands:trigger",
@@ -179,6 +186,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "song.stop",
     title: "Arrêter la lecture",
+    titleEn: "Stop playback",
+    hints: "I",
     description: "Stops the internal transport (the looks keep playing).",
     right: "commands:trigger",
     profiles: ["live"],
@@ -194,6 +203,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "export.mid",
     title: "Fichier MIDI d'un chant",
+    titleEn: "Song MIDI file",
+    hints: "I",
     description:
       "Standard MIDI file of a song (96 ticks per beat, its tempo and metre): at each section, the trigger note of its look (from the MIDI mappings, 1/16 long) and the Program Change of its rule program. Drop it on a MIDI track. Note: Live most likely ignores Program Changes inside imported MIDI files (to check on the Mac) — the program clips (export.ableton.programs) carry them reliably. Writes data/exports/<song>.mid.",
     right: "show:write",
@@ -228,6 +239,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "export.board",
     title: "Planche d'un chant",
+    titleEn: "Song board",
     description: "Storyboard of a song as SVG: one band per section (height by length), the first steps of its look in colour on the canvas, cadence, cue and timeline actions. Printable.",
     right: "dashboards:view",
     readOnly: true,
@@ -248,7 +260,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
         return { name: look.name, steps, cadence };
       }),
   });
-  reg.register({ name: "song.section.go", title: "Lancer une section", description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }, ctx) => goSection(song(sid), section, isAuto(ctx.origin)) });
+  reg.register({ name: "song.section.go", title: "Lancer une section", titleEn: "Launch a section", hints: "I", description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }, ctx) => goSection(song(sid), section, isAuto(ctx.origin)) });
   const step = (dir: 1 | -1) => (_args: unknown, ctx: { origin: string }) => {
     const sg = song();
     const i = sg.sections.findIndex((x) => x.id === s.state.section);
@@ -256,12 +268,14 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     if (!next) throw new Error(say("chant sans section", "song without sections"));
     return goSection(sg, next.id, isAuto(ctx.origin));
   };
-  reg.register({ name: "song.next", title: "Section suivante", description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
-  reg.register({ name: "song.prev", title: "Section précédente", description: "Previous section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(-1) });
-  reg.register({ name: "song.state", title: "Chant courant", description: "Current setlist, song and section, and whether the position follows the MIDI clock.", right: "dashboards:view", readOnly: true, profiles: ["live"], schema: z.object({}), run: () => ({ ...s.state }) });
+  reg.register({ name: "song.next", title: "Section suivante", titleEn: "Next section", hints: "", description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
+  reg.register({ name: "song.prev", title: "Section précédente", titleEn: "Previous section", hints: "", description: "Previous section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(-1) });
+  reg.register({ name: "song.state", title: "Chant courant", titleEn: "Current song", description: "Current setlist, song and section, and whether the position follows the MIDI clock.", right: "dashboards:view", readOnly: true, profiles: ["live"], schema: z.object({}), run: () => ({ ...s.state }) });
   reg.register({
     name: "song.follow",
     title: "Suivre la position MIDI",
+    titleEn: "Follow the MIDI position",
+    hints: "I",
     description: "When on, the section under the MIDI clock position (SPP from the DAW) is started automatically, so a scrub in the middle of a section re-establishes the right look.",
     right: "commands:trigger",
     profiles: ["live"],
@@ -273,8 +287,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     },
   });
 
-  reg.register({ name: "setlist.list", title: "Setlists", description: "Setlists of the show.", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => s.setlists.list() });
-  reg.register({ name: "setlist.put", title: "Setlist", description: "Creates or updates a setlist (ordered song ids).", right: "show:write", profiles: ["design"], schema: z.object({ setlist: SetlistSchema }), run: ({ setlist }) => s.setlists.put(setlist) });
+  reg.register({ name: "setlist.list", title: "Setlists", titleEn: "Setlists", description: "Setlists of the show.", right: "dashboards:view", readOnly: true, profiles: ["design", "live"], schema: z.object({}), run: () => s.setlists.list() });
+  reg.register({ name: "setlist.put", title: "Setlist", titleEn: "Setlist", hints: "DI", description: "Creates or updates a setlist (ordered song ids).", right: "show:write", profiles: ["design"], schema: z.object({ setlist: SetlistSchema }), run: ({ setlist }) => s.setlists.put(setlist) });
   const setlistStep = (dir: 1 | -1) => () => {
     const sl = s.state.setlist ? s.setlists.get(s.state.setlist) : undefined;
     if (!sl) throw new Error(say("aucune setlist sélectionnée", "no setlist selected"));
@@ -286,6 +300,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "setlist.select",
     title: "Sélectionner une setlist",
+    titleEn: "Select a setlist",
+    hints: "I",
     description: "Makes a setlist current and selects its first song.",
     right: "commands:trigger",
     profiles: ["live"],
@@ -297,12 +313,13 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       return sl.songs[0] ? reg.invoke("song.select", { id: sl.songs[0] }, { origin: "system", can: () => true }) : { setlist: i };
     },
   });
-  reg.register({ name: "setlist.next", title: "Chant suivant", description: "Next song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(1) });
-  reg.register({ name: "setlist.prev", title: "Chant précédent", description: "Previous song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(-1) });
+  reg.register({ name: "setlist.next", title: "Chant suivant", titleEn: "Next song", hints: "", description: "Next song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(1) });
+  reg.register({ name: "setlist.prev", title: "Chant précédent", titleEn: "Previous song", hints: "", description: "Previous song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(-1) });
 
   reg.register({
     name: "export.cuesheet",
     title: "Feuille de conduite",
+    titleEn: "Cue sheet",
     description: "Cue sheet in Markdown for a setlist (or every song): per section, bar, cue, look, trigger note and idea.",
     right: "dashboards:view",
     readOnly: true,
@@ -321,6 +338,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
   reg.register({
     name: "export.liveset",
     title: "Poser la setlist dans un Live Set",
+    titleEn: "Put the setlist in a Live Set",
+    hints: "I",
     description:
       "Writes a copy of a Live Set (data/private/<als>) with one locator per song (+ STOP), one autonomous clip per section carrying its trigger note on the given track, and a flat tempo per song. Live must be closed. Output: data/exports/<name>.als.",
     right: "show:write",

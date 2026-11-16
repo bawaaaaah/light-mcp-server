@@ -273,6 +273,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.list",
     title: "Bibliothèque des projecteurs",
+    titleEn: "Fixture library",
     description:
       "The fixture definitions of the library, one row per .qxf file: id (venue/<file> for this venue's own folder, shared/<file> for data/fixtures; the venue's own is read first and wins for its model), manufacturer, model, type, modes, winner (the file the library uses for its model), copies (every file of the same model), sameStructure (other names with the same modes, channels and ranges), usedBy (this venue's patched fixtures that resolve to it, aliases followed), overrides (this venue has corrections for the model), aliasedTo / aliasedFrom (library.merge as alias). QLC+'s built-in generic dimmer comes last (folder builtin). Also aliases (this venue's) and trash (how many definitions are in the trash). Filters: search (manufacturer, model or file), manufacturer, type, used, duplicates (copies or same structure), folder.",
     right: "dashboards:view",
@@ -303,6 +304,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.duplicates",
     title: "Doublons de la bibliothèque",
+    titleEn: "Library duplicates",
     description:
       "The library's duplicates, by definition id (library.list): sameName, one model in several files (the winner, the one the library uses, and each other one, identical or with what differs, said in `message`); sameSignature, one structure under several names (gamme of one manufacturer, or one fixture under two names: library.merge as alias).",
     right: "dashboards:view",
@@ -321,6 +323,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.get",
     title: "Lire une définition",
+    titleEn: "Read a definition",
     description: "One library definition by its id (library.list): its .qxf text (xml; a file whose bytes are not UTF-8 is read as Latin-1, and base64 holds its bytes) and what the library reads from it (manufacturer, model, type, modes with their channels, heads).",
     right: "dashboards:view",
     readOnly: true,
@@ -347,6 +350,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.diff",
     title: "Comparer deux définitions",
+    titleEn: "Compare two definitions",
     description: "What differs between two library definitions (ids from library.list): type, modes only in one, channel counts, channels or ranges, other settings; message says it as people read it, identical when nothing does.",
     right: "dashboards:view",
     readOnly: true,
@@ -380,6 +384,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.delete",
     title: "Supprimer une définition",
+    titleEn: "Delete a definition",
+    hints: "DI",
     description:
       "Moves a library definition (id from library.list) to the trash (library.trash, library.restore). Refused unless force while fixtures resolve to it: this venue's (usedBy), unless another identical file of the same model takes over (fallback); for a shared file, any other venue's (otherVenues) always. With force, those fixtures fall back to fallback, or have no definition (show.lint says so). aliases: this venue's aliases whose target would have no definition left; dropAliases removes them too. dropOverrides: also removes this venue's corrections of the model when no file of it is left. dryRun: only says what it would do.",
     right: "show:write",
@@ -411,6 +417,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.trash",
     title: "Corbeille des définitions",
+    titleEn: "Definitions trash",
     description:
       "The definitions moved to the trash (library.delete, library.merge) or overwritten by « Remplacer » (fixture.definition.add, reason replaced), newest first: id (for library.restore), file, folder it came from (venue: with the venue), manufacturer, model, deletedAt, who. Nothing is purged by itself (library.trash.empty).",
     right: "dashboards:view",
@@ -505,6 +512,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.restore",
     title: "Restaurer une définition",
+    titleEn: "Restore a definition",
+    hints: "",
     description:
       "Puts a definition of the trash (id from library.trash) back in the folder it came from, under a free name if its own is taken: the shared folder, or its venue's own (another venue's too) while that venue exists; a venue gone since: the shared folder (toShared). Says whether it then wins for its model (winner: it is read before the file in use, displaces, displacesWhere), the other files of the model (copies), and the fixtures whose definition would change that way, here (usedBy) and in other venues (otherVenues): refused unless force when there are some and the files differ (an old version kept by « Remplacer » would otherwise silently take over). When the file displaced is in the same folder (options), as: replace puts that file in the trash and the restored one under its name; as: beside restores it under a name read after it, which changes nothing. dryRun: the plan only.",
     right: "show:write",
@@ -538,6 +547,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.trash.empty",
     title: "Vider la corbeille des définitions",
+    titleEn: "Empty the definitions trash",
+    hints: "DI",
     description:
       "Removes definitions of the trash for good (they can no longer be restored). Needs show:admin, the right of the other irreversible deletions (show.delete, show.reset), decision L4: a régisseur asks the venue's administrator. ids: the entries confirmed (what a dry run listed); one added since stays, one gone since is said (missing). Without ids, everything listed now. dryRun: what would go (removed lists them), nothing removed.",
     right: "show:admin",
@@ -563,6 +574,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.duplicate",
     title: "Dupliquer une définition",
+    titleEn: "Duplicate a definition",
+    hints: "",
     description:
       "Copies a library definition (id) into this venue's own folder (folder: shared for data/fixtures), as a new model: model (default « <model> (copie) »), manufacturer (default the same); the text is retouched on <Manufacturer> and <Model> only, in the file's own encoding (UTF-8, or Latin-1 byte for byte); this venue's corrections of the model are copied under the new name when it has none (copiedOverrides). sameName: true keeps the names instead — a byte-for-byte copy for this venue, which then wins over the shared definition of that model (its fixtures, takesOver, use the copy); only from a shared file. The original is untouched.",
     right: "show:write",
@@ -613,6 +626,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.merge",
     title: "Fusionner deux définitions",
+    titleEn: "Merge two definitions",
+    hints: "D",
     description:
       "Merges duplicates (ids from library.list). as pick: keep and drop are files of one model; the dropped files go to the trash, the fixtures stay as they are (refused when a mode in use — here, or by another venue resolving a dropped shared file — is missing from keep; refused unless force when a dropped shared file serves another venue and keep is this venue's own). as alias: drop's model, or from (a model name with no file), becomes a name of keep's (decision Q2): its fixtures, and those of the aliases that already followed it (retargeted, with their previous target), keep their manufacturer, model, mode and address and resolve keep's definition, their mode by the mode table (found by name, then channel count; modes gives the rest, old → keep's mode name; a mode in use without an equivalent refuses the alias, unmapped lists them; a footprint change needs force); the files stay, library.unalias undoes it. The old name's corrections are copied onto keep's model (kept under the old name too); when keep's model has its own, overrides must say which win (detail overridesConflict; source keeps the target's former ones in its history, replacedOverrides). dryRun: the plan only, never refused.",
     right: "show:write",
@@ -738,6 +753,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
   reg.register({
     name: "library.unalias",
     title: "Retirer un alias",
+    titleEn: "Remove an alias",
+    hints: "DI",
     description:
       "Removes an alias of this venue (id from library.list's aliases: the old model's key): its fixtures resolve their own model's definition again (fixtures: each one's mode before and after, channel counts; noDefinition when the old model has no file any more). The corrections copied onto the target stay there (decision L2); the old name kept its own. dryRun: the plan only.",
     right: "show:write",

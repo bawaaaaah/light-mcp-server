@@ -65,6 +65,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.list",
     title: "Cibles",
+    titleEn: "Targets",
     description:
       "Targets: 3D points (metres) that moving heads follow. Each with its heads (fixtures and group, installed moving heads only) and what each does now (follows; held where it is, with the reason: out of reach, a no-aim zone, no stage position; masked by a stronger layer: the manual position, another target engaged later, a lock; released by « Rendre la main »; idle when not engaged), its effective bounds (its own, else the stage volume), and, among the engaged targets, its priority (1 = engaged last, wins a head it shares) and the targets it shares heads with.",
     right: "dashboards:view",
@@ -87,6 +88,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.volume",
     title: "Volume de la scène",
+    titleEn: "Stage volume",
     description:
       "The stage volume (metres, {min,max}): the bounds of a target without bounds of its own — the zones' box 0.5 m around (else a 10 × 8 m stage widened to the placed fixtures), from the floor to 0.5 m above the highest fixture. What a new target's bounds start from in the venue's form.",
     right: "dashboards:view",
@@ -99,6 +101,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.put",
     title: "Cible",
+    titleEn: "Target",
+    hints: "DI",
     description:
       "Creates or updates a target: name, the moving heads that follow it (fixtures and/or a group: their union), point {x,y,z} in metres (bounded to the bounds; absent: kept, or the middle of the bounds at 1.5 m for a new one), optional bounds {min,max} (default: the stage volume), smoothing of the point (as a fader's: curve, msPerStep), fade (how the heads take over when it is engaged, as look.move.fade; default the show's moveFade), color, notes. Whether it is engaged is live state, kept as it is: target.engage changes it.",
     right: "show:write",
@@ -127,6 +131,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.delete",
     title: "Supprimer une cible",
+    titleEn: "Delete a target",
+    hints: "DI",
     description: "Deletes a target. Refused while something uses it (a look's move following it, a dashboard widget, a MIDI mapping, a snapshot, a song), unless force. engaged: true when it was engaged (its heads go back to what claims them below, gliding).",
     right: "show:write",
     profiles: ["setup"],
@@ -146,6 +152,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.set",
     title: "Déplacer une cible",
+    titleEn: "Move a target",
+    hints: "I",
     description:
       "Moves a target's point: x, y, z in metres, or nx, ny, nz from 0 to 1 across its bounds (for a MIDI fader or OSC: levelArg nx; a value past 0 or 1, an OSC float, counts as 0 or 1). Partial: the axes not given stay. Bounded to the bounds, never refused (a fader at its end stays valid). Giving x and nx (or y and ny, z and nz) together is refused. The heads that follow it move with it (gliding when the target has a smoothing); heads frozen hard (motion.freeze) ignore it, listed in frozen.",
     right: "commands:position",
@@ -170,6 +178,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.engage",
     title: "Engager une cible",
+    titleEn: "Engage a target",
+    hints: "",
     description:
       "on: its heads follow the target (above the looks, below the XY pad and a soft lock); between two engaged targets sharing a head, the last engaged wins it, restart included; engaging one already engaged puts it back on top (the last engaged wins) and lifts « Rendre la main » on its heads. off: they go back to what claims them below (a look's move, else rest), gliding; off on a target not engaged changes nothing. A Panic disengages every target. Heads frozen hard (motion.freeze) ignore it until unfrozen, listed in frozen.",
     right: "commands:position",
@@ -184,6 +194,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "target.zone",
     title: "Cible sur une zone",
+    titleEn: "Target on a zone",
+    hints: "I",
     description:
       "Puts a target's point on a stage zone: its aiming point (the centre of its surface unless one was placed), `height` metres above its floor (default: the zone's own aiming height, else 1.5, a standing person's face), bounded. Refused when the point, once bounded, lies in a no-aim zone closed now (no look of its allowLooks plays): the heads would hold at once.",
     right: "commands:position",

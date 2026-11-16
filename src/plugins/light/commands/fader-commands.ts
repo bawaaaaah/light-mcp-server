@@ -10,10 +10,12 @@ import type { ShowCommandScope } from "./show-command-scope.js";
 export function registerFaderCommands(common: ShowCommandScope): void {
   const { reg, engine, show, venue, removable, deletable, checkChannels } = common;
   // ---- channel faders (white, UV, strobe, machines — like QLC+ « Level » sliders)
-  reg.register({ name: "fader.list", title: "Faders de canaux", description: "Channel faders: raw channels (white, UV, strobe, machines…) driven at a level, highest-takes-precedence with the show; on a fixture's dimmer the fader doses it instead (the show holds dimmers at full; at 0 the fixture is dark). A fader dosed by a DCA (dca) follows it.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.faders.list() });
+  reg.register({ name: "fader.list", title: "Faders de canaux", titleEn: "Channel faders", description: "Channel faders: raw channels (white, UV, strobe, machines…) driven at a level, highest-takes-precedence with the show; on a fixture's dimmer the fader doses it instead (the show holds dimmers at full; at 0 the fixture is dark). A fader dosed by a DCA (dca) follows it.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.faders.list() });
   reg.register({
     name: "fader.put",
     title: "Fader de canaux",
+    titleEn: "Channel fader",
+    hints: "I",
     description: "Creates or updates a channel fader: name, channels as {fixture, offset from its address (0-based)}, level 0..1, optional dca (a group with a master whose level multiplies the fader's). The rules mask still applies after it.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -30,6 +32,8 @@ export function registerFaderCommands(common: ShowCommandScope): void {
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
+    titleEn: "Channel fader",
+    hints: "I",
     description: "The fader of one fixture channel, created at its first touch: returns the channel fader driving exactly that channel and nothing else over its whole travel (one narrowed to a function is not reused), or creates one (id panel-<fixture>-<offset>, at `level`; without one, so that creating it switches nothing off: at 1 on the master dimmer of a colour fixture, which such a fader doses, else at the value the channel has on the output now). An existing one is left as it is: move it with fader.level.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -54,6 +58,8 @@ export function registerFaderCommands(common: ShowCommandScope): void {
   reg.register({
     name: "fader.delete",
     title: "Supprimer un fader de canaux",
+    titleEn: "Delete a channel fader",
+    hints: "DI",
     description: "Deletes a channel fader. Refused while something uses it (mapping, dashboard, snapshot, song), unless force.",
     right: "show:write",
     profiles: ["setup"],
@@ -63,6 +69,8 @@ export function registerFaderCommands(common: ShowCommandScope): void {
   reg.register({
     name: "fader.level",
     title: "Niveau d'un fader de canaux",
+    titleEn: "Channel fader level",
+    hints: "I",
     description: "Sets a channel fader's level (0..1).",
     right: "commands:level",
     profiles: ["live", "design"],

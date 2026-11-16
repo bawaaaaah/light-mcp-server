@@ -52,6 +52,8 @@ export function registerFolderCommands(common: ShowCommandScope, { checkLook, sa
   reg.register({
     name: "show.folder.create",
     title: "Créer un dossier",
+    titleEn: "Create a folder",
+    hints: "I",
     description: "Names a folder ahead: it exists empty until a look moves into it, and until show.folder.delete dissolves it (a folder only born from looks' tags lives as long as they do).",
     right: "show:write",
     profiles: ["design"],
@@ -64,6 +66,8 @@ export function registerFolderCommands(common: ShowCommandScope, { checkLook, sa
   reg.register({
     name: "show.folder.move",
     title: "Déplacer des looks",
+    titleEn: "Move looks",
+    hints: "I",
     description: "Puts whole looks (read here, so their steps and raw channels keep) in one folder: the `dossier:` tag of each one is rewritten. Without a folder name, back « sans dossier ».",
     right: "show:write",
     profiles: ["design"],
@@ -80,6 +84,8 @@ export function registerFolderCommands(common: ShowCommandScope, { checkLook, sa
   reg.register({
     name: "show.folder.rename",
     title: "Renommer un dossier",
+    titleEn: "Rename a folder",
+    hints: "I",
     description: "Renames the `dossier:` tag of every look of the folder, its sub-folders included (their path keeps its tail); renaming onto an existing folder merges the two. A look twice tagged counts under its first folder, and its extra tags are cleaned by the rewrite. Folders named ahead in the subtree move with it.",
     right: "show:write",
     profiles: ["design"],
@@ -97,6 +103,8 @@ export function registerFolderCommands(common: ShowCommandScope, { checkLook, sa
   reg.register({
     name: "show.folder.delete",
     title: "Dissoudre un dossier",
+    titleEn: "Dissolve a folder",
+    hints: "DI",
     description: "Empties a folder, its sub-folders included: every look of them goes back « sans dossier » (the looks stay), and folders named ahead in the subtree stop existing.",
     right: "show:write",
     profiles: ["design"],
@@ -111,6 +119,8 @@ export function registerFolderCommands(common: ShowCommandScope, { checkLook, sa
   reg.register({
     name: "show.folder.nest",
     title: "Nicher un dossier",
+    titleEn: "Nest a folder",
+    hints: "I",
     description: "Moves a folder — its looks and sub-folders along — under a parent folder (« B » under « A » becomes « A/B »), or back to the top level when `under` is absent.",
     right: "show:write",
     profiles: ["design"],

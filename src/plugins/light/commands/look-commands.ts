@@ -26,8 +26,8 @@ export interface LookCommands {
 export function registerLookCommands(common: ShowCommandScope): LookCommands {
   const { reg, show, migrateTags, ambiguousTags, venue, idSchema, removable, deletable, checkChannels } = common;
   // ---- palettes & looks
-  reg.register({ name: "palette.list", title: "Palettes", description: "Colour palettes of the show.", right: "dashboards:view", readOnly: true, profiles: ["design"], schema: z.object({}), run: () => show.palettes.list() });
-  reg.register({ name: "palette.put", title: "Palette", description: "Creates or updates a palette (used by reference: every look using it follows).", right: "show:write", profiles: ["design"], schema: z.object({ palette: PaletteSchema }), run: ({ palette }) => show.palettes.put(palette) });
+  reg.register({ name: "palette.list", title: "Palettes", titleEn: "Palettes", description: "Colour palettes of the show.", right: "dashboards:view", readOnly: true, profiles: ["design"], schema: z.object({}), run: () => show.palettes.list() });
+  reg.register({ name: "palette.put", title: "Palette", titleEn: "Palette", hints: "DI", description: "Creates or updates a palette (used by reference: every look using it follows).", right: "show:write", profiles: ["design"], schema: z.object({ palette: PaletteSchema }), run: ({ palette }) => show.palettes.put(palette) });
   const swatch = (l: Parameters<typeof show.resolvedTechnique>[0]) => {
     try {
       return swatchOf(show.resolvedTechnique(l));
@@ -38,6 +38,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.list",
     title: "Looks",
+    titleEn: "Looks",
     description: "Looks of the show (technique, canvas, palette, timing, flags), whether they play, and the colour that sums each up (swatch, for its button). Brief by default: what only editing needs (technique parameters and steps, raw channels, move details, notes) is left out, since an imported show's exact steps weigh about a megabyte; look.get gives one look whole, brief: false every look whole.",
     right: "dashboards:view",
     readOnly: true,
@@ -55,6 +56,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.get",
     title: "Look",
+    titleEn: "Look",
     description: "One look whole (technique with its parameters and steps, raw channels, move, notes), whether it plays, and its swatch.",
     right: "dashboards:view",
     readOnly: true,
@@ -119,6 +121,8 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.put",
     title: "Look",
+    titleEn: "Look",
+    hints: "I",
     description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; at = {target: id} centres the move on a target's point, aimed head by head, engaged or not (target.list; an unknown target is refused), or at = {position: id} on a named position read at render (position.preset.list; a position readjusted moves the look): its pan/tilt on the heads it covers, the look's other heads left to the layer below, or its point aimed head by head (an unknown position, or both target and position, is refused), or at = {zone: id, height?} on an aiming zone (stage.zone.list), aimed head by head (« one button per zone »), or at = {path: {stops: [{zone|point {x,y,z}|position|target, height? (zone only), weight?}] 1..32, order loop|pingpong|random|weighted, travel 0..1 = part of each step spent moving (default 0.5), heads ensemble|decales (each head one stop behind)|chacune (random: each head its own draw)}} = the heads go from stop to stop, one stop per `every`, gliding in pan/tilt (shape stays fixe; one base only among target, position, zone, path; unknown stops refused; the reply's warnings say stops out of reach, trips too fast for a speed rule and trips crossing a no-aim zone, where the head goes dark); enabled: false = « Ne pas bouger les lyres », holds the heads where they are while it is the top look). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
@@ -148,6 +152,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.techniques",
     title: "Techniques",
+    titleEn: "Techniques",
     description: "Every technique kind with the JSON schema of its parameters (for editors).",
     right: "dashboards:view",
     readOnly: true,
@@ -159,6 +164,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.preview",
     title: "Aperçu d'un look",
+    titleEn: "Look preview",
     description: "Steps a look (saved or not) generates on its canvas (and, for a look with a move, `heads`: the moving heads its move places — none for an empty or unknown group —; following a named position that is a point, `unreachable`: those of them that cannot aim at it now, with why): one display colour per cell (\"#rrggbb\", null = untouched), with the canvas shape. `flashes`: `perLoop` is the worst cell's dark-to-lit changes over one cycle of the steps in the order they are played (0 when the look fades or holds still; a cell a step leaves untouched counts as dark, as a preview draws it), `period` the number of steps of that cycle (more than the steps for ping-pong; 2 for a random or weighted order, which can put a flash every two steps), `windows[w]` the most flashes in `w` steps in a row of it (w = 0..period), `max` the photosensitive limit in flashes per second (WCAG 2.3.1): a client counts the flashes of the worst second as `perLoop × whole cycles + windows[rest]` over the steps that start in one second (`ceil(1 / seconds per step)`). A fading attack still counts a change out of an untouched cell, which a preview cuts. A look whose move has `at.path` (stops) or `at.zone` (T28) also gets `path`: `stops` (each stop named, and resolved head by head: pan/tilt or why the head cannot go there; `gone`: the last name of a zone, position or target deleted since) and `warnings` (stops out of reach, trips too fast for a speed rule, a no-aim zone aimed at or crossed; none with move.enabled false). A path without stops is refused. Nothing is played.",
     right: "dashboards:view",
     readOnly: true,
@@ -194,6 +200,8 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.delete",
     title: "Supprimer un look",
+    titleEn: "Delete a look",
+    hints: "DI",
     description: "Deletes a look. Refused while something uses it (see show.references), unless force.",
     right: "show:write",
     profiles: ["design"],
@@ -203,6 +211,8 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
   reg.register({
     name: "look.go",
     title: "Lancer un look",
+    titleEn: "Launch a look",
+    hints: "I",
     description:
       "Starts a look (idempotent: starting a playing look does nothing); releases the other looks of its exclusive groups. A rule set to reject refuses it when it would bound it; one set to confirm asks first: tell the user which rule and why, and send confirm: true only on their yes.",
     right: "commands:trigger",
@@ -226,7 +236,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
       return show.go(i, ctx.origin === "timeline" || ctx.origin === "mcp" || ctx.origin === "ableset");
     },
   });
-  reg.register({ name: "look.stop", title: "Arrêter un look", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: idSchema, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
-  reg.register({ name: "look.stopall", title: "Tout arrêter", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
+  reg.register({ name: "look.stop", title: "Arrêter un look", titleEn: "Stop a look", hints: "I", description: "Stops a look.", right: "commands:trigger", profiles: ["design", "live"], schema: idSchema, run: ({ id: i }) => ({ stopped: show.stop(i) }) });
+  reg.register({ name: "look.stopall", title: "Tout arrêter", titleEn: "Stop everything", hints: "I", description: "Stops every playing look.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: () => ({ stopped: show.stopAll() }) });
   return { checkLook, sameTags };
 }

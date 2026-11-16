@@ -165,6 +165,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.list",
     title: "Shows",
+    titleEn: "Shows",
     description: "The shows on this machine (folders under data/shows): id, name, venue, last change, and which one is open.",
     right: "dashboards:view",
     readOnly: true,
@@ -186,6 +187,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.create",
     title: "Nouveau show",
+    titleEn: "New show",
+    hints: "",
     description:
       "Creates a show, empty, as a copy of another (`from`, « Enregistrer sous » / « Dupliquer »), or from a QLC+ workspace (`qxw`, its text: imported into the new show), and opens it unless open is false. Venue: `current` plays on the open show's venue (same patch), `copy` copies that venue for this show, `new` starts an empty one (the right choice for another QLC+ workspace).",
     right: "show:write",
@@ -222,6 +225,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.open",
     title: "Ouvrir un show",
+    titleEn: "Open a show",
+    hints: "I",
     description: "Opens another show (and its venue): what plays stops, its looks, songs, dashboards and mappings replace the current ones on every screen.",
     right: "show:write",
     profiles: ["setup"],
@@ -236,6 +241,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "venue.list",
     title: "Lieux",
+    titleEn: "Venues",
     description:
       "The venues on this machine (folders under data/venues): id, how many fixtures, the shows that play on it (a venue shared by several shows changes for all of them), and which one is open. A show whose show.json cannot be read is left out of every venue and named in each row's `warning` (it may play on any of them).",
     right: "dashboards:view",
@@ -263,6 +269,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.venue.set",
     title: "Changer le lieu d'un show",
+    titleEn: "Change a show's venue",
+    hints: "I",
     description: "Makes a show play on another existing venue (default: the open show, which is reopened on it). Nothing is copied: the show now shares that venue with the others that use it. Its absent fixtures are kept by id: `absent` lists those the new venue has, dark for this show.",
     right: "show:write",
     profiles: ["setup"],
@@ -282,6 +290,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.venue.detach",
     title: "Dissocier le lieu d'un show",
+    titleEn: "Detach a show from its venue",
+    hints: "I",
     description: "Gives a show its own copy of the venue it shares (patch, positions, canvases, zones, rules), so changing one no longer changes the other. Default: the open show, which is reopened on its copy. The other shows keep the original.",
     right: "show:write",
     profiles: ["setup"],
@@ -304,6 +314,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "venue.positions.import",
     title: "Reprendre les positions d'un autre lieu",
+    titleEn: "Take positions from another venue",
+    hints: "DI",
     description:
       "Moves the open venue's fixtures to where another venue (`from`) has them: position, mount, orientation and target only; addresses, modes and names stay. Fixtures are paired by id, then by name, then by make/model/mode in address order (`ambiguous`: several candidates shared that name or model, paired by address: check them). A target zone this venue lacks is not copied (`skipped`). Without apply (the default) nothing is written: it lists what would move (changed fields per fixture), what is paired how, what has no equivalent on either side, the source files that did not read (`unreadable`), and the hard-frozen moving heads whose pan/tilt inversions or swap would change (`frozen`: apply is then refused as a whole until they are unfrozen). With apply true every move is checked first, then written, one venue.fixture.put each; a write refused midway stops and says how many were moved.",
     right: "show:write",
@@ -358,6 +370,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.rename",
     title: "Renommer un show",
+    titleEn: "Rename a show",
+    hints: "I",
     description: "Changes a show's displayed name (its folder keeps its id). Default: the open show.",
     right: "show:write",
     profiles: ["setup"],
@@ -375,6 +389,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.delete",
     title: "Supprimer un show",
+    titleEn: "Delete a show",
+    hints: "D",
     description: "Moves a show that is not open to data/backups/deleted/ (recoverable by hand). Its venue stays.",
     right: "show:admin",
     profiles: ["setup"],
@@ -393,6 +409,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "show.reset",
     title: "Réinitialiser le show",
+    titleEn: "Reset the show",
+    hints: "DI",
     description:
       "Empties the open show (looks, groups, faders, songs, mappings, dashboards, rules, settings) and, with venue true, its venue too (patch, canvases, zones). A .lightshow backup is written first; its name is returned.",
     right: "show:admin",
@@ -417,6 +435,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "backup.list",
     title: "Sauvegardes",
+    titleEn: "Backups",
     description: "The .lightshow backups kept on the server (data/backups): file, size, date, show and venue inside.",
     right: "dashboards:view",
     readOnly: true,
@@ -443,6 +462,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "backup.create",
     title: "Enregistrer une sauvegarde",
+    titleEn: "Save a backup",
+    hints: "",
     description: "Writes a .lightshow backup of the open show and its venue into data/backups (optional label in its name).",
     right: "show:write",
     profiles: ["setup"],
@@ -454,6 +475,8 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
   reg.register({
     name: "backup.restore",
     title: "Restaurer une sauvegarde",
+    titleEn: "Restore a backup",
+    hints: "DI",
     description:
       "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first. The backup's fixture definitions (.qxf) are merged into the library: fixtures \"missing\" (default) adds the ones the library lacks, \"replace\" also overwrites the ones that differ (the old file is kept in the restore's backup folder), \"none\" leaves the library alone. dryRun: true only reports what would change (show, venue, definitions missing/differing/invalid), and intentionTwins: intentions the backup brings whose label one of this machine's has under another id (made apart on two machines); restored, they are a second intention of that label, unless their id is in keepMachine: then this machine's is kept, and what named the backup's names it.",
     right: "show:write",

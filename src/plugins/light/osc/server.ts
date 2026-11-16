@@ -6,8 +6,7 @@
  */
 import { createSocket, type Socket } from "node:dgram";
 import type { z } from "zod";
-import type { CommandDef, CommandRegistry } from "../commands/registry.js";
-import { commandTitle } from "../commands/titles-en.js";
+import { commandTitle, type CommandDef, type CommandRegistry } from "../commands/registry.js";
 import { decodeOsc, encodeOsc, type OscArg } from "./codec.js";
 
 export interface OscConfig {

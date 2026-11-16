@@ -12,10 +12,12 @@ import type { ShowCommandScope } from "./show-command-scope.js";
 export function registerSettingsCommands(common: ShowCommandScope): void {
   const { reg, show, venue } = common;
   // ---- show settings & safety
-  reg.register({ name: "show.settings", title: "Réglages du show", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », startup snapshot, grand master, default button mode, moveFade (default glide of the heads, {beats} or {seconds}), restPositions (per moving head, where it returns when nobody moves it).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
+  reg.register({ name: "show.settings", title: "Réglages du show", titleEn: "Show settings", description: "Show settings: safe snapshot or safe look recalled by « Panic neutre », startup snapshot, grand master, default button mode, moveFade (default glide of the heads, {beats} or {seconds}), restPositions (per moving head, where it returns when nobody moves it).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design", "live"], schema: z.object({}), run: () => show.settings });
   reg.register({
     name: "show.settings.set",
     title: "Modifier les réglages du show",
+    titleEn: "Change the show settings",
+    hints: "I",
     description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value, moveFade: default glide of the heads to a new position, {beats: n} at the current tempo or {seconds: n} (max 30), default {seconds: 1}, 0 = cut, restPositions: per fixture id the {pan, tilt} (0..1) a head nobody moves goes back to, absent = centre; prefer position.rest.set / position.rest.clear, which touch one head at a time).",
     right: "show:write",
     profiles: ["setup", "design"],

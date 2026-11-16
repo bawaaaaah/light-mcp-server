@@ -93,6 +93,8 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
   reg.register({
     name: "venue.fixture.mode",
     title: "Changer le mode DMX",
+    titleEn: "Change a fixture's DMX mode",
+    hints: "D",
     description:
       "Changes a patched fixture's DMX mode (one of its definition's modes, venue.library), carrying over by channel name what names its channels: the raw channels of looks, the channels of channel faders, the heads canvases target (a head is known by its channels' names). A channel whose name is not in the new mode, or is repeated in either mode, is lost: taken out of the look or the fader (a fader left with none is deleted: emptied names what used it), a lost canvas target taken out of the canvas (cellsWithoutRender says which cells it leaves dark). dryRun: the plan only, nothing written (show it first). Written as one proposal, fixture first then canvases, faders, looks, all or nothing: show.revert with the returned proposal id takes it all back (not redone by show.apply: run it again). Refused unless force when something is lost, when another show's looks or faders cannot be read (unreadable), or when the new footprint shares channels with another fixture (freeAddress: the first place where it fits). A venue shared with other shows is refused unless `shared` says what to do: « copy » gives this show its own copy of the venue (show.venue.detach, made once every check passed; the show is reopened on it, its playing looks stop — `detach.stopped` — and an undo does not bring it back to the shared venue), « all » changes it for every show and carries over their looks and faders too. Looks playing whose channels move are restarted (relaunched). info: overrides of the model that no longer apply in the new mode (a wheel, a halo). A fixture patched under a model that is an alias of another (library.merge) is rewritten onto the target's manufacturer and model, its mode one of the target's (renamed says so); the alias stays for the others.",
     right: "show:write",
@@ -282,6 +284,8 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
   reg.register({
     name: "fixture.channel.mode",
     title: "Mode de fonctionnement d'un canal",
+    titleEn: "Set a channel's working mode",
+    hints: "I",
     description:
       "Sets a fixture channel cut into named functions to one of its working modes (venue.fixture.channels `modes`: « Auto », « Sound »…) and, when it has several, a variant (« Auto 2 »), by name: the value sent is the middle of the variant's range (the first variant when none is given; `value` inside the range for a continuous mode, a speed). The channel is given by offset or by name; `min` (the mode's first value) tells apart two modes of one name (« No function » at both ends): required then. Sent through the channel's own fader (created at its first touch, as fader.channel), highest takes precedence with the looks: when the output goes above the asked range at once, heldBy names the looks and other faders writing the channel higher; below it, blackout or clamps (the rules) say why. dcas: the DCAs below full that dose the fader on this channel (its own; on a light channel, those covering the fixture), which scale the value sent; grandMaster when it holds the output below.",
     right: "show:write",

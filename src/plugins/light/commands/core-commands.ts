@@ -29,6 +29,7 @@ export function registerCoreCommands(
   reg.register({
     name: "dmx.get",
     title: "Lire un univers",
+    titleEn: "Read a universe",
     description: "Returns the 512 output values of a universe as rendered by the engine, and the channels parked from the DMX console.",
     right: "dashboards:view",
     readOnly: true,
@@ -40,6 +41,8 @@ export function registerCoreCommands(
   reg.register({
     name: "dmx.set",
     title: "Forcer des canaux",
+    titleEn: "Force channels",
+    hints: "I",
     description: "Parks DMX channels at fixed values (DMX console / programmer). Several channels at once with `values` (channel → value).",
     right: "commands:dmx",
     profiles: ["setup"],
@@ -59,6 +62,8 @@ export function registerCoreCommands(
   reg.register({
     name: "dmx.release",
     title: "Relâcher des canaux",
+    titleEn: "Release channels",
+    hints: "I",
     description: "Releases parked channels: all of them, one universe, or a list of channels.",
     right: "commands:dmx",
     profiles: ["setup"],
@@ -69,6 +74,8 @@ export function registerCoreCommands(
   reg.register({
     name: "blackout",
     title: "Blackout",
+    titleEn: "Blackout",
+    hints: "I",
     description: "Blackout: every channel to zero (strobe included) while on.",
     right: "commands:blackout",
     profiles: ["setup", "design", "live"],
@@ -82,6 +89,7 @@ export function registerCoreCommands(
   reg.register({
     name: "output.status",
     title: "État de la sortie",
+    titleEn: "Output status",
     description:
       "Art-Net/sACN/DMX USB output: routes, where each universe actually goes now (destinations: node IPs, broadcast or multicast address), packets sent, errors, discovery state, foreignSources (other controllers sending Art-Net: seenAgoMs how long ago, lastSeen that moment as epoch ms), coverage (routes whose Art-Net port-address no node seen outputs: unheard; node ports no route feeds: unfed; routes sent to chosen nodes none of which answered discovery for a few polls while another node outputs their address: misdirected, with the nodes that do — a likely cause, the node may answer from another address; a broadcast target is never misdirected), sendHealth (sends and errors per target host over the last windowSeconds; failing = most sends failed, i.e. that host does not answer — detected from the operating system's send errors, which macOS gives for an unreachable link-local target and Linux may not), broadcast (the Art-Net broadcast address used), localBroadcasts (the broadcast addresses of the output's subnets — the bound interface's, else every interface's — 255.255.255.255 first: on such a subnet, only its broadcast is one, a .255 inside a wider subnet is a host), outOfSubnet (the node and target IPs on none of those subnets: unreachable without a router, do not retarget to them; absent when they judge nothing, a bound /32, and then any .255 is a broadcast), and the DMX USB interfaces in use (open, frames sent, error).",
     right: "dashboards:view",
@@ -109,6 +117,8 @@ export function registerCoreCommands(
   reg.register({
     name: "output.usb.list",
     title: "Interfaces DMX USB",
+    titleEn: "USB DMX interfaces",
+    hints: "O",
     description: "The serial ports of this machine a DMX USB interface may be on (FTDI chips first: Enttec Open DMX, USB Pro and their clones), to route a universe to with output.route.",
     right: "dashboards:view",
     readOnly: true,
@@ -120,6 +130,8 @@ export function registerCoreCommands(
   reg.register({
     name: "output.route",
     title: "Router un univers",
+    titleEn: "Route a universe",
+    hints: "IO",
     description:
       "Where a universe goes, any of: an Art-Net port-address, sent as `send` says — « auto » (default) to the nodes that output it, else broadcast (unless broadcast is false), « broadcast » to the whole network, « nodes » only to the node IPs in `targets` (none: nothing is sent; a node answering every address stays out unless ticked); an sACN universe (multicast, or unicast to the IPs in `unicast`; an empty list goes back to multicast); a DMX USB interface plugged into this machine (its serial port from output.usb.list, and its kind: « open » for Open DMX and FTDI cables, « pro » for USB Pro). null removes that output; all removed, the universe is not sent. An interface feeds one universe. Takes effect at once (the fixtures there light up with the show) and is kept in the machine config.",
     right: "commands:output",
@@ -166,6 +178,8 @@ export function registerCoreCommands(
   reg.register({
     name: "output.standby",
     title: "Sortie en veille",
+    titleEn: "Output on standby",
+    hints: "IO",
     description:
       "Standby (on): the show keeps running and following MIDI, but no Art-Net/sACN is sent, so another console (QLC+) can hold the nodes without a merge. Off: every universe is sent again at once. Kept across restarts. Used for the switchover with QLC+ (docs/bascule-qlc.md).",
     right: "commands:output",
@@ -181,6 +195,8 @@ export function registerCoreCommands(
   reg.register({
     name: "nodes.list",
     title: "Nodes Art-Net",
+    titleEn: "Art-Net nodes",
+    hints: "O",
     description: "Art-Net nodes discovered on the network (ArtPollReply), with their output ports: port-address, DMX going out (data), Art-Net or sACN, merge mode. `seenAgoMs`: how long ago the node last answered; `lastSeen`: that moment as epoch milliseconds.",
     right: "dashboards:view",
     readOnly: true,
@@ -192,6 +208,8 @@ export function registerCoreCommands(
   reg.register({
     name: "nodes.discover",
     title: "Chercher les nodes",
+    titleEn: "Look for nodes",
+    hints: "O",
     description: "Sends an ArtPoll now (discovery also runs every 3 s).",
     right: "commands:output",
     readOnly: true,

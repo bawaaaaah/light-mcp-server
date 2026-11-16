@@ -26,6 +26,14 @@ export interface CommandContext {
 export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
   name: string; // dotted, e.g. "dmx.set"
   title: string; // short French label for UIs
+  /** The English title, for an interface that asks for English (`x-light-lang`): `commandTitle` answers the matching one. */
+  titleEn: string;
+  /**
+   * The MCP annotations beyond `readOnly` (tool-hints.ts; docs/specs/mcp.md, « Annotations des outils »): D destructive,
+   * I idempotent, O open world, "" none of them. Every command that writes gives them; a read-only one only "O", when it
+   * looks at the network, the hardware or another program.
+   */
+  hints?: ToolHintCode;
   description: string; // for MCP tool descriptions
   /** Right required, e.g. "commands:dmx". */
   right: string;
@@ -38,6 +46,12 @@ export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
   profiles?: ("setup" | "design" | "live")[];
   run(args: z.infer<S>, ctx: CommandContext): R | Promise<R>;
 }
+
+/** The codes of `CommandDef.hints`, in this order: D destructive, I idempotent, O open world. */
+export type ToolHintCode = "" | "D" | "I" | "O" | "DI" | "DO" | "IO" | "DIO";
+
+/** The command's title in the language of the request being answered (French by default). */
+export const commandTitle = (def: Pick<CommandDef, "title" | "titleEn">): string => say(def.title, def.titleEn);
 
 export class CommandError extends Error {
   constructor(

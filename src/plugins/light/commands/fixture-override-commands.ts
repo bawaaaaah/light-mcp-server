@@ -48,6 +48,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.fixture.heads",
     title: "Têtes d'une fixture",
+    titleEn: "Fixture heads",
     description:
       "A fixture's colour heads: those its definition declares, or, when it declares none but repeats its colour components (« Red 1 / Green 1 … Red 2 … », « Halo Red »), those deduced from its channel names (deduced: true). Each head lists its channels; accent marks a halo (or an unnumbered ring, a backlight): it follows the look (follow) but is no full colour of the fixture (left out of the preview, of what a look lights and of venue.canvas.auto). Head numbers never move when the accent changes. escaped: colour channels no head reaches although their component is in one. overrides: the corrections of its model and its own (merged field by field: the fixture's accent or follow over the model's). model: the heads with the model's correction alone, and how many patched fixtures of that model it reaches.",
     right: "dashboards:view",
@@ -59,6 +60,8 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.fixture.heads.set",
     title: "Régler le halo d'une fixture",
+    titleEn: "Set a fixture's halo",
+    hints: "I",
     description:
       "Corrects a fixture's accent heads (a halo, a ring, a backlight), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent heads, whole heads only and never every head (an accent needs a full head beside it), checked against every mode of the model (a mode that has none of them keeps the detection by name); [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head stays dark unless a look paints it (no colour from the other heads nor from a whole-fixture colour); null = back to the default (true). What is not given stays as set.",
     right: "show:write",
@@ -97,6 +100,8 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.fixture.heads.clear",
     title: "Annuler la correction des têtes",
+    titleEn: "Halo found by its name",
+    hints: "DI",
     description: "Removes the whole heads correction (accent and follow) of a fixture's model (default) or of this fixture only: the halo is found by its channel names again and follows the look (or the model's correction applies again).",
     right: "show:write",
     profiles: ["setup"],
@@ -142,6 +147,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.fixture.travel",
     title: "Course d'une lyre",
+    titleEn: "Moving head travel",
     description:
       "A moving head's real pan/tilt travel in degrees: the definition's (its mode's, else its own, else 540/270), the correction of its model and its own, the travel that applies and where it comes from per axis (the fixture's own correction, else the mode's own travel when the definition gives the mode one, else the model's correction, else the definition's); modesKeepingTravel: the modes of the definition that keep their own travel whatever the model's correction. fine: whether its mode drives each axis with a fine channel; step: one step of the output in degrees (travel / 65535 with a fine channel, travel / 255 without); finerModes: other DMX modes of its definition that drive with a fine channel an axis this mode drives without (venue.fixture.mode changes it).",
     right: "dashboards:view",
@@ -153,6 +159,8 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.fixture.travel.set",
     title: "Corriger la course d'une lyre",
+    titleEn: "Correct a moving head's travel",
+    hints: "I",
     description:
       "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model, in the DMX modes that declare no travel of their own: a mode that declares one keeps it, listed in modesKeepingTravel) or for this fixture only (over its model's and its mode's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
     right: "show:write",
@@ -196,6 +204,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.wheel.get",
     title: "Roue de couleurs",
+    titleEn: "Colour wheel",
     description:
       "A lamp fixture's colour wheel (docs/specs/venue-fixtures-stage.md, « Roue de couleurs »): every range of its wheel channel as the definition gives it (DMX range, value sent = the middle, name, colour; a split slot has two; « open » = no filter, white; « colorless » = the definition gives it no colour: it is never chosen until venue.wheel.put gives it its real colour), the overrides of its model and of this fixture (a slot's real colour, the colours it answers to, slots left out, split slots allowed, slot change at mid-fade or through black and how long the wheel takes to turn), and which applies. changeMs: the time in force. null when the fixture has no such wheel (none, no definition, or colour mixing).",
     right: "dashboards:view",
@@ -222,6 +231,8 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.wheel.put",
     title: "Régler la roue de couleurs",
+    titleEn: "Set the colour wheel",
+    hints: "DI",
     description:
       "Sets the colour → slot correspondence of a lamp fixture's colour wheel, for its whole model (scope model) or for this fixture only (scope fixture, which then replaces the model's settings as a whole). slots, keyed by a slot's first DMX value (\"16\"): color (#rrggbb) its real colour when the definition is wrong or gives none (a range without colour becomes a slot), answers the colours it answers to beside its own (an asked colour nearest one of them lands on it), off never chosen from a painted colour. doubles: split slots may be chosen when a look asks their two colours of the fixture (default true). change: \"mid\" the slot changes at mid-fade in a crossfade (default), \"black\" the dimmer goes through black there, held at 0 for changeMs after the change (the time the wheel takes to turn, default 300 ms: to measure on the fixture). Replaces the wheel settings of that scope.",
     right: "show:write",
@@ -244,6 +255,8 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
   reg.register({
     name: "venue.wheel.clear",
     title: "Effacer les réglages de la roue",
+    titleEn: "Clear the colour wheel settings",
+    hints: "DI",
     description: "Removes the colour wheel settings of a fixture's model (scope model) or of this fixture (scope fixture): the model's settings, or the definition, apply again.",
     right: "show:write",
     profiles: ["setup"],

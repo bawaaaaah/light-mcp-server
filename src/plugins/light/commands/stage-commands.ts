@@ -34,6 +34,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
   reg.register({
     name: "stage.zone.list",
     title: "Zones",
+    titleEn: "Zones",
     description: "Stage zones (type, floor height, tags, protected, no-aim, aiming part `aim`, the outline they were drawn with).",
     right: "dashboards:view",
     readOnly: true,
@@ -50,6 +51,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
   reg.register({
     name: "stage.zone.project",
     title: "Zones vues par une lyre",
+    titleEn: "Zones seen by a moving head",
     description:
       "The aiming zones (those with `aim`) as one moving head sees them, for its XY pad: each outline, taken at the zone's aiming height, in the head's logical pan/tilt (0..1, as position.set), on the branch of solutions of where position.aim {zone} sends it. `paths`: the runs within reach (`closed`: the whole outline, one loop); parts out of reach, beyond the head's useful stops (orientation.limits) or only reached by the other equivalent solution are left out, never bent; `axisInside`: the head's axis pierces the zone, the loop is the band round it; `aim`: where position.aim {zone} sends the head (absent: out of reach); `reach`: full (one loop), partial or none; `polygon` and `plane` (the aiming height): the zone on the stage. `head`: the head's aiming data (place, mount, yaw, travel, offsets), for the pad to find the zone under a point. Empty `zones` with `reason` when the head has no stage position. Read-only.",
     right: "dashboards:view",
@@ -71,6 +73,8 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
   reg.register({
     name: "stage.zone.put",
     title: "Zone",
+    titleEn: "Zone",
+    hints: "DI",
     description:
       "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected, no-aim. `aim` makes it a destination for the moving heads (T27): `height` above its floor (default 1.5), `point` [x, y] aimed at (absent: the centre of its surface), `color`. `outline` says how it was drawn (rect, ellipse {cx, cy, rx, ry, rotation}, polygon), to edit it again; the polygon stays the truth. Refused when its edges cross or its surface is under 0.01 m² (checked only when the polygon changes: an older zone keeps its other edits).",
     right: "show:write",
@@ -85,6 +89,8 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
   reg.register({
     name: "stage.zone.delete",
     title: "Supprimer une zone",
+    titleEn: "Delete a zone",
+    hints: "DI",
     description:
       "Deletes a zone. Refused while something uses it (fixtures of the patch aiming at it, show or venue rules scoped to it, MIDI mappings and song track actions naming it by `zone`: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the zone too, the error names them). A forced delete returns usedBy and a `warning` saying those places now name a missing zone.",
     right: "show:write",
@@ -105,6 +111,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
   reg.register({
     name: "stage.query",
     title: "Interroger la scène",
+    titleEn: "Query the stage",
     description: "Finds fixtures by role, zone they are in, zone they aim at, tags; optionally sorted along x/y/z (for sweeps). Each result says why it matched.",
     right: "dashboards:view",
     readOnly: true,
@@ -112,11 +119,13 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
     schema: z.object({ role: z.string().optional(), inZone: z.string().optional(), aimingAt: z.string().optional(), tags: z.array(z.string()).optional(), sortBy: z.enum(["x", "y", "z"]).optional() }),
     run: (q) => queryStage(venue.fixtures.list(), show.zones.list(), q).map((r) => ({ id: r.fixture.id, name: r.fixture.name, role: r.fixture.role, zone: r.zone, position: r.fixture.position, why: r.why })),
   });
-  reg.register({ name: "stage.describe", title: "Décrire la scène", description: "Plain-French description of the stage: zones, what is in them, what lights them, and where the oriented fixtures point.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
+  reg.register({ name: "stage.describe", title: "Décrire la scène", titleEn: "Describe the stage", description: "Plain-French description of the stage: zones, what is in them, what lights them, and where the oriented fixtures point.", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => describeStage(venue.fixtures.list(), show.zones.list()) });
 
   reg.register({
     name: "venue.canvas.auto",
     title: "Canevas automatique",
+    titleEn: "Automatic canvas",
+    hints: "I",
     description: "Builds a canvas from fixtures in the given order: one cell per full head, declared or deduced from the channel names (or per fixture without heads); an accent head (a halo) gets none, a whole-fixture colour reaches it. Topology line, line-mirror or ring. Over an existing canvas, checked as venue.canvas.put (force).",
     right: "show:write",
     profiles: ["setup", "design"],

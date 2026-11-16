@@ -28,6 +28,7 @@ Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes du
 ### T46 — Les informations d'une commande en un seul endroit
 - Le titre français est dans `register`, le titre anglais dans `titles-en.ts` (234 lignes), les annotations MCP dans `tool-hints.ts` (202 lignes).
 - **À faire** : des champs `titleEn` et `hints` dans `CommandDef`, le test de contrat gardé.
+- **Fait (2026-11-16, branche `refactor/t43-t49-t46-t45`)** : `titleEn` (obligatoire, vérifié par le compilateur) et `hints` (codes D/I/O, exigé par le test de contrat sur toute commande qui écrit) dans chaque `CommandDef` ; `titles-en.ts` supprimé, `HINTS` retiré de `tool-hints.ts`, `commandTitle` dans `registry.ts`. Titres anglais et quatre annotations identiques pour les 232 commandes (vérifié commande par commande avant et après).
 
 ### T47 — Composants web communs pour les blocs répétés
 - Pied d'éditeur (Enregistrer, Fermer, Supprimer, erreur, Versions) répété dans 13 éditeurs → `EditorActions`.

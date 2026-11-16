@@ -63,6 +63,7 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "venue.tracks.get",
     title: "Pistes d'une fixture",
+    titleEn: "Fixture tracks",
     description:
       "A fixture's fadeable tracks (docs/specs/engine-effects-timing.md, « Pistes fondables »): enabled (on the fixture only: off, the engine works as it always did), each channel of its mode a user ticks (fine channels follow their coarse one and are left out) with its kind (dimmer, colour, position, wheel, other), whether it follows the transitions (fade; the others jump: at once on entry, at mid-fade in a crossfade, at the end on exit; fader: true on a colour channel a channel fader drives — while the fixture's dimmer fades and one of its colours does not, that colour goes dark when a look comes in and is back when the last one is gone: tick every colour) and where the list comes from (applies: fixture, model or none), the fixture's own list and its model's (with the patched fixtures sharing the model, ids, and those of them whose tracks are enabled), and motion: per axis, what the motion layer reads (glide or cut at a change of owner, null while disabled). The colour wheel of a lamp always changes slot as venue.wheel.put says (at mid-fade or through black).",
     right: "dashboards:view",
@@ -74,6 +75,8 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "venue.tracks.put",
     title: "Régler les pistes",
+    titleEn: "Set the tracks",
+    hints: "I",
     description:
       "Sets fadeable tracks. scope fixture (default): on each fixture given, enabled switches its tracks on or off, and fade (channel names, as venue.tracks.get gives them) replaces its own list (null: back to its model's). scope model: fade sets the list of the model of the fixtures given (all of one model), which every fixture of that model without a list of its own follows; enabled is refused there (a fixture enables its own tracks). Nothing ticked means every channel jumps. Returns the first fixture's tracks.",
     right: "show:write",
@@ -108,6 +111,8 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
   reg.register({
     name: "venue.tracks.clear",
     title: "Revenir à la liste du modèle",
+    titleEn: "Back to the model's tracks",
+    hints: "DI",
     description:
       "Removes a list of fadeable tracks. scope fixture (default): the fixture's own list goes (it follows its model's again; its tracks stay enabled or not). scope model: the model's list goes (its fixtures without a list of their own have nothing ticked: every channel jumps).",
     right: "show:write",
