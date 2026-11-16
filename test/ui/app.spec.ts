@@ -8918,10 +8918,47 @@ test("named positions with three heads: « Plusieurs lyres », « rappelée 1/3 
     await row.locator(".position-by-hand").getByRole("button", { name: "Fermer" }).click();
     await expect(page.getByTestId("lock-toast")).toHaveText("Les lyres restent tenues à la main : « Rendre la main » sur la ligne de la position les libère.");
     await expect(row.getByRole("button", { name: "Modifier à la main" })).toBeFocused();
+    // review 2: a head touched then handed back to its pad is no longer adjusted: not saved, refused when it was the only one
+    await row.getByRole("button", { name: "Modifier à la main" }).click();
+    const padC = pads.getByRole("slider", { name: "Lyre C" });
+    await padC.scrollIntoViewIfNeeded();
+    const boxC = (await padC.boundingBox())!;
+    await page.mouse.click(boxC.x + boxC.width * 0.7, boxC.y + boxC.height * 0.5);
+    await expect(row.getByTestId("position-adjusted")).toHaveText("Ajustées, seules enregistrées : Lyre C");
+    await expect.poll(async () => Math.round(((await headRow(page, "spot-c")).manual?.pan ?? 0) * 10)).toBe(7);
+    await asDesk(page, "position.releaseTop", { fixtures: ["spot-c"] });
+    await expect.poll(async () => (await headRow(page, "spot-c")).manual).toBeNull();
+    await expect(row.getByTestId("position-adjusted")).toHaveText("Aucune lyre ajustée pour l'instant.");
+    await row.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Aucune lyre ajustée : en bouger une au pad avant d'enregistrer.");
+    expect((await listedPositions(page)).find((p) => p.id === "trio-t32")!.values["spot-c"]).toEqual({ pan: 0.5, tilt: 0.5 });
+    // touched again and saved: the last head to review is done, the choices go, the focus goes to « Rappeler »
+    await padC.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(row.getByTestId("position-adjusted")).toHaveText("Ajustées, seules enregistrées : Lyre C");
+    await expect.poll(async () => (await headRow(page, "spot-c")).manual).not.toBeNull();
+    await row.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText(/^« Trio T32 » réenregistrée : Lyre C/);
+    await expect(row.getByTestId("position-stale")).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Rappeler Trio T32" })).toBeFocused();
     await row.getByRole("button", { name: "Rendre la main sur Trio T32" }).click();
     await expect(page.getByTestId("lock-toast")).toHaveText(/^Main rendue : /);
     for (const id of ["spot", "spot-b", "spot-c"]) await expect.poll(async () => (await headRow(page, id)).manual).toBeNull();
     await expect(row.getByRole("button", { name: "Rendre la main sur Trio T32" })).toHaveCount(0);
+    // decision of 2026-11-16: a head recalled to Duo is handed back on Duo's row only, not on Trio's that covers it too
+    const duo = page.locator('.position-row[data-position="t32-duo"]');
+    await asDesk(page, "position.preset.go", { id: "t32-duo" });
+    await expect(duo.getByRole("button", { name: "Rendre la main sur Duo T32" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Rendre la main sur Trio T32" })).toHaveCount(0);
+    // a head set at a pad without a recall: on every row covering it (Trio here), and that row frees it alone
+    await asDesk(page, "position.set", { fixtures: ["spot-c"], pan: 0.3, tilt: 0.5 });
+    await row.getByRole("button", { name: "Rendre la main sur Trio T32" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Main rendue : Lyre C");
+    await expect.poll(async () => (await headRow(page, "spot-c")).manual).toBeNull();
+    for (const id of ["spot", "spot-b"]) expect((await headRow(page, id)).recalled).toBe("t32-duo");
+    await expect(row.getByRole("button", { name: "Rendre la main sur Trio T32" })).toHaveCount(0);
+    await duo.getByRole("button", { name: "Rendre la main sur Duo T32" }).click();
+    for (const id of ["spot", "spot-b"]) await expect.poll(async () => (await headRow(page, id)).manual).toBeNull();
     await page.screenshot({ path: "test-results/t32-three-show-desktop.png" });
   } finally {
     for (const p of await listedPositions(page)) if (["trio-t32", "t32-duo"].includes(p.id) || p.name === "Trio T32") await asDesk(page, "position.preset.delete", { id: p.id, force: true });
@@ -8934,13 +8971,14 @@ test("named positions: a role without the rights sees the button greyed with its
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1400, height: 900 });
   await login(page);
-  const stage = await threeHeads(page);
   const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
   const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
   const long = "Contre-jour très long pour une cellule T32";
-  await asDesk(page, "position.preset.put", { position: { id: "t32-r", name: long, color: "#3b82f6", values: { spot: { pan: 0.3, tilt: 0.2 }, "spot-b": { pan: 0.3, tilt: 0.2 }, "spot-c": { pan: 0.3, tilt: 0.2 } } } });
-  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t32-r-w", kind: "position", target: "t32-r", x: 0, y: bottom, w: 1, h: 1 }] } });
+  const stage = await threeHeads(page);
+  // opened at once: whatever fails from here, « Lyre B » and « Lyre C » are removed
   try {
+    await asDesk(page, "position.preset.put", { position: { id: "t32-r", name: long, color: "#3b82f6", values: { spot: { pan: 0.3, tilt: 0.2 }, "spot-b": { pan: 0.3, tilt: 0.2 }, "spot-c": { pan: 0.3, tilt: 0.2 } } } });
+    await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t32-r-w", kind: "position", target: "t32-r", x: 0, y: bottom, w: 1, h: 1 }] } });
     await page.reload();
     const button = page.getByTestId("position-button");
     await button.scrollIntoViewIfNeeded();
@@ -9006,18 +9044,51 @@ test("named positions: a role without the rights sees the button greyed with its
   expect(errors).toEqual([]);
 });
 
+test("dashboards: « A » in a multiple selection says what it colours: a position's, a look's, or neutral for a mix (T32, review 2)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+  const look = dash.widgets.find((w) => w.kind === "look")!;
+  try {
+    await asDesk(page, "position.preset.put", { position: { id: "t32-a", name: "Auto T32", color: "#3b82f6", values: { spot: { pan: 0.3, tilt: 0.2 } } } });
+    const added = [0, 1].map((x) => ({ id: `t32-a-${x}`, kind: "position", target: "t32-a", x: x * 2, y: bottom, w: 2, h: 1 }));
+    await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, ...added] } });
+    await page.reload();
+    await page.getByRole("button", { name: "✎" }).click();
+    const cell = (id: string) => page.locator(`.dgrid .cell[data-widget="${id}"]`);
+    const panel = page.locator(".dashboards .editor.many");
+    await cell("t32-a-0").scrollIntoViewIfNeeded();
+    await cell("t32-a-0").click();
+    await cell("t32-a-1").click({ modifiers: ["ControlOrMeta"] });
+    await expect(panel).toContainText("2 widgets sélectionnés");
+    await expect(panel.locator("button.swatch.auto")).toHaveAccessibleName("Auto : la couleur de sa position");
+    await cell(look.id).scrollIntoViewIfNeeded();
+    await cell(look.id).click({ modifiers: ["ControlOrMeta"] });
+    await expect(panel).toContainText("3 widgets sélectionnés");
+    await expect(panel.locator("button.swatch.auto")).toHaveAccessibleName("Auto : la couleur de ce que le bouton commande");
+    await page.keyboard.press("Escape");
+  } finally {
+    await api(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "position.preset.delete", { id: "t32-a", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("look editor: a position covering 2 of 3 heads says which; Cible ↔ Position nommée keeps both choices (T32)", async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1400, height: 900 });
   await login(page);
   const stage = await threeHeads(page);
-  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
-  await asDesk(page, "group.put", { group: { id: "t32-trio", name: "Trio T32", members: { fixtures: ["spot", "spot-b", "spot-c"] } } });
-  await asDesk(page, "position.preset.put", { position: { id: "t32-duo", name: "Duo T32", values: { spot: { pan: 0.4, tilt: 0.3 }, "spot-b": { pan: 0.4, tilt: 0.3 } } } });
-  await asDesk(page, "position.preset.put", { position: { id: "t32-autre", name: "Autre T32", values: { spot: { pan: 0.6, tilt: 0.3 } } } });
-  await asDesk(page, "target.put", { target: { id: "t32-cible", name: "Cible T32", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
-  await asDesk(page, "look.put", { look: { id: "t32-trio-look", name: "T32 trio", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "cercle", group: "t32-trio", size: { pan: 0.1, tilt: 0.1 } } } });
+  // opened at once: whatever fails from here, « Lyre B » and « Lyre C » are removed
   try {
+    const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+    await asDesk(page, "group.put", { group: { id: "t32-trio", name: "Trio T32", members: { fixtures: ["spot", "spot-b", "spot-c"] } } });
+    await asDesk(page, "position.preset.put", { position: { id: "t32-duo", name: "Duo T32", values: { spot: { pan: 0.4, tilt: 0.3 }, "spot-b": { pan: 0.4, tilt: 0.3 } } } });
+    await asDesk(page, "position.preset.put", { position: { id: "t32-autre", name: "Autre T32", values: { spot: { pan: 0.6, tilt: 0.3 } } } });
+    await asDesk(page, "target.put", { target: { id: "t32-cible", name: "Cible T32", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
+    await asDesk(page, "look.put", { look: { id: "t32-trio-look", name: "T32 trio", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "cercle", group: "t32-trio", size: { pan: 0.1, tilt: 0.1 } } } });
     await page.locator("nav.pages button", { hasText: "Show" }).click();
     await page.getByRole("button", { name: "Modifier T32 trio" }).click();
     const editor = page.locator(".look-editor");

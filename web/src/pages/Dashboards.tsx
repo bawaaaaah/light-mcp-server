@@ -904,6 +904,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const sel = dash?.widgets.find((w) => w.id === selected);
   // several selected: what they share is set for all of them at once (one step to undo)
   const many = selection.length > 1 ? (dash?.widgets.filter((w) => selection.includes(w.id)) ?? []) : [];
+  /** « A » in a multiple selection, said for what is selected: all positions, all looks, or neutral for a mix. */
+  const manyAutoHelp = many.every((w) => w.kind === "position") ? t.positions.autoColorHelp : many.every((w) => w.kind === "look") ? t.autoColorHelp : t.autoColorAnyHelp;
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   const pressable = (w: Widget) => w.kind === "look" || w.kind === "blackout";
   /** A held button is already deliberate: no second press for momentary ones. */
@@ -1084,7 +1086,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           <div className="swatches" role="radiogroup" aria-label={t.widgetColor}>
             <button className={`swatch none ${many.every(neutral) ? "chosen" : ""}`} role="radio" aria-checked={many.every(neutral)} title={t.noColor} aria-label={t.noColor} onClick={() => patchMany((w) => ({ color: w.kind === "position" ? "none" : undefined }))} />
             {many.some((w) => w.kind === "look" || w.kind === "position") && (
-              <button className={`swatch auto ${many.every(autoColored) ? "chosen" : ""}`} role="radio" aria-checked={many.every(autoColored)} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => patchMany((w) => (w.kind === "look" ? { color: "auto" } : w.kind === "position" ? { color: undefined } : undefined))}>
+              <button className={`swatch auto ${many.every(autoColored) ? "chosen" : ""}`} role="radio" aria-checked={many.every(autoColored)} title={manyAutoHelp} aria-label={manyAutoHelp} onClick={() => patchMany((w) => (w.kind === "look" ? { color: "auto" } : w.kind === "position" ? { color: undefined } : undefined))}>
                 A
               </button>
             )}

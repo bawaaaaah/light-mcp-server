@@ -5,7 +5,8 @@
  * the heads held by hand, deleted (asking when something uses it), and its earlier versions put back. A stale one
  * offers the three choices of decision Q4: recompute it from the point it was aimed at, adjust it by hand (its heads
  * recalled, a pad each, then only the heads adjusted there saved: decision Q-A of 2026-11-16), or keep it as it is.
- * Nothing is corrected silently. While heads hold one by hand, « Rendre la main » on its row lets them go (Q-B).
+ * Nothing is corrected silently. While heads hold one by hand, « Rendre la main » on its row lets them go (Q-B): a head
+ * recalled to a position only on that one's row, a head set at a pad without a recall on every row covering it.
  */
 import { useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
@@ -56,15 +57,22 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
       .then((r) => showLockToast(w.resaved.replace("{name}", () => quoted(t, p.name)).replace("{names}", () => headNames(r.position, r.captured ?? [])), "neutral"))
       // P3: refused when no head of it is held by hand; the reason goes in the toast, where the eye is
       .catch((e: Error) => showLockToast(e.message));
-  /** « Enregistrer les lyres ajustées » (Q-A): only the heads moved at their pad in this panel; refused when none was. */
+  /**
+   * The heads moved at their pad in this panel and still held by hand there: one handed back to the pad (« Rendre la
+   * main », « Retour au repos ») or whose write was refused is no longer an adjusted head, it is not saved.
+   */
+  const adjusted = (b: { touched: string[] }) => b.touched.filter((h) => heads.some((x) => x.id === h && x.manual !== null));
+  /** « Enregistrer les lyres ajustées » (Q-A): only the heads adjusted in this panel and still held; refused when none is. */
   const saveAdjusted = (p: PositionRow) => {
-    const touched = byHand?.id === p.id ? byHand.touched : [];
+    const touched = byHand?.id === p.id ? adjusted(byHand) : [];
     if (!touched.length) return showLockToast(w.byHandNone);
     void cmd<SaveReply>("position.preset.save", { id: p.id, fixtures: touched })
       .then((r) => {
         showLockToast(`${w.resaved.replace("{name}", () => quoted(t, p.name)).replace("{names}", () => headNames(r.position, r.captured ?? []))} · ${w.stillHeld}`, "neutral");
         setByHand(null);
-        focusRow(p.id, "button.position-by-hand-open");
+        // the choices go with the last head to review: the focus then goes to the row's « Rappeler » (or « Modifier »)
+        const stillStale = r.position.stale.some((h) => installed.has(h));
+        focusRow(p.id, stillStale ? "button.position-by-hand-open" : "button.position-recall, button.position-edit");
       })
       .catch((e: Error) => showLockToast(e.message));
   };
@@ -112,8 +120,9 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
         {positions.map((p) => {
           const holds = holding(p.id, heads);
           const covered = p.kind === "point" ? heads.length : p.covers.filter((c) => installed.has(c.id)).length;
-          // held by hand: those that recalled it, and for a pan/tilt one any head it covers set at a pad (Q-B)
-          const held = p.kind === "point" ? holds : heads.filter((h) => h.manual !== null && (h.recalled === p.id || Object.hasOwn(p.values, h.id))).map((h) => h.id);
+          // held by hand (Q-B, decision of 2026-11-16): a head recalled to a position is held by that one only; a head set
+          // at a pad without a recall, by every pan/tilt position covering it
+          const held = p.kind === "point" ? holds : heads.filter((h) => h.manual !== null && (h.recalled === p.id || (h.recalled === undefined && Object.hasOwn(p.values, h.id)))).map((h) => h.id);
           const stale = p.stale.length > 0;
           /** One of the three choices of Q4, its help written beside it (not only in a title) and read with the button. */
           const choice = (key: string, help: string, button: (describedBy: string) => ReactElement) => (
@@ -150,7 +159,7 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
                 )}
                 <span className="grow" />
                 {may("commands:position") && (
-                  <button title={w.recallHelp} aria-label={w.recallName.replace("{name}", () => p.name)} disabled={!headsLoaded} onClick={() => void recallPosition(t, p.id, p.name, nameIn(p))}>
+                  <button className="position-recall" title={w.recallHelp} aria-label={w.recallName.replace("{name}", () => p.name)} disabled={!headsLoaded} onClick={() => void recallPosition(t, p.id, p.name, nameIn(p))}>
                     {w.recall}
                   </button>
                 )}
@@ -213,7 +222,7 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
                     ))}
                   </div>
                   <p className="hint" data-testid="position-adjusted">
-                    {byHand.touched.length ? w.byHandAdjusted.replace("{names}", () => headNames(p, byHand.touched)) : w.byHandNoneYet}
+                    {adjusted(byHand).length ? w.byHandAdjusted.replace("{names}", () => headNames(p, adjusted(byHand))) : w.byHandNoneYet}
                   </p>
                   <div className="row">
                     <button className="primary" onClick={() => saveAdjusted(p)}>
