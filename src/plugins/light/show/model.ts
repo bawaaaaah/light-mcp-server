@@ -253,7 +253,5 @@ export const ShowSettingsSchema = z.object({
   restPositions: z.record(z.string(), RestPositionSchema).default({}),
   /** « Figer les lyres » (T26, show/motion-lock.ts): global and per-head lock levels, and where each locked head was frozen. Absent: nothing locked. */
   motionLock: MotionLockSchema.optional(),
-  /** Favourite colour presets as first written (T41): migrated to ranks on the presets (decision of 2026-11-16) at the first colour command, then dropped. */
-  colourFavorites: z.array(z.string()).optional(),
 });
 export type ShowSettings = z.infer<typeof ShowSettingsSchema>;

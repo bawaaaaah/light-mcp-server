@@ -33,12 +33,12 @@ import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
-import { migrateColourFavorites, registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
+import { registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
 import { citedColours, ColourPresetSchema, favoritesInOrder, newColourId, stackColours } from "./show/colour-presets.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
 import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, labelsOfRefs, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
-import { machineIntentionUsers } from "./show/other-shows.js";
+import { machineColourUsers, machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
 import { motionEntries, motionKey } from "./show/motion-report.js";
 import { stricter, type MotionLockState } from "./show/motion-lock.js";
@@ -353,7 +353,7 @@ export class LightPlugin implements McpPlugin {
       return stack ? migrateMood(stack, mood).mood : mood;
     };
     this.songs.ambiguousMood = (mood) => ambiguousRefs(showStack(this.intentions), mood);
-    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
+    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions, (id) => this.colours.show.has(id) || this.colours.personal.has(id));
     // colour presets (T41): the show's own and the personal library's (data/private/colours), as the intentions
     const songList = this.songs.songs;
     this.colours = {
@@ -361,6 +361,7 @@ export class LightPlugin implements McpPlugin {
       personal: personal.collection("colours", ColourPresetSchema),
       citing: () => ({ mappings: mappings.list(), songs: songList.list() }),
       newId: () => newColourId(this.opts.now?.() ?? Date.now()),
+      otherShows: (id) => machineColourUsers(dataRoot, id, this.config.show),
     };
     registerColourPresetCommands(this.commands, this.runtime, this.colours);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
@@ -633,7 +634,6 @@ export class LightPlugin implements McpPlugin {
     const intentions = embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)] as const);
     // the personal colour presets it cites (favourites, mappings, cues) and has none of its own of that id (T41)
     const c = this.colours;
-    migrateColourFavorites(this.runtime, c);
     const cited = citedColours({ ...c.citing(), favorites: favoritesInOrder(stackColours(c.personal.list(), c.show.list()).values()).map((e) => e.id) });
     const colours = cited.flatMap((id) => {
       const p = !c.show.has(id) && c.personal.get(id);

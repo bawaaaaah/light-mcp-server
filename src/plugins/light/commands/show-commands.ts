@@ -2318,8 +2318,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // a patch: only the settings given change (partial() would reset the others to their defaults)
     // null clears a setting: JSON has no « undefined », so a cleared Panic fallback would otherwise never reach here
     schema: patchSchema(ShowSettingsSchema)
-      // the lock (T26) has its own commands and rights: show:write must not lift it; the colour favourites (T41) theirs
-      .omit({ schemaVersion: true, kind: true, motionLock: true, colourFavorites: true })
+      // the lock (T26) has its own commands and rights: show:write must not lift it
+      .omit({ schemaVersion: true, kind: true, motionLock: true })
       .extend({
         grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
         safeLook: z.string().min(1).nullable().optional().describe("the look « Panic neutre » plays; null: none"),
@@ -2434,7 +2434,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "panic.undo",
     title: "Annuler le Panic",
-    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement); the DMX console forcing and hand-aimed heads it released stay released.",
+    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement, the colours applied by hand, fading in again); the DMX console forcing and hand-aimed heads it released stay released.",
     right: "commands:panic",
     profiles: ["live"],
     schema: z.object({}),
@@ -2442,9 +2442,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const before = show.takeBeforePanic();
       if (!before) throw new Error(say("rien à annuler : pas de Panic dans la dernière minute", "nothing to undo: no Panic in the last minute"));
       // decision U3: from an automatic origin the lock before the Panic comes back only where it is stricter than now
-      const done = show.applySnapshot(before, lockModeFor(ctx.origin));
+      const { colours, ...snap } = before;
+      const done = show.applySnapshot(snap, lockModeFor(ctx.origin));
       engine.setBlackout(before.blackout);
-      return { undone: true, ...done };
+      // the colours held by hand come back once their looks play again (T41, decision C3)
+      const recoloured = show.restoreColours(colours);
+      return { undone: true, ...done, ...(recoloured.length ? { colours: recoloured } : {}) };
     },
   });
   return {

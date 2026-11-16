@@ -9,6 +9,8 @@ import { readCollection, settingsOn, showIdsIn } from "../data/show-folders.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { IntentionSchema, refKey, type Intention, type IntentionEntry } from "../knowledge/intentions.js";
 import { intentionUsesByKey } from "./references.js";
+import { colourUses } from "./colour-presets.js";
+import { say } from "../../../core/lang.js";
 
 const record = (raw: unknown): Record<string, unknown> | undefined => (raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -55,4 +57,43 @@ export function machineIntentionUsers(dataRoot: string, stackFor?: (own: Intenti
     for (const key of named) users.set(key, [...(users.get(key) ?? []), { id, name }]);
   }
   return users;
+}
+
+/** A command a mapping or a song cue runs, read leniently from a show's file. */
+const commandOf = (raw: unknown): { command: string; args: Record<string, unknown> } | undefined => {
+  const c = record(raw);
+  return c && typeof c.command === "string" ? { command: c.command, args: record(c.args) ?? {} } : undefined;
+};
+
+/**
+ * The other shows of this machine whose MIDI mappings or song cues name the colour preset `id` of the personal library
+ * (T41, review M6) and that have none of their own of that id: deleting it leaves them naming an unknown preset. Each
+ * line says the show and where (colourUses). `current`: the open show, left out (its own uses are read live).
+ */
+export function machineColourUsers(dataRoot: string, id: string, current: string): string[] {
+  const lines: string[] = [];
+  for (const show of showIdsIn(dataRoot)) {
+    if (show === current) continue;
+    const dir = path.join(dataRoot, "shows", show);
+    if (readCollection(path.join(dir, "colours"), (raw) => record(raw)?.id === id || undefined).length) continue;
+    const mappings = readCollection(path.join(dir, "mappings"), (raw) => {
+      const m = record(raw);
+      const on = m && commandOf(m.on);
+      return m && on ? { id: text(m.id, "?"), label: text(m.label, text(m.id, "?")), on, ...(commandOf(m.off) ? { off: commandOf(m.off)! } : {}) } : undefined;
+    });
+    const songs = readCollection(path.join(dir, "songs"), (raw) => {
+      const s = record(raw);
+      return s && { id: text(s.id, "?"), title: text(s.title, text(s.id, "?")), cues: (Array.isArray(s.cues) ? s.cues : []).flatMap((c) => commandOf(c) ?? []) };
+    });
+    const uses = colourUses(id, { mappings, songs });
+    if (!uses.length) continue;
+    let name = show;
+    try {
+      name = settingsOn(dataRoot, show).name || show;
+    } catch {
+      /* an unreadable show.json: its folder name */
+    }
+    lines.push(...uses.map((u) => say(`show « ${name} » : ${u}`, `show “${name}”: ${u}`)));
+  }
+  return lines;
 }

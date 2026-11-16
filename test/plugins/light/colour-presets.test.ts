@@ -6,7 +6,7 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandContext } from "../../../src/plugins/light/commands/registry.js";
 import { citedColours, colourUses, favoritesInOrder, newColourId, reorderFavorites, stackColours, withFavorite } from "../../../src/plugins/light/show/colour-presets.js";
-import { nextManual, recolour, underManual } from "../../../src/plugins/light/show/manual-colour.js";
+import { hueUnderManual, nextManual, recolour, underManual } from "../../../src/plugins/light/show/manual-colour.js";
 import { packArchive, readArchive } from "../../../src/plugins/light/data/archive.js";
 
 /** Colour presets with favourites (T41; docs/specs/presets-songs-notes.md, « Presets de couleur »). */
@@ -49,23 +49,30 @@ describe("colour presets (T41)", () => {
 
     it("recolours at the looks' brightness, fades in from what showed, and back", () => {
       // the hue of the preset at the brightness of what the look paints; white and the rest go to 0
-      expect(recolour({ red: 0.5, white: 0.2 }, { red: 0, green: 0, blue: 1 })).to.deep.equal({ red: 0, green: 0, blue: 0.5 });
+      const off = { red: 0, green: 0, blue: 0, white: 0, amber: 0, uv: 0 };
+      expect(recolour({ red: 0.5, white: 0.2 }, { red: 0, green: 0, blue: 1 })).to.deep.equal({ ...off, blue: 0.5 });
       // a dim preset gives the same hue as a bright one
-      expect(recolour({ green: 1 }, { red: 0.5, green: 0.25, blue: 0 })).to.deep.equal({ red: 1, green: 0.5, blue: 0 });
-      expect(recolour({}, { red: 1 })).to.deep.equal({ red: 0, green: 0, blue: 0 });
+      expect(recolour({ green: 1 }, { red: 0.5, green: 0.25, blue: 0 })).to.deep.equal({ ...off, red: 1, green: 0.5 });
+      expect(recolour({}, { red: 1 })).to.deep.equal(off);
+      // every emitter the colour names, its white LED part included (C4), at the look's brightness
+      expect(recolour({ red: 0.5 }, { red: 1, green: 0.5, blue: 0, white: 1 })).to.deep.equal({ ...off, red: 0.5, green: 0.25, white: 0.5 });
       const look = { red: 1, green: 0, blue: 0 };
       const blue = nextManual(undefined, { red: 0, green: 0, blue: 1 }, "#0000ff", 0, 1000);
       expect(underManual(blue, look, 0)).to.deep.equal(look);
+      // half way: a mix kept at the look's brightness (no dip, M3)
       const half = underManual(blue, look, 500);
-      expect(half.red).to.be.closeTo(0.5, 1e-9);
-      expect(half.blue).to.be.closeTo(0.5, 1e-9);
-      expect(underManual(blue, look, 1000)).to.deep.equal({ red: 0, green: 0, blue: 1 });
+      expect(half.red).to.be.closeTo(1, 1e-9);
+      expect(half.blue).to.be.closeTo(1, 1e-9);
+      expect(underManual(blue, look, 1000)).to.deep.include({ red: 0, green: 0, blue: 1 });
+      // a wheel is never asked a mix: the old hue until mid-fade, the new one after (B1)
+      expect(hueUnderManual(blue, look, 400)).to.deep.equal(look);
+      expect(hueUnderManual(blue, look, 600)).to.deep.include({ red: 0, blue: 1 });
       // another colour mid-fade starts from what shows then, not from the look
       const green = nextManual(blue, { red: 0, green: 1, blue: 0 }, "#00ff00", 500, 1000);
-      expect(underManual(green, look, 500).blue).to.be.closeTo(0.5, 1e-9);
+      expect(underManual(green, look, 500).blue).to.be.closeTo(1, 1e-9);
       // released: back to the look
       const back = nextManual(green, null, null, 2000, 1000);
-      expect(underManual(back, look, 2000)).to.deep.equal({ red: 0, green: 1, blue: 0 });
+      expect(underManual(back, look, 2000)).to.deep.include({ red: 0, green: 1, blue: 0 });
       expect(underManual(back, look, 3000)).to.deep.equal(look);
     });
   });
@@ -151,17 +158,29 @@ describe("colour presets (T41)", () => {
       expect((await list()).favorites).to.deep.equal([]);
       // invalid input refused
       expect((await failure(put({ name: "X", color: "rouge" }))).message).to.match(/#rrggbb/);
-      expect((await failure(put({ name: "  ", color: "#000000" }))).message).to.match(/name/);
+      expect((await failure(put({ name: "  ", color: "#101010" }))).message).to.match(/name/);
       expect((await failure(run("colour.preset.favorite", { id: "nope" }))).message).to.match(/inconnu/);
     });
 
-    it("migrates the favourites a show.json still lists into ranks, in that order, and drops the list", async () => {
-      const a = await put({ name: "A", color: "#110000" });
-      const b = await put({ name: "B", color: "#220000" }, { scope: "personal" });
-      plugin.runtime.saveSettings({ colourFavorites: [b, "inconnu", a] });
-      expect((await list()).favorites).to.deep.equal([b, a]);
-      expect(plugin.runtime.settings.colourFavorites).to.equal(undefined);
-      expect(plugin.colours.personal.get(b)!.favorite).to.equal(1);
+    it("refuses black and accepts a white LED part, as a look writes its colours; warns of a name already taken", async () => {
+      expect((await failure(put({ name: "Noir", color: "#000000" }))).message).to.match(/noir/);
+      expect((await failure(run("colour.apply", { color: "#000000", fixtures: ["par"] }))).message).to.match(/noir/);
+      const w = await put({ name: "Blanc chaud", color: "#FF8000+W120" });
+      expect((await list()).presets.find((p) => p.id === w)!.color).to.equal("#ff8000+w120");
+      const again = (await run("colour.preset.put", { preset: { name: "blanc chaud", color: "#ffffff" }, scope: "personal" })) as { duplicates?: { id: string; origin: string }[] };
+      expect(again.duplicates).to.deep.equal([{ id: w, name: "Blanc chaud", origin: "show" }]);
+    });
+
+    it("refuses to delete a personal preset another show's mapping names, unless force", async () => {
+      const id = await put({ name: "Partagé", color: "#00aaff" }, { scope: "personal" });
+      await run("show.create", { name: "Autre" });
+      await run("midi.mapping.put", { mapping: { id: "m2", label: "Pad partagé", input: { type: "note", channel: 1, number: 40 }, mode: "trigger", on: { command: "colour.apply", args: { id } } } });
+      await run("show.create", { name: "Troisième" });
+      const refused = await failure(run("colour.preset.delete", { id }));
+      expect(refused.message).to.match(/Autre/);
+      expect(refused.message).to.match(/Pad partagé/);
+      await run("colour.preset.delete", { id, force: true });
+      expect((await list()).presets).to.deep.equal([]);
     });
 
     it("refuses to delete a preset a mapping uses, unless force; its versions bring it back", async () => {
@@ -188,8 +207,9 @@ describe("colour presets (T41)", () => {
       // half way through the default 1 s fade: between red and blue
       during(500);
       const mid = out(1, 3);
-      expect(mid[0]).to.be.within(20, 110);
-      expect(mid[2]).to.be.within(20, 110);
+      expect(mid[0]).to.be.within(40, 128);
+      expect(mid[2]).to.be.within(40, 128);
+      expect(Math.max(mid[0]!, mid[2]!)).to.equal(128); // the look's brightness all along
       // replaced (no mix with the look's red), at the look's brightness, on the group only
       during(700);
       expect(out(1, 3)).to.deep.equal([0, 0, 128]);
@@ -232,6 +252,128 @@ describe("colour presets (T41)", () => {
       expect(out(13, 1)[0]).to.be.within(60, 69); // blue slot
       expect((await failure(run("colour.apply", { color: "#00ff00", fixtures: ["smoke"] }))).message).to.match(/aucun appareil/);
       expect((await failure(run("colour.apply", { fixtures: ["par"] }))).message).to.match(/l'un des deux/);
+    });
+
+    it("changes nothing to the output when no colour is held, and gives the same output back once released", async () => {
+      await run("look.go", { id: "rouge" });
+      during(3000);
+      const ref = out(1, 14);
+      await run("colour.apply", { color: "#0000ff", fade: 0.2 });
+      during(400);
+      expect(out(1, 3)).to.deep.equal([0, 0, 255]);
+      await run("colour.release", { fade: 0.2 });
+      during(3000);
+      expect(out(1, 14)).to.deep.equal(ref);
+      expect(await run("colour.applied")).to.deep.equal({});
+    });
+
+    it("keeps the light of the DCA, the grand master and the Blackout", async () => {
+      plugin.runtime.groups.put({ id: "dca", name: "DCA", members: { fixtures: ["par"], looks: [], groups: [] }, master: { level: 0.5, mute: false } });
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 });
+      during(500);
+      expect(out(1, 3)).to.deep.equal([0, 0, 128]);
+      await run("grandmaster.set", { level: 0.5 });
+      during(500);
+      expect(out(1, 3)[2]).to.be.within(62, 66);
+      await run("blackout", { on: true });
+      during(100);
+      expect(out(1, 3)).to.deep.equal([0, 0, 0]);
+    });
+
+    it("never shows a wheel slot between the two colours during a fade", async () => {
+      await run("look.go", { id: "rouge" });
+      during(3000);
+      const slots = new Set<number>();
+      await run("colour.apply", { color: "#0000ff", fixtures: ["wheel"], fade: 1 });
+      for (let k = 0; k < 150; k++) {
+        during(20);
+        slots.add(out(13, 1)[0]!);
+      }
+      await run("colour.release", { fixtures: ["wheel"], fade: 1 });
+      for (let k = 0; k < 150; k++) {
+        during(20);
+        slots.add(out(13, 1)[0]!);
+      }
+      for (const v of slots) expect(v >= 10 && v <= 19 ? "red" : v >= 60 && v <= 69 ? "blue" : `slot ${v}`).to.be.oneOf(["red", "blue"]);
+      expect([...slots].some((v) => v >= 60 && v <= 69)).to.equal(true);
+    });
+
+    it("lets a release fade run on while a look launched elsewhere is checked against a reject rule", async () => {
+      await run("rule.put", { rule: { id: "plafond", name: "Plafond", level: "show", scope: { fixture: "par2" }, target: { channel: "Red" }, max: 255, onViolation: "reject" } });
+      plugin.runtime.looks.put({ id: "p2", name: "P2", canvas: "two", technique: { kind: "plat", color: "#00ff00" } });
+      plugin.venue.canvases.put({ id: "two", name: "Par 2", topology: "line", cells: 1, render: [{ from: 0, to: 0, targets: [{ fixture: "par2", head: -1 }] }] });
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 });
+      during(100);
+      await run("colour.release", { fixtures: ["par"], fade: 5 });
+      during(1000);
+      const mid = out(1, 3);
+      expect(mid[2]).to.be.above(100);
+      await run("look.go", { id: "p2" });
+      during(40);
+      expect(out(1, 3)[2]).to.be.within(mid[2]! - 20, mid[2]!);
+    });
+
+    it("gives the colour back when a look already playing on the fixtures is launched again (C2), and the Panic's undo puts it back (C3)", async () => {
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 });
+      await run("look.go", { id: "rouge" });
+      expect(plugin.runtime.manualColour("par")).to.equal(undefined);
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#00ff00", fixtures: ["par2"], fade: 0 });
+      await run("panic");
+      expect(plugin.runtime.manualColour("par2")).to.equal(undefined);
+      const undone = (await run("panic.undo")) as { colours?: string[] };
+      expect(undone.colours).to.deep.equal(["par2"]);
+      expect(plugin.runtime.manualColour("par2")).to.equal("#00ff00");
+      during(2000);
+      expect(out(4, 3)).to.deep.equal([0, 255, 0]);
+    });
+
+    it("leaves the colour of a look's excluded fixtures and of a look that only moves heads; resets with another show", async () => {
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#0000ff", fade: 0 });
+      plugin.runtime.looks.put({ id: "move", name: "Bouge", canvas: "all", technique: { kind: "aucune" } });
+      await run("look.go", { id: "move" });
+      expect(plugin.runtime.manualColour("par")).to.equal("#0000ff");
+      // a group excludes par2 from « demi »: launched, it takes back par and the wheel, not par2
+      plugin.runtime.groups.put({ id: "ex", name: "Ex", members: { fixtures: ["par2"], looks: [], groups: [] }, presets: { included: [], excluded: ["demi"] } });
+      await run("look.go", { id: "demi" });
+      expect(plugin.runtime.manualColour("par")).to.equal(undefined);
+      expect(plugin.runtime.manualColour("par2")).to.equal("#0000ff");
+      plugin.runtime.resetLive();
+      expect(plugin.runtime.manualColour("par2")).to.equal(undefined);
+    });
+
+    it("recolours the layers of a fixture whose tracks fade (T5)", async () => {
+      await run("venue.tracks.put", { fixtures: ["par"], enabled: true, fade: ["Red", "Green", "Blue"] });
+      await run("look.go", { id: "rouge" });
+      during(2000);
+      await run("colour.apply", { color: "#00ff00", fixtures: ["par"], fade: 0 });
+      during(200);
+      expect(out(1, 3)).to.deep.equal([0, 255, 0]);
+    });
+
+    it("says which fixtures no look lights: the colour waits for their light (C1)", async () => {
+      during(100);
+      const dark = (await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 })) as { dark?: string[] };
+      expect(dark.dark).to.deep.equal(["par"]);
+      during(100);
+      expect(out(1, 3)).to.deep.equal([0, 0, 0]);
+      await run("look.go", { id: "seul" });
+      during(100);
+      const lit = (await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 })) as { dark?: string[] };
+      expect(lit.dark).to.equal(undefined);
+    });
+
+    it("asks the right to launch a look to apply or give back a colour", async () => {
+      const only = (rights: string[]): CommandContext => ({ origin: "ui", can: (r: string) => rights.includes(r) });
+      await run("look.go", { id: "rouge" });
+      expect((await failure(run("colour.apply", { color: "#00ff00" }, only(["commands:level", "dashboards:view"])))).message).to.match(/commands:trigger|droit|right/);
+      expect(await run("colour.apply", { color: "#00ff00" }, only(["commands:trigger"]))).to.have.property("applied");
+      expect(await run("colour.release", {}, only(["commands:trigger"]))).to.have.property("released");
+      expect(await run("colour.applied", {}, only(["dashboards:view"]))).to.deep.equal({});
     });
 
     it("packs the personal presets the show cites into its archive, and leaves them in the library when restored on a machine that has them", async () => {

@@ -36,6 +36,8 @@ export interface ColourStores {
   citing: () => Omit<ColourCiting, "favorites">;
   /** A new preset's id; `newColourId` at the time of the call by default (injectable). */
   newId?: () => string;
+  /** What names a personal preset in the other shows of this machine (review M6): one line per place. */
+  otherShows?: (id: string) => string[];
 }
 
 const Scope = z.enum(["show", "personal"]);
@@ -59,24 +61,8 @@ function writeRanks(stores: ColourStores, order: readonly string[]): void {
   }
 }
 
-/**
- * The favourites of a show written before T41's decision 3 (an ordered `colourFavorites` in show.json) become ranks on
- * the presets, in that order after the favourites they already carry; the list is then dropped from show.json.
- */
-export function migrateColourFavorites(show: ShowRuntime, stores: ColourStores): void {
-  const legacy = show.settings.colourFavorites;
-  if (!legacy?.length) return;
-  const stack = stackColours(stores.personal.list(), stores.show.list());
-  const now = favoritesInOrder(stack.values()).map((e) => e.id);
-  writeRanks(stores, [...now, ...legacy.filter((id) => stack.has(id) && !now.includes(id))].slice(0, MAX_FAVORITES));
-  show.saveSettings({ colourFavorites: undefined });
-}
-
 export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRuntime, stores: ColourStores): void {
-  const stack = () => {
-    migrateColourFavorites(show, stores);
-    return stackColours(stores.personal.list(), stores.show.list());
-  };
+  const stack = () => stackColours(stores.personal.list(), stores.show.list());
   const favorites = () => favoritesInOrder(stack().values()).map((e) => e.id);
   const saveFavorites = (list: string[]) => {
     if (list.length > MAX_FAVORITES) throw new CommandError("invalid", say(`${MAX_FAVORITES} favoris au plus`, `${MAX_FAVORITES} favourites at most`));
@@ -115,7 +101,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.put",
     title: "Preset de couleur",
-    description: `Creates or changes a colour preset: name (${MAX_COLOUR_NAME} characters at most), color (#rrggbb), notes. scope "show" (default) stores it in the open show; "personal" in the personal library of this machine (every show sees it, and a show's .lightshow archive carries a copy of the ones it cites: favourites, MIDI mappings, song cues). Without id: a creation, with a generated id (c-…, returned). With an id: that preset is written in that scope (an edit; or a copy of a personal one into the show, which then wins over it, or of a show one into the library). favorite: true makes it a favourite (last), false takes it out; absent: it stays as it was (a copy keeps the rank of what it copies). Versions of the show's presets are kept (history.list colours).`,
+    description: `Creates or changes a colour preset: name (${MAX_COLOUR_NAME} characters at most), color (#rrggbb, or #rrggbb+wNN with the white LED's part as a look writes it; never black), notes. Another preset of the same name is allowed and returned in duplicates. scope "show" (default) stores it in the open show; "personal" in the personal library of this machine (every show sees it, and a show's .lightshow archive carries a copy of the ones it cites: favourites, MIDI mappings, song cues). Without id: a creation, with a generated id (c-…, returned). With an id: that preset is written in that scope (an edit; or a copy of a personal one into the show, which then wins over it, or of a show one into the library). favorite: true makes it a favourite (last), false takes it out; absent: it stays as it was (a copy keeps the rank of what it copies). Versions of the show's presets are kept (history.list colours).`,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({
@@ -128,7 +114,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       if (preset.id !== undefined && !/^[a-z0-9][a-z0-9_-]*$/.test(preset.id)) throw new CommandError("invalid", say(`id invalide : « ${preset.id} » (lettres minuscules, chiffres, - et _)`, `invalid id: “${preset.id}” (lower-case letters, digits, - and _)`));
       const id = preset.id ?? freshId();
       // its favourite rank is kept by an edit and by a copy into the other place (decision 3: the preset carries it)
-      const rank = target.get(id)?.favorite ?? stack().get(id)?.favorite;
+      const rank = target.has(id) ? target.get(id)!.favorite : stack().get(id)?.favorite;
       try {
         target.put(ColourPresetSchema.parse({ ...preset, id, ...(rank === undefined ? {} : { favorite: rank }) }));
       } catch (err) {
@@ -137,7 +123,10 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       }
       if (favorite !== undefined) saveFavorites(withFavorite(favorites(), id, favorite));
       const entry = stack().get(id)!;
-      return { preset: describe(entry), scope, ...(scope === "personal" && entry.origin === "show" ? { shadowedBy: "show" } : {}) };
+      // several presets may share a name (ids are generated): said, so that a screen can warn (review UI-5)
+      const key = entry.name.trim().toLowerCase();
+      const duplicates = [...stack().values()].filter((e) => e.id !== id && e.name.trim().toLowerCase() === key).map((e) => ({ id: e.id, name: e.name, origin: e.origin }));
+      return { preset: describe(entry), scope, ...(scope === "personal" && entry.origin === "show" ? { shadowedBy: "show" } : {}), ...(duplicates.length ? { duplicates } : {}) };
     },
   });
 
@@ -145,7 +134,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     name: "colour.preset.delete",
     title: "Supprimer un preset de couleur",
     description:
-      "Deletes a colour preset by id. scope: \"show\" the show's own only, \"personal\" the personal library's (for every show of this machine), none: the one the open show sees. Refused while MIDI mappings or song cues of the open show name it and it would become unknown, unless force (the error names them, detail.uses). A show preset covering a personal one of its id gives that one back (reverted), favourite or not as that one is.",
+      "Deletes a colour preset by id. scope: \"show\" the show's own only, \"personal\" the personal library's (for every show of this machine), none: the one the open show sees. Refused while MIDI mappings or song cues of the open show name it and it would become unknown, or, for a personal one, those of the other shows of this machine that have none of their own of that id, unless force (the error names them, detail.uses and detail.otherShows). A show preset covering a personal one of its id gives that one back (reverted), favourite or not as that one is.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string(), scope: Scope.optional(), force: z.boolean().default(false) }),
@@ -155,10 +144,12 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       const from = origin === "personal" ? stores.personal : stores.show;
       const own = from.get(id);
       if (!own || !origin) throw new CommandError("unknown", say(`preset de couleur inconnu : ${id}`, `unknown colour preset: ${id}`));
-      // the other place may still hold one of that id: then nothing names an unknown preset
+      // the other place may still hold one of that id: then nothing names an unknown preset in the open show
       const left = origin === "show" ? stores.personal.has(id) : stores.show.has(id);
       const uses = left ? [] : colourUses(id, stores.citing());
-      if (uses.length && !force) throw new CommandError("invalid", inUseMessage(own.name, uses), { uses });
+      // a personal one also serves the other shows of this machine (as the intentions): their mappings and cues
+      const others = origin === "personal" ? (stores.otherShows?.(id) ?? []) : [];
+      if ((uses.length || others.length) && !force) throw new CommandError("invalid", inUseMessage(own.name, [...uses, ...others]), { uses, ...(others.length ? { otherShows: others } : {}) });
       from.delete(id);
       return { id, action: left && origin === "show" ? ("reverted" as const) : ("deleted" as const), scope: origin, usedBy: uses };
     },
@@ -216,7 +207,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.apply",
     title: "Appliquer une couleur",
-    description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look's colour is (red, green and blue; white, amber and UV at 0; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped.`,
+    description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look's colour is (red, green and blue; white, amber and UV at 0; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped; those no look lights now in dark (the colour shows once a look or a fader lights them).`,
     // a play action, like launching a look: the volunteer who may launch looks may colour them
     right: "commands:trigger",
     profiles: ["live", "design"],
@@ -233,7 +224,9 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       }
       if (!ok.length && skipped.length) throw new CommandError("failed", say(`couleur appliquée à aucun appareil : ${skipped.map((x) => `${x.fixture} (${x.error})`).join(" ; ")}`, `colour applied to no fixture: ${skipped.map((x) => `${x.fixture} (${x.error})`).join("; ")}`), { skipped });
       const applied = show.setColour(ok, hex, (fade ?? MANUAL_COLOUR_FADE_MS / 1000) * 1000);
-      return { color: hex, ...(id ? { id } : {}), applied, skipped };
+      // no look lights them now: the colour waits for their light (decision C1), said
+      const dark = applied.filter((f) => !show.litByLook(f));
+      return { color: hex, ...(id ? { id } : {}), applied, skipped, ...(dark.length ? { dark } : {}) };
     },
   });
 

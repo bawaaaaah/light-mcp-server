@@ -15,12 +15,20 @@ export const MAX_COLOUR_NOTES = 2000;
 /** At most this many favourites: a Live widget shows them as buttons. */
 export const MAX_FAVORITES = 48;
 
-/** `#rrggbb`, any case, read back in lower case. */
+/**
+ * A colour as a look writes it (decision C4): `#rrggbb`, with the white LED's part `+wNN` (0..255) or not, any case,
+ * read back in lower case. Never black (review M7): a colour applied black would only switch the fixture off.
+ */
 export const HexColourSchema = z
   .string()
   .trim()
-  .regex(/^#[0-9a-fA-F]{6}$/, { error: () => say("couleur attendue au format #rrggbb", "colour expected as #rrggbb") })
-  .transform((c) => c.toLowerCase());
+  .regex(/^#[0-9a-fA-F]{6}(\+[wW]\d{1,3})?$/, { error: () => say("couleur attendue au format #rrggbb (ou #rrggbb+wNN pour la LED blanche)", "colour expected as #rrggbb (or #rrggbb+wNN for the white LED)") })
+  .transform((c) => c.toLowerCase())
+  .refine((c) => /^#[0-9a-f]{6}\+w\d+$/.test(c) ? Number(c.split("+w")[1]) <= 255 : true, { error: () => say("blanc +wNN : de 0 à 255", "white +wNN: 0 to 255") })
+  .refine((c) => !/^#000000(\+w0+)?$/.test(c), { error: () => say("le noir n'est pas une couleur : il éteindrait l'appareil (Blackout ou un fader pour ça)", "black is no colour: it would switch the fixture off (Blackout or a fader for that)") });
+
+/** The `#rrggbb` part of a colour (what a screen shows), without its white LED part. */
+export const screenHex = (c: string): string => c.slice(0, 7);
 
 export const ColourPresetSchema = z.object({
   id: z.string(),
