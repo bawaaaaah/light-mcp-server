@@ -177,7 +177,7 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 ### T41 — Presets de couleur avec favoris (demandé le 2026-11-16)
 - **Besoin** : pouvoir enregistrer des **presets de couleur** (une couleur, ou un jeu de couleurs) et en marquer certains en **favoris**, pour les retrouver et les appliquer vite.
 - **À prévoir** : ajouter, renommer, supprimer un preset ; ajouter ou retirer un favori ; ordre des favoris ; accès rapide depuis les looks, le panneau d'un appareil et le Live ; rangement dans le show ou dans la bibliothèque personnelle (comme les intentions, T15) ; export dans les `.lightshow`.
-- **À trancher avec l'utilisateur** : lien avec les palettes et les intentions existantes (un preset de couleur est-il une palette d'une couleur ?), portée (show ou machine), où apparaissent les favoris.
+- **Tranché avec l'utilisateur (2026-11-16)** : un preset de couleur est **une couleur seule nommée**, à part des palettes (qui restent des jeux de couleurs) ; rangé **au choix dans le show ou dans la bibliothèque personnelle** (comme les intentions) ; favoris accessibles dans **l'éditeur de look**, le **panneau d'un appareil**, un **widget du Live** et **depuis un groupe**.
 - **Rang** : moyen. À planifier.
 ## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : une lyre wash, une lyre spot à roue, une machine à fumée RGB)
 
