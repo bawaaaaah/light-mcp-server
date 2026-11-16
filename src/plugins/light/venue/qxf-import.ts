@@ -68,6 +68,9 @@ const parser = new XMLParser({
   attributeNamePrefix: "@_",
   textNodeName: "#text",
   parseTagValue: false,
+  // numeric character references (&#233;, &#x175;) decoded like the predefined entities: a Latin-1 file holds a letter
+  // outside Latin-1 that way (library.duplicate writes one), and the export's names (qxf-export.ts decode) agree
+  htmlEntities: true,
   isArray: (name) => ARRAYS.has(name),
 });
 

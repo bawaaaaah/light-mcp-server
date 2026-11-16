@@ -3,7 +3,7 @@
  * venue's library, `fixture.definition.add` and the `.lightshow` archives, so that all three see
  * the same files in the same order.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** A plain definition file name: starts with a letter or digit, ASCII, no folder, `.qxf` (lower case). */
@@ -44,4 +44,18 @@ export function definitionFileName(name: string): string {
     .replace(/^[^A-Za-z0-9]+/, "")
     .slice(0, 100);
   return `${stem || "definition"}.qxf`;
+}
+
+/**
+ * A definition file's text: as UTF-8, or byte for byte as Latin-1 when its bytes are not valid UTF-8 (an ISO-8859-1
+ * file, read as `fixture.definition.export` reads it), with which one it was, so that a retouch is written back alike.
+ * The library, the archives and the library commands all read a .qxf through this, so they see the same names.
+ */
+export function readDefinitionText(full: string): { text: string; latin1: boolean; bytes: Buffer } {
+  const bytes = readFileSync(full);
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), latin1: false, bytes };
+  } catch {
+    return { text: bytes.toString("latin1"), latin1: true, bytes };
+  }
 }

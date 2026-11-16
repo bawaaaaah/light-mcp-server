@@ -23,6 +23,8 @@ export const AliasSchema = z.object({
   to: ModelNameSchema,
   /** The old model's mode names → the target's (only those whose name differs). */
   modes: z.record(z.string(), z.string()).default({}),
+  /** Re-pointed by a later merge (the model it followed was merged in turn): the target it had before, to undo it. */
+  previousTo: ModelNameSchema.optional(),
 });
 export type Alias = z.infer<typeof AliasSchema>;
 
@@ -92,13 +94,20 @@ export const storedModes = (modes: Record<string, string>): Record<string, strin
 
 /**
  * The aliases once `from` is merged into `to`: the new alias, and every alias that named `from` as its target now
- * naming `to` (its mode table composed through the new one), so that no target is ever an alias itself.
+ * naming `to` (its mode table composed through the new one: each of its own modes, `oldModes` — its old model's and
+ * those its fixtures use —, through its table then the new one), so that no target is ever an alias itself. Each one
+ * re-pointed keeps the target it had (`previousTo`).
  */
-export function retargetAliases(existing: readonly Alias[], alias: Alias): Alias[] {
+export function retargetAliases(existing: readonly Alias[], alias: Alias, oldModes: (a: Alias) => readonly string[] = () => []): Alias[] {
   const fromKey = alias.id;
   return existing
     .filter((a) => a.id !== fromKey && modelKeyOrUndefined(a.to.manufacturer, a.to.model) === fromKey)
-    .map((a) => ({ ...a, to: alias.to, modes: storedModes(Object.fromEntries([...new Set([...Object.keys(a.modes), ...Object.keys(alias.modes)])].map((m) => [m, alias.modes[a.modes[m] ?? m] ?? a.modes[m] ?? m]))) }));
+    .map((a) => ({
+      ...a,
+      to: alias.to,
+      previousTo: a.to,
+      modes: storedModes(Object.fromEntries([...new Set([...Object.keys(a.modes), ...oldModes(a)])].map((m) => [m, alias.modes[a.modes[m] ?? m] ?? a.modes[m] ?? m]))),
+    }));
 }
 
 /**

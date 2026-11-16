@@ -134,7 +134,12 @@ export function ImportPage(): ReactElement {
   const replaceDefinition = async (f: File, overwritten?: { file: string; venue: boolean }) => {
     if (!confirm(`${t.replaceDefinitionAsk} ${overwritten?.file ?? f.name}${overwritten?.venue ? t.libraryPage.venueOwn : ""}`)) return;
     try {
-      const r = await cmd<AddedDefinition>("fixture.definition.add", { name: f.name, xml: await f.text(), replace: true });
+      const args = { name: f.name, xml: await f.text(), replace: true };
+      // a shared file other venues use with a mode the new version lacks: said, replaced only on a second yes
+      const r = await cmd<AddedDefinition>("fixture.definition.add", args).catch(async (e: unknown) => {
+        if (!(e instanceof ApiError && e.detail?.force) || !confirm(`${e.message}\n\n${t.libraryPage.replaceAnyway}`)) throw e;
+        return cmd<AddedDefinition>("fixture.definition.add", { ...args, force: true });
+      });
       setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: [`${addedDetail(r)} (${r.file})`, r.previous ? t.libraryPage.replacedKept : "", r.sharedUnchanged ? t.libraryPage.sharedUnchanged : ""].filter(Boolean).join(" ; ") } : a)));
       loadLibrary();
       if (xml) await propose(xml);

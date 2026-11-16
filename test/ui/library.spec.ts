@@ -81,6 +81,9 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   // the trash may hold other definitions (an earlier « Remplacer » keeps the old version there)
   await expect(page.getByRole("region", { name: /^Corbeille/ })).toContainText("Test Mode Par (copie)");
   await page.getByRole("button", { name: "Restaurer Test Mode Par (copie)" }).click();
+  const restore = page.getByRole("dialog", { name: /^Restaurer Test-Mode-Par-copie/ });
+  await restore.getByRole("button", { name: "Restaurer", exact: true }).click();
+  await expect(restore).toHaveCount(0);
   await expect(row(page, "Mode Par (copie)")).toHaveCount(1);
   await row(page, "Mode Par (copie)").click({ button: "right" });
   await page.getByRole("dialog", { name: /Actions sur/ }).getByRole("button", { name: /Supprimer/ }).click();

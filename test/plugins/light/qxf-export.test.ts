@@ -231,8 +231,8 @@ describe("qxf export: a library definition back to a QLC+ file", () => {
   it("names an ISO-8859-1 file from its Latin-1 reading, its accented manufacturer kept", () => {
     const text = fixtureText("wheel-spot.qxf").replace('encoding="UTF-8"', 'encoding="ISO-8859-1"').replace("<Manufacturer>Test</Manufacturer>", "<Manufacturer>Éclairage</Manufacturer>");
     const { venue } = makeVenue({ "latin-spot.qxf": Buffer.from(text, "latin1") });
-    // the library reads the file as UTF-8, « É » lost: its name compares as « clairage »
-    const out = exportDefinition(venue, { manufacturer: "Clairage", model: "Wheel Spot" });
+    // the library reads a Latin-1 file as Latin-1 (T20b review 2): « Éclairage » is found by its own name
+    const out = exportDefinition(venue, { manufacturer: "Éclairage", model: "Wheel Spot" });
     expect(out.source).to.equal("latin-spot.qxf");
     expect(out.file).to.equal("Eclairage-Wheel-Spot.qxf");
   });

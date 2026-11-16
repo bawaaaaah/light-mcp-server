@@ -14,6 +14,9 @@ import { z } from "zod";
 import { say } from "../../../core/lang.js";
 import { parseQxf, sameName, type FixtureDefinition } from "./qxf-import.js";
 import { ID_RE } from "../data/store.js";
+import { readDefinitionText } from "./definition-files.js";
+
+export { readDefinitionText };
 import { definitionDirsFor, patchModels, resolveModels } from "../data/archive-fixtures.js";
 import { AliasSchema, aliasLookup, aliasTarget } from "./aliases.js";
 
@@ -90,18 +93,6 @@ function writeWhole(target: string, bytes: Uint8Array): void {
   }
 }
 
-/**
- * A definition file's text: as UTF-8, or byte for byte as Latin-1 when its bytes are not valid UTF-8 (an ISO-8859-1
- * file, read as `fixture.definition.export` reads it), with which one it was, so that a retouch is written back alike.
- */
-export function readDefinitionText(full: string): { text: string; latin1: boolean; bytes: Buffer } {
-  const bytes = readFileSync(full);
-  try {
-    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), latin1: false, bytes };
-  } catch {
-    return { text: bytes.toString("latin1"), latin1: true, bytes };
-  }
-}
 
 /** Moves a file, across disks too (a rename that cannot cross a device becomes a copy, then a delete). */
 export function moveFile(source: string, target: string): void {

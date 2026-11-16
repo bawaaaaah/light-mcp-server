@@ -76,12 +76,21 @@ interface XmlElement {
 
 /**
  * An attribute's value as the import reads it (fast-xml-parser, qxf-import.ts): trimmed, the five predefined entities
- * decoded in one pass, nothing else (a numeric reference stays as written there too). Names compared through this
+ * and the numeric character references decoded in one pass (the import decodes both; it also knows HTML's named
+ * entities, which a .qxf does not use: such a name is not matched, and that is caught when the file is read again).
+ * Names compared through this
  * match those of the parsed definition; a DOCTYPE's own entities do not, and what is then not written is caught when
  * the file is read again.
  */
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-const decode = (s: string): string => s.trim().replace(/&(amp|lt|gt|quot|apos);/g, (_m, e: string) => ENTITIES[e]!);
+const decode = (s: string): string =>
+  s.trim().replace(/&(amp|lt|gt|quot|apos|#x[0-9a-fA-F]+|#\d+);/g, (m, e: string) => {
+    if (!e.startsWith("#")) return ENTITIES[e]!;
+    const cp = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+    // as the parser does: beyond Unicode kept as written, NUL and a lone surrogate dropped
+    if (!(cp <= 0x10ffff)) return m;
+    return cp === 0 || (cp >= 0xd800 && cp <= 0xdfff) ? "" : String.fromCodePoint(cp);
+  });
 const escapeAttr = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 const NAME_RE = /[^\s/>=]+/y;

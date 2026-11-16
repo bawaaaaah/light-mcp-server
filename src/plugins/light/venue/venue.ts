@@ -8,11 +8,11 @@
  */
 import { FixtureOverridesSchema, mergeOverrides, modelKey, modelKeyOrUndefined, ModelOverridesSchema, type FixtureOverrides, type ModelOverrides, type TravelOverrides } from "./overrides.js";
 import { travelOf } from "./travel.js";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
-import { listQxfFiles } from "./definition-files.js";
+import { listQxfFiles, readDefinitionText } from "./definition-files.js";
 import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
@@ -524,7 +524,7 @@ export class Venue {
     this.definitionErrors = [];
     for (const f of files) {
       try {
-        this.definitions.push(parseQxf(readFileSync(f, "utf8")));
+        this.definitions.push(parseQxf(readDefinitionText(f).text)); // a Latin-1 file keeps its accents
         // two library folders may hold the same file name: then the message says the folder
         this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));
         this.definitionPaths.push(f);
@@ -762,9 +762,15 @@ export class Venue {
       const to = aliasTarget(this.aliases, patch);
       const def = findDefinition(this.definitions, to.manufacturer, to.model);
       const mode = def ? findMode(def, to.mode ?? patch.mode) : undefined;
-      // an alias whose target has no definition (deleted since) says where it points
-      const via = to.alias && !def ? say(` (alias vers ${to.manufacturer} ${to.model} introuvable)`, ` (alias to ${to.manufacturer} ${to.model} not found)`) : "";
-      if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`); } };
+      // an alias whose target has no definition (deleted since) says where it points, in the reader's language too
+      const lost = to.alias && !def ? to : undefined;
+      if (!def || !mode)
+        result = {
+          get error() {
+            const via = lost ? say(` (alias vers ${lost.manufacturer} ${lost.model} introuvable)`, ` (alias to ${lost.manufacturer} ${lost.model} not found)`) : "";
+            return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`);
+          },
+        };
       else {
         const dimmers: number[] = [];
         const strobes: number[] = [];

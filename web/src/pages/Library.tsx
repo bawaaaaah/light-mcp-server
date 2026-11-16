@@ -50,6 +50,7 @@ type Dialog =
   | { kind: "alias"; row: LibraryRow; target?: string }
   | { kind: "pick"; keep: LibraryRow; drop: string[] }
   | { kind: "unalias"; alias: AliasRow }
+  | { kind: "restore"; entry: TrashRow }
   | { kind: "empty" };
 
 /** Rows shown at first and added by « Afficher plus » (a library of 600+ definitions). */
@@ -90,8 +91,6 @@ export function LibraryPage(): ReactElement {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState("");
-  /** An error said beside the section whose action failed (aliases, trash). */
-  const [sectionError, setSectionError] = useState<{ where: "aliases" | "trash"; message: string } | null>(null);
 
   const refresh = () =>
     Promise.all([cmd<{ definitions: LibraryRow[]; aliases: AliasRow[] }>("library.list"), cmd<TrashRow[]>("library.trash"), cmd<Duplicates>("library.duplicates")]).then(
@@ -140,7 +139,6 @@ export function LibraryPage(): ReactElement {
   /** After an action: the message, the lists read again, the dialog closed. */
   const done = (message: string) => {
     setDialog(null);
-    setSectionError(null);
     setNotice(message);
     void refresh();
   };
@@ -230,7 +228,7 @@ export function LibraryPage(): ReactElement {
                     <td title={r.modes.map((m) => `${m.name} (${m.channels})`).join(", ")}>{r.folder === "builtin" ? "1-64" : r.modes.length}</td>
                     <td>
                       <span className={`folder-chip ${r.folder}`}>{folderName(l, r.folder)}</span>
-                      {r.file && <span className="file">{r.file}</span>}
+                      {r.file && <FileName file={r.file} />}
                     </td>
                     <td title={r.usedBy.map((u) => u.name).join(", ") || undefined}>{r.usedBy.length ? fixturesCount(l, r.usedBy.length) : "—"}</td>
                     <td>
@@ -310,11 +308,6 @@ export function LibraryPage(): ReactElement {
       <section aria-labelledby="library-aliases">
         <h2 id="library-aliases">{l.aliasesTitle}</h2>
         <p className="hint">{l.aliasesHelp}</p>
-        {sectionError?.where === "aliases" && (
-          <p className="error" role="alert">
-            {sectionError.message}
-          </p>
-        )}
         {aliases.length === 0 ? (
           <p className="hint">{l.noAliases}</p>
         ) : (
@@ -338,11 +331,6 @@ export function LibraryPage(): ReactElement {
         <h2 id="library-trash">
           {l.trashTitle} <span className="count">({trash.length})</span>
         </h2>
-        {sectionError?.where === "trash" && (
-          <p className="error" role="alert">
-            {sectionError.message}
-          </p>
-        )}
         {trash.length === 0 ? (
           <p className="hint">{l.trashEmpty}</p>
         ) : (
@@ -355,15 +343,7 @@ export function LibraryPage(): ReactElement {
                     {e.file} · {folderName(l, e.folder)}
                     {e.venue ? ` (${e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
                   </span>
-                  <button
-                    aria-label={`${l.restore} ${named(e)}`}
-                    onClick={() =>
-                      void cmd<{ file: string; toShared?: boolean }>("library.restore", { id: e.id }).then(
-                        (r) => done(fill(r.toShared ? l.restoredToShared : l.restored, { file: r.file })),
-                        (err: Error) => setSectionError({ where: "trash", message: err.message }),
-                      )
-                    }
-                  >
+                  <button aria-label={`${l.restore} ${named(e)}`} onClick={() => setDialog({ kind: "restore", entry: e })}>
                     {l.restore}
                   </button>
                 </li>
@@ -395,6 +375,7 @@ export function LibraryPage(): ReactElement {
       {dialog?.kind === "alias" && <AliasDialog row={dialog.row} rows={rows} initial={dialog.target} l={l} onClose={() => setDialog(null)} onDone={done} />}
       {dialog?.kind === "pick" && <PickDialog keep={dialog.keep} drop={dialog.drop} l={l} onClose={() => setDialog(null)} onDone={done} />}
       {dialog?.kind === "unalias" && <UnaliasDialog alias={dialog.alias} l={l} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog?.kind === "restore" && <RestoreDialog entry={dialog.entry} l={l} onClose={() => setDialog(null)} onDone={done} />}
       {dialog?.kind === "empty" && <EmptyTrashDialog l={l} onClose={() => setDialog(null)} onDone={done} />}
     </div>
   );
@@ -407,7 +388,7 @@ function Chips({ row, l }: { row: LibraryRow; l: L }): ReactElement {
       {row.copies.length > 0 && <span className={row.winner ? "chip ok" : "chip warn"}>{row.winner ? l.chipWinner : l.chipIgnored}</span>}
       {row.sameStructure.length > 0 && (
         <span className="chip" title={row.sameStructure.map(named).join(", ")}>
-          {fill(l.chipSameStructure, { n: row.sameStructureCount ?? row.sameStructure.length })}
+          {(row.sameStructureCount ?? row.sameStructure.length) === 1 ? l.chipSameStructureOne : fill(l.chipSameStructure, { n: row.sameStructureCount ?? row.sameStructure.length })}
         </span>
       )}
       {row.overrides && <span className="chip">{l.chipOverrides}</span>}
@@ -616,7 +597,12 @@ function AliasDialog({ row, rows, initial, l, onClose, onDone }: { row: LibraryR
   useEffect(() => setModes({}), [target]);
   const shown = targets.filter((r) => `${r.manufacturer} ${r.model}`.toLowerCase().includes(search.toLowerCase())).slice(0, 50);
   const blocked = !plan || (plan.unmapped?.length ?? 0) > 0 || plan.overrides === "conflict" || ((plan.channelChanges?.length ?? 0) > 0 && !force);
-  const go = () => void cmd("library.merge", args).then(() => onDone(fill(l.merged, { from: named(row), to: named(rows.find((r) => r.id === target) ?? row) })), (e: Error) => setError(e.message));
+  const go = () =>
+    void cmd<{ retargeted?: { from: { manufacturer: string; model: string }; previousTo?: { manufacturer: string; model: string } }[] }>("library.merge", args).then((r) => {
+      const merged = fill(l.merged, { from: named(row), to: named(rows.find((x) => x.id === target) ?? row) });
+      const moved = (r.retargeted ?? []).map((x) => `${named(x.from)}${x.previousTo ? ` (${named(x.previousTo)} →)` : ""}`);
+      onDone(moved.length ? `${merged} ${fill(l.mergedRepointed, { list: moved.join(", ") })}` : merged);
+    }, (e: Error) => setError(e.message));
   const lines = plan ? [...Object.keys(plan.modes ?? {}), ...(plan.unmapped ?? [])] : [];
   return (
     <Modal label={fill(l.forwardTitle, { model: named(row) })} className="library-dialog" onClose={onClose}>
@@ -741,7 +727,11 @@ function PickDialog({ keep, drop, l, onClose, onDone }: { keep: LibraryRow; drop
 /** « Retirer l'alias »: its plan first (each fixture's mode before and after, a channel count that changes), then a yes. */
 function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
-  type Plan = { fixtures: { name: string; before: { mode: string; channels: number } | null; after: { mode: string; channels: number } | null }[]; noDefinition?: boolean };
+  type Plan = {
+    fixtures: { name: string; before: { mode: string; channels: number } | null; after: { mode: string; channels: number } | null }[];
+    repointed: { from: { manufacturer: string; model: string } }[];
+    noDefinition?: boolean;
+  };
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   useEffect(() => void cmd<Plan>("library.unalias", { id: alias.id, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)), [alias.id]);
@@ -758,6 +748,7 @@ function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; o
           <p>{plan.fixtures.length ? fill(l.followers, { list: fixtureList(plan.fixtures) }) : l.noFollowers}</p>
           {plan.noDefinition && plan.fixtures.length > 0 && <p className="warn">{fill(l.unaliasNoDefinition, { from: named(alias.from) })}</p>}
           {plan.fixtures.some((f) => f.after) && <p>{fill(l.unaliasModes, { list: plan.fixtures.map((f) => `${f.name} : ${f.before?.mode ?? "—"} → ${f.after?.mode ?? "—"}`).join(", ") })}</p>}
+          {plan.repointed.length > 0 && <p className="warn">{fill(l.repointedNote, { list: plan.repointed.map((x) => named(x.from)).join(", "), from: named(alias.from), to: named(alias.to) })}</p>}
           {changes.length > 0 && <p className="warn">{fill(l.unaliasChannels, { list: changes.map((f) => `${f.name} ${f.before!.channels} → ${f.after!.channels}`).join(", ") })}</p>}
         </>
       )}
@@ -794,6 +785,64 @@ function EmptyTrashDialog({ l, onClose, onDone }: { l: L; onClose: () => void; o
         <button onClick={onClose}>{t.cancel}</button>
         <button className="danger" disabled={!plan || plan.count === 0} onClick={go}>
           {l.emptyForGood}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** A file name that wraps in its stem, never inside « .qxf » (a narrow phone column). */
+function FileName({ file }: { file: string }): ReactElement {
+  const dot = file.toLowerCase().endsWith(".qxf") ? file.length - 4 : file.length;
+  return (
+    <span className="file">
+      <span className="stem">{file.slice(0, dot)}</span>
+      <span className="ext">{file.slice(dot)}</span>
+    </span>
+  );
+}
+
+/** « Restaurer »: where it goes back, whether it then wins for its model and whose definition changes, then a yes. */
+function RestoreDialog({ entry, l, onClose, onDone }: { entry: TrashRow; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
+  const t = useT();
+  type Plan = { file: string; toShared?: boolean; displaces?: string; identical?: boolean; copies: string[]; usedBy: { name: string }[]; otherVenues: { venue: string; fixtures: string[] }[]; refused: boolean };
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [force, setForce] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => void cmd<Plan>("library.restore", { id: entry.id, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)), [entry.id]);
+  const go = () => void cmd<{ file: string; toShared?: boolean }>("library.restore", { id: entry.id, force }).then((r) => onDone(fill(r.toShared ? l.restoredToShared : l.restored, { file: r.file })), (e: Error) => setError(e.message));
+  const title = fill(l.restoreTitle, { file: entry.file });
+  const affected = plan ? [...plan.usedBy.map((u) => u.name), ...plan.otherVenues.map((v) => `${v.venue} (${v.fixtures.join(", ")})`)] : [];
+  return (
+    <Modal label={title} className="narrow library-dialog" onClose={onClose}>
+      <h3>{title}</h3>
+      <p className="hint">
+        {named(entry)} · {folderName(l, entry.folder)}
+        {entry.venue ? ` (${entry.venue})` : ""}
+      </p>
+      {!plan && !error && <p role="status">{t.loading}</p>}
+      {plan && (
+        <>
+          {plan.toShared && <p className="warn">{fill(l.restoredToShared, { file: plan.file })}</p>}
+          {plan.displaces && (
+            <p className={plan.identical ? "hint" : "warn"}>
+              {fill(l.restoreWins, { file: plan.file, displaces: plan.displaces })} {plan.identical ? l.restoreIdentical : ""}
+            </p>
+          )}
+          {plan.copies.length > 0 && <p className="hint">{fill(l.restoreCopies, { list: plan.copies.map((c) => human(l, c)).join(", ") })}</p>}
+          {affected.length > 0 && !plan.identical && <p className="warn">{fill(l.restoreChanges, { list: affected.join(", ") })}</p>}
+          {plan.refused && (
+            <label className="inline">
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> {l.forceDelete}
+            </label>
+          )}
+        </>
+      )}
+      <DialogError error={error} />
+      <div className="row">
+        <button onClick={onClose}>{t.cancel}</button>
+        <button className="primary" disabled={!plan || (plan.refused && !force)} onClick={go}>
+          {l.restoreIt}
         </button>
       </div>
     </Modal>

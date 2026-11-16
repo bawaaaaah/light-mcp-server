@@ -210,7 +210,8 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       const plan = {
         fixture: id,
         name: f.name,
-        from: f.mode,
+        // the mode it plays in (through an alias, in the target's words)
+        from: current?.name ?? f.mode,
         to: target.name,
         ...(renamed ? { renamed } : {}),
         channels: { before: current?.channels.length ?? null, after: count },
@@ -259,7 +260,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         ...here.faders.map((x) => ({ command: "fader.put", args: { fader: x } })),
         ...here.looks.map((l) => ({ command: "look.put", args: { look: l } })),
       ];
-      const proposed = (await reg.invoke("show.propose", { changes, title: say(`Mode DMX de ${f.name} : ${f.mode} → ${target.name}`, `DMX mode of ${f.name}: ${f.mode} → ${target.name}`) }, ctx)) as { valid: boolean; id?: string; preview: { valid: boolean; issues?: string[] }[] };
+      const proposed = (await reg.invoke("show.propose", { changes, title: say(`Mode DMX de ${f.name} : ${current?.name ?? f.mode} → ${target.name}`, `DMX mode of ${f.name}: ${current?.name ?? f.mode} → ${target.name}`) }, ctx)) as { valid: boolean; id?: string; preview: { valid: boolean; issues?: string[] }[] };
       if (!proposed.valid || !proposed.id) throw new CommandError("failed", proposed.preview.flatMap((p) => p.issues ?? []).join(" ; "));
       // planned on f.mode: another change of this fixture finished during the awaits above makes the plan stale
       if (venue.fixtures.get(id)?.mode !== f.mode) {

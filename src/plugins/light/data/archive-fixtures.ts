@@ -13,7 +13,7 @@ import path from "node:path";
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
 import { parseQxf, sameName, type FixtureDefinition } from "../venue/qxf-import.js";
-import { definitionFileName, isPlainQxfName, listQxfFiles } from "../venue/definition-files.js";
+import { definitionFileName, isPlainQxfName, listQxfFiles, readDefinitionText } from "../venue/definition-files.js";
 import { AliasSchema, aliasLookup, aliasTarget, type Alias } from "../venue/aliases.js";
 
 export { isPlainQxfName };
@@ -70,7 +70,7 @@ export function resolveModels(dirs: string[], models: Model[]): (LibraryFile | u
     if (!left) break;
     let xml: string;
     try {
-      xml = readFileSync(full, "utf8");
+      xml = readDefinitionText(full).text; // as the library reads it (a Latin-1 file too)
     } catch {
       continue; // unreadable: not part of the library
     }

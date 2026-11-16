@@ -16,7 +16,7 @@ import { aliasOf, aliasTarget, modeTable, retargetAliases, storedModes, type Ali
 import { modelKey, modelKeyOrUndefined } from "../venue/overrides.js";
 import { definitionFileName } from "../venue/definition-files.js";
 import { isGenericDimmer } from "../venue/names.js";
-import { normalisedDefinition } from "../data/archive-fixtures.js";
+import { normalisedDefinition, resolveModels } from "../data/archive-fixtures.js";
 import { copyDefinition, emptyTrash, folderOf, freeFileName, libraryId, listTrash, moveToTrash, otherVenuesUsing, parseLibraryId, readDefinitionText, renameDefinition, restoreDirOf, restoreFromTrash, trashEntry, writeDefinition, type LibraryDirs, type LibraryFolder } from "../venue/library.js";
 import { say } from "../../../core/lang.js";
 
@@ -101,7 +101,8 @@ export function addDefinition(
   xml: string,
   replace: boolean,
   trash?: { dataRoot: string; venue: string; now: number; who?: string },
-): { file: string; folder: LibraryFolder; manufacturer: string; model: string; modes: string[]; unchanged?: true; replaced?: true; previous?: string; sharedUnchanged?: true } {
+  force = false,
+): { file: string; folder: LibraryFolder; manufacturer: string; model: string; modes: string[]; unchanged?: true; replaced?: true; previous?: string; sharedUnchanged?: true; otherVenues?: { venue: string; fixtures: string[]; modes: string[] }[] } {
   const def = parseQxf(xml); // throws on anything that is not a definition
   if (!def.manufacturer.trim() || !def.model.trim()) throw new Error(say("définition sans fabricant ou sans modèle", "definition without a manufacturer or a model"));
   venue.refreshDefinitions();
@@ -135,6 +136,29 @@ export function addDefinition(
   if (existsSync(target) && readFileSync(target, "utf8") === xml) return { ...summary(target), unchanged: true as const }; // the same bytes: nothing to write
   const replaced = existsSync(target);
   const folder = folderOf(dirs, target) ?? "shared";
+  // a shared file other venues resolve: they get the new version too. Another model there would take theirs away
+  // (refused); the same model must still have the modes they use (refused unless force)
+  const otherVenues = replaced && trash && folder === "shared" ? otherVenuesUsing(trash.dataRoot, trash.venue, target) : [];
+  if (otherVenues.length) {
+    const there = venue.libraryFiles().find((f) => path.resolve(f.path) === path.resolve(target));
+    const who = otherVenues.map((v) => `${v.venue} (${v.fixtures.join(", ")})`).join(", ");
+    if (there && !sameModel(there.def, def))
+      throw new CommandError("failed", say(`${path.basename(target)} sert d'autres lieux : ${who} ; l'ajouter sous un autre nom de fichier`, `${path.basename(target)} serves other venues: ${who}; add it under another file name`), {
+        exists: true,
+        file: path.basename(target),
+        otherModel: { manufacturer: there.def.manufacturer, model: there.def.model },
+        otherVenues,
+      });
+    const lostModes = otherVenues.flatMap((v) => v.modes.filter((m) => !findMode(def, m)).map((m) => `${v.venue}: ${m}`));
+    if (lostModes.length && !force)
+      throw new CommandError("failed", say(`d'autres lieux utilisent des modes absents de la nouvelle version : ${lostModes.join(", ")} (force pour remplacer quand même)`, `other venues use modes the new version lacks: ${lostModes.join(", ")} (force to replace anyway)`), {
+        exists: true,
+        file: path.basename(target),
+        otherVenues,
+        lostModes,
+        force: true,
+      });
+  }
   // the version overwritten goes to the trash first: « Remplacer » can be undone (library.restore)
   const old = replaced && trash ? venue.libraryFiles().find((f) => path.resolve(f.path) === path.resolve(target)) : undefined;
   const previous =
@@ -143,7 +167,7 @@ export function addDefinition(
       : undefined;
   writeDefinition(target, xml);
   venue.refreshDefinitions();
-  return { ...summary(target), ...(replaced && replace ? { replaced: true as const } : {}), ...(previous ? { previous } : {}), ...(replaced && folder === "venue" ? { sharedUnchanged: true as const } : {}) };
+  return { ...summary(target), ...(replaced && replace ? { replaced: true as const } : {}), ...(previous ? { previous } : {}), ...(replaced && folder === "venue" ? { sharedUnchanged: true as const } : {}), ...(otherVenues.length ? { otherVenues } : {}) };
 }
 
 export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices): void {
@@ -350,20 +374,97 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     run: () => listTrash(s.dataRoot),
   });
 
+  /**
+   * What putting a trashed file back changes: the name it gets, whether it then wins for its model (it is read before the
+   * file in use: an older version restored as `spot-2.qxf` beside `spot.qxf` would), and the fixtures, here and in other
+   * venues, whose definition would change that way. A restored file identical to the one it displaces changes nothing.
+   */
+  const restorePlan = (id: string) => {
+    const { entry, full } = trashEntry(s.dataRoot, id);
+    const { dir, toShared } = restoreDirOf(s.dataRoot, entry);
+    const def = parseQxf(readDefinitionText(full).text);
+    const name = freeFileName(dir, entry.file);
+    const target = path.join(dir, name);
+    const model = { manufacturer: def.manufacturer, model: def.model };
+    const firstIn = (d: string) => resolveModels([d], [model])[0]?.full;
+    const before = (a: string, b: string | undefined) => b === undefined || path.basename(a) < path.basename(b);
+    const dirs = dirsOf(venue);
+    const here = path.resolve(dir) === path.resolve(dirs.venue);
+    const shared = path.resolve(dir) === path.resolve(dirs.shared);
+    // the file the restored one would take the place of, in the folder it goes to, and who resolves that one today
+    let displaced: string | undefined;
+    let usedBy: PatchedFixture[] = [];
+    let otherVenues: { venue: string; fixtures: string[]; modes: string[] }[] = [];
+    if (shared) {
+      const first = firstIn(dirs.shared);
+      if (first && before(target, first)) {
+        displaced = first;
+        usedBy = usageByFile(venue).get(path.resolve(first)) ?? [];
+        otherVenues = otherVenuesUsing(s.dataRoot, s.venue(), first);
+      }
+    } else if (here) {
+      const current = venue.libraryFileFor(model.manufacturer, model.model)?.path;
+      const first = firstIn(dirs.venue);
+      if (current && before(target, first)) {
+        displaced = current;
+        usedBy = usageByFile(venue).get(path.resolve(current)) ?? [];
+      }
+    } else if (entry.venue) {
+      // another venue's own folder: its fixtures of the model, if the restored file would take over there
+      const current = firstIn(dir) ?? firstIn(dirs.shared);
+      if (current && before(target, firstIn(dir))) {
+        displaced = current;
+        otherVenues = otherVenuesUsing(s.dataRoot, s.venue(), current).filter((v) => v.venue === entry.venue);
+      }
+    }
+    const old = displaced ? venue.libraryFiles().find((f) => path.resolve(f.path) === path.resolve(displaced!))?.def : undefined;
+    const identical = Boolean(old && normalisedDefinition(old) === normalisedDefinition(def));
+    const changes = !identical && (usedBy.length > 0 || otherVenues.length > 0);
+    const folder: LibraryFolder = toShared || shared ? "shared" : "venue";
+    const copies = filesOf(venue).filter((f) => sameModel(f.def, def)).map((f) => f.id);
+    return {
+      plan: {
+        file: name,
+        folder,
+        ...(entry.venue && !toShared && !shared ? { venue: entry.venue } : {}),
+        ...(toShared ? { toShared: true } : {}),
+        manufacturer: def.manufacturer,
+        model: def.model,
+        // it is read before the file in use: it becomes the one the library uses (here, or in its venue)
+        winner: Boolean(displaced) || copies.length === 0,
+        ...(displaced ? { displaces: path.basename(displaced), identical } : {}),
+        copies,
+        usedBy: named(usedBy),
+        otherVenues,
+      },
+      dir,
+      changes,
+    };
+  };
+
   reg.register({
     name: "library.restore",
     title: "Restaurer une définition",
     description:
-      "Puts a definition of the trash (id from library.trash) back in the folder it came from, under a free name if its own is taken: the shared folder, or its venue's own (another venue's too) while that venue exists; a venue gone since: the shared folder (toShared). Its fixtures resolve it again.",
+      "Puts a definition of the trash (id from library.trash) back in the folder it came from, under a free name if its own is taken: the shared folder, or its venue's own (another venue's too) while that venue exists; a venue gone since: the shared folder (toShared). Says whether it then wins for its model (winner: it is read before the file in use, displaces), the other files of the model (copies), and the fixtures whose definition would change that way, here (usedBy) and in other venues (otherVenues): refused unless force when there are some and the files differ (an old version kept by « Remplacer » would otherwise silently take over). dryRun: the plan only.",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ id: z.string().min(1) }),
-    run: ({ id }) => {
-      const { entry } = trashEntry(s.dataRoot, id);
-      const { dir, toShared } = restoreDirOf(s.dataRoot, entry);
+    schema: z.object({ id: z.string().min(1), force: z.boolean().default(false), dryRun: z.boolean().default(false) }),
+    dry: (a) => a.dryRun,
+    run: ({ id, force, dryRun }) => {
+      const { plan, dir, changes } = restorePlan(id);
+      if (dryRun) return { ...plan, restored: false, refused: changes && !force };
+      if (changes && !force) {
+        const names = [...plan.usedBy.map((x) => x.name), ...plan.otherVenues.map((v) => say(`lieu ${v.venue} (${v.fixtures.join(", ")})`, `venue ${v.venue} (${v.fixtures.join(", ")})`))];
+        throw new CommandError(
+          "failed",
+          say(`${plan.file} passerait avant ${plan.displaces} et changerait la définition de : ${names.join(", ")} (force pour restaurer quand même)`, `${plan.file} would come before ${plan.displaces} and change the definition of: ${names.join(", ")} (force to restore anyway)`),
+          { ...plan, force: true },
+        );
+      }
       const file = restoreFromTrash(s.dataRoot, id, dir);
       venue.refreshDefinitions();
-      return { file, folder: toShared ? "shared" : entry.folder, ...(entry.venue && !toShared ? { venue: entry.venue } : {}), ...(toShared ? { toShared: true } : {}), manufacturer: entry.manufacturer, model: entry.model };
+      return { ...plan, file, restored: true };
     },
   });
 
@@ -406,9 +507,9 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
         return { id: libraryId("venue", copy), manufacturer: f.def.manufacturer, model: f.def.model, takesOver: named(takesOver) };
       }
       // retouched in the file's own encoding: a Latin-1 file stays Latin-1, every other byte as it was; its names read as
-      // written there (the library's UTF-8 reading of a Latin-1 file loses its accents)
+      // written there (the library reads a Latin-1 file as Latin-1, references decoded: the same names as the uniqueness checks)
       const read = readDefinitionText(f.path);
-      const source = read.latin1 ? parseQxf(read.text) : f.def;
+      const source = f.def;
       const names = { manufacturer: manufacturer ?? source.manufacturer, model: model ?? `${source.model} ${say("(copie)", "(copy)")}` };
       if (!modelKeyOrUndefined(names.manufacturer, names.model)) throw new Error(say("nom de modèle sans lettre ni chiffre", "model name without a letter or digit"));
       // a free model name: « (copie) », then « (copie) 2 »… when no name was given; a given one already there is refused
@@ -522,7 +623,9 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     const conflict = Boolean(source && target);
     const alias: Alias = { id: fromKey, from: fromNames, to: { manufacturer: keep.def.manufacturer, model: keep.def.model }, modes: storedModes(table.modes) };
     // the aliases that named the old model now name the target: their previous target kept, to undo it
-    const retargeted = retargetAliases(venue.aliases.list(), alias);
+    // each re-pointed alias' own modes: its old model's, and those its fixtures are patched in
+    const oldModes = (x: Alias) => [...(venue.libraryFileFor(x.from.manufacturer, x.from.model)?.def.modes.map((m) => m.name) ?? []), ...venue.fixtures.list().filter((f) => sameModel(f, x.from)).map((f) => f.mode)];
+    const retargeted = retargetAliases(venue.aliases.list(), alias, oldModes);
     const plan = {
       as: "alias" as const,
       from: alias.from,
@@ -576,7 +679,9 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
         const after = own ? findMode(own, f.mode) : undefined;
         return [{ id: f.id, name: f.name, before: "error" in r ? null : { mode: r.mode.name, channels: r.mode.channels.length }, after: after ? { mode: after.name, channels: after.channels.length } : null }];
       });
-      const plan = { id, from: alias.from, to: alias.to, fixtures, ...(own ? {} : { noDefinition: true }) };
+      // aliases a merge re-pointed through this one: removing it does not point them back (repointed, with their former target)
+      const repointed = venue.aliases.list().filter((x) => x.previousTo && sameModel(x.previousTo, alias.from)).map((x) => ({ from: x.from, to: x.to, previousTo: x.previousTo! }));
+      const plan = { id, from: alias.from, to: alias.to, fixtures, repointed, ...(own ? {} : { noDefinition: true }) };
       if (dryRun) return { ...plan, removed: false };
       venue.aliases.delete(id);
       return { ...plan, removed: true };

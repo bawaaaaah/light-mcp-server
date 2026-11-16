@@ -40,14 +40,14 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     name: "fixture.definition.add",
     title: "Ajouter une définition de projecteur",
     description:
-      "Adds a QLC+ fixture definition (.qxf, as text) to data/fixtures, the library every import and patch reads; checked before it is written. A file of the same name, or another file of the same model (manufacturer + model), with another content is refused (detail: exists, file, folder, sameModel) unless replace: true, which then writes over the file the library uses for that model, where it lies (this venue's own folder or data/fixtures; sharedUnchanged: the shared file stays as it was for the other venues), the old version copied to the definitions' trash first (previous, for library.restore). A file of that name holding another model that fixtures use is never overwritten. The same model already there, identical: nothing is written (unchanged).",
+      "Adds a QLC+ fixture definition (.qxf, as text) to data/fixtures, the library every import and patch reads; checked before it is written. A file of the same name, or another file of the same model (manufacturer + model), with another content is refused (detail: exists, file, folder, sameModel) unless replace: true, which then writes over the file the library uses for that model, where it lies (this venue's own folder or data/fixtures; sharedUnchanged: the shared file stays as it was for the other venues), the old version copied to the definitions' trash first (previous, for library.restore). A file of that name holding another model that fixtures use — here or in another venue — is never overwritten. A shared file other venues resolve (otherVenues) is replaced for them too: refused unless force when they use a mode the new version lacks (lostModes). The same model already there, identical: nothing is written (unchanged).",
     right: "show:write",
     profiles: ["setup"],
-    schema: z.object({ name: z.string().min(1), xml: z.string().min(1), replace: z.boolean().default(false) }),
+    schema: z.object({ name: z.string().min(1), xml: z.string().min(1), replace: z.boolean().default(false), force: z.boolean().default(false).describe("replace a shared file even if other venues use modes the new version lacks") }),
     // a file of that name, or another file of the same model, with another content: refused unless replace (T34, T40)
     // the version « Remplacer » overwrites goes to the definitions' trash first (data/backups, beside data/fixtures)
-    run: ({ name, xml, replace }, ctx) =>
-      addDefinition(s.runtime.venue, s.fixturesDir, name, xml, replace, { dataRoot: path.dirname(s.fixturesDir), venue: path.basename(s.runtime.venue.store.root), now: s.now?.() ?? Date.now(), ...(ctx.who ? { who: ctx.who } : {}) }),
+    run: ({ name, xml, replace, force }, ctx) =>
+      addDefinition(s.runtime.venue, s.fixturesDir, name, xml, replace, { dataRoot: path.dirname(s.fixturesDir), venue: path.basename(s.runtime.venue.store.root), now: s.now?.() ?? Date.now(), ...(ctx.who ? { who: ctx.who } : {}) }, force),
   });
   reg.register({
     name: "fixture.definition.export",

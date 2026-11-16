@@ -290,7 +290,9 @@ describe("fixture library (T20b)", () => {
     it("alias: points an alias of the old model at the new target (one hop)", () => {
       const a: Alias = { id: "x_a", from: { manufacturer: "X", model: "A" }, to: { manufacturer: "Y", model: "B" }, modes: { m1: "n1" } };
       const b: Alias = { id: "y_b", from: { manufacturer: "Y", model: "B" }, to: { manufacturer: "Z", model: "C" }, modes: { n1: "p1" } };
-      expect(retargetAliases([a], b)).to.deep.equal([{ ...a, to: b.to, modes: { m1: "p1", n1: "p1" } }]);
+      expect(retargetAliases([a], b)).to.deep.equal([{ ...a, to: b.to, previousTo: a.to, modes: { m1: "p1" } }]);
+      // its old model's modes named in the new table go through it too; a key of the new one alone does not leak in
+      expect(retargetAliases([a], { ...b, modes: { n1: "p1", z9: "q" } }, () => ["n1"])[0]!.modes).to.deep.equal({ m1: "p1", n1: "p1" });
       const lookup = aliasLookup([b]);
       expect(aliasTarget(lookup, { manufacturer: "y", model: "b ", mode: "n1" })).to.deep.include({ manufacturer: "Z", model: "C", mode: "p1" });
       expect(aliasTarget(lookup, { manufacturer: "Q", model: "R", mode: "n1" })).to.deep.equal({ manufacturer: "Q", model: "R", mode: "n1" });
@@ -358,6 +360,12 @@ describe("fixture library (T20b)", () => {
       const copy = (await run("library.duplicate", { id: "shared/latin.qxf", model: "Copie ü ŵ" })) as { id: string };
       const out = readFileSync(join(own(), copy.id.slice("venue/".length)));
       expect(out.toString("latin1")).to.equal(text.replace("<Model>Spöt 7</Model>", "<Model>Copie ü &#x175;</Model>"));
+      // read back as the library reads it: the reference decoded, the requested name; the library sees the accents
+      expect(parseQxf(out.toString("latin1")).model).to.equal("Copie ü ŵ");
+      plugin.runtime.venue.refreshDefinitions();
+      expect(plugin.runtime.venue.libraryFileFor("Test", "Copie ü ŵ")).to.not.equal(undefined);
+      expect(plugin.runtime.venue.libraryFileFor("Test", "Spöt 7")).to.not.equal(undefined);
+      expect(await run("library.duplicate", { id: "shared/latin.qxf" })).to.deep.include({ model: "Spöt 7 (copie)" });
     });
 
     it("I1: a file with accents and commas is usable; leaving the folder is refused", async () => {
@@ -439,6 +447,86 @@ describe("fixture library (T20b)", () => {
       expect(await run("library.duplicate", { id: "shared/spot.qxf" })).to.deep.include({ copiedOverrides: false });
       await run("venue.wheel.put", { id: "spot", scope: "model", wheel: { doubles: false } });
       expect(await run("library.duplicate", { id: "shared/spot.qxf" })).to.deep.include({ copiedOverrides: true });
+    });
+  });
+
+  describe("review 2", () => {
+    const hallUses = (model: string, mode: string) => {
+      mkdirSync(join(dataRoot, "venues", "hall", "fixtures"), { recursive: true });
+      writeFileSync(join(dataRoot, "venues", "hall", "fixtures", "h1.json"), JSON.stringify({ id: "h1", name: "Hall one", manufacturer: "Test", model, mode, universe: 1, address: 1 }));
+    };
+    const V2 = SPOT.replace('<Mode Name="Basic">', '<Mode Name="Basic 2">');
+
+    it("1: restoring the old version « Remplacer » kept says it would win, and asks before changing a fixture's definition", async () => {
+      await put("spot", "Test", "Spot 7", "Standard");
+      await run("fixture.definition.add", { name: "spot.qxf", xml: V2, replace: true });
+      const trash = ((await run("library.trash")) as { id: string }[])[0]!.id;
+      // back as spot-2.qxf, read before spot.qxf: it would take over for the patched spot
+      const plan = (await run("library.restore", { id: trash, dryRun: true })) as Record<string, unknown>;
+      expect(plan).to.deep.include({ file: "spot-2.qxf", winner: true, displaces: "spot.qxf", identical: false, copies: ["shared/spot.qxf"], usedBy: [{ id: "spot", name: "SPOT" }], refused: true });
+      expect((await failure(run("library.restore", { id: trash }))).detail).to.deep.include({ force: true });
+      expect(existsSync(join(shared(), "spot-2.qxf"))).to.equal(false);
+      await run("library.restore", { id: trash, force: true });
+      expect(plugin.runtime.venue.definitionFor("Test", "Spot 7")!.modes.map((m) => m.name)).to.include("Basic");
+    });
+
+    it("1: a restore that would change another venue's definition asks too; one that displaces nothing does not", async () => {
+      hallUses("Spot 7", "Standard");
+      // an older Spot 7 trashed as « a-spot.qxf »: back in the shared folder, it is read before spot.qxf
+      writeFileSync(join(shared(), "a-spot.qxf"), V2);
+      const trash = moveToTrash(dataRoot, join(shared(), "a-spot.qxf"), { folder: "shared", manufacturer: "Test", model: "Spot 7" }, clock);
+      const plan = (await run("library.restore", { id: trash, dryRun: true })) as { otherVenues: { venue: string }[]; refused: boolean; displaces?: string };
+      expect(plan.displaces).to.equal("spot.qxf");
+      expect(plan.otherVenues.map((v) => v.venue)).to.deep.equal(["hall"]);
+      expect(plan.refused).to.equal(true);
+      // a model nobody resolves elsewhere: put back without a question
+      await run("library.delete", { id: "shared/pixel-bar.qxf" });
+      const free = ((await run("library.trash")) as { id: string; model: string }[]).find((e) => e.model === "Pixel Bar")!.id;
+      expect(await run("library.restore", { id: free })).to.deep.include({ restored: true, winner: true, usedBy: [], otherVenues: [] });
+    });
+
+    it("3: « Remplacer » on a shared file another venue uses checks its modes, and never gives it another model", async () => {
+      hallUses("Spot 7", "Standard");
+      const noStandard = SPOT.replace('<Mode Name="Standard">', '<Mode Name="Std">');
+      const refused = await failure(run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true }));
+      expect(refused.detail).to.deep.include({ lostModes: ["hall: Standard"], force: true });
+      expect(readFileSync(join(shared(), "spot.qxf"), "utf8")).to.equal(SPOT);
+      expect(await run("fixture.definition.add", { name: "spot.qxf", xml: V2, replace: true })).to.deep.include({ otherVenues: [{ venue: "hall", fixtures: ["Hall one"], modes: ["Standard"] }] });
+      await run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true, force: true });
+      // a file of that name holding the model another venue uses, replaced by another model: refused
+      const other = await failure(run("fixture.definition.add", { name: "spot.qxf", xml: SPOT.replace("<Model>Spot 7</Model>", "<Model>Fresh</Model>"), replace: true }));
+      expect(other.detail).to.deep.include({ otherModel: { manufacturer: "Test", model: "Spot 7" } });
+      expect((other.detail as { otherVenues: { venue: string }[] }).otherVenues.map((v) => v.venue)).to.deep.equal(["hall"]);
+    });
+
+    it("L3: another mode repatches that fixture on the target; a second fixture of the alias is left as it was", async () => {
+      writeFileSync(join(shared(), "bar4.qxf"), BAR.replace("</Mode>", '</Mode><Mode Name="Small"><Channel Number="0">Dimmer</Channel></Mode>'));
+      await put("pix", "Other", "Pixel Bar", "15ch");
+      await put("pix2", "Other", "Pixel Bar", "15ch", 20);
+      await run("library.merge", { keep: "shared/bar4.qxf", drop: ["shared/pixel-bar.qxf"], as: "alias" });
+      const plan = (await run("venue.fixture.mode", { id: "pix", mode: "Small", dryRun: true })) as { from: string; to: string; renamed?: unknown };
+      expect(plan).to.deep.include({ from: "15 Channel", to: "Small" });
+      await run("venue.fixture.mode", { id: "pix", mode: "Small", force: true });
+      expect(plugin.runtime.venue.fixtures.get("pix")).to.deep.include({ manufacturer: "Test", model: "Bar 4", mode: "Small" });
+      expect(plugin.runtime.venue.fixtures.get("pix2")).to.deep.include({ manufacturer: "Other", model: "Pixel Bar", mode: "15ch" });
+      expect((plugin.runtime.venue.resolve("pix2") as { mode: { name: string } }).mode.name).to.equal("15 Channel");
+    });
+
+    it("pick with force: another venue loses the shared file it used when the kept one is this venue's own", async () => {
+      hallUses("Spot 7", "Standard");
+      await run("library.duplicate", { id: "shared/spot.qxf", sameName: true });
+      const args = { keep: "venue/spot.qxf", drop: ["shared/spot.qxf"], as: "pick" };
+      expect((await failure(run("library.merge", args))).detail).to.deep.include({ losesDefinition: ["hall"], force: true });
+      expect(await run("library.merge", { ...args, force: true })).to.deep.include({ merged: true, losesDefinition: ["hall"] });
+      expect(existsSync(join(shared(), "spot.qxf"))).to.equal(false);
+    });
+
+    it("unalias names the aliases a merge re-pointed through it", async () => {
+      await put("third", "Other", "Third Bar", "T15");
+      await run("library.merge", { keep: "shared/pixel-bar.qxf", from: { manufacturer: "Other", model: "Third Bar" }, as: "alias", modes: { T15: "15ch" } });
+      await run("library.merge", { keep: "shared/bar4.qxf", drop: ["shared/pixel-bar.qxf"], as: "alias" });
+      const plan = (await run("library.unalias", { id: "other_pixelbar", dryRun: true })) as { repointed: unknown[] };
+      expect(plan.repointed).to.deep.equal([{ from: { manufacturer: "Other", model: "Third Bar" }, to: { manufacturer: "Test", model: "Bar 4" }, previousTo: { manufacturer: "Other", model: "Pixel Bar" } }]);
     });
   });
 });

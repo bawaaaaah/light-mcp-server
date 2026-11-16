@@ -2635,7 +2635,13 @@ table.rules td {
   display: block;
   color: var(--muted);
   font-size: 0.8rem;
+}
+/* the stem wraps where it must, « .qxf » stays whole */
+.library-table .file .stem {
   overflow-wrap: anywhere;
+}
+.library-table .file .ext {
+  white-space: nowrap;
 }
 .library-table tr:focus-visible {
   outline: 2px solid var(--accent);
