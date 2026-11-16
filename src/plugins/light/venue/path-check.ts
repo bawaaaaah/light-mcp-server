@@ -64,8 +64,6 @@ export interface PathWarning {
 export const NO_AIM_STEP_DEG = 1.5;
 export const NO_AIM_MIN_SAMPLES = 16;
 export const NO_AIM_MAX_SAMPLES = 400;
-/** The points sampled for one head over all its trips: beyond, each trip gets its share (16 at least). */
-export const NO_AIM_HEAD_BUDGET = 12000;
 
 const placed = (p: StopPosition): p is Position => !("error" in p);
 /** A number as the request's language writes it: a decimal comma in French, one decimal below 100. */
@@ -210,7 +208,9 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
           stops: [i],
           heads: [h.id],
           zone: z.id,
-          message: say(`${stopSaid(i)} vise « ${z.name} » pour ${h.name} : elle y restera éteinte (zone interdite aux lyres)`, `${stopSaid(i)} aims ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`),
+          message: input.zoneLook
+            ? say(`viser la ${stopName(i)} envoie ${h.name} dans « ${z.name} » : elle y restera éteinte (zone interdite aux lyres)`, `aiming at the ${stopName(i)} sends ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`)
+            : say(`${stopSaid(i)} vise « ${z.name} » pour ${h.name} : elle y restera éteinte (zone interdite aux lyres)`, `${stopSaid(i)} aims ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`),
         });
     });
     const crossed = new Map<string, { pair: [number, number]; count: number }>();
@@ -218,7 +218,7 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
       const [a, b] = [h.stops[pair[0]], h.stops[pair[1]]];
       if (!a || !b || !placed(a) || !placed(b)) continue;
       // the ends are the stops' own (said above): only the points between them
-      const n = Math.min(tripSamples(h, a, b), Math.max(NO_AIM_MIN_SAMPLES, Math.floor(NO_AIM_HEAD_BUDGET / pairs.length)));
+      const n = tripSamples(h, a, b);
       const hit = new Set<Zone>();
       // a zone already found on this trip is not looked for again: the rest of the trip tests the others only
       let left = boxes;

@@ -310,6 +310,22 @@ describe("path checks, review 2 (T28)", () => {
     expect(run().some((w) => w.kind === "noAim")).to.equal(true);
   });
 
+  it("32 random stops: a narrow zone away from the middle of a long trip is found (every trip sampled in full)", () => {
+    const setup: AimSetup = { position: { x: 0, y: 3, z: 2 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    // stop 0 on one side of the head, 31 stops on the other side at other distances: random order, 496 trips, the long
+    // ones sweeping half a turn of pan; a 0.3 m strip lies 20° into those sweeps (either way round), on no short trip
+    const at = (deg: number, r: number) => ({ x: r * Math.cos((deg * Math.PI) / 180), y: 3 + r * Math.sin((deg * Math.PI) / 180), z: 0 });
+    const pts = [at(0, 6), ...Array.from({ length: 31 }, (_, i) => at(180, 4 + i * 0.08))];
+    const path32 = PathSchema.parse({ stops: pts.map((point) => ({ point })), order: "random" });
+    const stops = pts.map((q) => { const a = aimAt(setup, q); return "error" in a ? { error: a.error } : { pan: a.pan, tilt: a.tilt }; });
+    const strips = [20, -20].map((deg, k) => {
+      const c = at(deg, 5.9);
+      return ZoneSchema.parse({ id: `s${k}`, name: "Étroite", polygon: [[c.x - 0.15, c.y - 0.15], [c.x + 0.15, c.y - 0.15], [c.x + 0.15, c.y + 0.15], [c.x - 0.15, c.y + 0.15]], noAim: true });
+    });
+    const ws = checkPath({ path: path32, heads: [{ id: "h", name: "Lyre", panMax: 540, tiltMax: 270, setup, stops }], travelSeconds: 1, noAim: strips, stopName: (i) => `S${i}` });
+    expect(ws.some((w) => w.kind === "noAim")).to.equal(true);
+  });
+
   it("a look aimed at a zone is said as the zone, never as « l'arrêt 1 »", () => {
     const setup: AimSetup = { position: { x: 0, y: 0, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
     const one = PathSchema.parse({ stops: [{ zone: "z" }] });
@@ -317,7 +333,7 @@ describe("path checks, review 2 (T28)", () => {
     const lectern = ZoneSchema.parse({ id: "p", name: "Pupitre", polygon: [[-1, 5], [1, 5], [1, 7], [-1, 7]], noAim: true });
     const h: PathHead = { id: "h", name: "Lyre 3", panMax: 540, tiltMax: 270, setup, stops: [{ pan: at.pan, tilt: at.tilt }] };
     const said = checkPath({ path: one, heads: [h], travelSeconds: 1, noAim: [lectern], stopName: () => "zone « Balcon »", zoneLook: true });
-    expect(said[0]!.message).to.equal("la zone « Balcon » vise « Pupitre » pour Lyre 3 : elle y restera éteinte (zone interdite aux lyres)");
+    expect(said[0]!.message).to.equal("viser la zone « Balcon » envoie Lyre 3 dans « Pupitre » : elle y restera éteinte (zone interdite aux lyres)");
     const blind: PathHead = { ...h, stops: [{ error: "hors de portée" }] };
     const nowhere = checkPath({ path: one, heads: [blind], travelSeconds: 1, noAim: [], stopName: () => "zone « Balcon »", zoneLook: true })[0]!.message;
     expect(nowhere).to.equal("la zone « Balcon » n'est atteinte par aucune lyre — Lyre 3 : hors de portée : elle reste en place");
