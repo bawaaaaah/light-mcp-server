@@ -196,6 +196,8 @@ export function StagePlan({
   /** « Déplacer les zones »: on, a zone dragged moves (never by a stray click otherwise). */
   const [movingZones, setMovingZones] = useState(false);
   const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
+  /** A handle moved by the keyboard: the position the plan drew and the one sent from it, until the plan draws it (T27). */
+  const keyedHandle = useRef<{ key: string; drawn: P; sent: P } | null>(null);
   /** « Déplacer les zones » (T27, lot Z4): a polygon's corner (`index`) or a zone's aiming point (`aim`) held, where it is now. */
   // `from`: where the pointer went down; `moved`: once it went a few pixels from there (a click alone writes nothing)
   const [handleDrag, setHandleDrag] = useState<{ id: string; handle: ZoneHandle; at: P; from: P; moved: boolean } | null>(null);
@@ -1045,7 +1047,14 @@ export function StagePlan({
                       if (!d) return;
                       e.preventDefault();
                       const step = (gridStep || 0.01) * (e.shiftKey ? 10 : 1);
-                      commitHandle(zone, handle, { x: at.x + d[0] * step, y: at.y + d[1] * step });
+                      // from the last position sent while the plan still draws the one before it: two quick presses
+                      // (or a held key) each take their step instead of both starting from the same drawn position
+                      const key = `${zone.id}:${handle}`;
+                      const last = keyedHandle.current;
+                      const from = last && last.key === key && last.drawn.x === at.x && last.drawn.y === at.y ? last.sent : at;
+                      const next = { x: from.x + d[0] * step, y: from.y + d[1] * step };
+                      keyedHandle.current = { key, drawn: at, sent: next };
+                      commitHandle(zone, handle, next);
                     }}
                   />
                 ))}

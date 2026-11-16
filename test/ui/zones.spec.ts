@@ -590,8 +590,11 @@ test("T27 lot Z4: a click on a handle writes nothing; a rectangle's corner keeps
     // the rectangle's back right corner, twice to the right: the same corner both times
     const corner = page.locator('.stage-plan g[data-handles="t27-order"] [data-handle="0"]');
     await corner.focus();
+    const drawnX = await corner.getAttribute("cx");
     await page.keyboard.press("ArrowRight");
     await expect.poll(async () => (await zoneNamed(page, "T27 ordre"))?.polygon[0]).toEqual([-0.9, 3]);
+    // the plan has drawn the first step before the second press
+    await expect(corner).not.toHaveAttribute("cx", drawnX!);
     await page.keyboard.press("ArrowRight");
     await expect.poll(async () => (await zoneNamed(page, "T27 ordre"))?.polygon).toEqual([[-0.8, 3], [-0.8, 1], [-3, 1], [-3, 3]]);
     // the clicks wrote nothing: the zone still aims at its centre, its corner where it was
