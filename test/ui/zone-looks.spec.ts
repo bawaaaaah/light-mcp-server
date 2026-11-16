@@ -496,3 +496,45 @@ test("T28 review: a Zones widget on a group without heads says why; a pan/tilt p
   });
   expect(errors).toEqual([]);
 });
+
+// ---- review 2 (T28)
+
+test("T28 review 2: a keyboard pass through « Parcours » gives the shape back; all weights at 0 are stopped in the editor", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const refused: string[] = [];
+  page.on("response", (r) => {
+    if ((r.url().includes("look.preview") || r.url().includes("look.put")) && r.status() >= 400) refused.push(`${r.url()} ${r.status()}`);
+  });
+  await withStage(page, async () => {
+    const editor = await openEditor(page);
+    const shape = editor.locator("select").filter({ has: page.locator('option[value="cercle"]') });
+    await expect(shape).toHaveValue("cercle");
+    await editor.getByTestId("move-aim-center").focus();
+    await page.keyboard.press("End");
+    await expect(editor.getByTestId("move-aim-path")).toHaveAttribute("aria-checked", "true");
+    await expect(shape).toHaveValue("fixe");
+    await page.keyboard.press("Home");
+    await expect(editor.getByTestId("move-aim-center")).toHaveAttribute("aria-checked", "true");
+    await expect(shape).toHaveValue("cercle");
+    // weighted, every weight at 0: said once, no preview nor save sent, the focus on a weight
+    await editor.getByTestId("move-aim-path").click();
+    const add = editor.getByTestId("path-zone-add");
+    await add.getByRole("button", { name: "Ajouter l'arrêt T28 estrade gauche" }).click();
+    await add.getByRole("button", { name: "Ajouter l'arrêt T28 fond" }).click();
+    await editor.getByTestId("path-order").selectOption("weighted");
+    await editor.getByRole("spinbutton", { name: "Poids de l'arrêt 1" }).fill("0");
+    await editor.getByRole("spinbutton", { name: "Poids de l'arrêt 2" }).fill("0");
+    await expect(editor.getByRole("alert").filter({ hasText: "au moins un arrêt doit avoir un poids" })).toHaveCount(1);
+    await page.waitForTimeout(600);
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toBeVisible();
+    await expect(editor.locator(".path-stop-weight").first()).toBeFocused();
+    await expect(editor.getByText("au moins un arrêt doit avoir un poids")).toHaveCount(1);
+    expect(refused).toEqual([]);
+    expect((await savedMove(page)).shape).toBe("cercle");
+    await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+  });
+  expect(errors).toEqual([]);
+});

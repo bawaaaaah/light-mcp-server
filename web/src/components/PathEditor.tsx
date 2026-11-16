@@ -79,6 +79,9 @@ const remember = (kind: string, rows: readonly { id: string; name: string }[]) =
 export const lastName = (kind: "zone" | "position" | "target", id: string, gone?: string): string => lastNames.get(`${kind}:${id}`) ?? gone ?? id;
 export const rememberZones = (zones: readonly PathZone[]): void => remember("zone", zones);
 
+/** Weighted with every weight at 0: the heads would stay on one stop, the server refuses it (look.preview, look.put). */
+export const allWeightsZero = (path: Pick<PathDraft, "order" | "stops">): boolean => path.order === "weighted" && path.stops.length > 0 && path.stops.every((s) => (s.weight ?? 1) <= 0);
+
 /** The zone buttons (aiming zones only, in their colour): a press picks one (mode Zone) or adds a stop (mode Parcours). */
 export function ZoneButtons({ zones, current, onPick, adding, disabled }: { zones: readonly PathZone[]; current?: string | undefined; onPick: (zone: PathZone) => void; adding: boolean; disabled?: boolean }): ReactElement {
   const t = useT();
@@ -419,7 +422,7 @@ export function PathEditor({
           })}
         </ol>
       )}
-      {path.order === "weighted" && path.stops.length > 0 && path.stops.every((s) => (s.weight ?? 1) <= 0) && (
+      {allWeightsZero(path) && (
         <p className="error" role="alert">
           {p.weightsZero}
         </p>

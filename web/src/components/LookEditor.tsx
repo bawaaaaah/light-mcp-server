@@ -26,7 +26,7 @@ import { SearchPicker } from "./SearchPicker";
 import { targetsStore, useTargets } from "../hooks/useTargets";
 import { positionsStore, usePositions, type PositionRow } from "../hooks/usePositions";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
-import { HEIGHT_MAX, lastName, NEW_PATH, PathEditor, PathWarnings, rememberZones, ZoneButtons, type PathDraft, type PathZone } from "./PathEditor";
+import { allWeightsZero, HEIGHT_MAX, lastName, NEW_PATH, PathEditor, PathWarnings, rememberZones, ZoneButtons, type PathDraft, type PathZone } from "./PathEditor";
 import { radioTabIndex } from "../radio-keys";
 import { onRadioKey } from "../radio-group";
 
@@ -447,11 +447,22 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     const again = lastZone.current && aiming.some((z) => z.id === lastZone.current) ? lastZone.current : aiming.length === 1 ? aiming[0]!.id : undefined;
     setMove({ at: again ? { zone: again } : undefined });
   };
+  /** The shape the move had before « Parcours » set it to « fixe » (review 2): given back when another base is chosen. */
+  const shapeBeforePath = useRef<string | undefined>(undefined);
   const aimAlongPath = (): void => {
     setAim("path");
     if (look.move?.at?.path) return;
-    // a path keeps the « fixe » shape: the heads go from stop to stop (engine/path.ts)
+    // a path keeps the « fixe » shape: the heads go from stop to stop (engine/path.ts); the shape is remembered
+    if (look.move && look.move.shape !== "fixe") shapeBeforePath.current = look.move.shape;
     setMove({ shape: "fixe", at: { path: lastPath.current ?? NEW_PATH } });
+  };
+  /** Leaving « Parcours » for another base: the shape it had before comes back (a keyboard pass through it loses nothing). */
+  const leavingPath = (choose: () => void) => (): void => {
+    if (aim === "path" && shapeBeforePath.current !== undefined) {
+      setMove({ shape: shapeBeforePath.current });
+      shapeBeforePath.current = undefined;
+    }
+    choose();
   };
   const setPath = (path: PathDraft): void => {
     lastPath.current = path;
@@ -509,7 +520,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     if (!look.canvas) return;
     const timer = window.setTimeout(() => {
       // a path without its first stop yet is no look the server can read: no preview until one is added
-      if (draft.move?.at?.path && draft.move.at.path.stops.length === 0) return;
+      if (draft.move?.at?.path && (draft.move.at.path.stops.length === 0 || allWeightsZero(draft.move.at.path))) return;
       void cmd<Preview>("look.preview", { look: draft })
         .then((p) => (setPreview(p), setPreviewError("")))
         .catch((e: Error) => setPreviewError(e.message));
@@ -528,10 +539,10 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
 
   /** The base of the move, in the order of its radio buttons. */
   const AIM_CHOICES: { mode: typeof aim; icon: string; label: string; choose: () => void }[] = [
-    { mode: "center", icon: "", label: t.targets.aimCenter, choose: () => (setAim("center"), setMove({ at: undefined })) },
-    { mode: "target", icon: "◎", label: t.targets.aimTarget, choose: aimAtTarget },
-    { mode: "position", icon: "⌖", label: t.positions.aimPosition, choose: aimAtPosition },
-    { mode: "zone", icon: "▣", label: t.paths.aimZone, choose: aimAtZone },
+    { mode: "center", icon: "", label: t.targets.aimCenter, choose: leavingPath(() => (setAim("center"), setMove({ at: undefined }))) },
+    { mode: "target", icon: "◎", label: t.targets.aimTarget, choose: leavingPath(aimAtTarget) },
+    { mode: "position", icon: "⌖", label: t.positions.aimPosition, choose: leavingPath(aimAtPosition) },
+    { mode: "zone", icon: "▣", label: t.paths.aimZone, choose: leavingPath(aimAtZone) },
     { mode: "path", icon: "⤳", label: t.paths.aimPath, choose: aimAlongPath },
   ];
 
@@ -553,6 +564,11 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     if (look.move && look.move.enabled !== false && aim === "zone" && !look.move.at?.zone) {
       setError(t.paths.zonePickFirst);
       zonePicker.current?.querySelector<HTMLElement>('input[type="search"], button')?.focus();
+      return;
+    }
+    if (look.move && aim === "path" && look.move.at?.path && allWeightsZero(look.move.at.path)) {
+      // weighted with every weight at 0: refused by the server; the path editor already says it (its alert), the focus there
+      pathPicker.current?.querySelector<HTMLElement>(".path-stop-weight")?.focus();
       return;
     }
     if (look.move && look.move.enabled !== false && aim === "path" && !look.move.at?.path?.stops.length) {
