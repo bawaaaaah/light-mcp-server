@@ -941,7 +941,8 @@ textarea {
   flex-direction: column;
   gap: 0.2em;
 }
-.field > span:first-child {
+.field > span:first-child,
+.calibration .fields .field > label:first-child {
   font-size: 0.8rem;
   color: var(--muted);
 }
@@ -1682,14 +1683,85 @@ table.cues select {
 .manual-cal-report .ok {
   color: var(--on);
 }
+/* a gap measured before the head moved: greyed, « Appliquer » gone until measured again */
+.manual-cal-stale {
+  opacity: 0.45;
+}
+/* a field the server would refuse (the mark's height, a travel, a stop, a degree): its border says it */
+.calibration input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.calibration .field small.error {
+  font-size: 0.8rem;
+}
+/* the orientation's switches: a sliding switch (not a radio), the whole button a finger's size */
+.manual-cal button.manual-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.manual-switch-track {
+  position: relative;
+  display: block;
+  width: 2.4em;
+  height: 1.3em;
+  border-radius: 1em;
+  border: 1px solid var(--muted);
+  background: var(--line);
+  transition: background 0.15s;
+}
+.manual-switch-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.15em;
+  width: 0.95em;
+  height: 0.95em;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-50%);
+  transition:
+    left 0.15s,
+    background 0.15s;
+}
+.manual-switch.on .manual-switch-track {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 45%, var(--panel));
+}
+.manual-switch.on .manual-switch-knob {
+  left: calc(100% - 1.1em);
+  background: var(--accent);
+}
+.manual-switch:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+@media (prefers-reduced-motion: reduce) {
+  .manual-switch-track,
+  .manual-switch-knob {
+    transition: none;
+  }
+}
 .fixture-panel .panel-calibrate {
   align-self: flex-start;
   color: var(--accent);
   padding-inline: 0.2em;
 }
 @media (max-width: 600px), (pointer: coarse) {
-  .manual-input button {
+  .manual-input button,
+  .calibration .swatches button,
+  .cal-tabs button {
     min-width: 44px;
+  }
+  /* 44 px tall, keeping its disclosure triangle (a flex summary loses it) */
+  .manual-finer summary {
+    min-height: 44px;
+    padding-block: 0.8em;
+    box-sizing: border-box;
   }
   .fixture-panel .panel-calibrate {
     min-height: 44px;

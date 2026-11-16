@@ -4722,6 +4722,21 @@ type CalHead = { id: string; mode?: string; position?: { x: number; y: number; z
 type CalTravel = { model: { panMax?: number; tiltMax?: number } | null; own: { panMax?: number; tiltMax?: number } | null; panMax: number; tiltMax: number };
 const calHead = async (page: Page) => ((await api(page, "venue.fixture.list")) as CalHead[]).find((f) => f.id === "spot")!;
 const calManual = async (page: Page) => ((await api(page, "position.list", { fixtures: ["spot"] })) as { id: string; manual: { pan: number; tilt: number } | null }[])[0]?.manual ?? null;
+/** A degree as a field of the French interface reads it back: two decimals at most, a comma, a true minus. */
+const calFr = (v: number): string => {
+  const r = Math.round(v * 100) / 100 || 0;
+  return `${r < 0 ? "−" : ""}${String(Math.abs(r)).replace(".", ",")}`;
+};
+/** Counts the page's own calls of a command (the tests' api() calls of other commands do not count). */
+function calCalls(page: Page, name: string, also: (body: string) => boolean = () => true): () => number {
+  let n = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith(`/commands/${name}`) && also(r.postData() ?? "")) n++;
+  });
+  return () => n;
+}
+/** A console error for a refusal of this command (422), the only one a test expects. */
+const calRefused = (e: string, name: string): boolean => e.includes("status of 422") && e.includes(`/commands/${name}`);
 
 /** The moving head hung above the stage and a floor mark it can reach, as the guided calibration test sets them. */
 async function calSetup(page: Page): Promise<CalHead> {
@@ -4739,12 +4754,12 @@ async function calRestore(page: Page, spot: CalHead): Promise<void> {
   await api(page, "position.release", { fixtures: ["spot"] });
 }
 /** Opens the Lieu page's assistant on its manual tab, confirms the head may move, aims at the mark. */
-async function calOpenManual(page: Page, { confirm = true, aim = true } = {}): Promise<Locator> {
-  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
-  await page.getByText("Calibrer les lyres").click();
+async function calOpenManual(page: Page, { confirm = true, aim = true, venue = "Lieu", assistant = "Calibrer les lyres", tab = "Manuelle" } = {}): Promise<Locator> {
+  await page.locator("nav.pages button", { hasText: venue }).click();
+  await page.getByText(assistant).click();
   const box = page.locator(".calibration");
-  await box.getByRole("tab", { name: "Manuelle" }).click();
-  if (confirm) await box.getByRole("group", { name: "La lyre va bouger en direct" }).getByRole("button", { name: "Faire bouger la lyre" }).click();
+  await box.getByRole("tab", { name: tab }).click();
+  if (confirm) await box.getByRole("alertdialog", { name: "La lyre va bouger en direct" }).getByRole("button", { name: "Faire bouger la lyre" }).click();
   if (aim) {
     await box.getByLabel("Repère").selectOption("marque");
     await box.getByRole("button", { name: "Viser le repère" }).click();
@@ -4758,51 +4773,109 @@ test("manual calibration: asked once, then each field writes the orientation and
   await page.setViewportSize({ width: 1400, height: 900 });
   await login(page);
   const spot = await calSetup(page);
+  const orients = calCalls(page, "venue.fixture.orient");
+  // a second head on the plan: choosing it does not ask again
+  await api(page, "venue.fixture.put", { fixture: { id: "spot-b", name: "Lyre B", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 200, position: { x: 2, y: 2, z: 5 }, mount: "hung" } });
   try {
     const box = await calOpenManual(page, { confirm: false, aim: false });
     // the output is live: nothing moves before the confirmation
     await expect(box.getByTestId("cal-output")).toContainText("Sortie en direct");
-    const ask = box.getByRole("group", { name: "La lyre va bouger en direct" });
+    const ask = box.getByRole("alertdialog", { name: "La lyre va bouger en direct" });
     await expect(ask).toContainText("Lyre");
     await expect(box.getByRole("button", { name: "Viser le repère" })).toHaveCount(0);
     await page.screenshot({ path: "test-results/t8-manual-confirm.png", fullPage: true });
     await ask.getByRole("button", { name: "Faire bouger la lyre" }).click();
-    // asked once: another head or mark does not ask again; leaving the tab and coming back does
+    // confirmed: the first gesture takes the focus
+    await expect(box.getByRole("button", { name: "Viser le repère" })).toBeFocused();
+    // asked once: another head does not ask again
+    await box.getByLabel("Lyres").selectOption("spot-b");
+    await expect(box.getByRole("alertdialog")).toHaveCount(0);
+    await expect(box.getByRole("button", { name: "Viser le repère" })).toBeVisible();
+    await box.getByLabel("Lyres").selectOption("spot");
     await box.getByLabel("Repère").selectOption("marque");
+    await expect(box.getByRole("alertdialog")).toHaveCount(0);
+    // a height that is not a number: aiming is off, said under the field
+    const height = box.getByLabel("Hauteur z (m)");
+    await height.fill("haut");
+    await expect(height).toHaveAttribute("aria-invalid", "true");
+    await expect(box.getByText("un nombre en mètres est attendu")).toBeVisible();
+    await expect(box.getByRole("button", { name: "Viser le repère" })).toBeDisabled();
+    await height.fill("0");
     await box.getByRole("button", { name: "Viser le repère" }).click();
     await expect(box.locator(".calibration-pad .xy")).toBeVisible();
     await expect.poll(() => calManual(page)).not.toBeNull();
     const aimed = (await calManual(page))!;
 
-    // the heading: typed with a comma, written on Enter, the head aims the mark again
+    // the heading: typed with a comma, written on Enter (once, leaving the field after it writes nothing more), the head aims the mark again
     const yaw = box.getByLabel("Cap (°)", { exact: true });
+    let before = orients();
     await yaw.fill("12,5");
     await yaw.press("Enter");
+    await yaw.blur();
     await expect.poll(async () => (await calHead(page)).orientation?.yaw).toBe(12.5);
     await expect.poll(async () => (await calManual(page))?.pan).not.toBe(aimed.pan);
+    expect(orients() - before).toBe(1);
+    // normalised by the server (360 reads back 0): the field shows what is stored
+    await yaw.fill("360");
+    await yaw.press("Enter");
+    await expect.poll(async () => (await calHead(page)).orientation?.yaw).toBe(0);
+    await expect(yaw).toHaveValue("0");
+    // Enter without a change writes nothing
+    before = orients();
+    await yaw.press("Enter");
+    await page.waitForTimeout(500);
+    expect(orients()).toBe(before);
     // the pan offset by the arrows: three presses, one write
     const panOffset = box.getByLabel("Décalage pan (°)", { exact: true });
     await panOffset.focus();
+    before = orients();
     for (let i = 0; i < 3; i++) await panOffset.press("ArrowUp");
     await expect.poll(async () => (await calHead(page)).orientation?.panOffset).toBe(0.3);
-    // the tilt offset by its + button (a finger), Shift + arrow for a whole degree
+    await page.waitForTimeout(500);
+    expect(orients() - before).toBe(1);
+    // the precision stored is shown and kept: 0,25 reads back 0,25, an arrow goes to 0,35, a negative one with a true minus
+    await api(page, "venue.fixture.orient", { id: "spot", panOffset: 0.25, tiltOffset: -1.5 });
+    await expect(panOffset).toHaveValue("0,25");
+    await expect(box.getByLabel("Décalage tilt (°)", { exact: true })).toHaveValue("−1,5");
+    await panOffset.focus();
+    await panOffset.press("ArrowUp");
+    await expect.poll(async () => (await calHead(page)).orientation?.panOffset).toBe(0.35);
+    // the tilt offset by its + button (a finger)
     await box.getByRole("button", { name: "Décalage tilt (°) · plus 0,1°" }).click();
-    await expect.poll(async () => (await calHead(page)).orientation?.tiltOffset).toBe(0.1);
-    // a switch
-    await box.getByRole("button", { name: "Inverser Y (tilt)", exact: true }).click();
+    await expect.poll(async () => (await calHead(page)).orientation?.tiltOffset).toBe(-1.4);
+    // a pause pending when the field goes away (the tab left) is written, not lost
+    await box.getByRole("button", { name: "Décalage tilt (°) · plus 0,1°" }).click();
+    await box.getByRole("tab", { name: "Guidée" }).click();
+    await expect.poll(async () => (await calHead(page)).orientation?.tiltOffset).toBe(-1.3);
+    await box.getByRole("tab", { name: "Manuelle" }).click();
+    await box.getByRole("alertdialog", { name: "La lyre va bouger en direct" }).getByRole("button", { name: "Faire bouger la lyre" }).click();
+    await box.getByRole("button", { name: "Viser le repère" }).click();
+    await expect(box.locator(".calibration-pad .xy")).toBeVisible();
+    // a switch: one write for a double press
+    before = orients();
+    await box.getByRole("button", { name: "Inverser Y (tilt)", exact: true }).dblclick();
     await expect.poll(async () => (await calHead(page)).orientation?.invertTilt).toBe(true);
     await expect(box.getByRole("button", { name: "Inverser Y (tilt)", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(orients() - before).toBe(1);
 
-    // the stops: both ends, written when the second is left
+    // the stops: the first end alone is not written while the second is typed, the pair when the row is left
+    before = orients();
     await box.getByLabel("Butée pan · de").fill("-100");
+    await box.getByLabel("Butée pan · de").press("Tab");
     await box.getByLabel("Butée pan · à").fill("100");
+    expect(orients()).toBe(before);
     await box.getByLabel("Butée pan · à").press("Tab");
     await expect.poll(async () => (await calHead(page)).orientation?.limits?.pan).toEqual([-100, 100]);
-    // beyond the travel: refused here, with the travel, nothing written
+    expect(orients() - before).toBe(1);
+    // an end beyond the travel: said as soon as it is typed, with the travel, nothing written
     await box.getByLabel("Butée pan · de").fill("-300");
-    await box.getByLabel("Butée pan · de").press("Enter");
     await expect(box.locator(".manual-stop").first().getByRole("alert")).toContainText("hors de la course (± 270°)");
+    await box.getByLabel("Butée pan · de").press("Enter");
     expect((await calHead(page)).orientation?.limits?.pan).toEqual([-100, 100]);
+    // changed elsewhere: the draft and its alert give way to the stored stop
+    await api(page, "venue.fixture.orient", { id: "spot", limits: { pan: [-90, 90] } });
+    await expect(box.getByLabel("Butée pan · de")).toHaveValue("−90");
+    await expect(box.locator(".manual-stop").first().getByRole("alert")).toHaveCount(0);
     await box.getByRole("button", { name: "Retirer · Butée pan" }).click();
     await expect.poll(async () => (await calHead(page)).orientation?.limits).toBeUndefined();
 
@@ -4812,11 +4885,13 @@ test("manual calibration: asked once, then each field writes the orientation and
     await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).model?.panMax).toBe(500);
     await expect(box.getByTestId("manual-keeping")).toContainText("« Basic »");
     await expect(box.getByTestId("manual-travel-now")).toContainText("pan 500° (le modèle)");
-    // and for this fixture only, over its model
+    // and for this fixture only: the value it inherits from its model can be pinned for it
     await box.getByRole("radio", { name: "Cet appareil seul" }).click();
+    await box.getByLabel("Course pan (°)").fill("");
+    await box.getByLabel("Course pan (°)").fill("500");
     await box.getByLabel("Course tilt (°)").fill("250");
     await box.getByRole("button", { name: "Corriger pour cet appareil" }).click();
-    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).own?.tiltMax).toBe(250);
+    await expect.poll(async () => ((await api(page, "venue.fixture.travel", { fixture: "spot" })) as CalTravel).own).toEqual({ panMax: 500, tiltMax: 250 });
     await expect(box.getByTestId("manual-travel-now")).toContainText("tilt 250° (cet appareil)");
     // out of the schema's bounds: said, not sent
     await box.getByLabel("Course pan (°)").fill("2000");
@@ -4833,8 +4908,30 @@ test("manual calibration: asked once, then each field writes the orientation and
     // leaving the tab: opening it again asks again
     await box.getByRole("tab", { name: "Guidée" }).click();
     await box.getByRole("tab", { name: "Manuelle" }).click();
-    await expect(box.getByRole("group", { name: "La lyre va bouger en direct" })).toBeVisible();
+    await expect(box.getByRole("alertdialog", { name: "La lyre va bouger en direct" })).toBeVisible();
   } finally {
+    await api(page, "venue.fixture.delete", { id: "spot-b" }).catch(() => undefined);
+    await calRestore(page, spot);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("manual calibration: on standby nothing goes out, nothing is asked", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const spot = await calSetup(page);
+  try {
+    await asDesk(page, "output.standby", { on: true });
+    const box = await calOpenManual(page, { confirm: false, aim: false });
+    await expect(box.getByTestId("cal-output")).toContainText("Sortie en veille");
+    await expect(box.getByRole("alertdialog")).toHaveCount(0);
+    await expect(box.getByRole("button", { name: "Viser le repère" })).toBeVisible();
+    // back live while on the tab: the tab stays open (asked on opening only), the state said
+    await asDesk(page, "output.standby", { on: false });
+    await expect(box.getByTestId("cal-output")).toContainText("Sortie en direct");
+  } finally {
+    await asDesk(page, "output.standby", { on: false }).catch(() => undefined);
     await calRestore(page, spot);
   }
   expect(errors).toEqual([]);
@@ -4846,6 +4943,7 @@ test("manual calibration: the correction pad moves the head around the aim, then
   await login(page);
   const spot = await calSetup(page);
   const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  const applies = calCalls(page, "calibration.correct", (body) => body.includes('"apply":true'));
   try {
     const box = await calOpenManual(page);
     await expect.poll(() => calManual(page)).not.toBeNull();
@@ -4867,12 +4965,25 @@ test("manual calibration: the correction pad moves the head around the aim, then
     await expect(box.locator(".manual-cal-report")).toContainText("Décalage pan");
     expect((await calHead(page)).orientation?.panOffset ?? 0).toBe(0);
     await box.screenshot({ path: "test-results/t8-manual-correct.png" });
-    // applied: the offsets written, the head keeps its aim
-    await box.getByRole("button", { name: "Appliquer" }).click();
+    // the head moved since the measure: the gap is greyed, « Appliquer » gone until measured again
+    await pad.focus();
+    await pad.press("ArrowLeft");
+    await expect(box.getByTestId("manual-stale")).toContainText("mesurer de nouveau");
+    await expect(box.getByRole("button", { name: "Appliquer" })).toHaveCount(0);
+    await box.screenshot({ path: "test-results/t8-manual-stale.png" });
+    await box.getByRole("button", { name: "Mesurer l'écart" }).click();
+    await expect(box.getByTestId("manual-stale")).toHaveCount(0);
+    // applied (a double press writes once): the offsets written, the head keeps its aim, the fields show them
+    await box.getByRole("button", { name: "Appliquer" }).dblclick();
     await expect(box.locator(".manual-cal-report")).toContainText("Correction appliquée");
+    expect(applies()).toBe(1);
     const o = (await calHead(page)).orientation!;
     expect(Math.abs(o.panOffset ?? 0) + Math.abs(o.tiltOffset ?? 0)).toBeGreaterThan(0);
-    if (o.panOffset) await expect(box.getByLabel("Décalage pan (°)", { exact: true })).not.toHaveValue("0");
+    await expect(box.getByLabel("Décalage pan (°)", { exact: true })).toHaveValue(calFr(o.panOffset ?? 0));
+    await expect(box.getByLabel("Décalage tilt (°)", { exact: true })).toHaveValue(calFr(o.tiltOffset ?? 0));
+    // measured again on the corrected head: no gap left, « Appliquer » is no longer the primary action
+    await box.getByRole("button", { name: "Mesurer l'écart" }).click();
+    await expect(box.getByRole("button", { name: "Appliquer" })).not.toHaveClass(/primary/);
 
     // a narrower pad: ± 2°
     await box.getByRole("radio", { name: "± 2°" }).click();
@@ -4900,7 +5011,7 @@ test("manual calibration: the correction pad moves the head around the aim, then
     await api(page, "look.delete", { id: "manual-motion", force: true }).catch(() => undefined);
     await calRestore(page, spot);
   }
-  expect(errors.filter((e) => !(e.includes("status of 422") && e.includes("calibration.correct")))).toEqual([]);
+  expect(errors.filter((e) => !calRefused(e, "calibration.correct"))).toEqual([]);
 });
 
 test("manual calibration: an 8-bit head moves by whole steps, opens wider and is offered its 16-bit mode", async ({ page }) => {
@@ -4938,7 +5049,7 @@ test("manual calibration: an 8-bit head moves by whole steps, opens wider and is
   expect(errors).toEqual([]);
 });
 
-test("manual calibration: opened from the fixture's panel, refused while frozen hard, touch and phone sizes", async ({ browser }) => {
+test("manual calibration: opened from the fixture's panel, frozen hard, touch and phone sizes", async ({ browser }) => {
   const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   const page = await ctx.newPage();
   const errors = watchErrors(page);
@@ -4974,15 +5085,38 @@ test("manual calibration: opened from the fixture's panel, refused while frozen 
     await box.getByRole("button", { name: "Échanger pan et tilt", exact: true }).click();
     await expect(box.locator(".manual-cal-orient").getByRole("alert")).toBeVisible();
     expect((await calHead(page)).orientation?.swapPanTilt ?? false).toBe(false);
+    // offsets and stops stay editable: written, the head not aimed again, no refusal said beside the pad
+    const yaw = box.getByLabel("Cap (°)", { exact: true });
+    await yaw.fill("4");
+    await yaw.press("Enter");
+    await expect.poll(async () => (await calHead(page)).orientation?.yaw).toBe(4);
+    await box.getByLabel("Butée tilt · de").fill("-80");
+    await box.getByLabel("Butée tilt · à").fill("80");
+    await box.getByLabel("Butée tilt · à").press("Enter");
+    await expect.poll(async () => (await calHead(page)).orientation?.limits?.tilt).toEqual([-80, 80]);
+    await expect(box.getByTestId("manual-stop-frozen")).toContainText("jusqu'à ce qu'elle soit défigée");
+    await expect(box.locator(".manual-cal-aim").getByRole("alert")).toHaveCount(0);
+    await box.screenshot({ path: "test-results/t8-manual-frozen.png" });
     await asDesk(page, "motion.unfreeze", { fixtures: ["spot"] });
     await expect(box.getByRole("button", { name: "Viser de nouveau" })).toBeEnabled();
+    // unfrozen: the refusals said while frozen are gone
+    await expect(box.locator(".manual-cal-orient").getByRole("alert")).toHaveCount(0);
+    await expect(box.getByTestId("manual-stop-frozen")).toHaveCount(0);
 
-    // a phone: nothing wider than the screen, every control of the tab a finger's size
+    // a phone, an 8-bit head (its mode section shown): nothing wider than the screen, every control a finger's size
+    await api(page, "venue.fixture.put", { fixture: { ...(await calHead(page)), mode: "Basic" } });
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(box.getByTestId("manual-finer")).toBeVisible();
     await box.getByRole("button", { name: "Viser de nouveau" }).scrollIntoViewIfNeeded();
     expect(await page.evaluate<number>("document.documentElement.scrollWidth")).toBeLessThanOrEqual(390);
-    const small = await box.locator(".cal-tabs button, .manual-cal button, .manual-cal input").evaluateAll((items) =>
-      items.filter((i) => i.getClientRects().length > 0 && i.getBoundingClientRect().height < 44).map((i) => `${i.tagName} ${i.getAttribute("aria-label") ?? i.textContent}`),
+    const small = await box.locator(".cal-tabs button, .calibration > [role=tabpanel] > .fields select, .calibration > [role=tabpanel] > .fields input, .manual-cal button, .manual-cal input, .manual-finer summary").evaluateAll((items) =>
+      items
+        .filter((i) => i.getClientRects().length > 0)
+        .filter((i) => {
+          const r = i.getBoundingClientRect();
+          return r.height < 44 || r.width < 44;
+        })
+        .map((i) => `${i.tagName} ${i.getAttribute("aria-label") ?? i.textContent} ${Math.round(i.getBoundingClientRect().width)}×${Math.round(i.getBoundingClientRect().height)}`),
     );
     expect(small).toEqual([]);
     await box.screenshot({ path: "test-results/t8-manual-phone.png" });
@@ -4991,7 +5125,35 @@ test("manual calibration: opened from the fixture's panel, refused while frozen 
     await calRestore(page, spot);
     await ctx.close();
   }
-  expect(errors.filter((e) => !e.includes("venue.fixture.orient"))).toEqual([]);
+  expect(errors.filter((e) => !calRefused(e, "venue.fixture.orient"))).toEqual([]);
+});
+
+test("manual calibration in English: field values read back without a thousands separator, the stops capitalised", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const spot = await calSetup(page);
+  try {
+    await page.evaluate(() => localStorage.setItem("lang", "en"));
+    await page.reload();
+    await api(page, "venue.fixture.travel.set", { fixture: "spot", scope: "model", panMax: 1080 });
+    const box = await calOpenManual(page, { confirm: false, aim: false, venue: "Venue", assistant: "Calibrate the moving heads", tab: "Manual" });
+    await box.getByRole("alertdialog", { name: "The head will move live" }).getByRole("button", { name: "Move the head" }).click();
+    await expect(box.getByLabel("Pan travel (°)")).toHaveValue("1080");
+    // written back unchanged: nothing to correct, the button stays off
+    await expect(box.getByRole("button", { name: "Correct for this model" })).toBeDisabled();
+    await expect(box.getByRole("group", { name: "Pan stop" })).toBeVisible();
+    await expect(box.getByLabel("Tilt stop · from")).toBeVisible();
+    await box.getByLabel("Heading (°)", { exact: true }).fill("-12.5");
+    await box.getByLabel("Heading (°)", { exact: true }).press("Enter");
+    await expect.poll(async () => (await calHead(page)).orientation?.yaw).toBe(-12.5);
+    await expect(box.getByLabel("Heading (°)", { exact: true })).toHaveValue("−12.5");
+    await box.screenshot({ path: "test-results/t8-manual-en.png" });
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("lang"));
+    await calRestore(page, spot);
+  }
+  expect(errors).toEqual([]);
 });
 
 test("group editor: nested DCAs multiply", async ({ page }) => {
