@@ -492,17 +492,21 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
       // too fast for a speed rule that applies, trips crossing a no-aim zone: the head goes dark while it crosses)
       for (const l of runtime.looks.list()) {
         const at = l.move?.at;
-        if (at?.zone !== undefined && !runtime.zones.get(at.zone)) err(`look ${l.id}`, say(`zone inconnue ${at.zone} (mouvement) : ses lyres restent où elles sont`, `unknown zone ${at.zone} (move): its heads stay where they are`));
-        if (!at?.path) continue;
         const unknown = new Set<number>();
-        at.path.stops.forEach((s, i) => {
+        if (at?.zone !== undefined && !runtime.zones.get(at.zone)) {
+          // its one stop (pathReport checks a zone as a path of one stop): said once, as the zone gone
+          unknown.add(0);
+          err(`look ${l.id}`, say(`zone inconnue ${runtime.goneName("zone", at.zone)} (mouvement) : ses lyres restent où elles sont`, `unknown zone ${runtime.goneName("zone", at.zone)} (move): its heads stay where they are`));
+        }
+        if (!at?.path && at?.zone === undefined) continue;
+        (at.path?.stops ?? []).forEach((s, i) => {
           const gone =
             s.zone !== undefined && !runtime.zones.get(s.zone)
-              ? say(`zone inconnue ${s.zone}`, `unknown zone ${s.zone}`)
+              ? say(`zone inconnue ${runtime.goneName("zone", s.zone)}`, `unknown zone ${runtime.goneName("zone", s.zone)}`)
               : s.position !== undefined && !runtime.positionPresets.get(s.position)
-                ? say(`position nommée inconnue ${s.position}`, `unknown named position ${s.position}`)
+                ? say(`position nommée inconnue ${runtime.goneName("position", s.position)}`, `unknown named position ${runtime.goneName("position", s.position)}`)
                 : s.target !== undefined && !runtime.targets.get(s.target)
-                  ? say(`cible inconnue ${s.target}`, `unknown target ${s.target}`)
+                  ? say(`cible inconnue ${runtime.goneName("target", s.target)}`, `unknown target ${runtime.goneName("target", s.target)}`)
                   : undefined;
           if (!gone) return;
           unknown.add(i);

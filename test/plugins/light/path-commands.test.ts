@@ -61,6 +61,36 @@ describe("zones and paths through the commands (T28)", () => {
     expect(preview.path?.warnings.map((w) => w.kind)).to.deep.equal(["noAim"]);
   });
 
+  it("look.put refuses a stop naming an unknown target or named position", async () => {
+    expect(await refusal("look.put", { look: look({ at: { path: { stops: [{ zone: "jardin" }, { target: "absente" }] } } }) })).to.match(/arrêt 2 : cible inconnue/);
+  });
+
+  type Lint = { issues: { level: string; where: string; message: string }[] };
+  const lintOf = async (id: string) => ((await run("show.lint")) as Lint).issues.filter((i) => i.where === `look ${id}`);
+
+  it("« Vérifier le show » says a path's warnings, and none for a look that does not move its heads", async () => {
+    await run("stage.zone.put", { zone: { id: "pupitre", name: "Pupitre", polygon: [[-1, 3], [1, 3], [1, 4], [-1, 4]], noAim: true } });
+    await run("look.put", { look: look({ at: { path: { stops } } }) });
+    const mine = await lintOf("p");
+    expect(mine.some((i) => i.level === "attention" && /Pupitre/.test(i.message))).to.equal(true);
+    await run("look.put", { look: look({ enabled: false, at: { path: { stops } } }) });
+    expect(await lintOf("p")).to.deep.equal([]);
+  });
+
+  it("a look aimed at a zone: warned at save when a head cannot reach it, and a zone gone said by its last name", async () => {
+    await run("stage.zone.put", { zone: { id: "plafond", name: "Plafond", polygon: [[-3, -2], [3, -2], [3, -1], [-3, -1]], floorHeight: 9, aim: {} } });
+    const saved = (await run("look.put", { look: look({ at: { zone: "plafond" } }) })) as { warnings?: string[] };
+    expect(saved.warnings?.join(" ")).to.match(/aucune lyre/);
+    const preview = (await run("look.preview", { look: look({ at: { zone: "plafond" } }) })) as { path?: { stops: { name: string }[] } };
+    expect(preview.path?.stops[0]!.name).to.equal("zone « Plafond »");
+    await run("look.put", { look: look({ at: { zone: "jardin" } }) });
+    await run("stage.zone.delete", { id: "jardin", force: true });
+    const mine = await lintOf("p");
+    expect(mine.filter((i) => i.level === "erreur").map((i) => i.message)).to.deep.equal(["zone inconnue Estrade gauche (mouvement) : ses lyres restent où elles sont"]);
+    // said once: no « reached by no head » warning on top of the error
+    expect(mine.filter((i) => i.level === "attention")).to.deep.equal([]);
+  });
+
   it("position.aim {zone} says the zone the heads hold (the Live's « Zones » widget) until a gesture or a release", async () => {
     const aimed = async () => ((await run("position.list")) as { id: string; aimed?: string }[]).find((h) => h.id === "spot")?.aimed;
     await run("position.aim", { zone: "cour" });

@@ -38,18 +38,23 @@ export type PathStop = z.infer<typeof PathStopSchema>;
 
 export const PATH_MAX_STOPS = 32;
 
-export const PathSchema = z.object({
-  stops: z.array(PathStopSchema).min(1).max(PATH_MAX_STOPS),
-  order: z.enum(["loop", "pingpong", "random", "weighted"]).default("loop"),
-  /** Part of each step spent travelling (0..1, default 0.5); the rest, resting on the stop. 0 = a cut, 1 = always moving. */
-  travel: z.number().min(0).max(1).default(0.5),
-  /**
-   * ensemble = every head on the same stop; decales = each head one stop behind the one before it (row order, with the
-   * move's `reverse` and `shuffle`); chacune = in random or weighted order, each head draws its own sequence (in loop and
-   * ping-pong it plays as ensemble: there is only one sequence).
-   */
-  heads: z.enum(["ensemble", "decales", "chacune"]).default("ensemble"),
-});
+export const PathSchema = z
+  .object({
+    stops: z.array(PathStopSchema).min(1).max(PATH_MAX_STOPS),
+    order: z.enum(["loop", "pingpong", "random", "weighted"]).default("loop"),
+    /** Part of each step spent travelling (0..1, default 0.5); the rest, resting on the stop. 0 = a cut, 1 = always moving. */
+    travel: z.number().min(0).max(1).default(0.5),
+    /**
+     * ensemble = every head on the same stop; decales = each head one stop behind the one before it (row order, with the
+     * move's `reverse` and `shuffle`); chacune = in random or weighted order, each head draws its own sequence (in loop and
+     * ping-pong it plays as ensemble: there is only one sequence).
+     */
+    heads: z.enum(["ensemble", "decales", "chacune"]).default("ensemble"),
+  })
+  // weighted, every weight 0 would leave the heads on one stop for ever: refused
+  .refine((p) => p.order !== "weighted" || p.stops.some((s) => (s.weight ?? 1) > 0), {
+    error: () => say("ordre pondéré : au moins un arrêt doit avoir un poids supérieur à 0", "weighted order: at least one stop must weigh more than 0"),
+  });
 export type Path = z.infer<typeof PathSchema>;
 
 /**
@@ -92,13 +97,9 @@ export function stopOffset(path: Pick<Path, "heads">, move: { reverse?: boolean 
 
 /** Where a head is on its path: between stop `from` and stop `to`, `ease` of the way (0 = on `from`, 1 = on `to`). */
 export interface PathStep {
-  /** The sequence index of the step (its `to`). */
-  index: number;
   from: number;
   to: number;
   ease: number;
-  /** Still travelling (0 < ease < 1, or a step whose travel just started). */
-  travelling: boolean;
 }
 
 /**
@@ -115,7 +116,7 @@ export function pathStep(path: Pick<Path, "travel">, seq: (i: number) => number,
   const from = index > 0 ? seq(index - 1) : to;
   const u = path.travel > 0 ? Math.min(1, (phase - n) / path.travel) : 1;
   const ease = 0.5 - 0.5 * Math.cos(Math.PI * u);
-  return { index, from, to, ease, travelling: from !== to && u < 1 };
+  return { from, to, ease };
 }
 
 /** The position between two stops' positions, `ease` of the way: interpolated in pan/tilt, so always within the travel. */
@@ -126,14 +127,6 @@ export function pathPosition(a: Position, b: Position, ease: number): Position {
 
 /** A stop resolved for one head: its pan/tilt, or why the head cannot go there. */
 export type StopPosition = Position | { error: string };
-
-/**
- * Every stop of a path for one head (`resolve`: zone, point, position or target to pan/tilt): what the checks read.
- * A step whose two stops do not both resolve holds the head (the motion layer's hold, R14): `pathStep` says which two.
- */
-export function resolveStops(stops: readonly PathStop[], resolve: (stop: PathStop, index: number) => StopPosition): StopPosition[] {
-  return stops.map((s, i) => resolve(s, i));
-}
 
 /**
  * The pairs of stops a head may travel between, as indexes: loop k → k + 1 (and back to the first), ping-pong k ↔ k + 1,

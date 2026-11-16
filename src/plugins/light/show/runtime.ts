@@ -65,6 +65,9 @@ export interface TempoSource {
   state(): { beats: number; bpm?: number };
 }
 
+/** What can be deleted while a look still cites it (T28): said by its last name. */
+type GoneKind = "zone" | "position" | "target";
+
 /** What a look following a named position covers through it (T32, `ShowRuntime.lookCoverage`). */
 interface LookCoverage {
   order?: number;
@@ -313,6 +316,8 @@ export class ShowRuntime {
   private readonly crossfades = new Map<string, Crossfade>();
   /** palette id → number of edits: a queued look whose palette was edited has a stale player. */
   private readonly paletteRevs = new Map<string, number>();
+  /** The last names of the zones, named positions and targets deleted (`kind:id`): what still cites one says its name. */
+  private readonly goneNames = new Map<string, string>();
   /** The stop sequences of each path (T28), per head key (`sequenceKey`): memoised draws, dropped with the path object. */
   private readonly pathSequences = new WeakMap<Path, Map<number, (i: number) => number>>();
   private orphans = 0;
@@ -1787,7 +1792,7 @@ export class ShowRuntime {
   markAimedZone(fixtures: readonly string[], zone: string): void {
     for (const f of fixtures) {
       const m = this.manualPositions.get(f);
-      if (m && m.preset === undefined) m.zone = zone;
+      if (m) m.zone = zone;
     }
   }
 
@@ -2023,10 +2028,11 @@ export class ShowRuntime {
             if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
           } else if (zoneId !== undefined) {
             const zone = this.zones.get(zoneId);
-            if (!zone) errors.push(say(`look « ${look.name} » : zone inconnue : ${zoneId}`, `look “${look.name}”: unknown zone: ${zoneId}`));
-            // a zone gone holds the heads where they are (R14), as a target gone does
-            if (moved.length) claims.push({ ...own, heads: moved, base: zone ? { kind: "point", ...zoneAimPoint(zone, look.move.at?.height) } : { kind: "hold" }, ...(zone ? { shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } } : {}) });
-          } else if (path) claims.push(...this.pathClaims(look, path, player.position(now, beats, look.move.every), own, moved, errors));
+            // a zone gone holds the heads where they are (R14), as a target gone does, and says why on each of them
+            const zoneGone = zone ? undefined : say(`look « ${look.name} » : zone inconnue : ${this.goneName("zone", zoneId)}`, `look “${look.name}”: unknown zone: ${this.goneName("zone", zoneId)}`);
+            if (zoneGone) errors.push(zoneGone);
+            if (moved.length) claims.push({ ...own, heads: moved, base: zone ? { kind: "point", ...zoneAimPoint(zone, look.move.at?.height) } : { kind: "hold", reason: zoneGone! }, ...(zone ? { shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } } : {}) });
+          } else if (path) claims.push(...this.pathClaims(look, path, player.position(now, beats, look.move.every), own, moved));
           else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
         } catch (err) {
           errors.push((err as Error).message);
@@ -2078,7 +2084,7 @@ export class ShowRuntime {
    * base). A step one of whose two stops the head cannot reach (out of reach, no stage position, a zone, position or
    * target gone) holds the head where it is for that step (R14, never the layer below) and says why.
    */
-  private pathClaims(look: Look, path: Path, cycles: number, own: Pick<MotionClaim, "owner" | "layer" | "order" | "fade">, moved: readonly string[], errors: string[]): MotionClaim[] {
+  private pathClaims(look: Look, path: Path, cycles: number, own: Pick<MotionClaim, "owner" | "layer" | "order" | "fade">, moved: readonly string[]): MotionClaim[] {
     let sequences = this.pathSequences.get(path);
     if (!sequences) this.pathSequences.set(path, (sequences = new Map<number, (i: number) => number>()));
     const seed = seedOf(look.id);
@@ -2092,10 +2098,9 @@ export class ShowRuntime {
       const b = step.to === step.from ? a : this.pathStopAt(path.stops[step.to]!, head);
       const bad = "error" in a ? { stop: step.from, error: a.error } : "error" in b ? { stop: step.to, error: b.error } : undefined;
       if (bad) {
-        const name = this.venue.fixtures.get(head)?.name ?? head;
-        const said = say(`look « ${look.name} » : ${name} reste en place, arrêt ${bad.stop + 1} : ${bad.error}`, `look “${look.name}”: ${name} holds, stop ${bad.stop + 1}: ${bad.error}`);
-        if (!errors.includes(said)) errors.push(said);
-        claims.push({ ...own, heads: [head], base: { kind: "hold" } });
+        // the reason rides on the hold: the motion layer says it as the head's error (pads, position.list, render errors)
+        const reason = say(`look « ${look.name} », arrêt ${bad.stop + 1} (${this.pathStopName(path.stops[bad.stop]!)}) : ${bad.error}`, `look “${look.name}”, stop ${bad.stop + 1} (${this.pathStopName(path.stops[bad.stop]!)}): ${bad.error}`);
+        claims.push({ ...own, heads: [head], base: { kind: "hold", reason } });
         return;
       }
       const p = pathPosition(a as Position, b as Position, step.ease);
@@ -2120,31 +2125,44 @@ export class ShowRuntime {
     };
     if (stop.zone !== undefined) {
       const zone = this.zones.get(stop.zone);
-      return zone ? aimPoint(zoneAimPoint(zone, stop.height)) : { error: say(`zone inconnue : ${stop.zone}`, `unknown zone: ${stop.zone}`) };
+      return zone ? aimPoint(zoneAimPoint(zone, stop.height)) : { error: say(`zone inconnue : ${this.goneName("zone", stop.zone)}`, `unknown zone: ${this.goneName("zone", stop.zone)}`) };
     }
     if (stop.point) return aimPoint(stop.point);
     if (stop.position !== undefined) {
       const p = this.positionPresets.get(stop.position);
-      if (!p) return { error: say(`position nommée inconnue : ${stop.position}`, `unknown named position: ${stop.position}`) };
+      if (!p) return { error: say(`position nommée inconnue : ${this.goneName("position", stop.position)}`, `unknown named position: ${this.goneName("position", stop.position)}`) };
       if (p.point) return aimPoint(p.point);
       const v = Object.hasOwn(p.values, head) ? p.values[head] : undefined;
       return v ? { pan: v.pan, tilt: v.tilt } : { error: say(`« ${p.name} » ne couvre pas cette lyre`, `“${p.name}” does not cover this head`) };
     }
     if (stop.target !== undefined) {
       const t = this.targets.get(stop.target);
-      return t ? aimPoint(this.targetPoint(t)) : { error: say(`cible inconnue : ${stop.target}`, `unknown target: ${stop.target}`) };
+      return t ? aimPoint(this.targetPoint(t)) : { error: say(`cible inconnue : ${this.goneName("target", stop.target)}`, `unknown target: ${this.goneName("target", stop.target)}`) };
     }
     return { error: say("arrêt sans destination", "stop without a destination") };
   }
 
   /** How a path stop is named in a message and in the editor: its zone, position or target by name, a point by its metres. */
   pathStopName(stop: PathStop): string {
-    const m = (v: number) => String(Math.round(v * 100) / 100);
-    if (stop.zone !== undefined) return say(`zone « ${this.zones.get(stop.zone)?.name ?? stop.zone} »`, `zone “${this.zones.get(stop.zone)?.name ?? stop.zone}”`);
-    if (stop.position !== undefined) return say(`position « ${this.positionPresets.get(stop.position)?.name ?? stop.position} »`, `position “${this.positionPresets.get(stop.position)?.name ?? stop.position}”`);
-    if (stop.target !== undefined) return say(`cible « ${this.targets.get(stop.target)?.name ?? stop.target} »`, `target “${this.targets.get(stop.target)?.name ?? stop.target}”`);
-    if (stop.point) return `point (${m(stop.point.x)}, ${m(stop.point.y)}, ${m(stop.point.z)})`;
+    // as the editor writes them: a decimal comma and « ; » between the metres in French
+    const m = (v: number) => say(String(Math.round(v * 100) / 100).replace(".", ","), String(Math.round(v * 100) / 100));
+    const named = (kind: GoneKind, id: string, name: string | undefined, fr: string, en: string) =>
+      name !== undefined ? say(`${fr} « ${name} »`, `${en} “${name}”`) : say(`${fr} supprimée (${this.goneName(kind, id)})`, `${en} deleted (${this.goneName(kind, id)})`);
+    if (stop.zone !== undefined) return named("zone", stop.zone, this.zones.get(stop.zone)?.name, "zone", "zone");
+    if (stop.position !== undefined) return named("position", stop.position, this.positionPresets.get(stop.position)?.name, "position", "position");
+    if (stop.target !== undefined) return named("target", stop.target, this.targets.get(stop.target)?.name, "cible", "target");
+    if (stop.point) return say(`point (${m(stop.point.x)} ; ${m(stop.point.y)} ; ${m(stop.point.z)})`, `point (${m(stop.point.x)}; ${m(stop.point.y)}; ${m(stop.point.z)})`);
     return "?";
+  }
+
+  /** Remembers the name of a zone, named position or target being deleted: what still cites it says it by name (T28). */
+  rememberGoneName(kind: GoneKind, id: string, name: string): void {
+    this.goneNames.set(`${kind}:${id}`, name);
+  }
+
+  /** The last known name of something deleted (`rememberGoneName`), else its id. */
+  goneName(kind: GoneKind, id: string): string {
+    return this.goneNames.get(`${kind}:${id}`) ?? id;
   }
 
   /**
@@ -2152,9 +2170,12 @@ export class ShowRuntime {
    * what to know ahead (venue/path-check.ts): stops out of reach, trips too fast for a speed rule that applies, trips
    * crossing a no-aim zone this look does not open. Undefined for a look without a path. A group gone moves no head.
    */
-  pathReport(look: Look): { heads: string[]; stops: { name: string; heads: ({ id: string } & StopPosition)[] }[]; warnings: PathWarning[] } | undefined {
-    const path = look.move?.at?.path;
-    if (!path || !look.move) return undefined;
+  pathReport(look: Look): { heads: string[]; stops: { name: string; gone?: string; heads: ({ id: string } & StopPosition)[] }[]; warnings: PathWarning[] } | undefined {
+    const at = look.move?.at;
+    if (!at || !look.move || at.target !== undefined || at.position !== undefined) return undefined;
+    // a look aimed at a zone is checked as a path of one stop: out of reach, landing in a no-aim zone (T28)
+    const path: Path | undefined = at.path ?? (at.zone === undefined ? undefined : { stops: [{ zone: at.zone, ...(at.height === undefined ? {} : { height: at.height }) }], order: "loop", travel: 0.5, heads: "ensemble" });
+    if (!path) return undefined;
     let moved: string[];
     try {
       moved = this.movedBy(look);
@@ -2182,7 +2203,23 @@ export class ShowRuntime {
       stopName: (i) => this.pathStopName(path.stops[i]!),
       ...(bpm === undefined ? {} : { bpm }),
     });
-    return { heads: moved, stops: path.stops.map((s, i) => ({ name: this.pathStopName(s), heads: heads.map((h) => ({ id: h.id, ...h.stops[i]! })) })), warnings };
+    // what a stop names deleted since: its last name, for the editor to say (« Zone supprimée (Balcon) »)
+    const goneOf = (s: PathStop): string | undefined =>
+      s.zone !== undefined && !this.zones.get(s.zone)
+        ? this.goneName("zone", s.zone)
+        : s.position !== undefined && !this.positionPresets.get(s.position)
+          ? this.goneName("position", s.position)
+          : s.target !== undefined && !this.targets.get(s.target)
+            ? this.goneName("target", s.target)
+            : undefined;
+    return {
+      heads: moved,
+      stops: path.stops.map((s, i) => {
+        const lastKnown = goneOf(s);
+        return { name: this.pathStopName(s), ...(lastKnown === undefined ? {} : { gone: lastKnown }), heads: heads.map((h) => ({ id: h.id, ...h.stops[i]! })) };
+      }),
+      warnings,
+    };
   }
 
   /** The tempo now, for a cadence in beats said in seconds (the motion layer's fallback when none is known). */

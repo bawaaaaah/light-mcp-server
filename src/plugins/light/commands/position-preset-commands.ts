@@ -287,6 +287,8 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
       const p = presets.get(id);
       const { uses } = (await reg.invoke("show.references", { kind: "position", id }, ctx)) as { uses: string[] };
       if (uses.length && !force) throw new Error(inUseMessage(p?.name ?? id, uses));
+      // a look citing it still says it by name (T28)
+      if (uses.length && p) show.rememberGoneName("position", id, p.name);
       return { deleted: show.deletePositionPreset(id) };
     },
   });

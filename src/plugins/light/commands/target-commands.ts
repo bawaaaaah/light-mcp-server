@@ -135,6 +135,8 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
       const t = show.targets.get(id);
       const { uses } = (await reg.invoke("show.references", { kind: "target", id }, ctx)) as { uses: string[] };
       if (uses.length && !force) throw new Error(inUseMessage(t?.name ?? id, uses));
+      // a look citing it still says it by name (T28)
+      if (uses.length && t) show.rememberGoneName("target", id, t.name);
       // deleting an engaged target lets its heads go (to what claims them below, gliding): said
       return { deleted: show.targets.delete(id), ...(t?.engaged ? { engaged: true } : {}) };
     },

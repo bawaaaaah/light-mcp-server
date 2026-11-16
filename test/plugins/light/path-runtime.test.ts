@@ -7,6 +7,7 @@ import type { Position } from "../../../src/plugins/light/engine/move.js";
 import { PositionPresetSchema } from "../../../src/plugins/light/show/model.js";
 import { usesOf } from "../../../src/plugins/light/show/references.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
+import { speedLimits } from "../../../src/plugins/light/rules/rules.js";
 import { ZoneSchema, zoneAimPoint } from "../../../src/plugins/light/venue/stage.js";
 import { Venue, type ResolvedFixture } from "../../../src/plugins/light/venue/venue.js";
 
@@ -162,7 +163,9 @@ describe("zones and paths in the engine (T28)", () => {
     const s16 = frames[1800 / 20]!.spot16;
     expect(s16.pan).to.be.closeTo(0.3, 0.01);
     expect(s16.tilt).to.be.closeTo(0.7, 0.01);
-    expect(t.show.lastErrors.join(" ")).to.match(/Spot 8/);
+    // why it holds rides on the hold: said as the head's error (pads, position.list), the stop named
+    expect(t.show.motionStatus().get("spot8")!.pan.error).to.match(/arrêt 2 \(position « Position A »\)/);
+    expect(t.show.lastErrors.join(" ")).to.match(/spot8: .*arrêt 2/);
     // no jump either: a head holding, then placed again, glides
     for (const h of HEADS) expect(steepest(frames, h)).to.be.below(0.05);
   });
@@ -222,6 +225,93 @@ describe("zones and paths in the engine (T28)", () => {
       darkened = clamps().length > 0;
     }
     expect(darkened).to.equal(true);
+  });
+
+  it("a zone stop's own height is the one aimed at, not the zone's", () => {
+    const t = setup();
+    t.place("p", { shape: "fixe", every: { seconds: 1 }, fade: { seconds: 0 }, at: { path: { stops: [{ zone: "cour", height: 0 }] } } });
+    t.show.go("p");
+    const f = t.run(500).at(-1)!;
+    for (const h of HEADS) {
+      expect(t.offBy(h, f, zoneAimPoint(ZONES[1]!, 0))).to.be.below(0.6);
+      expect(t.offBy(h, f, aimOf("cour"))).to.be.above(2);
+    }
+  });
+
+  it("a target stop deleted since holds the heads at render, the target said by its last name", () => {
+    const t = setup();
+    t.show.targets.put({ id: "c", name: "Cible soliste", fixtures: [], point: { x: 0, y: 4, z: 1 } } as never);
+    t.place("p", { shape: "fixe", every: { seconds: 1 }, fade: { seconds: 0.2 }, at: { path: { stops: [{ zone: "fond" }, { target: "c" }] } } });
+    t.show.go("p");
+    t.run(1200);
+    t.show.rememberGoneName("target", "c", "Cible soliste");
+    t.show.targets.delete("c");
+    const frames = t.run(1500);
+    // step 1 (1–2 s) goes to the target gone: both heads hold where they were
+    const held = frames.slice(0, 700 / 20).map((f) => f.spot16);
+    for (const p of held) expect(p).to.deep.equal(held[0]);
+    expect(t.show.motionStatus().get("spot16")!.pan.error).to.match(/cible inconnue : Cible soliste/);
+  });
+
+  it("strictBounds changes nothing while a path plays (the same bytes with and without a check)", () => {
+    const play = (check: boolean): string[] => {
+      const t = setup();
+      t.show.rules.put({ id: "pan-max", name: "Pan max", level: "show", scope: { fixture: "spot16" }, target: { channel: "Pan" }, max: 250, onViolation: "reject" } as never);
+      t.place("p", loop3({ order: "random" }));
+      t.place("q", loop3({ order: "pingpong" }));
+      t.show.go("p");
+      const out: string[] = [];
+      for (let k = 0; k < 6; k++) {
+        out.push(...bytes(t.run(500)));
+        if (check) t.show.strictBounds("q");
+      }
+      return out;
+    };
+    expect(play(true)).to.deep.equal(play(false));
+  });
+
+  it("a look aimed at a zone out of reach of a head says so ahead (pathReport, a path of one stop)", () => {
+    const t = setup();
+    // a zone behind the heads, above them: out of reach of a hung head
+    t.show.zones.put(ZoneSchema.parse({ id: "haut", name: "Plafond", polygon: [[-3, -1], [3, -1], [3, 0], [-3, 0]], floorHeight: 8, aim: {} }));
+    t.place("z", { shape: "fixe", at: { zone: "haut" } });
+    const report = t.show.pathReport(t.show.looks.get("z")!)!;
+    expect(report.stops.map((s) => s.name)).to.deep.equal(["zone « Plafond »"]);
+    expect(report.warnings.map((w) => w.kind)).to.deep.equal(["nowhere"]);
+    // a reachable zone: nothing to say
+    t.place("z", { shape: "fixe", at: { zone: "cour" } });
+    expect(t.show.pathReport(t.show.looks.get("z")!)!.warnings).to.deep.equal([]);
+    // a look on a target or a named position is not checked here
+    t.place("z", { shape: "fixe", at: { target: "x" } });
+    expect(t.show.pathReport(t.show.looks.get("z")!)).to.equal(undefined);
+  });
+
+  it("pathReport reads the trip's time from the step and its travel part", () => {
+    const t = setup();
+    t.show.rules.put({ id: "lent", name: "Lent", level: "show", scope: { fixture: "spot16" }, target: {}, maxDegPerSecond: 60, locked: false } as never);
+    t.place("p", loop3({ travel: 1 }));
+    const slow = t.show.pathReport(t.show.looks.get("p")!)!.warnings.length;
+    t.place("p", loop3({ travel: 0.1 }));
+    const fast = t.show.pathReport(t.show.looks.get("p")!)!.warnings.length;
+    expect(fast).to.be.greaterThan(slow);
+  });
+
+  it("speedLimits takes the slowest rule that applies, and the output is bounded by it (applySpeeds)", () => {
+    const t = setup();
+    const rule = (id: string, deg: number, scope: object) => t.show.rules.put({ id, name: id, level: "show", scope, target: {}, maxDegPerSecond: deg, locked: false } as never);
+    rule("vif", 90, { fixture: "spot16" });
+    rule("lent", 30, { fixture: "spot16" });
+    rule("autre", 5, { fixture: "spot8" });
+    const r = t.venue.resolve("spot16") as ResolvedFixture;
+    expect(speedLimits(t.show.rulesInForce(), r)).to.deep.equal({ pan: { degPerSecond: 30, rule: "lent" }, tilt: { degPerSecond: 30, rule: "lent" } });
+    t.place("a", { shape: "fixe", center: { pan: 0.2, tilt: 0.5 }, fade: { seconds: 0 } });
+    t.place("b", { shape: "fixe", center: { pan: 0.8, tilt: 0.5 }, fade: { seconds: 0 } });
+    t.show.go("a");
+    t.run(3000);
+    t.show.go("b");
+    const frames = t.run(1000);
+    const perSecond = (steepest(frames, "spot16") * 540) / 0.02;
+    expect(perSecond).to.be.closeTo(30, 1.5);
   });
 
   it("references: a zone, a named position or a target cited by a path (or a look aimed at a zone) is in use", () => {

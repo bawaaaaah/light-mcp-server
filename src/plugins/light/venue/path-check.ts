@@ -1,16 +1,19 @@
 /**
- * What a look's path will do on the stage, said ahead (T28; docs/specs/engine-effects-timing.md, « Parcours »): at save
- * (look.put), in the look editor (look.preview) and in « Vérifier le show ». Pure: the caller resolves each stop for each
- * head (the render's own resolution, `pathStopAt`) and gives the speed limits that apply and the closed no-aim zones.
+ * What a look's path (or its zone, a one-stop path) will do on the stage, said ahead (T28;
+ * docs/specs/engine-effects-timing.md, « Parcours »): at save (look.put), in the look editor (look.preview) and in
+ * « Vérifier le show ». Pure: the caller resolves each stop for each head (the render's own resolution, `pathStopAt`) and
+ * gives the speed limits that apply and the closed no-aim zones.
  *
- * - **Unreachable stops**: a head that cannot go to a stop holds where it is for the steps that lead there or leave it.
+ * - **Unreachable stops**: a head that cannot go to a stop holds where it is for the steps that lead there or leave it;
+ *   the cause is said head by head.
  * - **Speed** (`maxDegPerSecond`), per head and per axis: the degrees of each trip (|Δ| × travel of that axis) against
  *   the slowest rule that applies to that head, over the trip's time (`every × travel`, at the current tempo for a
  *   cadence in beats); said only where a rule applies — the head will arrive late, the rule bounds its output anyway.
- * - **No-aim zones**: a trip whose beam crosses a closed no-aim zone (16 points along the pan/tilt interpolation, the
- *   guard's own test) darkens the head while it crosses (the guard never steers, decision of 2026-10-17).
+ * - **No-aim zones**: a stop whose beam lands in a closed no-aim zone keeps the head dark while it rests there; a trip
+ *   whose beam crosses one (sampled every degree or so along the pan/tilt interpolation, the guard's own test) darkens
+ *   it while it crosses. Every zone is said, the guard never steers (decision of 2026-10-17).
  */
-import { say } from "../../../core/lang.js";
+import { lang, say } from "../../../core/lang.js";
 import { pathPosition, travelPairs, type Path, type StopPosition } from "../engine/path.js";
 import type { Position } from "../engine/move.js";
 import { pointing, type AimSetup } from "./aim.js";
@@ -25,7 +28,7 @@ export interface PathHead {
   tiltMax: number;
   /** Where it is and how it points (absent: no stage position, the no-aim check is skipped for it). */
   setup?: AimSetup | undefined;
-  /** Each stop of the path for this head, in order (`resolveStops`). */
+  /** Each stop of the path for this head, in order (`pathStopAt`). */
   stops: readonly StopPosition[];
   /** The slowest `maxDegPerSecond` that applies to each axis (`speedLimits`); an axis absent: no rule. */
   speed?: { pan?: number | undefined; tilt?: number | undefined };
@@ -38,13 +41,13 @@ export interface PathCheckInput {
   travelSeconds: number;
   /** The closed no-aim zones (those the look does not open). */
   noAim: readonly Zone[];
-  /** How a stop is named in a message (« zone « Avant-scène » », « point (1, 2, 0) »…), by index. */
+  /** How a stop is named in a message (« zone « Avant-scène » », « point (1 ; 2 ; 0) »…), by index. */
   stopName: (index: number) => string;
   /** The tempo a cadence in beats was timed at, said in the speed warning (absent: a cadence in seconds). */
   bpm?: number;
 }
 
-export type PathWarningKind = "unreachable" | "nowhere" | "speed" | "noAim";
+export type PathWarningKind = "unreachable" | "nowhere" | "speed" | "noAim" | "noAimStop";
 export interface PathWarning {
   kind: PathWarningKind;
   message: string;
@@ -55,36 +58,44 @@ export interface PathWarning {
   zone?: string;
 }
 
-/** Points sampled along a trip for the no-aim test, ends included. */
-export const NO_AIM_SAMPLES = 16;
+/** Points sampled along a trip for the no-aim test: one per this many degrees of the longer axis, between the bounds. */
+export const NO_AIM_STEP_DEG = 1.5;
+export const NO_AIM_MIN_SAMPLES = 16;
+export const NO_AIM_MAX_SAMPLES = 400;
 
 const placed = (p: StopPosition): p is Position => !("error" in p);
-const round = (v: number) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10);
+/** A number as the request's language writes it: a decimal comma in French, one decimal below 100. */
+export const num = (v: number): string => {
+  const r = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+  return lang() === "en" ? String(r) : String(r).replace(".", ",");
+};
+
+/** How many points a trip from `a` to `b` is sampled at for the no-aim test (ends excluded by the caller). */
+export function tripSamples(h: Pick<PathHead, "panMax" | "tiltMax">, a: Position, b: Position): number {
+  const deg = Math.max(Math.abs(b.pan - a.pan) * h.panMax, Math.abs(b.tilt - a.tilt) * h.tiltMax);
+  return Math.min(NO_AIM_MAX_SAMPLES, Math.max(NO_AIM_MIN_SAMPLES, Math.ceil(deg / NO_AIM_STEP_DEG)));
+}
+
+/** The no-aim zones a head's beam falls into at `p`. */
+const zonesAt = (h: PathHead, p: Position, noAim: readonly Zone[]): Zone[] => noAim.filter((z) => beamCrosses(h.setup!.position, pointing(h.setup!, p), z));
 
 /** Every warning for a path, in a stable order: stops, then speed, then no-aim zones. */
 export function checkPath(input: PathCheckInput): PathWarning[] {
   const { path, heads, noAim, stopName } = input;
   const out: PathWarning[] = [];
-  const names = (ids: readonly string[]) => ids.map((id) => heads.find((h) => h.id === id)?.name ?? id).join(", ");
-  // stops nobody, or not every head, can reach
+  // stops nobody, or not every head, can reach: the cause head by head
   path.stops.forEach((_, i) => {
     const failing = heads.filter((h) => h.stops[i] && !placed(h.stops[i]!));
     if (!failing.length) return;
-    const why = [...new Set(failing.map((h) => (h.stops[i] as { error: string }).error))].join(" ; ");
+    const why = failing.map((h) => `${h.name} : ${(h.stops[i] as { error: string }).error}`).join(" ; ");
+    const whyEn = failing.map((h) => `${h.name}: ${(h.stops[i] as { error: string }).error}`).join("; ");
+    const many = failing.length > 1;
+    const holds = say(many ? "elles restent en place" : "elle reste en place", many ? "they hold" : "it holds");
+    const where = say(`l'arrêt ${i + 1} (${stopName(i)})`, `stop ${i + 1} (${stopName(i)})`);
+    const when = say("pendant les pas qui y mènent ou en partent", "during the steps that lead there or leave it");
     if (failing.length === heads.length)
-      out.push({
-        kind: "nowhere",
-        stops: [i],
-        heads: failing.map((h) => h.id),
-        message: say(`l'arrêt ${i + 1} (${stopName(i)}) n'est atteint par aucune lyre (${why}) : elles restent en place pendant les pas qui y mènent ou en partent`, `stop ${i + 1} (${stopName(i)}) is reached by no head (${why}): they hold during the steps that lead there or leave it`),
-      });
-    else
-      out.push({
-        kind: "unreachable",
-        stops: [i],
-        heads: failing.map((h) => h.id),
-        message: say(`l'arrêt ${i + 1} (${stopName(i)}) est hors d'atteinte de ${names(failing.map((h) => h.id))} (${why}) : elles restent en place pendant les pas qui y mènent ou en partent`, `stop ${i + 1} (${stopName(i)}) is out of reach of ${names(failing.map((h) => h.id))} (${why}): they hold during the steps that lead there or leave it`),
-      });
+      out.push({ kind: "nowhere", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} n'est atteint par aucune lyre — ${why} : ${holds} ${when}`, `${where} is reached by no head — ${whyEn}: ${holds} ${when}`) });
+    else out.push({ kind: "unreachable", stops: [i], heads: failing.map((h) => h.id), message: say(`${where} est hors d'atteinte — ${why} : ${holds} ${when}`, `${where} is out of reach — ${whyEn}: ${holds} ${when}`) });
   });
   const pairs = travelPairs(path);
   // speed, per head and per axis: the worst trip against the slowest rule that applies
@@ -104,50 +115,65 @@ export function checkPath(input: PathCheckInput): PathWarning[] {
       const needed = input.travelSeconds > 0 ? worst.deg / input.travelSeconds : Number.POSITIVE_INFINITY;
       if (needed <= limit * (1 + 1e-9)) continue;
       const trip = `${stopName(worst.pair[0])} → ${stopName(worst.pair[1])}`;
-      const axisFr = axis === "pan" ? "en pan" : "en tilt";
-      const tempo = input.bpm === undefined ? "" : say(` à ${round(input.bpm)} BPM`, ` at ${round(input.bpm)} BPM`);
-      const asks = Number.isFinite(needed) ? say(`demande ${round(needed)}°/s ${axisFr}${tempo}`, `needs ${round(needed)}°/s in ${axis}${tempo}`) : say(`est instantané (trajet 0) : ${round(worst.deg)}° ${axisFr}`, `is instant (no travel time): ${round(worst.deg)}° in ${axis}`);
+      const tempo = input.bpm === undefined ? "" : say(` à ${num(input.bpm)} BPM`, ` at ${num(input.bpm)} BPM`);
+      const asks = Number.isFinite(needed)
+        ? say(`demande ${num(needed)} °/s en ${axis}${tempo}`, `needs ${num(needed)} °/s in ${axis}${tempo}`)
+        : say(`est instantané (trajet de 0 s) : ${num(worst.deg)}° en ${axis} d'un coup`, `is instant (no travel time): ${num(worst.deg)}° in ${axis} at once`);
       out.push({
         kind: "speed",
         stops: [...worst.pair],
         heads: [h.id],
-        message: say(`${h.name} : le trajet ${trip} ${asks}, la règle en permet ${round(limit)} : la lyre arrivera en retard`, `${h.name}: the trip ${trip} ${asks}, the rule allows ${round(limit)}: the head will arrive late`),
+        message: say(`${h.name} : le trajet ${trip} ${asks}, la règle en permet ${num(limit)} °/s : la lyre arrivera en retard`, `${h.name}: the trip ${trip} ${asks}, the rule allows ${num(limit)} °/s: the head will arrive late`),
       });
     }
   }
-  // no-aim zones crossed: one warning per head and zone, its first trip named
-  if (noAim.length)
-    for (const h of heads) {
-      if (!h.setup) continue;
-      const crossed = new Map<string, { pair: [number, number]; count: number }>();
-      const trips: [number, number][] = pairs.length ? pairs : path.stops.length ? [[0, 0]] : [];
-      for (const pair of trips) {
-        const [a, b] = [h.stops[pair[0]], h.stops[pair[1]]];
-        if (!a || !b || !placed(a) || !placed(b)) continue;
-        const zone = noAim.find((z) => {
-          for (let k = 0; k < NO_AIM_SAMPLES; k++) if (beamCrosses(h.setup!.position, pointing(h.setup!, pathPosition(a, b, k / (NO_AIM_SAMPLES - 1))), z)) return true;
-          return false;
-        });
-        if (!zone) continue;
-        const seen = crossed.get(zone.id);
-        if (seen) seen.count++;
-        else crossed.set(zone.id, { pair, count: 1 });
-      }
-      for (const [zoneId, { pair, count }] of crossed) {
-        const zone = noAim.find((z) => z.id === zoneId)!;
-        const trip = pair[0] === pair[1] ? stopName(pair[0]) : `${stopName(pair[0])} → ${stopName(pair[1])}`;
-        const more = count > 1 ? say(` (et ${count - 1} autre${count > 2 ? "s" : ""} trajet${count > 2 ? "s" : ""})`, ` (and ${count - 1} other trip${count > 2 ? "s" : ""})`) : "";
+  if (!noAim.length) return out;
+  // no-aim zones: a stop landing in one (dark while it rests there), then the trips crossing one (dark while crossing)
+  for (const h of heads) {
+    if (!h.setup) continue;
+    const onStop = new Map<number, Zone[]>();
+    path.stops.forEach((_, i) => {
+      const p = h.stops[i];
+      if (!p || !placed(p)) return;
+      const zones = zonesAt(h, p, noAim);
+      if (zones.length) onStop.set(i, zones);
+      for (const z of zones)
         out.push({
-          kind: "noAim",
-          stops: [...new Set(pair)],
+          kind: "noAimStop",
+          stops: [i],
           heads: [h.id],
-          zone: zoneId,
-          message: say(
-            `le trajet ${trip}${more} éteindra ${h.name} le temps de la traversée de « ${zone.name} » (zone interdite aux lyres)`,
-            `the trip ${trip}${more} will darken ${h.name} while it crosses “${zone.name}” (no-aim zone)`,
-          ),
+          zone: z.id,
+          message: say(`l'arrêt ${i + 1} (${stopName(i)}) vise « ${z.name} » pour ${h.name} : elle y restera éteinte (zone interdite aux lyres)`, `stop ${i + 1} (${stopName(i)}) aims ${h.name} into “${z.name}”: it will stay dark there (no-aim zone)`),
         });
+    });
+    const crossed = new Map<string, { pair: [number, number]; count: number }>();
+    for (const pair of pairs) {
+      const [a, b] = [h.stops[pair[0]], h.stops[pair[1]]];
+      if (!a || !b || !placed(a) || !placed(b)) continue;
+      // the ends are the stops' own (said above): only the points between them
+      const n = tripSamples(h, a, b);
+      const hit = new Set<Zone>();
+      for (let k = 1; k < n; k++) for (const z of zonesAt(h, pathPosition(a, b, k / n), noAim)) hit.add(z);
+      for (const z of hit) {
+        // a zone an end already lands in is no crossing of its own
+        if (onStop.get(pair[0])?.includes(z) || onStop.get(pair[1])?.includes(z)) continue;
+        const seen = crossed.get(z.id);
+        if (seen) seen.count++;
+        else crossed.set(z.id, { pair, count: 1 });
       }
     }
+    for (const [zoneId, { pair, count }] of crossed) {
+      const zone = noAim.find((z) => z.id === zoneId)!;
+      const trip = `${stopName(pair[0])} → ${stopName(pair[1])}`;
+      const more = count > 1 ? say(` (et ${count - 1} autre${count > 2 ? "s" : ""} trajet${count > 2 ? "s" : ""})`, ` (and ${count - 1} other trip${count > 2 ? "s" : ""})`) : "";
+      out.push({
+        kind: "noAim",
+        stops: [...pair],
+        heads: [h.id],
+        zone: zoneId,
+        message: say(`le trajet ${trip}${more} éteindra ${h.name} le temps de la traversée de « ${zone.name} » (zone interdite aux lyres)`, `the trip ${trip}${more} will darken ${h.name} while it crosses “${zone.name}” (no-aim zone)`),
+      });
+    }
+  }
   return out;
 }

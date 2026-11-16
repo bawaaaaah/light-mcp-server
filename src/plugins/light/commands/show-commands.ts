@@ -1091,6 +1091,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (!zone) return { deleted: false, usedBy: [] };
       const others = force ? [] : sharedWithOrRefuse(i, zone.name, "zone");
       const usedBy = removable("zone", i, zone.name, force, others);
+      if (usedBy.length) show.rememberGoneName("zone", i, zone.name);
       const deleted = show.zones.delete(i);
       // forced: what named it now names a zone that no longer exists (a rule stops applying, a mapping fails): said
       const warning = deleted && usedBy.length ? say(`« ${zone.name} » supprimée : ces endroits nomment maintenant une zone qui n'existe plus, à corriger : ${usedBy.join(", ")}`, `“${zone.name}” deleted: these places now name a zone that no longer exists, to be fixed: ${usedBy.join(", ")}`) : undefined;
