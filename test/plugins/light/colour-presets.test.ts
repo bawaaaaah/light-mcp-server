@@ -396,11 +396,14 @@ describe("colour presets (T41)", () => {
       // m4: white LED only, on fixtures without one: left out, said
       const w = await failure(run("colour.apply", { color: "#000000+w255", fixtures: ["par"] }));
       expect(w.message).to.match(/LED blanche/);
-      // m6: released and its fade over, the entry leaves the table
+      // m6: released and its fade over, nothing is held any more and the look shows its own colour again
       await run("colour.release", { fade: 0.2 });
       during(400);
       expect(plugin.runtime.heldColours()).to.deep.equal({});
-      expect((plugin.runtime as unknown as { colours: { size: number } }).colours.size).to.equal(0);
+      // under the Blackout the first Panic left: the show's own frame says it, the look's red alone
+      const frame = new Uint8Array(512);
+      plugin.runtime.render([frame]);
+      expect([...frame.slice(0, 3)]).to.deep.equal([255, 0, 0]);
     });
 
     it("asks the right to launch a look to apply or give back a colour", async () => {

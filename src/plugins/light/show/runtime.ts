@@ -46,8 +46,6 @@ export type SnapshotLockMode = "exact" | "harden";
 /** How long a Panic stays undoable. */
 export const PANIC_UNDO_MS = 60_000;
 
-export type { TempoSource } from "./runtime-pure.js";
-export { dcaLevel } from "./dca.js";
 
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
 const STRICT_FRAME_MS = 23;
@@ -1718,7 +1716,7 @@ export class ShowRuntime {
     frame.raw = pass.lookChannels;
     // a fixture with tracks stacks its looks as they were launched: one leaving keeps its place while it fades
     for (const layers of frame.tracks.values()) layers.sort((a, b) => pass.ranks.get(a)! - pass.ranks.get(b)!);
-    // and is lit at rest where a channel fader holds one of its colours up (the pass below): its dimmer then composes
+    // and is lit at rest where a channel fader holds one of its colours up (applyChannelFaders): its dimmer then composes
     // from full, not from black, or that colour would go dark when a look comes in (venue/tracks.ts composeTracks)
     if (pass.trackFixtures.size)
       for (const fader of this.faders.list()) {

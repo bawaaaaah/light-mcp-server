@@ -5,7 +5,7 @@
  * Q4 of 2026-11-11). One mechanism for every scope: each head's effective level is the stricter of the global lock and
  * its own; a group is expanded into its heads when it is locked, there is no « locked group » state.
  *
- * Pure: the schemas and the level of a head. The runtime (show/runtime.ts) plugs `lockOf` into the motion layer.
+ * Pure: the schemas and the level of a head. The runtime plugs `lockOf` into its `motionLock` hook (show/runtime.ts), which the motion layer (show/motion-controller.ts) and the frozen heads (show/frozen-heads.ts) read.
  */
 import { z } from "zod";
 import { RestPositionSchema, type Position } from "../engine/move.js";

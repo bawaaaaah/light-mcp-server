@@ -1019,7 +1019,7 @@ export class Venue {
         // light: its dimmer when it doses itself by it, its colours otherwise (as its weight does).
         const classOf = (look: string) => ({ byColour: byColour.has(look), byDimmer: byDimmer.has(look) });
         // A head the frame places is placed by the motion layer alone (T25): a look's raw pan/tilt reached it as a
-        // claim of that layer (show/runtime.ts), so the bytes are not written here — the look is still classed above.
+        // claim of that layer (show/motion-controller.ts), so the bytes are not written here — the look is still classed above.
         const placed = frame.positions.has(patch.id) ? motionOffsets(r) : undefined;
         const dose = (writes: RawWrite[], channel: "dimmer" | "colour", by: number): RawWrite[] =>
           writes.map((x) => {

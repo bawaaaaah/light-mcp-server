@@ -110,7 +110,7 @@ export interface HeadMotionEntry {
   motion: HeadMotion | null;
 }
 
-/** What the report needs of the runtime (show/runtime.ts). */
+/** What the report needs of the runtime (ShowRuntime, show/runtime.ts, which hands it on from show/motion-controller.ts). */
 export interface MotionSource {
   movingHeads(): string[];
   motionStatus(): ReadonlyMap<string, HeadStatus>;

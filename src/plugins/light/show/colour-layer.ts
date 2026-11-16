@@ -25,11 +25,6 @@ export class ColourLayer {
 
   constructor(private readonly host: ColourHost) {}
 
-  /** The entries kept, those still fading back to the looks included. */
-  get size(): number {
-    return this.manualColours.size;
-  }
-
   /**
    * Applies a colour by hand to fixtures (the manual colour layer): it replaces the colour the looks paint there, at
    * the brightness they paint it, fading from what showed (`fadeMs`) — until `release`, the Panic or a new look on
