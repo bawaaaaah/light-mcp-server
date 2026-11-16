@@ -42,6 +42,11 @@ Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes du
 - 2 464 lignes, 98 commandes de 18 domaines (26 `venue.`, 14 `show.`, 10 `look.`…).
 - **À faire** : un fichier par domaine (`venue-commands`, `look-commands`, `group-commands`, `stage-commands`…). Facultatif ensuite : `web/src/i18n.ts` (3 796 lignes) par page, le câblage du constructeur de `light-plugin.ts`.
 
+### T51 — Stabiliser les tests UI qui échouent sous charge (relevé le 2026-11-16)
+- `test/ui/library.spec.ts` (l. 34, 188, 226) : machine chargée, Maj+F10 n'ouvre pas le menu de la ligne ; le premier test laisse une copie derrière lui et fait échouer les deux suivants (deux boutons « Actions sur … »). Verts seuls (32/32).
+- `test/ui/app.spec.ts` (« a group list answer that lands late does not rewrite the fader », vers la l. 1460) : échoue parfois sur une réponse tardive de la liste des groupes. Vert seul.
+- **À faire** : chaque test nettoie ce qu'il crée (ou part d'un show neuf), attend l'état réel au lieu d'un délai, et la suite complète passe deux fois de suite pendant qu'une autre suite tourne.
+
 ## 🔴 Fiabilité de la sortie et du moteur
 
 ### T1 — Flashs sur la sortie DMX USB après un certain temps
