@@ -368,7 +368,8 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     if (!zone) throw new Error(say("zone ou point requis", "zone or point required"));
     const zn = show.zones.get(zone);
     if (!zn) throw new Error(say(`zone inconnue : ${zone}`, `unknown zone: ${zone}`));
-    return zoneAimPoint(zn, height);
+    // the zone's geometric centre, never its placed aiming point (decision Z1): the mark is measured where it is drawn
+    return zoneAimPoint({ polygon: zn.polygon, floorHeight: zn.floorHeight }, height);
   };
   /**
    * Where a head aimed by hand really points: the logical position sent, read on the next frame, once it is sure the
@@ -421,7 +422,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "calibration.record",
     title: "Enregistrer un repère",
     description:
-      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's centre on its floor, or a point {x,y,z} in metres — records that spot with the position really sent to the head, read on the next frame. Refused while the head is frozen hard (motion.freeze), while a look or a target holds the head, while it glides, while it has not reached the position asked by hand (a speed rule, the DMX console or a fader on pan/tilt), and when no frame is rendered (output stopped).",
+      "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's geometric centre on its floor (never its placed aiming point; for a concave zone, a point inside it), or a point {x,y,z} in metres — records that spot with the position really sent to the head, read on the next frame. Refused while the head is frozen hard (motion.freeze), while a look or a target holds the head, while it glides, while it has not reached the position asked by hand (a speed rule, the DMX console or a fader on pan/tilt), and when no frame is rendered (output stopped).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0) }),
@@ -481,7 +482,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     name: "calibration.correct",
     title: "Corriger sur un repère",
     description:
-      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's centre at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and keeps the held position when it already points at the spot with the new offsets, else aims the head at the spot again from where it is held (the same solution, never a half turn, the stops left to the output): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
+      "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's geometric centre (never its placed aiming point; for a concave zone, a point inside it) at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and keeps the held position when it already points at the spot with the new offsets, else aims the head at the spot again from where it is held (the same solution, never a half turn, the stops left to the output): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ fixture: z.string(), zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().default(0), apply: z.boolean().default(false) }),

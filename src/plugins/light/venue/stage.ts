@@ -12,6 +12,8 @@ import { facingText } from "./orientation.js";
 import { say } from "../../../core/lang.js";
 
 const XY = z.tuple([z.number(), z.number()]);
+/** How far from the stage's origin a placed aiming point may be (metres): further is a typo, not a room. */
+export const AIM_POINT_REACH = 1000;
 
 /**
  * A zone the moving heads can be sent to (T27, « zone de visée »): the point they aim at and its height. Any zone can be
@@ -20,10 +22,13 @@ const XY = z.tuple([z.number(), z.number()]);
 export const ZoneAimSchema = z.object({
   /** Metres above the zone's floor (1.5: a standing person's face). */
   height: z.number().min(0).max(20).default(1.5),
-  /** The point aimed at, X/Y; absent: the centre of the zone's surface (its centroid). */
-  point: XY.optional(),
-  /** Its colour on the plan and the pads (#rrggbb). */
-  color: z.string().optional(),
+  /** The point aimed at, X/Y (it may lie outside the zone); absent: the zone's centre (`zoneCentre`). */
+  point: z.tuple([z.number().min(-AIM_POINT_REACH).max(AIM_POINT_REACH), z.number().min(-AIM_POINT_REACH).max(AIM_POINT_REACH)]).optional(),
+  /** Its colour on the plan and the pads (#rrggbb): drawn as is, so nothing else. */
+  color: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i, "#rrggbb")
+    .optional(),
 });
 export type ZoneAim = z.infer<typeof ZoneAimSchema>;
 
@@ -65,7 +70,7 @@ export const ZoneSchema = z.object({
 });
 export type Zone = z.infer<typeof ZoneSchema>;
 
-export function pointInPolygon(x: number, y: number, poly: [number, number][]): boolean {
+export function pointInPolygon(x: number, y: number, poly: readonly (readonly [number, number])[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!;
@@ -103,7 +108,10 @@ export function beamCrosses(o: Vec, d: Vec, zone: Zone, height = 2.5): boolean {
 type XYPoint = [number, number];
 /** Corners of an ellipse stored as a polygon: fine enough at the scale of a stage. */
 export const ELLIPSE_POINTS = 32;
-/** The smallest surface a zone may have (m²): a thinner one would fool the beams' crossing test. */
+/**
+ * The smallest surface a zone may have (m²): below it, a zone is a slip of the hand. It is no minimum width: a thin
+ * strip (a long 2 cm line) passes, and the beams' crossing test (`beamCrosses`, every 10 cm) may step over it.
+ */
 export const MIN_ZONE_AREA = 0.01;
 const cm = (v: number) => Math.round(v * 100) / 100;
 
@@ -122,7 +130,7 @@ export function polygonArea(poly: readonly XYPoint[]): number {
 /** The centre of a polygon's surface (shoelace centroid); the mean of its corners when it has no surface. */
 export function centroid(poly: readonly XYPoint[]): { x: number; y: number } {
   const a = doubleArea(poly);
-  if (Math.abs(a) < 1e-9) return { x: poly.reduce((s, p) => s + p[0], 0) / poly.length, y: poly.reduce((s, p) => s + p[1], 0) / poly.length };
+  if (Math.abs(a) < 1e-9) return meanOf(poly);
   let cx = 0;
   let cy = 0;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -133,6 +141,95 @@ export function centroid(poly: readonly XYPoint[]): { x: number; y: number } {
     cy += (yj + yi) * k;
   }
   return { x: cx / (3 * a), y: cy / (3 * a) };
+}
+
+/** The mean of a polygon's corners. */
+function meanOf(poly: readonly XYPoint[]): { x: number; y: number } {
+  return { x: poly.reduce((s, p) => s + p[0], 0) / poly.length, y: poly.reduce((s, p) => s + p[1], 0) / poly.length };
+}
+
+/** How far (x, y) lies from a polygon's outline: positive inside, negative outside. */
+function signedDistance(x: number, y: number, poly: readonly XYPoint[]): number {
+  let min = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ax, ay] = poly[j]!;
+    const [dx, dy] = [poly[i]![0] - ax, poly[i]![1] - ay];
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0;
+    min = Math.min(min, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return pointInPolygon(x, y, poly) ? min : -min;
+}
+
+/**
+ * The point inside a polygon farthest from its outline (its « pole of inaccessibility », as polylabel finds it: cells
+ * of the bounding box split while one may still hold a farther point), to `precision` metres, rounded to the centimetre.
+ */
+export function poleOfInaccessibility(poly: readonly XYPoint[], precision = 0.01): { x: number; y: number } {
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const [w, h] = [maxX - minX, maxY - minY];
+  // the first cells: as wide as the polygon is thin, never more than 64 along its length
+  const size = Math.max(Math.min(w, h), Math.max(w, h) / 64);
+  if (!(size > 0)) return meanOf(poly);
+  type Cell = { x: number; y: number; half: number; d: number; max: number };
+  const cell = (x: number, y: number, half: number): Cell => {
+    const d = signedDistance(x, y, poly);
+    return { x, y, half, d, max: d + half * Math.SQRT2 };
+  };
+  const queue: Cell[] = [];
+  for (let x = minX; x < maxX; x += size) for (let y = minY; y < maxY; y += size) queue.push(cell(x + size / 2, y + size / 2, size / 2));
+  let best = cell(minX + w / 2, minY + h / 2, 0);
+  while (queue.length) {
+    // the cell that may hold the farthest point: once even it cannot beat the best by `precision`, none can
+    let k = 0;
+    for (let i = 1; i < queue.length; i++) if (queue[i]!.max > queue[k]!.max) k = i;
+    const c = queue.splice(k, 1)[0]!;
+    if (c.d > best.d) best = c;
+    if (c.max - best.d <= precision) break;
+    const half = c.half / 2;
+    queue.push(cell(c.x - half, c.y - half, half), cell(c.x + half, c.y - half, half), cell(c.x - half, c.y + half, half), cell(c.x + half, c.y + half, half));
+  }
+  return { x: cm(best.x), y: cm(best.y) };
+}
+
+/**
+ * A zone's centre, the point it is aimed at by default (T27, decisions Z1 and Z2): the centre of its surface (centroid)
+ * when it lies inside; for a concave zone whose centroid falls outside (a U, a thin L), the point inside nearest it,
+ * well away from the edges (`centreInside`); for an outline that crosses itself (an old zone, stored before the check)
+ * or a centroid outside its box, the mean of its corners.
+ */
+export function zoneCentre(poly: readonly XYPoint[]): { x: number; y: number } {
+  const c = centroid(poly);
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  if (!isSimplePolygon(poly) || c.x < Math.min(...xs) || c.x > Math.max(...xs) || c.y < Math.min(...ys) || c.y > Math.max(...ys)) return meanOf(poly);
+  return pointInPolygon(c.x, c.y, poly) ? c : centreInside(poly, c);
+}
+
+/**
+ * The point inside a polygon nearest its centroid `c` while at least half as deep as its deepest point (the pole of
+ * inaccessibility): the middle of a U's bar, not one of its corners. On a grid of 200 steps along its length.
+ */
+function centreInside(poly: readonly XYPoint[], c: { x: number; y: number }): { x: number; y: number } {
+  const pole = poleOfInaccessibility(poly);
+  const deep = signedDistance(pole.x, pole.y, poly) / 2;
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  const [minX, minY] = [Math.min(...xs), Math.min(...ys)];
+  const step = Math.max(Math.max(...xs) - minX, Math.max(...ys) - minY) / 200;
+  let best = pole;
+  let bestGap = Math.hypot(pole.x - c.x, pole.y - c.y);
+  if (!(step > 0 && deep > 0)) return best;
+  for (let i = 0; minX + i * step <= Math.max(...xs); i++) {
+    for (let j = 0; minY + j * step <= Math.max(...ys); j++) {
+      const [x, y] = [cm(minX + i * step), cm(minY + j * step)];
+      const gap = Math.hypot(x - c.x, y - c.y);
+      if (gap < bestGap && signedDistance(x, y, poly) >= deep) [best, bestGap] = [{ x, y }, gap];
+    }
+  }
+  return best;
 }
 
 /** An ellipse as a polygon of `n` corners to the centimetre, from its centre, half-axes and turn (degrees, counter-clockwise). */
@@ -206,12 +303,13 @@ export function zoneOutline(zone: Pick<Zone, "polygon" | "outline">): ZoneOutlin
 }
 
 /**
- * The point a zone is aimed at (T27): its own aiming point, else the centre of its surface (a rectangle's centre),
+ * The point a zone is aimed at (T27): its own aiming point, else its centre (`zoneCentre`: a rectangle's centre),
  * `height` metres above its floor — given, else the zone's aiming height, else 1.5 (a standing person's face). Shared
- * by position.aim, calibration.record / correct (which pass their own height, 0 by default) and target.zone (T24).
+ * by position.aim and target.zone (T24); calibration.record / correct pass the zone without its aiming part (they
+ * measure on its centre, decision Z1) and their own height, 0 by default.
  */
 export function zoneAimPoint(zone: Pick<Zone, "polygon" | "floorHeight"> & { aim?: Pick<ZoneAim, "point" | "height"> | undefined }, height?: number): Vec {
-  const c = zone.aim?.point ? { x: zone.aim.point[0], y: zone.aim.point[1] } : centroid(zone.polygon);
+  const c = zone.aim?.point ? { x: zone.aim.point[0], y: zone.aim.point[1] } : zoneCentre(zone.polygon);
   return { x: c.x, y: c.y, z: zone.floorHeight + (height ?? zone.aim?.height ?? 1.5) };
 }
 
@@ -261,6 +359,13 @@ export function queryStage(fixtures: PatchedFixture[], zones: Zone[], q: StageQu
   return out;
 }
 
+/** An aiming zone in words (T27): what position.aim {zone} aims at. */
+function aimText(zone: Zone): string {
+  if (!zone.aim) return "";
+  const p = zoneAimPoint(zone);
+  return `, zone de visée : vise ${zone.aim.point ? "son point placé" : "son centre"} (${cm(p.x)} ; ${cm(p.y)}) à ${zone.aim.height} m au-dessus de son plancher`;
+}
+
 /** Plain-French description of the stage, for the AI (light://stage). */
 export function describeStage(fixtures: PatchedFixture[], zones: Zone[]): string {
   const lines: string[] = [];
@@ -268,7 +373,7 @@ export function describeStage(fixtures: PatchedFixture[], zones: Zone[]): string
     const inside = fixtures.filter((f) => zoneOf(f, zones)?.id === zone.id);
     const aiming = fixtures.filter((f) => f.target === zone.id);
     lines.push(
-      `Zone « ${zone.name} » (${zone.type}${zone.floorHeight ? `, plancher à ${zone.floorHeight} m` : ""}${zone.protected ? ", PROTÉGÉE" : ""}${zone.tags.length ? `, ${zone.tags.join(", ")}` : ""}) : ` +
+      `Zone « ${zone.name} » (${zone.type}${zone.floorHeight ? `, plancher à ${zone.floorHeight} m` : ""}${zone.protected ? ", PROTÉGÉE" : ""}${zone.noAim ? ", INTERDITE AUX LYRES" : ""}${zone.tags.length ? `, ${zone.tags.join(", ")}` : ""}${aimText(zone)}) : ` +
         `${inside.length ? `contient ${inside.map((f) => f.name).join(", ")}` : "aucun projecteur dedans"}; ` +
         `${aiming.length ? `éclairée par ${aiming.map((f) => `${f.name}${f.role ? ` (${f.role})` : ""}`).join(", ")}` : "aucun projecteur ne la vise"}.`,
     );

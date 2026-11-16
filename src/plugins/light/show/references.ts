@@ -23,7 +23,7 @@ const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["grou
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
   faders: { id: string; name: string; dca?: string; channels?: { fixture: string }[] }[];
-  mappings: { id: string; label?: string; on: { command: string; args: Record<string, unknown> } }[];
+  mappings: { id: string; label?: string; on: { command: string; args: Record<string, unknown> }; off?: { command: string; args: Record<string, unknown> } }[];
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown>; targets?: Record<string, unknown> }[];
   /** The looks play on a canvas (`look.canvas`); a move may follow a target (`move.at.target`, T24). */
@@ -81,7 +81,8 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
     (kind === "fixture" && (args.fixture === id || (Array.isArray(args.fixtures) && args.fixtures.includes(id)))) ||
     // a zone is named by `zone` (position.aim, target.zone, calibration.record…), whatever the command
     (kind === "zone" && args.zone === id);
-  for (const m of show.mappings) if (named(m.on.command, m.on.args)) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
+  // a button's release (`off`) names things too
+  for (const m of show.mappings) if (named(m.on.command, m.on.args) || (m.off !== undefined && named(m.off.command, m.off.args))) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
     const inIt =
@@ -132,10 +133,13 @@ export function intentionUsesByKey(show: Pick<ShowParts, "songs" | "looks">, key
   return uses;
 }
 
-/** The refusal of a delete: what still uses the object, and how to delete it anyway. */
+/** The refusal of a delete: what still uses the object, and how to delete it anyway (a zone is said in the feminine). */
 export function inUseMessage(name: string, uses: string[], sharedWith: string[] = [], what: "fixture" | "zone" = "fixture"): string {
-  const lost = what === "zone" ? say("cette zone", "this zone") : say("cet appareil", "this fixture");
-  if (!uses.length) return say(`« ${name} » appartient à un lieu partagé avec d'autres shows (${sharedWith.join(", ")}) : le supprimer le supprime aussi pour eux. Le supprimer quand même : force: true`, `“${name}” belongs to a venue shared with other shows (${sharedWith.join(", ")}): deleting it deletes it for them too. Delete it anyway: force: true`);
+  const zone = what === "zone";
+  const lost = zone ? say("cette zone", "this zone") : say("cet appareil", "this fixture");
+  const it = zone ? "la" : "le";
+  const It = zone ? "La" : "Le";
+  if (!uses.length) return say(`« ${name} » appartient à un lieu partagé avec d'autres shows (${sharedWith.join(", ")}) : ${it} supprimer ${it} supprime aussi pour eux. ${It} supprimer quand même : force: true`, `“${name}” belongs to a venue shared with other shows (${sharedWith.join(", ")}): deleting it deletes it for them too. Delete it anyway: force: true`);
   const shown = uses.slice(0, 6).join(", ");
-  return say(`« ${name} » est encore utilisé : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. Le supprimer quand même : force: true`, `“${name}” is still used: ${shown}${uses.length > 6 ? ` and ${uses.length - 6} more` : ""}. Delete it anyway: force: true`) + (sharedWith.length ? say(` Attention : ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), qui perdent aussi ${lost}.`, ` Warning: this venue is shared with other shows (${sharedWith.join(", ")}), which lose ${lost} too.`) : "");
+  return say(`« ${name} » est encore ${zone ? "utilisée" : "utilisé"} : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. ${It} supprimer quand même : force: true`, `“${name}” is still used: ${shown}${uses.length > 6 ? ` and ${uses.length - 6} more` : ""}. Delete it anyway: force: true`) + (sharedWith.length ? say(` Attention : ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), qui perdent aussi ${lost}.`, ` Warning: this venue is shared with other shows (${sharedWith.join(", ")}), which lose ${lost} too.`) : "");
 }

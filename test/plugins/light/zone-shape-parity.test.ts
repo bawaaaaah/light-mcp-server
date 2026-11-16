@@ -26,7 +26,45 @@ describe("zone shapes: the web copy agrees with the server (T27)", () => {
       expect(web.polygonArea(poly)).to.equal(server.polygonArea(poly));
       expect(web.centroid(poly)).to.deep.equal(server.centroid(poly));
       expect(web.validZone(poly)).to.equal(server.zoneShapeError(poly) === undefined);
+      expect(web.zoneCentre(poly)).to.deep.equal(server.zoneCentre(poly));
     });
+  });
+
+  it("agrees on concave and crossed zones' centres, and the plan's aiming point is the server's", () => {
+    const u: Pt[] = [[0, 0], [6, 0], [6, 4], [5, 4], [5, 1], [1, 1], [1, 4], [0, 4]];
+    const thinL: Pt[] = [[0, 0], [6, 0], [6, 0.5], [0.5, 0.5], [0.5, 6], [0, 6]];
+    const bow: Pt[] = [[0, 0], [4, 4], [4, 0], [0, 4.02]];
+    for (const polygon of [u, thinL, bow]) {
+      expect(web.zoneCentre(polygon)).to.deep.equal(server.zoneCentre(polygon));
+      for (const aim of [undefined, { height: 1.5 }, { height: 1, point: [2.5, -1] as Pt }]) {
+        const spot = web.aimSpot({ polygon, aim });
+        const p = server.zoneAimPoint({ polygon, floorHeight: 0, aim });
+        expect(spot).to.deep.equal({ x: p.x, y: p.y });
+      }
+    }
+  });
+
+  it("agrees on thousands of random outlines (fuzz: crossed, folded, flat, concave)", () => {
+    // a seeded generator: the same outlines on every run
+    let seed = 12345;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+    const ri = (a: number, b: number) => a + Math.floor(rnd() * (b - a + 1));
+    let disagreements = 0;
+    for (let k = 0; k < 4000; k++) {
+      const n = ri(3, 7);
+      const range = ri(2, 6);
+      const scale = [1, 10, 100, 37][ri(0, 3)]!;
+      const offset = [0, 1000, -2500][ri(0, 2)]!;
+      const poly = Array.from({ length: n }, () => [(ri(0, range) * scale + offset) / 100, (ri(0, range) * scale + offset) / 100] as Pt);
+      const same =
+        web.isSimplePolygon(poly) === server.isSimplePolygon(poly) &&
+        web.polygonArea(poly) === server.polygonArea(poly) &&
+        JSON.stringify(web.centroid(poly)) === JSON.stringify(server.centroid(poly)) &&
+        JSON.stringify(web.zoneCentre(poly)) === JSON.stringify(server.zoneCentre(poly)) &&
+        web.validZone(poly) === (server.zoneShapeError(poly) === undefined);
+      if (!same) disagreements++;
+    }
+    expect(disagreements).to.equal(0);
   });
 
   it("draws the same ellipses", () => {

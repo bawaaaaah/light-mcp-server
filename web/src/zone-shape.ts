@@ -50,6 +50,106 @@ function doubleArea(poly: readonly Pt[]): number {
   return a;
 }
 
+/** Whether (x, y) lies inside a polygon (even-odd rule): pointInPolygon of the server. */
+export function pointInPolygon(x: number, y: number, poly: readonly (readonly [number, number])[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]!;
+    const [xj, yj] = poly[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** The mean of a polygon's corners. */
+function meanOf(poly: readonly Pt[]): { x: number; y: number } {
+  return { x: poly.reduce((s, p) => s + p[0], 0) / poly.length, y: poly.reduce((s, p) => s + p[1], 0) / poly.length };
+}
+
+/** How far (x, y) lies from a polygon's outline: positive inside, negative outside. */
+function signedDistance(x: number, y: number, poly: readonly Pt[]): number {
+  let min = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ax, ay] = poly[j]!;
+    const [dx, dy] = [poly[i]![0] - ax, poly[i]![1] - ay];
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0;
+    min = Math.min(min, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return pointInPolygon(x, y, poly) ? min : -min;
+}
+
+/**
+ * The point inside a polygon farthest from its outline (its « pole of inaccessibility », as polylabel finds it: cells
+ * of the bounding box split while one may still hold a farther point), to `precision` metres, rounded to the centimetre.
+ */
+export function poleOfInaccessibility(poly: readonly Pt[], precision = 0.01): { x: number; y: number } {
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const [w, h] = [maxX - minX, maxY - minY];
+  // the first cells: as wide as the polygon is thin, never more than 64 along its length
+  const size = Math.max(Math.min(w, h), Math.max(w, h) / 64);
+  if (!(size > 0)) return meanOf(poly);
+  type Cell = { x: number; y: number; half: number; d: number; max: number };
+  const cell = (x: number, y: number, half: number): Cell => {
+    const d = signedDistance(x, y, poly);
+    return { x, y, half, d, max: d + half * Math.SQRT2 };
+  };
+  const queue: Cell[] = [];
+  for (let x = minX; x < maxX; x += size) for (let y = minY; y < maxY; y += size) queue.push(cell(x + size / 2, y + size / 2, size / 2));
+  let best = cell(minX + w / 2, minY + h / 2, 0);
+  while (queue.length) {
+    // the cell that may hold the farthest point: once even it cannot beat the best by `precision`, none can
+    let k = 0;
+    for (let i = 1; i < queue.length; i++) if (queue[i]!.max > queue[k]!.max) k = i;
+    const c = queue.splice(k, 1)[0]!;
+    if (c.d > best.d) best = c;
+    if (c.max - best.d <= precision) break;
+    const half = c.half / 2;
+    queue.push(cell(c.x - half, c.y - half, half), cell(c.x + half, c.y - half, half), cell(c.x - half, c.y + half, half), cell(c.x + half, c.y + half, half));
+  }
+  return { x: cm(best.x), y: cm(best.y) };
+}
+
+/**
+ * A zone's centre, the point it is aimed at by default (T27, decisions Z1 and Z2): the centre of its surface (centroid)
+ * when it lies inside; for a concave zone whose centroid falls outside (a U, a thin L), the point inside nearest it,
+ * well away from the edges (`centreInside`); for an outline that crosses itself (an old zone, stored before the check)
+ * or a centroid outside its box, the mean of its corners.
+ */
+export function zoneCentre(poly: readonly Pt[]): { x: number; y: number } {
+  const c = centroid(poly);
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  if (!isSimplePolygon(poly) || c.x < Math.min(...xs) || c.x > Math.max(...xs) || c.y < Math.min(...ys) || c.y > Math.max(...ys)) return meanOf(poly);
+  return pointInPolygon(c.x, c.y, poly) ? c : centreInside(poly, c);
+}
+
+/**
+ * The point inside a polygon nearest its centroid `c` while at least half as deep as its deepest point (the pole of
+ * inaccessibility): the middle of a U's bar, not one of its corners. On a grid of 200 steps along its length.
+ */
+function centreInside(poly: readonly Pt[], c: { x: number; y: number }): { x: number; y: number } {
+  const pole = poleOfInaccessibility(poly);
+  const deep = signedDistance(pole.x, pole.y, poly) / 2;
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  const [minX, minY] = [Math.min(...xs), Math.min(...ys)];
+  const step = Math.max(Math.max(...xs) - minX, Math.max(...ys) - minY) / 200;
+  let best = pole;
+  let bestGap = Math.hypot(pole.x - c.x, pole.y - c.y);
+  if (!(step > 0 && deep > 0)) return best;
+  for (let i = 0; minX + i * step <= Math.max(...xs); i++) {
+    for (let j = 0; minY + j * step <= Math.max(...ys); j++) {
+      const [x, y] = [cm(minX + i * step), cm(minY + j * step)];
+      const gap = Math.hypot(x - c.x, y - c.y);
+      if (gap < bestGap && signedDistance(x, y, poly) >= deep) [best, bestGap] = [{ x, y }, gap];
+    }
+  }
+  return best;
+}
+
 /** The surface of a polygon, m² (its corners in either order). */
 export function polygonArea(poly: readonly Pt[]): number {
   return Math.abs(doubleArea(poly)) / 2;
@@ -58,7 +158,7 @@ export function polygonArea(poly: readonly Pt[]): number {
 /** The centre of a polygon's surface (shoelace centroid); the mean of its corners when it has no surface. */
 export function centroid(poly: readonly Pt[]): { x: number; y: number } {
   const a = doubleArea(poly);
-  if (Math.abs(a) < 1e-9) return { x: poly.reduce((s, p) => s + p[0], 0) / poly.length, y: poly.reduce((s, p) => s + p[1], 0) / poly.length };
+  if (Math.abs(a) < 1e-9) return meanOf(poly);
   let cx = 0;
   let cy = 0;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -163,4 +263,9 @@ export function movedZone<Z extends { polygon: Pt[]; aim?: { height: number; poi
     ...(aim?.point ? { aim: { ...aim, point: [cm(aim.point[0] + dx), cm(aim.point[1] + dy)] as Pt } } : {}),
     ...(outline?.kind === "ellipse" ? { outline: { ...outline, cx: cm(outline.cx + dx), cy: cm(outline.cy + dy) } } : {}),
   };
+}
+
+/** The aiming point of a zone, X/Y (zoneAimPoint of the server): its placed point, else its centre (`zoneCentre`). */
+export function aimSpot(zone: { polygon: readonly Pt[]; aim?: { point?: Pt } | undefined }): { x: number; y: number } {
+  return zone.aim?.point ? { x: zone.aim.point[0], y: zone.aim.point[1] } : zoneCentre(zone.polygon);
 }

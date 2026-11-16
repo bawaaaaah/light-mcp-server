@@ -27,7 +27,7 @@ import { useT } from "../App";
 import { stream } from "../ws";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
-import { centroid, ellipseFromDrag, ellipsePolygon, movedZone, rectFromDrag, validZone, type Pt, type ZoneOutline } from "../zone-shape";
+import { aimSpot, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, validZone, zoneCentre, type Pt, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
@@ -107,8 +107,6 @@ type DrawTool = "rect" | "ellipse" | "polygon";
 const DRAW_TOOLS: DrawTool[] = ["rect", "ellipse", "polygon"];
 /** An aiming zone's colour when it has none of its own. */
 export const AIM_COLOR = "#f59e0b";
-/** The aiming point of a zone (zoneAimPoint of the server, X/Y): its placed point, else the centre of its surface. */
-export const aimSpot = (z: Pick<PlanZone, "polygon" | "aim">): { x: number; y: number } => (z.aim?.point ? { x: z.aim.point[0], y: z.aim.point[1] } : centroid(z.polygon));
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
 
@@ -522,7 +520,7 @@ export function StagePlan({
   const finishShape = (polygon: Pt[], outline: ZoneOutline) => {
     if (!validZone(polygon)) return onError(t.zoneDraw.invalid);
     resetDraw();
-    onZoneDraw?.({ polygon, outline }, screenOf(centroid(polygon)));
+    onZoneDraw?.({ polygon, outline }, screenOf(zoneCentre(polygon)));
   };
   const finishBox = (d: { from: P; at: P; square: boolean }) => {
     setShapeDrag(null);
@@ -614,8 +612,8 @@ export function StagePlan({
     const p = eventToStage(e);
     // in an aiming zone (the one drawn on top), its aiming point (decision Q3 of T27); Alt / Option: the exact point
     // clicked, at the zone's aiming height above its floor
-    const aimZone = [...zones].reverse().find((z) => z.aim && inside(p.x, p.y, z.polygon));
-    const zone = aimZone ?? zones.find((z) => inside(p.x, p.y, z.polygon));
+    const aimZone = [...zones].reverse().find((z) => z.aim && pointInPolygon(p.x, p.y, z.polygon));
+    const zone = aimZone ?? zones.find((z) => pointInPolygon(p.x, p.y, z.polygon));
     // a selected moving head turns to the point alone; without a selection, all of them do
     const only = selected && heads.includes(selected) ? [selected] : undefined;
     const where = aimZone && !e.altKey ? { zone: aimZone.id } : { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + (zone?.aim?.height ?? 1.5) } };
@@ -1131,16 +1129,6 @@ function AngleField({ label, value, min, max, onCommit }: { label: string; value
       <input type="number" min={min} max={max} step={15} aria-label={`${label} (°)`} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />°
     </label>
   );
-}
-
-function inside(x: number, y: number, poly: [number, number][]): boolean {
-  let odd = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i]!;
-    const [xj, yj] = poly[j]!;
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
-  }
-  return odd;
 }
 
 /** Self-loading live preview, for a dashboard widget. */

@@ -171,7 +171,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     } catch (err) {
       removable(kind, fixtureId, name, false);
       const reason = (err as Error).message;
-      throw new CommandError("invalid", `${reason}. ${say("Le supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", "Delete it anyway, without checking the venue's other shows: force: true")}`, { force: true, reason });
+      const anyway = kind === "zone" ? say("La supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", "Delete it anyway, without checking the venue's other shows: force: true") : say("Le supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", "Delete it anyway, without checking the venue's other shows: force: true");
+      throw new CommandError("invalid", `${reason}. ${anyway}`, { force: true, reason });
     }
   };
   const deletable = z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if a group, fader, mapping, dashboard, snapshot or song still uses it") });
@@ -1010,6 +1011,16 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- stage
+  /**
+   * Why a zone cannot be written (T27), said with its name: its outline is checked only when it changes, so an old zone
+   * stored before the check (a crossed outline) stays editable — renamed, closed to the heads, protected.
+   */
+  const zonePutError = (zone: { id: string; name: string; polygon: [number, number][] }): string | undefined => {
+    const stored = show.zones.get(zone.id);
+    if (stored && JSON.stringify(stored.polygon) === JSON.stringify(zone.polygon)) return undefined;
+    const wrong = zoneShapeError(zone.polygon);
+    return wrong && `${zone.name || zone.id}${say(" : ", ": ")}${wrong}`;
+  };
   // an outline that no longer describes its polygon is left out when read (T27): it would redraw another shape
   reg.register({
     name: "stage.zone.list",
@@ -1030,13 +1041,13 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "stage.zone.put",
     title: "Zone",
     description:
-      "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected, no-aim. `aim` makes it a destination for the moving heads (T27): `height` above its floor (default 1.5), `point` [x, y] aimed at (absent: the centre of its surface), `color`. `outline` says how it was drawn (rect, ellipse {cx, cy, rx, ry, rotation}, polygon), to edit it again; the polygon stays the truth. Refused when its edges cross or its surface is under 0.01 m².",
+      "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected, no-aim. `aim` makes it a destination for the moving heads (T27): `height` above its floor (default 1.5), `point` [x, y] aimed at (absent: the centre of its surface), `color`. `outline` says how it was drawn (rect, ellipse {cx, cy, rx, ry, rotation}, polygon), to edit it again; the polygon stays the truth. Refused when its edges cross or its surface is under 0.01 m² (checked only when the polygon changes: an older zone keeps its other edits).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ zone: ZoneSchema }),
     run: ({ zone }) => {
-      const wrong = zoneShapeError(zone.polygon);
-      if (wrong) throw new CommandError("invalid", `${zone.name || zone.id}${say(" : ", ": ")}${wrong}`);
+      const wrong = zonePutError(zone);
+      if (wrong) throw new CommandError("invalid", wrong);
       return show.zones.put(zone);
     },
   });
@@ -1044,7 +1055,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "stage.zone.delete",
     title: "Supprimer une zone",
     description:
-      "Deletes a zone. Refused while something uses it (fixtures of the patch aiming at it, show or venue rules scoped to it, MIDI mappings and song track actions naming it by `zone`: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the zone too, the error names them).",
+      "Deletes a zone. Refused while something uses it (fixtures of the patch aiming at it, show or venue rules scoped to it, MIDI mappings and song track actions naming it by `zone`: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the zone too, the error names them). A forced delete returns usedBy and a `warning` saying those places now name a missing zone.",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if the show uses it or the venue is shared with other shows") }),
@@ -1053,7 +1064,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       if (!zone) return { deleted: false, usedBy: [] };
       const others = force ? [] : sharedWithOrRefuse(i, zone.name, "zone");
       const usedBy = removable("zone", i, zone.name, force, others);
-      return { deleted: show.zones.delete(i), usedBy };
+      const deleted = show.zones.delete(i);
+      // forced: what named it now names a zone that no longer exists (a rule stops applying, a mapping fails): said
+      const warning = deleted && usedBy.length ? say(`« ${zone.name} » supprimée : ces endroits nomment maintenant une zone qui n'existe plus, à corriger : ${usedBy.join(", ")}`, `“${zone.name}” deleted: these places now name a zone that no longer exists, to be fixed: ${usedBy.join(", ")}`) : undefined;
+      return { deleted, usedBy, ...(warning ? { warning } : {}) };
     },
   });
   reg.register({
@@ -1863,7 +1877,17 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     "fader.put": { collection: () => "faders", key: "fader" },
     "dashboard.put": { collection: () => "dashboards", key: "dashboard" },
     "palette.put": { collection: () => "palettes", key: "palette" },
-    "stage.zone.put": { collection: () => "zones", key: "zone" },
+    // the zone's outline as stage.zone.put checks it: a crossed one is said with the proposal, not at apply
+    "stage.zone.put": {
+      collection: () => "zones",
+      key: "zone",
+      plan: (a) => {
+        const zone = ZoneSchema.safeParse(a.zone);
+        const wrong = zone.success ? zonePutError(zone.data) : undefined;
+        if (wrong) throw new CommandError("invalid", wrong);
+        return { object: a.zone };
+      },
+    },
     "rule.put": { collection: (a) => (a.where === "venue" ? "venueRules" : "rules"), key: "rule", keep: ["where"] },
     "venue.fixture.put": { collection: () => "fixtures", key: "fixture" },
     "target.put": { collection: () => "targets", key: "target" },

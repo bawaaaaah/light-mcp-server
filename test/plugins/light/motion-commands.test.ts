@@ -178,6 +178,16 @@ describe("motion layer: the commands of lot 4", () => {
     expect(seen[2]![0]!.motion!.pan).to.include({ layer: "look", moving: false });
   });
 
+  it("`calibration.record` on a zone measures its geometric centre, never its placed aiming point (T27, Z1)", async () => {
+    // a U: its centroid falls outside, the mark goes to a point inside it, on its floor
+    const u = [[0, 0], [6, 0], [6, 4], [5, 4], [5, 1], [1, 1], [1, 4], [0, 4]];
+    await run("stage.zone.put", { zone: { id: "u", name: "U", polygon: u, floorHeight: 0.2, aim: { height: 1.5, point: [5.5, 3] } } });
+    await run("position.set", { fixtures: ["spot"], pan: 0.3, tilt: 0.6 });
+    await run("calibration.record", { fixture: "spot", zone: "u" });
+    const [mark] = (await run("calibration.list", { fixture: "spot" })) as { target: { x: number; y: number; z: number } }[];
+    expect(mark!.target).to.deep.equal({ x: 3, y: 0.69, z: 0.2 });
+  });
+
   it("`calibration.record` reads the gesture just before it, on the next frame, and refuses a head a look or a glide holds", async () => {
     const record = (x: number) => run("calibration.record", { fixture: "spot", point: { x, y: 0, z: 0 } });
     const refusal = (x: number) => record(x).then(() => "", (e: Error) => e.message);

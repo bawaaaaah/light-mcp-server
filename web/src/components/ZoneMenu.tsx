@@ -2,8 +2,8 @@ import { useId, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { labelOf } from "../util";
 import { useFloatingMenu } from "./menu";
-import { ellipsePolygon, rectPolygon, validZone, zoneRect, type Pt, type ZoneOutline } from "../zone-shape";
-import { aimSpot, type PlanZone } from "./StagePlan";
+import { aimSpot, ellipsePolygon, rectPolygon, validZone, zoneRect, type Pt, type ZoneOutline } from "../zone-shape";
+import type { PlanZone } from "./StagePlan";
 import { SwatchPicker } from "./SwatchPicker";
 
 /**
