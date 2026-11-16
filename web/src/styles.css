@@ -1736,7 +1736,7 @@ table.cues select {
   left: calc(100% - 1.1em);
   background: var(--accent);
 }
-.manual-switch:disabled {
+.manual-switch[aria-disabled="true"] {
   opacity: 0.6;
   cursor: progress;
 }

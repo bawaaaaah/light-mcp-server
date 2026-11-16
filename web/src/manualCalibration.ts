@@ -63,11 +63,12 @@ export function stopBar(range: Range | undefined, travel: number): { left: numbe
 }
 
 /**
- * Whether the head moved since a measure, by more than one real step of the output on an axis (`p` logical 0..1,
- * `step` degrees): the measured gap no longer says where it is, applying it would fold another position.
+ * Whether the head moved since a measure, by more than half a real step of the output on an axis (`p` logical 0..1,
+ * `step` degrees; one step moved, on an 8-bit head 1.4°, is a move): the measured gap no longer says where it is,
+ * applying it would fold another position.
  */
 export function movedSince(at: { pan: number; tilt: number }, now: { pan: number; tilt: number }, travel: { pan: number; tilt: number }, step: { pan: number; tilt: number }): boolean {
-  return (["pan", "tilt"] as const).some((axis) => Math.abs(now[axis] - at[axis]) * travel[axis] > step[axis] * 1.001);
+  return (["pan", "tilt"] as const).some((axis) => Math.abs(now[axis] - at[axis]) * travel[axis] > step[axis] * 0.5);
 }
 
 /** A field's value as it reads back: up to two decimals, no thousands separator (1080, never 1,080), a true minus « − », never −0. */

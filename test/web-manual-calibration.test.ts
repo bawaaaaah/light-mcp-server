@@ -52,13 +52,16 @@ describe("manual calibration tab (T8, lot 6): what its fields read and check", (
     expect(stopBar([300, 400], 540)).to.deep.equal({ left: 100, width: 0 });
   });
 
-  it("tells a head moved since a measure by more than one real step", () => {
+  it("tells a head moved since a measure by more than half a real step", () => {
     const travel = { pan: 540, tilt: 270 };
     const step = { pan: 540 / 65535, tilt: 270 / 65535 };
     const at = { pan: 0.5, tilt: 0.5 };
     expect(movedSince(at, at, travel, step)).to.equal(false);
-    expect(movedSince(at, { pan: 0.5 + 1 / 65535, tilt: 0.5 }, travel, step)).to.equal(false);
+    expect(movedSince(at, { pan: 0.5 + 0.4 / 65535, tilt: 0.5 }, travel, step)).to.equal(false);
+    expect(movedSince(at, { pan: 0.5 + 1 / 65535, tilt: 0.5 }, travel, step)).to.equal(true);
     expect(movedSince(at, { pan: 0.5, tilt: 0.5 + 2 / 65535 }, travel, step)).to.equal(true);
+    // an 8-bit head: one step (1.4° on 360°) is a move
+    expect(movedSince(at, { pan: 0.5 + 1 / 255, tilt: 0.5 }, { pan: 360, tilt: 270 }, { pan: 360 / 255, tilt: 270 / 255 })).to.equal(true);
   });
 
   it("tells the axes where the pad asks beyond a stop, one real step of slack", () => {

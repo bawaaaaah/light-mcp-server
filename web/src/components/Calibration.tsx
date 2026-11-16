@@ -183,13 +183,17 @@ export function Calibration({
   const choose = (next: Tab) => {
     setTab(next);
     // leaving the manual tab: opening it again asks again
-    if (next !== "manual") setConfirmed(false);
+    if (next !== "manual") {
+      setConfirmed(false);
+    }
   };
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, from: Tab) => {
     const i = TABS.indexOf(from);
     const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     const next = e.key === "Home" ? TABS[0]! : e.key === "End" ? TABS[TABS.length - 1]! : step ? TABS[(i + step + TABS.length) % TABS.length]! : undefined;
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     e.preventDefault();
     choose(next);
     tabButtons.current[next]?.focus();
@@ -201,8 +205,17 @@ export function Calibration({
   const mark: Mark = zone ? { zone, height: heightValue } : { point: { x: xy.x, y: xy.y, z: heightValue } };
   const confirmMove = () => {
     setConfirmed(true);
-    // after the render that shows the tab's controls: the first gesture, « Viser le repère », takes the focus
-    window.requestAnimationFrame(() => aimButton.current?.focus());
+    // after the render that shows the tab's controls: the first gesture, « Viser le repère », takes the focus; off
+    // (frozen hard, a height that is not a number), its section's title does, so the focus is not lost
+    const aimed = head;
+    window.requestAnimationFrame(() => {
+      const button = aimButton.current;
+      if (button && !button.disabled) {
+        button.focus();
+      } else {
+        document.getElementById(`manual-aim-${aimed}`)?.focus();
+      }
+    });
   };
   return (
     <div ref={root} className="calibration">
@@ -304,11 +317,14 @@ export function Calibration({
             ) : (
               head &&
               mayMove && (
-                <div className="cal-confirm" role="alertdialog" aria-labelledby="cal-confirm-title" aria-describedby="cal-confirm-text">
+                // not a dialog (nothing modal, the rest of the page stays usable): a named group, its text said when it shows
+                <div className="cal-confirm" role="group" aria-labelledby="cal-confirm-title" aria-describedby="cal-confirm-text">
                   <p id="cal-confirm-title">
                     <strong>{m.confirmTitle}</strong>
                   </p>
-                  <p id="cal-confirm-text">{m.confirmText.replace("{name}", headName)}</p>
+                  <p id="cal-confirm-text" role="alert">
+                    {m.confirmText.replace("{name}", headName)}
+                  </p>
                   <div className="row actions">
                     <button type="button" className="primary" onClick={confirmMove}>
                       {m.confirmGo}

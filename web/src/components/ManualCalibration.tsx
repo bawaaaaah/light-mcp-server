@@ -133,17 +133,17 @@ function DegreeField({
   const [draft, setDraft] = useState<string | null>(null);
   const [bad, setBad] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  const focused = useRef(false);
   /** Typed since the last write was sent: such a draft is never replaced under the operator's fingers. */
   const dirty = useRef(false);
   /** The text waiting for the pause in typing. */
   const pending = useRef<string | null>(null);
   /** The value sent and not come back yet: Enter then leaving the field writes it once. */
   const sent = useRef<number | null>(null);
-  // the stored value moved (this field's write came back, or another client's): shown unless the operator is typing
+  // the stored value moved (this field's write came back, or another client's): shown unless the operator typed since
+  // (in the field, or by the − / + buttons, which leave it unfocused)
   useEffect(() => {
     sent.current = null;
-    if (!focused.current || !dirty.current) {
+    if (!dirty.current) {
       setDraft(null);
     }
   }, [value]);
@@ -166,15 +166,14 @@ function DegreeField({
       return;
     }
     sent.current = next;
+    // answered (written or refused): the same value may be sent again, the draft gives way unless typed since
     const settle = () => {
+      sent.current = null;
       if (!dirty.current) {
         setDraft(null);
       }
     };
-    void onCommit(next).then(settle, () => {
-      sent.current = null;
-      settle();
-    });
+    void onCommit(next).then(settle, settle);
   };
   const commitRef = useRef(commit);
   commitRef.current = commit;
@@ -233,11 +232,7 @@ function DegreeField({
           value={shown}
           aria-invalid={bad || undefined}
           aria-describedby={`${id}-help`}
-          onFocus={() => {
-            focused.current = true;
-          }}
           onBlur={() => {
-            focused.current = false;
             if (draft !== null && dirty.current) {
               commit(draft);
             }
@@ -259,8 +254,8 @@ function DegreeField({
 }
 
 /**
- * A switch of the orientation: a toggle button (aria-pressed) drawn as a sliding switch, a finger's size, off while its
- * write is on its way (a double press writes once).
+ * A switch of the orientation: a toggle button (aria-pressed) drawn as a sliding switch, a finger's size, inert while
+ * its write is on its way (a double press writes once). aria-disabled, not disabled: the button keeps the focus.
  */
 function Switch({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => Promise<unknown> }): ReactElement {
   const [busy, setBusy] = useState(false);
@@ -283,7 +278,7 @@ function Switch({ label, on, onToggle }: { label: string; on: boolean; onToggle:
       <span className="invert-label" aria-hidden="true" onClick={toggle}>
         {label}
       </span>
-      <button type="button" className={`manual-switch${on ? " on" : ""}`} aria-pressed={on} aria-label={label} aria-busy={busy || undefined} disabled={busy} onClick={toggle}>
+      <button type="button" className={`manual-switch${on ? " on" : ""}`} aria-pressed={on} aria-label={label} aria-busy={busy || undefined} aria-disabled={busy || undefined} onClick={toggle}>
         <span className="manual-switch-track" aria-hidden="true">
           <span className="manual-switch-knob" />
         </span>
@@ -294,8 +289,9 @@ function Switch({ label, on, onToggle }: { label: string; on: boolean; onToggle:
 
 /**
  * One axis' useful stop: from / to in logical degrees, sent once both ends are valid and the row is left (or on
- * Enter), never the first end alone while the second is being typed; an end beyond the travel is said as soon as it
- * is typed. « Retirer » removes the stop.
+ * Enter), never the first end alone while the second is being typed (a lone end is said: both are expected); an end
+ * beyond the travel is said as soon as it is typed. A pair pending when the row goes away (another head chosen, the
+ * tab left) is sent, not lost. « Retirer » removes the stop.
  */
 function StopRow({ axis, range, travel, onSet }: { axis: Axis; range: Range | undefined; travel: number; onSet: (axis: Axis, range: Range | null) => Promise<unknown> }): ReactElement {
   const t = useT();
@@ -338,7 +334,9 @@ function StopRow({ axis, range, travel, onSet }: { axis: Axis; range: Range | un
     const a = parseDeg(fromText);
     const b = parseDeg(toText);
     if (a === undefined || b === undefined) {
-      setProblem(fromText.trim() && toText.trim() ? m.notANumber : edgeProblem(fromText, toText));
+      const filled = [fromText, toText].filter((x) => x.trim()).length;
+      // both ends cleared: nothing to send (« Retirer » removes a stop)
+      setProblem(filled === 2 ? m.notANumber : filled === 1 ? edgeProblem(fromText, toText) || m.stopBoth : "");
       return;
     }
     const next: Range = [roundDeg(a), roundDeg(b)];
@@ -362,6 +360,9 @@ function StopRow({ axis, range, travel, onSet }: { axis: Axis; range: Range | un
       sent.current = null;
     });
   };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => () => sendRef.current(), []);
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       send();
@@ -461,15 +462,15 @@ export function ManualCalibration({
   const [center, setCenter] = useState<Point | null>(null);
   const [span, setSpan] = useState<CorrectionSpan | null>(null);
   const [preview, setPreview] = useState<Correction | null>(null);
-  /** Where the head was (logical) when the gap was measured: moved since by more than a real step, the preview is stale. */
+  /** Where the head was (logical) when the gap was measured: moved since by more than half a real step, the preview is stale. */
   const [measuredAt, setMeasuredAt] = useState<Point | null>(null);
-  /** A measure or an application on its way: a double press sends once. */
+  /** A measure or an application on its way: a double press sends once (aria-disabled: the button keeps the focus). */
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  /** A stop written while the head is frozen hard: the output does not hold it there until it is unfrozen. */
-  const [stopWhileFrozen, setStopWhileFrozen] = useState(false);
+  /** The axes given a stop while the head is frozen hard: the output does not hold it there until it is unfrozen. */
+  const [stopWhileFrozen, setStopWhileFrozen] = useState<Axis[]>([]);
   /** Per section, the server's last refusal: said where the operator is working. */
-  const [errors, setErrors] = useState<Partial<Record<"aim" | "orient" | "stops" | "travel" | "correct", string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<"fixture" | "aim" | "orient" | "stops" | "travel" | "correct", string>>>({});
   const [keeping, setKeeping] = useState<string[]>([]);
   const [scope, setScope] = useState<"model" | "fixture">("model");
   const [travelDraft, setTravelDraft] = useState<Partial<Record<Axis, string>>>({});
@@ -500,8 +501,11 @@ export function ManualCalibration({
 
   const reload = useCallback(() => {
     void cmd<Patched[]>("venue.fixture.list")
-      .then((rows) => setFixture(rows.find((r) => r.id === head) ?? null))
-      .catch(() => undefined);
+      .then((rows) => {
+        setFixture(rows.find((r) => r.id === head) ?? null);
+        say("fixture");
+      })
+      .catch((e: Error) => say("fixture", e.message));
     void cmd<Travel>("venue.fixture.travel", { fixture: head })
       .then(setTravel)
       .catch((e: Error) => say("travel", e.message));
@@ -513,7 +517,7 @@ export function ManualCalibration({
   useEffect(() => {
     setErrors({});
     if (!frozenHard) {
-      setStopWhileFrozen(false);
+      setStopWhileFrozen([]);
     }
   }, [frozenHard]);
 
@@ -567,8 +571,10 @@ export function ManualCalibration({
         ...change,
       });
       setFixture(r.fixture);
-      if (section === "stops" && frozenHard) {
-        setStopWhileFrozen(true);
+      // a stop set (not removed) while frozen hard: the head may stay beyond it, said when it does
+      if (frozenHard && "limits" in change) {
+        const set = AXES.filter((a) => change.limits?.[a]);
+        setStopWhileFrozen((axes) => [...new Set([...axes, ...set])]);
       }
       await reaim();
     } catch (e) {
@@ -680,15 +686,16 @@ export function ManualCalibration({
   const scopeCorrection = travel ? (scope === "model" ? travel.model : travel.own) : null;
   const travelKey = (axis: Axis) => (axis === "pan" ? "panMax" : "tiltMax");
   /**
-   * The travel typed for an axis, when it differs from the scope's own correction (not from the travel applied): a
-   * value the fixture inherits from its model can be pinned for the fixture alone.
+   * The travel to write for an axis, when it differs from the scope's own correction (not from the travel applied):
+   * the one typed, or for « Cet appareil seul » without a correction of its own on the axis, the value it inherits
+   * (from its model or its definition), pinned for the fixture alone.
    */
   const travelChanged = (axis: Axis): number | undefined => {
-    const text = travelDraft[axis];
-    if (text === undefined || !travel) {
+    if (!travel) {
       return undefined;
     }
-    const v = parseNumber(text);
+    const text = travelDraft[axis];
+    const v = text !== undefined ? parseNumber(text) : scope === "fixture" ? travel[travelKey(axis)] : undefined;
     return v !== undefined && v !== scopeCorrection?.[travelKey(axis)] ? v : undefined;
   };
   /** A travel typed that the server would refuse: not a number, or outside 1..1080°. */
@@ -707,9 +714,16 @@ export function ManualCalibration({
     <div className="manual-cal">
       <p className="hint">{m.help}</p>
       {frozenHard && <p className="warn">{m.frozen}</p>}
+      {errors.fixture && (
+        <p className="error" role="alert">
+          {errors.fixture}
+        </p>
+      )}
 
       <section className="manual-cal-aim" aria-labelledby={`manual-aim-${head}`}>
-        <h4 id={`manual-aim-${head}`}>{m.padTitle}</h4>
+        <h4 id={`manual-aim-${head}`} tabIndex={-1}>
+          {m.padTitle}
+        </h4>
         <div className="row actions">
           <button ref={aimButton} type="button" className={aimedOnce ? "" : "primary"} disabled={frozenHard || !markValid} onClick={() => void aim()}>
             {aimedOnce ? m.aimAgain : m.aim}
@@ -773,11 +787,11 @@ export function ManualCalibration({
         <h4 id={`manual-correct-${head}`}>{m.correct}</h4>
         <p className="hint">{m.correctHelp}</p>
         <div className="row actions">
-          <button type="button" disabled={frozenHard || !aimedOnce || !markValid || busy} aria-busy={busy || undefined} onClick={() => void correct(false)}>
+          <button type="button" disabled={frozenHard || !aimedOnce || !markValid} aria-disabled={busy || undefined} aria-busy={busy || undefined} onClick={() => void correct(false)}>
             {m.measure}
           </button>
           {preview && !preview.applied && !stale && (
-            <button type="button" className={smallGap ? "" : "primary"} disabled={frozenHard || busy} aria-busy={busy || undefined} onClick={() => void correct(true)}>
+            <button type="button" className={smallGap ? "" : "primary"} disabled={frozenHard} aria-disabled={busy || undefined} aria-busy={busy || undefined} onClick={() => void correct(true)}>
               {t.apply}
             </button>
           )}
@@ -813,26 +827,29 @@ export function ManualCalibration({
         </div>
       </section>
 
-      <section className="manual-cal-orient" aria-labelledby={`manual-orient-${head}`}>
-        <h4 id={`manual-orient-${head}`}>{m.orientation}</h4>
-        <div className="manual-fields">
-          <DegreeField label={m.yaw} value={o.yaw ?? 0} help={m.yawHelp} buttons testId="manual-yaw" onCommit={(yaw) => orient({ yaw })} />
-          <DegreeField label={m.panOffset} value={o.panOffset ?? 0} buttons testId="manual-pan-offset" onCommit={(panOffset) => orient({ panOffset })} />
-          <DegreeField label={m.tiltOffset} value={o.tiltOffset ?? 0} buttons testId="manual-tilt-offset" onCommit={(tiltOffset) => orient({ tiltOffset })} />
-        </div>
-        <div className="manual-switches">
-          <Switch label={t.invertPanLabel} on={Boolean(o.invertPan)} onToggle={() => orient({ invertPan: !o.invertPan })} />
-          <Switch label={t.invertTiltLabel} on={Boolean(o.invertTilt)} onToggle={() => orient({ invertTilt: !o.invertTilt })} />
-          <Switch label={m.swap} on={Boolean(o.swapPanTilt)} onToggle={() => orient({ swapPanTilt: !o.swapPanTilt })} />
-        </div>
-        {errors.orient && (
-          <p className="error" role="alert">
-            {errors.orient}
-          </p>
-        )}
-      </section>
+      {/* the orientation read first: its fields never show zeros, nor write them, before it is known */}
+      {fixture && (
+        <section className="manual-cal-orient" aria-labelledby={`manual-orient-${head}`}>
+          <h4 id={`manual-orient-${head}`}>{m.orientation}</h4>
+          <div className="manual-fields">
+            <DegreeField label={m.yaw} value={o.yaw ?? 0} help={m.yawHelp} buttons testId="manual-yaw" onCommit={(yaw) => orient({ yaw })} />
+            <DegreeField label={m.panOffset} value={o.panOffset ?? 0} buttons testId="manual-pan-offset" onCommit={(panOffset) => orient({ panOffset })} />
+            <DegreeField label={m.tiltOffset} value={o.tiltOffset ?? 0} buttons testId="manual-tilt-offset" onCommit={(tiltOffset) => orient({ tiltOffset })} />
+          </div>
+          <div className="manual-switches">
+            <Switch label={t.invertPanLabel} on={Boolean(o.invertPan)} onToggle={() => orient({ invertPan: !o.invertPan })} />
+            <Switch label={t.invertTiltLabel} on={Boolean(o.invertTilt)} onToggle={() => orient({ invertTilt: !o.invertTilt })} />
+            <Switch label={m.swap} on={Boolean(o.swapPanTilt)} onToggle={() => orient({ swapPanTilt: !o.swapPanTilt })} />
+          </div>
+          {errors.orient && (
+            <p className="error" role="alert">
+              {errors.orient}
+            </p>
+          )}
+        </section>
+      )}
 
-      {travel && (
+      {travel && fixture && (
         <section className="manual-cal-stops" aria-labelledby={`manual-stops-${head}`}>
           <h4 id={`manual-stops-${head}`}>{m.stops}</h4>
           <p className="hint">{m.stopsHelp}</p>
@@ -841,7 +858,7 @@ export function ManualCalibration({
               <StopRow key={axis} axis={axis} range={o.limits?.[axis]} travel={axis === "pan" ? travel.panMax : travel.tiltMax} onSet={(a, range) => orient({ limits: { [a]: range } }, "stops")} />
             ))}
           </div>
-          {frozenHard && stopWhileFrozen && (
+          {frozenHard && beyond.some((a) => stopWhileFrozen.includes(a)) && (
             <p className="warn" role="status" data-testid="manual-stop-frozen">
               {m.stopFrozen}
             </p>
