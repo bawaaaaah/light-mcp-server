@@ -1981,13 +1981,14 @@ export class ShowRuntime {
     target: { x: number; y: number; z: number },
     near?: Position,
     opts?: AimOptions & { ignoreStops?: boolean },
-  ): { fixture: string; pan?: number; tilt?: number; error?: string }[] {
+  ): { fixture: string; pan?: number; tilt?: number; error?: string; unplaced?: true }[] {
     return fixtures.map((id) => {
       const f = this.venue.fixtures.get(id);
       const r = this.venue.resolve(id);
       if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`) };
       if (!r.pan && !r.tilt) return { fixture: id, error: say("pas de pan/tilt", "no pan/tilt") };
-      if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown") };
+      // said apart by the pad's zone chips (T27): not « out of reach », placed nowhere
+      if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown"), unplaced: true };
       const setup = aimSetupOf(r)!;
       const res = near ? aimNear(opts?.ignoreStops ? { ...setup, limits: undefined } : setup, target, near, opts) : aimAt(setup, target);
       if ("error" in res) return { fixture: id, error: res.error };

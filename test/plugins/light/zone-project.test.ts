@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { aimAt, pointing, type AimSetup } from "../../../src/plugins/light/venue/aim.js";
+import { aimAt, aimNear, pointing, withinLimits, type AimSetup } from "../../../src/plugins/light/venue/aim.js";
 import { zoneAimPoint, type Zone } from "../../../src/plugins/light/venue/stage.js";
 import { projectZone, type PadPoint } from "../../../src/plugins/light/venue/zone-project.js";
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
@@ -50,9 +50,30 @@ function toOutline(p: { x: number; y: number }, poly: [number, number][]): numbe
   );
 }
 
-/** No two neighbours of a run apart by a quarter of the travel: the outline is never drawn across a swing. */
-function noSwing(paths: PadPoint[][]): void {
-  for (const path of paths) for (let i = 1; i < path.length; i++) expect(Math.abs(path[i]![0] - path[i - 1]![0]) + Math.abs(path[i]![1] - path[i - 1]![1])).to.be.below(0.5);
+/**
+ * No two neighbours of a run a swing apart, axis by axis in degrees (90° of pan, 60° of tilt): a 720° head's half-turn
+ * is a quarter of its travel, so a fraction of the travel would not catch it. A closed band (`axisInside`) joins its
+ * two arcs by constant-pan segments across the axis: there, only the pan is checked.
+ */
+function noSwing(setup: AimSetup, p: { paths: PadPoint[][]; axisInside?: true; closed: boolean }): void {
+  for (const path of p.paths) {
+    const pts = p.closed ? [...path, path[0]!] : path;
+    for (let i = 1; i < pts.length; i++) {
+      const dPan = Math.abs(pts[i]![0] - pts[i - 1]![0]) * setup.panMax;
+      const dTilt = Math.abs(pts[i]![1] - pts[i - 1]![1]) * setup.tiltMax;
+      expect(dPan, `pan step ${i}`).to.be.at.most(90);
+      if (!(p.axisInside && dPan < 0.1)) expect(dTilt, `tilt step ${i}`).to.be.at.most(60);
+    }
+  }
+}
+
+/** A seeded random source: the property test is the same on every run. */
+function seeded(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
 }
 
 describe("aiming zones seen by a moving head (T27, lot 5)", () => {
@@ -71,7 +92,7 @@ describe("aiming zones seen by a moving head (T27, lot 5)", () => {
     for (const pt of p.paths[0]!) expect(toOutline(landsAt(HUNG, pt, 1.5), z.polygon)).to.be.below(0.01);
     // the corners are kept and the edges sampled every 10 cm at most
     expect(p.paths[0]!.length).to.be.at.least(80);
-    noSwing(p.paths);
+    noSwing(HUNG, p);
   });
 
   it("takes the outline at the zone's own aiming height above its floor", () => {
@@ -100,7 +121,7 @@ describe("aiming zones seen by a moving head (T27, lot 5)", () => {
       expect(Math.abs(tiltDeg(path[0]!))).to.be.closeTo(60, 0.1);
       expect(Math.abs(tiltDeg(path.at(-1)!))).to.be.closeTo(60, 0.1);
     }
-    noSwing(p.paths);
+    noSwing(limited, p);
   });
 
   it("cuts at the pan stops of a hung head too", () => {
@@ -114,16 +135,98 @@ describe("aiming zones seen by a moving head (T27, lot 5)", () => {
   it("gives nothing for a zone wholly out of reach, and no aiming point", () => {
     const limited: AimSetup = { ...HUNG, limits: { tilt: [-5, 5] } };
     const p = projectZone(limited, zone([[4, 6], [6, 6], [6, 8], [4, 8]], { aim: { height: 1.5, color: "#22c55e" } }));
-    expect(p).to.deep.equal({ id: "z", name: "Estrade", color: "#22c55e", paths: [], closed: false, reach: "none" });
+    expect(p).to.deep.equal({ id: "z", name: "Estrade", color: "#22c55e", paths: [], closed: false, reach: "none", polygon: [[4, 6], [6, 6], [6, 8], [4, 8]], plane: 1.5 });
   });
 
-  it("does not draw a line across the travel where a zone round the head's axis makes it swing", () => {
-    // a zone right under a hung head: its pan turns all the way round, past what the travel keeps on one side
-    const narrow: AimSetup = { ...HUNG, panMax: 360 };
-    const p = projectZone(narrow, zone([[-1, 0], [1, 0], [1, 2], [-1, 2]]));
-    expect(p.paths.length).to.be.at.least(1);
-    noSwing(p.paths);
-    for (const path of p.paths) for (const pt of path) expect(toOutline(landsAt(narrow, pt, 1.5), [[-1, 0], [1, 0], [1, 2], [-1, 2]])).to.be.below(0.01);
+  it("draws a zone right under a hung head as the closed band round its axis, two arcs joined across it, at 360° and 720°", () => {
+    const square: [number, number][] = [[-1, 0], [1, 0], [1, 2], [-1, 2]];
+    for (const panMax of [360, 540, 720]) {
+      const setup: AimSetup = { ...HUNG, panMax };
+      const p = projectZone(setup, zone(square, { aim: { height: 1.5, point: [0.5, 1.4] } }));
+      expect(p, `${panMax}°`).to.include({ reach: "full", closed: true, axisInside: true });
+      expect(p.paths).to.have.length(1);
+      noSwing(setup, p);
+      // every point of the loop is on the outline (the joins are edges of the loop, not points)
+      for (const pt of p.paths[0]!) expect(toOutline(landsAt(setup, pt, 1.5), square)).to.be.below(0.01);
+      // the two joins: constant pan, crossing the axis (tilt 0), on either side of the aiming point's pan (± 90°)
+      const loop = [...p.paths[0]!, p.paths[0]![0]!];
+      const joins = loop.slice(1).flatMap((pt, i) => {
+        const prev = loop[i]!;
+        const crosses = Math.sign(pt[1] - 0.5) !== Math.sign(prev[1] - 0.5) && Math.abs(pt[1] - prev[1]) * setup.tiltMax > 10;
+        return crosses ? [(pt[0] - 0.5) * panMax] : [];
+      });
+      expect(joins).to.have.length(2);
+      const aimPan = (p.aim![0] - 0.5) * panMax;
+      expect(joins.map((pan) => Math.round(Math.abs(pan - aimPan))).sort()).to.deep.equal([90, 90]);
+    }
+  });
+
+  it("draws only the branch position.aim is on: a part only the other solution reaches is left out, not drawn elsewhere", () => {
+    // pan stops at ± 100°: the zone's back corners are beyond them on the aiming point's branch, but the other solution
+    // (pan − 180°, the tilt mirrored) would reach them
+    const limited: AimSetup = { position: { x: 0, y: 0, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0, limits: { pan: [-100, 100] } };
+    const z = zone([[1, -3], [4, -3], [4, 3], [1, 3]], { aim: { height: 1.5, point: [2.5, 2] } });
+    const p = projectZone(limited, z);
+    const anchor = aimAt(limited, zoneAimPoint(z));
+    if ("error" in anchor) throw new Error(anchor.error);
+    const other = aimNear(limited, { x: 4, y: -3, z: 1.5 }, anchor);
+    expect("error" in other).to.equal(false); // reachable by the other solution…
+    if (!("error" in other)) expect(Math.sign(other.tiltDeg)).to.not.equal(Math.sign(anchor.tiltDeg));
+    expect(p.reach).to.equal("partial"); // …but not drawn: the zone is only partly in reach on this branch
+    for (const path of p.paths) for (const pt of path) expect(Math.sign((pt[1] - 0.5) * limited.tiltMax)).to.equal(Math.sign(anchor.tiltDeg));
+    noSwing(limited, p);
+  });
+
+  it("holds its properties over random heads, zones and stops (yaw, offsets, standing heads, 720°)", () => {
+    const rnd = seeded(2711);
+    const between = (a: number, b: number) => a + (b - a) * rnd();
+    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+    for (let it = 0; it < 400; it++) {
+      const hung = rnd() < 0.6;
+      const panMax = pick([360, 540, 630, 720]);
+      const tiltMax = pick([180, 220, 270]);
+      const setup: AimSetup = {
+        position: { x: between(-6, 6), y: between(-2, 8), z: hung ? between(2.5, 7) : between(0, 1.2) },
+        hung,
+        yaw: pick([0, 90, -90, 180, between(-180, 180)]),
+        panMax,
+        tiltMax,
+        panOffset: rnd() < 0.5 ? 0 : between(-40, 40),
+        tiltOffset: rnd() < 0.5 ? 0 : between(-10, 10),
+        ...(rnd() < 0.4 ? { limits: { pan: [between(-panMax / 2, -20), between(20, panMax / 2)] as [number, number], ...(rnd() < 0.5 ? { tilt: [between(-tiltMax / 2, -5), between(10, tiltMax / 2)] as [number, number] } : {}) } } : {}),
+      };
+      const [w, d] = [between(0.3, 6), between(0.3, 5)];
+      const under = rnd() < 0.3; // round the head's axis, sometimes
+      const [ox, oy] = under ? [setup.position.x + between(-w / 3, w / 3), setup.position.y + between(-d / 3, d / 3)] : [between(-6, 6), between(-2, 8)];
+      const polygon: [number, number][] = [[ox - w / 2, oy - d / 2], [ox + w / 2, oy - d / 2], [ox + w / 2, oy + d / 2], [ox - w / 2, oy + d / 2]];
+      const z = zone(polygon, { floorHeight: pick([0, 0.4]), aim: { height: pick([0, 1.5, 3]) } });
+      const p = projectZone(setup, z);
+      const at = `case ${it}`;
+      // the aiming point is position.aim's; full ⇔ one closed loop; nothing drawn ⇔ none
+      const aimed = aimAt(setup, zoneAimPoint(z));
+      if ("error" in aimed) expect(p.aim, at).to.equal(undefined);
+      else expect(p.aim, at).to.deep.equal([Math.round(aimed.pan * 1e4) / 1e4, Math.round(aimed.tilt * 1e4) / 1e4]);
+      expect(p.reach === "full", at).to.equal(p.closed);
+      expect(p.reach === "none", at).to.equal(p.paths.length === 0);
+      if (p.closed) expect(p.paths, at).to.have.length(1);
+      noSwing(setup, p);
+      const plane = zoneAimPoint(z).z;
+      for (const path of p.paths)
+        for (const pt of path) {
+          const deg: [number, number] = [(pt[0] - 0.5) * panMax, (pt[1] - 0.5) * tiltMax];
+          // within the travel and the stops (rounded to 1e-4 of the travel), and on the outline
+          expect(withinLimits(setup.limits, deg[0], deg[1], 0.08), at).to.equal(true);
+          expect(pt[0], at).to.be.within(0, 1);
+          expect(pt[1], at).to.be.within(0, 1);
+          const dir = pointing(setup, { pan: pt[0], tilt: pt[1] });
+          const k = (plane - setup.position.z) / dir.z;
+          expect(k, at).to.be.greaterThan(0);
+          const reach = Math.hypot(dir.x * k, dir.y * k, dir.z * k);
+          const cos = Math.abs(dir.z);
+          const tol = 0.01 + (reach * (1e-4 * Math.max(panMax, tiltMax) * Math.PI) / 180 / Math.max(cos, 1e-3)) * 1.5;
+          expect(toOutline({ x: setup.position.x + dir.x * k, y: setup.position.y + dir.y * k }, polygon), at).to.be.below(tol);
+        }
+    }
   });
 
   it("keeps a large zone to a bounded number of points", () => {
@@ -159,7 +262,10 @@ describe("stage.zone.project: the aiming zones of the stage seen by one head (T2
     const aimed = (await run("position.aim", { fixtures: ["spot"], zone: "estrade" })) as { results: { pan: number; tilt: number }[] };
     expect(estrade.aim![0]).to.be.closeTo(aimed.results[0]!.pan, 1e-4);
     expect(estrade.aim![1]).to.be.closeTo(aimed.results[0]!.tilt, 1e-4);
-    // the same answer again (kept per head setup and zone), and a changed zone answered anew
+    // the head's aiming data and each zone on the stage, for the pad to find the zone under a point
+    expect((reply as Reply & { head: unknown }).head).to.deep.include({ position: { x: 0, y: 1, z: 5 }, hung: true });
+    expect(estrade).to.deep.include({ polygon: [[-3, 2], [-1, 2], [-1, 4], [-3, 4]], plane: 1.5 });
+    // the same answer again, and a changed zone answered anew
     expect(await run("stage.zone.project", { fixture: "spot" })).to.deep.equal(reply);
     await run("stage.zone.put", { zone: { id: "estrade", name: "Estrade", polygon: [[-3, 2], [-2, 2], [-2, 4], [-3, 4]], aim: { height: 1.5 } } });
     const moved = ((await run("stage.zone.project", { fixture: "spot" })) as Reply).zones[0]!;
