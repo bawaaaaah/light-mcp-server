@@ -4,7 +4,7 @@ import { useT } from "../App";
 import type { Texts } from "../i18n";
 import { quoted, beforeMark } from "../typography";
 
-type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases" | "positions";
+type Versioned = "looks" | "groups" | "faders" | "dashboards" | "canvases" | "positions" | "colours";
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
 
 /**
@@ -137,7 +137,7 @@ export function RecentlyDeleted({ collections, onRestored }: { collections: Vers
               {lists[c]!.map((g) => (
                 <li key={g.id}>
                   <span>
-                    {g.name ?? g.id} <small className="hint">{c === "positions" ? t.deletedOnFeminine : t.deletedOn} {when(g.at)}</small>
+                    {g.name ?? g.id} <small className="hint">{c === "positions" || c === "colours" ? t.deletedOnFeminine : t.deletedOn} {when(g.at)}</small>
                   </span>{" "}
                   <button onClick={() => restore(c, g)}>{t.restore}</button>
                 </li>

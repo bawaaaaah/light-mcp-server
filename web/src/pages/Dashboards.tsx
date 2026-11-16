@@ -14,6 +14,8 @@ import { useTargetNames } from "../hooks/useTargets";
 import { PROJECTION_CHANGES } from "../hooks/useZoneProjection";
 import { usePositions } from "../hooks/usePositions";
 import { PositionButton } from "../components/PositionButton";
+import { applyColour, ColourPresetPicker } from "../components/ColourFavorites";
+import { ColoursWidget } from "../components/ColoursWidget";
 import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
 import { sharedRanges, type FixtureFunctions } from "../fader-functions";
@@ -37,7 +39,7 @@ import { microphone } from "../audio/microphone";
 import { quoted } from "../typography";
 import { noKeyRepeat, useArm } from "../hooks/useArm";
 
-type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target" | "position";
+type Kind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target" | "position" | "colours";
 interface Widget {
   id: string;
   kind: Kind;
@@ -130,13 +132,13 @@ function settle<T extends { id: string; x: number; y: number; w: number; h: numb
   return ws;
 }
 
-const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader"];
+const KINDS: Kind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader", "colours"];
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 2 } };
 
 type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
 
@@ -786,6 +788,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
       case "position":
         // a named position (T32): one button that recalls it, lit while its heads hold it
         return <PositionButton id={w.target || undefined} label={w.label} disabled={!may("commands:position")} inert={edit} />;
+      case "colours":
+        // the show's favourite colours (T41): one button each, applied by hand to the widget's group (none: every fixture)
+        return <ColoursWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} disabled={!may("commands:level")} inert={edit} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
@@ -888,6 +893,12 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               <button title={t.flashHelp} aria-label={`${t.flashHelp} ${w.label ?? g.name}`} {...locked("commands:trigger")} onPointerDown={() => void run("group.flash", { id: g.id, on: true })} onPointerUp={() => void run("group.flash", { id: g.id, on: false })}>
                 F
               </button>
+              {/* a saved colour on the group's fixtures (T41) */}
+              {!edit && may("commands:level") && (
+                <ColourPresetPicker title={t.colours.groupButton.replace("{name}", () => w.label ?? g.name)} className="colour-group" onPick={(p) => void applyColour(t, p, { group: g.id })}>
+                  <span aria-hidden="true">●</span>
+                </ColourPresetPicker>
+              )}
             </div>
             <label>
               {w.label ?? g.name}
@@ -1144,7 +1155,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             <option value="">—</option>
             {sel.kind === "look" && looks.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             {sel.kind === "channel-fader" && faders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            {(sel.kind === "group-fader" || sel.kind === "xy" || sel.kind === "motion-lock") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            {(sel.kind === "group-fader" || sel.kind === "xy" || sel.kind === "motion-lock" || sel.kind === "colours") && groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             {sel.kind === "target" && targets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             {sel.kind === "position" && positions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>

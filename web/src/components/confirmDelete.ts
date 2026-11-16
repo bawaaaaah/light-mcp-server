@@ -12,7 +12,7 @@ import { quoted, beforeMark } from "../typography";
  * intention of the personal library other shows still name), it asks again with what went wrong, and
  * forces on that second yes. Resolves to whether it was deleted.
  */
-const DELETE_COMMAND = { look: "look.delete", group: "group.delete", fader: "fader.delete", canvas: "venue.canvas.delete", fixture: "venue.fixture.delete", intention: "intention.delete", target: "target.delete", position: "position.preset.delete", zone: "stage.zone.delete" } as const;
+const DELETE_COMMAND = { look: "look.delete", group: "group.delete", fader: "fader.delete", canvas: "venue.canvas.delete", fixture: "venue.fixture.delete", intention: "intention.delete", target: "target.delete", position: "position.preset.delete", zone: "stage.zone.delete", colour: "colour.preset.delete" } as const;
 
 /** The words of the questions, when deleting is not what the command does (an intention masked, not deleted). */
 export interface DeleteWording {

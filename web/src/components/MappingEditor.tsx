@@ -7,7 +7,8 @@ import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, NO_PROGRAM, build, actionOf, type Action, type MappingDraft } from "../mappingActions";
+import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type MappingDraft } from "../mappingActions";
+import { useColourPresets } from "../hooks/useColourPresets";
 
 export { actionOf, build, newMapping, type Action, type MappingDraft } from "../mappingActions";
 
@@ -29,6 +30,9 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [programs, setPrograms] = useState<Named[]>([]);
   const [snapshots, setSnapshots] = useState<Named[]>([]);
   const [positions, setPositions] = useState<Named[]>([]);
+  // a saved colour (T41) and the group it colours ("" = every fixture)
+  const { presets: colours } = useColourPresets();
+  const [colourGroup, setColourGroup] = useState(() => colourGroupOf(initial));
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,7 +47,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "colour" ? colours : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
@@ -56,7 +60,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     // a freeze without a group is every head: its target is optional
     if (targets.length && !target && action !== "freeze") return setError(t.targetRequired);
     const label = m.label || targets.find((x) => x.id === target)?.name || t.mappingActions[action];
-    const full = build({ ...m, label }, action, target);
+    const full = build({ ...m, label }, action, target, colourGroup);
     const id = initial.id || uniqueId(slug(`${m.input.type}-${m.input.number}-${label}`, "mapping"), existing);
     void cmd("midi.mapping.put", { mapping: { ...full, id } })
       .then(onClose)
@@ -67,7 +71,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
   // a named position is recalled at each press (T32): always « Déclencher »
-  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && m.input.type !== "cc") || action === "position";
+  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && m.input.type !== "cc") || action === "position" || action === "colour";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
@@ -116,7 +120,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         <div className="mapping-grid">
           <label className="field wide">
             <span>{t.mode}</span>
-            <select value={action === "position" ? "trigger" : m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
+            <select value={action === "position" || action === "colour" ? "trigger" : m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
               {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
                 <option key={x} value={x}>
                   {t.modes[x]}
@@ -157,6 +161,19 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
                 {targets.map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {action === "colour" && (
+            <label className="field wide">
+              <span>{t.colours.mappingGroup}</span>
+              <select aria-label={t.colours.mappingGroup} value={colourGroup} onChange={(e) => setColourGroup(e.target.value)}>
+                <option value="">{t.colours.widgetAll}</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
                   </option>
                 ))}
               </select>

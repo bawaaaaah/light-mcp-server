@@ -5641,3 +5641,168 @@ button.position-button.on {
     min-width: 44px;
   }
 }
+
+/* ---- colour presets (T41): buttons, Show section, Live widget, pickers ---- */
+.colour-favorites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.colour-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 600;
+  max-width: 14em;
+}
+.colour-button-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.colour-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.colour-pick,
+.colour-group {
+  min-width: 44px;
+  min-height: 44px;
+}
+.colour-with-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.colour-with-presets .colour-pick {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+}
+.colour-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 16px));
+}
+.colour-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.colour-row {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--colour, var(--line));
+  border-radius: 6px;
+  background: var(--panel);
+}
+.colour-favorites-order .colour-row,
+.colour-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.colour-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--colour);
+  border: 1px solid var(--line);
+  flex: none;
+}
+.colour-hex {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+.colour-row .badge.origin-personal {
+  color: var(--layer-target);
+  border-color: var(--layer-target);
+}
+.colour-row button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.colour-favorite.on {
+  color: var(--accent);
+}
+.colour-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.colour-form-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.colour-form .colour-input {
+  width: 64px;
+  height: 44px;
+  padding: 2px;
+}
+.colour-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.colour-scope label,
+.colour-fav-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.panel-colours .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.colours-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  overflow: auto;
+}
+.colours-widget-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.colours-widget-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.colours-widget .colours-release {
+  min-height: 44px;
+}
+/* the group fader's colour button sits with M and F: their size, a hue wheel for a dot */
+.cell .fader .row .colour-group {
+  min-height: 0;
+}
+.colour-group span {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 50%;
+  color: transparent;
+  background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #007aff, #af52de, #ff3b30);
+  vertical-align: middle;
+}

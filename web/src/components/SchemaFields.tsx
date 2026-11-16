@@ -6,6 +6,8 @@
 import type { ReactElement } from "react";
 import { useT } from "../App";
 import { plain } from "../util";
+import { useColourPresets } from "../hooks/useColourPresets";
+import { ColourPresetPicker } from "./ColourFavorites";
 
 export interface JsonSchema {
   type?: string;
@@ -37,6 +39,23 @@ const splitColor = (v: string) => {
 export function ColorInput({ value, onChange, title }: { value: string; onChange: (v: string) => void; title?: string }): ReactElement {
   const { hex, suffix } = splitColor(value);
   return <input type="color" className="swatch" title={title ?? value} value={hex} onChange={(e) => onChange(e.target.value + suffix)} />;
+}
+
+/**
+ * A colour field with the saved colours beside it (T41): a ★ opens the favourites and every saved colour; the one
+ * picked replaces the colour (copied: the look keeps its own colour), its white part (« +w40 ») kept. Without any saved
+ * colour, the field alone.
+ */
+export function PresetColorInput({ value, onChange, field }: { value: string; onChange: (v: string) => void; field: string }): ReactElement {
+  const t = useT();
+  const { presets } = useColourPresets();
+  const { suffix } = splitColor(value);
+  return (
+    <span className="colour-with-presets">
+      <ColorInput value={value} onChange={onChange} />
+      {presets.length > 0 && <ColourPresetPicker title={t.colours.pickFor.replace("{field}", () => field)} onPick={(p) => onChange(p.color + suffix)} />}
+    </span>
+  );
 }
 
 const isColorList = (key: string, s: JsonSchema) => key === "colors" && s.type === "array";
@@ -78,7 +97,7 @@ export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: 
         if (s.const !== undefined || skip.includes(key)) return null;
         const v = values[key];
         let field: React.ReactNode;
-        if (COLOR_KEYS.has(key)) field = <ColorInput value={plain(v, "#ffffff")} onChange={(x) => set(key, x)} />;
+        if (COLOR_KEYS.has(key)) field = <PresetColorInput field={label(key)} value={plain(v, "#ffffff")} onChange={(x) => set(key, x)} />;
         else if (isColorList(key, s)) {
           const list = (v as string[] | undefined) ?? [];
           const max = s.maxItems ?? 20;
@@ -86,7 +105,7 @@ export function SchemaFields({ schema, values, onChange, skip = [] }: { schema: 
           field = (
             <span className="colors">
               {list.map((c, i) => (
-                <ColorInput key={i} value={c} onChange={(x) => set(key, list.map((y, j) => (j === i ? x : y)))} />
+                <PresetColorInput key={i} field={`${label(key)} ${i + 1}`} value={c} onChange={(x) => set(key, list.map((y, j) => (j === i ? x : y)))} />
               ))}
               {list.length < max && (
                 <button className="ghost" onClick={() => set(key, [...list, FALLBACK_COLORS[list.length % FALLBACK_COLORS.length]])}>

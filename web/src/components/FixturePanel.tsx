@@ -23,6 +23,7 @@ import { XyPad } from "./XyPad";
 import { FixturePositions } from "./FixturePositions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { openManualCalibration } from "../calibrationLink";
+import { applyColour, ColourFavoriteButtons, ColourPresetPicker, releaseColour } from "./ColourFavorites";
 
 interface ChannelMode {
   name: string;
@@ -122,7 +123,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   }, [fixture.id]);
   useEffect(read, [read]);
   // The shared motion store follows positions itself; this read concerns the light faders and patch.
-  useCommandEvents(["panic", "show.", "fader.", "venue.fixture."], read);
+  useCommandEvents(["panic", "show.", "fader.", "venue.fixture.", "colour."], read);
   const glide = useTopic<Glide>("light:glide", { faders: {} });
   // one universe followed, only while a channel has modes to show; left when the panel goes (a tablet keeps no stream)
   const followsModes = channels.some((c) => c.modes?.length);
@@ -335,6 +336,22 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>
               )}
+            </section>
+          )}
+          {/* a saved colour applied by hand (T41): the favourites, every saved colour, and the colour given back */}
+          {may("commands:level") && channels.some((c) => ["red", "green", "blue"].includes(c.color ?? "")) && (
+            <section className="panel-colours">
+              <h4>{t.colours.panelTitle}</h4>
+              <ColourFavoriteButtons label={(p) => t.colours.apply.replace("{name}", () => p.name)} onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })} />
+              <div className="row">
+                <ColourPresetPicker title={t.colours.pick} className="colour-pick" onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })}>
+                  {t.colours.allPresets}
+                </ColourPresetPicker>
+                <button type="button" className="ghost" title={t.colours.releaseHelp} onClick={() => void releaseColour(t, { fixtures: [fixture.id] })}>
+                  {t.colours.release}
+                </button>
+              </div>
+              <small className="hint">{t.colours.applyHelp}</small>
             </section>
           )}
           <section>

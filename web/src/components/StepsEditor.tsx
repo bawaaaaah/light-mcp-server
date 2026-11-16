@@ -6,7 +6,7 @@
  */
 import { useState, type ReactElement } from "react";
 import { useT } from "../App";
-import { ColorInput } from "./SchemaFields";
+import { PresetColorInput } from "./SchemaFields";
 import type { Block } from "../canvas-blocks";
 
 /** The fixture behind each run of cells, on the same grid as the squares (the look editor's). */
@@ -44,7 +44,7 @@ export function StepsEditor({ steps, cells, blocks = [], order, onChange }: { st
       <div className="row">
         <label className="row">
           <input type="radio" checked={mode === "color"} onChange={() => setMode("color")} />
-          <ColorInput value={brush} onChange={(c) => (setBrush(c), setMode("color"))} />
+          <PresetColorInput field={t.colours.color} value={brush} onChange={(c) => (setBrush(c), setMode("color"))} />
         </label>
         <label className="row">
           <input type="radio" checked={mode === "off"} onChange={() => setMode("off")} /> {t.off}

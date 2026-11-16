@@ -18,7 +18,7 @@ export interface MappingDraft {
   feedback: "none" | "note" | "cc";
 }
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
-export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position"] as const;
+export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position", "colour"] as const;
 export type Action = (typeof ACTIONS)[number];
 /** Target meaning « no program » (program.select with id null). */
 export const NO_PROGRAM = "-";
@@ -33,6 +33,8 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
   if (m.on.command === "snapshot.recall") return { action: "snapshot", target: plain(m.on.args.id) };
   // a named position (T32): a recall, nothing to switch off
   if (m.on.command === "position.preset.go") return { action: "position", target: plain(m.on.args.id) };
+  // a saved colour applied by hand (T41): to a group's fixtures, or every fixture (the group is read by colourGroupOf)
+  if (m.on.command === "colour.apply") return { action: "colour", target: plain(m.on.args.id) };
   if (m.on.command === "program.select") return { action: "program", target: m.on.args.id === null ? NO_PROGRAM : plain(m.on.args.id) };
   // « Figer les lyres » (T26): every head, or a group's
   if (m.on.command === "motion.freeze") return { action: "freeze", target: plain(m.on.args.group) };
@@ -40,7 +42,11 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
   return { action: (ACTIONS as readonly string[]).includes(m.on.command) ? (m.on.command as Action) : "look", target: "" };
 }
 
-export function build(m: MappingDraft, action: Action, target: string): MappingDraft {
+/** The group a colour mapping colours (T41), empty for every fixture. */
+export const colourGroupOf = (m: MappingDraft): string => (m.on.command === "colour.apply" ? plain(m.on.args.group) : "");
+
+/** `colourGroup`: for the « colour » action, the group whose fixtures it colours ("" = every fixture; absent: the mapping's own). */
+export function build(m: MappingDraft, action: Action, target: string, colourGroup?: string): MappingDraft {
   const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0 };
   switch (action) {
     case "look":
@@ -63,6 +69,11 @@ export function build(m: MappingDraft, action: Action, target: string): MappingD
       return { ...base, mode: "trigger", on: { command: "snapshot.recall", args: { id: target } } };
     case "position":
       return { ...base, mode: "trigger", on: { command: "position.preset.go", args: { id: target } } };
+    case "colour": {
+      // the fixtures it colours: the group the editor chose (colourGroup), else the one the mapping had, else all
+      const group = colourGroup ?? colourGroupOf(m);
+      return { ...base, mode: "trigger", on: { command: "colour.apply", args: { id: target, ...(group ? { group } : {}) } } };
+    }
     case "blackout":
       return { ...base, on: { command: "blackout", args: { on: true } }, off: m.mode === "trigger" ? undefined : { command: "blackout", args: { on: false } } };
     case "freeze": {

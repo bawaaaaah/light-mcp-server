@@ -20,6 +20,7 @@ import { TypeGroups } from "../components/TypeGroups";
 import { ThemePicker } from "../components/ThemePicker";
 import { IntentionsManager } from "../components/IntentionsManager";
 import { PositionsPanel } from "../components/PositionsPanel";
+import { ColourPresetsPanel } from "../components/ColourPresetsPanel";
 import { themeLabel, themesOf, type KnowledgeMoods } from "../themes";
 
 interface Look {
@@ -908,8 +909,12 @@ export function ShowPage(): ReactElement {
         <h2>{t.positions.title}</h2>
         <PositionsPanel onError={setError} />
       </section>
+      <section className="colours">
+        <h2>{t.colours.title}</h2>
+        <ColourPresetsPanel onError={setError} />
+      </section>
       <section>
-        <RecentlyDeleted collections={["looks", "groups", "faders", "positions"]} onRestored={refresh} />
+        <RecentlyDeleted collections={["looks", "groups", "faders", "positions", "colours"]} onRestored={refresh} />
       </section>
     </div>
   );
