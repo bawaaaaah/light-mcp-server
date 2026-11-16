@@ -86,6 +86,11 @@ interface ManualPosition {
    * readjusted moves the heads that recalled it. A gesture over it (the pad) turns the entry into a fixed position.
    */
   preset?: string;
+  /**
+   * The zone it was aimed at (T28, position.aim {zone}: the Live's « Zones » widget lights the zone its heads hold). Only
+   * said, never read by the render: the entry holds the pan/tilt aimed; a gesture over it (the pad) forgets it.
+   */
+  zone?: string;
   /** The launch order of the command that set it (the counter of the look launches): a transition watches it. */
   order: number;
   /** It glides there over the show's `moveFade` (a destination recalled) instead of following the gesture at once. */
@@ -1776,6 +1781,19 @@ export class ShowRuntime {
     let rev = this.presetRevs.get(p);
     if (rev === undefined) this.presetRevs.set(p, (rev = stableStringify({ values: p.values, point: p.point ?? null })));
     return rev;
+  }
+
+  /** Notes the zone the heads were just aimed at (T28): their manual entries say it until a gesture replaces them. */
+  markAimedZone(fixtures: readonly string[], zone: string): void {
+    for (const f of fixtures) {
+      const m = this.manualPositions.get(f);
+      if (m && m.preset === undefined) m.zone = zone;
+    }
+  }
+
+  /** The zone a head was aimed at and still holds by hand, if any (T28). */
+  aimedZone(fixture: string): string | undefined {
+    return this.manualPositions.get(fixture)?.zone;
   }
 
   /** The named position a head was recalled to and still holds by hand, if any (T32). */

@@ -6,7 +6,8 @@ import type { HeadMotionEntry } from "../../../src/plugins/light/show/motion-rep
 
 export type { Position };
 /** `recalled`: the named position the head was recalled to and still holds by hand (T32; position.list only). */
-export type MotionHead = HeadMotionEntry & { name?: string; manual: Position | null; recalled?: string };
+/** `aimed`: the zone position.aim sent it to and it still holds by hand (T28; position.list only). */
+export type MotionHead = HeadMotionEntry & { name?: string; manual: Position | null; recalled?: string; aimed?: string };
 export type MotionTarget = { fixtures?: string[]; group?: string };
 
 /** The heads of one scope; `loaded` stays false until the server resolved that scope once. */

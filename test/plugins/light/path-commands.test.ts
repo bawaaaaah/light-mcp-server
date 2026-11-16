@@ -61,6 +61,20 @@ describe("zones and paths through the commands (T28)", () => {
     expect(preview.path?.warnings.map((w) => w.kind)).to.deep.equal(["noAim"]);
   });
 
+  it("position.aim {zone} says the zone the heads hold (the Live's « Zones » widget) until a gesture or a release", async () => {
+    const aimed = async () => ((await run("position.list")) as { id: string; aimed?: string }[]).find((h) => h.id === "spot")?.aimed;
+    await run("position.aim", { zone: "cour" });
+    expect(await aimed()).to.equal("cour");
+    await run("position.aim", { zone: "jardin" });
+    expect(await aimed()).to.equal("jardin");
+    // the pad over it: a plain manual position, no zone
+    await run("position.set", { fixtures: ["spot"], pan: 0.4 });
+    expect(await aimed()).to.equal(undefined);
+    await run("position.aim", { zone: "cour" });
+    await run("position.release", {});
+    expect(await aimed()).to.equal(undefined);
+  });
+
   it("a zone cited by a path or aimed at by a look cannot be deleted unless forced; « Vérifier le show » then says the stop gone", async () => {
     await run("look.put", { look: look({ at: { path: { stops } } }) });
     await run("look.put", { look: { ...look({ at: { zone: "jardin" } }), id: "z", name: "Sur la zone" } });

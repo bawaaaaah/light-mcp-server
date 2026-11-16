@@ -5722,6 +5722,220 @@ fieldset.group-lock legend {
   }
 }
 
+/* Looks by zone (T28): the zone buttons, the path's stops, its plan and its warnings; the Live's « Zones » widget */
+.path-zone-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+}
+.path-zone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 44px;
+  border-color: color-mix(in srgb, var(--zone-color) 65%, var(--line));
+}
+.path-zone .zone-chip-mark,
+.zones-widget .zone-chip-mark {
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--zone-color);
+  flex: 0 0 auto;
+}
+.path-zone.on,
+.path-zone[aria-pressed="true"] {
+  border-color: var(--zone-color);
+  background: color-mix(in srgb, var(--zone-color) 24%, var(--panel));
+}
+.move-path {
+  flex-basis: 100%;
+}
+.move-path > .field {
+  max-width: 22em;
+}
+.path-editor {
+  display: grid;
+  gap: 0.6em;
+  min-width: 0;
+}
+.path-editor h4 {
+  margin: 0.3em 0 0;
+  font-size: 0.9rem;
+}
+.path-add,
+.path-point {
+  flex-wrap: wrap;
+  gap: 0.4em;
+  align-items: end;
+}
+.path-add button,
+.path-point button {
+  min-height: 44px;
+}
+.path-add button.on {
+  border-color: var(--accent);
+}
+.path-point .field input {
+  width: 6em;
+}
+.path-stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3em;
+}
+.path-stop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.25em 0.4em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.path-stop.over {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.path-stop-grip {
+  cursor: grab;
+  color: var(--muted);
+}
+.path-stop-n {
+  min-width: 1.6em;
+  text-align: center;
+  font-weight: 600;
+}
+.path-stop-name {
+  flex: 1 1 10em;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.path-stop-cut {
+  color: var(--warn);
+}
+.path-stop input {
+  width: 5em;
+  min-height: 44px;
+}
+.path-stop button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.3em;
+}
+.path-settings .move-aim button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.path-plan {
+  margin: 0;
+  max-width: 28em;
+}
+.path-plan figcaption {
+  font-size: 0.85rem;
+  margin-bottom: 0.2em;
+}
+.path-plan svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: crosshair;
+}
+.path-plan-zone polygon {
+  fill: color-mix(in srgb, var(--zone-color) 22%, transparent);
+  stroke: var(--zone-color);
+  stroke-width: 1.5;
+}
+.path-plan-zone.no-aim polygon {
+  fill: color-mix(in srgb, var(--danger) 14%, transparent);
+  stroke: var(--danger);
+  stroke-dasharray: 5 3;
+}
+.path-plan-zone text,
+.path-plan-stop text {
+  font-size: 10px;
+  fill: var(--text);
+  pointer-events: none;
+}
+.path-plan-head {
+  fill: var(--muted);
+}
+.path-plan-trip {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.path-arrow-head {
+  fill: var(--accent);
+}
+.path-plan-stop circle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.path-plan-stop text {
+  font-weight: 700;
+}
+.path-warnings {
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 0.5em 0.7em;
+  background: color-mix(in srgb, var(--warn) 10%, var(--panel));
+}
+.path-warnings ul {
+  margin: 0.3em 0 0;
+  padding-left: 1.2em;
+}
+.path-warnings.saved button {
+  margin-top: 0.5em;
+  min-height: 44px;
+}
+.zones-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.3em;
+  overflow: auto;
+}
+.zones-widget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3em;
+}
+.zones-widget-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.zones-widget-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+.zones-widget button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.zones-widget-buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  flex: 1 1 6em;
+  border-color: color-mix(in srgb, var(--zone-color) 65%, var(--line));
+}
+.zones-widget-buttons button[aria-pressed="true"] {
+  border-color: var(--zone-color);
+  background: color-mix(in srgb, var(--zone-color) 28%, var(--panel));
+  font-weight: 600;
+}
+
 /* Named positions (T32): the fixture panel's tools, the Show page's list, the Live's button */
 .position-tools {
   display: flex;
