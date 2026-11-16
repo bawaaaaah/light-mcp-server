@@ -5,7 +5,7 @@ import { useCommandEvents } from "../hooks/useTopic";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { stricter } from "../motionLock";
 import { jumpTo, labelOf, slug, uniqueId } from "../util";
-import { StagePlan, type PlanZone } from "../components/StagePlan";
+import { AIM_COLOR, StagePlan, type DrawnZone, type PlanZone } from "../components/StagePlan";
 import { Calibration } from "../components/Calibration";
 import { RulesPanel } from "../components/RulesPanel";
 import { FixtureMenu } from "../components/FixtureMenu";
@@ -18,7 +18,6 @@ import { useTargets } from "../hooks/useTargets";
 import { RecentlyDeleted } from "../components/Versions";
 import { rectPolygon } from "../zone-shape";
 import { useContextMenu } from "../components/menu";
-import { quoted, beforeMark } from "../typography";
 
 interface Def {
   manufacturer: string;
@@ -90,6 +89,8 @@ export function VenuePage(): ReactElement {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   /** The zone whose right-click menu is open, and where. */
   const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  /** A zone just drawn on the plan (T27), asking its name and settings before it is created, and where. */
+  const [newZone, setNewZone] = useState<(DrawnZone & { x: number; y: number }) | null>(null);
   const rowMenu = useContextMenu<string>((at, id) => setMenu({ id, ...at }));
   /** Shift+F10 or the context-menu key on a focused row (or a fixture of the plan): the same menu, by the element. */
   const keyMenu = (id: string) => (e: ReactKeyboardEvent<Element>) => {
@@ -163,7 +164,16 @@ export function VenuePage(): ReactElement {
     [openVenue, showRows],
   );
   /** The shared-venue warning for a delete (other shows lose the fixture too); empty when the venue is the open show's alone. */
-  const sharedWarning = () => (openVenue?.shared ? `${t.sharedVenue} ${sharedShows.join(", ")}\n${t.deleteSharedConfirm}` : undefined);
+  const sharedWarning = (question = t.deleteSharedConfirm) => (openVenue?.shared ? `${t.sharedVenue} ${sharedShows.join(", ")}\n${question}` : undefined);
+  /** Deleting a zone says what still uses it (a fixture aiming at it, a rule, a mapping) and is forced only on that yes (T27, Q4). */
+  const deleteZone = (z: Zone) =>
+    confirmDelete("zone", z.id, z.name, t, sharedWarning(t.zoneAim.deleteShared)).then(
+      (done) => {
+        if (done) refresh();
+        return done;
+      },
+      (e: Error) => (setError(e.message), false),
+    );
   /** Rejects with the server's refusal: the menu shows it inside, the ✕ on the page. */
   const deleteFixture = (f: Fixture) => confirmDelete("fixture", f.id, f.name, t, sharedWarning()).then((done) => { if (done) refresh(); return done; });
   // the fixture of the open menu deleted meanwhile (another device, the AI): said, and the menu closed
@@ -403,6 +413,11 @@ export function VenuePage(): ReactElement {
             {zones.map((z) => (
               <li key={z.id}>
                 {z.name} <small>({labelOf(t.zoneTypes, z.type)} · {size(z)})</small> {z.protected ? <span className="badge conflict">{t.protectedZone}</span> : ""}{" "}
+                {z.aim && (
+                  <span className="badge zone-aim-badge" style={{ "--zone-color": z.aim.color ?? AIM_COLOR } as React.CSSProperties}>
+                    ◎ {t.zoneAim.badge}
+                  </span>
+                )}{" "}
                 <label className="inline" title={t.noAimHelp}>
                   <input type="checkbox" checked={Boolean(z.noAim)} onChange={(e) => void run("stage.zone.put", { zone: { ...z, noAim: e.target.checked } }).then(refresh)} /> {t.noAimZone}
                 </label>
@@ -427,7 +442,7 @@ export function VenuePage(): ReactElement {
                     </select>
                   </span>
                 )}
-                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => confirm(`${t.delete} ${quoted(t, z.name)}${beforeMark(t)}?`) && void run("stage.zone.delete", { id: z.id }).then(refresh)}>
+                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => void deleteZone(z)}>
                   ✕
                 </button>
               </li>
@@ -536,7 +551,8 @@ export function VenuePage(): ReactElement {
           onSelect={setHeldId}
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
           onFixtureMenu={(f, at) => setMenu({ id: f.id, ...at })}
-          onZoneMove={(z, polygon) => void run("stage.zone.put", { zone: { ...z, polygon } }).then(refresh)}
+          onZoneMove={(_z, moved) => void run("stage.zone.put", { zone: moved }).then(refresh)}
+          onZoneDraw={(shape, at) => (setZoneMenu(null), setNewZone({ ...shape, ...at }))}
           targets={targets}
         />
         <p className="hint">{t.zoneHint}</p>
@@ -549,11 +565,21 @@ export function VenuePage(): ReactElement {
                 zone={z}
                 at={zoneMenu}
                 onSave={(zone) => void run("stage.zone.put", { zone }).then(refresh)}
-                onDelete={() => void run("stage.zone.delete", { id: z.id }).then(refresh)}
+                onDelete={() => void deleteZone(z).then((done) => done && setZoneMenu(null))}
                 onClose={() => setZoneMenu(null)}
               />
             ) : null;
           })()}
+        {newZone && (
+          <ZoneMenu
+            key={`new-${newZone.x}-${newZone.y}`}
+            creating
+            zone={{ id: "", name: `${t.zoneDraw.defaultName} ${zones.length + 1}`, type: "stage", polygon: newZone.polygon, outline: newZone.outline, floorHeight: 0, protected: false, noAim: false }}
+            at={newZone}
+            onSave={(zone) => void run("stage.zone.put", { zone: { ...zone, id: uniqueId(slug(zone.name, "zone"), zones.map((z) => z.id)) } }).then(refresh)}
+            onClose={() => setNewZone(null)}
+          />
+        )}
         <details className="calibration-box">
           <summary>{t.calibrationTitle}</summary>
           <Calibration zones={zones} placed={new Set(fixtures.filter((f) => f.position).map((f) => f.id))} follow={heldId ?? undefined} onError={setError} onApplied={refresh} />

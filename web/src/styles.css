@@ -2005,6 +2005,101 @@ table.rules td {
   grid-template-columns: 1fr 1fr;
   gap: 0.3em 0.6em;
 }
+/* « Visée » (T27): a section of its own in the zone's menu */
+.zone-menu .zone-aim-section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.3em 0.7em 0.6em;
+  display: grid;
+  gap: 0.45em;
+  min-width: 0;
+}
+.zone-menu .zone-aim-section legend,
+.zone-menu .aim-point > span:first-child {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.zone-menu .aim-point {
+  display: grid;
+  gap: 0.2em;
+}
+.zone-menu .aim-point .row {
+  gap: 0.2em 1em;
+}
+/* « Dessiner une zone » (T27): the plan takes every pointer (no scroll, no selection), a crosshair for the mouse */
+.stage-plan svg.drawing {
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+}
+.stage-plan svg.drawing:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.stage-plan .draw-shape {
+  fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.stage-plan polyline.draw-shape {
+  fill: none;
+}
+.stage-plan .draw-corner {
+  fill: var(--accent);
+}
+/* the first corner of a polygon that can close: a ring to touch */
+.stage-plan .draw-corner.first {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.stage-plan .draw-cursor line {
+  stroke: #f5f7fa;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.draw-panel .draw-tools {
+  gap: 0.25em;
+}
+.draw-panel .draw-tools button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* an aiming zone's aiming point on the plan, in its colour */
+.stage-plan .zone-aim {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.zone-aim-badge {
+  color: var(--zone-color);
+  border: 1px solid color-mix(in srgb, var(--zone-color) 60%, transparent);
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .draw-panel button,
+  .zone-menu button,
+  .zone-menu select,
+  .zone-menu input[type="number"],
+  .zone-menu input:not([type]) {
+    min-height: 44px;
+  }
+  .zone-menu .swatch {
+    width: 44px;
+    height: 44px;
+  }
+  .zone-menu input[type="checkbox"],
+  .zone-menu input[type="radio"] {
+    width: 24px;
+    height: 24px;
+  }
+  .zone-menu label.row {
+    min-height: 44px;
+  }
+}
 /* while arranging the Live: the exclusive set a look button belongs to, under its name */
 .dgrid .look .set-mark {
   display: block;

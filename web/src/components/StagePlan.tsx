@@ -16,15 +16,18 @@
  * beam, ⊙ / ⊗ when it points at / away from the viewer. A lit fixture whose beam is known (its
  * orientation, or a moving head's pan/tilt read back from the output: light:preview beams) casts a
  * cone of its colour to where the light lands on the floor of the zone below, 2 m otherwise. A zone
- * no moving head may point into is hatched.
+ * no moving head may point into is hatched. « Dessiner une zone » (T27): a rectangle or an ellipse dragged by its box,
+ * a polygon corner by corner, with the mouse, a finger or the keyboard (arrows move a cursor, Space puts a corner), on
+ * the magnetic grid; the page then asks the zone's name and settings. An aiming zone is outlined in its colour with a
+ * reticle on its aiming point; in « Viser », a click in it aims at that point (the exact point with Alt / Option).
  */
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
-import { moveZone } from "../zone-shape";
+import { centroid, ellipseFromDrag, ellipsePolygon, movedZone, rectFromDrag, validZone, type Pt, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
@@ -90,7 +93,22 @@ export interface PlanZone {
   noAim?: boolean;
   /** Looks allowed into it all the same. */
   allowLooks?: string[];
+  /** An aiming zone (T27): the moving heads can be sent to it, at `height` above its floor, at `point` (else its centre). */
+  aim?: { height: number; point?: Pt; color?: string };
+  /** How it was drawn (T27), listed only while it still describes the polygon. */
+  outline?: ZoneOutline;
 }
+/** A zone drawn on the plan (T27), before it has a name. */
+export interface DrawnZone {
+  polygon: Pt[];
+  outline: ZoneOutline;
+}
+type DrawTool = "rect" | "ellipse" | "polygon";
+const DRAW_TOOLS: DrawTool[] = ["rect", "ellipse", "polygon"];
+/** An aiming zone's colour when it has none of its own. */
+export const AIM_COLOR = "#f59e0b";
+/** The aiming point of a zone (zoneAimPoint of the server, X/Y): its placed point, else the centre of its surface. */
+export const aimSpot = (z: Pick<PlanZone, "polygon" | "aim">): { x: number; y: number } => (z.aim?.point ? { x: z.aim.point[0], y: z.aim.point[1] } : centroid(z.polygon));
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
 
@@ -111,6 +129,7 @@ export function StagePlan({
   onZoneMenu,
   onFixtureMenu,
   onZoneMove,
+  onZoneDraw,
   beamsShown = true,
   controls,
   collapsed = false,
@@ -136,8 +155,10 @@ export function StagePlan({
   onZoneMenu?: (zone: PlanZone, at: { x: number; y: number }) => void;
   /** Right-click (a long press, or Shift+F10 on a focused fixture) on a fixture: its menu, at that point (the patch's fixture menu). */
   onFixtureMenu?: (fixture: PlanFixture, at: { x: number; y: number }) => void;
-  /** « Déplacer les zones »: a zone dragged on the plan, its new corners. */
-  onZoneMove?: (zone: PlanZone, polygon: [number, number][]) => void;
+  /** « Déplacer les zones »: a zone dragged on the plan, moved (its corners, its placed aiming point, its drawn ellipse). */
+  onZoneMove?: (zone: PlanZone, moved: PlanZone) => void;
+  /** « Dessiner une zone » (T27): a shape closed on the plan, and where on screen (the page asks its name and settings). */
+  onZoneDraw?: (shape: DrawnZone, at: { x: number; y: number }) => void;
   /** Beams drawn (cones, the arrows of where fixtures point); off, a lit fixture only glows. */
   beamsShown?: boolean;
   /** With the views: more switches before them (the Live's stage: fold it, its beams). */
@@ -170,6 +191,15 @@ export function StagePlan({
   /** « Déplacer les zones »: on, a zone dragged moves (never by a stray click otherwise). */
   const [movingZones, setMovingZones] = useState(false);
   const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
+  /** « Dessiner une zone » (T27): the shape being drawn, or none. */
+  const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
+  /** A rectangle or an ellipse: its box, from the first corner (Shift: square). */
+  const [shapeDrag, setShapeDrag] = useState<{ from: P; at: P; square: boolean } | null>(null);
+  /** A polygon: the corners put so far. */
+  const [corners, setCorners] = useState<P[]>([]);
+  /** Where the next corner would go (the pointer, or the keyboard's cursor), on the grid. */
+  const [cursor, setCursor] = useState<P | null>(null);
+  const drawHelp = useId();
   const zoneMenu = useContextMenu<string>((at, id) => {
     const z = zones.find((x) => x.id === id);
     if (z) onZoneMenu?.(z, at);
@@ -197,6 +227,8 @@ export function StagePlan({
   const [view, setView] = useState<"top" | "front" | "3d">(initialView);
   const front = view === "front";
   const in3d = view === "3d";
+  /** « Dessiner une zone » is on: seen from above, on a plan that can create zones. */
+  const drawing = drawTool !== null && onZoneDraw !== undefined && view === "top";
   // The drawing works on (x, y) pairs: top view = stage plan, front view = (x, height).
   const shown = useMemo(() => {
     const fx = fixtures.map((f) => (front && f.position ? { ...f, position: { x: f.position.x, y: f.position.z, z: f.position.y } } : f));
@@ -365,7 +397,7 @@ export function StagePlan({
     const z = zones.find((x) => x.id === zoneDrag.id);
     const [dx, dy] = zoneOffset as [number, number];
     setZoneDrag(null);
-    if (z && onZoneMove && (dx || dy)) onZoneMove(z, moveZone(z.polygon, dx, dy));
+    if (z && onZoneMove && (dx || dy)) onZoneMove(z, movedZone(z, dx, dy));
   };
   const dropDrag = () => {
     if (!drag) return;
@@ -453,13 +485,141 @@ export function StagePlan({
     );
   };
 
+  // ---- « Dessiner une zone » (T27)
+  /** Drawing units per screen pixel: marks keep their size on screen at any zoom. */
+  const unit = VW / drawnWidth;
+  /** A point of the plan on the magnetic grid (to the centimetre when free). */
+  const onGrid = (p: P): P => {
+    const step = gridStep || 0.01;
+    return { x: cm(Math.round(p.x / step) * step), y: cm(Math.round(p.y / step) * step) };
+  };
+  /** The tool chosen, or none (leaving the mode): what was being drawn is dropped, the other modes are left. */
+  const chooseTool = (tool: DrawTool | null) => {
+    setShapeDrag(null);
+    setCorners([]);
+    if (!tool) setCursor(null);
+    setDrawTool(tool);
+    if (!tool) return;
+    setPlacing(false);
+    setAiming(false);
+    setOrienting(false);
+    setMovingZones(false);
+    setChosen([]);
+  };
+  const resetDraw = () => (setShapeDrag(null), setCorners([]));
+  /** The rectangle or the ellipse a box gives, as corners. */
+  const boxShape = (d: { from: P; at: P; square: boolean }): Pt[] => {
+    if (drawTool !== "ellipse") return rectFromDrag(d.from, d.at, d.square);
+    const e = ellipseFromDrag(d.from, d.at, d.square);
+    return ellipsePolygon(e.cx, e.cy, e.rx, e.ry);
+  };
+  /** Where a point of the plan is on screen: the form opens there. */
+  const screenOf = (p: P) => {
+    const r = svg.current!.getBoundingClientRect();
+    return { x: r.left + ((sx(p.x) + pad.left) / VW) * r.width, y: r.top + ((sy(p.y) + pad.top) / VH) * r.height };
+  };
+  /** A shape closed: handed to the page when the server would take it, else said (and a polygon stays open). */
+  const finishShape = (polygon: Pt[], outline: ZoneOutline) => {
+    if (!validZone(polygon)) return onError(t.zoneDraw.invalid);
+    resetDraw();
+    onZoneDraw?.({ polygon, outline }, screenOf(centroid(polygon)));
+  };
+  const finishBox = (d: { from: P; at: P; square: boolean }) => {
+    setShapeDrag(null);
+    if (drawTool === "ellipse") {
+      const e = ellipseFromDrag(d.from, d.at, d.square);
+      return finishShape(ellipsePolygon(e.cx, e.cy, e.rx, e.ry), { kind: "ellipse", ...e });
+    }
+    finishShape(rectFromDrag(d.from, d.at, d.square), { kind: "rect" });
+  };
+  const closePolygon = () => {
+    if (corners.length >= 3) finishShape(corners.map((c) => [c.x, c.y]), { kind: "polygon" });
+  };
+  /** A polygon's corner: on the first one (a finger gets more room), the polygon closes; on the last one (a double-click's second click), nothing. */
+  const addCorner = (p: P, touch = false) => {
+    const [first, last] = [corners[0], corners[corners.length - 1]];
+    if (first && corners.length >= 3 && Math.hypot(p.x - first.x, p.y - first.y) * pxPerMetre <= (touch ? 24 : 12)) return closePolygon();
+    if (last && Math.hypot(p.x - last.x, p.y - last.y) * pxPerMetre < 4) return;
+    setCorners([...corners, p]);
+  };
+  const drawDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const p = onGrid(eventToStage(e));
+    setCursor(p);
+    if (drawTool === "polygon") return;
+    svg.current?.setPointerCapture(e.pointerId);
+    setShapeDrag({ from: p, at: p, square: e.shiftKey });
+  };
+  const drawMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const p = onGrid(eventToStage(e));
+    setCursor(p);
+    if (shapeDrag) setShapeDrag({ ...shapeDrag, at: p, square: e.shiftKey });
+  };
+  const drawUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const p = onGrid(eventToStage(e));
+    if (drawTool === "polygon") return addCorner(p, e.pointerType === "touch");
+    if (!shapeDrag) return;
+    // a press without a drag draws nothing
+    if (Math.hypot(p.x - shapeDrag.from.x, p.y - shapeDrag.from.y) * pxPerMetre < 4) return setShapeDrag(null);
+    finishBox({ ...shapeDrag, at: p, square: e.shiftKey });
+  };
+  // a tool chosen: the plan takes the focus, so the keys draw at once (the mode's switch would eat Space)
+  useEffect(() => {
+    if (drawTool) svg.current?.focus({ preventScroll: true });
+  }, [drawTool]);
+  // keyboard, while drawing: the arrows move the cursor by a grid step (×10 with Shift), Space puts a corner, Enter
+  // closes a polygon, Backspace takes its last corner back, Escape drops the shape (and, with none, leaves the mode)
+  useEffect(() => {
+    if (!drawing) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.defaultPrevented || el?.getAttribute("role") === "slider") return;
+      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable || el.closest('[role="dialog"]'))) return;
+      const onButton = el?.tagName === "BUTTON";
+      if (e.key === "Escape") {
+        e.preventDefault();
+        return corners.length || shapeDrag ? resetDraw() : chooseTool(null);
+      }
+      if (e.key === "Backspace" && drawTool === "polygon" && corners.length) {
+        e.preventDefault();
+        return setCorners(corners.slice(0, -1));
+      }
+      if (e.key === "Enter" && !onButton && drawTool === "polygon" && corners.length >= 3) {
+        e.preventDefault();
+        return closePolygon();
+      }
+      const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
+      if (!d && (e.key !== " " || onButton)) return;
+      e.preventDefault();
+      // the cursor shows first, at the middle of the plan
+      if (!cursor) return setCursor(onGrid({ x: (layout.minX + layout.maxX) / 2, y: (layout.minY + layout.maxY) / 2 }));
+      if (d) {
+        const step = (gridStep || 0.1) * (e.shiftKey ? 10 : 1);
+        const next = onGrid({ x: cursor.x + d[0] * step, y: cursor.y + d[1] * step });
+        setCursor(next);
+        if (shapeDrag) setShapeDrag({ ...shapeDrag, at: next });
+        return;
+      }
+      if (drawTool === "polygon") return addCorner(cursor);
+      if (!shapeDrag) return setShapeDrag({ from: cursor, at: cursor, square: false });
+      if (Math.hypot(cursor.x - shapeDrag.from.x, cursor.y - shapeDrag.from.y) > 0) finishBox({ ...shapeDrag, at: cursor });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!aiming || placing || orienting || front || !svg.current) return;
+    if (!aiming || placing || orienting || drawing || front || !svg.current) return;
     const p = eventToStage(e);
-    const zone = zones.find((z) => inside(p.x, p.y, z.polygon));
+    // in an aiming zone (the one drawn on top), its aiming point (decision Q3 of T27); Alt / Option: the exact point
+    // clicked, at the zone's aiming height above its floor
+    const aimZone = [...zones].reverse().find((z) => z.aim && inside(p.x, p.y, z.polygon));
+    const zone = aimZone ?? zones.find((z) => inside(p.x, p.y, z.polygon));
     // a selected moving head turns to the point alone; without a selection, all of them do
     const only = selected && heads.includes(selected) ? [selected] : undefined;
-    void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + 1.5 }, ...(only ? { fixtures: only } : {}) })
+    const where = aimZone && !e.altKey ? { zone: aimZone.id } : { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + (zone?.aim?.height ?? 1.5) } };
+    void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { ...where, ...(only ? { fixtures: only } : {}) })
       .then((res) => {
         const errors = res.results.filter((x) => x.error).map((x) => `${x.fixture}${t.colon} ${x.error}`);
         if (errors.length) onError(errors.join(" · "));
@@ -472,10 +632,10 @@ export function StagePlan({
       <button className={view === "top" ? "ghost on" : "ghost"} aria-pressed={view === "top"} onClick={() => setView("top")}>
         {t.viewTop}
       </button>
-      <button className={front ? "ghost on" : "ghost"} aria-pressed={front} onClick={() => (setView("front"), setAiming(false))}>
+      <button className={front ? "ghost on" : "ghost"} aria-pressed={front} onClick={() => (setView("front"), setAiming(false), chooseTool(null))}>
         {t.viewFront}
       </button>
-      <button className={in3d ? "ghost on" : "ghost"} aria-pressed={in3d} title={t.view3dHelp} onClick={() => (setView("3d"), setAiming(false), setPlacing(false), setOrienting(false))}>
+      <button className={in3d ? "ghost on" : "ghost"} aria-pressed={in3d} title={t.view3dHelp} onClick={() => (setView("3d"), setAiming(false), setPlacing(false), setOrienting(false), chooseTool(null))}>
         {t.view3d}
       </button>
     </span>
@@ -497,10 +657,10 @@ export function StagePlan({
         </small>
         {onMove && !in3d && (
           <label className="row">
-            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false), setMovingZones(false), setChosen([]))} /> {t.placeMode}
+            <input type="checkbox" checked={placing} onChange={(e) => (setPlacing(e.target.checked), setAiming(false), setOrienting(false), setMovingZones(false), chooseTool(null), setChosen([]))} /> {t.placeMode}
           </label>
         )}
-        {placing && !in3d && (
+        {(placing || drawing) && !in3d && (
           <>
             <label className="row" title={t.gridHelp}>
               {t.gridLabel}
@@ -512,19 +672,26 @@ export function StagePlan({
                 ))}
               </select>
             </label>
-            <label className="row" title={t.guidesHelp}>
-              <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} /> {t.guidesMode}
-            </label>
+            {placing && (
+              <label className="row" title={t.guidesHelp}>
+                <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} /> {t.guidesMode}
+              </label>
+            )}
           </>
         )}
         {onZoneMove && !front && !in3d && (
           <label className="row" title={t.moveZonesHelp}>
-            <input type="checkbox" checked={movingZones} onChange={(e) => (setMovingZones(e.target.checked), setPlacing(false), setOrienting(false), setAiming(false))} /> {t.moveZones}
+            <input type="checkbox" checked={movingZones} onChange={(e) => (setMovingZones(e.target.checked), setPlacing(false), setOrienting(false), setAiming(false), chooseTool(null))} /> {t.moveZones}
+          </label>
+        )}
+        {onZoneDraw && !front && !in3d && (
+          <label className="row" title={t.zoneDraw.toggleHelp}>
+            <input type="checkbox" checked={drawing} onChange={(e) => chooseTool(e.target.checked ? "rect" : null)} /> {t.zoneDraw.toggle}
           </label>
         )}
         {onOrient && !in3d && (
           <label className="row">
-            <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false))} /> {t.orientMode}
+            <input type="checkbox" checked={orienting} onChange={(e) => (setOrienting(e.target.checked), setPlacing(false), setAiming(false), chooseTool(null))} /> {t.orientMode}
           </label>
         )}
         {viewSwitch}
@@ -539,7 +706,7 @@ export function StagePlan({
           </button>
         </span>
         )}
-        {heads.length > 0 && !placing && !orienting && !front && !in3d && (
+        {heads.length > 0 && !placing && !orienting && !drawing && !front && !in3d && (
           <label className="row">
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
@@ -574,6 +741,36 @@ export function StagePlan({
           )}
         </div>
       )}
+      {drawing && drawTool && !compact && (
+        <div className="place-panel draw-panel row">
+          <span className="row draw-tools" role="group" aria-label={t.zoneDraw.toolsLabel}>
+            {DRAW_TOOLS.map((tool) => (
+              <button key={tool} className={drawTool === tool ? "on" : ""} aria-pressed={drawTool === tool} onClick={() => chooseTool(tool)}>
+                {t.zoneDraw.tools[tool]}
+              </button>
+            ))}
+          </span>
+          {/* always there, disabled until they can act: the plan never moves under the finger putting a corner */}
+          {drawTool === "polygon" && (
+            <>
+              <small aria-live="polite">{t.zoneDraw.corners.replace("{n}", String(corners.length))}</small>
+              <button className="primary" disabled={corners.length < 3} onClick={closePolygon}>
+                {t.zoneDraw.finish}
+              </button>
+              <button disabled={!corners.length} onClick={() => setCorners(corners.slice(0, -1))}>
+                {t.zoneDraw.undo}
+              </button>
+            </>
+          )}
+          <button className="ghost" disabled={!corners.length && !shapeDrag} onClick={resetDraw}>
+            {t.zoneDraw.cancel}
+          </button>
+          <small className="place-help" id={drawHelp}>
+            {t.zoneDraw.help[drawTool]} {t.zoneDraw.escape}
+          </small>
+        </div>
+      )}
+      {aiming && !compact && zones.some((z) => z.aim) && <small className="hint aim-zone-hint">{t.zoneAim.aimHint}</small>}
       {show3d && !collapsed && (
         <Suspense fallback={<p className="hint">…</p>}>
           <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} height={height} />
@@ -583,10 +780,14 @@ export function StagePlan({
       <svg
         ref={svg}
         viewBox={`${-pad.left} ${-pad.top} ${VW} ${VH}`}
-        className={aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
+        className={drawing ? "drawing" : aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
         style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : height ? { height, maxHeight: "none" } : undefined}
         onClick={aimAt}
+        onDoubleClick={drawing && drawTool === "polygon" ? closePolygon : undefined}
+        onContextMenu={drawing ? (e) => e.preventDefault() : undefined}
+        onPointerCancel={drawing ? () => setShapeDrag(null) : undefined}
         onPointerDown={(e) => {
+          if (drawing) return drawDown(e);
           // « Placer », pressed on the stage rather than a fixture: a frame to choose those inside
           if (!placing || in3d) return;
           // a finger stays with what it touched (a zone's long press still hears it lift); a mouse is held here
@@ -595,6 +796,7 @@ export function StagePlan({
           setBand({ from: p, at: p, add: e.ctrlKey || e.metaKey || e.shiftKey });
         }}
         onPointerMove={(e) => {
+          if (drawing) return drawMove(e);
           if (zoneDrag) return setZoneDrag({ ...zoneDrag, at: eventToStage(e) });
           if (band) return setBand({ ...band, at: eventToStage(e) });
           if (!drag) return turnTo(e);
@@ -602,9 +804,11 @@ export function StagePlan({
           // a few pixels before it moves: a click only chooses
           setDrag({ ...drag, at, moved: drag.moved || Math.hypot(at.x - drag.from.x, at.y - drag.from.y) * pxPerMetre > 3 });
         }}
-        onPointerUp={() => (dropZone(), dropDrag(), dropBand(), dropTurn())}
+        onPointerUp={(e) => (drawing ? drawUp(e) : (dropZone(), dropDrag(), dropBand(), dropTurn()))}
         role="group"
         aria-label={t.stagePreview}
+        tabIndex={drawing ? 0 : undefined}
+        aria-describedby={drawing ? drawHelp : undefined}
       >
         <defs>
           <marker id="beam-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -617,8 +821,10 @@ export function StagePlan({
         <rect x={-pad.left} y={-pad.top} width={VW} height={VH} fill="#12141a" />
         {front && <line x1={-pad.left} x2={W + pad.right} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((zone) => {
-          const z = zoneDrag?.id === zone.id ? { ...zone, polygon: moveZone(zone.polygon, zoneOffset[0]!, zoneOffset[1]!) } : zone;
-          const menu = onZoneMenu ? zoneMenu(z.id) : undefined;
+          const z = zoneDrag?.id === zone.id ? movedZone(zone, zoneOffset[0]!, zoneOffset[1]!) : zone;
+          // no menu while drawing: a long press must not open one under the finger putting a corner
+          const menu = onZoneMenu && !drawing ? zoneMenu(z.id) : undefined;
+          const aimColor = z.aim ? (z.aim.color ?? AIM_COLOR) : undefined;
           return (
           <g
             key={z.id}
@@ -626,6 +832,7 @@ export function StagePlan({
             data-zone={z.id}
             {...menu}
             onPointerDown={(e) => {
+              if (drawing) return; // the plan draws: the corner goes where the zone is
               if (movingZones && !front && onZoneMove && !placing && !orienting && !aiming) {
                 e.stopPropagation();
                 svg.current?.setPointerCapture(e.pointerId);
@@ -636,17 +843,37 @@ export function StagePlan({
               menu?.onPointerDown(e);
             }}
           >
-            <polygon points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill={ZONE_FILL[z.type] ?? "#262a33"} stroke={z.protected || z.noAim ? "#e5484d" : "#3b4150"} strokeDasharray={z.protected || z.noAim ? "6 4" : undefined} />
+            <polygon
+              points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
+              fill={ZONE_FILL[z.type] ?? "#262a33"}
+              stroke={z.protected || z.noAim ? "#e5484d" : (aimColor ?? "#3b4150")}
+              strokeWidth={aimColor && !z.protected && !z.noAim ? 2 : 1}
+              strokeDasharray={z.protected || z.noAim ? "6 4" : undefined}
+            />
             {z.noAim && <polygon className="no-aim" points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill="url(#no-aim)" />}
             <text x={sx(z.polygon.reduce((a, p) => a + p[0], 0) / z.polygon.length)} y={sy(Math.max(...z.polygon.map((p) => p[1]))) + 14} textAnchor="middle" className="zone-name">
               {z.name}
               {z.protected ? ` (${t.protectedZone})` : ""}
               {z.noAim ? ` (${t.noAimZone})` : ""}
             </text>
+            {aimColor && !front && (() => {
+              // its aiming point: a small reticle in its colour (T27)
+              const at = aimSpot(z);
+              const r = 6 * unit;
+              return (
+                <g className="zone-aim" data-aim={z.id} role="img" aria-label={t.zoneAim.onPlan.replace("{name}", () => z.name)} transform={`translate(${sx(at.x)} ${sy(at.y)})`} stroke={aimColor}>
+                  <circle r={r} />
+                  <line x1={-r * 1.8} x2={-r * 0.4} y1={0} y2={0} />
+                  <line x1={r * 0.4} x2={r * 1.8} y1={0} y2={0} />
+                  <line y1={-r * 1.8} y2={-r * 0.4} x1={0} x2={0} />
+                  <line y1={r * 0.4} y2={r * 1.8} x1={0} x2={0} />
+                </g>
+              );
+            })()}
           </g>
           );
         })}
-        {placing && gridStep > 0 && (() => {
+        {(placing || drawing) && gridStep > 0 && (() => {
           // the magnetic grid, while placing: its step where it reads (8 px apart at least), its metres otherwise
           const step = gridStep * pxPerMetre >= 8 ? gridStep : pxPerMetre >= 8 ? 1 : 0;
           if (!step) return null;
@@ -696,7 +923,7 @@ export function StagePlan({
           const nameAt = names.get(f.id);
           const nameY = nameAt === undefined ? undefined : nameAt + sy(p.y) - sy(layout.pos.get(f.id)!.y);
           // its menu: right-click, a long press or Shift+F10 once focused, all three outside the place and orient modes (a drag must not open it)
-          const menu = onFixtureMenu ? fixtureMenu(f.id) : undefined;
+          const menu = onFixtureMenu && !drawing ? fixtureMenu(f.id) : undefined;
           return (
             <g
               key={f.id}
@@ -729,6 +956,7 @@ export function StagePlan({
                   }
                 : {})}
               onPointerDown={(e) => {
+                if (drawing) return; // the plan draws: a corner may go on a fixture
                 if (!orienting && !placing) menu?.onPointerDown(e);
                 if (orienting) {
                   e.stopPropagation();
@@ -818,6 +1046,21 @@ export function StagePlan({
               </g>
             );
           })}
+        {drawing && (
+          <g className="draw-preview" aria-hidden pointerEvents="none">
+            {shapeDrag && <polygon className="draw-shape" points={boxShape(shapeDrag).map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} />}
+            {corners.length > 0 && <polyline className="draw-shape" points={[...corners, ...(cursor ? [cursor] : [])].map((c) => `${sx(c.x)},${sy(c.y)}`).join(" ")} />}
+            {corners.map((c, i) => (
+              <circle key={i} className={i === 0 && corners.length >= 3 ? "draw-corner first" : "draw-corner"} cx={sx(c.x)} cy={sy(c.y)} r={i === 0 && corners.length >= 3 ? 12 * unit : 4 * unit} />
+            ))}
+            {cursor && (
+              <g className="draw-cursor" transform={`translate(${sx(cursor.x)} ${sy(cursor.y)})`}>
+                <line x1={-10 * unit} x2={10 * unit} y1={0} y2={0} />
+                <line y1={-10 * unit} y2={10 * unit} x1={0} x2={0} />
+              </g>
+            )}
+          </g>
+        )}
         {band && <rect className="plan-band" x={Math.min(sx(band.from.x), sx(band.at.x))} y={Math.min(sy(band.from.y), sy(band.at.y))} width={Math.abs(sx(band.at.x) - sx(band.from.x))} height={Math.abs(sy(band.at.y) - sy(band.from.y))} />}
       </svg>
       </div>

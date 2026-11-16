@@ -150,3 +150,17 @@ export function ellipseFromDrag(from: { x: number; y: number }, to: { x: number;
   const { x0, y0, x1, y1 } = boxFromDrag(from, to, circle);
   return { cx: cm((x0 + x1) / 2), cy: cm((y0 + y1) / 2), rx: cm((x1 - x0) / 2), ry: cm((y1 - y0) / 2) };
 }
+
+/** How a zone was drawn (T27; ZoneOutlineSchema of the server): to edit it again in its own terms. */
+export type ZoneOutline = { kind: "rect" } | { kind: "ellipse"; cx: number; cy: number; rx: number; ry: number; rotation?: number } | { kind: "polygon" };
+
+/** A zone moved by dx, dy (metres): its corners, its placed aiming point and a drawn ellipse's centre go with it. */
+export function movedZone<Z extends { polygon: Pt[]; aim?: { height: number; point?: Pt } | undefined; outline?: ZoneOutline | undefined }>(zone: Z, dx: number, dy: number): Z {
+  const { aim, outline } = zone;
+  return {
+    ...zone,
+    polygon: moveZone(zone.polygon, dx, dy),
+    ...(aim?.point ? { aim: { ...aim, point: [cm(aim.point[0] + dx), cm(aim.point[1] + dy)] as Pt } } : {}),
+    ...(outline?.kind === "ellipse" ? { outline: { ...outline, cx: cm(outline.cx + dx), cy: cm(outline.cy + dy) } } : {}),
+  };
+}
