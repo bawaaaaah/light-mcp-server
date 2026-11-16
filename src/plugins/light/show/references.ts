@@ -1,6 +1,6 @@
 /**
  * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention, a target (T24), a named position (T32) or a
- * stage zone (T27: the patch's `target`, rules scoped to it, commands naming it by `zone`) is used in the show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
+ * stage zone (T27: the patch's `target`, rules scoped to it, commands naming it by `zone`) or a colour preset (T41: commands naming it by `id`) is used in the show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
  * tag, a move following a target or a named position), targets (a fixture, a group), named positions (a fixture), rules (a fixture) and the safe
  * state. A snapshot holds no named position.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
@@ -10,15 +10,15 @@
 import { say } from "../../../core/lang.js";
 import { AMBIANCE } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
-export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target" | "position" | "zone";
+export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target" | "position" | "zone" | "colour";
 
 /**
  * A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). A
  * fixture is also named by any command's `args.fixture` or `args.fixtures` (position.set, venue.fixture.presence…).
  */
-const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset.", zone: "stage.zone." };
+const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset.", zone: "stage.zone.", colour: "colour." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy", "colours"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy", "colours"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [], colour: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -86,7 +86,7 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
     const inIt =
-      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" || kind === "position" || kind === "zone" ? false : s.looks.some((l) => canvasLooks.has(l));
+      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" || kind === "position" || kind === "zone" || kind === "colour" ? false : s.looks.some((l) => canvasLooks.has(l));
     if (!inIt) continue;
     // A snapshot the Panic or the startup recalls: the delete confirmation must say so.
     const roles = [s.id === show.safeSnapshot ? say("secours du Panic", "the Panic's fallback") : "", s.id === show.startupSnapshot ? say("instantané de démarrage", "the startup snapshot") : ""].filter(Boolean);

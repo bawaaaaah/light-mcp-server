@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
+import { usesOf } from "./references.js";
 
 export const MAX_COLOUR_NAME = 60;
 export const MAX_COLOUR_NOTES = 2000;
@@ -86,18 +87,8 @@ export interface ColourCiting {
   favorites: readonly string[];
 }
 
-const names = (command: string, args: Record<string, unknown>, id: string) => command.startsWith("colour.") && args.id === id;
-
-/** Where a preset is used (one line per place, as show/references.ts): MIDI mappings and song cues. The favourites are not a use: a delete drops it from them. */
-export function colourUses(id: string, show: Omit<ColourCiting, "favorites">): string[] {
-  const uses: string[] = [];
-  for (const m of show.mappings) if (names(m.on.command, m.on.args, id) || (m.off && names(m.off.command, m.off.args, id))) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
-  for (const s of show.songs) {
-    const n = (s.cues ?? []).filter((c) => names(c.command, c.args, id)).length;
-    if (n) uses.push(say(`chant « ${s.title} » (${n} action${n > 1 ? "s" : ""} de la piste)`, `song “${s.title}” (${n} track cue${n > 1 ? "s" : ""})`));
-  }
-  return uses;
-}
+/** Where a preset is used (one line per place, show/references.ts): MIDI mappings and song cues. The favourites are not a use: a delete drops it from them. */
+export const colourUses = (id: string, show: Omit<ColourCiting, "favorites">): string[] => usesOf("colour", id, { groups: [], faders: [], dashboards: [], snapshots: [], looks: [], ...show, songs: show.songs.map((s) => ({ sections: [], ...s })) });
 
 /** Every preset id the show cites: its favourites, then what its mappings and cues name. What an archive carries a copy of. */
 export function citedColours(show: ColourCiting): string[] {

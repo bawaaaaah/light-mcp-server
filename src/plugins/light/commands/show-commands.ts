@@ -1468,11 +1468,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target, a named position or a stage zone is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), the patch and rules (a zone: fixtures aiming at it, rules scoped to it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target, a named position, a stage zone or a colour preset (MIDI mappings and song cues naming it) is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), the patch and rules (a zone: fixtures aiming at it, rules scoped to it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target", "position", "zone"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target", "position", "zone", "colour"]), id: z.string() }),
     // an intention of the personal library also serves the other shows of this machine: the plugin says which (T15)
     run: ({ kind, id: i }) => ({ uses: kind === "intention" && intentionReferences ? intentionReferences(i) : usesOf(kind, i, parts()) }),
   });
