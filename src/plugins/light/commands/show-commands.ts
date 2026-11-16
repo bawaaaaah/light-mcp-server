@@ -32,6 +32,8 @@ import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPat
 import { IntentionSchema, INTENTION_REFS_HELP, newIntentionId, type AmbiguousRef } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
+import { channelFaderId, ownChannelFader } from "../show/channel-faders.js";
+import { ColourPresetSchema } from "../show/colour-presets.js";
 import type { ShowRuntime, SnapshotLockMode } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
 import { isBuiltinRule, RESET_ORIGINS, RESET_WINDOW_MS, resetChannels } from "../rules/reset-protection.js";
@@ -1558,8 +1560,6 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return show.faders.put(fader);
     },
   });
-  /** Whether a fader's range leaves part of the travel out (an explicit 0..255 is the whole travel). */
-  const narrowed = (range: { min: number; max: number } | undefined) => range !== undefined && (range.min > 0 || range.max < 255);
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
@@ -1569,15 +1569,12 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
     run: ({ fixture, offset, name, level }) => {
       // only a fader over the whole travel is this channel's: one narrowed to a function (T12) is something else
-      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset && !narrowed(f.range));
+      const own = ownChannelFader(show.faders.list(), fixture, offset);
       if (own) return { ...own, created: false };
       checkChannels([{ fixture, offset }]);
       const patch = venue.fixtures.get(fixture)!;
       const now = engine.output.get(patch.universe)[patch.address - 1 + offset] ?? 0;
-      const taken = new Set(show.faders.list().map((f) => f.id));
-      const base = `panel-${fixture}-${offset}`;
-      let faderId = base;
-      for (let k = 2; taken.has(faderId); k++) faderId = `${base}-${k}`;
+      const faderId = channelFaderId(show.faders.list(), fixture, offset);
       // a fader on a colour fixture's master dimmer doses it (runtime.compose): at 1 it changes nothing
       const unchanged = show.dosesDimmer(fixture, offset) ? 1 : Math.round((now / 255) * 1000) / 1000;
       const fader = show.faders.put({ id: faderId, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? unchanged });
@@ -1743,8 +1740,10 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     targets: { coll: show.targets, put: "target.put", key: "target" },
     // a named position (T32): put back through position.preset.put, with the basis it had (its freshness then)
     positions: { coll: show.positionPresets, put: "position.preset.put", key: "position" },
+    // a colour preset of the show (T41): put back through colour.preset.put, in the show
+    colours: { coll: show.store.collection("colours", ColourPresetSchema), put: "colour.preset.put", key: "preset" },
   } as const;
-  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets", "positions"]);
+  const versioned = z.enum(["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets", "positions", "colours"]);
   /** Putting a canvas back is checked as any canvas put (looks of exact steps, a shared venue): `force` passes it on. */
   const restoreForce = z.boolean().default(false).describe("canvases: put it back even if looks of exact steps no longer line up with its cells (as venue.canvas.put)");
   /** A DCA's level and a fader's level are live state: putting a design back never moves the light. */
@@ -1764,7 +1763,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.list",
     title: "Versions",
-    description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention, target or named position of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
+    description: "Earlier versions of a look, group, channel fader, dashboard, canvas, intention, target, named position or colour preset of the show (a copy is kept at each change and at deletion, so a deleted one is listed too), newest first: stamp and when it was replaced.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -1774,7 +1773,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "history.deleted",
     title: "Récemment supprimés",
-    description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions, targets or named positions of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
+    description: "Looks, groups, channel faders, dashboards, canvases (of the venue), intentions, targets, named positions or colour presets of the show deleted whose last copy is still in the history, newest first: id, name, stamp (for history.restore) and when it was deleted.",
     right: "show:write",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -2319,8 +2318,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // a patch: only the settings given change (partial() would reset the others to their defaults)
     // null clears a setting: JSON has no « undefined », so a cleared Panic fallback would otherwise never reach here
     schema: patchSchema(ShowSettingsSchema)
-      // the lock (T26) has its own commands and rights: show:write must not lift it
-      .omit({ schemaVersion: true, kind: true, motionLock: true })
+      // the lock (T26) has its own commands and rights: show:write must not lift it; the colour favourites (T41) theirs
+      .omit({ schemaVersion: true, kind: true, motionLock: true, colourFavorites: true })
       .extend({
         grandMasterSmoothing: FaderSmoothingSchema.nullable().optional(),
         safeLook: z.string().min(1).nullable().optional().describe("the look « Panic neutre » plays; null: none"),

@@ -33,6 +33,8 @@ import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
+import { registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
+import { citedColours, ColourPresetSchema, newColourId } from "./show/colour-presets.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
 import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, labelsOfRefs, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
@@ -163,6 +165,8 @@ export class LightPlugin implements McpPlugin {
   readonly show: FolderStore;
   /** The layers of the colour knowledge base and the intentions of this machine and of the show (T15). */
   readonly intentions: IntentionStores;
+  /** The colour presets of the show and of the personal library (T41). */
+  readonly colours: ColourStores;
   readonly venue: Venue;
   readonly runtime: ShowRuntime;
   readonly hub: MidiHub;
@@ -350,6 +354,15 @@ export class LightPlugin implements McpPlugin {
     };
     this.songs.ambiguousMood = (mood) => ambiguousRefs(showStack(this.intentions), mood);
     registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions);
+    // colour presets (T41): the show's own and the personal library's (data/private/colours), as the intentions
+    const songList = this.songs.songs;
+    this.colours = {
+      show: this.show.collection("colours", ColourPresetSchema),
+      personal: personal.collection("colours", ColourPresetSchema),
+      citing: () => ({ mappings: mappings.list(), songs: songList.list() }),
+      newId: () => newColourId(this.opts.now?.() ?? Date.now()),
+    };
+    registerColourPresetCommands(this.commands, this.runtime, this.colours);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
     this.files = {
       dataRoot,
@@ -617,7 +630,15 @@ export class LightPlugin implements McpPlugin {
     const i = this.intentions;
     const stack = showStack(i);
     const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, refKey(stack)).keys();
-    return Object.fromEntries(embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)]));
+    const intentions = embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)] as const);
+    // the personal colour presets it cites (favourites, mappings, cues) and has none of its own of that id (T41)
+    const c = this.colours;
+    const cited = citedColours({ ...c.citing(), favorites: this.runtime.settings.colourFavorites });
+    const colours = cited.flatMap((id) => {
+      const p = !c.show.has(id) && c.personal.get(id);
+      return p ? [[`colours/${id}.json`, stableStringify(p)] as const] : [];
+    });
+    return Object.fromEntries([...intentions, ...colours]);
   }
 
   restoreTargets(): RestoreTargets {
@@ -632,6 +653,11 @@ export class LightPlugin implements McpPlugin {
         const i = this.intentions;
         const [own] = embeddedIntentions(stackIntentions(i.base(), i.personal.list(), []), [key]).intentions;
         return own && stableStringify(own);
+      },
+      // a colour preset of the personal library as an archive would carry it (T41): one restored as it is stays there
+      machineColour: (id) => {
+        const p = this.colours.personal.get(id);
+        return p && stableStringify(p);
       },
       // what an intention the archive brings is compared with: one of the same label here is a twin (T15b)
       machineIntentions: () => {

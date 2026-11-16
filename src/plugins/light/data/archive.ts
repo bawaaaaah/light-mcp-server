@@ -1,7 +1,7 @@
 /**
  * `.lightshow` archives (docs/specs/data-cli-sdk.md): a zip of the show folder (and optionally the
  * venue folder) plus a manifest. Never contains machine config or secrets; of data/private, only the
- * intentions the show uses, copied as the show's own (`show.extra`, T15).
+ * intentions and colour presets the show uses, copied as the show's own (`show.extra`, T15, T41).
  * Restoring first backs up the current folders, then writes the archive's files.
  */
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -25,6 +25,11 @@ export interface ArchiveManifest {
    * `show/intentions/` (T15): a restore on a machine that has them as they are leaves them there.
    */
   intentions?: string[];
+  /**
+   * Ids of the colour presets copied from the packing machine's personal library under `show/colours/` (T41): a
+   * restore on a machine that has them as they are leaves them there.
+   */
+  colours?: string[];
 }
 
 /** Relative paths ("looks/joie.json") of the files of a folder, sorted; `json` picks JSON or the rest. */
@@ -56,13 +61,17 @@ export function packArchive(parts: { show?: { id: string; dir: string; extra?: R
   // files the show uses from elsewhere, packed as its own (the intentions of this machine it names, T15);
   // what the folder holds wins, and the folder itself is never written
   const fromMachine: string[] = [];
+  const coloursFromMachine: string[] = [];
   for (const [p, text] of Object.entries(parts.show?.extra ?? {})) {
     if (files[`show/${p}`]) continue;
     files[`show/${p}`] = strToU8(text);
     const key = /^intentions\/(.+)\.json$/.exec(p)?.[1];
     if (key) fromMachine.push(key);
+    const colour = /^colours\/(.+)\.json$/.exec(p)?.[1];
+    if (colour) coloursFromMachine.push(colour);
   }
   if (fromMachine.length) manifest.intentions = fromMachine.sort();
+  if (coloursFromMachine.length) manifest.colours = coloursFromMachine.sort();
   let venueFiles: Record<string, Uint8Array> = {};
   if (parts.venue) {
     venueFiles = walk(parts.venue.dir);
@@ -247,16 +256,32 @@ export interface RestoreTargets {
   machineIntention?: (key: string) => string | undefined;
   /** The visible intentions of this machine (shipped, private file, personal library): what a twin is compared with (T15b). */
   machineIntentions?: () => MachineIntention[];
+  /** The JSON this machine would pack for a colour preset of its personal library, if it has it (T41). */
+  machineColour?: (id: string) => string | undefined;
 }
+
+/** The colour presets the packing machine copied into the show part (manifest `colours`, T41); only its strings count. */
+export const listedColours = (manifest: ArchiveManifest): string[] => (Array.isArray(manifest.colours) ? manifest.colours.filter((k): k is string => typeof k === "string") : []);
 
 /**
  * The show part of an archive without the intentions the packing machine copied in (manifest
  * `intentions`) that this machine has as they are: they stay in its library, not copied into the show
  * (decision of 2026-11-11). Another machine, or one whose version differs, gets them as the show's.
  */
-export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: { id: string; label: string }[] } {
+export function showToRestore(content: ArchiveContent, t: RestoreTargets): { show: Record<string, string>; known: { id: string; label: string }[]; coloursKnown: { id: string; name: string }[] } {
   const show = { ...content.show };
   const known: { id: string; label: string }[] = [];
+  // the colour presets of this machine's personal library the archive carries as they are stay there (T41)
+  const coloursKnown: { id: string; name: string }[] = [];
+  for (const id of listedColours(content.manifest)) {
+    const path_ = `colours/${id}.json`;
+    const ours = t.machineColour?.(id);
+    const text = show[path_];
+    if (text === undefined || ours === undefined || canonical(ours) !== canonical(text)) continue;
+    delete show[path_];
+    const name = (JSON.parse(text) as { name?: unknown }).name;
+    coloursKnown.push({ id, name: typeof name === "string" && name ? name : id });
+  }
   const listed = listedIntentions(content.manifest);
   for (const key of listed) {
     const path_ = `intentions/${key}.json`;
@@ -268,7 +293,7 @@ export function showToRestore(content: ArchiveContent, t: RestoreTargets): { sho
       known.push({ id: key, label: typeof label === "string" && label ? label : key });
     }
   }
-  return { show, known };
+  return { show, known, coloursKnown };
 }
 
 export interface RestorePreview {
@@ -290,6 +315,8 @@ export interface RestorePreview {
    * restore keeps this machine's (`keepMachine`).
    */
   intentionTwins: IntentionTwin[];
+  /** Colour presets of the packing machine this one has as they are in its personal library: left there, not copied into the show (T41). */
+  coloursKnown: { id: string; name: string }[];
 }
 
 export interface CollectionCount {
@@ -320,7 +347,7 @@ function withPinnedSettings(diff: FolderDiff, files: Record<string, string>, t: 
 /** What restoring would change, definitions included. Writes nothing. The one function behind HTTP, commands, CLI and SDK previews. */
 export function previewRestore(content: ArchiveContent, t: RestoreTargets, policy: FixturePolicy = "missing"): RestorePreview {
   const plan = planFixtures(content.fixtures, content.rejectedFixtures, t.definitionDirs, t.fixturesDir, content.invalidFixtures);
-  const { show: files, known } = showToRestore(content, t);
+  const { show: files, known, coloursKnown } = showToRestore(content, t);
   const show = Object.keys(content.show).length ? withPinnedSettings(diffFolder(t.showDir, files), files, t) : null;
   return {
     dryRun: true,
@@ -331,6 +358,7 @@ export function previewRestore(content: ArchiveContent, t: RestoreTargets, polic
     intentions: show && countCollection(show, "intentions"),
     intentionsKnown: known,
     intentionTwins: intentionTwins(files, t.machineIntentions?.() ?? [], listedIntentions(content.manifest)),
+    coloursKnown,
   };
 }
 

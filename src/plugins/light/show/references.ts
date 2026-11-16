@@ -18,7 +18,7 @@ export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | 
  */
 const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset.", zone: "stage.zone." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy", "colours"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
