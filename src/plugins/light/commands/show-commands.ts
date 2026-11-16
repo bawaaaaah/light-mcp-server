@@ -1947,6 +1947,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const issues = err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".") || "(objet)"}${say(" : ", ": ")}${i.message}`) : [String(err)];
       return { valid: false as const, collection, issues };
     }
+    // a zone's outline as stage.zone.put checks it, the collection named or the command (whose plan says it first)
+    const wrong = collection === "zones" ? zonePutError(parsed as z.infer<typeof ZoneSchema>) : undefined;
+    if (wrong) throw new CommandError("invalid", wrong);
     const current = coll.get(parsed.id);
     return { valid: true as const, collection, id: parsed.id, new: current === undefined, changes: current === undefined ? [] : diff(current, parsed) };
   };

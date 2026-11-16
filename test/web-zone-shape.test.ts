@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { ellipsePolygon, movedZone, moveZone, rectPolygon, reshapedZone, validZone, zoneRect } from "../web/src/zone-shape.js";
+import { aimSpot, cachedZoneCentre, ellipsePolygon, movedZone, moveZone, rectPolygon, reshapedZone, validZone, zoneCentre, zoneRect } from "../web/src/zone-shape.js";
 
 describe("stage zones on the plan", () => {
   it("draws a rectangle from its sizes and reads them back", () => {
@@ -43,5 +43,35 @@ describe("stage zones on the plan", () => {
     const aimed = { polygon: tri.polygon, aim: { height: 1.2 } };
     expect(reshapedZone(aimed, "aim", { x: 5.555, y: -1 }).aim).to.deep.equal({ height: 1.2, point: [5.56, -1] });
     expect(reshapedZone(tri, "aim", { x: 1, y: 1 })).to.equal(tri);
+  });
+
+  it("keeps the corner held under the pointer when a rectangle's corners come in another order (T27, review 2)", () => {
+    type Pt = [number, number];
+    // clockwise from the back right: not the order rectPolygon gives
+    const rect = { polygon: [[2, 1], [2, 0], [0, 0], [0, 1]] as Pt[], outline: { kind: "rect" as const } };
+    const once = reshapedZone(rect, 0, { x: 3, y: 2 });
+    expect(once.polygon).to.deep.equal([[3, 2], [3, 0], [0, 0], [0, 2]]);
+    // a second step moves the same corner, not another one (two arrow presses on the same handle)
+    const twice = reshapedZone(once, 0, { x: 3.5, y: 2 });
+    expect(twice.polygon).to.deep.equal([[3.5, 2], [3.5, 0], [0, 0], [0, 2]]);
+    expect(zoneRect(twice.polygon)).to.deep.equal({ width: 3.5, depth: 2, x: 1.75, y: 0 });
+    // every corner index, both ways round: the handle's corner is where the pointer is, the opposite one stays
+    for (const polygon of [rectPolygon(2, 1, 0, 0), [[1, 0], [1, 1], [-1, 1], [-1, 0]] as Pt[]]) {
+      for (let h = 0; h < 4; h++) {
+        const r = reshapedZone({ polygon }, h, { x: 5, y: 7 });
+        expect(r.polygon[h]).to.deep.equal([5, 7]);
+        expect(r.polygon[(h + 2) % 4]).to.deep.equal(polygon[(h + 2) % 4]);
+        expect(validZone(r.polygon) && zoneRect(r.polygon) !== undefined).to.equal(true);
+      }
+    }
+  });
+
+  it("finds a zone's centre once per polygon (T27, review 2)", () => {
+    type Pt = [number, number];
+    const u: Pt[] = [[0, 0], [6, 0], [6, 4], [5, 4], [5, 1], [1, 1], [1, 4], [0, 4]];
+    const first = aimSpot({ polygon: u });
+    expect(cachedZoneCentre(u)).to.equal(first); // the same object: not searched again
+    expect(first).to.deep.equal(zoneCentre(u));
+    expect(cachedZoneCentre([...u])).to.not.equal(first); // another polygon, another search
   });
 });

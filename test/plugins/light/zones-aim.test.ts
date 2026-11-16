@@ -241,6 +241,9 @@ describe("aiming zones (T27): the shape and the aiming point", () => {
       const fine = (await run("show.diff", { command: "stage.zone.put", args: { zone: estrade } })) as { valid: boolean; new: boolean };
       expect(fine.valid).to.equal(true);
       expect(fine.new).to.equal(true);
+      // the collection named rather than the command: the same refusal
+      expect(await refusal("show.diff", { collection: "zones", object: { id: "x", name: "Nœud", polygon: [[0, 0], [2, 2], [2, 0], [0, 2]] } })).to.contain("se croise");
+      expect(((await run("show.diff", { collection: "zones", object: estrade })) as { valid: boolean }).valid).to.equal(true);
     });
 
     it("carries the aiming part and the outline through a real backup, restored", async () => {

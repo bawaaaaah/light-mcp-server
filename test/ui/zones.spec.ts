@@ -430,6 +430,9 @@ test("T27: a zone opens its menu from the keyboard; « Point exact » aims at th
     await page.keyboard.press("Shift+F10");
     const menu = page.getByRole("dialog", { name: "Zone" });
     await expect(menu).toBeVisible();
+    // the form takes the focus, not its name (a key typed would not rename the zone); Tab reaches the name
+    await expect(menu).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(menu.getByLabel("Nom de la zone")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
@@ -557,6 +560,45 @@ test("T27 lot Z4: « Déplacer les zones » drags a corner and the aiming point 
     await expect(page.locator(".stage-plan .move-error")).toContainText("ne peut pas être une zone");
     expect((await zoneNamed(page, "T27 forme"))!.polygon[1]).toEqual([3, 1]);
     await page.screenshot({ path: "test-results/t27-z4-handles.png" });
+  } finally {
+    await cleanUp(page);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("T27 lot Z4: a click on a handle writes nothing; a rectangle's corner keeps its handle step after step", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await login(page);
+  await api(page, "stage.zone.put", { zone: REF });
+  // aimed at its centre (no placed point), one corner off the grid
+  await api(page, "stage.zone.put", { zone: { id: "t27-click", name: "T27 clic", type: "stage", polygon: [[1, 1], [3.03, 1], [3, 3], [1, 3]], outline: { kind: "polygon" }, aim: { height: 1.5 } } });
+  // a rectangle whose corners do not come in the order the plan draws them
+  await api(page, "stage.zone.put", { zone: { id: "t27-order", name: "T27 ordre", type: "stage", polygon: [[-1, 3], [-1, 1], [-3, 1], [-3, 3]], outline: { kind: "rect" } } });
+  const puts: unknown[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/commands/stage.zone.put")) puts.push(r.postDataJSON());
+  });
+  try {
+    await openVenue(page);
+    await page.getByLabel("Déplacer les zones").check();
+    const handles = page.locator('.stage-plan g[data-handles="t27-click"]');
+    for (const handle of [handles.locator(".zone-handle.aim"), handles.locator('[data-handle="1"]')]) {
+      const box = (await handle.boundingBox())!;
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
+    // the rectangle's back right corner, twice to the right: the same corner both times
+    const corner = page.locator('.stage-plan g[data-handles="t27-order"] [data-handle="0"]');
+    await corner.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await zoneNamed(page, "T27 ordre"))?.polygon[0]).toEqual([-0.9, 3]);
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await zoneNamed(page, "T27 ordre"))?.polygon).toEqual([[-0.8, 3], [-0.8, 1], [-3, 1], [-3, 3]]);
+    // the clicks wrote nothing: the zone still aims at its centre, its corner where it was
+    const clicked = (await zoneNamed(page, "T27 clic"))!;
+    expect(clicked.aim?.point).toBeUndefined();
+    expect(clicked.polygon[1]).toEqual([3.03, 1]);
+    expect(puts.every((p) => (p as { zone: { id: string } }).zone.id === "t27-order")).toBe(true);
   } finally {
     await cleanUp(page);
   }

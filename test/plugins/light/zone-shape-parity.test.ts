@@ -67,6 +67,39 @@ describe("zone shapes: the web copy agrees with the server (T27)", () => {
     expect(disagreements).to.equal(0);
   });
 
+  it("centres a comb of 30 thin teeth quickly, inside, and the same on both sides (T27, review 2)", () => {
+    const comb = (teeth: number, tooth: number, length: number, base: number): Pt[] => {
+      const cm = (v: number) => Math.round(v * 100) / 100;
+      const p: Pt[] = [[0, 0]];
+      for (let k = 0; k < teeth; k++) p.push([cm(2 * k * tooth), length], [cm((2 * k + 1) * tooth), length], [cm((2 * k + 1) * tooth), base], [cm((2 * k + 2) * tooth), base]);
+      p.push([cm(2 * teeth * tooth), 0]);
+      return p;
+    };
+    for (const poly of [comb(30, 1.43, 17.93, 0.21), comb(30, 0.3, 20, 1), comb(30, 0.05, 20, 0.02)]) {
+      expect(server.zoneShapeError(poly)).to.equal(undefined);
+      server.zoneCentre(poly); // once compiled
+      const t0 = performance.now();
+      const c = server.zoneCentre(poly);
+      expect(performance.now() - t0).to.be.below(50);
+      expect(server.pointInPolygon(c.x, c.y, poly)).to.equal(true);
+      expect(web.zoneCentre(poly)).to.deep.equal(c);
+    }
+  });
+
+  it("keeps the centre of a zone a centimetre thin inside it, rather than round it onto its edge (T27, review 2)", () => {
+    // a U and an L whose bars are 1 cm wide: the centimetre nearest the pole lies on the outline
+    const thinU: Pt[] = [[-35.63, -27.65], [-12.97, -27.65], [-12.97, -22.12], [-12.98, -22.12], [-12.98, -27.64], [-35.62, -27.64], [-35.62, -22.12], [-35.63, -22.12]];
+    const thinL: Pt[] = [[-71.78, 91.74], [-66.27, 91.74], [-66.27, 91.75], [-71.77, 91.75], [-71.77, 92.12], [-71.78, 92.12]];
+    for (const poly of [thinU, thinL]) {
+      const c = server.zoneCentre(poly);
+      expect(server.pointInPolygon(c.x, c.y, poly)).to.equal(true);
+      expect(web.zoneCentre(poly)).to.deep.equal(c);
+      const pole = server.poleOfInaccessibility(poly);
+      expect(server.pointInPolygon(pole.x, pole.y, poly)).to.equal(true);
+      expect(web.poleOfInaccessibility(poly)).to.deep.equal(pole);
+    }
+  });
+
   it("draws the same ellipses", () => {
     for (const [cx, cy, rx, ry, rot] of [[0, 3, 2, 1, 0], [1.234, -0.5, 0.7, 2.25, 45], [0, 0, 1, 1, -30]] as const) {
       expect(web.ellipsePolygon(cx, cy, rx, ry, rot)).to.deep.equal(server.ellipsePolygon(cx, cy, rx, ry, rot));

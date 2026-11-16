@@ -27,7 +27,7 @@ import { useT } from "../App";
 import { stream } from "../ws";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
-import { aimSpot, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, reshapedZone, validZone, zoneCentre, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
+import { aimSpot, cachedZoneCentre, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, reshapedZone, validZone, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
@@ -197,7 +197,8 @@ export function StagePlan({
   const [movingZones, setMovingZones] = useState(false);
   const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
   /** « Déplacer les zones » (T27, lot Z4): a polygon's corner (`index`) or a zone's aiming point (`aim`) held, where it is now. */
-  const [handleDrag, setHandleDrag] = useState<{ id: string; handle: ZoneHandle; at: P } | null>(null);
+  // `from`: where the pointer went down; `moved`: once it went a few pixels from there (a click alone writes nothing)
+  const [handleDrag, setHandleDrag] = useState<{ id: string; handle: ZoneHandle; at: P; from: P; moved: boolean } | null>(null);
   /** Why a reshaped zone was refused (its edges cross): said by the plan's tools. */
   const [moveError, setMoveError] = useState("");
   /** « Dessiner une zone » (T27): the shape being drawn, or none. */
@@ -440,6 +441,7 @@ export function StagePlan({
   const dropHandle = () => {
     if (!handleDrag) return;
     setHandleDrag(null);
+    if (!handleDrag.moved) return;
     const z = zones.find((x) => x.id === handleDrag.id);
     if (z) commitHandle(z, handleDrag.handle, handleDrag.at);
   };
@@ -890,7 +892,11 @@ export function StagePlan({
         onClick={aimAt}
         onDoubleClick={drawing && drawTool === "polygon" && !pending ? closePolygon : undefined}
         onContextMenu={drawing ? (e) => e.preventDefault() : undefined}
-        onPointerCancel={drawing ? () => setShapeDrag(null) : undefined}
+        onPointerCancel={() => {
+          setShapeDrag(null);
+          setHandleDrag(null);
+          setZoneDrag(null);
+        }}
         onPointerDown={(e) => {
           if (drawing) return drawDown(e);
           // « Placer », pressed on the stage rather than a fixture: a frame to choose those inside
@@ -902,7 +908,12 @@ export function StagePlan({
         }}
         onPointerMove={(e) => {
           if (drawing) return drawMove(e);
-          if (handleDrag) return setHandleDrag({ ...handleDrag, at: onGrid(eventToStage(e)) });
+          if (handleDrag) {
+            const p = eventToStage(e);
+            // a few pixels before it moves, as a fixture: a click on a handle changes nothing
+            const moved = handleDrag.moved || Math.hypot(p.x - handleDrag.from.x, p.y - handleDrag.from.y) * pxPerMetre > 3;
+            return setHandleDrag({ ...handleDrag, at: moved ? onGrid(p) : handleDrag.at, moved });
+          }
           if (zoneDrag) return setZoneDrag({ ...zoneDrag, at: eventToStage(e) });
           if (band) return setBand({ ...band, at: eventToStage(e) });
           if (!drag) return turnTo(e);
@@ -927,7 +938,7 @@ export function StagePlan({
         <rect x={-pad.left} y={-pad.top} width={VW} height={VH} fill="#12141a" />
         {front && <line x1={-pad.left} x2={W + pad.right} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((zone) => {
-          const z = zoneDrag?.id === zone.id ? movedZone(zone, zoneOffset[0]!, zoneOffset[1]!) : handleDrag?.id === zone.id ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
+          const z = zoneDrag?.id === zone.id ? movedZone(zone, zoneOffset[0]!, zoneOffset[1]!) : handleDrag?.id === zone.id && handleDrag.moved ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
           // no menu while drawing: a long press must not open one under the finger putting a corner
           const menu = onZoneMenu && !drawing ? zoneMenu(z.id) : undefined;
           const aimColor = z.aim ? (z.aim.color ?? AIM_COLOR) : undefined;
@@ -1005,7 +1016,7 @@ export function StagePlan({
           shown.zones.map((zone) => {
             // « Déplacer les zones » (lot Z4): a dot on each corner (not an ellipse's: its menu edits it) and its aiming
             // point, dragged by the mouse or a finger, or moved by the arrows once focused
-            const z = handleDrag?.id === zone.id ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
+            const z = handleDrag?.id === zone.id && handleDrag.moved ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
             const handles: { handle: ZoneHandle; at: P; label: string }[] = [
               ...(z.outline?.kind === "ellipse" ? [] : z.polygon.map(([x, y], i) => ({ handle: i, at: { x, y }, label: t.zoneAim.vertexHandle.replace("{n}", String(i + 1)).replace("{name}", () => z.name) }))),
               ...(z.aim ? [{ handle: "aim" as const, at: aimSpot(z), label: t.zoneAim.aimHandle.replace("{name}", () => z.name) }] : []),
@@ -1027,7 +1038,7 @@ export function StagePlan({
                       if (e.pointerType === "mouse" && e.button !== 0) return;
                       e.stopPropagation();
                       svg.current?.setPointerCapture(e.pointerId);
-                      setHandleDrag({ id: zone.id, handle, at });
+                      setHandleDrag({ id: zone.id, handle, at, from: eventToStage(e), moved: false });
                     }}
                     onKeyDown={(e) => {
                       const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
@@ -1216,7 +1227,7 @@ export function StagePlan({
           })}
         {pending && !front && (() => {
           // the shape drawn, waiting for its name: still on the plan, dashed, its centre marked
-          const c = zoneCentre(pending.polygon);
+          const c = cachedZoneCentre(pending.polygon);
           const r = 6 * unit;
           return (
             <g className="draw-preview pending" aria-hidden pointerEvents="none">

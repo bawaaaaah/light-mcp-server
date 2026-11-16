@@ -1,4 +1,4 @@
-import { useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { labelOf } from "../util";
 import { useFloatingMenu, useMenuFocus } from "./menu";
@@ -37,6 +37,11 @@ export function ZoneMenu({
   const w = t.zoneAim;
   const { box, style } = useFloatingMenu<HTMLFormElement>(at, onCancel ?? onClose, undefined, !creating);
   const trap = useMenuFocus(box);
+  // a new zone is named first; an existing one's menu takes the focus on the form itself, its name not selected for typing
+  useEffect(() => {
+    if (!creating) box.current?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, as the menu opens; `box` is a stable ref
+  }, []);
   const outline = zone.outline;
   // an ellipse by its axes; a rectangle by its sides (drawn as one, or read from its corners); a polygon as it is
   const ellipse = outline?.kind === "ellipse" ? outline : undefined;
@@ -120,7 +125,7 @@ export function ZoneMenu({
       <h3>{title}</h3>
       <label className="field">
         <span>{t.zoneName}</span>
-        <input value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        <input value={draft.name} autoFocus={creating} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
       </label>
       <label className="field">
         <span>{t.zoneType}</span>
