@@ -9631,7 +9631,7 @@ test("renaming the open show reloads it: the colours widget lets go of a colour 
   const settings = (await asDesk(page, "show.settings")) as { name: string };
   const dash = ((await asDesk(page, "dashboard.list")) as Dash45[])[0]!;
   await asDesk(page, "group.put", { group: { id: "t45-face", name: "Face T45", members: { fixtures: bars } } });
-  const preset = (await asDesk(page, "colour.preset.put", { preset: { name: "Vert T45", color: "#00ff00" }, favorite: true })) as { id: string };
+  await asDesk(page, "colour.preset.put", { preset: { id: "t45-vert", name: "Vert T45", color: "#00ff00" }, favorite: true });
   try {
     const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
     await asDesk(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t45-colours", kind: "colours", target: "t45-face", x: 0, y: bottom, w: 6, h: 2 }] } });
@@ -9647,9 +9647,11 @@ test("renaming the open show reloads it: the colours widget lets go of a colour 
   } finally {
     await asDesk(page, "show.rename", { name: settings.name });
     await asDesk(page, "dashboard.put", { dashboard: dash });
-    await asDesk(page, "colour.preset.delete", { id: preset.id, force: true });
+    await asDesk(page, "colour.preset.delete", { id: "t45-vert", scope: "show", force: true });
     await asDesk(page, "group.delete", { id: "t45-face", force: true });
   }
+  // nothing left behind for the next specs (the colour favourites of colours.spec.ts)
+  expect(((await asDesk(page, "colour.preset.list")) as { presets: { id: string }[] }).presets.some((p) => p.id === "t45-vert")).toBe(false);
   expect(errors).toEqual([]);
 });
 
