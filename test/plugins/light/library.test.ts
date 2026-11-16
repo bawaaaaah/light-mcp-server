@@ -694,4 +694,28 @@ describe("fixture library (T20b)", () => {
       expect(utf.xml).to.contain("Wheel Spot é");
     });
   });
+
+  describe("review 5", () => {
+    const cp1252 = (model: string) => encodeDefinition(SPOT.replace('encoding="UTF-8"', 'encoding="windows-1252"').replace("<Model>Spot 7</Model>", `<Model>${model}</Model>`), "windows-1252");
+
+    it("a Windows-1252 file patched under the names it had when read as UTF-8 still resolves (’ œ € as their own bytes)", async () => {
+      const bytes = cp1252("Spot l’œil €");
+      writeFileSync(join(shared(), "cp.qxf"), bytes);
+      plugin.runtime.venue.refreshDefinitions();
+      const misread = (s: string) => encodeDefinition(s, "windows-1252").toString("utf8");
+      await put("old", "Test", misread("Spot l’œil €"), "Standard");
+      expect((plugin.runtime.venue.resolve("old") as { def: { model: string } }).def.model).to.equal("Spot l’œil €");
+    });
+
+    it("Windows-1252's five undefined bytes go back as they were; an export without corrections is the file's bytes", async () => {
+      const bytes = Buffer.concat([cp1252("Spot X"), Buffer.alloc(0)]);
+      // 0x81 0x8D 0x8F 0x90 0x9D inside a comment
+      const odd = Buffer.from(bytes.toString("latin1").replace("<Type>", "<!-- \x81\x8d\x8f\x90\x9d --><Type>"), "latin1");
+      expect(encodeDefinition(decodeDefinition(odd).text, "windows-1252")).to.deep.equal(odd);
+      writeFileSync(join(shared(), "odd.qxf"), odd);
+      plugin.runtime.venue.refreshDefinitions();
+      const out = (await run("fixture.definition.export", { manufacturer: "Test", model: "Spot X" })) as { base64?: string };
+      expect(Buffer.from(out.base64!, "base64")).to.deep.equal(odd);
+    });
+  });
 });

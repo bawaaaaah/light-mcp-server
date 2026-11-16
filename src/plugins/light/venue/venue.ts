@@ -531,7 +531,7 @@ export class Venue {
         const def = parseQxf(read.text); // a Latin-1 file keeps its accents
         this.definitions.push(def);
         // its names as the library read them before (UTF-8, accents lost as U+FFFD): fixtures patched then still find it
-        const legacy = legacyNamesOf(def, read.latin1);
+        const legacy = legacyNamesOf(def, read.encoding);
         if (legacy) this.legacyNames.set(def, legacy);
         // two library folders may hold the same file name: then the message says the folder
         this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));

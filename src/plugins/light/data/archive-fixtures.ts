@@ -76,7 +76,7 @@ export function resolveModels(dirs: string[], models: Model[]): (LibraryFile | u
       continue; // unreadable: not part of the library
     }
     const h = header(read.text);
-    const hLegacy = h ? legacyNamesOf(h, read.latin1) : undefined;
+    const hLegacy = h ? legacyNamesOf(h, read.encoding) : undefined;
     const wanted = models.flatMap((m, i) => (out[i] === undefined && (!h || answersTo(h, m, hLegacy)) ? [i] : []));
     if (!wanted.length) continue;
     let def: FixtureDefinition;
@@ -85,7 +85,7 @@ export function resolveModels(dirs: string[], models: Model[]): (LibraryFile | u
     } catch {
       continue; // unreadable definition: not part of the library
     }
-    const legacy = legacyNamesOf(def, read.latin1);
+    const legacy = legacyNamesOf(def, read.encoding);
     for (const i of wanted) {
       const how = answersTo(def, models[i]!, legacy);
       if (how === "direct") {

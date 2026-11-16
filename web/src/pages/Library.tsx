@@ -147,10 +147,13 @@ export function LibraryPage(): ReactElement {
   /** The row whose ⋯ a dialog opened from the menu gives the keyboard back to, or the button that opened it. */
   const lastRow = useRef<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
+  /** The section the opener was in: its title takes the focus when the opener went with the action (a restored entry). */
+  const openerSection = useRef<HTMLElement | null>(null);
   /** A dialog opened by a button of the page (not the row menu): the focus comes back to that button. */
   const openFrom = (el: HTMLElement, d: Dialog) => {
     lastRow.current = null;
     opener.current = el;
+    openerSection.current = el.closest("section");
     setDialog(d);
   };
   const closeDialog = () => {
@@ -158,7 +161,9 @@ export function LibraryPage(): ReactElement {
     // after the dialog's own clean-up: the row's ⋯ or the button that opened it (still there), else nothing to do
     requestAnimationFrame(() => {
       const row = lastRow.current ? document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current)}"]`) : null;
-      (row ?? (opener.current?.isConnected ? opener.current : null))?.focus({ preventScroll: true });
+      // the button gone with what it acted on (a restored entry, an alias removed, the trash emptied): its section's title
+      const title = openerSection.current?.isConnected ? openerSection.current.querySelector<HTMLElement>("h2") : null;
+      (row ?? (opener.current?.isConnected ? opener.current : title))?.focus({ preventScroll: true });
     });
   };
   /** After an action: the message (a toast, in view wherever the action was), the lists read again, the dialog closed. */
@@ -294,7 +299,7 @@ export function LibraryPage(): ReactElement {
       </section>
 
       <section className="library-duplicates" aria-labelledby="library-dups">
-        <h2 id="library-dups">{l.duplicatesTitle}</h2>
+        <h2 id="library-dups" tabIndex={-1}>{l.duplicatesTitle}</h2>
         {dups.sameName.length === 0 && dups.sameSignature.length === 0 && <p className="hint">{l.noDuplicates}</p>}
         {dups.sameName.map((g) => (
           <article className="dup-card" key={`${g.manufacturer}|${g.model}`}>
@@ -339,7 +344,7 @@ export function LibraryPage(): ReactElement {
       </section>
 
       <section aria-labelledby="library-aliases">
-        <h2 id="library-aliases">{l.aliasesTitle}</h2>
+        <h2 id="library-aliases" tabIndex={-1}>{l.aliasesTitle}</h2>
         <p className="hint">{l.aliasesHelp}</p>
         {aliases.length === 0 ? (
           <p className="hint">{l.noAliases}</p>
@@ -361,7 +366,7 @@ export function LibraryPage(): ReactElement {
       </section>
 
       <section aria-labelledby="library-trash">
-        <h2 id="library-trash">
+        <h2 id="library-trash" tabIndex={-1}>
           {l.trashTitle} <span className="count">({trash.length})</span>
         </h2>
         {trash.length === 0 ? (

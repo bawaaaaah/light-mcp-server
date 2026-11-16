@@ -56,7 +56,8 @@ export function exportDefinition(venue: Venue, args: { fixture?: string; manufac
   const encoded = (out: string) => (latin1 ? { base64: encodeDefinition(out, read.encoding).toString("base64") } : {});
   const def = found.def;
   const base = { file: qxfFileName(def.manufacturer, def.model), source: found.source, manufacturer: found.def.manufacturer, model: found.def.model };
-  if (!args.corrections) return { ...base, xml: source, ...encoded(source), corrected: false, applied: [], notExported: [] };
+  // no corrections: the file's own bytes, never re-encoded
+  if (!args.corrections) return { ...base, xml: source, ...(latin1 ? { base64: read.bytes.toString("base64") } : {}), corrected: false, applied: [], notExported: [] };
 
   const key = modelKeyOrUndefined(found.def.manufacturer, found.def.model);
   const overrides: FixtureOverrides = patch ? venue.overridesOf(patch) : ((key ? venue.models.get(key)?.overrides : undefined) ?? {});

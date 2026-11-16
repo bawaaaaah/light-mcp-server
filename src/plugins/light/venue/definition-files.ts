@@ -60,6 +60,8 @@ export function declaredEncoding(head: string): "latin1" | "windows-1252" | unde
 }
 
 const WINDOWS_1252 = new TextDecoder("windows-1252");
+/** The five bytes Windows-1252 leaves undefined: decoded as the control character of the same value, written back as is. */
+const CP1252_UNDEFINED = new Set([0x81, 0x8d, 0x8f, 0x90, 0x9d]);
 /** The characters Windows-1252 puts in 0x80-0x9F, back to their byte. */
 const CP1252_BYTES = new Map<number, number>(
   Array.from({ length: 32 }, (_, i): [number, number] => [WINDOWS_1252.decode(Uint8Array.of(0x80 + i)).codePointAt(0)!, 0x80 + i]).filter(([cp, b]) => cp !== b),
@@ -94,7 +96,7 @@ export function encodeDefinition(text: string, encoding: DefinitionEncoding): Bu
   const out: number[] = [];
   for (const ch of text) {
     const cp = ch.codePointAt(0)!;
-    const byte = encoding === "windows-1252" ? (CP1252_BYTES.get(cp) ?? (cp <= 0xff && !(cp >= 0x80 && cp <= 0x9f) ? cp : undefined)) : cp <= 0xff ? cp : undefined;
+    const byte = encoding === "windows-1252" ? (CP1252_BYTES.get(cp) ?? (cp <= 0xff && (!(cp >= 0x80 && cp <= 0x9f) || CP1252_UNDEFINED.has(cp)) ? cp : undefined)) : cp <= 0xff ? cp : undefined;
     if (byte !== undefined) out.push(byte);
     else for (const c of `&#x${cp.toString(16)};`) out.push(c.charCodeAt(0));
   }
@@ -127,15 +129,16 @@ export function decodeXmlReferences(s: string, declared: Readonly<Record<string,
 }
 
 /** A name as the library read it when it decoded a single-byte file as UTF-8: each byte beyond ASCII became U+FFFD. */
-export const misreadName = (s: string): string => Buffer.from(s, "latin1").toString("utf8");
+export const misreadName = (s: string, encoding: DefinitionEncoding = "latin1"): string => encodeDefinition(s, encoding).toString("utf8");
 
 /**
  * The names a single-byte definition answered to before the library read it in its own encoding (T20b review 3), when
  * they differ from its own: the « legacy » names fixtures patched then still carry. Undefined for any other file.
  */
-export function legacyNamesOf(def: { manufacturer: string; model: string }, singleByte: boolean): { manufacturer: string; model: string } | undefined {
-  if (!singleByte) return undefined;
-  const legacy = { manufacturer: misreadName(def.manufacturer), model: misreadName(def.model) };
+export function legacyNamesOf(def: { manufacturer: string; model: string }, encoding: DefinitionEncoding): { manufacturer: string; model: string } | undefined {
+  if (encoding === "utf8") return undefined;
+  // the file's own bytes, read as UTF-8 (a Windows-1252 ’ was its byte 0x92, not U+2019's Latin-1 truncation)
+  const legacy = { manufacturer: misreadName(def.manufacturer, encoding), model: misreadName(def.model, encoding) };
   return sameName(legacy.manufacturer, def.manufacturer) && sameName(legacy.model, def.model) ? undefined : legacy;
 }
 

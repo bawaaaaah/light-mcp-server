@@ -237,5 +237,10 @@ test("library: a dialog opened from the trash gives the keyboard back to its but
   await empty.click();
   await page.getByRole("dialog", { name: "Vider la corbeille" }).getByRole("button", { name: "Annuler" }).click();
   await expect(empty).toBeFocused();
+  // restored: its button is gone with the entry, the trash's title takes the focus (never the page's body)
+  await page.getByRole("button", { name: "Restaurer Test Focus Probe" }).click();
+  await page.getByRole("dialog", { name: /^Restaurer/ }).getByRole("button", { name: "Restaurer", exact: true }).click();
+  await expect(page.locator("#library-trash")).toBeFocused();
+  await api(page, "library.delete", { id: copy.id });
   await api(page, "library.trash.empty");
 });
