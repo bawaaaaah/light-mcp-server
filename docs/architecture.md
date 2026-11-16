@@ -8,6 +8,7 @@
    - modifie l'état et publie sur l'EventBus (topics WS, retour MIDI, journal) ;
    - s'inscrit à l'undo.
 3. **Réutiliser avant d'écrire.** Toute nouvelle fonctionnalité réutilise les commandes, sélecteurs, utilitaires et schémas existants. Pas de duplication : c'est une règle explicite pour les agents qui implémentent.
+   - L'interface web **importe** les modules purs du serveur (sans zod, sans `say`, sans entrée-sortie) plutôt que de les recopier : géométrie des zones (`venue/zone-geometry.ts`), direction du faisceau (`venue/beam-direction.ts`), dossiers de looks (`show/folders.ts`), noms (`venue/names.ts`). Un module que le web importe reste pur ; Vite n'embarque rien de Node (décision du 2026-11-16, T43).
 4. **Le moteur ne dépend pas de l'UI.** La sortie DMX continue si l'UI, le WebSocket ou un plugin tombe. Un watchdog surveille le tick.
 
 ## Stack
