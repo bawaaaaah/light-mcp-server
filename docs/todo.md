@@ -179,6 +179,11 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - **À prévoir** : ajouter, renommer, supprimer un preset ; ajouter ou retirer un favori ; ordre des favoris ; accès rapide depuis les looks, le panneau d'un appareil et le Live ; rangement dans le show ou dans la bibliothèque personnelle (comme les intentions, T15) ; export dans les `.lightshow`.
 - **Tranché avec l'utilisateur (2026-11-16)** : un preset de couleur est **une couleur seule nommée**, à part des palettes (qui restent des jeux de couleurs) ; rangé **au choix dans le show ou dans la bibliothèque personnelle** (comme les intentions) ; favoris accessibles dans **l'éditeur de look**, le **panneau d'un appareil**, un **widget du Live** et **depuis un groupe**.
 - **Rang** : moyen. À planifier.
+
+### T42 — LED blanche tirée automatiquement d'une couleur RVB, en option par look (demandé le 2026-11-16)
+- **Besoin** : sur un projecteur RGBW (LED blanche, parfois ambre ou UV), le moteur n'allume la LED blanche que si la couleur la demande explicitement (`#rrggbb+wNN`). L'utilisateur veut une **option par look** : quand elle est cochée, la part commune de rouge, vert et bleu passe sur la LED blanche (un blanc ou un pastel allume la LED W, plus lumineux et plus propre).
+- **À prévoir** : la case dans l'éditeur de look, le calcul (part de blanc = min(R, V, B), retirée des trois), ce qui se passe avec un preset de couleur appliqué (T41) par-dessus un tel look, l'ambre et l'UV, l'aperçu, la sortie identique pour les looks sans l'option.
+- **Rang** : moyen (moteur de couleur). À planifier.
 ## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : une lyre wash, une lyre spot à roue, une machine à fumée RGB)
 
 Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts), [qxf-import.ts](../src/plugins/light/venue/qxf-import.ts)) et dans les `.qxf` de `data/fixtures/` (privé, rien de tout ça ne va dans le dépôt) :
