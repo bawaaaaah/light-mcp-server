@@ -145,7 +145,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     title: "Sélectionner un chant",
     titleEn: "Select a song",
     hints: "I",
-    changes: ["playback"],
+    changes: ["playback", "rules"],
     description: "Makes a song current (sets the manual tempo to its BPM unless the tempo follows the MIDI clock) and starts its first section.",
     right: "commands:trigger",
     profiles: ["live"],
@@ -166,7 +166,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     title: "Lecture du chant",
     titleEn: "Play the song",
     hints: "",
-    changes: ["playback"],
+    changes: ["playback", "rules"],
     description:
       "Internal transport, for playing without a DAW: the song runs on the engine tempo (its BPM unless the tempo follows the MIDI clock) from a section or a bar, sections start by themselves and timeline actions fire. Stops at the end of the song. A running MIDI clock (DAW playing) always takes precedence.",
     right: "commands:trigger",
@@ -265,7 +265,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
         return { name: look.name, steps, cadence };
       }),
   });
-  reg.register({ name: "song.section.go", title: "Lancer une section", titleEn: "Launch a section", hints: "I", changes: ["playback"], description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }, ctx) => goSection(song(sid), section, isAuto(ctx.origin)) });
+  reg.register({ name: "song.section.go", title: "Lancer une section", titleEn: "Launch a section", hints: "I", changes: ["playback", "rules"], description: "Starts a section of a song (its look; exclusive groups release the previous one).", right: "commands:trigger", profiles: ["live"], schema: z.object({ song: z.string().optional(), section: z.string() }), run: ({ song: sid, section }, ctx) => goSection(song(sid), section, isAuto(ctx.origin)) });
   const step = (dir: 1 | -1) => (_args: unknown, ctx: { origin: string }) => {
     const sg = song();
     const i = sg.sections.findIndex((x) => x.id === s.state.section);
@@ -273,8 +273,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     if (!next) throw new Error(say("chant sans section", "song without sections"));
     return goSection(sg, next.id, isAuto(ctx.origin));
   };
-  reg.register({ name: "song.next", title: "Section suivante", titleEn: "Next section", hints: "", changes: ["playback"], description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
-  reg.register({ name: "song.prev", title: "Section précédente", titleEn: "Previous section", hints: "", changes: ["playback"], description: "Previous section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(-1) });
+  reg.register({ name: "song.next", title: "Section suivante", titleEn: "Next section", hints: "", changes: ["playback", "rules"], description: "Next section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(1) });
+  reg.register({ name: "song.prev", title: "Section précédente", titleEn: "Previous section", hints: "", changes: ["playback", "rules"], description: "Previous section of the current song.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: step(-1) });
   reg.register({ name: "song.state", title: "Chant courant", titleEn: "Current song", description: "Current setlist, song and section, and whether the position follows the MIDI clock.", right: "dashboards:view", readOnly: true, profiles: ["live"], schema: z.object({}), run: () => ({ ...s.state }) });
   reg.register({
     name: "song.follow",
@@ -308,7 +308,7 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
     title: "Sélectionner une setlist",
     titleEn: "Select a setlist",
     hints: "I",
-    changes: ["playback"],
+    changes: ["playback", "rules"],
     description: "Makes a setlist current and selects its first song.",
     right: "commands:trigger",
     profiles: ["live"],
@@ -320,8 +320,8 @@ export function registerSongCommands(reg: CommandRegistry, s: SongServices): voi
       return sl.songs[0] ? reg.invoke("song.select", { id: sl.songs[0] }, { origin: "system", can: () => true }) : { setlist: i };
     },
   });
-  reg.register({ name: "setlist.next", title: "Chant suivant", titleEn: "Next song", hints: "", changes: ["playback"], description: "Next song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(1) });
-  reg.register({ name: "setlist.prev", title: "Chant précédent", titleEn: "Previous song", hints: "", changes: ["playback"], description: "Previous song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(-1) });
+  reg.register({ name: "setlist.next", title: "Chant suivant", titleEn: "Next song", hints: "", changes: ["playback", "rules"], description: "Next song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(1) });
+  reg.register({ name: "setlist.prev", title: "Chant précédent", titleEn: "Previous song", hints: "", changes: ["playback", "rules"], description: "Previous song of the current setlist.", right: "commands:trigger", profiles: ["live"], schema: z.object({}), run: setlistStep(-1) });
 
   reg.register({
     name: "export.cuesheet",

@@ -452,7 +452,7 @@ export class LightPlugin implements McpPlugin {
       title: "Aller dans AbleSet",
       titleEn: "Jump in AbleSet",
       hints: "O",
-      changes: ["playback"],
+      changes: ["playback", "rules"],
       description: "Moves AbleSet to a song of the show (id or title) and, optionally, one of its sections (id or name): AbleSet receives the song's title and the section's name. While the follower is on, the light then follows AbleSet there as it plays.",
       right: "commands:trigger",
       profiles: ["live"],

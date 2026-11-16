@@ -372,7 +372,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Remplir la grille d'un chant",
     titleEn: "Fill a song's grid",
     hints: "I",
-    changes: ["songs", "groups"],
+    changes: ["songs", "groups", "looks"],
     description:
       "Gives every section without a look a proposed one, following the method: the song's mood is the guard rail, energy from the section (or its name: intro/couplet posé, refrain/pont dynamique, final/vamp survolté), dominant/accent swapped between neighbours for contrast. Also creates the song's exclusive group. Saved only if save is true.",
     right: "show:write",
@@ -928,7 +928,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Presets automatiques",
     titleEn: "Automatic presets",
     hints: "I",
-    changes: ["looks", "groups", "canvases", "settings"],
+    changes: ["looks", "groups", "settings"],
     description:
       "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten. The colours follow the knowledge base as merged for the show: an intention touched up in the show changes them, a masked one falls back to the built-in colours.",
     right: "show:write",

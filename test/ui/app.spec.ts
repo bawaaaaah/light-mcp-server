@@ -9618,3 +9618,55 @@ test("look editor: a position covering 2 of 3 heads says which; Cible ↔ Positi
   }
   expect(errors).toEqual([]);
 });
+
+// T45 review: a screen reads again on what the server says a command changes
+type Dash45 = { id: string; widgets: { id: string; kind: string; x: number; y: number; w: number; h: number; target?: string }[] };
+
+test("renaming the open show reloads it: the colours widget lets go of a colour applied by hand", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const fixtures = (await asDesk(page, "venue.fixture.list")) as { id: string; model: string }[];
+  const bars = fixtures.filter((f) => /Bar 4/.test(f.model)).slice(0, 2).map((f) => f.id);
+  const settings = (await asDesk(page, "show.settings")) as { name: string };
+  const dash = ((await asDesk(page, "dashboard.list")) as Dash45[])[0]!;
+  await asDesk(page, "group.put", { group: { id: "t45-face", name: "Face T45", members: { fixtures: bars } } });
+  const preset = (await asDesk(page, "colour.preset.put", { preset: { name: "Vert T45", color: "#00ff00" }, favorite: true })) as { id: string };
+  try {
+    const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+    await asDesk(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t45-colours", kind: "colours", target: "t45-face", x: 0, y: bottom, w: 6, h: 2 }] } });
+    await page.reload();
+    const widget = page.getByTestId("colours-widget");
+    await widget.scrollIntoViewIfNeeded();
+    const apply = widget.getByRole("button", { name: /Appliquer Vert T45/ });
+    await apply.click();
+    await expect(apply).toHaveAttribute("aria-pressed", "true");
+    await asDesk(page, "show.rename", { name: `${settings.name} T45` });
+    await expect(apply).toHaveAttribute("aria-pressed", "false");
+    await expect(widget.getByRole("button", { name: "Rendre la couleur · Face T45" })).toBeDisabled();
+  } finally {
+    await asDesk(page, "show.rename", { name: settings.name });
+    await asDesk(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "colour.preset.delete", { id: preset.id, force: true });
+    await asDesk(page, "group.delete", { id: "t45-face", force: true });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("a fixture set not installed through show.settings.set is unticked on the Venue page at once", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const f = ((await asDesk(page, "venue.fixture.list")) as { id: string; name: string }[])[0]!;
+  await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+  const box = page.locator(`input[type=checkbox][aria-label^="Installé"][aria-label$="${f.name}"]`).first();
+  await expect(box).toBeChecked();
+  try {
+    await asDesk(page, "show.settings.set", { absentFixtures: [f.id] });
+    await expect(box).not.toBeChecked();
+  } finally {
+    await asDesk(page, "show.settings.set", { absentFixtures: [] });
+  }
+  await expect(box).toBeChecked();
+  expect(errors).toEqual([]);
+});

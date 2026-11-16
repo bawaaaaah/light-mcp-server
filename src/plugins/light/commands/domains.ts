@@ -27,7 +27,7 @@ export const DOMAINS = [
   "looks",
   /** The machine's settings: outputs, standby, MIDI profiles and RTP sessions, AbleSet. */
   "machine",
-  /** MIDI mappings and MIDI received. */
+  /** MIDI mappings. */
   "midi",
   /** Where the moving heads point now and their lock: the pad, aiming, a recalled position, the rest, a freeze. */
   "motion",

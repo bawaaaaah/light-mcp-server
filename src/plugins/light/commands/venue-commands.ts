@@ -59,7 +59,7 @@ export function registerVenueCommands(common: ShowCommandScope): void {
     title: "Matériel installé ou absent",
     titleEn: "Hardware installed or absent",
     hints: "I",
-    changes: ["patch"],
+    changes: ["patch", "settings"],
     description:
       "Says which fixtures of the venue are installed for the open show. An absent fixture stays in the patch (address, position, mode) but is dark, sends nothing on DMX and is left out of the address-overlap check; the venue and other shows are untouched. Give fixtures (ids) and/or tag (every fixture with that tag), and present true or false.",
     right: "show:write",

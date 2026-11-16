@@ -377,7 +377,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     title: "Renommer un show",
     titleEn: "Rename a show",
     hints: "I",
-    changes: ["settings", "shows"],
+    changes: ["show", "shows"],
     description: "Changes a show's displayed name (its folder keeps its id). Default: the open show.",
     right: "show:write",
     profiles: ["setup"],
@@ -418,7 +418,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     title: "Réinitialiser le show",
     titleEn: "Reset the show",
     hints: "DI",
-    changes: ["show"],
+    changes: ["show", "backups"],
     description:
       "Empties the open show (looks, groups, faders, songs, mappings, dashboards, rules, settings) and, with venue true, its venue too (patch, canvases, zones). A .lightshow backup is written first; its name is returned.",
     right: "show:admin",
@@ -486,7 +486,7 @@ export function registerFileCommands(reg: CommandRegistry, s: FileServices): voi
     title: "Restaurer une sauvegarde",
     titleEn: "Restore a backup",
     hints: "DI",
-    changes: ["show", "backups"],
+    changes: ["show", "backups", "definitions"],
     description:
       "Replaces the open show (and its venue, when the backup has one) with a backup from data/backups. The current folders are copied to data/backups first. The backup's fixture definitions (.qxf) are merged into the library: fixtures \"missing\" (default) adds the ones the library lacks, \"replace\" also overwrites the ones that differ (the old file is kept in the restore's backup folder), \"none\" leaves the library alone. dryRun: true only reports what would change (show, venue, definitions missing/differing/invalid), and intentionTwins: intentions the backup brings whose label one of this machine's has under another id (made apart on two machines); restored, they are a second intention of that label, unless their id is in keepMachine: then this machine's is kept, and what named the backup's names it.",
     right: "show:write",
