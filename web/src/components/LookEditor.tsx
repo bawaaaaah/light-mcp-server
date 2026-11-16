@@ -26,7 +26,9 @@ import { SearchPicker } from "./SearchPicker";
 import { targetsStore, useTargets } from "../hooks/useTargets";
 import { positionsStore, usePositions, type PositionRow } from "../hooks/usePositions";
 import type { MoveFade } from "../../../src/plugins/light/engine/move";
-import { NEW_PATH, PathEditor, ZoneButtons, type PathDraft, type PathZone } from "./PathEditor";
+import { HEIGHT_MAX, lastName, NEW_PATH, PathEditor, PathWarnings, rememberZones, ZoneButtons, type PathDraft, type PathZone } from "./PathEditor";
+import { radioTabIndex } from "../radio-keys";
+import { onRadioKey } from "../radio-group";
 
 export type { MoveFade };
 type Every = MoveFade;
@@ -408,7 +410,13 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   const lastZone = useRef(initial.move?.at?.zone);
   /** What look.put said about a saved path (T28): shown before closing, the operator closes. */
   const [savedWarnings, setSavedWarnings] = useState<string[] | null>(null);
+  /** The id a look.put stored this look under (T28 review B1): a new look saved with warnings keeps it for later saves. */
+  const [savedId, setSavedId] = useState<string | null>(null);
   const savedClose = useRef<HTMLButtonElement | null>(null);
+  // the notice takes the focus once it is shown (after each save that brought warnings), never before it is rendered
+  useEffect(() => {
+    if (savedWarnings) savedClose.current?.focus();
+  }, [savedWarnings]);
   const aimOnTarget = aim === "target";
   /** The position list, where a Save refused for want of a position takes the focus. */
   const positionPicker = useRef<HTMLDivElement | null>(null);
@@ -470,12 +478,14 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     void cmd<Named[]>("position.list").then((h) => setHeads(h.map((x) => ({ id: x.id, name: x.name }))));
     void cmd<{ moveFade: MoveFade }>("show.settings").then((settings) => setShowMoveFade(settings.moveFade)).catch(() => undefined);
     void cmd<PathZone[]>("stage.zone.list")
-      .then(setZones)
+      .then((list) => (rememberZones(list), setZones(list)))
       .catch(() => undefined)
       .finally(() => setZonesLoaded(true));
   }, []);
 
-  const id = isNew ? uniqueId(slug(look.name, "look"), existing) : look.id;
+  // once saved (a new look whose warnings keep the editor open), its id is the one saved: saved again, it is updated,
+  // never saved a second time under « nom-2 »
+  const id = savedId ?? (isNew ? uniqueId(slug(look.name, "look"), existing) : look.id);
   const draft = useMemo(() => ({ ...look, id: id || "look" }), [look, id]);
   const canvas = canvases.find((c) => c.id === look.canvas);
   const cells = canvas?.cells ?? 8;
@@ -498,6 +508,8 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
   useEffect(() => {
     if (!look.canvas) return;
     const timer = window.setTimeout(() => {
+      // a path without its first stop yet is no look the server can read: no preview until one is added
+      if (draft.move?.at?.path && draft.move.at.path.stops.length === 0) return;
       void cmd<Preview>("look.preview", { look: draft })
         .then((p) => (setPreview(p), setPreviewError("")))
         .catch((e: Error) => setPreviewError(e.message));
@@ -513,6 +525,15 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     const s = kinds.find((k) => k.kind === kind)?.schema;
     if (s) set({ technique: defaultsFor(s, look.technique, cells) as LookDraft["technique"] });
   };
+
+  /** The base of the move, in the order of its radio buttons. */
+  const AIM_CHOICES: { mode: typeof aim; icon: string; label: string; choose: () => void }[] = [
+    { mode: "center", icon: "", label: t.targets.aimCenter, choose: () => (setAim("center"), setMove({ at: undefined })) },
+    { mode: "target", icon: "◎", label: t.targets.aimTarget, choose: aimAtTarget },
+    { mode: "position", icon: "⌖", label: t.positions.aimPosition, choose: aimAtPosition },
+    { mode: "zone", icon: "▣", label: t.paths.aimZone, choose: aimAtZone },
+    { mode: "path", icon: "⤳", label: t.paths.aimPath, choose: aimAlongPath },
+  ];
 
   const save = async (andPlay = false) => {
     if (!look.name.trim()) return setError(t.nameRequired);
@@ -547,11 +568,11 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
     }
     try {
       const saved = await cmd<{ warnings?: string[] }>("look.put", { look: draft });
+      setSavedId(draft.id);
       if (andPlay) await cmd("look.go", { id: draft.id });
       // a path said ahead (T28): stops out of reach, a speed rule, a no-aim zone crossed — read before the editor closes
       if (saved?.warnings?.length) {
         setSavedWarnings(saved.warnings);
-        requestAnimationFrame(() => savedClose.current?.focus());
         return;
       }
       onClose(draft.id);
@@ -744,26 +765,14 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
               </label>
               <fieldset className="move-aim field">
                 <legend id={`${aimId}-legend`}>{t.targets.aimMode}</legend>
-                <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${aimId}-legend`}>
-                  <button type="button" role="radio" aria-checked={aim === "center"} data-testid="move-aim-center" onClick={() => (setAim("center"), setMove({ at: undefined }))}>
-                    {t.targets.aimCenter}
-                  </button>
-                  <button type="button" role="radio" aria-checked={aimOnTarget} data-testid="move-aim-target" onClick={aimAtTarget}>
-                    <span aria-hidden="true">◎ </span>
-                    {t.targets.aimTarget}
-                  </button>
-                  <button type="button" role="radio" aria-checked={aim === "position"} data-testid="move-aim-position" onClick={aimAtPosition}>
-                    <span aria-hidden="true">⌖ </span>
-                    {t.positions.aimPosition}
-                  </button>
-                  <button type="button" role="radio" aria-checked={aim === "zone"} data-testid="move-aim-zone" onClick={aimAtZone}>
-                    <span aria-hidden="true">▣ </span>
-                    {t.paths.aimZone}
-                  </button>
-                  <button type="button" role="radio" aria-checked={aim === "path"} data-testid="move-aim-path" onClick={aimAlongPath}>
-                    <span aria-hidden="true">⤳ </span>
-                    {t.paths.aimPath}
-                  </button>
+                {/* arrow keys choose, as native radios: one stop in the Tab order (radio-keys.ts) */}
+                <div className="move-aim-choices" role="radiogroup" aria-labelledby={`${aimId}-legend`} onKeyDown={(e) => onRadioKey(e, (k) => AIM_CHOICES[k]!.choose())}>
+                  {AIM_CHOICES.map((c, k) => (
+                    <button key={c.mode} type="button" role="radio" aria-checked={aim === c.mode} tabIndex={radioTabIndex(aim === c.mode, k, true)} data-testid={`move-aim-${c.mode}`} onClick={c.choose}>
+                      {c.icon && <span aria-hidden="true">{c.icon} </span>}
+                      {c.label}
+                    </button>
+                  ))}
                 </div>
               </fieldset>
               {aimOnTarget && (
@@ -818,7 +827,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
               )}
               {aim === "zone" && (
                 <div className="field move-aim-target" ref={zonePicker}>
-                  {zonesLoaded && look.move.at?.zone && !zones.some((z) => z.id === look.move!.at!.zone) && <p className="error">{t.paths.zoneGone.replace("{name}", () => look.move!.at!.zone!)}</p>}
+                  {zonesLoaded && look.move.at?.zone && !zones.some((z) => z.id === look.move!.at!.zone) && <p className="error">{t.paths.zoneGone.replace("{name}", () => lastName("zone", look.move!.at!.zone!, preview?.path?.stops[0]?.gone))}</p>}
                   {zonesLoaded && (
                     <ZoneButtons
                       zones={zones}
@@ -842,10 +851,12 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                         data-testid="look-zone-height"
                         placeholder={zones.find((z) => z.id === look.move?.at?.zone)?.aim?.height !== undefined ? String(zones.find((z) => z.id === look.move?.at?.zone)!.aim!.height) : t.paths.heightPlaceholder}
                         value={look.move.at.height ?? ""}
-                        onChange={(e) => setMove({ at: { zone: look.move!.at!.zone!, ...(e.target.value === "" ? {} : { height: Math.max(0, Number(e.target.value)) }) } })}
+                        onChange={(e) => setMove({ at: { zone: look.move!.at!.zone!, ...(e.target.value === "" || !Number.isFinite(Number(e.target.value)) ? {} : { height: Math.min(HEIGHT_MAX, Math.max(0, Number(e.target.value))) }) } })}
                       />
                     </label>
                   )}
+                  {/* the heads that cannot reach it, and a no-aim zone it lands in: said before saving (look.preview) */}
+                  {look.move.at?.zone && <PathWarnings report={preview?.path} />}
                   <small className="hint">{t.paths.zoneHelp}</small>
                 </div>
               )}
@@ -855,7 +866,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                     <span>{t.paths.step}</span>
                     <EveryInput value={look.move.every} onChange={(every) => setMove({ every })} />
                   </label>
-                  <PathEditor path={look.move.at.path} onChange={setPath} zones={zones} positions={positions} targets={targets} fixtures={fixtures} report={preview?.path} heads={heads} />
+                  <PathEditor path={look.move.at.path} onChange={setPath} zones={zones} positions={positions} targets={targets} fixtures={fixtures} report={preview?.path} heads={heads} move={look.move} onMove={(patch) => setMove(patch)} />
                 </div>
               )}
               {aim === "center" &&

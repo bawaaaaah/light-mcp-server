@@ -19,7 +19,7 @@ export interface Preview {
   /** Following a named position that is a point: the heads that cannot aim at it now, with why (T32). */
   unreachable?: { fixture: string; error: string }[];
   /** A look along a path (T28): each stop for each head, and what to know before playing it. */
-  path?: { stops: { name: string; heads: { id: string; pan?: number; tilt?: number; error?: string }[] }[]; warnings: { kind: string; message: string; stops: number[]; heads: string[]; zone?: string }[] };
+  path?: { stops: { name: string; gone?: string; heads: { id: string; pan?: number; tilt?: number; error?: string }[] }[]; warnings: { kind: string; message: string; stops: number[]; heads: string[]; zone?: string }[] };
 }
 interface Timing {
   every: { beats?: number; seconds?: number };

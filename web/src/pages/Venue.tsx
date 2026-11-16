@@ -460,7 +460,7 @@ export function VenuePage(): ReactElement {
                     </select>
                   </span>
                 )}
-                <button className="ghost" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => void deleteZone(z)}>
+                <button className="ghost zone-delete" title={`${t.delete} ${z.name}`} aria-label={`${t.delete} ${z.name}`} onClick={() => void deleteZone(z)}>
                   ✕
                 </button>
               </li>

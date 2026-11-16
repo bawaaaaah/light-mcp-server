@@ -5822,6 +5822,47 @@ fieldset.group-lock legend {
   width: 5em;
   min-height: 44px;
 }
+/* a stop's height and weight: their name above the field, on a phone too */
+.path-stop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+}
+.path-stop-field small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.path-stop-offplan {
+  font-size: 0.8rem;
+}
+/* the order and the travel: big enough for a finger */
+.path-settings select {
+  min-height: 44px;
+}
+.path-settings input[type="range"] {
+  min-height: 44px;
+  min-width: 10em;
+}
+.path-stagger {
+  flex-basis: 100%;
+  gap: 1em;
+}
+.path-stagger label {
+  min-height: 44px;
+  align-items: center;
+  gap: 0.4em;
+}
+.path-stagger input[type="checkbox"] {
+  width: 1.3em;
+  height: 1.3em;
+}
+.path-editor h4:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.zone-delete {
+  min-width: 44px;
+  min-height: 44px;
+}
 .path-stop button {
   min-width: 44px;
   min-height: 44px;
@@ -5842,6 +5883,8 @@ fieldset.group-lock legend {
 .path-plan svg {
   width: 100%;
   height: auto;
+  /* a far zone makes a tall drawing: never more than half the screen (the drawing shrinks, whole) */
+  max-height: 50vh;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg);
@@ -5859,7 +5902,7 @@ fieldset.group-lock legend {
 }
 .path-plan-zone text,
 .path-plan-stop text {
-  font-size: 10px;
+  font-size: 12px;
   fill: var(--text);
   pointer-events: none;
 }
@@ -5869,6 +5912,10 @@ fieldset.group-lock legend {
 .path-plan-trip {
   stroke: var(--accent);
   stroke-width: 2;
+}
+/* a trip through a stop with no place on the floor (a pan/tilt named position) */
+.path-plan-trip.skipped {
+  stroke-dasharray: 6 4;
 }
 .path-arrow-head {
   fill: var(--accent);
@@ -5929,6 +5976,22 @@ fieldset.group-lock legend {
   gap: 0.4em;
   flex: 1 1 6em;
   border-color: color-mix(in srgb, var(--zone-color) 65%, var(--line));
+}
+.zones-widget-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  text-align: left;
+}
+.zones-widget-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.zones-widget-buttons button[aria-pressed="mixed"] {
+  border-color: var(--zone-color);
+  border-style: dashed;
 }
 .zones-widget-buttons button[aria-pressed="true"] {
   border-color: var(--zone-color);

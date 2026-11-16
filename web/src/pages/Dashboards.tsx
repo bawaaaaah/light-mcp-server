@@ -140,7 +140,7 @@ const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 3 }, zones: { w: 6, h: 2 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 3 }, zones: { w: 6, h: 3 } };
 
 type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
 
@@ -797,7 +797,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         return <ColoursWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} disabled={!may("commands:trigger")} inert={edit} />;
       case "zones":
         // the aiming zones (T28): a press aims the widget's group (none: every head) there, by hand, until « Rendre la main »
-        return <ZonesWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} zones={zoneChips} disabled={!may("commands:position")} inert={edit} />;
+        return <ZonesWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} zones={zoneChips} disabled={!may("commands:position")} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;

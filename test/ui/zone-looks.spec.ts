@@ -208,10 +208,10 @@ test("T28 editor: a trip crossing a no-aim zone is said in the editor and again 
 });
 
 /** A widget added at the bottom of the first dashboard for `body`, the dashboard put back after. */
-async function withZonesWidget(page: Page, body: (widget: Locator) => Promise<void>): Promise<void> {
+async function withZonesWidget(page: Page, body: (widget: Locator) => Promise<void>, target?: string): Promise<void> {
   const dash = ((await desk(page, "dashboard.list")) as Dashboard[])[0]!;
   const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
-  await desk(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t28-zones", kind: "zones", x: 0, y: bottom, w: 6, h: 2 }] } });
+  await desk(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t28-zones", kind: "zones", x: 0, y: bottom, w: 6, h: 3, ...(target ? { target } : {}) }] } });
   try {
     await page.reload();
     const widget = page.getByTestId("zones-widget");
@@ -275,6 +275,9 @@ for (const [name, viewport, mobile] of [
         expect(await minTarget(editor.getByTestId("path-stop").getByRole("button"))).toBeGreaterThanOrEqual(44);
         expect(await minTarget(add.getByRole("button"))).toBeGreaterThanOrEqual(44);
         expect(await minTarget(editor.getByTestId("move-aim-path"))).toBeGreaterThanOrEqual(44);
+        // the order and the travel: big enough for a finger too
+        expect((await editor.getByTestId("path-order").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect((await editor.getByTestId("path-travel").boundingBox())!.height).toBeGreaterThanOrEqual(44);
         const pathBox = (await editor.getByTestId("path-editor").boundingBox())!;
         expect(pathBox.x + pathBox.width).toBeLessThanOrEqual(viewport.width + 1);
         await editor.getByTestId("path-stops").scrollIntoViewIfNeeded();
@@ -289,3 +292,207 @@ for (const [name, viewport, mobile] of [
     expect(errors).toEqual([]);
   });
 }
+
+// ---- review 1 (T28): what the Fable review and the Opus UI test found
+
+test("T28 review: a NEW path look saved with warnings and saved again is one look, closed under its id (B1)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const named = async () => ((await desk(page, "look.list")) as { id: string; name: string }[]).filter((l) => l.name === "T28 nouveau");
+  await withStage(
+    page,
+    async () => {
+      try {
+        await page.locator("nav.pages button", { hasText: "Show" }).click();
+        await page.getByRole("button", { name: "+ Nouveau look" }).click();
+        const editor = page.locator(".look-editor").last();
+        await editor.getByLabel("Nom", { exact: true }).fill("T28 nouveau");
+        await editor.getByLabel("Canevas").selectOption({ label: "T28 lyre (1)" });
+        await editor.getByLabel("Mouvement (lyres)").check();
+        await editor.getByTestId("move-aim-path").click();
+        const add = editor.getByTestId("path-zone-add");
+        await add.getByRole("button", { name: "Ajouter l'arrêt T28 estrade gauche" }).click();
+        await add.getByRole("button", { name: "Ajouter l'arrêt T28 estrade droite" }).click();
+        await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+        await expect(editor.getByTestId("look-saved-warnings")).toContainText("T28 pupitre");
+        // saved again from the editor still open: the same look, updated
+        await editor.getByTestId("path-order").selectOption("pingpong");
+        await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+        await expect(editor.getByTestId("look-saved-warnings")).toBeVisible();
+        const looks = await named();
+        expect(looks).toHaveLength(1);
+        expect(((await desk(page, "look.get", { id: looks[0]!.id })) as { move: { at: { path: { order: string } } } }).move.at.path.order).toBe("pingpong");
+        await editor.getByTestId("look-saved-close").click();
+        await expect(editor).toHaveCount(0);
+      } finally {
+        for (const l of await named()) await desk(page, "look.delete", { id: l.id, force: true });
+      }
+    },
+    true,
+  );
+  expect(errors).toEqual([]);
+});
+
+test("T28 review: « + Point » keeps what is typed (-3, 1,5), refuses what is not a number; no preview while the path is empty", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const refused: string[] = [];
+  page.on("response", (r) => {
+    if (r.url().includes("look.preview") && r.status() >= 400) refused.push(String(r.status()));
+  });
+  await withStage(page, async () => {
+    const editor = await openEditor(page);
+    await editor.getByTestId("move-aim-path").click();
+    // an empty path is not sent to the preview (the server would refuse it)
+    await page.waitForTimeout(600);
+    expect(refused).toEqual([]);
+    await editor.getByTestId("path-add-point").click();
+    const x = editor.getByTestId("path-point-x");
+    await x.fill("");
+    await x.pressSequentially("-3");
+    await expect(x).toHaveValue("-3");
+    await editor.getByTestId("path-point-y").fill("1,5");
+    await editor.getByTestId("path-point-z").fill("abc");
+    await editor.getByTestId("path-point-add").click();
+    await expect(editor.getByRole("alert").filter({ hasText: "un nombre en mètres" })).toBeVisible();
+    await expect(editor.getByTestId("path-stop")).toHaveCount(0);
+    await editor.getByTestId("path-point-z").fill("0");
+    await editor.getByTestId("path-point-add").click();
+    expect(await stopNames(editor)).toEqual(["Point (-3 ; 1,5 ; 0)"]);
+    await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T28 review: the focus never falls to the page (moves to an edge, removals), labels on the stops, weights brought back into range", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withStage(page, async () => {
+    const editor = await openEditor(page);
+    await editor.getByTestId("move-aim-path").click();
+    const add = editor.getByTestId("path-zone-add");
+    for (const z of ["T28 estrade gauche", "T28 estrade droite", "T28 fond"]) await add.getByRole("button", { name: `Ajouter l'arrêt ${z}` }).click();
+    // ↑ to the first row: its ↑ is disabled, the focus goes to its ↓; Enter there does not swap endlessly
+    await editor.getByRole("button", { name: "Monter l'arrêt 2" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(editor.getByRole("button", { name: "Descendre l'arrêt 1" })).toBeFocused();
+    expect((await stopNames(editor))[0]).toBe("Zone « T28 estrade droite »");
+    // ↓ to the last row: the focus on its ↑
+    await editor.getByRole("button", { name: "Descendre l'arrêt 2" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(editor.getByRole("button", { name: "Monter l'arrêt 3" })).toBeFocused();
+    // visible labels: a zone stop's height
+    await expect(editor.getByTestId("path-stop").first().locator(".path-stop-field small")).toHaveText("Hauteur (m)");
+    // weighted: each stop has its weight, named, and 500 comes back to 100
+    await editor.getByTestId("path-order").selectOption("weighted");
+    await expect(editor.getByTestId("path-stop").first().locator(".path-stop-field small").last()).toHaveText("Poids");
+    const weight = editor.getByRole("spinbutton", { name: "Poids de l'arrêt 1" });
+    await weight.fill("500");
+    await expect(weight).toHaveValue("100");
+    // removing the last row: the focus on the ✕ of the row before; the only one: the list's heading
+    await editor.getByRole("button", { name: "Retirer l'arrêt 3" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(editor.getByRole("button", { name: "Retirer l'arrêt 2" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(editor.getByRole("button", { name: "Retirer l'arrêt 1" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(editor.getByTestId("path-stops-heading")).toBeFocused();
+    await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T28 review: arrow keys choose the base of the move; staggered heads show reverse and shuffle; a zone out of reach is said", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const CEILING = { id: "t28-plafond", name: "T28 plafond", type: "ceiling", polygon: [[-3, -2], [3, -2], [3, -1], [-3, -1]], floorHeight: 9, aim: {} };
+  await withStage(page, async () => {
+    await desk(page, "stage.zone.put", { zone: CEILING });
+    try {
+      const editor = await openEditor(page);
+      const center = editor.getByTestId("move-aim-center");
+      await expect(center).toHaveAttribute("tabindex", "0");
+      await expect(editor.getByTestId("move-aim-zone")).toHaveAttribute("tabindex", "-1");
+      await center.focus();
+      await page.keyboard.press("ArrowRight");
+      await expect(editor.getByTestId("move-aim-target")).toBeFocused();
+      await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("End");
+      await expect(editor.getByTestId("move-aim-path")).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("ArrowLeft");
+      await expect(editor.getByTestId("move-aim-zone")).toHaveAttribute("aria-checked", "true");
+      // the zone out of reach: said before saving
+      await editor.getByTestId("look-zone-buttons").getByRole("button", { name: /T28 plafond/ }).click();
+      await expect(editor.getByTestId("path-warnings")).toContainText("aucune lyre");
+      await page.screenshot({ path: "test-results/t28-review-zone-warning.png" });
+      // staggered heads: reverse and shuffle, which order them, are there
+      await editor.getByTestId("move-aim-path").click();
+      await editor.getByTestId("path-zone-add").getByRole("button", { name: "Ajouter l'arrêt T28 fond" }).click();
+      await expect(editor.getByTestId("path-stagger")).toHaveCount(0);
+      await editor.getByTestId("path-heads-decales").click();
+      await expect(editor.getByTestId("path-stagger").getByLabel("Inverser")).toBeVisible();
+      await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+    } finally {
+      await desk(page, "stage.zone.delete", { id: CEILING.id, force: true });
+    }
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T28 review: the Zones widget fits its default size, and « Rendre la main » keeps the focus", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withStage(page, async () => {
+    await withZonesWidget(page, async (widget) => {
+      const fits = await widget.evaluate((el: { scrollHeight: number; clientHeight: number }) => el.scrollHeight <= el.clientHeight + 1);
+      expect(fits).toBe(true);
+      const fond = widget.getByRole("button", { name: /Viser T28 fond/ });
+      await fond.click();
+      await expect(fond).toHaveAttribute("aria-pressed", "true");
+      await widget.getByTestId("zones-release").focus();
+      await page.keyboard.press("Enter");
+      await expect(fond).toHaveAttribute("aria-pressed", "false");
+      await expect(fond).toBeFocused();
+    });
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T28 review: a Zones widget on a group without heads says why; a pan/tilt position stop is said off the plan; the venue's zone ✕ is 44 px", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withStage(page, async () => {
+    await desk(page, "group.put", { group: { id: "t28-vide", name: "T28 vide", members: { looks: [], groups: [], fixtures: [] } } });
+    await desk(page, "position.preset.put", { position: { id: "t28-pp", name: "T28 face", values: { spot: { pan: 0.4, tilt: 0.6 } } } });
+    try {
+      await withZonesWidget(
+        page,
+        async (widget) => {
+          await expect(widget.getByTestId("zones-why")).toContainText("Aucune lyre installée dans ce groupe");
+        },
+        "t28-vide",
+      );
+      const editor = await openEditor(page);
+      await editor.getByTestId("move-aim-path").click();
+      await editor.getByTestId("path-add-position").click();
+      await editor.getByRole("button", { name: /T28 face/ }).click();
+      await expect(editor.getByTestId("path-stop").first()).toContainText("pas sur le plan (pan / tilt)");
+      await editor.getByRole("button", { name: "Fermer", exact: true }).click();
+      await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+      const del = page.getByRole("button", { name: "Supprimer T28 fond" }).first();
+      await del.scrollIntoViewIfNeeded();
+      const box = (await del.boundingBox())!;
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+    } finally {
+      await desk(page, "group.delete", { id: "t28-vide", force: true });
+      await desk(page, "position.preset.delete", { id: "t28-pp", force: true });
+    }
+  });
+  expect(errors).toEqual([]);
+});
