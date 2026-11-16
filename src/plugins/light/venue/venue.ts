@@ -12,8 +12,8 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
-import { listQxfFiles, readDefinitionText } from "./definition-files.js";
-import { findDefinition, findMode, parseQxf, sameName, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { answersTo, legacyNamesOf, listQxfFiles, readDefinitionText } from "./definition-files.js";
+import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { headsOf } from "./heads.js";
@@ -415,9 +415,6 @@ export interface WheelChoice extends WheelHeld {
   gap: number;
 }
 
-/** A name as the library read it when it decoded a Latin-1 file as UTF-8: each non-ASCII letter became U+FFFD. */
-const misread = (s: string): string => Buffer.from(s, "latin1").toString("utf8");
-
 export class Venue {
   readonly definitions: FixtureDefinition[] = [];
   /** The file name of each definition, in the order of `definitions`. */
@@ -534,10 +531,8 @@ export class Venue {
         const def = parseQxf(read.text); // a Latin-1 file keeps its accents
         this.definitions.push(def);
         // its names as the library read them before (UTF-8, accents lost as U+FFFD): fixtures patched then still find it
-        if (read.latin1) {
-          const legacy = { manufacturer: misread(def.manufacturer), model: misread(def.model) };
-          if (!sameName(legacy.manufacturer, def.manufacturer) || !sameName(legacy.model, def.model)) this.legacyNames.set(def, legacy);
-        }
+        const legacy = legacyNamesOf(def, read.latin1);
+        if (legacy) this.legacyNames.set(def, legacy);
         // two library folders may hold the same file name: then the message says the folder
         this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));
         this.definitionPaths.push(f);
@@ -571,7 +566,7 @@ export class Venue {
    * « �clairage »): those fixtures keep resolving it (T20b review 3), and keep their model's corrections stored then.
    */
   private legacyDefinition(manufacturer: string, model: string): FixtureDefinition | undefined {
-    for (const [def, legacy] of this.legacyNames) if (sameName(legacy.manufacturer, manufacturer) && sameName(legacy.model, model)) return def;
+    for (const [def, legacy] of this.legacyNames) if (answersTo(def, { manufacturer, model }, legacy) === "legacy") return def;
     return undefined;
   }
 

@@ -6,8 +6,9 @@ import { strFromU8, unzipSync } from "fflate";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
-import { definitionDirsFor, planFixtures } from "../../../src/plugins/light/data/archive-fixtures.js";
-import { packArchive } from "../../../src/plugins/light/data/archive.js";
+import { applyFixtures, definitionDirsFor, planFixtures } from "../../../src/plugins/light/data/archive-fixtures.js";
+import { decodeDefinition, encodeDefinition } from "../../../src/plugins/light/venue/definition-files.js";
+import { packArchive, readArchive } from "../../../src/plugins/light/data/archive.js";
 import { aliasedDefinitions, aliasLookup, aliasTarget, modeTable, retargetAliases, type Alias } from "../../../src/plugins/light/venue/aliases.js";
 import { moveToTrash, renameDefinition } from "../../../src/plugins/light/venue/library.js";
 import { parseQxf } from "../../../src/plugins/light/venue/qxf-import.js";
@@ -615,6 +616,82 @@ describe("fixture library (T20b)", () => {
       const r = (await run("library.trash.empty", { ids: [...listed, "2026-01-01T00-00-00-000Z-gone"] })) as { count: number; missing?: string[] };
       expect(r).to.deep.include({ count: 1, missing: ["2026-01-01T00-00-00-000Z-gone"] });
       expect(((await run("library.trash")) as { model: string }[]).map((e) => e.model)).to.deep.equal(["Pixel Bar"]);
+    });
+  });
+
+  describe("review 4", () => {
+    const LATIN = readFileSync(new URL("../../fixtures/latin1-eclat.qxf", import.meta.url));
+    const LATIN_TEXT = LATIN.toString("latin1");
+    const misread = (s: string) => Buffer.from(s, "latin1").toString("utf8");
+
+    it("1: a text declaring ISO-8859-1 is written in Latin-1; a valid UTF-8 file under that declaration keeps its UTF-8 names", async () => {
+      expect(await run("fixture.definition.add", { name: "eclat.qxf", xml: LATIN_TEXT })).to.deep.include({ manufacturer: "Société Fictive", model: "Projecteur Éclat" });
+      expect(readFileSync(join(shared(), "eclat.qxf"))).to.deep.equal(LATIN);
+      // the same text, saved as UTF-8 by an editor that left the old declaration
+      writeFileSync(join(shared(), "utf8-declared.qxf"), Buffer.from(LATIN_TEXT.replace("Projecteur Éclat", "Projecteur Éclair"), "utf8"));
+      plugin.runtime.venue.refreshDefinitions();
+      expect(plugin.runtime.venue.libraryFileFor("Société Fictive", "Projecteur Éclair")).to.not.equal(undefined);
+      expect(decodeDefinition(readFileSync(join(shared(), "utf8-declared.qxf")))).to.deep.include({ encoding: "utf8", latin1: false });
+    });
+
+    it("windows-1252: ’ œ € are read and kept, a retouch is written back in Windows-1252", async () => {
+      const text = SPOT.replace('encoding="UTF-8"', 'encoding="windows-1252"').replace("<Model>Spot 7</Model>", "<Model>Spot l’œil €</Model>");
+      const bytes = encodeDefinition(text, "windows-1252");
+      expect([...bytes].filter((b) => b === 0x92 || b === 0x9c || b === 0x80)).to.have.length(3);
+      writeFileSync(join(shared(), "cp.qxf"), bytes);
+      plugin.runtime.venue.refreshDefinitions();
+      expect(plugin.runtime.venue.libraryFileFor("Test", "Spot l’œil €")).to.not.equal(undefined);
+      const copy = (await run("library.duplicate", { id: "shared/cp.qxf" })) as { id: string; model: string };
+      expect(copy.model).to.equal("Spot l’œil € (copie)");
+      const out = readFileSync(join(own(), copy.id.slice("venue/".length)));
+      expect(decodeDefinition(out).text).to.contain("<Model>Spot l’œil € (copie)</Model>");
+      expect(out.includes(Buffer.from([0x92]))).to.equal(true);
+    });
+
+    it("2: an archive carries a Latin-1 definition byte for byte; restored elsewhere it resolves, again it adds no copy", async () => {
+      writeFileSync(join(shared(), "eclat.qxf"), LATIN);
+      plugin.runtime.venue.refreshDefinitions();
+      await put("e", "Société Fictive", "Projecteur Éclat", "Défaut");
+      const zip = packArchive({ venue: { id: "default", dir: join(dataRoot, "venues", "default") }, definitionDirs: definitionDirsFor(dataRoot, "default") });
+      expect(Buffer.from(unzipSync(zip)["fixtures/eclat.qxf"]!)).to.deep.equal(LATIN);
+      // another machine: an empty library
+      const other = join(dataRoot, "..", "other");
+      mkdirSync(join(other, "fixtures"), { recursive: true });
+      const plan = planFixtures(readArchive(zip).fixtures, [], [join(other, "fixtures")], join(other, "fixtures"));
+      applyFixtures(plan, "missing", join(other, "backup"));
+      expect(readFileSync(join(other, "fixtures", "eclat.qxf"))).to.deep.equal(LATIN);
+      // the same archive again: the same definition, nothing new written
+      const again = planFixtures(readArchive(zip).fixtures, [], [join(other, "fixtures")], join(other, "fixtures"));
+      expect(again.entries.map((e) => e.status)).to.deep.equal(["same"]);
+      applyFixtures(again, "replace", join(other, "backup2"));
+      expect(readdirSync(join(other, "fixtures"))).to.deep.equal(["eclat.qxf"]);
+    });
+
+    it("3: a fixture under the misread names of a Latin-1 file is counted, guards its delete and its replace, goes in an archive", async () => {
+      writeFileSync(join(shared(), "eclat.qxf"), LATIN);
+      plugin.runtime.venue.refreshDefinitions();
+      await put("old", misread("Société Fictive"), misread("Projecteur Éclat"), "Défaut");
+      const row = (await list()).definitions.find((d) => d.id === "shared/eclat.qxf")!;
+      expect(row.usedBy).to.deep.equal([{ id: "old", name: "OLD" }]);
+      expect((await failure(run("library.delete", { id: "shared/eclat.qxf" }))).detail).to.deep.include({ force: true });
+      const noDefault = LATIN_TEXT.replace('<Mode Name="Défaut">', '<Mode Name="Autre">');
+      expect((await failure(run("fixture.definition.add", { name: "eclat.qxf", xml: noDefault, replace: true }))).detail).to.deep.include({ lostModes: ["Défaut"] });
+      const zip = packArchive({ venue: { id: "default", dir: join(dataRoot, "venues", "default") }, definitionDirs: definitionDirsFor(dataRoot, "default") });
+      expect(Object.keys(unzipSync(zip)).filter((k) => k.startsWith("fixtures/"))).to.deep.equal(["fixtures/eclat.qxf"]);
+    });
+
+    it("4: the export of an all-ASCII file declared ISO-8859-1 writes its accented corrections in Latin-1", async () => {
+      const ascii = fixture("wheel-spot.qxf").replace('encoding="UTF-8"', 'encoding="ISO-8859-1"');
+      writeFileSync(join(shared(), "ws.qxf"), ascii);
+      plugin.runtime.venue.refreshDefinitions();
+      const out = (await run("fixture.definition.export", { manufacturer: "Test", model: "Wheel Spot" })) as { base64?: string; xml: string };
+      expect(Buffer.from(out.base64!, "base64").toString("latin1")).to.equal(ascii);
+      // a valid UTF-8 file under that declaration: exported as UTF-8 text, its accents kept
+      writeFileSync(join(shared(), "ws.qxf"), Buffer.from(ascii.replace("<Model>Wheel Spot</Model>", "<Model>Wheel Spot é</Model>"), "utf8"));
+      plugin.runtime.venue.refreshDefinitions();
+      const utf = (await run("fixture.definition.export", { manufacturer: "Test", model: "Wheel Spot é" })) as { base64?: string; xml: string };
+      expect(utf.base64).to.equal(undefined);
+      expect(utf.xml).to.contain("Wheel Spot é");
     });
   });
 });

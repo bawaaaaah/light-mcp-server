@@ -42,6 +42,8 @@ interface TrashRow {
   model: string;
   deletedAt: string;
   reason?: "deleted" | "replaced";
+  /** The venue it came from, named by its shows. */
+  venueName?: string;
 }
 interface Duplicates {
   sameName: { manufacturer: string; model: string; winner: string; others: { source: string; identical: boolean; message?: string }[] }[];
@@ -142,12 +144,22 @@ export function LibraryPage(): ReactElement {
     const r = e.currentTarget.getBoundingClientRect();
     setMenu({ id, x: r.left, y: r.bottom });
   };
-  /** The row whose ⋯ a dialog gives the keyboard back to when it closes. */
+  /** The row whose ⋯ a dialog opened from the menu gives the keyboard back to, or the button that opened it. */
   const lastRow = useRef<string | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  /** A dialog opened by a button of the page (not the row menu): the focus comes back to that button. */
+  const openFrom = (el: HTMLElement, d: Dialog) => {
+    lastRow.current = null;
+    opener.current = el;
+    setDialog(d);
+  };
   const closeDialog = () => {
     setDialog(null);
-    // after the dialog's own clean-up: the row's ⋯ (still there), else nothing to do
-    requestAnimationFrame(() => document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current ?? "")}"]`)?.focus({ preventScroll: true }));
+    // after the dialog's own clean-up: the row's ⋯ or the button that opened it (still there), else nothing to do
+    requestAnimationFrame(() => {
+      const row = lastRow.current ? document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current)}"]`) : null;
+      (row ?? (opener.current?.isConnected ? opener.current : null))?.focus({ preventScroll: true });
+    });
   };
   /** After an action: the message (a toast, in view wherever the action was), the lists read again, the dialog closed. */
   const done = (message: string) => {
@@ -294,7 +306,7 @@ export function LibraryPage(): ReactElement {
                   <li key={o.source}>
                     <span className="file">{human(l, o.source)}</span> {o.winner ? <span className="chip ok">{l.inUse}</span> : <span className="chip">{o.identical ? l.identical : o.message}</span>}
                     {row && (
-                      <button onClick={() => setDialog({ kind: "pick", keep: row, drop: [g.winner, ...g.others.map((x) => x.source)].filter((x) => x !== o.source) })} aria-label={`${l.keepThis} : ${human(l, o.source)}`}>
+                      <button onClick={(ev) => openFrom(ev.currentTarget, { kind: "pick", keep: row, drop: [g.winner, ...g.others.map((x) => x.source)].filter((x) => x !== o.source) })} aria-label={`${l.keepThis} : ${human(l, o.source)}`}>
                         {l.keepThis}
                       </button>
                     )}
@@ -314,7 +326,7 @@ export function LibraryPage(): ReactElement {
                   <li key={named(n)}>
                     <span>{named(n)}</span> <span className="file">{n.sources.map((x) => human(l, x)).join(", ")}</span>
                     {row && !row.aliasedTo && (
-                      <button onClick={() => setDialog({ kind: "alias", row, target: byId.get(g.names.find((x) => x !== n)?.sources[0] ?? "")?.id })} aria-label={`${l.forward} ${named(n)}`}>
+                      <button onClick={(ev) => openFrom(ev.currentTarget, { kind: "alias", row, target: byId.get(g.names.find((x) => x !== n)?.sources[0] ?? "")?.id })} aria-label={`${l.forward} ${named(n)}`}>
                         {l.forward}
                       </button>
                     )}
@@ -339,7 +351,7 @@ export function LibraryPage(): ReactElement {
                   {named(a.from)} → {named(a.to)}
                 </span>
                 <span className="hint">{a.fixtures ? fixturesCount(l, a.fixtures) : "—"}</span>
-                <button onClick={() => setDialog({ kind: "unalias", alias: a })} aria-label={`${l.unalias} ${named(a.from)}`}>
+                <button onClick={(ev) => openFrom(ev.currentTarget, { kind: "unalias", alias: a })} aria-label={`${l.unalias} ${named(a.from)}`}>
                   {l.unalias}
                 </button>
               </li>
@@ -362,9 +374,9 @@ export function LibraryPage(): ReactElement {
                   <span>{named(e)}</span>
                   <span className="hint">
                     {e.reason === "replaced" ? l.reasonReplaced : l.reasonDeleted} · {e.file} · {folderName(l, e.folder)}
-                    {e.venue ? ` (${e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
+                    {e.venue ? ` (${e.venueName ?? e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
                   </span>
-                  <button aria-label={`${l.restore} ${named(e)}`} onClick={() => setDialog({ kind: "restore", entry: e })}>
+                  <button aria-label={`${l.restore} ${named(e)}`} onClick={(ev) => openFrom(ev.currentTarget, { kind: "restore", entry: e })}>
                     {l.restore}
                   </button>
                 </li>
@@ -372,7 +384,7 @@ export function LibraryPage(): ReactElement {
             </ul>
             {!mayEmpty && <p className="hint">{l.adminOnlyTrash}</p>}
             {mayEmpty && (
-              <button className="danger" onClick={() => setDialog({ kind: "empty" })}>
+              <button className="danger" onClick={(ev) => openFrom(ev.currentTarget, { kind: "empty" })}>
                 {l.emptyTrash}
               </button>
             )}
@@ -391,6 +403,7 @@ export function LibraryPage(): ReactElement {
           onClose={() => setMenu(null)}
           onPick={(d) => {
             lastRow.current = menu.id;
+            opener.current = null;
             setMenu(null);
             // once the menu has given the focus back to the row: the dialog then takes it, and gives it back on close
             window.setTimeout(() => setDialog(d), 0);
@@ -817,7 +830,7 @@ function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; o
           <p>{plan.fixtures.length ? fill(l.unaliasBack, { list: fixtureList(plan.fixtures) }) : l.noFollowers}</p>
           {plan.noDefinition && plan.fixtures.length > 0 && <p className="warn">{fill(l.unaliasNoDefinition, { from: named(alias.from) })}</p>}
           {plan.fixtures.some((f) => f.after) && <p>{fill(l.unaliasModes, { list: plan.fixtures.map((f) => `${f.name} (${f.before?.mode ?? "—"} → ${f.after?.mode ?? "—"})`).join(", ") })}</p>}
-          {plan.repointed.length > 0 && <p className="warn">{fill(l.repointedNote, { list: plan.repointed.map((x) => named(x.from)).join(", "), from: named(alias.from), to: named(alias.to) })}</p>}
+          {plan.repointed.length > 0 && <p className="warn">{fill(plan.repointed.length === 1 ? l.repointedNote : l.repointedNoteMany, { list: plan.repointed.map((x) => named(x.from)).join(", "), from: named(alias.from), to: named(alias.to) })}</p>}
           {changes.length > 0 && <p className="warn">{fill(l.unaliasChannels, { list: changes.map((f) => `${f.name} ${f.before!.channels} → ${f.after!.channels}`).join(", ") })}</p>}
         </>
       )}
@@ -835,7 +848,7 @@ function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; o
 /** « Vider la corbeille » (show:admin, decision L4): what goes, listed by a dry run, then a yes. */
 function EmptyTrashDialog({ l, onClose, onDone }: { l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
-  type Plan = { removed: { id: string; manufacturer: string; model: string; file: string; folder: TrashRow["folder"]; venue?: string; deletedAt: string }[]; count: number; missing?: string[] };
+  type Plan = { removed: { id: string; manufacturer: string; model: string; file: string; folder: TrashRow["folder"]; venue?: string; venueName?: string; deletedAt: string }[]; count: number; missing?: string[] };
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   useEffect(() => void cmd<Plan>("library.trash.empty", { dryRun: true }).then(setPlan, (e: Error) => setError(e.message)), []);
@@ -857,7 +870,7 @@ function EmptyTrashDialog({ l, onClose, onDone }: { l: L; onClose: () => void; o
             {plan.removed.map((e) => (
               <li key={e.id}>
                 {named(e)} · {e.file} · {folderName(l, e.folder)}
-                {e.venue ? ` (${e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
+                {e.venue ? ` (${e.venueName ?? e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
               </li>
             ))}
           </ul>
@@ -915,7 +928,7 @@ function RestoreDialog({ entry, l, onClose, onDone }: { entry: TrashRow; l: L; o
       <h3>{title}</h3>
       <p className="hint">
         {named(entry)} · {folderName(l, entry.folder)}
-        {entry.venue ? ` (${entry.venue})` : ""}
+        {entry.venue ? ` (${entry.venueName ?? entry.venue})` : ""}
       </p>
       {!plan && !error && <p role="status">{t.loading}</p>}
       {plan && (

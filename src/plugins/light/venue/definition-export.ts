@@ -3,12 +3,12 @@
  * the one function the command (`fixture.definition.export`: MCP, HTTP, CLI) and the interface share. Reads the
  * library file; the XML work is in qxf-export.ts (pure).
  */
-import { readFileSync } from "node:fs";
 import { say } from "../../../core/lang.js";
 import { lostAccents, planCorrections, qxfFileName, settleCorrections, writeQxfCorrections, type ExportNote } from "./qxf-export.js";
 import { modelKeyOrUndefined, type FixtureOverrides } from "./overrides.js";
 import { isGenericDimmer } from "./names.js";
 import { parseQxf } from "./qxf-import.js";
+import { encodeDefinition, readDefinitionText } from "./definition-files.js";
 import type { Venue } from "./venue.js";
 
 export interface DefinitionExport {
@@ -27,15 +27,6 @@ export interface DefinitionExport {
   /** What the corrections wrote, and what they could not (QLC+ has no place for it). */
   applied: ExportNote[];
   notExported: ExportNote[];
-}
-
-/** Reads bytes as UTF-8, or undefined when they are not valid UTF-8. */
-function utf8(bytes: Uint8Array): string | undefined {
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -57,14 +48,13 @@ export function exportDefinition(venue: Venue, args: { fixture?: string; manufac
     if (isGenericDimmer(manufacturer, model)) throw new Error(say("le gradateur générique est intégré à QLC+ : il n'a pas de fichier .qxf", "the generic dimmer is built into QLC+: it has no .qxf file"));
     throw new Error(say(`aucune définition dans la bibliothèque pour ${manufacturer} ${model}`, `no definition in the library for ${manufacturer} ${model}`));
   }
-  const bytes = readFileSync(found.path);
-  const text = utf8(bytes);
-  // not UTF-8 (an ISO-8859-1 file): read byte for byte as Latin-1, so that every byte but the retouches comes back
-  const latin1 = text === undefined;
-  const source = text ?? bytes.toString("latin1");
-  const encoded = (out: string) => (latin1 ? { base64: Buffer.from(out, "latin1").toString("base64") } : {});
-  // the file's names as written there (the library reads a Latin-1 file as Latin-1 too, since T20b review 2)
-  const def = latin1 ? parseQxf(source) : found.def;
+  // read as the library reads it (decodeDefinition): a single-byte file (ISO-8859-1, Windows-1252, or all ASCII under
+  // such a declaration) byte for byte, so that every byte but the retouches comes back, and retouches are written alike
+  const read = readDefinitionText(found.path);
+  const latin1 = read.latin1;
+  const source = read.text;
+  const encoded = (out: string) => (latin1 ? { base64: encodeDefinition(out, read.encoding).toString("base64") } : {});
+  const def = found.def;
   const base = { file: qxfFileName(def.manufacturer, def.model), source: found.source, manufacturer: found.def.manufacturer, model: found.def.model };
   if (!args.corrections) return { ...base, xml: source, ...encoded(source), corrected: false, applied: [], notExported: [] };
 

@@ -268,6 +268,7 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   await expect(replace).toContainText("corbeille");
   await replace.getByRole("button", { name: "Remplacer", exact: true }).click();
   await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
+  await expect(page.locator('.added-definitions li[data-file="test-spot.qxf"]')).toBeFocused(); // never left on the body
   await page.locator('input[type=file][accept=".qxw"]').setInputFiles({ name: "Autre salle.qxw", mimeType: "text/xml", buffer: fixture("efx.qxw") });
   await expect(page.locator(".report")).toBeVisible();
   await page.getByLabel("un nouveau show").check();

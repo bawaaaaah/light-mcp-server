@@ -78,7 +78,9 @@ function usageByFile(venue: Venue, winners = winnersOf(venue.libraryFiles())): M
   const out = new Map<string, PatchedFixture[]>();
   for (const f of venue.fixtures.list()) {
     const to = aliasTarget(venue.aliases, f);
-    const key = winners.get(nameKey(to)) ?? (isGenericDimmer(to.manufacturer, to.model) ? BUILTIN_ID : undefined);
+    // by its names, else as the venue resolves it (a Latin-1 file under its old misread names: answersTo)
+    const legacy = winners.has(nameKey(to)) ? undefined : venue.definitionFileFor(to.manufacturer, to.model)?.path;
+    const key = winners.get(nameKey(to)) ?? (legacy ? path.resolve(legacy) : isGenericDimmer(to.manufacturer, to.model) ? BUILTIN_ID : undefined);
     if (key) out.set(key, [...(out.get(key) ?? []), f]);
   }
   return out;
@@ -415,7 +417,8 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     readOnly: true,
     profiles: ["setup"],
     schema: z.object({}),
-    run: () => listTrash(s.dataRoot),
+    // each entry's venue named by its shows (venueName)
+    run: () => listTrash(s.dataRoot).map((e) => (e.venue ? { ...e, venueName: venueName(s.dataRoot, e.venue) } : e)),
   });
 
   /**
@@ -547,7 +550,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
       const missing = ids ? ids.filter((i) => !listed.some((e) => e.id === i)) : [];
       const entries = dryRun ? wanted : emptyTrash(s.dataRoot, wanted.map((e) => e.id));
       return {
-        removed: entries.map((e) => ({ id: e.id, file: e.file, manufacturer: e.manufacturer, model: e.model, folder: e.folder, ...(e.venue ? { venue: e.venue } : {}), deletedAt: e.deletedAt, ...(e.reason ? { reason: e.reason } : {}) })),
+        removed: entries.map((e) => ({ id: e.id, file: e.file, manufacturer: e.manufacturer, model: e.model, folder: e.folder, ...(e.venue ? { venue: e.venue, venueName: venueName(s.dataRoot, e.venue) } : {}), deletedAt: e.deletedAt, ...(e.reason ? { reason: e.reason } : {}) })),
         count: entries.length,
         ...(missing.length ? { missing } : {}),
         ...(dryRun ? { dryRun: true } : {}),
@@ -591,7 +594,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
       const dir = folder === "shared" ? dirs.shared : dirs.venue;
       const name = freeFileName(dir, definitionFileName(`${names.manufacturer}-${names.model}`));
       // the manufacturer is rewritten only when a new one is given: the file keeps its own spelling otherwise
-      writeDefinition(path.join(dir, name), renameDefinition(read.text, { ...(manufacturer !== undefined ? { manufacturer } : {}), model: names.model }, read.latin1), read.latin1 ? "latin1" : "utf8");
+      writeDefinition(path.join(dir, name), renameDefinition(read.text, { ...(manufacturer !== undefined ? { manufacturer } : {}), model: names.model }), read.encoding);
       venue.refreshDefinitions();
       // the model's corrections in this venue go with the copy (venue/overrides.ts), unless the new name already has its own
       const oldKey = modelKeyOrUndefined(f.def.manufacturer, f.def.model);

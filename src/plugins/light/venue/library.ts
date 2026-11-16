@@ -14,7 +14,7 @@ import { z } from "zod";
 import { say } from "../../../core/lang.js";
 import { parseQxf, sameName, type FixtureDefinition } from "./qxf-import.js";
 import { ID_RE } from "../data/store.js";
-import { readDefinitionText } from "./definition-files.js";
+import { encodeDefinition, readDefinitionText, type DefinitionEncoding } from "./definition-files.js";
 import { showsOnVenue } from "../data/show-folders.js";
 
 export { readDefinitionText };
@@ -67,10 +67,10 @@ export function freeFileName(dir: string, name: string): string {
  * checking it reads as a definition with a manufacturer and a model. `encoding`: how the text goes to bytes (a Latin-1
  * file retouched stays Latin-1). Returns the definition read.
  */
-export function writeDefinition(target: string, xml: string, encoding: "utf8" | "latin1" = "utf8"): FixtureDefinition {
+export function writeDefinition(target: string, xml: string, encoding: DefinitionEncoding = "utf8"): FixtureDefinition {
   const def = parseQxf(xml); // throws on anything that is not a definition
   if (!def.manufacturer.trim() || !def.model.trim()) throw new Error(say("définition sans fabricant ou sans modèle", "definition without a manufacturer or a model"));
-  writeWhole(target, Buffer.from(xml, encoding));
+  writeWhole(target, encodeDefinition(xml, encoding));
   return def;
 }
 
@@ -106,24 +106,21 @@ export function moveFile(source: string, target: string): void {
   }
 }
 
-const escapeXml = (s: string, latin1: boolean): string => {
-  const out = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  // a Latin-1 file cannot hold other letters: they go as character references
-  return latin1 ? [...out].map((c) => (c.codePointAt(0)! > 0xff ? `&#x${c.codePointAt(0)!.toString(16)};` : c)).join("") : out;
-};
+// a letter a single-byte file cannot hold goes as a character reference when it is written (encodeDefinition)
+const escapeXml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
  * A definition's text with another manufacturer and/or model, everything else to the byte (pure): the first
  * `<Manufacturer>` and `<Model>` elements' text replaced. Refused when the file has none. `latin1`: the text will be
  * written back as Latin-1, so a letter outside it goes as a character reference.
  */
-export function renameDefinition(xml: string, names: { manufacturer?: string; model?: string }, latin1 = false): string {
+export function renameDefinition(xml: string, names: { manufacturer?: string; model?: string }): string {
   let out = xml;
   for (const [tag, value] of [["Manufacturer", names.manufacturer], ["Model", names.model]] as const) {
     if (value === undefined) continue;
     const re = new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`);
     if (!re.test(out)) throw new Error(say(`élément <${tag}> absent du fichier`, `no <${tag}> element in the file`));
-    out = out.replace(re, () => `<${tag}>${escapeXml(value.trim(), latin1)}</${tag}>`);
+    out = out.replace(re, () => `<${tag}>${escapeXml(value.trim())}</${tag}>`);
   }
   return out;
 }

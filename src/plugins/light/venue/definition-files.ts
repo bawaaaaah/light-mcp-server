@@ -5,6 +5,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { sameName } from "./names.js";
 
 /** A plain definition file name: starts with a letter or digit, ASCII, no folder, `.qxf` (lower case). */
 const PLAIN_RE = /^[A-Za-z0-9][\w.() +-]{0,120}\.qxf$/;
@@ -46,28 +47,65 @@ export function definitionFileName(name: string): string {
   return `${stem || "definition"}.qxf`;
 }
 
-/** A prolog declaring a single-byte Western encoding (`<?xml … encoding="ISO-8859-1"?>`, Latin-1, Windows-1252). */
-const LATIN1_PROLOG = /^(?:\uFEFF)?<\?xml[^>]*\bencoding\s*=\s*["'](?:iso-?8859-1|latin-?1|l1|windows-1252|cp1252)["']/i;
+/** How a definition's bytes are text: UTF-8, ISO-8859-1, or Windows-1252 (ISO-8859-1 with ’ œ € … in 0x80-0x9F). */
+export type DefinitionEncoding = "utf8" | "latin1" | "windows-1252";
+
+/** The single-byte encoding a prolog declares (`<?xml … encoding="ISO-8859-1"?>`), if any. */
+export function declaredEncoding(head: string): "latin1" | "windows-1252" | undefined {
+  const m = /^(?:\uFEFF)?<\?xml[^>]*\bencoding\s*=\s*["']([\w.:-]+)["']/i.exec(head);
+  const name = m?.[1]?.toLowerCase();
+  if (!name) return undefined;
+  if (/^(?:windows-1252|cp1252|x-cp1252)$/.test(name)) return "windows-1252";
+  return /^(?:iso-?8859-1|iso_8859-1|latin-?1|l1)$/.test(name) ? "latin1" : undefined;
+}
+
+const WINDOWS_1252 = new TextDecoder("windows-1252");
+/** The characters Windows-1252 puts in 0x80-0x9F, back to their byte. */
+const CP1252_BYTES = new Map<number, number>(
+  Array.from({ length: 32 }, (_, i): [number, number] => [WINDOWS_1252.decode(Uint8Array.of(0x80 + i)).codePointAt(0)!, 0x80 + i]).filter(([cp, b]) => cp !== b),
+);
 
 /**
- * A definition's text from its bytes: as Latin-1 byte for byte when its prolog declares ISO-8859-1 (even an all-ASCII
- * file: a retouch must be written back under that declaration) or when they are not valid UTF-8, else as UTF-8; with
- * which one it was, so that a retouch is written back alike.
+ * A definition's text from its bytes. Valid UTF-8 with any byte beyond ASCII is UTF-8, whatever its prolog says (a file
+ * saved as UTF-8 under an old declaration keeps its names). Otherwise — all ASCII, or not valid UTF-8 — the prolog's
+ * single-byte encoding is followed (ISO-8859-1, Windows-1252), Latin-1 when it says none: byte for byte, so that a
+ * retouch is written back the same way (`encoding`, `encodeDefinition`). `latin1`: any single-byte encoding.
  */
-export function decodeDefinition(bytes: Buffer): { text: string; latin1: boolean; bytes: Buffer } {
-  if (LATIN1_PROLOG.test(bytes.subarray(0, 200).toString("latin1"))) return { text: bytes.toString("latin1"), latin1: true, bytes };
-  try {
-    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), latin1: false, bytes };
-  } catch {
-    return { text: bytes.toString("latin1"), latin1: true, bytes };
+export function decodeDefinition(bytes: Buffer): { text: string; latin1: boolean; encoding: DefinitionEncoding; bytes: Buffer } {
+  const declared = declaredEncoding(bytes.subarray(0, 200).toString("latin1"));
+  const ascii = bytes.every((b) => b < 0x80);
+  if (!ascii) {
+    try {
+      return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), latin1: false, encoding: "utf8", bytes };
+    } catch {
+      /* not UTF-8: a single-byte file */
+    }
+  } else if (!declared) return { text: bytes.toString("latin1"), latin1: false, encoding: "utf8", bytes };
+  const encoding = declared ?? "latin1";
+  return { text: encoding === "windows-1252" ? WINDOWS_1252.decode(bytes) : bytes.toString("latin1"), latin1: true, encoding, bytes };
+}
+
+/**
+ * A definition's text as bytes in `encoding`. In a single-byte one, a character it cannot hold goes as a character
+ * reference (`&#x175;`): only names the library writes can hold one (library.duplicate, an import given as text).
+ */
+export function encodeDefinition(text: string, encoding: DefinitionEncoding): Buffer {
+  if (encoding === "utf8") return Buffer.from(text, "utf8");
+  const out: number[] = [];
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const byte = encoding === "windows-1252" ? (CP1252_BYTES.get(cp) ?? (cp <= 0xff && !(cp >= 0x80 && cp <= 0x9f) ? cp : undefined)) : cp <= 0xff ? cp : undefined;
+    if (byte !== undefined) out.push(byte);
+    else for (const c of `&#x${cp.toString(16)};`) out.push(c.charCodeAt(0));
   }
+  return Buffer.from(out);
 }
 
 /**
  * A definition file's text (`decodeDefinition`), read as `fixture.definition.export` reads it. The library, the archives,
  * the import (`fixture.definition.add`) and the library commands all read a .qxf through this, so they see the same names.
  */
-export function readDefinitionText(full: string): { text: string; latin1: boolean; bytes: Buffer } {
+export function readDefinitionText(full: string): { text: string; latin1: boolean; encoding: DefinitionEncoding; bytes: Buffer } {
   return decodeDefinition(readFileSync(full));
 }
 
@@ -86,4 +124,27 @@ export function decodeXmlReferences(s: string, declared: Readonly<Record<string,
     if (!(cp <= 0x10ffff)) return m;
     return cp === 0 || (cp >= 0xd800 && cp <= 0xdfff) ? "" : String.fromCodePoint(cp);
   });
+}
+
+/** A name as the library read it when it decoded a single-byte file as UTF-8: each byte beyond ASCII became U+FFFD. */
+export const misreadName = (s: string): string => Buffer.from(s, "latin1").toString("utf8");
+
+/**
+ * The names a single-byte definition answered to before the library read it in its own encoding (T20b review 3), when
+ * they differ from its own: the « legacy » names fixtures patched then still carry. Undefined for any other file.
+ */
+export function legacyNamesOf(def: { manufacturer: string; model: string }, singleByte: boolean): { manufacturer: string; model: string } | undefined {
+  if (!singleByte) return undefined;
+  const legacy = { manufacturer: misreadName(def.manufacturer), model: misreadName(def.model) };
+  return sameName(legacy.manufacturer, def.manufacturer) && sameName(legacy.model, def.model) ? undefined : legacy;
+}
+
+/**
+ * Whether a definition answers to a manufacturer + model: by its own names, else — `legacy` — by the names a
+ * single-byte file had when it was read as UTF-8. The one rule the venue, the library's usage counts, the archives and
+ * the other venues' checks share; a direct match always comes before a legacy one.
+ */
+export function answersTo(def: { manufacturer: string; model: string }, m: { manufacturer: string; model: string }, legacy?: { manufacturer: string; model: string }): "direct" | "legacy" | undefined {
+  if (sameName(def.manufacturer, m.manufacturer) && sameName(def.model, m.model)) return "direct";
+  return legacy && sameName(legacy.manufacturer, m.manufacturer) && sameName(legacy.model, m.model) ? "legacy" : undefined;
 }

@@ -89,8 +89,8 @@ export interface ArchiveContent {
   manifest: ArchiveManifest;
   show: Record<string, string>;
   venue: Record<string, string>;
-  /** Definitions by file name (`fixtures/<name>.qxf`, not yet checked). */
-  fixtures: Record<string, string>;
+  /** Definitions by file name (`fixtures/<name>.qxf`, not yet checked), as bytes: a Latin-1 file stays one. */
+  fixtures: Record<string, Uint8Array>;
   /** Entries under `fixtures/` that are not a plain `<name>.qxf`: ignored, named. */
   rejectedFixtures: string[];
   /** Definitions too big to read (MAX_DEFINITION_BYTES): not decompressed, named. */
@@ -112,7 +112,7 @@ const forbiddenEntry = (name: string) => name.split(/[\\/]/).includes("..") || p
 export function readArchive(bytes: Uint8Array): ArchiveContent {
   const show: Record<string, string> = {};
   const venue: Record<string, string> = {};
-  const fixtures: Record<string, string> = {};
+  const fixtures: Record<string, Uint8Array> = {};
   const rejectedFixtures: string[] = [];
   const invalidFixtures: { file: string; error: string }[] = [];
   const seen = new Set<string>();
@@ -144,7 +144,7 @@ export function readArchive(bytes: Uint8Array): ArchiveContent {
   const manifest = JSON.parse(strFromU8(raw)) as ArchiveManifest;
   if (manifest.format !== "lightshow") throw new Error(say("ce fichier n'est pas une archive .lightshow", "this file is not a .lightshow archive"));
   for (const [name, data] of Object.entries(entries)) {
-    if (name.startsWith("fixtures/")) fixtures[name.slice(9)] = strFromU8(data);
+    if (name.startsWith("fixtures/")) fixtures[name.slice(9)] = data; // bytes: read as the library reads them, written as they are
     else if (name.startsWith("show/")) show[name.slice(5)] = strFromU8(data);
     else if (name.startsWith("venue/")) venue[name.slice(6)] = strFromU8(data);
   }

@@ -11,6 +11,7 @@ import type { Collection, FolderStore } from "../data/store.js";
 import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.js";
 import { parseQxw } from "../presets/qxw-import.js";
 import { addDefinition } from "./library-commands.js";
+import { declaredEncoding, encodeDefinition } from "../venue/definition-files.js";
 import { exportDefinition } from "../venue/definition-export.js";
 import { mergeImport } from "../presets/merge-import.js";
 
@@ -35,6 +36,12 @@ export interface ImportServices {
   now?: () => number;
 }
 
+/** A definition given as text: in the encoding its prolog declares (ISO-8859-1, Windows-1252), else UTF-8. */
+const textBytes = (xml: string): Buffer => {
+  const declared = declaredEncoding(xml.slice(0, 200));
+  return declared ? encodeDefinition(xml, declared) : Buffer.from(xml, "utf8");
+};
+
 export function registerImportCommands(reg: CommandRegistry, s: ImportServices): void {
   reg.register({
     name: "fixture.definition.add",
@@ -57,7 +64,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     // a file of that name, or another file of the same model, with another content: refused unless replace (T34, T40)
     // the version « Remplacer » overwrites goes to the definitions' trash first (data/backups, beside data/fixtures)
     run: ({ name, xml, base64, replace, force, dryRun }, ctx) =>
-      addDefinition(s.runtime.venue, s.fixturesDir, name, base64 !== undefined ? Buffer.from(base64, "base64") : Buffer.from(xml!, "utf8"), {
+      addDefinition(s.runtime.venue, s.fixturesDir, name, base64 !== undefined ? Buffer.from(base64, "base64") : textBytes(xml!), {
         replace,
         force,
         dryRun,

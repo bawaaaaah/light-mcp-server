@@ -36,6 +36,8 @@ interface DefinitionResult {
   detail: string;
   /** A definition refused because another file of that name, or of that model, differs: « Remplacer » opens its plan. */
   retry?: File;
+  /** The file name the definition goes under, when typed (« Ajouter sous le nom… »): « Remplacer » then targets it. */
+  as?: string;
   /** A file of that name holds another model in service: only « Ajouter sous le nom… » is offered. */
   rename?: File;
 }
@@ -134,18 +136,19 @@ export function ImportPage(): ReactElement {
   /** What an added definition says: its model, and that nothing was written when the library already had it the same (T40). */
   const addedDetail = (r: AddedDefinition) => `${r.manufacturer} ${r.model}${r.unchanged ? ` — ${t.libraryPage.alreadyThere.replace("{file}", () => r.file)}` : ""}`;
   /** The definition « Remplacer » is asked for: its plan opens in a window. */
-  const [replacing, setReplacing] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState<{ file: File; as?: string } | null>(null);
   /** The file name typed for « Ajouter sous le nom… », per refused file. */
   const [renames, setRenames] = useState<Record<string, string>>({});
   const addOne = async (f: File, name = f.name): Promise<DefinitionResult> => {
     try {
       const r = await cmd<AddedDefinition>("fixture.definition.add", { name, base64: await fileBase64(f) });
-      return { file: f.name, ok: true, detail: addedDetail(r) };
+      // the file name really written (a name typed is made plain, an identical model keeps its own file)
+      return { file: f.name, ok: true, detail: name === f.name ? addedDetail(r) : `${addedDetail(r)} (${r.file})` };
     } catch (e) {
       const detail = e instanceof ApiError ? e.detail : undefined;
       // another model in service under that file name: never replaced, added under another name instead
       if (detail?.otherModel) return { file: f.name, ok: false, detail: (e as Error).message, rename: f };
-      return { file: f.name, ok: false, detail: (e as Error).message, ...(detail?.exists ? { retry: f } : {}) };
+      return { file: f.name, ok: false, detail: (e as Error).message, ...(detail?.exists ? { retry: f, ...(name !== f.name ? { as: name } : {}) } : {}) };
     }
   };
   const addDefinitions = async (files: FileList | null) => {
@@ -172,6 +175,8 @@ export function ImportPage(): ReactElement {
     ].filter(Boolean);
     setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: parts.join(" ; ") } : a)));
     setReplacing(null);
+    // the window gone, the keyboard goes back to the line it was about (never left on the page's body)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.added-definitions li[data-file="${CSS.escape(f.name)}"]`)?.focus());
     loadLibrary();
     if (xml) void propose(xml);
   };
@@ -214,10 +219,10 @@ export function ImportPage(): ReactElement {
         {added.length > 0 && (
           <ul className="added-definitions">
             {added.map((a) => (
-              <li key={a.file} className={a.ok ? "" : "error"}>
+              <li key={a.file} className={a.ok ? "" : "error"} data-file={a.file} tabIndex={-1}>
                 {a.ok ? "✔" : "✖"} {a.file}{t.colon} {a.detail}
                 {a.retry && (
-                  <button type="button" onClick={() => setReplacing(a.retry!)}>
+                  <button type="button" onClick={() => setReplacing({ file: a.retry!, ...(a.as ? { as: a.as } : {}) })}>
                     {t.replaceDefinition}
                   </button>
                 )}
@@ -241,7 +246,7 @@ export function ImportPage(): ReactElement {
         )}
       </section>
 
-      {replacing && <ReplaceDialog file={replacing} onClose={() => setReplacing(null)} onDone={(r) => replaced(replacing, r)} />}
+      {replacing && <ReplaceDialog file={replacing.file} name={replacing.as} onClose={() => setReplacing(null)} onDone={(r) => replaced(replacing.file, r)} />}
 
       <section className="step">
         <h2>2. {t.importTitle}</h2>
@@ -456,20 +461,20 @@ export function ImportPage(): ReactElement {
  * where, the old version going to the Library's trash, this venue's fixtures and the other venues concerned, modes they
  * lose or that change —, then a yes, « Le faire quand même » when modes in use change.
  */
-function ReplaceDialog({ file, onClose, onDone }: { file: File; onClose: () => void; onDone: (r: AddedDefinition) => void }): ReactElement {
+function ReplaceDialog({ file, name = file.name, onClose, onDone }: { file: File; /** the file name it goes under (typed) */ name?: string; onClose: () => void; onDone: (r: AddedDefinition) => void }): ReactElement {
   const t = useT();
   const l = t.libraryPage;
   const [plan, setPlan] = useState<ReplacePlan | null>(null);
   const [force, setForce] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    void fileBase64(file).then((base64) => cmd<ReplacePlan>("fixture.definition.add", { name: file.name, base64, replace: true, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)));
-  }, [file]);
+    void fileBase64(file).then((base64) => cmd<ReplacePlan>("fixture.definition.add", { name, base64, replace: true, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)));
+  }, [file, name]);
   const go = () =>
     void fileBase64(file)
-      .then((base64) => cmd<AddedDefinition>("fixture.definition.add", { name: file.name, base64, replace: true, force }))
+      .then((base64) => cmd<AddedDefinition>("fixture.definition.add", { name, base64, replace: true, force }))
       .then(onDone, (e: Error) => setError(e.message));
-  const title = l.importReplaceTitle.replace("{file}", file.name);
+  const title = l.importReplaceTitle.replace("{file}", name);
   const folder = plan?.folder === "venue" ? l.folderVenue : l.folderShared;
   return (
     <Modal label={title} className="narrow library-dialog" onClose={onClose}>

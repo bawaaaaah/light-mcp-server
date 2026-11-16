@@ -222,3 +222,20 @@ test("library: a Latin-1 .qxf imported from the Import page is kept byte for byt
   await api(page, "library.trash.empty");
   expect(errors).toEqual([]);
 });
+
+test("library: a dialog opened from the trash gives the keyboard back to its button, not to an old row", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page);
+  const copy = (await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Probe" })) as { id: string };
+  await api(page, "library.delete", { id: copy.id });
+  await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
+  // a row's menu used first: its ⋯ must not take the focus back later
+  await page.getByRole("button", { name: "Actions sur Test Mode Par" }).click();
+  await page.getByRole("dialog", { name: "Actions sur Test Mode Par" }).getByRole("button", { name: /Dupliquer/ }).click();
+  await page.getByRole("dialog", { name: "Dupliquer Test Mode Par" }).getByRole("button", { name: "Annuler" }).click();
+  const empty = page.getByRole("button", { name: "Vider la corbeille" });
+  await empty.click();
+  await page.getByRole("dialog", { name: "Vider la corbeille" }).getByRole("button", { name: "Annuler" }).click();
+  await expect(empty).toBeFocused();
+  await api(page, "library.trash.empty");
+});

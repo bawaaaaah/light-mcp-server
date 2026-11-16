@@ -12,8 +12,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import path from "node:path";
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
-import { parseQxf, sameName, type FixtureDefinition } from "../venue/qxf-import.js";
-import { definitionFileName, isPlainQxfName, listQxfFiles, readDefinitionText } from "../venue/definition-files.js";
+import { parseQxf, type FixtureDefinition } from "../venue/qxf-import.js";
+import { answersTo, decodeDefinition, definitionFileName, isPlainQxfName, legacyNamesOf, listQxfFiles, readDefinitionText } from "../venue/definition-files.js";
 import { AliasSchema, aliasLookup, aliasTarget, type Alias } from "../venue/aliases.js";
 
 export { isPlainQxfName };
@@ -57,7 +57,6 @@ function header(xml: string): Model | undefined {
   return { manufacturer: m[1]!.trim(), model: n[1]!.trim() };
 }
 
-const matches = (def: Model, m: Model) => sameName(def.manufacturer, m.manufacturer) && sameName(def.model, m.model);
 
 /**
  * The library file that defines each model, in resolution order (an unreadable or unparsable file
@@ -65,31 +64,37 @@ const matches = (def: Model, m: Model) => sameName(def.manufacturer, m.manufactu
  */
 export function resolveModels(dirs: string[], models: Model[]): (LibraryFile | undefined)[] {
   const out: (LibraryFile | undefined)[] = models.map(() => undefined);
+  // a single-byte file patched under the names it had when read as UTF-8 (answersTo): used only when no file answers directly
+  const legacyOut: (LibraryFile | undefined)[] = models.map(() => undefined);
   let left = models.length;
   for (const full of dirs.flatMap(listQxfFiles)) {
     if (!left) break;
-    let xml: string;
+    let read: ReturnType<typeof readDefinitionText>;
     try {
-      xml = readDefinitionText(full).text; // as the library reads it (a Latin-1 file too)
+      read = readDefinitionText(full); // as the library reads it (a Latin-1 file too)
     } catch {
       continue; // unreadable: not part of the library
     }
-    const h = header(xml);
-    const wanted = models.flatMap((m, i) => (out[i] === undefined && (!h || matches(h, m)) ? [i] : []));
+    const h = header(read.text);
+    const hLegacy = h ? legacyNamesOf(h, read.latin1) : undefined;
+    const wanted = models.flatMap((m, i) => (out[i] === undefined && (!h || answersTo(h, m, hLegacy)) ? [i] : []));
     if (!wanted.length) continue;
     let def: FixtureDefinition;
     try {
-      def = parseQxf(xml);
+      def = parseQxf(read.text);
     } catch {
       continue; // unreadable definition: not part of the library
     }
+    const legacy = legacyNamesOf(def, read.latin1);
     for (const i of wanted) {
-      if (!matches(def, models[i]!)) continue;
-      out[i] = { file: path.basename(full), full, def };
-      left -= 1;
+      const how = answersTo(def, models[i]!, legacy);
+      if (how === "direct") {
+        out[i] = { file: path.basename(full), full, def };
+        left -= 1;
+      } else if (how === "legacy") legacyOut[i] ??= { file: path.basename(full), full, def };
     }
   }
-  return out;
+  return out.map((f, i) => f ?? legacyOut[i]);
 }
 
 /**
@@ -168,7 +173,8 @@ export interface FixturePlanEntry {
   status: "missing" | "differs" | "same";
   /** Where it would be written: the library file it replaces, or a new file in the shared folder. */
   target: string;
-  xml: string;
+  /** The file's bytes, written as they are (a Latin-1 definition stays Latin-1). */
+  bytes: Uint8Array;
 }
 
 export interface FixturePlan {
@@ -183,12 +189,15 @@ export interface FixturePlan {
  * What the archive's definitions would do to the library. Reads only; every file is parsed here,
  * before any write. `invalid`: entries already found unreadable (too big) while reading the archive.
  */
-export function planFixtures(fixtures: Record<string, string>, rejected: string[], dirs: string[], writeDir: string, invalid: { file: string; error: string }[] = []): FixturePlan {
+export function planFixtures(fixtures: Record<string, Uint8Array | string>, rejected: string[], dirs: string[], writeDir: string, invalid: { file: string; error: string }[] = []): FixturePlan {
   const plan: FixturePlan = { entries: [], invalid: [...invalid], rejected: [...rejected].sort() };
   const models = new Set<string>();
-  const valid: { file: string; xml: string; def: FixtureDefinition }[] = [];
+  const valid: { file: string; bytes: Uint8Array; def: FixtureDefinition }[] = [];
   for (const file of Object.keys(fixtures).sort()) {
-    const xml = fixtures[file]!;
+    const given = fixtures[file]!;
+    // bytes, read as the library reads them (decodeDefinition: UTF-8, else the declared single-byte encoding)
+    const bytes = typeof given === "string" ? Buffer.from(given, "utf8") : Buffer.from(given);
+    const xml = decodeDefinition(bytes).text;
     let def: FixtureDefinition;
     try {
       def = parseQxf(xml);
@@ -200,14 +209,14 @@ export function planFixtures(fixtures: Record<string, string>, rejected: string[
     const key = `${def.manufacturer}|${def.model}`.toLowerCase().replace(/[^a-z0-9|]/g, "");
     if (models.has(key)) continue; // two files for one model: the first counts, as in the library
     models.add(key);
-    valid.push({ file, xml, def });
+    valid.push({ file, bytes, def });
   }
   plan.invalid.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
   const found = resolveModels(dirs, valid.map((v) => v.def));
   // names already used in the shared folder, compared without case (a case-insensitive disk would merge them)
   const taken = new Set(existsSync(writeDir) ? readdirSync(writeDir).map((n) => n.toLowerCase()) : []);
-  valid.forEach(({ file, xml, def }, i) => {
-    const base = { file, manufacturer: def.manufacturer, model: def.model, xml };
+  valid.forEach(({ file, bytes, def }, i) => {
+    const base = { file, manufacturer: def.manufacturer, model: def.model, bytes };
     const lib = found[i];
     if (lib) plan.entries.push({ ...base, status: normalisedDefinition(lib.def) === normalisedDefinition(def) ? "same" : "differs", target: lib.full });
     // a new definition: its own name in the shared folder, unless that name is already used
@@ -266,7 +275,7 @@ export function applyFixtures(plan: FixturePlan, policy: FixturePolicy, backupDi
     mkdirSync(path.dirname(e.target), { recursive: true });
     const tmp = `${e.target}.restore-tmp`; // not a .qxf: the library never reads it
     try {
-      writeFileSync(tmp, e.xml, "utf8");
+      writeFileSync(tmp, e.bytes); // as they came: never re-encoded
       renameSync(tmp, e.target);
     } finally {
       rmSync(tmp, { force: true });
