@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { cmd } from "../api";
-import { control } from "../ws";
+import { keepRows } from "../command-store";
+import { createPageStore } from "../page-store";
 import type { Point3 } from "./useTargets";
 
 /** A named position as position.preset.list gives it (T32; docs/specs/venue-fixtures-stage.md, « Positions nommées »). */
@@ -33,105 +33,42 @@ export interface PositionRow {
  * travel, its stops, its mode).
  */
 const PREFIXES = ["position.preset.", "show.", "history.", "venue.", "stage.", "calibration.", "fixture.", "import.", "backup."];
-/** A first read that failed (the server restarting, a lost link) is tried again after this long, while someone listens. */
-const RETRY_MS = 2000;
-const READS_NOTHING = new Set(["position.preset.go", "position.preset.list"]);
+const READS_NOTHING = ["position.preset.go", "position.preset.list"];
+
+interface PositionsState {
+  rows: PositionRow[];
+  loaded: boolean;
+}
+
+/** Every name a position had while this page was open: a deleted one is still called by it, not by its id. */
+const lastNames = new Map<string, string>();
 
 /**
  * The show's named positions, read once for every screen that shows them (the fixture panel, the Show page, the Live's
  * buttons, the look editor): one subscription to the commands, one position.preset.list in flight and one more after it.
  * A row keeps its identity while it does not change.
  */
-class PositionsStore {
-  private rows: PositionRow[] = [];
-  private loaded = false;
-  private readonly listeners = new Set<() => void>();
-  private reading = false;
-  private again = false;
-  private stop: (() => void) | undefined;
-  private retry: number | undefined;
-  /** Every name a position had while this page was open: a deleted one is still called by it, not by its id. */
-  private readonly lastNames = new Map<string, string>();
+const store = createPageStore<PositionsState, PositionRow[]>({
+  command: "position.preset.list",
+  initial: { rows: [], loaded: false },
+  prefixes: PREFIXES,
+  ignore: READS_NOTHING,
+  loaded: (s) => s.loaded,
+  map: (list, previous) => {
+    for (const r of list) lastNames.set(r.id, r.name);
+    const rows = keepRows(previous.rows, list);
+    return previous.loaded && rows === previous.rows ? previous : { rows, loaded: true };
+  },
+});
 
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    if (this.listeners.size === 1) this.start();
-    return () => {
-      this.listeners.delete(fn);
-      if (this.listeners.size) return;
-      this.stop?.();
-      this.stop = undefined;
-      // nobody listens any more: a read asked meanwhile, or a retry, is not owed to anyone
-      this.again = false;
-      window.clearTimeout(this.retry);
-      this.retry = undefined;
-    };
-  };
-
-  getRows = (): PositionRow[] => this.rows;
-  isLoaded = (): boolean => this.loaded;
-  lastName = (id: string): string => this.lastNames.get(id) ?? id;
-
+export const positionsStore = {
+  subscribe: store.subscribe,
+  getRows: (): PositionRow[] => store.get().rows,
+  isLoaded: (): boolean => store.get().loaded,
+  lastName: (id: string): string => lastNames.get(id) ?? id,
   /** Reads the list again now (after a command this screen sent: its answer is awaited, the event may come later). */
-  refresh = (): void => {
-    if (this.reading) {
-      this.again = true;
-      return;
-    }
-    this.reading = true;
-    void cmd<PositionRow[]>("position.preset.list")
-      .then((list) => this.set(list))
-      .catch(() => {
-        // never read yet: tried again, or the screens would wait on « … » for good
-        if (!this.loaded && this.listeners.size && this.retry === undefined)
-          this.retry = window.setTimeout(() => {
-            this.retry = undefined;
-            if (this.listeners.size) this.refresh();
-          }, RETRY_MS);
-      })
-      .finally(() => {
-        this.reading = false;
-        if (this.again && this.listeners.size) {
-          this.again = false;
-          this.refresh();
-        }
-      });
-  };
-
-  private start(): void {
-    const offEvents = control.subscribe("light:command", (d) => {
-      const e = d as { name: string; ok: boolean };
-      if (e.ok && !READS_NOTHING.has(e.name) && PREFIXES.some((p) => e.name.startsWith(p))) this.refresh();
-    });
-    const offStatus = control.onStatus((up) => up && this.refresh());
-    this.stop = () => {
-      offEvents();
-      offStatus();
-    };
-    this.refresh();
-  }
-
-  private set(list: PositionRow[]): void {
-    const before = new Map(this.rows.map((r) => [r.id, r]));
-    let changed = !this.loaded || list.length !== this.rows.length;
-    const rows = list.map((r, i) => {
-      const old = before.get(r.id);
-      if (old && JSON.stringify(old) === JSON.stringify(r)) {
-        if (this.rows[i] !== old) changed = true;
-        return old;
-      }
-      changed = true;
-      return r;
-    });
-    for (const r of list) this.lastNames.set(r.id, r.name);
-    if (!changed) return;
-    this.rows = rows;
-    this.loaded = true;
-    for (const fn of [...this.listeners]) fn();
-  }
-}
-
-export const positionsStore = new PositionsStore();
+  refresh: store.refresh,
+};
 
 /** Every named position of the show; `loaded` stays false until the first answer. */
 export function usePositions(): { positions: PositionRow[]; loaded: boolean; refresh: () => void } {

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { cmd } from "../api";
-import { control } from "../ws";
+import { unlessSame } from "../command-store";
+import { createPageStore } from "../page-store";
 
 /** A colour preset as colour.preset.list gives it (T41; docs/specs/presets-songs-notes.md, « Presets de couleur »). */
 export interface ColourPresetRow {
@@ -27,83 +27,23 @@ export interface ColourPresets {
 
 /** Commands after which the presets or the favourites may have changed (the presets themselves, a show opened or restored, a version put back). */
 const PREFIXES = ["colour.preset.", "show.", "history.", "backup.", "midi.mapping.", "song."];
-const READS_NOTHING = new Set(["colour.preset.list"]);
-const RETRY_MS = 2000;
 const EMPTY: ColourPresets = { presets: [], favorites: [], loaded: false };
 
 /**
  * The colour presets, read once for every screen showing them (the Show page, the look editor, the fixture panel, the
  * Live's widgets): one subscription to the commands, one colour.preset.list in flight and one more after it.
  */
-class ColourPresetsStore {
-  private state: ColourPresets = EMPTY;
-  private readonly listeners = new Set<() => void>();
-  private reading = false;
-  private again = false;
-  private stop: (() => void) | undefined;
-  private retry: number | undefined;
-
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    if (this.listeners.size === 1) this.start();
-    return () => {
-      this.listeners.delete(fn);
-      if (this.listeners.size) return;
-      this.stop?.();
-      this.stop = undefined;
-      this.again = false;
-      window.clearTimeout(this.retry);
-      this.retry = undefined;
-    };
-  };
-
-  get = (): ColourPresets => this.state;
-
-  refresh = (): void => {
-    if (this.reading) {
-      this.again = true;
-      return;
-    }
-    this.reading = true;
-    void cmd<{ presets: ColourPresetRow[]; favorites: string[] }>("colour.preset.list")
-      .then((r) => {
-        const byId = new Map(r.presets.map((p) => [p.id, p]));
-        const next = { presets: r.presets, favorites: r.favorites.flatMap((id) => byId.get(id) ?? []), loaded: true };
-        if (JSON.stringify(next) === JSON.stringify(this.state)) return;
-        this.state = next;
-        for (const fn of [...this.listeners]) fn();
-      })
-      .catch(() => {
-        if (!this.state.loaded && this.listeners.size && this.retry === undefined)
-          this.retry = window.setTimeout(() => {
-            this.retry = undefined;
-            if (this.listeners.size) this.refresh();
-          }, RETRY_MS);
-      })
-      .finally(() => {
-        this.reading = false;
-        if (this.again && this.listeners.size) {
-          this.again = false;
-          this.refresh();
-        }
-      });
-  };
-
-  private start(): void {
-    const offEvents = control.subscribe("light:command", (d) => {
-      const e = d as { name: string; ok: boolean };
-      if (e.ok && !READS_NOTHING.has(e.name) && PREFIXES.some((p) => e.name.startsWith(p))) this.refresh();
-    });
-    const offStatus = control.onStatus((up) => up && this.refresh());
-    this.stop = () => {
-      offEvents();
-      offStatus();
-    };
-    this.refresh();
-  }
-}
-
-export const colourPresetsStore = new ColourPresetsStore();
+export const colourPresetsStore = createPageStore<ColourPresets, { presets: ColourPresetRow[]; favorites: string[] }>({
+  command: "colour.preset.list",
+  initial: EMPTY,
+  prefixes: PREFIXES,
+  ignore: ["colour.preset.list"],
+  loaded: (s) => s.loaded,
+  map: (r, previous) => {
+    const byId = new Map(r.presets.map((p) => [p.id, p]));
+    return unlessSame(previous, { presets: r.presets, favorites: r.favorites.flatMap((id) => byId.get(id) ?? []), loaded: true });
+  },
+});
 
 /** Every colour preset the open show sees, and its favourites in their order; `loaded` false until the first answer. */
 export function useColourPresets(): ColourPresets & { refresh: () => void } {
@@ -123,67 +63,15 @@ const APPLIED_PREFIXES = ["colour.apply", "colour.release", "look.", "panic", "s
 const NOTHING_APPLIED: ColoursApplied = { fixtures: {}, groups: {} };
 
 /** The colours applied by hand, read once for every screen that marks them (the widget, the panel, the group menu). */
-class AppliedStore {
-  private state: ColoursApplied = NOTHING_APPLIED;
-  private readonly listeners = new Set<() => void>();
-  private reading = false;
-  private again = false;
-  private stop: (() => void) | undefined;
-
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    if (this.listeners.size === 1) this.start();
-    return () => {
-      this.listeners.delete(fn);
-      if (this.listeners.size) return;
-      this.stop?.();
-      this.stop = undefined;
-      this.again = false;
-    };
-  };
-
-  get = (): ColoursApplied => this.state;
-
-  refresh = (): void => {
-    if (this.reading) {
-      this.again = true;
-      return;
-    }
-    this.reading = true;
-    void cmd<ColoursApplied>("colour.applied")
-      .then((next) => {
-        if (JSON.stringify(next) === JSON.stringify(this.state)) return;
-        this.state = next;
-        for (const fn of [...this.listeners]) fn();
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        this.reading = false;
-        if (this.again && this.listeners.size) {
-          this.again = false;
-          this.refresh();
-        }
-      });
-  };
-
-  private start(): void {
-    const offEvents = control.subscribe("light:command", (d) => {
-      const e = d as { name: string; ok: boolean };
-      if (e.ok && e.name !== "colour.applied" && APPLIED_PREFIXES.some((p) => e.name.startsWith(p))) this.refresh();
-    });
-    // the song follower starts a section's look outside any command (review 2, I-1): its look takes its fixtures' colour back
-    const offSong = control.subscribe("light:song", () => this.refresh());
-    const offStatus = control.onStatus((up) => up && this.refresh());
-    this.stop = () => {
-      offEvents();
-      offSong();
-      offStatus();
-    };
-    this.refresh();
-  }
-}
-
-export const appliedStore = new AppliedStore();
+export const appliedStore = createPageStore<ColoursApplied, ColoursApplied>({
+  command: "colour.applied",
+  initial: NOTHING_APPLIED,
+  prefixes: APPLIED_PREFIXES,
+  ignore: ["colour.applied"],
+  // the song follower starts a section's look outside any command (review 2, I-1): its look takes its fixtures' colour back
+  topics: ["light:song"],
+  map: (next, previous) => unlessSame(previous, next),
+});
 
 /** The colours applied by hand now (refreshed on the commands that change them). */
 export function useColoursApplied(): ColoursApplied {

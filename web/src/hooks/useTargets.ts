@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { cmd } from "../api";
-import { control } from "../ws";
 import { keepPatched, type PointPatch } from "../target-patches";
+import { keepRows } from "../command-store";
+import { createPageStore } from "../page-store";
 
 /** A point of the stage, metres (stage.ts: X stage left → right seen from the audience, Y front → upstage, Z up). */
 export interface Point3 {
@@ -57,130 +57,83 @@ const PREFIXES = ["target.", "show.", "history.", "panic", "snapshot.", "venue."
  */
 const SET_READ_MS = 150;
 
+interface TargetsState {
+  rows: TargetRow[];
+  names: TargetName[];
+  loaded: boolean;
+}
+
+/** Every name a target had while this page was open: a deleted one is still called by it, not by its id. */
+const lastNames = new Map<string, string>();
+/** The points target.set answered, kept against a list started before them (target-patches.ts). */
+let patches = new Map<string, PointPatch<Point3>>();
+let soonTimer: number | undefined;
+
+/** The new rows, each kept as it was when it did not change; `previous` itself when nothing did. */
+function next(previous: TargetsState, list: TargetRow[], loaded: boolean): TargetsState {
+  for (const r of list) lastNames.set(r.id, r.name);
+  const rows = keepRows(previous.rows, list);
+  if (rows === previous.rows && loaded === previous.loaded) return previous;
+  const names = rows.map((r) => ({ id: r.id, name: r.name }));
+  return { rows, names: JSON.stringify(names) === JSON.stringify(previous.names) ? previous.names : names, loaded };
+}
+
 /**
  * The show's targets, read once for every screen that shows them (as useMotionHeads does for the heads): a single
  * subscription to the commands, one target.list in flight and one more after it, never one per command. A row keeps
  * its identity while it does not change, so a widget subscribed to one target re-renders only when that one does.
  */
-class TargetsStore {
-  private rows: TargetRow[] = [];
-  private names: TargetName[] = [];
-  private loaded = false;
-  private readonly listeners = new Set<() => void>();
-  private reading = false;
-  private again = false;
-  private timer: number | undefined;
-  private stop: (() => void) | undefined;
-  /** Every name a target had while this page was open: a deleted one is still called by it, not by its id. */
-  private readonly lastNames = new Map<string, string>();
-  /** The number of the latest target.list started. */
-  private started = 0;
-  /** The points target.set answered, kept against a list started before them (target-patches.ts). */
-  private patches = new Map<string, PointPatch<Point3>>();
+const store = createPageStore<TargetsState, TargetRow[]>({
+  command: "target.list",
+  initial: { rows: [], names: [], loaded: false },
+  prefixes: PREFIXES,
+  onCommand: (name) => {
+    if (name !== "target.set") return false;
+    soonTimer ??= window.setTimeout(() => {
+      soonTimer = undefined;
+      store.refresh();
+    }, SET_READ_MS);
+    return true;
+  },
+  onStop: () => {
+    if (soonTimer !== undefined) window.clearTimeout(soonTimer);
+    soonTimer = undefined;
+  },
+  map: (answer, previous, { read, readAgain }) => {
+    // a list started before the last target.set and answered after it would move the pad back: keep its point
+    const fresh = keepPatched(answer, read, patches);
+    patches = fresh.patches;
+    if (fresh.stale) readAgain();
+    return next(previous, fresh.list, true);
+  },
+});
 
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    if (this.listeners.size === 1) this.start();
-    return () => {
-      this.listeners.delete(fn);
-      if (this.listeners.size) return;
-      this.stop?.();
-      this.stop = undefined;
-      if (this.timer !== undefined) window.clearTimeout(this.timer);
-      this.timer = undefined;
-    };
-  };
+const rowOf = (id: string | undefined): TargetRow | undefined => (id === undefined ? undefined : store.get().rows.find((r) => r.id === id));
 
-  getRows = (): TargetRow[] => this.rows;
-  getNames = (): TargetName[] => this.names;
-  isLoaded = (): boolean => this.loaded;
-  lastName = (id: string): string => this.lastNames.get(id) ?? id;
-  row = (id: string | undefined): TargetRow | undefined => (id === undefined ? undefined : this.rows.find((r) => r.id === id));
-
+export const targetsStore = {
+  subscribe: store.subscribe,
+  getRows: (): TargetRow[] => store.get().rows,
+  getNames: (): TargetName[] => store.get().names,
+  isLoaded: (): boolean => store.get().loaded,
+  lastName: (id: string): string => lastNames.get(id) ?? id,
+  row: rowOf,
   /** Reads the list again now (after a command this screen sent: its answer is awaited, the topic may come later). */
-  refresh = (): void => {
-    if (this.reading) {
-      this.again = true;
-      return;
-    }
-    this.reading = true;
-    const read = ++this.started;
-    void cmd<TargetRow[]>("target.list")
-      .then((list) => {
-        // a list started before the last target.set and answered after it would move the pad back: keep its point
-        const fresh = keepPatched(list, read, this.patches);
-        this.patches = fresh.patches;
-        if (fresh.stale) this.again = true;
-        this.set(fresh.list, true);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        this.reading = false;
-        if (this.again && this.listeners.size) {
-          this.again = false;
-          this.refresh();
-        }
-      });
-  };
-
+  refresh: store.refresh,
   /** The point target.set answered (the pad that moved it): shown at once, without waiting for a list. */
   patchPoint(id: string, point: Point3): void {
-    this.patches.set(id, { read: this.started, point });
-    const row = this.row(id);
-    if (!row || (row.point.x === point.x && row.point.y === point.y && row.point.z === point.z)) return;
-    this.set(
-      this.rows.map((r) => (r.id === id ? { ...r, point } : r)),
-      this.loaded,
+    patches.set(id, { read: store.lastRead(), point });
+    const current = rowOf(id);
+    if (!current || (current.point.x === point.x && current.point.y === point.y && current.point.z === point.z)) return;
+    const state = store.get();
+    store.set(
+      next(
+        state,
+        state.rows.map((r) => (r.id === id ? { ...r, point } : r)),
+        state.loaded,
+      ),
     );
-  }
-
-  private start(): void {
-    const offEvents = control.subscribe("light:command", (d) => {
-      const e = d as { name: string; ok: boolean };
-      if (!e.ok) return;
-      if (e.name === "target.set") this.soon();
-      else if (PREFIXES.some((p) => e.name.startsWith(p))) this.refresh();
-    });
-    const offStatus = control.onStatus((up) => up && this.refresh());
-    this.stop = () => {
-      offEvents();
-      offStatus();
-    };
-    this.refresh();
-  }
-
-  private soon(): void {
-    if (this.timer !== undefined) return;
-    this.timer = window.setTimeout(() => {
-      this.timer = undefined;
-      this.refresh();
-    }, SET_READ_MS);
-  }
-
-  /** The new rows, each kept as it was when it did not change; the listeners told only when something did. */
-  private set(list: TargetRow[], loaded: boolean): void {
-    const before = new Map(this.rows.map((r) => [r.id, r]));
-    let changed = list.length !== this.rows.length || loaded !== this.loaded;
-    const rows = list.map((r, i) => {
-      const old = before.get(r.id);
-      if (old && JSON.stringify(old) === JSON.stringify(r)) {
-        if (this.rows[i] !== old) changed = true;
-        return old;
-      }
-      changed = true;
-      return r;
-    });
-    for (const r of list) this.lastNames.set(r.id, r.name);
-    if (!changed) return;
-    this.rows = rows;
-    this.loaded = loaded;
-    const names = rows.map((r) => ({ id: r.id, name: r.name }));
-    if (JSON.stringify(names) !== JSON.stringify(this.names)) this.names = names;
-    for (const fn of [...this.listeners]) fn();
-  }
-}
-
-export const targetsStore = new TargetsStore();
+  },
+};
 
 /** Every target of the show (the venue's « Cibles », the look editor): re-renders whenever one changes. */
 export function useTargets(): { targets: TargetRow[]; loaded: boolean; refresh: () => void } {
