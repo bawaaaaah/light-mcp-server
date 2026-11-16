@@ -5,39 +5,40 @@
  * masters of the groups that include them and do not already dose the fixture, skipping fixtures of
  * groups that exclude them) → intensity per fixture = grand master × the master of every DCA covering
  * it, each once (show/dca.ts) → venue.toDmx, raw dimmers dosed like painted ones → channel faders.
+ *
+ * The looks' playback (launches, fades, crossfades), the levels and the rules live here; the motion layer (positions,
+ * targets, named positions, paths, locks) is show/motion-controller.ts and the colours applied by hand
+ * show/colour-layer.ts, each reading the runtime through a narrow host interface. The public methods of both stay on
+ * ShowRuntime as one-line delegates.
  */
-import { stableStringify, type Collection, type FolderStore } from "../data/store.js";
+import type { Collection, FolderStore } from "../data/store.js";
 import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
 import { MANUAL_COLOUR_FADE_MS } from "./manual-colour.js";
 import { ColourLayer } from "./colour-layer.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
-import type { MoveFade, Position } from "../engine/move.js";
-import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
-import { aimAt, aimNear, angleBetween, boundPosition, pointing, type AimOptions } from "../venue/aim.js";
+import type { Position } from "../engine/move.js";
+import { FALLBACK_BPM, type HeadStatus, type LockLevel } from "../engine/motion.js";
+import type { AimOptions } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
-import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
-import { checkPath, type PathHead, type PathWarning } from "../venue/path-check.js";
-import { applyHolds, applyRules, applySpeeds, applySteady, speedLimits, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
+import type { PathWarning } from "../venue/path-check.js";
+import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
 import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGrouping } from "../venue/grouping.js";
-import { beamCrosses, ZoneSchema, zoneAimPoint, zoneOf, type Zone } from "../venue/stage.js";
-import { pathPosition, pathSequence, pathStep, sequenceKey, stopOffset, type Path, type PathStop, type StopPosition } from "../engine/path.js";
+import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
+import type { PathStop, StopPosition } from "../engine/path.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, PositionPresetSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type PositionPreset, type ShowSettings, type Snapshot, type Target } from "./model.js";
-import { basisOf, legacyBasisOf, type HeadNow } from "./position-presets.js";
-import { beyondStops } from "../venue/stops-check.js";
-import { aimHead, clampPoint, type TargetHold, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
-import { hardenLock, heldOf, lockOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
-import { hermiteAt } from "../engine/hermite.js";
-import { ownerNamer } from "./motion-report.js";
+import type { HeadNow } from "./position-presets.js";
+import type { Bounds, Point3, TargetHold } from "../venue/target-aim.js";
+import { hardenLock, lockOf, lockState, type HeadFlips, type MotionLockState } from "./motion-lock.js";
+import { MotionController, type GoneKind, type MotionExplanation, type MotionRun } from "./motion-controller.js";
+import { exitProgress, played, seedOf, type TempoSource } from "./runtime-pure.js";
 import { say } from "../../../core/lang.js";
-
-/** T26: a soft-locked head moved by the pad is written to show.json this long after the last move (and a failed write retried). */
-export const HELD_WRITE_DELAY_MS = 1000;
 
 /** How a snapshot puts its motion lock back (T26): `exact` (snapshot.recall, decision Q3), or `harden` only (the Panic's safe snapshot and the startup snapshot, decisions D1 and D2). */
 export type SnapshotLockMode = "exact" | "harden";
@@ -45,96 +46,12 @@ export type SnapshotLockMode = "exact" | "harden";
 /** How long a Panic stays undoable. */
 export const PANIC_UNDO_MS = 60_000;
 
-/** A value rendered with its object keys sorted: two looks saved with a `map` in another key order are the same look. */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-/** What a look plays, without what only names or files it (name, tags — its folder —, notes): renaming or filing a look changes nothing on stage. */
-function played(look: Look): string {
-  const { name: _name, tags: _tags, notes: _notes, ...rest } = look;
-  return canonical(rest);
-}
-
-export interface TempoSource {
-  /** `bpm`: the tempo a glide given in beats is timed at (the motion layer); 120 when the source gives none. */
-  state(): { beats: number; bpm?: number };
-}
-
-/** What can be deleted while a look still cites it (T28): said by its last name. */
-type GoneKind = "zone" | "position" | "target";
-
-/** What a look following a named position covers through it (T32, `ShowRuntime.lookCoverage`). */
-interface LookCoverage {
-  order?: number;
-  heads: readonly string[];
-  late: readonly string[];
-}
-
-/** The heads of `moved` a named position places: all of them for a point, else those it has a pan/tilt for. */
-function coveredBy(p: PositionPreset, moved: readonly string[]): string[] {
-  return p.point ? [...moved] : moved.filter((h) => Object.hasOwn(p.values, h));
-}
-
-/** A manual position (XY pad, aiming, a named position recalled): one claim of the motion layer per head. */
-interface ManualPosition {
-  /** The axes it places: one alone leaves the other to the layer below. Ignored when `preset` is set. */
-  position: Partial<Position>;
-  /**
-   * A named position recalled (T32): both axes read from it on every frame (`ctx.presetOf`), so that a position
-   * readjusted moves the heads that recalled it. A gesture over it (the pad) turns the entry into a fixed position.
-   */
-  preset?: string;
-  /**
-   * The zone it was aimed at (T28, position.aim {zone}: the Live's « Zones » widget lights the zone its heads hold). Only
-   * said, never read by the render: the entry holds the pan/tilt aimed; a gesture over it (the pad) forgets it.
-   */
-  zone?: string;
-  /** The launch order of the command that set it (the counter of the look launches): a transition watches it. */
-  order: number;
-  /** It glides there over the show's `moveFade` (a destination recalled) instead of following the gesture at once. */
-  glide: boolean;
-  /**
-   * The pad given one axis while a recall (or any manual glide) still glides the other (T32): that older claim keeps
-   * the axes not given, so they carry on gliding instead of jumping, until they arrive (`settleTrails`): they then
-   * become this entry's fixed position, where they arrived.
-   */
-  trail?: { axes: readonly Axis[]; claim: Omit<ManualPosition, "trail"> };
-}
-
-/** One pass of the motion layer: the state it starts from, what was really sent and the tempo; `compose` leaves the next state and the status in it. */
-interface MotionRun {
-  state: MotionState;
-  /** The tempo a glide given in beats is timed at when it starts. */
-  bpm: number;
-  sent?: ReadonlyMap<string, Position> | undefined;
-  status: ReadonlyMap<string, HeadStatus>;
-  /** The logical position the layer gave each head (T32 `lastPositions`); `compose` leaves it, only `render` keeps it. */
-  positions?: ReadonlyMap<string, Position>;
-  /**
-   * The base each claim with a shape aimed a head at on the previous frame (`claimKey@head`, T24): a shape around a
-   * point aims the point from its last base, not from the position sent (base + the shape's offset), or the base
-   * would drift with the shape. `compose` leaves the new table in it; only `render` keeps it.
-   */
-  bases: ReadonlyMap<string, Position>;
-  /** Why a head held for a target on this frame, by its error message (T24, lot 4: the screens say it in their language). */
-  holds?: ReadonlyMap<string, TargetHold>;
-}
+export type { TempoSource } from "./runtime-pure.js";
 
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
 const STRICT_FRAME_MS = 23;
 /** strictBounds: how far ahead the arrival frame is played — past the longest fade and the longest glide (64 beats at a slow tempo). */
 const STRICT_ARRIVAL_MS = 600_000;
-
-/** The pad and the commands that follow a continuous gesture are direct (R8). */
-const DIRECT: MoveFade = { seconds: 0 };
-
-const STAGE_AXES: readonly StageAxis[] = ["x", "y", "z"];
 
 interface ActiveLook {
   look: Look;
@@ -186,16 +103,6 @@ interface Crossfade {
   rank?: number;
   /** That part keeps a sheet of its own (it released other looks as it came back: they cross with what rises of it, not with what it still had). */
   apart?: boolean;
-}
-
-/** How far a stopped look is into its exit fade at `now`, 0..1: at 1 it neither paints nor moves a head any more. */
-const exitProgress = (r: Pick<ReleasingLook, "stopTime" | "exitFade">, now: number): number => Math.min(1, Math.max(0, (now - r.stopTime) / 1000) / r.exitFade);
-
-/** Stable small seed from a string, so a random-order look plays the same way every time. */
-function seedOf(s: string): number {
-  let h = 2166136261;
-  for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return h >>> 0;
 }
 
 /** What `ShowRuntime.explainChannel` answers: `intensity` is absent when no fixture owns the channel. */
@@ -255,20 +162,7 @@ export interface ChannelExplanation {
    * `from` → `to` (0..1 of the travel) and the milliseconds left. `masked`: who else claims the axis and is beaten,
    * `released` when it was handed back. Looks that write the channel raw are listed in `rawLooks` only when they hold the axis.
    */
-  motion?: {
-    axis: Axis;
-    layer: AxisLayer;
-    owner: string | null;
-    name?: string;
-    lock: LockLevel;
-    position: number;
-    moving: boolean;
-    from?: number;
-    to?: number;
-    remainingMs?: number;
-    error?: string;
-    masked: { owner: string; name?: string; released?: true }[];
-  };
+  motion?: MotionExplanation;
 }
 
 export class ShowRuntime {
@@ -293,16 +187,12 @@ export class ShowRuntime {
   lastClamps: Clamp[] = [];
   /** Smoothed faders (docs/specs/groups-masters.md, « Lissage »): the levels sent, gliding to the levels asked. */
   readonly glide = new Glide();
-  /** The targets' points on their way (T24, `target.smoothing`): per axis, 0..1 across the target's bounds. */
-  private targetGlide = new Glide();
   private readonly active = new Map<string, ActiveLook>();
   /**
    * When each player was (re)launched, in order: the layers of a fixture with tracks (T5) stack by it, so that a look
    * leaving keeps its place among the others while it fades instead of dropping under the ones still playing.
    */
   private readonly launchOrder = new WeakMap<LookPlayer, number>();
-  /** Per raw-channel table of a look, the targets whose value changes from one step to another (computed once per table). */
-  private readonly changingTargets = new WeakMap<object, ReadonlySet<number>>();
   private launches = 0;
   /**
    * Fixtures with tracks only (T5): the crossfade (by key) whose sheet a look (by id, active or the key of its own
@@ -317,77 +207,18 @@ export class ShowRuntime {
   private readonly crossfades = new Map<string, Crossfade>();
   /** palette id → number of edits: a queued look whose palette was edited has a stale player. */
   private readonly paletteRevs = new Map<string, number>();
-  /** The last names of the zones, named positions and targets deleted (`kind:id`): what still cites one says its name. */
-  private readonly goneNames = new Map<string, string>();
-  /** The stop sequences of each path (T28), per head key (`sequenceKey`): memoised draws, dropped with the path object. */
-  private readonly pathSequences = new WeakMap<Path, Map<number, (i: number) => number>>();
   private orphans = 0;
   /** group id → flash held */
   private readonly flashes = new Set<string>();
-  /** Manual positions (XY pad, aiming): the manual claims of the motion layer, one per head, until released. */
-  private readonly manualPositions = new Map<string, ManualPosition>();
+  /** The motion layer (T25, show/motion-controller.ts): claims, manual positions, targets, named positions, locks. */
+  private readonly motion: MotionController;
   /** Colours applied by hand (T41, show/colour-layer.ts): above the looks, one per fixture, until released. */
   private readonly colours: ColourLayer;
-  /**
-   * The motion layer (engine/motion.ts, T25): its state from the last frame really rendered, and the logical position
-   * each head was really sent then — read back in the output after the rules, and again after the guard (the DMX
-   * console, the locked rules, the speed limits). Only `render` and the commands keep a state: a frame played in
-   * memory (strictBounds) starts from it and drops its own.
-   */
-  private motionState: MotionState = emptyMotionState();
-  private sentPositions: ReadonlyMap<string, Position> = new Map();
-  /** MotionRun.bases of the last frame really rendered. */
-  private aimBases: ReadonlyMap<string, Position> = new Map();
-  /** MotionRun.holds of the last frame really rendered. */
-  private aimHolds: ReadonlyMap<string, TargetHold> = new Map();
-  /** Targets whose point has a glide in `targetGlide`: those a real frame does not read are forgotten at its end (a look restarted later glides from where the point is). */
-  private readonly glidingTargets = new Set<string>();
-  /** The targets whose point a real frame read (render): undefined outside one. */
-  private targetsRead: Set<string> | undefined;
-  private lastMotion: ReadonlyMap<string, HeadStatus> = new Map();
-  /**
-   * The logical position the motion layer gave each head on the last frame really rendered (T32): before the rules and
-   * the guard, so that saving a position keeps what was asked, not a byte a rule bounded.
-   */
-  private lastPositions: ReadonlyMap<string, Position> = new Map();
-  /**
-   * The revision of a named position's placing part (T32, `MotionClaim.rev`): its pan/tilt or its point, so that a
-   * readjustment glides the heads following it, a rename or a new colour does not. One per stored object.
-   */
-  private readonly presetRevs = new WeakMap<PositionPreset, string>();
-  /**
-   * The heads a look following a named position covers through it (T32), kept while the position exists and noted
-   * when it is saved or deleted: deleted, the look holds those heads where they are, and only those (the others stay
-   * with the layer below). `order`: the launch it was last seen under (undefined: noted before any frame of the look);
-   * `late`: the heads that entered the coverage under that launch, which glide in over `moveFade` whatever the look's
-   * own fade (decision P1: never a jump), until the look is launched again.
-   */
-  private readonly lookCoverage = new Map<string, LookCoverage>();
   /**
    * « Figer les lyres » (T26): the effective lock level of each head, from the show's `motionLock` (the stricter of the
    * global lock and the head's own). A hook: everything that reads the lock goes through it.
    */
   motionLock: (head: string) => LockLevel = (head) => lockOf(this.settings.motionLock, head);
-  /**
-   * Where each locked head is frozen (logical pan/tilt): the position sent when it was locked, taken again when its
-   * lock hardens, followed by the pad under a soft lock; dropped when it is unlocked. Mirrored in show.json
-   * (`motionLock.held`): a restart under a lock sends the heads back there on the first frame.
-   */
-  private lockHeld: Map<string, Position>;
-  /** Each head's lock level on the last frame: a soft lock hardening takes `held` again. */
-  private readonly lockLevels = new Map<string, LockLevel>();
-  /** Since when a change of `held` made by the pad (or a failed write) waits to be written to show.json (one second after). */
-  private heldDirtySince: number | undefined;
-  /** A freeze or a release of `held` to write to show.json as soon as the frame is over. */
-  private heldUrgent = false;
-  /** A write of `held` is queued after the current frame (never inside it: a failing disk must not blank a frame). */
-  private heldWriteQueued = false;
-  /**
-   * T26, decision D4: a show opened (or restored) while its heads were already sent somewhere, with locked heads held
-   * elsewhere: they glide from where they were sent to their stored `held` (at least UNLOCK_MIN_MS), they do not jump.
-   * `t0`/`dur` are set on the first frame that renders it.
-   */
-  private readonly lockArrivals = new Map<string, { from: Position; t0?: number; dur?: number }>();
   /** The slots (0-based, per universe) the DMX console forces: the hard lock leaves them to it (decision Q4). Set by the plugin. */
   consoleSlots: () => ReadonlyMap<number, ReadonlySet<number>> = () => new Map();
   /** The slot each colour wheel holds (venue.toDmx): kept from frame to frame, a slot changes only for one clearly closer (color-wheel.ts). */
@@ -413,7 +244,29 @@ export class ShowRuntime {
     this.positionPresets = store.collection("positions", PositionPresetSchema);
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
-    this.lockHeld = heldOf(this.settings.motionLock);
+    this.motion = new MotionController({
+      venue,
+      looks: this.looks,
+      targets: this.targets,
+      positionPresets: this.positionPresets,
+      zones: this.zones,
+      tempo,
+      now: () => this.now(),
+      settings: () => this.settings,
+      setSettings: (settings) => {
+        this.settings = settings;
+      },
+      saveSettings: (patch) => this.saveSettings(patch),
+      motionLock: (head) => this.motionLock(head),
+      consoleSlots: () => this.consoleSlots(),
+      fixturesOf: (id) => this.fixturesOf(id),
+      nextOrder: () => ++this.launches,
+      launchOrderOf: (player) => this.launchOrder.get(player),
+      claimingLooks: (at) => this.claimingLooks(at),
+      activeLooks: () => this.activeLooks(),
+      rulesInForce: () => this.rulesInForce(),
+      zoneLookup: () => this.zoneLookup(),
+    });
     this.colours = new ColourLayer({
       now: () => this.now(),
       venue,
@@ -426,7 +279,7 @@ export class ShowRuntime {
     });
     store.onChange((e) => {
       // a named position saved (a command, a version restored): the looks following it know at once what it covers
-      if (e.collection === "positions" && e.kind === "put") this.notePositionCoverage(e.id);
+      if (e.collection === "positions" && e.kind === "put") this.motion.notePositionCoverage(e.id);
       // A look or palette edited while playing restarts with the new definition (effects stay editable live);
       // renamed, filed in a folder or annotated, it plays on untouched.
       if (e.collection === "looks") {
@@ -445,19 +298,8 @@ export class ShowRuntime {
   reloadSettings(): void {
     this.settings = this.store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
-    // the lock is the open show's, with its heads where that show froze them (what was pending for the show before is
-    // the caller's to flush first: flushHeld)
-    this.lockHeld = heldOf(this.settings.motionLock);
-    this.lockLevels.clear();
-    this.heldDirtySince = undefined;
-    this.heldUrgent = false;
-    // decision D4: heads already sent somewhere glide to where the opened show holds them; after a restart (nothing
-    // sent yet) they take it at once on the first frame
-    this.lockArrivals.clear();
-    for (const [head, to] of this.lockHeld) {
-      const from = this.sentPositions.get(head);
-      if (from && this.motionLock(head) !== "off" && (from.pan !== to.pan || from.tilt !== to.tilt)) this.lockArrivals.set(head, { from });
-    }
+    // the lock is the open show's, with its heads where that show froze them
+    this.motion.reloadLock();
   }
 
   saveSettings(patch: Partial<ShowSettings>): ShowSettings {
@@ -478,137 +320,27 @@ export class ShowRuntime {
    * unlocked forgets where it was held and glides back to what claims it (at least a second). Saved in show.json.
    */
   setMotionLock(state: MotionLockState): void {
-    // the same levels: nothing to do, nothing written (a show without a lock does not get `motionLock: off`)
-    if (sameLock(state, this.motionLockState())) return;
-    // the levels in effect first, `held` brought in line with them, then one write
-    this.settings = { ...this.settings, motionLock: { level: state.level, heads: { ...state.heads }, held: Object.fromEntries(this.lockHeld) } };
-    this.syncLockHeld();
-    // a failed write (a full disk during a Panic) is said and retried, never thrown: the Panic goes on
-    this.heldUrgent = true;
-    this.flushHeld();
+    this.motion.setLock(state);
   }
 
-  /**
-   * A fixture gone from the patch leaves the motion lock (T26): its own level and where it was held, so a fixture
-   * patched later under this id is not frozen by a stale entry (the global lock still applies to it, as to any head).
-   * Saved at once; nothing to do when the lock does not name it.
-   */
+  /** A fixture gone from the patch leaves the motion lock (T26): its own level and where it was held. Saved at once. */
   forgetLockedHead(id: string): void {
-    const lock = this.settings.motionLock;
-    const own = lock !== undefined && Object.hasOwn(lock.heads, id);
-    if (!own && !this.lockHeld.has(id)) return;
-    this.lockHeld.delete(id);
-    this.lockArrivals.delete(id);
-    this.lockLevels.delete(id);
-    const { [id]: _gone, ...heads } = lock?.heads ?? {};
-    this.settings = { ...this.settings, motionLock: { level: lock?.level ?? "off", heads, held: Object.fromEntries(this.lockHeld) } };
-    this.heldUrgent = true;
-    this.flushHeld();
+    this.motion.forgetLockedHead(id);
   }
 
-  /**
-   * Whether new pan/tilt inversions or swap would move a hard-frozen moving head (T26): its frozen position is logical,
-   * its bytes follow them, so the change is refused until it is unfrozen. False for any other head or the same flips.
-   */
+  /** Whether new pan/tilt inversions or swap would move a hard-frozen moving head (T26): refused until it is unfrozen. */
   flipsMoveFrozen(fixture: string, before: HeadFlips, after: HeadFlips): boolean {
-    return this.motionLock(fixture) === "hard" && this.movingHeads().includes(fixture) && !sameFlips(before, after);
+    return this.motion.flipsMoveFrozen(fixture, before, after);
   }
 
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */
   heldPosition(fixture: string): Position | undefined {
-    return this.motionLock(fixture) === "off" ? undefined : this.lockHeld.get(fixture);
+    return this.motion.heldPosition(fixture);
   }
 
-  /**
-   * Brings `held` in line with the lock levels: frozen on the position sent when a head is locked (or when its soft
-   * lock hardens), following the pad while a manual position holds a soft-locked head, dropped when it is free.
-   * Returns true when it changed in a way to write at once (a freeze or a release); a change by the pad only marks
-   * `held` to be written a second after the last one (`now`).
-   */
-  private syncLockHeld(now?: number): boolean {
-    let urgent = false;
-    for (const head of this.movingHeads()) {
-      const level = this.motionLock(head);
-      const was = this.lockLevels.get(head);
-      this.lockLevels.set(head, level);
-      if (level === "off") continue; // dropped below, with the heads no longer listed
-      const sent = this.sentPositions.get(head);
-      if (!sent) continue; // nothing sent yet: the layer freezes the head where it starts, `held` follows on the next frame
-      const held = this.lockHeld.get(head);
-      const same = held !== undefined && held.pan === sent.pan && held.tilt === sent.tilt;
-      if (!held || (level === "hard" && was === "soft")) {
-        if (!same) urgent = true;
-        this.lockHeld.set(head, { pan: sent.pan, tilt: sent.tilt });
-        this.lockArrivals.delete(head);
-        continue;
-      }
-      // the pad moves a soft-locked head: it is frozen where the pad leaves it
-      const status = this.lastMotion.get(head);
-      if (level === "soft" && !same && (status?.pan.layer === "manual" || status?.tilt.layer === "manual")) {
-        this.lockHeld.set(head, { pan: sent.pan, tilt: sent.tilt });
-        this.lockArrivals.delete(head);
-        if (now !== undefined) this.heldDirtySince = now;
-        else urgent = true;
-      }
-    }
-    // a head free now forgets where it was held, listed or not (an absent head unlocked must not snap back to a stale
-    // `held` when it is locked again)
-    for (const head of [...this.lockHeld.keys()]) {
-      if (this.motionLock(head) !== "off") continue;
-      this.lockHeld.delete(head);
-      this.lockArrivals.delete(head);
-      urgent = true;
-    }
-    return urgent;
-  }
-
-  /** Writes `held` to show.json (with the lock levels as they are); nothing is pending after it. Throws on a failed write. */
-  private writeHeld(): void {
-    const lock = this.settings.motionLock;
-    if (lock || this.lockHeld.size) this.saveSettings({ motionLock: { ...lockState(lock), held: Object.fromEntries(this.lockHeld) } });
-    this.heldDirtySince = undefined;
-    this.heldUrgent = false;
-  }
-
-  /**
-   * Writes a pending change of `held` now (a freeze, a release, the pad's last move under a soft lock), and nothing
-   * otherwise: before the show changes (show.open, an archive restored) and on stop, so that nothing is lost and
-   * nothing is written into another show. A failed write is said and retried a second later, never thrown.
-   */
+  /** Writes a pending change of `held` now (before the show changes, on stop); a failed write is said and retried a second later, never thrown. */
   flushHeld(): void {
-    if (!this.heldUrgent && this.heldDirtySince === undefined) return;
-    try {
-      this.writeHeld();
-    } catch (err) {
-      console.warn("verrou des lyres : position figée non enregistrée, nouvel essai dans une seconde :", (err as Error).message);
-      this.heldUrgent = false;
-      this.heldDirtySince = this.now();
-    }
-  }
-
-  /** Queues `flushHeld` right after the current frame, once. */
-  private queueHeldWrite(): void {
-    if (this.heldWriteQueued) return;
-    this.heldWriteQueued = true;
-    queueMicrotask(() => {
-      this.heldWriteQueued = false;
-      this.flushHeld();
-    });
-  }
-
-  /**
-   * Where a locked head is frozen at `now` (T26 `held`): its stored `held`, or on the way there after a show opened
-   * (decision D4). Pure in `now`: the arrival starts on the first frame that renders it.
-   */
-  private heldAt(head: string, now: number): Position | undefined {
-    const to = this.lockHeld.get(head);
-    const a = to && this.lockArrivals.get(head);
-    if (!to || !a) return to;
-    const { from, t0, dur } = a;
-    if (t0 === undefined || dur === undefined) return from;
-    if (now - t0 >= dur) return to;
-    const at = (axis: Axis) => hermiteAt({ from: from[axis], to: to[axis], start: t0, duration: dur, v0: 0 }, now);
-    return { pan: at("pan"), tilt: at("tilt") };
+    this.motion.flushHeld();
   }
 
   /** The technique with its palette applied (palettes are used by reference). */
@@ -745,7 +477,7 @@ export class ShowRuntime {
     this.stopAll();
     this.playbackStarted.clear();
     const skipped: string[] = [];
-    if (s.targets) skipped.push(...this.applyTargets(s.targets));
+    if (s.targets) skipped.push(...this.motion.applyTargets(s.targets));
     for (const [id, m] of Object.entries(s.groups)) {
       const g = this.groups.get(id);
       if (g) this.groups.putLive({ ...g, master: { ...g.master, level: m.level, mute: m.mute } });
@@ -769,28 +501,6 @@ export class ShowRuntime {
       }
     }
     return { looks: this.activeLooks(), skipped };
-  }
-
-  /**
-   * The targets as a snapshot saved them (T24, decision Q4): each point put back, each engaged one engaged again in the
-   * order they had (with new orders: a recall is a new claim, the heads glide from where they are), the targets it does
-   * not list disengaged. Returns the saved ids no longer in the show.
-   */
-  private applyTargets(saved: NonNullable<Snapshot["targets"]>): string[] {
-    const skipped = Object.keys(saved).filter((id) => !this.targets.get(id));
-    for (const t of this.targets.list()) {
-      const s = Object.hasOwn(saved, t.id) ? saved[t.id] : undefined;
-      if (!s) {
-        if (t.engaged) this.targets.putLive({ ...t, engaged: false });
-        continue;
-      }
-      this.targets.putLive({ ...t, point: clampPoint(s.point, this.targetBounds(t)), engaged: false });
-    }
-    const engaged = Object.entries(saved)
-      .filter(([id, s]) => s.engaged && this.targets.get(id))
-      .sort(([, a], [, b]) => (a.engagedAt ?? 0) - (b.engagedAt ?? 0));
-    for (const [id] of engaged) this.engageTarget(id, true);
-    return skipped;
   }
 
   isActive(lookId: string): boolean {
@@ -1090,18 +800,9 @@ export class ShowRuntime {
     this.sharedSheet.clear();
     this.playbackStarted.clear();
     this.flashes.clear();
-    this.manualPositions.clear();
     this.colours.reset();
-    this.targetGlide = new Glide();
-    this.glidingTargets.clear();
-    this.aimBases = new Map();
     // the layer starts afresh; what was sent is kept, so that the heads glide from where they are
-    this.motionState = emptyMotionState();
-    this.lastMotion = new Map();
-    this.lastPositions = new Map();
-    this.lookCoverage.clear();
-    // the last names of what the other show deleted (T28): never said for this one
-    this.goneNames.clear();
+    this.motion.resetLive();
     this.activeProgram = undefined;
     this.resets.clear();
     this.atRest.clear();
@@ -1341,7 +1042,7 @@ export class ShowRuntime {
     // fadeable tracks (T5): the wheel follows its own rule (T18), never faded; pan/tilt belong to the motion layer
     const track = "error" in r || !r.tracks || motionOffsets(r).has(offset) ? undefined : r.tracks.fade.has(offset) && !onWheel ? ("fade" as const) : ("jump" as const);
     // pan/tilt: the motion layer places the head; a look writing the channel raw is a source only when it holds the axis
-    const motion = "error" in r ? undefined : this.explainMotion(fixture.id, r, offset);
+    const motion = "error" in r ? undefined : this.motion.explain(fixture.id, r, offset);
     const isColour = onWheel || (!("error" in r) && [...r.heads.values()].some((c) => Object.values(c).includes(offset)));
     const paintsHere = (heads: Set<number>): boolean => (onWheel ? this.venue.lightsBody(fixture.id, heads) : heads.has(-1) || (head !== undefined && heads.has(head.head)));
     // a painting look's colour here carries the level its groups give it on this channel (colorsOf)
@@ -1366,39 +1067,6 @@ export class ShowRuntime {
       ...(!("error" in r) && resetChannels(r).length
         ? { resettable: true as const, reset: { channels: resetChannels(r), ...(this.resetting(fixture.id) ? { secondsLeft: Math.ceil((this.resets.get(fixture.id)! - this.now()) / 1000) } : {}) } }
         : {}),
-    };
-  }
-
-  /** Who places the axis a pan or tilt channel drives, on the last frame rendered (ChannelExplanation.motion); undefined for any other channel. */
-  private explainMotion(fixtureId: string, r: ResolvedFixture, offset: number): ChannelExplanation["motion"] {
-    const channel: Axis | undefined = r.pan && (r.pan.coarse === offset || r.pan.fine === offset) ? "pan" : r.tilt && (r.tilt.coarse === offset || r.tilt.fine === offset) ? "tilt" : undefined;
-    const status = this.lastMotion.get(fixtureId);
-    if (!channel || !status) return undefined;
-    const axis: Axis = r.patch.orientation?.swapPanTilt ? (channel === "pan" ? "tilt" : "pan") : channel;
-    const a = status[axis];
-    const nameOf = ownerNamer(this);
-    const named = (owner: string) => {
-      const name = nameOf(owner);
-      return name === undefined ? {} : { name };
-    };
-    const masked: NonNullable<ChannelExplanation["motion"]>["masked"] = [];
-    for (const c of this.motionClaims(this.movingHeads(), this.now(), this.tempo.state().beats)) {
-      if (!c.heads.includes(fixtureId) || !claimsAxis(c, axis) || c.owner === a.owner || masked.some((m) => m.owner === c.owner)) continue;
-      masked.push({ owner: c.owner, ...named(c.owner), ...(status.released.includes(claimKey(c)) ? { released: true as const } : {}) });
-    }
-    return {
-      axis,
-      layer: a.layer,
-      owner: a.owner,
-      ...(a.owner ? named(a.owner) : {}),
-      lock: status.lock,
-      position: a.position,
-      moving: a.moving,
-      ...(a.moving && a.from !== undefined ? { from: a.from } : {}),
-      ...(a.moving && a.target !== undefined ? { to: a.target } : {}),
-      ...(a.moving && a.remainingMs !== undefined ? { remainingMs: Math.round(a.remainingMs) } : {}),
-      ...(a.error === undefined ? {} : { error: a.error }),
-      masked,
     };
   }
 
@@ -1575,820 +1243,226 @@ export class ShowRuntime {
   /** The groups of the other shows playing on this venue (set by the plugin, which reads their folders); none in tests. */
   otherShowsGroups: () => { show: string; groups: Group[] }[] = () => [];
 
-  /** The moving heads while a frame is composed: listed once for the frame (compose, the claims, the read-back). */
-  private frameHeads: string[] | undefined;
-  /** While a frame is composed: the stage volume and each target's heads (by target object), computed once for the frame. */
-  private frameTargets: { stage?: Bounds; heads: WeakMap<object, string[]> } | undefined;
-
-  /** Runs `fn` with the moving heads listed once. */
-  private withHeads<T>(fn: () => T): T {
-    const had = this.frameHeads;
-    const hadTargets = this.frameTargets;
-    this.frameHeads ??= this.movingHeads();
-    this.frameTargets ??= { heads: new WeakMap() };
-    try {
-      return fn();
-    } finally {
-      this.frameHeads = had;
-      this.frameTargets = hadTargets;
-    }
-  }
+  // ---- the motion layer (show/motion-controller.ts): thin delegates, so that the commands and the tests keep their calls
 
   /** Moving heads of the venue (fixtures with pan or tilt), in patch order. */
   movingHeads(): string[] {
-    if (this.frameHeads) return this.frameHeads;
-    return this.venue.fixtures.list().filter((f) => {
-      if (this.venue.absent.has(f.id)) return false;
-      const r = this.venue.resolve(f.id);
-      return !("error" in r) && (r.pan || r.tilt);
-    }).map((f) => f.id);
-  }
-
-  /** The moving heads of a group, sorted by X position (then patch order). */
-  private groupHeads(groupId: string): string[] {
-    const heads = new Set(this.movingHeads());
-    const pos = (id: string) => this.venue.fixtures.get(id)?.position?.x ?? 0;
-    const order = this.venue.fixtures.list().map((f) => f.id);
-    return [...this.fixturesOf(groupId)].filter((f) => heads.has(f)).sort((a, b) => pos(a) - pos(b) || order.indexOf(a) - order.indexOf(b));
+    return this.motion.movingHeads();
   }
 
   /** Fixtures moved by a look, in row order (canvas order, or by X position for a group). */
   movedBy(look: Look): string[] {
-    const heads = new Set(this.movingHeads());
-    if (look.move?.group) return this.groupHeads(look.move.group);
-    const out: string[] = [];
-    for (const cell of this.venue.cellTargets(look.canvas)) for (const t of cell) if (heads.has(t.fixture) && !out.includes(t.fixture)) out.push(t.fixture);
-    return out;
+    return this.motion.movedBy(look);
   }
 
-  /**
-   * Sets a manual position (normalised pan/tilt) on fixtures: the manual claim of the motion layer, above the looks
-   * until released. Pan or tilt alone keeps the other axis as it was claimed, or leaves it to the layer below. Each
-   * command is a new claim (a new launch order, the counter of the looks). "direct": the head follows at once (the
-   * pad, a gesture); "glide": it goes there over the show's `moveFade` (a destination recalled, T32).
-   */
+  /** Sets a manual position (normalised pan/tilt) on fixtures: the manual claim of the motion layer, above the looks until released. */
   setPosition(fixtures: string[], p: Partial<Position>, how: "direct" | "glide" = "direct"): void {
-    const order = ++this.launches;
-    const given = AXES.filter((a) => p[a] !== undefined);
-    for (const f of fixtures) {
-      const prev = this.manualPositions.get(f);
-      const trail = this.trailOf(f, prev, given);
-      // over a named position recalled, the axis not given stays where the position puts it; one still gliding there
-      // is left to the trailing claim
-      const cur: Partial<Position> = { ...(prev?.trail ? prev.position : this.manualAxes(f)) };
-      for (const a of trail?.axes ?? []) delete cur[a];
-      const position = { ...cur, ...(p.pan === undefined ? {} : { pan: p.pan }), ...(p.tilt === undefined ? {} : { tilt: p.tilt }) };
-      this.manualPositions.set(f, { position, order, glide: how === "glide", ...(trail ? { trail } : {}) });
-    }
-  }
-
-  /**
-   * The axes not `given` that the head's manual claim still glides on the last frame (a recall on its way): the claim
-   * that glides them keeps them (`ManualPosition.trail`). A trail already there keeps those of its axes not given.
-   */
-  private trailOf(head: string, prev: ManualPosition | undefined, given: readonly Axis[]): ManualPosition["trail"] {
-    if (!prev) return undefined;
-    if (prev.trail) {
-      const left = prev.trail.axes.filter((a) => !given.includes(a));
-      return left.length ? { axes: left, claim: prev.trail.claim } : undefined;
-    }
-    if (!prev.glide) return undefined;
-    const status = this.lastMotion.get(head);
-    const key = claimKey({ owner: "manual", order: prev.order });
-    // a recall no frame has resolved yet (pressed, then the pad before the next frame) is still on its way
-    const gliding = (a: Axis) => (status?.[a].claims.includes(key) === true ? status[a].moving && status[a].claims[0] === key : true);
-    const axes = AXES.filter((a) => !given.includes(a) && gliding(a));
-    return axes.length ? { axes, claim: { position: prev.position, order: prev.order, glide: prev.glide, ...(prev.preset === undefined ? {} : { preset: prev.preset }) } } : undefined;
-  }
-
-  /**
-   * After a frame: a trailing axis (`ManualPosition.trail`) that arrived, or that its claim no longer holds, becomes the
-   * entry's own fixed position where it is, as the pad over a recall keeps it.
-   */
-  private settleTrails(): void {
-    for (const [head, m] of this.manualPositions) {
-      if (!m.trail) continue;
-      const status = this.lastMotion.get(head);
-      const key = claimKey({ owner: "manual", order: m.trail.claim.order });
-      const still = m.trail.axes.filter((a) => status?.[a].moving === true && status[a].claims[0] === key);
-      for (const a of m.trail.axes) if (!still.includes(a) && status) m.position = { ...m.position, [a]: status[a].target ?? status[a].position };
-      if (still.length) m.trail = { ...m.trail, axes: still };
-      else delete m.trail;
-    }
+    this.motion.setPosition(fixtures, p, how);
   }
 
   /** Releases manual positions (all when no fixture is given): the layer below takes the heads, gliding; returns the released fixtures. */
   releasePositions(fixtures?: string[]): string[] {
-    const ids = fixtures ?? [...this.manualPositions.keys()];
-    return ids.filter((f) => this.manualPositions.delete(f));
+    return this.motion.releasePositions(fixtures);
   }
 
-  /**
-   * Recalls a named position on heads (T32, decision Q2: a manual gesture): one manual claim per head reading the
-   * position on every frame, gliding there over the show's `moveFade`. Released like the pad (« Rendre la main »,
-   * position.release, the Panic). The caller picks the heads (covered, placed, unlocked).
-   */
+  /** Recalls a named position on heads (T32, a manual gesture): one manual claim per head reading the position on every frame. */
   recallPreset(id: string, fixtures: string[]): void {
-    const order = ++this.launches;
-    for (const f of fixtures) this.manualPositions.set(f, { position: {}, preset: id, order, glide: true });
+    this.motion.recallPreset(id, fixtures);
   }
 
-  /**
-   * Deletes a named position (T32), its coverage noted first for the looks following it: deleted, they hold the heads
-   * it covered, even a look never played or stopped since.
-   */
+  /** Deletes a named position (T32), its coverage noted first for the looks following it. */
   deletePositionPreset(id: string): boolean {
-    this.notePositionCoverage(id);
-    return this.positionPresets.delete(id);
-  }
-
-  /** Notes what the named position `id` covers for each look following it (`lookCoverage`); nothing when it is gone. */
-  private notePositionCoverage(id: string): void {
-    const p = this.positionPresets.get(id);
-    if (!p) return;
-    for (const look of this.looks.list()) {
-      if (look.move?.at?.position !== id) continue;
-      let moved: string[];
-      try {
-        moved = this.movedBy(look);
-      } catch {
-        continue;
-      }
-      this.coverLook(look.id, undefined, coveredBy(p, moved));
-    }
-  }
-
-  /**
-   * Records the heads a look covers through its named position (`lookCoverage`) and returns the entry it claims with.
-   * `order` undefined (noted outside a frame) keeps the launch known. An older launch still fading out reads the entry
-   * without rewriting it: the newer launch keeps its own.
-   */
-  private coverLook(lookId: string, order: number | undefined, heads: readonly string[]): LookCoverage {
-    const last = this.lookCoverage.get(lookId);
-    if (order !== undefined && last?.order !== undefined && order < last.order) return { order, heads, late: [] };
-    const at = order ?? last?.order;
-    const same = last !== undefined && at !== undefined && last.order === at;
-    const late = same ? [...last.late.filter((h) => heads.includes(h)), ...heads.filter((h) => !last.heads.includes(h) && !last.late.includes(h))] : [];
-    const entry: LookCoverage = { ...(at === undefined ? {} : { order: at }), heads, late };
-    this.lookCoverage.set(lookId, entry);
-    return entry;
-  }
-
-  /** The revision of what a named position places (`presetRevs`); undefined when no position has that id. */
-  private presetRev(id: string): string | undefined {
-    const p = this.positionPresets.get(id);
-    if (!p) return undefined;
-    let rev = this.presetRevs.get(p);
-    if (rev === undefined) this.presetRevs.set(p, (rev = stableStringify({ values: p.values, point: p.point ?? null })));
-    return rev;
+    return this.motion.deletePositionPreset(id);
   }
 
   /** Notes the zone the heads were just aimed at (T28): their manual entries say it until a gesture replaces them. */
   markAimedZone(fixtures: readonly string[], zone: string): void {
-    for (const f of fixtures) {
-      const m = this.manualPositions.get(f);
-      if (m) m.zone = zone;
-    }
+    this.motion.markAimedZone(fixtures, zone);
   }
 
   /** The zone a head was aimed at and still holds by hand, if any (T28). */
   aimedZone(fixture: string): string | undefined {
-    return this.manualPositions.get(fixture)?.zone;
+    return this.motion.aimedZone(fixture);
   }
 
   /** The named position a head was recalled to and still holds by hand, if any (T32). */
   recalledPreset(fixture: string): string | undefined {
-    return this.manualPositions.get(fixture)?.preset;
+    return this.motion.recalledPreset(fixture);
   }
 
-  /**
-   * Where a named position puts a head now (T32): its pan/tilt for a covered head; for a point, the aim from where the
-   * head was sent (the solution closest to it, aimNear); or why it cannot (unknown, not covered, out of reach, no stage
-   * position, a no-aim zone closed now).
-   */
-  presetPosition(id: string, head: string, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string; limited?: true } {
-    const p = this.positionPresets.get(id);
-    if (!p) return { error: say(`position nommée inconnue : ${id}`, `unknown named position: ${id}`) };
-    if (p.point) return this.aimNow(head, p.point, from);
-    const v = Object.hasOwn(p.values, head) ? p.values[head] : undefined;
-    return v ? { pan: v.pan, tilt: v.tilt } : { error: say(`« ${p.name} » ne couvre pas cette lyre`, `“${p.name}” does not cover this head`) };
+  /** Where a named position puts a head now (T32), from where it was sent by default, or why it cannot. */
+  presetPosition(id: string, head: string, from?: Position): Position | { error: string; limited?: true } {
+    return this.motion.presetPosition(id, head, from);
   }
 
-  /**
-   * Where `head` points to aim at `point` now: the solution closest to `from` (the position sent by default; never the
-   * long way round, aimNear), or why it cannot (out of reach, no stage position, a no-aim zone closed now); `limited`
-   * when the point is in the travel but beyond the head's useful stops (T8).
-   */
-  aimNow(head: string, point: Point3, from: Position | undefined = this.sentPositions.get(head)): Position | { error: string; limited?: true } {
-    const res = this.aimFor(head, point, from, this.closedNoAim());
-    if (!("error" in res)) return res;
-    return { error: res.error, ...(res.hold.limited ? { limited: true as const } : {}) };
-  }
-
-  /** The axes a head's manual claim places: a named position recalled gives both, as it puts the head now. */
-  private manualAxes(fixture: string): Partial<Position> | undefined {
-    const m = this.manualPositions.get(fixture);
-    if (!m) return undefined;
-    const own = this.entryAxes(fixture, m);
-    if (!m.trail) return own;
-    const trailing = this.entryAxes(fixture, m.trail.claim);
-    const out: Partial<Position> = { ...own };
-    for (const a of m.trail.axes) if (trailing[a] !== undefined) out[a] = trailing[a];
-    return out;
-  }
-
-  /** The axes one manual entry places, a recalled named position read as it puts the head now. */
-  private entryAxes(fixture: string, m: Omit<ManualPosition, "trail">): Partial<Position> {
-    if (!m.preset) return m.position;
-    const at = this.presetPosition(m.preset, fixture);
-    return "error" in at ? { ...this.sentPositions.get(fixture) } : at;
+  /** Where `head` points to aim at `point` now, from where it was sent by default, or why it cannot. */
+  aimNow(head: string, point: Point3, from?: Position): Position | { error: string; limited?: true } {
+    return this.motion.aimNow(head, point, from);
   }
 
   /** The manual position of a head, if any; an axis it does not place is where the head was last sent. */
   manualPosition(fixture: string): Position | undefined {
-    const manual = this.manualAxes(fixture);
-    if (!manual) return undefined;
-    const sent = this.sentPositions.get(fixture);
-    return { pan: manual.pan ?? sent?.pan ?? 0.5, tilt: manual.tilt ?? sent?.tilt ?? 0.5 };
+    return this.motion.manualPosition(fixture);
   }
 
-  /**
-   * Where a head is now, as saving a named position captures it (T32): per axis, the manual position when one is set and
-   * no lock holds the axis (where the pad or a recall asked it to go, even while it glides there), else the position the motion layer gave
-   * it on the last frame rendered (a look's shape at that instant, a target, its rest — before the rules and the guard),
-   * else the centre. An instant capture: during a fade or a glide it is the value of the moment.
-   */
+  /** Where a head is now, as saving a named position captures it (T32). */
   positionNow(fixture: string): Position {
-    const manual = this.manualPosition(fixture);
-    const last = this.lastPositions.get(fixture);
-    const status = this.lastMotion.get(fixture);
-    // the manual position holds an axis unless a lock does (a hard lock masks it: the head is not going there)
-    const axis = (a: Axis): number => (manual && status?.[a].layer !== "lock" ? manual[a] : (last?.[a] ?? manual?.[a] ?? 0.5));
-    return { pan: axis("pan"), tilt: axis("tilt") };
+    return this.motion.positionNow(fixture);
   }
 
   /** A fixture's basis now (show/position-presets.ts `basisOf`): undefined when it is not patched. */
   positionBasis(fixture: string): string | undefined {
-    return this.positionHeadNow(fixture)?.basis;
+    return this.motion.positionBasis(fixture);
   }
 
   /** A covered head as `positionStale` judges it now (its basis, its stops): undefined when it is not patched. */
   positionHeadNow(fixture: string): HeadNow | undefined {
-    const patch = this.venue.fixtures.get(fixture);
-    if (!patch) return undefined;
-    const r = this.venue.resolve(fixture);
-    const src = { patch, ...("error" in r ? {} : { panMax: r.panMax, tiltMax: r.tiltMax }) };
-    const limits = patch.orientation?.limits;
-    return {
-      basis: basisOf(src),
-      legacy: legacyBasisOf(src),
-      beyondStops: (p) => !("error" in r) && beyondStops({ panMax: r.panMax, tiltMax: r.tiltMax, limits }, p),
-    };
+    return this.motion.positionHeadNow(fixture);
   }
 
-  /**
-   * Whether a stored pan/tilt of `head` points at `point` with the head as it is now (within 0.05°): its bytes still aim
-   * there. False for a head unpatched, without a stage position, or one the point is on.
-   */
+  /** Whether a stored pan/tilt of `head` points at `point` with the head as it is now (within 0.05°). */
   pointsAt(head: string, p: Position, point: Point3): boolean {
-    const r = this.venue.resolve(head);
-    const setup = "error" in r ? undefined : aimSetupOf(r);
-    if (!setup) return false;
-    const towards = { x: point.x - setup.position.x, y: point.y - setup.position.y, z: point.z - setup.position.z };
-    return Math.hypot(towards.x, towards.y, towards.z) > 1e-6 && angleBetween(pointing(setup, p), towards) <= 0.05;
+    return this.motion.pointsAt(head, p, point);
   }
 
   /** Why each moving head is where it is (engine/motion.ts, HeadStatus), on the last frame rendered. */
   motionStatus(): ReadonlyMap<string, HeadStatus> {
-    return this.lastMotion;
+    return this.motion.motionStatus();
   }
 
   /** The logical position a moving head was really sent on the last frame (after the rules and the guard). */
   sentPosition(fixture: string): Position | undefined {
-    return this.sentPositions.get(fixture);
+    return this.motion.sentPosition(fixture);
   }
 
-  /**
-   * « Rendre la main »: on a target, releases only the strongest top layer present among its heads, axis by axis.
-   * Other heads keep their layer until a later press reaches it. The layer below takes over, gliding, down to rest.
-   * A look released keeps playing: it claims the head again once started again. Returns, per head, the owners released.
-   */
+  /** « Rendre la main »: on a target, releases only the strongest top layer present among its heads, axis by axis. */
   releaseTop(fixtures?: string[]): { fixture: string; released: string[] }[] {
-    return this.releaseClaims("top", fixtures);
+    return this.motion.releaseTop(fixtures);
   }
 
   /** `position.home`: releases every claim on heads (but a lock): they glide to their rest position. */
   homePositions(fixtures?: string[]): { fixture: string; released: string[] }[] {
-    return this.releaseClaims("all", fixtures);
+    return this.motion.homePositions(fixtures);
   }
 
-  private releaseClaims(scope: "top" | "all", fixtures?: string[]): { fixture: string; released: string[] }[] {
-    const all = this.movingHeads();
-    const heads = fixtures ? fixtures.filter((f) => all.includes(f)) : all;
-    const before = this.motionState;
-    this.motionState = releaseMotion({ heads: all, claims: this.motionClaims(all, this.now(), this.tempo.state().beats), lock: this.motionLock }, before, { heads, scope });
-    return heads.map((head) => {
-      const was = new Set(releasedOf(before, head));
-      const added = releasedOf(this.motionState, head).filter((key) => !was.has(key));
-      // a manual claim released is gone: the next command is a new one
-      const manual = this.manualPositions.get(head);
-      if (manual && added.includes(claimKey({ owner: "manual", order: manual.order }))) this.manualPositions.delete(head);
-      // a Panic hold let go is told like a claim
-      const hold = isHeld(before, head) && !isHeld(this.motionState, head) ? ["hold"] : [];
-      return { fixture: head, released: [...new Set([...added.map(ownerOfClaimKey), ...hold])] };
-    });
-  }
-
-  /**
-   * Lets heads out of the hold a Panic left (all the moving heads when none is given), and nothing else: they glide
-   * to the look that claims them, else to rest. Returns the heads that were held. `position.release` calls it: after
-   * a Panic, the button that hands a head back must not leave it stuck.
-   */
+  /** Lets heads out of the hold a Panic left (all the moving heads when none is given); returns the heads that were held. */
   releaseHold(fixtures?: string[]): string[] {
-    const all = this.movingHeads();
-    const held = (fixtures ?? all).filter((f) => all.includes(f) && isHeld(this.motionState, f));
-    if (held.length) this.motionState = releaseMotion({ heads: all, claims: [], lock: this.motionLock }, this.motionState, { heads: held, scope: "hold" });
-    return held.filter((f) => !isHeld(this.motionState, f));
+    return this.motion.releaseHold(fixtures);
   }
 
-  /**
-   * Panic (R10): no head moves by itself. Every claim present is released and the heads hold where they are until a
-   * new claim takes them — the safe look or snapshot, started after, glides in. Call it before stopping the looks.
-   */
+  /** Panic (R10): every claim present is released and the heads hold where they are. Call it before stopping the looks. */
   holdPositions(): void {
-    const heads = this.movingHeads();
-    this.motionState = holdMotion({ claims: this.motionClaims(heads, this.now(), this.tempo.state().beats) }, this.motionState, heads);
+    this.motion.holdPositions();
   }
 
-  /**
-   * What claims the moving heads at `now` (engine/motion.ts), each claim with its launch order: the moves of the
-   * looks — those leaving keep theirs to the end of their fade, as their colours do —, the raw pan/tilt channels of
-   * the looks (question 6: the bytes turned into a logical position by venue.readPosition, on the axes written only),
-   * then the manual positions. A look's raw pan/tilt comes after its own move: it wins on the axes it writes.
-   */
-  private motionClaims(heads: readonly string[], now: number, beats: number, errors: string[] = []): MotionClaim[] {
-    const claims: MotionClaim[] = [];
-    if (!heads.length) return claims;
-    const isHead = new Set(heads);
-    const resolved = new Map<string, ResolvedFixture | undefined>();
-    const headAt = (id: string): ResolvedFixture | undefined => {
-      if (!resolved.has(id)) {
-        const r = isHead.has(id) ? this.venue.resolve(id) : undefined;
-        resolved.set(id, r && !("error" in r) ? r : undefined);
-      }
-      return resolved.get(id);
-    };
-    const ofLook = (look: Look, player: LookPlayer): void => {
-      const own = { owner: `look:${look.id}`, layer: "look" as const, order: this.launchOrder.get(player) ?? 0, ...(look.move?.fade ? { fade: look.move.fade } : {}) };
-      if (look.move?.enabled === false) {
-        // « Ne pas bouger les lyres » (T26, decision V3): the look keeps its move settings and holds the heads it would
-        // move (its move's, and those its raw pan/tilt write) where they are while it is the top look — they do not
-        // go back to rest; its colours play on
-        const held = new Set<string>();
-        try {
-          for (const f of this.movedBy(look)) held.add(f);
-        } catch (err) {
-          errors.push((err as Error).message);
-        }
-        for (const t of look.channels?.targets ?? []) {
-          const r = headAt(t.fixture);
-          if (r && motionOffsets(r).has(t.offset)) held.add(t.fixture);
-        }
-        if (held.size) claims.push({ ...own, heads: [...held], base: { kind: "hold" } });
-        return;
-      }
-      if (look.move) {
-        try {
-          const moved = this.movedBy(look);
-          // centred on a named position (T32, move.at.position), read at render: its pan/tilt on the heads it covers
-          // (the look's others go to the layer below), or its point aimed head by head; a position gone holds the heads
-          const named = look.move.at?.position;
-          // centred on a target's point (T24, move.at.target), aimed head by head; a target gone holds the heads where they are
-          const at = named === undefined ? look.move.at?.target : undefined;
-          const target = at === undefined ? undefined : this.targets.get(at);
-          // aimed at a zone (T28, move.at.zone, « un bouton par zone »), head by head, or along a path of stops (move.at.path)
-          const zoneId = named === undefined && at === undefined ? look.move.at?.zone : undefined;
-          const path = named === undefined && at === undefined && zoneId === undefined ? look.move.at?.path : undefined;
-          if (named !== undefined) {
-            const p = this.positionPresets.get(named);
-            if (!p) errors.push(say(`look « ${look.name} » : position nommée inconnue : ${named}`, `look “${look.name}”: unknown named position: ${named}`));
-            // gone, it still claims the heads it covered last: the layer holds them where they are (R14), even mid-show;
-            // with no coverage known, it claims nothing (the unknown position is said)
-            const last = this.lookCoverage.get(look.id);
-            const { heads: covered, late } = this.coverLook(look.id, own.order, p ? coveredBy(p, moved) : last ? moved.filter((h) => last.heads.includes(h)) : []);
-            const rev = this.presetRev(named);
-            if (covered.length) claims.push({ ...own, heads: covered, base: { kind: "preset", id: named }, shape: { move: look.move, cycles: player.position(now, beats, look.move.every) }, ...(rev === undefined ? {} : { rev }), ...(late.length ? { late } : {}) });
-          } else if (at !== undefined && !target) {
-            errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
-            if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
-          } else if (zoneId !== undefined) {
-            const zone = this.zones.get(zoneId);
-            // a zone gone holds the heads where they are (R14), as a target gone does, and says why on each of them
-            const zoneGone = zone ? undefined : say(`look « ${look.name} » : zone inconnue : ${this.goneName("zone", zoneId)}`, `look “${look.name}”: unknown zone: ${this.goneName("zone", zoneId)}`);
-            if (zoneGone) errors.push(zoneGone);
-            if (moved.length) claims.push({ ...own, heads: moved, base: zone ? { kind: "point", ...zoneAimPoint(zone, look.move.at?.height) } : { kind: "hold", reason: zoneGone! }, ...(zone ? { shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } } : {}) });
-          } else if (path) claims.push(...this.pathClaims(look, path, player.position(now, beats, look.move.every), own, moved));
-          else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
-        } catch (err) {
-          errors.push((err as Error).message);
-        }
-      }
-      if (!look.channels) return;
-      const row = look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? [];
-      const changing = this.changingTargetsOf(look.channels);
-      const bytes = new Map<string, Map<number, number>>();
-      const stepping = new Set<string>();
-      look.channels.targets.forEach((t, k) => {
-        const r = headAt(t.fixture);
-        if (!r || !motionOffsets(r).has(t.offset)) return;
-        const mine = bytes.get(t.fixture) ?? new Map<number, number>();
-        bytes.set(t.fixture, mine.set(t.offset, Math.max(mine.get(t.offset) ?? 0, row[k] ?? 0)));
-        if (changing.has(k)) stepping.add(t.fixture);
-      });
-      for (const [f, mine] of bytes) {
-        const at = this.venue.readPosition(headAt(f)!, (offset) => mine.get(offset));
-        // steps writing other pan/tilt bytes move the head under the same claim, with no glide: the pad must keep reading it
-        if (at.pan !== undefined || at.tilt !== undefined) claims.push({ ...own, heads: [f], base: { kind: "fixed", ...at }, ...(stepping.has(f) ? { animated: true as const } : {}) });
-      }
-    };
-    for (const r of this.releasing.values()) if (exitProgress(r, now) < 1) ofLook(r.look, r.player);
-    for (const x of this.crossfades.values()) for (const o of x.outgoing) if (this.outWeight(o, now) > 0) ofLook(o.look, o.player);
-    for (const { look, player } of this.active.values()) ofLook(look, player);
-    // the targets engaged by hand (T24): one claim each at the target layer, ordered by when they were engaged
-    for (const t of this.targets.list()) {
-      if (!t.engaged) continue;
-      const mine = this.targetHeads(t).filter((h) => isHead.has(h));
-      if (mine.length) claims.push({ owner: `target:${t.id}`, layer: "target", order: t.engagedAt ?? 0, heads: mine, base: { kind: "point", ...this.targetPoint(t) }, ...(t.fade ? { fade: t.fade } : {}) });
-    }
-    const manualClaim = (f: string, m: Omit<ManualPosition, "trail">): MotionClaim => {
-      const rev = m.preset === undefined ? undefined : this.presetRev(m.preset);
-      return { owner: "manual", layer: "manual", order: m.order, heads: [f], base: m.preset === undefined ? { kind: "fixed", ...m.position } : { kind: "preset", id: m.preset }, ...(m.glide ? {} : { fade: DIRECT }), ...(rev === undefined ? {} : { rev }) };
-    };
-    for (const [f, m] of this.manualPositions) {
-      if (!isHead.has(f)) continue;
-      claims.push(manualClaim(f, m));
-      // the older claim still gliding the axes the pad did not give (it loses the others to the newer claim)
-      if (m.trail) claims.push(manualClaim(f, m.trail.claim));
-    }
-    return claims;
-  }
-
-  /**
-   * The claims of a look's path (T28, `move.at.path`): one per head, the position between the two stops of its step
-   * (`pathStep`, interpolated in pan/tilt), a fixed base the motion layer glides into like any other (no new kind of
-   * base). A step one of whose two stops the head cannot reach (out of reach, no stage position, a zone, position or
-   * target gone) holds the head where it is for that step (R14, never the layer below) and says why.
-   */
-  private pathClaims(look: Look, path: Path, cycles: number, own: Pick<MotionClaim, "owner" | "layer" | "order" | "fade">, moved: readonly string[]): MotionClaim[] {
-    let sequences = this.pathSequences.get(path);
-    if (!sequences) this.pathSequences.set(path, (sequences = new Map<number, (i: number) => number>()));
-    const seed = seedOf(look.id);
-    const claims: MotionClaim[] = [];
-    moved.forEach((head, index) => {
-      const key = sequenceKey(path, index);
-      let seq = sequences.get(key);
-      if (!seq) sequences.set(key, (seq = pathSequence(path, seed, index)));
-      const step = pathStep(path, seq, cycles, stopOffset(path, look.move ?? {}, index, moved.length));
-      const a = this.pathStopAt(path.stops[step.from]!, head);
-      const b = step.to === step.from ? a : this.pathStopAt(path.stops[step.to]!, head);
-      const bad = "error" in a ? { stop: step.from, error: a.error } : "error" in b ? { stop: step.to, error: b.error } : undefined;
-      if (bad) {
-        // the reason rides on the hold: the motion layer says it as the head's error (pads, position.list, render errors)
-        const reason = say(`look « ${look.name} », arrêt ${bad.stop + 1} (${this.pathStopName(path.stops[bad.stop]!)}) : ${bad.error}`, `look “${look.name}”, stop ${bad.stop + 1} (${this.pathStopName(path.stops[bad.stop]!)}): ${bad.error}`);
-        claims.push({ ...own, heads: [head], base: { kind: "hold", reason } });
-        return;
-      }
-      const p = pathPosition(a as Position, b as Position, step.ease);
-      claims.push({ ...own, heads: [head], base: { kind: "fixed", pan: p.pan, tilt: p.tilt }, animated: true });
-    });
-    return claims;
-  }
-
-  /**
-   * Where a path stop puts `head` (T28): a zone's aiming point, a point, a named position's pan/tilt or point, a target's
-   * point now — a point aimed by `aimAt` (the solution closest to the centre of the travel: no state, the same stop gives
-   * the same position every time), or why the head cannot go there.
-   */
+  /** Where a path stop puts `head` (T28), or why the head cannot go there. */
   pathStopAt(stop: PathStop, head: string): StopPosition {
-    const r = this.venue.resolve(head);
-    if ("error" in r) return { error: r.error };
-    const aimPoint = (p: Point3): StopPosition => {
-      const setup = aimSetupOf(r);
-      if (!setup) return { error: say("position sur la scène inconnue", "stage position unknown") };
-      const res = aimAt(setup, p);
-      return "error" in res ? { error: res.error } : { pan: res.pan, tilt: res.tilt };
-    };
-    if (stop.zone !== undefined) {
-      const zone = this.zones.get(stop.zone);
-      return zone ? aimPoint(zoneAimPoint(zone, stop.height)) : { error: say(`zone inconnue : ${this.goneName("zone", stop.zone)}`, `unknown zone: ${this.goneName("zone", stop.zone)}`) };
-    }
-    if (stop.point) return aimPoint(stop.point);
-    if (stop.position !== undefined) {
-      const p = this.positionPresets.get(stop.position);
-      if (!p) return { error: say(`position nommée inconnue : ${this.goneName("position", stop.position)}`, `unknown named position: ${this.goneName("position", stop.position)}`) };
-      if (p.point) return aimPoint(p.point);
-      const v = Object.hasOwn(p.values, head) ? p.values[head] : undefined;
-      return v ? { pan: v.pan, tilt: v.tilt } : { error: say(`« ${p.name} » ne couvre pas cette lyre`, `“${p.name}” does not cover this head`) };
-    }
-    if (stop.target !== undefined) {
-      const t = this.targets.get(stop.target);
-      return t ? aimPoint(this.targetPoint(t)) : { error: say(`cible inconnue : ${this.goneName("target", stop.target)}`, `unknown target: ${this.goneName("target", stop.target)}`) };
-    }
-    return { error: say("arrêt sans destination", "stop without a destination") };
+    return this.motion.pathStopAt(stop, head);
   }
 
-  /** How a path stop is named in a message and in the editor: its zone, position or target by name, a point by its metres. */
+  /** How a path stop is named in a message and in the editor. */
   pathStopName(stop: PathStop): string {
-    // as the editor writes them: a decimal comma and « ; » between the metres in French
-    const m = (v: number) => say(String(Math.round(v * 100) / 100).replace(".", ","), String(Math.round(v * 100) / 100));
-    const named = (kind: GoneKind, id: string, name: string | undefined, fr: string, en: string) =>
-      name !== undefined ? say(`${fr} « ${name} »`, `${en} “${name}”`) : say(`${fr} supprimée (${this.goneName(kind, id)})`, `${en} deleted (${this.goneName(kind, id)})`);
-    if (stop.zone !== undefined) return named("zone", stop.zone, this.zones.get(stop.zone)?.name, "zone", "zone");
-    if (stop.position !== undefined) return named("position", stop.position, this.positionPresets.get(stop.position)?.name, "position", "position");
-    if (stop.target !== undefined) return named("target", stop.target, this.targets.get(stop.target)?.name, "cible", "target");
-    if (stop.point) return say(`point (${m(stop.point.x)} ; ${m(stop.point.y)} ; ${m(stop.point.z)})`, `point (${m(stop.point.x)}; ${m(stop.point.y)}; ${m(stop.point.z)})`);
-    return "?";
+    return this.motion.pathStopName(stop);
   }
 
   /** Remembers the name of a zone, named position or target being deleted: what still cites it says it by name (T28). */
   rememberGoneName(kind: GoneKind, id: string, name: string): void {
-    this.goneNames.set(`${kind}:${id}`, name);
+    this.motion.rememberGoneName(kind, id, name);
   }
 
   /** The last known name of something deleted (`rememberGoneName`), else its id. */
   goneName(kind: GoneKind, id: string): string {
-    return this.goneNames.get(`${kind}:${id}`) ?? id;
+    return this.motion.goneName(kind, id);
   }
 
-  /**
-   * A look's path as it will play (T28): each stop resolved for each head it moves (the render's own `pathStopAt`), and
-   * what to know ahead (venue/path-check.ts): stops out of reach, trips too fast for a speed rule that applies, trips
-   * crossing a no-aim zone this look does not open. Undefined for a look without a path. A group gone moves no head.
-   */
+  /** A look's path as it will play (T28), each stop resolved for each head, with what to know ahead; undefined for a look without a path. */
   pathReport(look: Look): { heads: string[]; stops: { name: string; gone?: string; heads: ({ id: string } & StopPosition)[] }[]; warnings: PathWarning[] } | undefined {
-    const at = look.move?.at;
-    if (!at || !look.move || at.target !== undefined || at.position !== undefined) return undefined;
-    // a look aimed at a zone is checked as a path of one stop: out of reach, landing in a no-aim zone (T28)
-    const path: Path | undefined = at.path ?? (at.zone === undefined ? undefined : { stops: [{ zone: at.zone, ...(at.height === undefined ? {} : { height: at.height }) }], order: "loop", travel: 0.5, heads: "ensemble" });
-    if (!path) return undefined;
-    let moved: string[];
-    try {
-      moved = this.movedBy(look);
-    } catch {
-      moved = [];
-    }
-    const rules = this.rulesInForce();
-    const zoneById = this.zoneLookup();
-    const heads: PathHead[] = moved.map((id) => {
-      const r = this.venue.resolve(id);
-      const stops = path.stops.map((s) => this.pathStopAt(s, id));
-      if ("error" in r) return { id, name: id, panMax: 0, tiltMax: 0, stops };
-      const limits = speedLimits(rules, r, zoneById);
-      return { id, name: r.patch.name, panMax: r.panMax, tiltMax: r.tiltMax, setup: aimSetupOf(r), stops, speed: { pan: limits.pan?.degPerSecond, tilt: limits.tilt?.degPerSecond } };
-    });
-    const every = look.move.every;
-    const bpm = "beats" in every ? this.bpmNow() : undefined;
-    const stepSeconds = "beats" in every ? (every.beats * 60) / bpm! : every.seconds;
-    const warnings = checkPath({
-      path,
-      heads,
-      travelSeconds: stepSeconds * path.travel,
-      // a zone this look opens (allowLooks) does not darken it
-      noAim: this.zones.list().filter((z) => z.noAim && !z.allowLooks.includes(look.id)),
-      ...(at.path ? {} : { zoneLook: true }),
-      stopName: (i) => this.pathStopName(path.stops[i]!),
-      ...(bpm === undefined ? {} : { bpm }),
-    });
-    // what a stop names deleted since: its last name, for the editor to say (« Zone supprimée (Balcon) »)
-    const goneOf = (s: PathStop): string | undefined =>
-      s.zone !== undefined && !this.zones.get(s.zone)
-        ? this.goneName("zone", s.zone)
-        : s.position !== undefined && !this.positionPresets.get(s.position)
-          ? this.goneName("position", s.position)
-          : s.target !== undefined && !this.targets.get(s.target)
-            ? this.goneName("target", s.target)
-            : undefined;
-    return {
-      heads: moved,
-      stops: path.stops.map((s, i) => {
-        const lastKnown = goneOf(s);
-        return { name: this.pathStopName(s), ...(lastKnown === undefined ? {} : { gone: lastKnown }), heads: heads.map((h) => ({ id: h.id, ...h.stops[i]! })) };
-      }),
-      warnings,
-    };
+    return this.motion.pathReport(look);
   }
 
-  /** The tempo now, for a cadence in beats said in seconds (the motion layer's fallback when none is known). */
-  private bpmNow(): number {
-    const bpm = this.tempo.state().bpm;
-    return bpm !== undefined && Number.isFinite(bpm) && bpm > 0 ? bpm : FALLBACK_BPM;
-  }
-
-  /** The targets of a raw-channel table whose value differs between two of its steps. */
-  private changingTargetsOf(channels: NonNullable<Look["channels"]>): ReadonlySet<number> {
-    let changing = this.changingTargets.get(channels);
-    if (!changing) {
-      const found = new Set<number>();
-      const first = channels.steps[0] ?? [];
-      for (let k = 0; k < channels.targets.length; k++) if (channels.steps.some((step) => (step[k] ?? 0) !== (first[k] ?? 0))) found.add(k);
-      this.changingTargets.set(channels, (changing = found));
-    }
-    return changing;
-  }
-
-  /** Whether an axis of a head glides or cuts at a change of owner: the box of the channel that axis drives (T5, ResolvedTracks.motion). */
-  private axisMode(head: string, axis: Axis): AxisMode {
-    const r = this.venue.resolve(head);
-    if ("error" in r || !r.tracks) return "glide";
-    const channel: Axis = r.patch.orientation?.swapPanTilt ? (axis === "pan" ? "tilt" : "pan") : axis;
-    return r.tracks.motion[channel] ?? "glide";
-  }
-
-  /** The logical position each moving head has in `buffers`; an axis a head does not have keeps the layer's own value. */
-  private readBack(buffers: readonly Uint8Array[]): Map<string, Position> {
-    const sent = new Map<string, Position>();
-    for (const id of this.movingHeads()) {
-      const r = this.venue.resolve(id);
-      const buf = "error" in r ? undefined : buffers[r.patch.universe - 1];
-      if ("error" in r || !buf) continue;
-      const at = this.venue.sentPosition(r, buf);
-      const status = this.lastMotion.get(id);
-      sent.set(id, { pan: at.pan ?? status?.pan.position ?? 0.5, tilt: at.tilt ?? status?.tilt.position ?? 0.5 });
-    }
-    return sent;
-  }
-
-  /**
-   * Points fixtures at a point of the stage (metres); returns per-fixture results. The solution closest to the centre of
-   * the travel, or with `near` the one closest to that position (a head re-aimed where it already points stays on its
-   * side instead of turning half a turn, T8). `opts`: re-aiming a head held by hand (calibration.correct) — `ignoreStops`
-   * aims as if it had no useful stops (the output bounds it anyway), `slack` lets a solution just past the travel count.
-   */
+  /** Points fixtures at a point of the stage (metres); returns per-fixture results. */
   aim(
     fixtures: string[],
     target: { x: number; y: number; z: number },
     near?: Position,
     opts?: AimOptions & { ignoreStops?: boolean },
   ): { fixture: string; pan?: number; tilt?: number; error?: string; unplaced?: true }[] {
-    return fixtures.map((id) => {
-      const f = this.venue.fixtures.get(id);
-      const r = this.venue.resolve(id);
-      if (!f || "error" in r) return { fixture: id, error: f ? (r as { error: string }).error : say(`fixture inconnue : ${id}`, `unknown fixture: ${id}`) };
-      if (!r.pan && !r.tilt) return { fixture: id, error: say("pas de pan/tilt", "no pan/tilt") };
-      // said apart by the pad's zone chips (T27): not « out of reach », placed nowhere
-      if (!f.position) return { fixture: id, error: say("position sur la scène inconnue", "stage position unknown"), unplaced: true };
-      const setup = aimSetupOf(r)!;
-      const res = near ? aimNear(opts?.ignoreStops ? { ...setup, limits: undefined } : setup, target, near, opts) : aimAt(setup, target);
-      if ("error" in res) return { fixture: id, error: res.error };
-      this.setPosition([id], res);
-      return { fixture: id, pan: res.pan, tilt: res.tilt };
-    });
+    return this.motion.aim(fixtures, target, near, opts);
   }
 
-  // ---- targets (T24; docs/specs/venue-fixtures-stage.md, « Cible »): a source of the motion layer, nothing more —
-  // their claims go through resolveMotion like the others (priority, transitions, hold, lock)
-
-  /** The box a target's point moves in: its own bounds, else the stage volume (zones, placed fixtures). */
+  /** The box a target's point moves in: its own bounds, else the stage volume. */
   targetBounds(t: Pick<Target, "bounds">): Bounds {
-    if (t.bounds) return t.bounds;
-    const frame = this.frameTargets;
-    if (frame) return (frame.stage ??= stageBounds(this.zones.list(), this.venue.installed()));
-    return stageBounds(this.zones.list(), this.venue.installed());
+    return this.motion.targetBounds(t);
   }
 
-  /** Where a new target's point starts: the middle of its bounds (the stage volume without its own), at a standing person's face. */
+  /** Where a new target's point starts: the middle of its bounds, at a standing person's face. */
   newTargetPoint(bounds?: Bounds): Point3 {
-    const b = bounds ?? this.targetBounds({});
-    return clampPoint({ x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: 1.5 }, b);
+    return this.motion.newTargetPoint(bounds);
   }
 
-  /** The installed moving heads a target moves, each once: its fixtures in their order, then its group's by X. */
+  /** The installed moving heads a target moves, each once. */
   targetHeads(t: Pick<Target, "fixtures" | "group">): string[] {
-    const cached = this.frameTargets?.heads.get(t);
-    if (cached) return cached;
-    const heads = new Set(this.movingHeads());
-    const mine = [...new Set([...t.fixtures.filter((f) => heads.has(f)), ...(t.group ? this.groupHeads(t.group) : [])])];
-    this.frameTargets?.heads.set(t, mine);
-    return mine;
+    return this.motion.targetHeads(t);
   }
 
   /** Where a target's point is now: its point within its bounds, gliding per axis when it has a smoothing. */
   targetPoint(t: Target): Point3 {
-    const b = this.targetBounds(t);
-    const p = clampPoint(t.point, b);
-    if (!t.smoothing) return p;
-    this.glidingTargets.add(t.id);
-    this.targetsRead?.add(t.id);
-    const now = this.now();
-    const axis = (a: StageAxis) => fromNormal(a, this.targetGlide.value(`${t.id}:${a}`, toNormal(a, p[a], b), t.smoothing, now), b);
-    return { x: axis("x"), y: axis("y"), z: axis("z") };
+    return this.motion.targetPoint(t);
   }
 
   /** Moves a target's point (the axes given), bounded: live state, written without a backup. */
   moveTarget(id: string, p: Partial<Point3>): Target {
-    const t = this.targets.get(id);
-    if (!t) throw new Error(say(`cible inconnue : ${id}`, `unknown target: ${id}`));
-    return this.targets.putLive({ ...t, point: clampPoint({ ...t.point, ...p }, this.targetBounds(t)) });
+    return this.motion.moveTarget(id, p);
   }
 
-  /**
-   * Engages or disengages a target. Engaged, it claims its heads at the target layer, ordered by `engagedAt` (strictly
-   * increasing: the last engaged wins a head two targets share, restart included); its point starts where it is (no
-   * glide of the point on engaging: the heads' transition is the motion layer's). Engaging a target already engaged
-   * puts it back on top (decision T-a): a new order, hence a new claim key, which also lifts a « Rendre la main » on it;
-   * its point keeps gliding where it is. Disengaging a target that is not engaged changes nothing.
-   */
+  /** Engages or disengages a target (T24): engaged, it claims its heads at the target layer, the last engaged on top. */
   engageTarget(id: string, on: boolean, at = Date.now()): Target {
-    const t = this.targets.get(id);
-    if (!t) throw new Error(say(`cible inconnue : ${id}`, `unknown target: ${id}`));
-    if (!on) return t.engaged ? this.targets.putLive({ ...t, engaged: false }) : t;
-    if (!t.engaged) for (const a of STAGE_AXES) this.targetGlide.forget(`${id}:${a}`);
-    const last = Math.max(0, ...this.targets.list().map((x) => x.engagedAt ?? 0));
-    return this.targets.putLive({ ...t, engaged: true, engagedAt: Math.max(Math.round(at), last + 1) });
+    return this.motion.engageTarget(id, on, at);
   }
 
   /** Panic (T24, decision Q2): every target disengaged; the heads hold where they are. Returns the ids disengaged. */
   disengageTargets(): string[] {
-    return this.targets.list().flatMap((t) => (t.engaged ? [this.engageTarget(t.id, false).id] : []));
-  }
-
-  /**
-   * Where `head` points to follow `point`: the solution closest to `from` (never the long way round), or why it holds
-   * there (out of reach, the point in a no-aim zone closed now, no stage position).
-   */
-  private aimFor(head: string, point: Point3, from: Position | undefined, noAim: readonly Zone[]): Position | { error: string; hold: TargetHold } {
-    const r = this.venue.resolve(head);
-    const res = aimHead("error" in r ? undefined : aimSetupOf(r), point, from, noAim);
-    if (!("held" in res)) return res;
-    const { held: _held, message, ...hold } = res;
-    return { error: message, hold };
+    return this.motion.disengageTargets();
   }
 
   /** Why a head holds for a target, as data, from the error the motion report gives (the last frame rendered). */
   holdOf(error: string): TargetHold | undefined {
-    return this.aimHolds.get(error);
-  }
-
-  /**
-   * `ctx.presetOf` of the motion layer (T32): a named position for one head of a claim, read at render. A point aims as
-   * a target does (`aim`: from the claim's last base for a shape, else from the position sent); undefined for an id
-   * that names no position (the layer holds the head and says so).
-   */
-  private presetOfClaim(id: string, head: string, claim: MotionClaim, aim: (head: string, point: Point3, claim: MotionClaim) => Position | { error: string }): Position | { error: string } | undefined {
-    const p = this.positionPresets.get(id);
-    if (!p) return undefined;
-    return p.point ? aim(head, p.point, claim) : this.presetPosition(id, head);
+    return this.motion.holdOf(error);
   }
 
   /** The no-aim zones closed now: those no playing look of their `allowLooks` opens (the guard's reading). */
   closedNoAim(): Zone[] {
-    const playing = new Set(this.activeLooks());
-    return this.zones.list().filter((z) => z.noAim && !z.allowLooks.some((l) => playing.has(l)));
+    return this.motion.closedNoAim();
+  }
+
+  /**
+   * The looks that claim heads at `now` (MotionHost.claimingLooks), in the order the motion layer reads them: those
+   * fading out on exit (to the end of their fade, as their colours), those leaving under a crossfade, those playing.
+   */
+  private claimingLooks(now: number): { look: Look; player: LookPlayer }[] {
+    const out: { look: Look; player: LookPlayer }[] = [];
+    for (const r of this.releasing.values()) if (exitProgress(r, now) < 1) out.push(r);
+    for (const x of this.crossfades.values()) for (const o of x.outgoing) if (this.outWeight(o, now) > 0) out.push(o);
+    for (const a of this.active.values()) out.push(a);
+    return out;
   }
 
   /** Renders the playing looks into DMX buffers. */
   render(buffers: Uint8Array[]): void {
-    this.withHeads(() => {
+    this.motion.withHeads(() => {
       const tempo = this.tempo.state();
       const now = this.now();
-      // where the locked heads are frozen (T26), from what was sent on the last frame; show.json right after the frame
-      // on a freeze or a release, a second after the last move of the pad otherwise (not every frame), never inside it
-      if (this.syncLockHeld(now)) this.heldUrgent = true;
-      if (this.heldUrgent || (this.heldDirtySince !== undefined && now - this.heldDirtySince >= HELD_WRITE_DELAY_MS)) this.queueHeldWrite();
-      // a show opened over heads sent elsewhere (D4): their glide to `held` starts now, gone once arrived
-      for (const [head, a] of this.lockArrivals) {
-        if (a.t0 === undefined || a.dur === undefined) Object.assign(a, { t0: now, dur: Math.max(UNLOCK_MIN_MS, motionDurationMs(this.settings.moveFade, tempo.bpm ?? FALLBACK_BPM)) });
-        else if (now - a.t0 >= a.dur) this.lockArrivals.delete(head);
-      }
+      // the motion lock (T26): where the locked heads are frozen, and show.json written right after the frame
+      this.motion.beginFrame(now, tempo.bpm);
       // manual colours whose fade back to the looks is over go, on a real frame only (strictBounds samples ahead, I1)
       this.colours.prune(now);
-      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion, bases: this.aimBases };
-      const read = new Set<string>();
-      this.targetsRead = read;
-      let errors: string[];
-      try {
-        errors = this.compose(buffers, now, tempo.beats, this.wheels, run);
-      } finally {
-        this.targetsRead = undefined;
-      }
-      this.motionState = run.state;
-      this.lastMotion = run.status;
-      this.lastPositions = run.positions ?? new Map();
-      this.settleTrails();
-      this.aimBases = run.bases;
-      this.aimHolds = run.holds ?? new Map();
-      // a target's glide nobody read this frame is forgotten (a look following it stopped, the target deleted): read
-      // again later, its point starts where it is instead of gliding from a stale value
-      for (const id of this.glidingTargets)
-        if (!read.has(id)) {
-          for (const a of STAGE_AXES) this.targetGlide.forget(`${id}:${a}`);
-          this.glidingTargets.delete(id);
-        }
+      const run = this.motion.run(tempo.bpm ?? FALLBACK_BPM);
+      const errors = this.motion.frame(run, () => this.compose(buffers, now, tempo.beats, this.wheels, run));
       // Rules mask: last stage of the show's output.
       this.lastClamps = this.mask(buffers, this.rulesInForce());
       this.lastErrors = errors;
       // what the heads were really sent (the guard reads it again after the console and its own limits)
-      this.sentPositions = this.readBack(buffers);
+      this.motion.noteSent(buffers);
     });
   }
 
@@ -2413,7 +1487,7 @@ export class ShowRuntime {
       const seen = new Set<string>();
       const wheels = new Map(this.wheels); // played in memory: the wheels held on the output stay as they are
       // and so does the motion layer: its transitions are played from the state it has now, which is not kept
-      const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: bpm ?? FALLBACK_BPM, status: this.lastMotion, bases: this.aimBases };
+      const run = this.motion.run(bpm ?? FALLBACK_BPM);
       const blank = () => Array.from({ length: universes }, () => new Uint8Array(512));
       const eachFixture = (out: Uint8Array[], visit: (r: ResolvedFixture, buf: Uint8Array) => Clamp[]): void => {
         for (const f of this.venue.installed()) {
@@ -2427,7 +1501,7 @@ export class ShowRuntime {
       const speeds = new Map<string, { v: number; t: number }>();
       if (speedRules.length) {
         const sent = emptyFrame();
-        for (const [head, p] of this.sentPositions) sent.positions.set(head, p);
+        for (const [head, p] of this.motion.sent) sent.positions.set(head, p);
         const before = blank();
         this.venue.toDmx(sent, before, new Map(wheels), { now: t0, merge: this.settings.looksMerge });
         eachFixture(before, (r, buf) => (applySpeeds(speedRules, r, buf, t0 - STRICT_FRAME_MS, speeds, zoneById), []));
@@ -2458,12 +1532,12 @@ export class ShowRuntime {
     // the launch played in memory takes no launch order: the real one gets the same
     const launches = this.launches;
     try {
-      without = this.withHeads(sample);
+      without = this.motion.withHeads(sample);
       const player = this.build(look);
       player.start(t0, b0);
       this.launchOrder.set(player, ++this.launches);
       this.active.set(lookId, { look, player });
-      withIt = this.withHeads(sample);
+      withIt = this.motion.withHeads(sample);
     } finally {
       this.active.delete(lookId);
       this.launches = launches;
@@ -2701,48 +1775,7 @@ export class ShowRuntime {
     this.colours.apply(frame, now);
     // The motion layer (engine/motion.ts, T25): a position for every installed moving head, on every frame — who
     // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
-    const movers = this.movingHeads();
-    if (movers.length) {
-      let noAim: Zone[] | undefined;
-      const bases = new Map<string, Position>();
-      const holds = new Map<string, TargetHold>();
-      // a claim with a shape aims from its own last base on that head (MotionRun.bases); without one, from the position
-      // sent (the frames strictBounds plays after its first follow the layer's own course: what render last sent)
-      const aim = (head: string, point: Point3, claim: MotionClaim): Position | { error: string } => {
-        const key = claim.shape ? `${claimKey(claim)}@${head}` : undefined;
-        const last = key === undefined ? undefined : motion.bases.get(key);
-        const res = this.aimFor(head, point, last ?? motion.sent?.get(head) ?? this.sentPositions.get(head), (noAim ??= this.closedNoAim()));
-        if (key !== undefined) {
-          const kept = "error" in res ? last : res;
-          if (kept) bases.set(key, kept);
-        }
-        if ("error" in res) holds.set(res.error, res.hold);
-        return res;
-      };
-      const resolved = resolveMotion(
-        {
-          heads: movers,
-          claims: this.motionClaims(movers, now, beats, errors),
-          now,
-          bpm: motion.bpm,
-          ...(motion.sent ? { sent: motion.sent } : {}),
-          settings: { moveFade: this.settings.moveFade, rest: this.settings.restPositions },
-          ctx: { aim, presetOf: (id, head, claim) => this.presetOfClaim(id, head, claim, aim) },
-          lock: this.motionLock,
-          heldOf: (head) => this.heldAt(head, now),
-          axisMode: (head, axis) => this.axisMode(head, axis),
-        },
-        motion.state,
-      );
-      for (const [head, p] of resolved.positions) frame.positions.set(head, p);
-      // a claim that cannot place a head (a shape in error) holds it where it is, and says so
-      for (const [head, status] of resolved.status) for (const axis of [status.pan, status.tilt]) if (axis.error && !errors.includes(`${head}: ${axis.error}`)) errors.push(`${head}: ${axis.error}`);
-      motion.state = resolved.next;
-      motion.status = resolved.status;
-      motion.positions = resolved.positions;
-      motion.bases = bases;
-      motion.holds = holds;
-    } else if (motion.status.size) motion.status = new Map();
+    this.motion.place(frame, now, beats, motion, errors);
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
     // The looks' raw channels, collected above with their weight: the venue's pass classifies and
     // emits them, by address even without a definition.
@@ -2820,7 +1853,7 @@ export class ShowRuntime {
   guard(buffers: Uint8Array[]): void {
     this.guardOutput(buffers);
     // what the heads are really sent, after the console and the limits above: where the motion layer starts from on the next frame
-    this.sentPositions = this.readBack(buffers);
+    this.motion.noteSent(buffers);
   }
 
   private guardOutput(buffers: Uint8Array[]): void {
@@ -2830,9 +1863,9 @@ export class ShowRuntime {
       if (buf) for (const [index, value] of slots) buf[index] = value;
     }
     // a head under a hard lock (T26) does not move, whoever writes its pan/tilt but the DMX console (decision Q4)
-    this.freezeHard(buffers);
+    this.motion.freezeHard(buffers);
     // the useful stops (T8) hold over whatever wrote pan/tilt after the motion layer, but the DMX console
-    this.boundToStops(buffers);
+    this.motion.boundToStops(buffers);
     const rules = this.rulesInForce();
     const locked = rules.filter((r) => r.locked);
     if (locked.length) this.lastClamps.push(...this.mask(buffers, locked));
@@ -2844,7 +1877,7 @@ export class ShowRuntime {
         const r = this.venue.resolve(f.id);
         const buf = buffers[f.universe - 1];
         if ("error" in r || !buf) continue;
-        this.lastClamps.push(...applySpeeds(rules, r, buf, now, this.motion, zoneById), ...applySteady(rules, r, buf, now, this.steady, zoneById));
+        this.lastClamps.push(...applySpeeds(rules, r, buf, now, this.speedSamples, zoneById), ...applySteady(rules, r, buf, now, this.steady, zoneById));
       }
     }
     // a zone is open while one of the looks allowed into it plays
@@ -2869,68 +1902,6 @@ export class ShowRuntime {
     }
   }
 
-  /**
-   * T26, hard lock: the pan/tilt bytes (coarse and fine) of each hard-locked head are written back to where it is held,
-   * over whatever wrote them after the motion layer — a channel fader on pan/tilt, a raw channel of a fixture patched
-   * over it — except the slots the DMX console forces, its last resort (decision Q4). Before the locked rules and the
-   * speed limits, which still bound it, and the forbidden zones, which still darken it.
-   */
-  private freezeHard(buffers: Uint8Array[]): void {
-    if (!this.lockHeld.size) return;
-    let forced: ReadonlyMap<number, ReadonlySet<number>> | undefined;
-    const now = this.now();
-    for (const head of this.movingHeads()) {
-      const held = this.heldAt(head, now);
-      if (!held || this.motionLock(head) !== "hard") continue;
-      const r = this.venue.resolve(head);
-      const buf = "error" in r ? undefined : buffers[r.patch.universe - 1];
-      if ("error" in r || !buf) continue;
-      forced ??= this.consoleSlots();
-      const parked = forced.get(r.patch.universe);
-      const at = r.patch.address - 1;
-      // as held, not bounded again: a stop changed while the head is frozen must not move it
-      this.venue.writePosition(
-        r,
-        held,
-        (offset, value) => {
-          const index = at + offset;
-          if (index < 512 && !parked?.has(index)) buf[index] = value;
-        },
-        { unbounded: true },
-      );
-    }
-  }
-
-  /**
-   * T8, useful stops: the pan/tilt bytes of each head with stops (`orientation.limits`) are read back from the output,
-   * bounded and written again — the motion layer bounds what it writes (Venue.writePosition), but a channel fader on
-   * pan/tilt or a raw channel of a fixture patched over it writes after it. The slots the DMX console forces stay its
-   * own (its last resort, as for the hard lock); a head frozen hard stays where it is held (freezeHard, unbounded).
-   */
-  private boundToStops(buffers: Uint8Array[]): void {
-    let forced: ReadonlyMap<number, ReadonlySet<number>> | undefined;
-    const time = this.now();
-    for (const head of this.movingHeads()) {
-      const r = this.venue.resolve(head);
-      if ("error" in r || !r.patch.orientation?.limits) continue;
-      if (this.motionLock(head) === "hard" && this.heldAt(head, time)) continue;
-      const buf = buffers[r.patch.universe - 1];
-      if (!buf) continue;
-      const read = this.venue.sentPosition(r, buf);
-      const now = { pan: read.pan ?? 0.5, tilt: read.tilt ?? 0.5 };
-      const bounded = boundPosition({ panMax: r.panMax, tiltMax: r.tiltMax, limits: r.patch.orientation.limits }, now);
-      // within one 16-bit step: what writePosition itself sent for a position at the stop (its rounding)
-      if (Math.abs(bounded.pan - now.pan) <= 1 / 65535 && Math.abs(bounded.tilt - now.tilt) <= 1 / 65535) continue;
-      forced ??= this.consoleSlots();
-      const parked = forced.get(r.patch.universe);
-      const at = r.patch.address - 1;
-      this.venue.writePosition(r, bounded, (offset, value) => {
-        const index = at + offset;
-        if (index < 512 && !parked?.has(index)) buf[index] = value;
-      });
-    }
-  }
-
   /** The zone each fixture stands in (by its position), for rules scoped to a zone. */
   private zoneLookup(): (id: string) => string | undefined {
     const zones = this.zones.list();
@@ -2943,7 +1914,7 @@ export class ShowRuntime {
   /** Since when each channel bound by a duration rule has been above its level (rules.ts, applyHolds). */
   private readonly holdSince = new Map<string, number>();
   /** Last pan/tilt sent per axis (applySpeeds), and last value per steady channel (applySteady). */
-  private readonly motion = new Map<string, { v: number; t: number }>();
+  private readonly speedSamples = new Map<string, { v: number; t: number }>();
   private readonly steady = new Map<string, { v: number; t: number }>();
 
   /** Last value of each Reset channel outside its maintenance ranges, per DMX slot: where the protection holds it (holdAtRest). */
