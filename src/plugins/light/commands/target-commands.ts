@@ -183,10 +183,10 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     name: "target.zone",
     title: "Cible sur une zone",
     description:
-      "Puts a target's point on a stage zone: its centre, `height` metres above its floor (default 1.5, a standing person's face), bounded. Refused when the point, once bounded, lies in a no-aim zone closed now (no look of its allowLooks plays): the heads would hold at once.",
+      "Puts a target's point on a stage zone: its aiming point (the centre of its surface unless one was placed), `height` metres above its floor (default: the zone's own aiming height, else 1.5, a standing person's face), bounded. Refused when the point, once bounded, lies in a no-aim zone closed now (no look of its allowLooks plays): the heads would hold at once.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
-    schema: z.object({ id: z.string(), zone: z.string(), height: z.number().default(1.5) }),
+    schema: z.object({ id: z.string(), zone: z.string(), height: z.number().optional() }),
     run: ({ id, zone, height }) => {
       const t = get(id);
       const zn = show.zones.get(zone);

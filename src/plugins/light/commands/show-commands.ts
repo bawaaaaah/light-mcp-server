@@ -36,7 +36,7 @@ import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js"
 import { isBuiltinRule, RESET_ORIGINS, RESET_WINDOW_MS, resetChannels } from "../rules/reset-protection.js";
 import { TYPE_TAGS } from "../venue/grouping.js";
 import { DashboardSchema, defaultDashboard } from "../dashboards/dashboards.js";
-import { describeStage, queryStage, ZoneSchema, zoneOf } from "../venue/stage.js";
+import { describeStage, queryStage, ZoneSchema, zoneOf, zoneOutline, zoneShapeError } from "../venue/stage.js";
 import { FACING_NAMES, facingOf, orientTo, wrapYaw } from "../venue/orientation.js";
 import { arrangeAlong, EDGES, mountHeight } from "../venue/arrange.js";
 import { diff } from "../data/diff.js";
@@ -149,6 +149,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
     rules: show.rules.list(),
     venueRules: show.venueRules.list(),
+    patch: venue.fixtures.list(),
     safeLook: show.settings.safeLook,
     safeSnapshot: show.settings.safeSnapshot,
     startupSnapshot: show.settings.startupSnapshot,
@@ -156,19 +157,19 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   /** Deleting what is still used is refused (the error says where), unless `force`. */
   const removable = (kind: ReferenceKind, i: string, name: string | undefined, force: boolean, otherShows: string[] = []) => {
     const uses = usesOf(kind, i, parts());
-    if ((uses.length || otherShows.length) && !force) throw new Error(inUseMessage(name ?? i, uses, otherShows));
+    if ((uses.length || otherShows.length) && !force) throw new Error(inUseMessage(name ?? i, uses, otherShows, kind === "zone" ? "zone" : "fixture"));
     return uses;
   };
   /**
-   * The other shows on the open venue, for a fixture's unforced delete. When one of their show.json
-   * cannot be read, the delete is refused (after what uses the fixture, said first), saying how to delete
+   * The other shows on the open venue, for a fixture's or a zone's unforced delete (both belong to the venue). When one
+   * of their show.json cannot be read, the delete is refused (after what uses it, said first), saying how to delete
    * anyway: `detail.force` lets a screen offer that forced delete, `detail.reason` is what went wrong.
    */
-  const sharedWithOrRefuse = (fixtureId: string, name: string): string[] => {
+  const sharedWithOrRefuse = (fixtureId: string, name: string, kind: "fixture" | "zone" = "fixture"): string[] => {
     try {
       return sharedWith();
     } catch (err) {
-      removable("fixture", fixtureId, name, false);
+      removable(kind, fixtureId, name, false);
       const reason = (err as Error).message;
       throw new CommandError("invalid", `${reason}. ${say("Le supprimer quand même, sans vérifier les autres shows de ce lieu : force: true", "Delete it anyway, without checking the venue's other shows: force: true")}`, { force: true, reason });
     }
@@ -1009,9 +1010,52 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
 
   // ---- stage
-  reg.register({ name: "stage.zone.list", title: "Zones", description: "Stage zones (type, floor height, tags, protected).", right: "dashboards:view", readOnly: true, profiles: ["setup", "design"], schema: z.object({}), run: () => show.zones.list() });
-  reg.register({ name: "stage.zone.put", title: "Zone", description: "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected.", right: "show:write", profiles: ["setup"], schema: z.object({ zone: ZoneSchema }), run: ({ zone }) => show.zones.put(zone) });
-  reg.register({ name: "stage.zone.delete", title: "Supprimer une zone", description: "Deletes a zone.", right: "show:write", profiles: ["setup"], schema: idSchema, run: ({ id: i }) => ({ deleted: show.zones.delete(i) }) });
+  // an outline that no longer describes its polygon is left out when read (T27): it would redraw another shape
+  reg.register({
+    name: "stage.zone.list",
+    title: "Zones",
+    description: "Stage zones (type, floor height, tags, protected, no-aim, aiming part `aim`, the outline they were drawn with).",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["setup", "design"],
+    schema: z.object({}),
+    run: () =>
+      show.zones.list().map((zone) => {
+        const outline = zoneOutline(zone);
+        const { outline: _stored, ...rest } = zone;
+        return outline ? { ...rest, outline } : rest;
+      }),
+  });
+  reg.register({
+    name: "stage.zone.put",
+    title: "Zone",
+    description:
+      "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected, no-aim. `aim` makes it a destination for the moving heads (T27): `height` above its floor (default 1.5), `point` [x, y] aimed at (absent: the centre of its surface), `color`. `outline` says how it was drawn (rect, ellipse {cx, cy, rx, ry, rotation}, polygon), to edit it again; the polygon stays the truth. Refused when its edges cross or its surface is under 0.01 m².",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ zone: ZoneSchema }),
+    run: ({ zone }) => {
+      const wrong = zoneShapeError(zone.polygon);
+      if (wrong) throw new CommandError("invalid", `${zone.name || zone.id}${say(" : ", ": ")}${wrong}`);
+      return show.zones.put(zone);
+    },
+  });
+  reg.register({
+    name: "stage.zone.delete",
+    title: "Supprimer une zone",
+    description:
+      "Deletes a zone. Refused while something uses it (fixtures of the patch aiming at it, show or venue rules scoped to it, MIDI mappings and song track actions naming it by `zone`: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the zone too, the error names them).",
+    right: "show:write",
+    profiles: ["setup"],
+    schema: z.object({ id: z.string(), force: z.boolean().default(false).describe("delete even if the show uses it or the venue is shared with other shows") }),
+    run: ({ id: i, force }) => {
+      const zone = show.zones.get(i);
+      if (!zone) return { deleted: false, usedBy: [] };
+      const others = force ? [] : sharedWithOrRefuse(i, zone.name, "zone");
+      const usedBy = removable("zone", i, zone.name, force, others);
+      return { deleted: show.zones.delete(i), usedBy };
+    },
+  });
   reg.register({
     name: "stage.query",
     title: "Interroger la scène",
@@ -1385,11 +1429,11 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "show.references",
     title: "Où c'est utilisé",
-    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target or a named position is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
+    description: "Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention (mood key), a target, a named position or a stage zone is used: groups, channel faders, raw channels of looks, canvases, targets (a fixture, a group), named positions (a fixture they cover), MIDI mappings, dashboards, snapshots, songs (an intention: their overall mood), looks (canvas; an intention: their ambiance: tag; a target or a named position: a move following it), the patch and rules (a zone: fixtures aiming at it, rules scoped to it), safe state; for an intention of the personal library with nothing below, the other shows of this machine naming it. Empty when nothing uses it.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
-    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target", "position"]), id: z.string() }),
+    schema: z.object({ kind: z.enum(["look", "group", "fader", "canvas", "fixture", "intention", "target", "position", "zone"]), id: z.string() }),
     // an intention of the personal library also serves the other shows of this machine: the plugin says which (T15)
     run: ({ kind, id: i }) => ({ uses: kind === "intention" && intentionReferences ? intentionReferences(i) : usesOf(kind, i, parts()) }),
   });

@@ -1,6 +1,6 @@
 /**
- * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention, a target (T24) or a named position (T32) is used in the
- * show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
+ * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention, a target (T24), a named position (T32) or a
+ * stage zone (T27: the patch's `target`, rules scoped to it, commands naming it by `zone`) is used in the show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
  * tag, a move following a target or a named position), targets (a fixture, a group), named positions (a fixture), rules (a fixture) and the safe
  * state. A snapshot holds no named position.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
@@ -10,15 +10,15 @@
 import { say } from "../../../core/lang.js";
 import { AMBIANCE } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
-export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target" | "position";
+export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | "intention" | "target" | "position" | "zone";
 
 /**
  * A command whose `args.id` names an object of this kind (look.go, group.level, fader.level…). A
  * fixture is also named by any command's `args.fixture` or `args.fixtures` (position.set, venue.fixture.presence…).
  */
-const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset." };
+const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset.", zone: "stage.zone." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -36,8 +36,10 @@ export interface ShowParts {
   canvases?: { id: string; name: string; render: { targets: { fixture: string }[] }[] }[];
   songs: { id: string; title: string; mood?: string[]; sections: { id: string; name?: string; look?: string }[]; cues?: { command: string; args: Record<string, unknown> }[] }[];
   /** The show's rules, and the venue's (type and venue levels): a rule scoped to one fixture names it. */
-  rules?: { id: string; name: string; scope: { fixture?: string } }[];
-  venueRules?: { id: string; name: string; scope: { fixture?: string } }[];
+  rules?: { id: string; name: string; scope: { fixture?: string; zone?: string | undefined } }[];
+  venueRules?: { id: string; name: string; scope: { fixture?: string; zone?: string | undefined } }[];
+  /** The patch (T27): a fixture aims at a zone (`target`). */
+  patch?: { id: string; name: string; target?: string | undefined }[];
   safeLook?: string;
   /** Snapshot recalled by the Panic, and the one recalled at startup. */
   safeSnapshot?: string;
@@ -66,16 +68,24 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
   if (kind === "target") for (const l of show.looks) if (l.move?.at?.target === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
   if (kind === "fixture") for (const p of show.positions ?? []) if (Object.hasOwn(p.values, id)) uses.push(say(`position nommée « ${p.name} »`, `named position “${p.name}”`));
   if (kind === "position") for (const l of show.looks) if (l.move?.at?.position === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
+  if (kind === "zone") {
+    for (const f of show.patch ?? []) if (f.target === id) uses.push(say(`appareil « ${f.name} » (zone visée)`, `fixture “${f.name}” (zone aimed at)`));
+    for (const r of show.rules ?? []) if (r.scope.zone === id) uses.push(say(`règle du show « ${r.name || r.id} »`, `show rule “${r.name || r.id}”`));
+    for (const r of show.venueRules ?? []) if (r.scope.zone === id) uses.push(say(`règle du lieu « ${r.name || r.id} »`, `venue rule “${r.name || r.id}”`));
+  }
   if (kind === "group") for (const f of show.faders) if (f.dca === id) uses.push(say(`fader de canaux « ${f.name} » (DCA)`, `channel fader “${f.name}” (DCA)`));
   const canvasLooks = new Set(kind === "canvas" ? show.looks.filter((l) => l.canvas === id).map((l) => l.id) : []);
   if (kind === "canvas") for (const l of show.looks) if (l.canvas === id) uses.push(say(`look « ${l.name} »`, `look “${l.name}”`));
   const named = (command: string, args: Record<string, unknown>) =>
-    (command.startsWith(COMMAND_PREFIX[kind]) && args.id === id) || (kind === "fixture" && (args.fixture === id || (Array.isArray(args.fixtures) && args.fixtures.includes(id))));
+    (command.startsWith(COMMAND_PREFIX[kind]) && args.id === id) ||
+    (kind === "fixture" && (args.fixture === id || (Array.isArray(args.fixtures) && args.fixtures.includes(id)))) ||
+    // a zone is named by `zone` (position.aim, target.zone, calibration.record…), whatever the command
+    (kind === "zone" && args.zone === id);
   for (const m of show.mappings) if (named(m.on.command, m.on.args)) uses.push(say(`mapping MIDI « ${m.label || m.id} »`, `MIDI mapping “${m.label || m.id}”`));
   for (const d of show.dashboards) if (d.widgets.some((w) => WIDGETS[kind].includes(w.kind) && w.target === id)) uses.push(say(`dashboard « ${d.name} »`, `dashboard “${d.name}”`));
   for (const s of show.snapshots) {
     const inIt =
-      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" || kind === "position" ? false : s.looks.some((l) => canvasLooks.has(l));
+      kind === "look" ? s.looks.includes(id) : kind === "group" ? id in s.groups : kind === "fader" ? id in s.faders : kind === "target" ? Object.hasOwn(s.targets ?? {}, id) : kind === "fixture" || kind === "position" || kind === "zone" ? false : s.looks.some((l) => canvasLooks.has(l));
     if (!inIt) continue;
     // A snapshot the Panic or the startup recalls: the delete confirmation must say so.
     const roles = [s.id === show.safeSnapshot ? say("secours du Panic", "the Panic's fallback") : "", s.id === show.startupSnapshot ? say("instantané de démarrage", "the startup snapshot") : ""].filter(Boolean);
@@ -123,8 +133,9 @@ export function intentionUsesByKey(show: Pick<ShowParts, "songs" | "looks">, key
 }
 
 /** The refusal of a delete: what still uses the object, and how to delete it anyway. */
-export function inUseMessage(name: string, uses: string[], sharedWith: string[] = []): string {
+export function inUseMessage(name: string, uses: string[], sharedWith: string[] = [], what: "fixture" | "zone" = "fixture"): string {
+  const lost = what === "zone" ? say("cette zone", "this zone") : say("cet appareil", "this fixture");
   if (!uses.length) return say(`« ${name} » appartient à un lieu partagé avec d'autres shows (${sharedWith.join(", ")}) : le supprimer le supprime aussi pour eux. Le supprimer quand même : force: true`, `“${name}” belongs to a venue shared with other shows (${sharedWith.join(", ")}): deleting it deletes it for them too. Delete it anyway: force: true`);
   const shown = uses.slice(0, 6).join(", ");
-  return say(`« ${name} » est encore utilisé : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. Le supprimer quand même : force: true`, `“${name}” is still used: ${shown}${uses.length > 6 ? ` and ${uses.length - 6} more` : ""}. Delete it anyway: force: true`) + (sharedWith.length ? say(` Attention : ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), qui perdent aussi cet appareil.`, ` Warning: this venue is shared with other shows (${sharedWith.join(", ")}), which lose this fixture too.`) : "");
+  return say(`« ${name} » est encore utilisé : ${shown}${uses.length > 6 ? ` et ${uses.length - 6} autre(s)` : ""}. Le supprimer quand même : force: true`, `“${name}” is still used: ${shown}${uses.length > 6 ? ` and ${uses.length - 6} more` : ""}. Delete it anyway: force: true`) + (sharedWith.length ? say(` Attention : ce lieu est partagé avec d'autres shows (${sharedWith.join(", ")}), qui perdent aussi ${lost}.`, ` Warning: this venue is shared with other shows (${sharedWith.join(", ")}), which lose ${lost} too.`) : "");
 }
