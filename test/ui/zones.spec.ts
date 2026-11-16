@@ -101,7 +101,10 @@ test("T27: a rectangle, an ellipse and a polygon drawn with the mouse become zon
     expect(rect.aim).toEqual({ height: 1.5 });
     const xs = rect.polygon.map((p) => p[0]);
     const ys = rect.polygon.map((p) => p[1]);
-    expect(near(Math.min(...xs), -3) && near(Math.max(...xs), -1) && near(Math.min(...ys), 1) && near(Math.max(...ys), 3)).toBe(true);
+    expect(near(Math.min(...xs), -3)).toBe(true);
+    expect(near(Math.max(...xs), -1)).toBe(true);
+    expect(near(Math.min(...ys), 1)).toBe(true);
+    expect(near(Math.max(...ys), 3)).toBe(true);
     // its aiming point on the plan, in its colour
     await expect(page.locator(`.stage-plan g.zone[data-zone="${rect.id}"] .zone-aim`)).toHaveCount(1);
     await expect(page.locator("#venue-patch li", { hasText: "T27 rectangle" })).toContainText("visée");
@@ -119,7 +122,10 @@ test("T27: a rectangle, an ellipse and a polygon drawn with the mouse become zon
     const ellipse = (await zoneNamed(page, "T27 ellipse"))!;
     expect(ellipse.polygon).toHaveLength(32);
     expect(ellipse.outline?.kind).toBe("ellipse");
-    expect(near(ellipse.outline!.rx!, 1) && near(ellipse.outline!.ry!, 0.5) && near(ellipse.outline!.cx!, 1) && near(ellipse.outline!.cy!, 1.5)).toBe(true);
+    expect(near(ellipse.outline!.rx!, 1)).toBe(true);
+    expect(near(ellipse.outline!.ry!, 0.5)).toBe(true);
+    expect(near(ellipse.outline!.cx!, 1)).toBe(true);
+    expect(near(ellipse.outline!.cy!, 1.5)).toBe(true);
 
     // a polygon: two corners then Escape draws nothing; three corners, then the first one, closes it
     await tools.getByRole("button", { name: "Polygone" }).click();
@@ -139,11 +145,14 @@ test("T27: a rectangle, an ellipse and a polygon drawn with the mouse become zon
     const polygon = (await zoneNamed(page, "T27 polygone"))!;
     expect(polygon.outline).toEqual({ kind: "polygon" });
     expect(polygon.polygon).toHaveLength(3);
-    // a crossed outline is refused before it is sent
+    // a crossed outline is refused before it is sent, said by the drawing tools (not at the top of the page)
     for (const [x, y] of [[-3, 3.5], [-1, 4.5], [-1, 3.5], [-3, 4.5]] as const) await page.mouse.click(at(x, y).x, at(x, y).y);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog", { name: "Nouvelle zone" })).toHaveCount(0);
     await expect(page.locator(".stage-plan .draw-corner")).toHaveCount(4);
+    await expect(page.locator(".draw-panel .draw-error")).toContainText("ne peut pas être une zone");
+    await expect(page.locator(".venue > p.error")).toHaveCount(0);
+    await page.screenshot({ path: "test-results/t27-crossed.png" });
     await page.getByRole("button", { name: "Annuler le dessin" }).click();
     await page.screenshot({ path: "test-results/t27-desktop.png", fullPage: true });
 
@@ -152,8 +161,8 @@ test("T27: a rectangle, an ellipse and a polygon drawn with the mouse become zon
     at = await frame(page);
     await page.mouse.click(at(1, 1.5).x, at(1, 1.5).y, { button: "right" });
     const menu = page.getByRole("dialog", { name: "Zone" });
-    await expect(menu.getByLabel("Largeur", { exact: true })).toHaveValue("2");
-    await menu.getByLabel("Largeur", { exact: true }).fill("3");
+    await expect(menu.getByLabel("largeur (m)", { exact: true })).toHaveValue("2");
+    await menu.getByLabel("largeur (m)", { exact: true }).fill("3");
     await menu.getByLabel("Point placé").check();
     await menu.getByLabel("X du point de visée").fill("0.5");
     await menu.getByRole("radio", { name: "Bleu" }).click();
@@ -180,16 +189,51 @@ test("T27: a zone drawn with the keyboard alone", async ({ page }) => {
     await page.getByLabel("Dessiner une zone").check();
     await page.keyboard.press("ArrowRight"); // the cursor shows
     await expect(page.locator(".stage-plan .draw-cursor")).toHaveCount(1);
+    // the cursor's place is said
+    await expect(page.locator(".draw-panel .sr-only")).toContainText("Curseur : X");
     await page.keyboard.press("Space"); // the first corner
-    for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowRight"); // 2 m
-    await page.keyboard.press("Shift+ArrowUp"); // 1 m
+    for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowRight"); // 2 m, kept square while Shift is held
+    for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowUp"); // 1 m, no longer square
     await page.keyboard.press("Space");
-    await create(page, "T27 clavier");
+    // Enter in the name field creates the zone (a form)
+    const form = page.getByRole("dialog", { name: "Nouvelle zone" });
+    await expect(form.getByLabel("Nom de la zone")).toBeFocused();
+    await form.getByLabel("Nom de la zone").fill("T27 clavier");
+    await page.keyboard.press("Enter");
+    await expect(form).toHaveCount(0);
+    await expect.poll(async () => (await zoneNamed(page, "T27 clavier")) !== undefined).toBe(true);
     const zone = (await zoneNamed(page, "T27 clavier"))!;
     const xs = zone.polygon.map((p) => p[0]);
     const ys = zone.polygon.map((p) => p[1]);
     expect(Math.round((Math.max(...xs) - Math.min(...xs)) * 100)).toBe(200);
     expect(Math.round((Math.max(...ys) - Math.min(...ys)) * 100)).toBe(100);
+    // the focus came back to the plan: Shift+arrows alone give a square
+    await expect(page.locator(".stage-plan svg.drawing")).toBeFocused();
+    // the cursor went away with the zone created: the first key brings it back
+    await expect(page.locator(".stage-plan .draw-cursor")).toHaveCount(0);
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Space");
+    for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Space");
+    await create(page, "T27 carré");
+    const square = (await zoneNamed(page, "T27 carré"))!;
+    const sxs = square.polygon.map((p) => p[0]);
+    const sys = square.polygon.map((p) => p[1]);
+    expect(Math.round((Math.max(...sxs) - Math.min(...sxs)) * 100)).toBe(200);
+    expect(Math.round((Math.max(...sys) - Math.min(...sys)) * 100)).toBe(200);
+    // a polygon, keys alone: arrows and Space per corner, Enter closes
+    await page.locator(".stage-plan svg.drawing").focus();
+    await page.getByRole("group", { name: "Forme à dessiner" }).getByRole("button", { name: "Polygone" }).click();
+    await expect(page.locator(".stage-plan svg.drawing")).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Shift+ArrowLeft");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Shift+ArrowUp");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Enter");
+    await create(page, "T27 polygone clavier");
+    expect((await zoneNamed(page, "T27 polygone clavier"))!.polygon).toHaveLength(3);
     // Escape with nothing drawn leaves the mode
     await page.keyboard.press("Escape");
     await expect(page.getByLabel("Dessiner une zone")).not.toBeChecked();
@@ -320,6 +364,144 @@ test("T27: on a phone, the drawing tools and the form fit the screen", async ({ 
     expect(await page.evaluate<number>("document.documentElement.scrollWidth")).toBeLessThanOrEqual(390);
     await page.locator(".draw-panel").scrollIntoViewIfNeeded();
     await page.screenshot({ path: "test-results/t27-phone.png" });
+  } finally {
+    await cleanUp(page);
+    await ctx.close();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("T27: a double-click on the first point closes the polygon once; the form keeps it, Cancel reopens it", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await login(page);
+  await api(page, "stage.zone.put", { zone: REF });
+  try {
+    await openVenue(page);
+    await page.getByLabel("Dessiner une zone").check();
+    await page.getByRole("group", { name: "Forme à dessiner" }).getByRole("button", { name: "Polygone" }).click();
+    const at = await frame(page);
+    for (const [x, y] of [[1, 1], [3, 1], [2, 3]] as const) await page.mouse.click(at(x, y).x, at(x, y).y);
+    // a double-click on the first corner: its first click closes, the second must not lose the shape
+    await page.mouse.dblclick(at(1, 1).x, at(1, 1).y);
+    const form = page.getByRole("dialog", { name: "Nouvelle zone" });
+    await expect(form).toBeVisible();
+    // the shape stays drawn, dashed, while it is named; a click beside the form does not close it
+    await expect(page.locator(".stage-plan .draw-preview.pending polygon")).toHaveCount(1);
+    await page.mouse.click(at(-3, 4).x, at(-3, 4).y);
+    await expect(form).toBeVisible();
+    await expect(page.locator(".stage-plan .draw-corner")).toHaveCount(0);
+    await page.screenshot({ path: "test-results/t27-pending.png" });
+    // Tab stays inside the form
+    for (let i = 0; i < 30; i++) await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')))).toBe(true);
+    // Cancel: the polygon is open again, its three corners back, to be fixed
+    await form.getByRole("button", { name: "Annuler" }).click();
+    await expect(form).toHaveCount(0);
+    await expect(page.locator(".stage-plan .draw-corner")).toHaveCount(3);
+    await page.getByRole("button", { name: "Terminer" }).click();
+    await create(page, "T27 double");
+    expect((await zoneNamed(page, "T27 double"))!.polygon).toHaveLength(3);
+    // one zone, not two
+    expect((await zones(page)).filter((z) => z.name.startsWith("T27")).length).toBe(1);
+  } finally {
+    await cleanUp(page);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("T27: a zone opens its menu from the keyboard; « Point exact » aims at the point; the topmost zone decides", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await login(page);
+  const spot = ((await api(page, "venue.fixture.list")) as { id: string; position?: unknown; mount?: string }[]).find((f) => f.id === "spot")!;
+  await api(page, "stage.zone.put", { zone: REF });
+  await api(page, "stage.zone.put", { zone: { id: "t27-aim", name: "T27 visée", type: "riser", polygon: [[1, 1], [3, 1], [3, 3], [1, 3]], floorHeight: 0.2, aim: { height: 1, color: "#1e3a8a" } } });
+  // a plain zone over a corner of the aiming one: a click there is not an aiming click
+  await api(page, "stage.zone.put", { zone: { id: "t27-over", name: "T27 dessus", type: "stage", polygon: [[2.5, 2.5], [3.5, 2.5], [3.5, 3.5], [2.5, 3.5]] } });
+  await api(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: -1, z: 4 }, mount: "hung" } });
+  try {
+    await openVenue(page);
+    // Shift+F10 on a focused zone: its menu, which takes the focus and gives it back on Escape
+    const zone = page.locator('.stage-plan g.zone[data-zone="t27-aim"]');
+    await zone.focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = page.getByRole("dialog", { name: "Zone" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByLabel("Nom de la zone")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(zone).toBeFocused();
+    // a dark colour of its own keeps a light rim
+    await expect(page.locator('.stage-plan g.zone[data-zone="t27-aim"] .zone-halo')).toHaveCount(1);
+    // its centre moved in the menu: the placed point goes with it, as when dragged; ticking « interdite aux lyres » on an
+    // aiming zone is warned
+    await api(page, "stage.zone.put", { zone: { id: "t27-move", name: "T27 bouge", type: "stage", polygon: [[-3, 1], [-1, 1], [-1, 2], [-3, 2]], aim: { height: 1.5, point: [-2.5, 1.5] } } });
+    await page.locator('.stage-plan g.zone[data-zone="t27-move"]').focus();
+    await page.keyboard.press("Shift+F10");
+    await menu.getByLabel("centre X (m)").fill("-1");
+    await menu.getByLabel("interdite aux lyres").check();
+    await expect(menu.getByRole("status")).toContainText("Interdite aux lyres et zone de visée");
+    await menu.getByLabel("interdite aux lyres").uncheck();
+    await menu.getByRole("button", { name: "Enregistrer" }).click();
+    await expect.poll(async () => (await zoneNamed(page, "T27 bouge"))?.aim?.point).toEqual([-1.5, 1.5]);
+
+    await page.getByLabel("Viser avec les lyres").check();
+    const exact = page.getByRole("button", { name: "Point exact" });
+    await expect(exact).toHaveAttribute("aria-pressed", "false");
+    const at = await frame(page);
+    const aimBody = async (x: number, y: number) => {
+      const request = page.waitForRequest((r) => r.url().endsWith("/commands/position.aim"));
+      await page.mouse.click(at(x, y).x, at(x, y).y);
+      return (await request).postDataJSON() as { zone?: string; point?: { x: number; y: number; z: number } };
+    };
+    expect(await aimBody(1.5, 1.5)).toEqual({ zone: "t27-aim" });
+    // under the plain zone on top: the exact point, at that zone's floor and 1.5 m
+    const under = await aimBody(3.2, 3.2);
+    expect(under.zone).toBeUndefined();
+    expect(under.point!.z).toBeCloseTo(1.5, 5);
+    await exact.click();
+    await expect(exact).toHaveAttribute("aria-pressed", "true");
+    const pointed = await aimBody(1.5, 1.5);
+    expect(pointed.zone).toBeUndefined();
+    expect(near(pointed.point!.x, 1.5, 0.2)).toBe(true);
+    expect(pointed.point!.z).toBeCloseTo(1.2, 5);
+    await api(page, "position.release");
+  } finally {
+    await api(page, "venue.fixture.put", { fixture: spot });
+    await cleanUp(page);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("T27: on a touch tablet, an ellipse dragged becomes a zone", async ({ browser }) => {
+  const { ctx, page } = await touchPage(browser, { width: 1180, height: 820 });
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "stage.zone.put", { zone: REF });
+  try {
+    await openVenue(page);
+    await page.getByLabel("Dessiner une zone").check();
+    await page.getByRole("group", { name: "Forme à dessiner" }).getByRole("button", { name: "Ellipse" }).click();
+    // a finger: the keyboard's help is left out
+    await expect(page.locator(".draw-panel .keyboard-help")).toBeHidden();
+    const at = await frame(page);
+    const cdp = await ctx.newCDPSession(page);
+    const [from, to] = [at(0, 1), at(2, 2)];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: Math.round(from.x), y: Math.round(from.y) }] });
+    for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: Math.round(from.x + ((to.x - from.x) * i) / 8), y: Math.round(from.y + ((to.y - from.y) * i) / 8) }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const form = page.getByRole("dialog", { name: "Nouvelle zone" });
+    await expect(form).toBeVisible();
+    // its buttons in sight without scrolling
+    const createButton = form.getByRole("button", { name: "Créer la zone" });
+    const box = (await createButton.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(820);
+    await form.getByLabel("Nom de la zone").fill("T27 ellipse doigt");
+    await createButton.click();
+    await expect.poll(async () => (await zoneNamed(page, "T27 ellipse doigt"))?.outline?.kind).toBe("ellipse");
+    // no cursor left behind by the finger
+    await expect(page.locator(".stage-plan .draw-cursor")).toHaveCount(0);
   } finally {
     await cleanUp(page);
     await ctx.close();

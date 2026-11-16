@@ -15,6 +15,9 @@
   --layer-hold: #f29a62;
   --layer-rest: #9aa4b2;
   --layer-lock: #ef476f;
+  /* an aiming zone without a colour of its own (T27), and the drawing cursor on the plan */
+  --aim-color: #f59e0b;
+  --draw-cursor: #f5f7fa;
   color-scheme: dark;
 }
 * {
@@ -1261,8 +1264,13 @@ table.cues select {
   cursor: crosshair;
 }
 .stage-plan .zone-name {
-  font-size: 13px;
-  fill: #8b93a7;
+  fill: #a3aabb;
+  /* readable over a zone's outline or another zone: a dark rim around the letters */
+  paint-order: stroke;
+  stroke: #12141a;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 .stage-plan .fixture-name {
   font-size: 10px;
@@ -2057,16 +2065,72 @@ table.rules td {
   vector-effect: non-scaling-stroke;
 }
 .stage-plan .draw-cursor line {
-  stroke: #f5f7fa;
+  stroke: var(--draw-cursor);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 .draw-panel .draw-tools {
   gap: 0.25em;
 }
+/* the tool in use: filled and bold, not by its colour alone */
 .draw-panel .draw-tools button.on {
   border-color: var(--accent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--text);
+  font-weight: 700;
+}
+/* a button that cannot act yet (« Terminer » under three corners): plainly out of use */
+.draw-panel button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.draw-panel button.primary:disabled {
+  background: transparent;
+  color: var(--muted);
+}
+.draw-panel .draw-error {
+  flex-basis: 100%;
+  margin: 0.2em 0 0;
+}
+/* the shape waiting for its name, and its centre */
+.stage-plan .draw-centre {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.stage-plan svg.pending {
+  cursor: default;
+}
+/* « Point exact » beside « Viser » (decision Z3) */
+.stage-plan .exact-toggle.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  font-weight: 700;
+}
+/* a zone reached by the keyboard (decision U3) */
+.stage-plan .zone:focus {
+  outline: none;
+}
+.stage-plan .zone:focus-visible > polygon:not(.zone-halo):not(.no-aim) {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+/* a dark colour of its own: a light rim keeps the outline and the reticle visible */
+.stage-plan .zone-halo {
+  stroke: rgba(245, 247, 250, 0.55);
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
+.stage-plan .zone-aim.halo {
+  filter: drop-shadow(0 0 1.5px rgba(245, 247, 250, 0.9));
+}
+/* dragging zones: no text selected along the way, the finger moves the zone not the page */
+.stage-plan svg.moving-zones {
+  user-select: none;
+  touch-action: none;
 }
 /* an aiming zone's aiming point on the plan, in its colour */
 .stage-plan .zone-aim {
@@ -2079,7 +2143,53 @@ table.rules td {
   color: var(--zone-color);
   border: 1px solid color-mix(in srgb, var(--zone-color) 60%, transparent);
 }
+/* the zone's form: its buttons stay in sight at the bottom of a long menu */
+.zone-menu .menu-actions {
+  position: sticky;
+  bottom: -0.8em;
+  background: var(--panel);
+  padding-block: 0.5em;
+  margin-bottom: -0.3em;
+  border-top: 1px solid var(--line);
+}
+.menu-backdrop {
+  display: none;
+}
+.stage-plan .touch-only {
+  display: none;
+}
+@media (pointer: coarse) {
+  /* a finger has no keyboard: the keys' help and the Alt hint are left out */
+  .stage-plan .keyboard-help,
+  .stage-plan .pointer-only {
+    display: none;
+  }
+  .stage-plan .touch-only {
+    display: inline;
+  }
+}
+@media (max-width: 600px) {
+  .menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgba(0, 0, 0, 0.5);
+  }
+}
 @media (max-width: 600px), (pointer: coarse) {
+  /* the plan's modes and the grid: a finger's size */
+  .stage-plan > .row > label.row,
+  .stage-plan > .row select,
+  .stage-plan > .row button,
+  .stage-plan .exact-toggle {
+    min-height: 44px;
+  }
+  .stage-plan > .row > label.row input[type="checkbox"] {
+    flex: none;
+    width: 22px;
+    height: 22px;
+  }
   .draw-panel button,
   .zone-menu button,
   .zone-menu select,

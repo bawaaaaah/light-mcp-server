@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { isHex, SWATCHES } from "../color";
-import { useFloatingMenu } from "./menu";
+import { useFloatingMenu, useMenuFocus } from "./menu";
 import { DmxModeSection } from "./DmxModeSection";
 import { hasQxfFile, QxfExport } from "./QxfExport";
 import { FixtureHeads } from "./FixtureHeads";
@@ -34,11 +34,6 @@ export interface MarkedFixture {
 function patched(listed: Record<string, unknown>): Record<string, unknown> {
   const { absent: _absent, movable: _movable, channels: _channels, facing: _facing, ...stored } = listed;
   return stored;
-}
-
-/** The controls Tab stops at, in order (a radio group's unchecked radios are not stops). */
-function tabStops(box: HTMLElement): HTMLElement[] {
-  return [...box.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]")].filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled);
 }
 
 /**
@@ -91,19 +86,8 @@ export function FixtureMenu({
 }): ReactElement {
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
-  // where the focus was (the row, the plan's fixture): it goes back there when the menu closes
-  const opener = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  useEffect(() => {
-    const back = opener.current;
-    return () => {
-      // StrictMode runs this cleanup between two mounts in dev: the menu is back by the time the microtask runs, then focus stays
-      queueMicrotask(() => {
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- read on purpose after the cleanup: is the menu still (or again) in the page?
-        if (!box.current?.isConnected && back?.isConnected) back.focus();
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; `box` is a stable ref
-  }, []);
+  // Tab stays inside; the focus goes back to the row or the plan's fixture on close
+  const trap = useMenuFocus(box);
   const [name, setName] = useState(fixture.name);
   const [color, setColor] = useState(fixture.color);
   const o = fixture.orientation ?? {}; // a fixture that was never oriented has no orientation object
@@ -168,24 +152,6 @@ export function FixtureMenu({
     e.preventDefault();
     radios.current[to]?.focus();
     paint(choices[to]!);
-  };
-  /** Tab and Shift+Tab go round inside the menu instead of leaving it for the page behind. */
-  const trap = (e: ReactKeyboardEvent) => {
-    if (e.key !== "Tab" || !box.current) return;
-    const stops = tabStops(box.current);
-    if (!stops.length) return;
-    const [first, last] = [stops[0]!, stops[stops.length - 1]!];
-    // the key reaches this handler only from inside the box: the box itself (after a click on its background) goes back to a stop
-    if (document.activeElement === box.current) {
-      e.preventDefault();
-      (e.shiftKey ? last : first).focus();
-    } else if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
   };
   const onPlaceKey = (e: ReactKeyboardEvent) => {
     if (e.key === "Enter") void move();

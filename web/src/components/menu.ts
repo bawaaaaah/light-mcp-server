@@ -1,19 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 
 /**
  * A menu opened where the click was (right-click, or a long press on a touch screen), kept on screen
  * by its real size (it grows with its content, narrows on a phone; taller than the window, it
  * scrolls inside), closed by a click elsewhere or Escape.
  * `above`: the y just over the thing it hangs from (a tooltip): with no room below `at`, it opens
- * above that instead of sliding up over it.
+ * above that instead of sliding up over it. `closeOutside` false: a click elsewhere leaves it open (a form whose
+ * input would be lost: only its own buttons and Escape close it). `at.before`: the x where what it describes starts on
+ * the left: with no room right of `at.x`, it opens to the left of that rather than over it.
  */
-export function useFloatingMenu(at: { x: number; y: number }, onClose: () => void, above?: number): { box: RefObject<HTMLDivElement | null>; style: { left: number; top: number } } {
-  const box = useRef<HTMLDivElement>(null);
+export function useFloatingMenu<E extends HTMLElement = HTMLDivElement>(at: { x: number; y: number; before?: number }, onClose: () => void, above?: number, closeOutside = true): { box: RefObject<E | null>; style: { left: number; top: number } } {
+  const box = useRef<E>(null);
   const [size, setSize] = useState({ width: 340, height: 380 });
   // the window's size, only to place the menu again when it changes
   const [, setViewport] = useState({ width: 0, height: 0 });
   useEffect(() => {
-    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && onClose();
+    const away = (e: PointerEvent) => closeOutside && !box.current?.contains(e.target as Node) && onClose();
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("pointerdown", away);
     window.addEventListener("keydown", esc);
@@ -57,10 +59,53 @@ export function useFloatingMenu(at: { x: number; y: number }, onClose: () => voi
     watching.unobserve(el);
     watching.observe(el);
   }, [size.width, size.height]);
-  const left = Math.max(8, Math.min(at.x, document.documentElement.clientWidth - size.width - 8));
+  const width = document.documentElement.clientWidth;
+  const left = at.before !== undefined && at.x + size.width + 8 > width && at.before - size.width >= 8 ? at.before - size.width : Math.max(8, Math.min(at.x, width - size.width - 8));
   const flip = above !== undefined && at.y + size.height + 8 > window.innerHeight;
   const top = flip ? Math.max(8, above - size.height) : Math.max(8, Math.min(at.y, window.innerHeight - size.height - 8));
   return { box, style: { left, top } };
+}
+
+/** The controls Tab stops at, in order (a radio group's unchecked radios are not stops). */
+export function tabStops(box: HTMLElement): HTMLElement[] {
+  return [...box.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]")].filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled);
+}
+
+/**
+ * A floating menu that holds the keyboard while open: Tab and Shift+Tab go round inside it instead of leaving it for
+ * the page behind, and the focus goes back to where it was (the row, the plan's fixture or zone) when it closes.
+ * Returns the menu's onKeyDown.
+ */
+export function useMenuFocus(box: RefObject<HTMLElement | null>): (e: ReactKeyboardEvent) => void {
+  const opener = useRef<HTMLElement | SVGElement | null>(document.activeElement instanceof HTMLElement || document.activeElement instanceof SVGElement ? document.activeElement : null);
+  useEffect(() => {
+    const back = opener.current;
+    return () => {
+      // StrictMode runs this cleanup between two mounts in dev: the menu is back by the time the microtask runs, then focus stays
+      queueMicrotask(() => {
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- read on purpose after the cleanup: is the menu still (or again) in the page?
+        if (!box.current?.isConnected && back?.isConnected) back.focus({ preventScroll: true });
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once; `box` is a stable ref
+  }, []);
+  return (e: ReactKeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current) return;
+    const stops = tabStops(box.current);
+    if (!stops.length) return;
+    const [first, last] = [stops[0]!, stops[stops.length - 1]!];
+    // the key reaches this handler only from inside the box: the box itself (after a click on its background) goes back to a stop
+    if (document.activeElement === box.current) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 }
 
 const LONG_PRESS_MS = 600;

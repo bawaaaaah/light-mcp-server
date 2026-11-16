@@ -31,6 +31,7 @@ import { aimSpot, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, re
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
+import { textOn } from "../color";
 import { useStored } from "../hooks/useStored";
 import { FixturePanel } from "./FixturePanel";
 
@@ -105,8 +106,8 @@ export interface DrawnZone {
 }
 type DrawTool = "rect" | "ellipse" | "polygon";
 const DRAW_TOOLS: DrawTool[] = ["rect", "ellipse", "polygon"];
-/** An aiming zone's colour when it has none of its own. */
-export const AIM_COLOR = "#f59e0b";
+/** An aiming zone's colour when it has none of its own: a CSS token (styles.css). */
+export const AIM_COLOR = "var(--aim-color)";
 
 const ZONE_FILL: Record<string, string> = { stage: "#2a2f3b", riser: "#343b4a", floor: "#22262f", audience: "#1b2a22", wall: "#3a2f2a", pillar: "#3a2f2a", backdrop: "#30283a" };
 
@@ -128,6 +129,7 @@ export function StagePlan({
   onFixtureMenu,
   onZoneMove,
   onZoneDraw,
+  pending,
   beamsShown = true,
   controls,
   collapsed = false,
@@ -150,13 +152,18 @@ export function StagePlan({
   /** The view it opens on. */
   initialView?: "top" | "front" | "3d";
   /** Right-click (or a long press) on a zone: its menu, at that point. */
-  onZoneMenu?: (zone: PlanZone, at: { x: number; y: number }) => void;
+  onZoneMenu?: (zone: PlanZone, at: { x: number; y: number; before?: number }) => void;
   /** Right-click (a long press, or Shift+F10 on a focused fixture) on a fixture: its menu, at that point (the patch's fixture menu). */
   onFixtureMenu?: (fixture: PlanFixture, at: { x: number; y: number }) => void;
   /** « Déplacer les zones »: a zone dragged on the plan, moved (its corners, its placed aiming point, its drawn ellipse). */
   onZoneMove?: (zone: PlanZone, moved: PlanZone) => void;
-  /** « Dessiner une zone » (T27): a shape closed on the plan, and where on screen (the page asks its name and settings). */
-  onZoneDraw?: (shape: DrawnZone, at: { x: number; y: number }) => void;
+  /**
+   * « Dessiner une zone » (T27): a shape closed on the plan, and where on screen, beside it (the page asks its name and
+   * settings); `reopen` puts a polygon back open on the plan, to fix it (the form cancelled).
+   */
+  onZoneDraw?: (shape: DrawnZone, at: { x: number; y: number; before?: number }, reopen: () => void) => void;
+  /** The shape drawn while the page asks its name: drawn dashed with its centre, and the plan ignores pointers meanwhile. */
+  pending?: DrawnZone | null;
   /** Beams drawn (cones, the arrows of where fixtures point); off, a lit fixture only glows. */
   beamsShown?: boolean;
   /** With the views: more switches before them (the Live's stage: fold it, its beams). */
@@ -197,10 +204,19 @@ export function StagePlan({
   const [corners, setCorners] = useState<P[]>([]);
   /** Where the next corner would go (the pointer, or the keyboard's cursor), on the grid. */
   const [cursor, setCursor] = useState<P | null>(null);
+  /** Why the shape just closed cannot be a zone: said by the drawing tools, not at the top of the page. */
+  const [drawError, setDrawError] = useState("");
+  /** « Point exact » (T27, decision Z3): in « Viser », a click in an aiming zone aims at the point clicked, as Alt does. */
+  const [exact, setExact] = useState(false);
+  /** The cursor was moved by the keyboard: said aloud (never as the mouse moves). */
+  const [cursorKeyed, setCursorKeyed] = useState(false);
   const drawHelp = useId();
   const zoneMenu = useContextMenu<string>((at, id) => {
     const z = zones.find((x) => x.id === id);
-    if (z) onZoneMenu?.(z, at);
+    if (!z) return;
+    // a finger: the menu opens beside the zone (its top right), not over it under the finger
+    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    onZoneMenu?.(z, coarse && !front ? besideZone(z.polygon) : at);
   });
   const fixtureMenu = useContextMenu<string>((at, id) => {
     const f = fixtures.find((x) => x.id === id);
@@ -354,6 +370,18 @@ export function StagePlan({
   const [VW, VH] = [W + pad.left + pad.right, H + pad.top + pad.bottom];
   /** Screen pixels per metre. */
   const pxPerMetre = (scale * drawnWidth) / VW;
+  // zone names: readable at any zoom (12 px on screen at least), inside the zone at its top, else at its bottom, never
+  // one over another (stacked zones); the rest on hover (their title)
+  const zoneNameSize = Math.min(16, (12 * W) / drawnWidth);
+  const zoneNames = placeLabels(
+    shown.zones.map((z) => {
+      const xs = z.polygon.map((p) => p[0]);
+      const ys = z.polygon.map((p) => p[1]);
+      const label = `${z.name}${z.protected ? ` (${t.protectedZone})` : ""}${z.noAim ? ` (${t.noAimZone})` : ""}`;
+      return { id: z.id, x: sx((Math.min(...xs) + Math.max(...xs)) / 2), below: sy(Math.max(...ys)) + zoneNameSize * 1.4, above: sy(Math.min(...ys)) - zoneNameSize * 0.35, width: textWidth(label, zoneNameSize) };
+    }),
+    zoneNameSize,
+  );
 
   const eventToStage = (e: { clientX: number; clientY: number }) => {
     const { px, py } = pointerToDrawing(e, svg.current!.getBoundingClientRect(), VW, VH, pad);
@@ -495,6 +523,7 @@ export function StagePlan({
   const chooseTool = (tool: DrawTool | null) => {
     setShapeDrag(null);
     setCorners([]);
+    setDrawError("");
     if (!tool) setCursor(null);
     setDrawTool(tool);
     if (!tool) return;
@@ -504,7 +533,9 @@ export function StagePlan({
     setMovingZones(false);
     setChosen([]);
   };
-  const resetDraw = () => (setShapeDrag(null), setCorners([]));
+  const resetDraw = () => (setShapeDrag(null), setCorners([]), setDrawError(""));
+  /** A point kept on the plan (the keyboard's cursor never leaves it). */
+  const onPlan = (p: P): P => ({ x: Math.min(layout.maxX, Math.max(layout.minX, p.x)), y: Math.min(layout.maxY, Math.max(layout.minY, p.y)) });
   /** The rectangle or the ellipse a box gives, as corners. */
   const boxShape = (d: { from: P; at: P; square: boolean }): Pt[] => {
     if (drawTool !== "ellipse") return rectFromDrag(d.from, d.at, d.square);
@@ -516,11 +547,22 @@ export function StagePlan({
     const r = svg.current!.getBoundingClientRect();
     return { x: r.left + ((sx(p.x) + pad.left) / VW) * r.width, y: r.top + ((sy(p.y) + pad.top) / VH) * r.height };
   };
-  /** A shape closed: handed to the page when the server would take it, else said (and a polygon stays open). */
+  /** Where a menu or a form opens so as not to hide a zone: at its top right on screen. */
+  const besideZone = (polygon: readonly Pt[]) => {
+    const at = screenOf({ x: Math.max(...polygon.map((p) => p[0])), y: Math.max(...polygon.map((p) => p[1])) });
+    // with no room on its right, the menu goes on its left
+    const left = screenOf({ x: Math.min(...polygon.map((p) => p[0])), y: 0 }).x;
+    return { x: at.x + 12, y: at.y, before: left - 12 };
+  };
+  /** A shape closed: handed to the page when the server would take it, else said by the tools (and a polygon stays open). */
   const finishShape = (polygon: Pt[], outline: ZoneOutline) => {
-    if (!validZone(polygon)) return onError(t.zoneDraw.invalid);
+    if (!validZone(polygon)) return setDrawError(t.zoneDraw.invalid);
+    const kept = corners;
     resetDraw();
-    onZoneDraw?.({ polygon, outline }, screenOf(zoneCentre(polygon)));
+    setCursor(null);
+    const reopen = outline.kind === "polygon" ? () => (setDrawTool("polygon"), setCorners(kept)) : () => undefined;
+    // the form opens beside the shape, so it does not hide it where there is room
+    onZoneDraw?.({ polygon, outline }, besideZone(polygon), reopen);
   };
   const finishBox = (d: { from: P; at: P; square: boolean }) => {
     setShapeDrag(null);
@@ -538,23 +580,30 @@ export function StagePlan({
     const [first, last] = [corners[0], corners[corners.length - 1]];
     if (first && corners.length >= 3 && Math.hypot(p.x - first.x, p.y - first.y) * pxPerMetre <= (touch ? 24 : 12)) return closePolygon();
     if (last && Math.hypot(p.x - last.x, p.y - last.y) * pxPerMetre < 4) return;
+    setDrawError("");
     setCorners([...corners, p]);
   };
+  // while the page asks the name of a shape just drawn, the plan takes no pointer: a double-click's second click, a
+  // stray tap, would start another shape under the form
   const drawDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (pending || (e.pointerType === "mouse" && e.button !== 0)) return;
+    svg.current?.focus({ preventScroll: true });
     const p = onGrid(eventToStage(e));
-    setCursor(p);
+    // a finger has no hover: no cursor left behind where it lifted
+    if (e.pointerType !== "touch") setCursor(p);
     if (drawTool === "polygon") return;
     svg.current?.setPointerCapture(e.pointerId);
     setShapeDrag({ from: p, at: p, square: e.shiftKey });
   };
   const drawMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (pending) return;
     const p = onGrid(eventToStage(e));
-    setCursor(p);
+    setCursorKeyed(false);
+    if (e.pointerType !== "touch") setCursor(p);
     if (shapeDrag) setShapeDrag({ ...shapeDrag, at: p, square: e.shiftKey });
   };
   const drawUp = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (pending || (e.pointerType === "mouse" && e.button !== 0)) return;
     const p = onGrid(eventToStage(e));
     if (drawTool === "polygon") return addCorner(p, e.pointerType === "touch");
     if (!shapeDrag) return;
@@ -566,37 +615,41 @@ export function StagePlan({
   useEffect(() => {
     if (drawTool) svg.current?.focus({ preventScroll: true });
   }, [drawTool]);
-  // keyboard, while drawing: the arrows move the cursor by a grid step (×10 with Shift), Space puts a corner, Enter
-  // closes a polygon, Backspace takes its last corner back, Escape drops the shape (and, with none, leaves the mode)
+  // keyboard, while drawing: the arrows move the cursor by a grid step (×10 with Shift, which also keeps a box square),
+  // Space puts a corner, Enter closes a polygon, Backspace takes its last corner back — while the plan has the focus
+  // only (Enter and Space on a link or a summary stay theirs); Escape, wherever the focus is outside a field, drops the
+  // shape (and, with none, leaves the mode). Nothing while the page asks a drawn shape's name (its form has the keys).
   useEffect(() => {
-    if (!drawing) return;
+    if (!drawing || pending) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (e.defaultPrevented || el?.getAttribute("role") === "slider") return;
       if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable || el.closest('[role="dialog"]'))) return;
-      const onButton = el?.tagName === "BUTTON";
       if (e.key === "Escape") {
         e.preventDefault();
         return corners.length || shapeDrag ? resetDraw() : chooseTool(null);
       }
+      if (document.activeElement !== svg.current) return;
       if (e.key === "Backspace" && drawTool === "polygon" && corners.length) {
         e.preventDefault();
         return setCorners(corners.slice(0, -1));
       }
-      if (e.key === "Enter" && !onButton && drawTool === "polygon" && corners.length >= 3) {
+      if (e.key === "Enter" && drawTool === "polygon" && corners.length >= 3) {
         e.preventDefault();
         return closePolygon();
       }
       const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
-      if (!d && (e.key !== " " || onButton)) return;
+      if (!d && e.key !== " ") return;
       e.preventDefault();
-      // the cursor shows first, at the middle of the plan
-      if (!cursor) return setCursor(onGrid({ x: (layout.minX + layout.maxX) / 2, y: (layout.minY + layout.maxY) / 2 }));
+      setCursorKeyed(true);
+      // the cursor shows first, in the middle of the part of the plan in view (a zoomed plan scrolls)
+      if (!cursor) return setCursor(onGrid(onPlan(visibleMiddle())));
       if (d) {
         const step = (gridStep || 0.1) * (e.shiftKey ? 10 : 1);
-        const next = onGrid({ x: cursor.x + d[0] * step, y: cursor.y + d[1] * step });
+        const next = onGrid(onPlan({ x: cursor.x + d[0] * step, y: cursor.y + d[1] * step }));
         setCursor(next);
-        if (shapeDrag) setShapeDrag({ ...shapeDrag, at: next });
+        // Shift keeps the box square (a circle), as with the mouse
+        if (shapeDrag) setShapeDrag({ ...shapeDrag, at: next, square: e.shiftKey });
         return;
       }
       if (drawTool === "polygon") return addCorner(cursor);
@@ -607,16 +660,26 @@ export function StagePlan({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  /** The middle of the part of the plan in view (the window and the zoomed plan's frame), in metres. */
+  const visibleMiddle = (): P => {
+    const r = svg.current!.getBoundingClientRect();
+    const frame = scroller.current?.getBoundingClientRect() ?? r;
+    const [left, right] = [Math.max(r.left, frame.left, 0), Math.min(r.right, frame.right, window.innerWidth)];
+    const [top, bottom] = [Math.max(r.top, frame.top, 0), Math.min(r.bottom, frame.bottom, window.innerHeight)];
+    return right > left && bottom > top ? eventToStage({ clientX: (left + right) / 2, clientY: (top + bottom) / 2 }) : { x: (layout.minX + layout.maxX) / 2, y: (layout.minY + layout.maxY) / 2 };
+  };
+
   const aimAt = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!aiming || placing || orienting || drawing || front || !svg.current) return;
     const p = eventToStage(e);
-    // in an aiming zone (the one drawn on top), its aiming point (decision Q3 of T27); Alt / Option: the exact point
-    // clicked, at the zone's aiming height above its floor
-    const aimZone = [...zones].reverse().find((z) => z.aim && pointInPolygon(p.x, p.y, z.polygon));
-    const zone = aimZone ?? zones.find((z) => pointInPolygon(p.x, p.y, z.polygon));
+    // the zone on top where it was clicked (the one drawn last); an aiming one gives its aiming point (decision Q3 of
+    // T27), not an aiming zone hidden under another; Alt / Option or « Point exact »: the exact point clicked, at the
+    // zone's aiming height above its floor
+    const zone = [...zones].reverse().find((z) => pointInPolygon(p.x, p.y, z.polygon));
+    const aimZone = zone?.aim ? zone : undefined;
     // a selected moving head turns to the point alone; without a selection, all of them do
     const only = selected && heads.includes(selected) ? [selected] : undefined;
-    const where = aimZone && !e.altKey ? { zone: aimZone.id } : { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + (zone?.aim?.height ?? 1.5) } };
+    const where = aimZone && !e.altKey && !exact ? { zone: aimZone.id } : { point: { x: p.x, y: p.y, z: (zone?.floorHeight ?? 0) + (zone?.aim?.height ?? 1.5) } };
     void cmd<{ results: { fixture: string; error?: string }[] }>("position.aim", { ...where, ...(only ? { fixtures: only } : {}) })
       .then((res) => {
         const errors = res.results.filter((x) => x.error).map((x) => `${x.fixture}${t.colon} ${x.error}`);
@@ -709,6 +772,12 @@ export function StagePlan({
             <input type="checkbox" checked={aiming} onChange={(e) => setAiming(e.target.checked)} /> {t.aimMode}
           </label>
         )}
+        {/* « Point exact » (decision Z3): Alt / Option + click, for a finger or anyone without the key */}
+        {aiming && heads.length > 0 && !placing && !orienting && !drawing && !front && !in3d && zones.some((z) => z.aim) && (
+          <button type="button" className={exact ? "exact-toggle on" : "exact-toggle"} aria-pressed={exact} title={t.zoneAim.exactHelp} onClick={() => setExact(!exact)}>
+            {t.zoneAim.exact}
+          </button>
+        )}
         </div>
       )}
       {placing && !compact && !in3d && (
@@ -751,7 +820,7 @@ export function StagePlan({
           {/* always there, disabled until they can act: the plan never moves under the finger putting a corner */}
           {drawTool === "polygon" && (
             <>
-              <small aria-live="polite">{t.zoneDraw.corners.replace("{n}", String(corners.length))}</small>
+              <small aria-live="polite">{t.zoneDraw.corners(corners.length)}</small>
               <button className="primary" disabled={corners.length < 3} onClick={closePolygon}>
                 {t.zoneDraw.finish}
               </button>
@@ -764,11 +833,24 @@ export function StagePlan({
             {t.zoneDraw.cancel}
           </button>
           <small className="place-help" id={drawHelp}>
-            {t.zoneDraw.help[drawTool]} {t.zoneDraw.escape}
+            {t.zoneDraw.help[drawTool]} <span className="keyboard-help">{t.zoneDraw.keys[drawTool]}</span> {t.zoneDraw.escape}
           </small>
+          {/* the keyboard's cursor, said as it moves */}
+          <span className="sr-only" aria-live="polite">
+            {cursor && cursorKeyed ? t.zoneDraw.cursorAt.replace("{x}", () => metresText(cursor.x, t.decimalMark)).replace("{y}", () => metresText(cursor.y, t.decimalMark)) : ""}
+          </span>
+          {/* a shape refused (crossed, too small): said here, by the plan, where the eye is */}
+          <p className="error draw-error" role="alert" hidden={!drawError}>
+            {drawError}
+          </p>
         </div>
       )}
-      {aiming && !compact && zones.some((z) => z.aim) && <small className="hint aim-zone-hint">{t.zoneAim.aimHint}</small>}
+      {aiming && !compact && zones.some((z) => z.aim) && (
+        <small className="hint aim-zone-hint">
+          <span className="pointer-only">{t.zoneAim.aimHint}</span>
+          <span className="touch-only">{t.zoneAim.aimHintTouch}</span>
+        </small>
+      )}
       {show3d && !collapsed && (
         <Suspense fallback={<p className="hint">…</p>}>
           <Stage3D fixtures={fixtures} zones={zones} colors={colors} beams={beams} noWebgl={t.noWebgl} label={t.view3dLabel} height={height} />
@@ -778,10 +860,10 @@ export function StagePlan({
       <svg
         ref={svg}
         viewBox={`${-pad.left} ${-pad.top} ${VW} ${VH}`}
-        className={drawing ? "drawing" : aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
+        className={drawing ? (pending ? "drawing pending" : "drawing") : aiming ? "aiming" : placing ? "placing" : orienting ? "orienting" : movingZones && !front ? "moving-zones" : ""}
         style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none" } : height ? { height, maxHeight: "none" } : undefined}
         onClick={aimAt}
-        onDoubleClick={drawing && drawTool === "polygon" ? closePolygon : undefined}
+        onDoubleClick={drawing && drawTool === "polygon" && !pending ? closePolygon : undefined}
         onContextMenu={drawing ? (e) => e.preventDefault() : undefined}
         onPointerCancel={drawing ? () => setShapeDrag(null) : undefined}
         onPointerDown={(e) => {
@@ -823,12 +905,31 @@ export function StagePlan({
           // no menu while drawing: a long press must not open one under the finger putting a corner
           const menu = onZoneMenu && !drawing ? zoneMenu(z.id) : undefined;
           const aimColor = z.aim ? (z.aim.color ?? AIM_COLOR) : undefined;
+          // a dark colour of its own gets a light halo: it stays visible on the dark plan
+          const halo = z.aim?.color !== undefined && textOn(z.aim.color) === "#ffffff";
+          const points = z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ");
+          const nameY = zoneNames.get(z.id);
+          const label = `${z.name}${z.protected ? ` (${t.protectedZone})` : ""}${z.noAim ? ` (${t.noAimZone})` : ""}`;
+          const xs = z.polygon.map((p) => p[0]);
           return (
           <g
             key={z.id}
             className={zoneDrag?.id === z.id ? "zone dragged" : "zone"}
             data-zone={z.id}
             {...menu}
+            // reachable by the keyboard (decision U3): Shift+F10, the menu key, Enter or Space open its menu, as a fixture's
+            {...(menu && !front
+              ? {
+                  tabIndex: 0,
+                  role: "button",
+                  "aria-label": t.zoneAim.zoneOnPlan.replace("{name}", () => z.name),
+                  onKeyDown: (e: ReactKeyboardEvent<SVGGElement>) => {
+                    if (e.target !== e.currentTarget || !((e.shiftKey && e.key === "F10") || e.key === "ContextMenu" || e.key === "Enter" || e.key === " ")) return;
+                    e.preventDefault();
+                    onZoneMenu?.(zone, besideZone(zone.polygon));
+                  },
+                }
+              : {})}
             onPointerDown={(e) => {
               if (drawing) return; // the plan draws: the corner goes where the zone is
               if (movingZones && !front && onZoneMove && !placing && !orienting && !aiming) {
@@ -841,25 +942,28 @@ export function StagePlan({
               menu?.onPointerDown(e);
             }}
           >
+            <title>{label}</title>
+            {halo && <polygon className="zone-halo" points={points} fill="none" />}
             <polygon
-              points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
+              points={points}
               fill={ZONE_FILL[z.type] ?? "#262a33"}
-              stroke={z.protected || z.noAim ? "#e5484d" : (aimColor ?? "#3b4150")}
+              stroke={z.protected || z.noAim ? "#e5484d" : aimColor ? undefined : "#3b4150"}
+              style={aimColor && !z.protected && !z.noAim ? { stroke: aimColor } : undefined}
               strokeWidth={aimColor && !z.protected && !z.noAim ? 2 : 1}
               strokeDasharray={z.protected || z.noAim ? "6 4" : undefined}
             />
-            {z.noAim && <polygon className="no-aim" points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} fill="url(#no-aim)" />}
-            <text x={sx(z.polygon.reduce((a, p) => a + p[0], 0) / z.polygon.length)} y={sy(Math.max(...z.polygon.map((p) => p[1]))) + 14} textAnchor="middle" className="zone-name">
-              {z.name}
-              {z.protected ? ` (${t.protectedZone})` : ""}
-              {z.noAim ? ` (${t.noAimZone})` : ""}
-            </text>
+            {z.noAim && <polygon className="no-aim" points={points} fill="url(#no-aim)" />}
+            {nameY !== undefined && (
+              <text x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={nameY} textAnchor="middle" className="zone-name" style={{ fontSize: `${zoneNameSize}px` }}>
+                {label}
+              </text>
+            )}
             {aimColor && !front && (() => {
               // its aiming point: a small reticle in its colour (T27)
               const at = aimSpot(z);
               const r = 6 * unit;
               return (
-                <g className="zone-aim" data-aim={z.id} role="img" aria-label={t.zoneAim.onPlan.replace("{name}", () => z.name)} transform={`translate(${sx(at.x)} ${sy(at.y)})`} stroke={aimColor}>
+                <g className={halo ? "zone-aim halo" : "zone-aim"} data-aim={z.id} role="img" aria-label={t.zoneAim.onPlan.replace("{name}", () => z.name)} transform={`translate(${sx(at.x)} ${sy(at.y)})`} style={{ stroke: aimColor }}>
                   <circle r={r} />
                   <line x1={-r * 1.8} x2={-r * 0.4} y1={0} y2={0} />
                   <line x1={r * 0.4} x2={r * 1.8} y1={0} y2={0} />
@@ -1044,7 +1148,22 @@ export function StagePlan({
               </g>
             );
           })}
-        {drawing && (
+        {pending && !front && (() => {
+          // the shape drawn, waiting for its name: still on the plan, dashed, its centre marked
+          const c = zoneCentre(pending.polygon);
+          const r = 6 * unit;
+          return (
+            <g className="draw-preview pending" aria-hidden pointerEvents="none">
+              <polygon className="draw-shape" points={pending.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} />
+              <g className="draw-centre" transform={`translate(${sx(c.x)} ${sy(c.y)})`}>
+                <circle r={r} />
+                <line x1={-r * 1.8} x2={r * 1.8} y1={0} y2={0} />
+                <line y1={-r * 1.8} y2={r * 1.8} x1={0} x2={0} />
+              </g>
+            </g>
+          );
+        })()}
+        {drawing && !pending && (
           <g className="draw-preview" aria-hidden pointerEvents="none">
             {shapeDrag && <polygon className="draw-shape" points={boxShape(shapeDrag).map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} />}
             {corners.length > 0 && <polyline className="draw-shape" points={[...corners, ...(cursor ? [cursor] : [])].map((c) => `${sx(c.x)},${sy(c.y)}`).join(" ")} />}

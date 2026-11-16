@@ -88,9 +88,11 @@ export function VenuePage(): ReactElement {
   const [editingCanvas, setEditingCanvas] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   /** The zone whose right-click menu is open, and where. */
-  const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [zoneMenu, setZoneMenu] = useState<{ id: string; x: number; y: number; before?: number } | null>(null);
   /** A zone just drawn on the plan (T27), asking its name and settings before it is created, and where. */
-  const [newZone, setNewZone] = useState<(DrawnZone & { x: number; y: number }) | null>(null);
+  const [newZone, setNewZone] = useState<(DrawnZone & { x: number; y: number; before?: number; reopen: () => void }) | null>(null);
+  /** Said after a forced delete: what named the zone now names nothing (a rule, a mapping). */
+  const [notice, setNotice] = useState("");
   const rowMenu = useContextMenu<string>((at, id) => setMenu({ id, ...at }));
   /** Shift+F10 or the context-menu key on a focused row (or a fixture of the plan): the same menu, by the element. */
   const keyMenu = (id: string) => (e: ReactKeyboardEvent<Element>) => {
@@ -111,6 +113,13 @@ export function VenuePage(): ReactElement {
     const polygon = rectPolygon(w, d, x, y);
     const zone = { id: uniqueId(slug(zoneDraft.name, "zone"), zones.map((z) => z.id)), name: zoneDraft.name, type: zoneDraft.type, polygon, floorHeight: Number(zoneDraft.floor) || 0, protected: zoneDraft.protected, noAim: zoneDraft.noAim };
     void run("stage.zone.put", { zone }).then(() => (setZoneDraft({ ...zoneDraft, name: "" }), refresh()));
+  };
+  /** « Zone n »: the first number no zone of that name takes yet. */
+  const nextZoneName = () => {
+    const names = new Set(zones.map((z) => z.name));
+    let n = 1;
+    while (names.has(`${t.zoneDraw.defaultName} ${n}`)) n++;
+    return `${t.zoneDraw.defaultName} ${n}`;
   };
   const size = (z: Zone) => {
     const xs = z.polygon.map((p) => p[0]);
@@ -167,7 +176,7 @@ export function VenuePage(): ReactElement {
   const sharedWarning = (question = t.deleteSharedConfirm) => (openVenue?.shared ? `${t.sharedVenue} ${sharedShows.join(", ")}\n${question}` : undefined);
   /** Deleting a zone says what still uses it (a fixture aiming at it, a rule, a mapping) and is forced only on that yes (T27, Q4). */
   const deleteZone = (z: Zone) =>
-    confirmDelete("zone", z.id, z.name, t, sharedWarning(t.zoneAim.deleteShared)).then(
+    confirmDelete("zone", z.id, z.name, t, sharedWarning(t.zoneAim.deleteShared), { usedBy: t.zoneAim.usedBy, anyway: t.zoneAim.deleteAnyway, forced: t.zoneAim.deleteUnchecked }, (r) => setNotice((r as { warning?: string }).warning ?? "")).then(
       (done) => {
         if (done) refresh();
         return done;
@@ -196,6 +205,11 @@ export function VenuePage(): ReactElement {
       {error && (
         <p className="error" onClick={() => setError("")}>
           {error}
+        </p>
+      )}
+      {notice && (
+        <p className="warn" role="status" onClick={() => setNotice("")}>
+          {notice}
         </p>
       )}
       {openVenue?.warning && (
@@ -552,7 +566,8 @@ export function VenuePage(): ReactElement {
           onZoneMenu={(z, at) => setZoneMenu({ id: z.id, ...at })}
           onFixtureMenu={(f, at) => setMenu({ id: f.id, ...at })}
           onZoneMove={(_z, moved) => void run("stage.zone.put", { zone: moved }).then(refresh)}
-          onZoneDraw={(shape, at) => (setZoneMenu(null), setNewZone({ ...shape, ...at }))}
+          onZoneDraw={(shape, at, reopen) => (setZoneMenu(null), setNewZone({ ...shape, ...at, reopen }))}
+          pending={newZone}
           targets={targets}
         />
         <p className="hint">{t.zoneHint}</p>
@@ -574,10 +589,12 @@ export function VenuePage(): ReactElement {
           <ZoneMenu
             key={`new-${newZone.x}-${newZone.y}`}
             creating
-            zone={{ id: "", name: `${t.zoneDraw.defaultName} ${zones.length + 1}`, type: "stage", polygon: newZone.polygon, outline: newZone.outline, floorHeight: 0, protected: false, noAim: false }}
+            zone={{ id: "", name: nextZoneName(), type: "stage", polygon: newZone.polygon, outline: newZone.outline, floorHeight: 0, protected: false, noAim: false }}
             at={newZone}
             onSave={(zone) => void run("stage.zone.put", { zone: { ...zone, id: uniqueId(slug(zone.name, "zone"), zones.map((z) => z.id)) } }).then(refresh)}
             onClose={() => setNewZone(null)}
+            // cancelled: a polygon goes back open on the plan, to be fixed
+            onCancel={() => (newZone.reopen(), setNewZone(null))}
           />
         )}
         <details className="calibration-box">

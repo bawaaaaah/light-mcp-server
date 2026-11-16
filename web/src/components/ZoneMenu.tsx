@@ -1,7 +1,7 @@
 import { useId, useState, type ReactElement } from "react";
 import { useT } from "../App";
 import { labelOf } from "../util";
-import { useFloatingMenu } from "./menu";
+import { useFloatingMenu, useMenuFocus } from "./menu";
 import { aimSpot, ellipsePolygon, rectPolygon, validZone, zoneRect, type Pt, type ZoneOutline } from "../zone-shape";
 import type { PlanZone } from "./StagePlan";
 import { SwatchPicker } from "./SwatchPicker";
@@ -10,7 +10,10 @@ import { SwatchPicker } from "./SwatchPicker";
  * Right-click (or a long press) on a zone of the stage plan: its name, type, sizes (a rectangle as the Lieu page draws
  * it, an ellipse drawn on the plan by its axes, T27), floor, protected, no-aim and « Visée » (T27: an aiming zone, its
  * height, colour and aiming point); saved by « Enregistrer », or deleted (the page asks, saying what still uses it).
- * `creating`: a zone just drawn on the plan (T27), not yet saved: « Créer la zone », no delete, an aiming zone by default.
+ * `creating`: a zone just drawn on the plan (T27), not yet saved: « Créer la zone », no delete, an aiming zone by default;
+ * a click elsewhere leaves it open (the drawn shape would be lost), only « Annuler » and Escape close it. Enter in a
+ * field saves (a form). Tab stays inside while it is open; the focus goes back to the plan or the zone on close. The
+ * outline is checked only when it changed: an old zone that would no longer pass stays editable (name, no-aim…).
  */
 export function ZoneMenu({
   zone,
@@ -19,17 +22,21 @@ export function ZoneMenu({
   onSave,
   onDelete,
   onClose,
+  onCancel,
 }: {
   zone: PlanZone;
-  at: { x: number; y: number };
+  at: { x: number; y: number; before?: number };
   creating?: boolean;
   onSave: (zone: PlanZone) => void;
   onDelete?: () => void;
   onClose: () => void;
+  /** Closed without saving (« Annuler », Escape): onClose otherwise. */
+  onCancel?: () => void;
 }): ReactElement {
   const t = useT();
   const w = t.zoneAim;
-  const { box, style } = useFloatingMenu(at, onClose);
+  const { box, style } = useFloatingMenu<HTMLFormElement>(at, onCancel ?? onClose, undefined, !creating);
+  const trap = useMenuFocus(box);
   const outline = zone.outline;
   // an ellipse by its axes; a rectangle by its sides (drawn as one, or read from its corners); a polygon as it is
   const ellipse = outline?.kind === "ellipse" ? outline : undefined;
@@ -50,6 +57,8 @@ export function ZoneMenu({
     px: String(zone.aim?.point?.[0] ?? Math.round(centre.x * 100) / 100),
     py: String(zone.aim?.point?.[1] ?? Math.round(centre.y * 100) / 100),
   });
+  /** The placed point as the menu opened: typed over, it is not carried along when the zone moves. */
+  const [initialPoint] = useState({ px: draft.px, py: draft.py });
   const [error, setError] = useState("");
   /** The ids of the aiming point's radios and of the section's help. */
   const radios = useId();
@@ -64,11 +73,18 @@ export function ZoneMenu({
       polygon = e.rx > 0 && e.ry > 0 ? ellipsePolygon(e.cx, e.cy, e.rx, e.ry, rotation) : [];
       drawn = { kind: "ellipse", ...e, ...(rotation ? { rotation } : {}) };
     }
-    if (!validZone(polygon)) return setError(w.invalid);
+    // checked only when the outline changed: an old zone that would no longer pass keeps its other edits
+    if (JSON.stringify(polygon) !== JSON.stringify(zone.polygon) && !validZone(polygon)) return setError(w.invalid);
+    // the zone moved by its centre or front edge (or an ellipse by its centre): its placed point goes with it, as when
+    // dragged on the plan (movedZone), unless the point itself was typed
+    const [dx, dy] = rect ? [num(draft.x, rect.x) - rect.x, num(draft.y, rect.y) - rect.y] : ellipse ? [num(draft.ex, ellipse.cx) - ellipse.cx, num(draft.ey, ellipse.cy) - ellipse.cy] : [0, 0];
+    const typed = draft.px !== initialPoint.px || draft.py !== initialPoint.py;
+    const [ox, oy] = typed ? [0, 0] : [dx, dy];
+    const cm = (v: number) => Math.round(v * 100) / 100;
     const aim = draft.aimOn
       ? {
           height: Math.min(20, Math.max(0, num(draft.aimHeight, 1.5))),
-          ...(draft.placed ? { point: [num(draft.px, centre.x), num(draft.py, centre.y)] as Pt } : {}),
+          ...(draft.placed ? { point: [cm(num(draft.px, centre.x) + ox), cm(num(draft.py, centre.y) + oy)] as Pt } : {}),
           ...(draft.aimColor ? { color: draft.aimColor } : {}),
         }
       : undefined;
@@ -79,15 +95,32 @@ export function ZoneMenu({
   const sizes = rect
     ? ([["width", t.zoneWidth], ["depth", t.zoneDepth], ["x", t.zoneCentreX], ["y", t.zoneFrontY]] as const)
     : ellipse
-      ? ([["ew", w.ellipseWidth], ["ed", w.ellipseDepth], ["ex", w.ellipseX], ["ey", w.ellipseY], ["rot", w.rotation]] as const)
+      ? ([["ew", t.zoneWidth], ["ed", t.zoneDepth], ["ex", t.zoneCentreX], ["ey", w.ellipseY], ["rot", w.rotation]] as const)
       : [];
   const title = creating ? t.zoneDraw.newZone : zone.name;
   return (
-    <div ref={box} className="widget-menu zone-menu" role="dialog" aria-label={creating ? t.zoneDraw.newZone : t.zoneMenu} style={style} onContextMenu={(e) => e.preventDefault()}>
+    <>
+    {/* on a phone, the page behind is dimmed: the form is what the finger acts on */}
+    <div className="menu-backdrop" aria-hidden />
+    <form
+      ref={box}
+      className="widget-menu zone-menu"
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      aria-label={creating ? t.zoneDraw.newZone : t.zoneMenu}
+      style={style}
+      onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={trap}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!creating || draft.name.trim()) save();
+      }}
+    >
       <h3>{title}</h3>
       <label className="field">
         <span>{t.zoneName}</span>
-        <input value={draft.name} autoFocus={creating} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        <input value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
       </label>
       <label className="field">
         <span>{t.zoneType}</span>
@@ -118,6 +151,11 @@ export function ZoneMenu({
       <label className="row" title={t.noAimHelp}>
         <input type="checkbox" checked={draft.noAim} onChange={(e) => setDraft({ ...draft, noAim: e.target.checked })} /> {t.noAimZone}
       </label>
+      {draft.noAim && draft.aimOn && (
+        <p className="warn" role="status">
+          {w.noAimConflict}
+        </p>
+      )}
       <fieldset className="zone-aim-section">
         <legend>{w.section}</legend>
         <label className="row">
@@ -164,18 +202,22 @@ export function ZoneMenu({
           {error}
         </p>
       )}
-      <div className="row">
-        <button className="primary" disabled={creating && !draft.name.trim()} onClick={save}>
+      {/* kept in sight at the bottom of a long menu: save without scrolling */}
+      <div className="row menu-actions">
+        <button type="submit" className="primary" disabled={creating && !draft.name.trim()}>
           {creating ? t.zoneDraw.create : t.save}
         </button>
         {!creating && onDelete && (
-          <button className="danger" onClick={onDelete}>
+          <button type="button" className="danger" onClick={onDelete}>
             {t.delete}
           </button>
         )}
         <span className="grow" />
-        <button onClick={onClose}>{creating ? t.cancel : t.close}</button>
+        <button type="button" onClick={onCancel ?? onClose}>
+          {creating ? t.cancel : t.close}
+        </button>
       </div>
-    </div>
+    </form>
+    </>
   );
 }
