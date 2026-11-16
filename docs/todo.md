@@ -146,6 +146,11 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - **Fait (2026-11-10)** : le refus de `fixture.definition.add` est une `CommandError` portant `detail { exists, file }` (relayé jusqu'à l'interface par `ApiError.detail`) ; la page Import garde le fichier refusé et affiche **« Remplacer »**, après une confirmation qui nomme le fichier écrasé. Tests : commande (détail, contenu identique accepté, `replace: true` écrase ou crée), parcours UI refus → Remplacer → ✔ (le 422 attendu est filtré). Plan relu en amont par deux modèles locaux (qwen3.8, bonsai-2) ; le code a été écrit par Claude (flint, délégué d'abord, a dépassé le délai sans rien écrire). La question « définition ou appareil du patch » est tranchée : **définition** ; rien n'a été trouvé pour le doublon d'un appareil (`venue.fixture.put` est un upsert, voir T22).
 - **Reste** : la détection porte sur le **nom de fichier** seulement : un même modèle sous un autre nom entre sans avertissement (T20b).
 
+
+### T40 — « Remplacer » ne marche pas à l'import d'une définition (signalé le 2026-11-16)
+- **Symptôme** (utilisateur, 2026-11-16) : remplacer une définition de projecteur à l'import ne fonctionne pas.
+- **Déjà traité ?** T34 (fait le 2026-11-10) a ajouté le bouton « Remplacer » à la page Import après un refus de doublon (`fixture.definition.add` avec `replace: true`, testé). Il faut donc **vérifier** : régression depuis, autre chemin d'import non couvert (bibliothèque de la page Lieu, import d'un workspace `.qxw`, import par glisser-déposer, archive `.lightshow`), ou remplacement fait mais sans effet visible (définition en cache, appareils patchés qui ne relisent pas la nouvelle version).
+- **À faire** : reproduire avec l'utilisateur (quel écran, quel fichier), corriger, ajouter le test du chemin en cause.
 ### T35 — Les boutons de look doivent tenir compte des DCA en place sur leurs pistes (demandé le 2026-11-10)
 - **Besoin** : quand un look est lancé par un bouton, il doit **prendre en compte les DCA déjà en place** sur la piste (le projecteur ou le canal) qu'il touche : le niveau final suit le dosage du DCA, au lieu de l'ignorer.
 - **À faire** : vérifier ce que fait le moteur aujourd'hui (un DCA dose-t-il les looks qui peignent ses projecteurs, ou seulement ses propres faders ? cf. `dmx.explain`, « Entre les boutons », T3 sur le gradateur) ; fixer la règle dans la couche moteur commune, pas dans l'interface ; test moteur (temps injectable) : look lancé sous un DCA à 50 % → sortie à 50 %, DCA relevé → suit.
@@ -168,6 +173,12 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - Constat pendant les essais : la route de l'univers 1 visait en direct (`send: nodes`) une IP où plus rien ne répondait ; les envois échouaient (`output.status` → `stats.errors`, 938 sur 1 201) **sans que rien ne prévienne** : le moteur calculait juste, les projecteurs restaient éteints. La node, elle, répondait à la découverte sur une autre adresse (plage Art-Net 2.x.x.x, hors du sous-réseau) ; la route est passée en `broadcast` pour l'essai.
 - **Fait quand** : une route dont les envois échouent, ou dont la cible ne figure pas parmi les nodes découvertes alors qu'une node sort la même adresse Art-Net, est signalée (bandeau de la page Réglages et `output.status`), avec la proposition de la retarget ou de passer en broadcast ; test sur la logique de détection (pure).
 
+
+### T41 — Presets de couleur avec favoris (demandé le 2026-11-16)
+- **Besoin** : pouvoir enregistrer des **presets de couleur** (une couleur, ou un jeu de couleurs) et en marquer certains en **favoris**, pour les retrouver et les appliquer vite.
+- **À prévoir** : ajouter, renommer, supprimer un preset ; ajouter ou retirer un favori ; ordre des favoris ; accès rapide depuis les looks, le panneau d'un appareil et le Live ; rangement dans le show ou dans la bibliothèque personnelle (comme les intentions, T15) ; export dans les `.lightshow`.
+- **À trancher avec l'utilisateur** : lien avec les palettes et les intentions existantes (un preset de couleur est-il une palette d'une couleur ?), portée (show ou machine), où apparaissent les favoris.
+- **Rang** : moyen. À planifier.
 ## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : une lyre wash, une lyre spot à roue, une machine à fumée RGB)
 
 Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts), [qxf-import.ts](../src/plugins/light/venue/qxf-import.ts)) et dans les `.qxf` de `data/fixtures/` (privé, rien de tout ça ne va dans le dépôt) :
