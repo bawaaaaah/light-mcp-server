@@ -57,7 +57,7 @@ export function EditorActions({
           </button>
         )}
         {onDelete && (
-          <button className="ghost danger" onClick={onDelete}>
+          <button type={form ? "button" : undefined} className="ghost danger" onClick={onDelete}>
             {t.delete}
           </button>
         )}

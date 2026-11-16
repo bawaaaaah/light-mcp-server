@@ -52,8 +52,8 @@ function fakeDeps() {
     command(name: string, ok = true) {
       this.emit("light:command", { name, ok });
     },
-    up() {
-      for (const fn of [...status]) fn(true);
+    up(on = true) {
+      for (const fn of [...status]) fn(on);
     },
     async runTimers() {
       const due = [...timers.entries()];
@@ -266,5 +266,88 @@ describe("command store (web)", () => {
     expect(swapped).to.not.equal(rows);
     expect(swapped[0]).to.equal(b);
     expect(keepRows(rows, [{ ...a }])).to.deep.equal([a]);
+  });
+
+  it("tries again after each failed first read: a second failure sets a second timer", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    store.subscribe(() => undefined);
+    await f.fail();
+    await f.runTimers();
+    await f.fail();
+    expect(f.timers.size).to.equal(1);
+    await f.runTimers();
+    expect(f.calls).to.have.length(1);
+  });
+
+  it("tries again after a failure once listened to anew, the retry before cancelled", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    const off = store.subscribe(() => undefined);
+    await f.fail();
+    off();
+    store.subscribe(() => undefined);
+    await f.fail();
+    expect(f.timers.size).to.equal(1);
+  });
+
+  it("keeps one retry timer however many reads fail before it runs", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    store.subscribe(() => undefined);
+    await f.fail();
+    store.refresh();
+    await f.fail();
+    expect(f.timers.size).to.equal(1);
+  });
+
+  it("owes nothing once nobody listens: a failure and a refresh after off() set no timer and read nothing", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    const off = store.subscribe(() => undefined);
+    off();
+    store.refresh(); // the first read is still in flight: asked again
+    await f.fail();
+    expect(f.timers.size).to.equal(0);
+    expect(f.calls).to.have.length(0);
+  });
+
+  it("reads nothing when a retry timer the platform could not cancel runs after off()", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), { ...f.deps, clearTimer: () => undefined });
+    const off = store.subscribe(() => undefined);
+    await f.fail();
+    off();
+    await f.runTimers();
+    expect(f.calls).to.have.length(0);
+  });
+
+  it("reads nothing when the link goes down", async () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    store.subscribe(() => undefined);
+    await f.answer([]);
+    f.up(false);
+    expect(f.calls).to.have.length(0);
+  });
+
+  it("subscribes to the channel once for every listener, and lets go after the last", () => {
+    const f = fakeDeps();
+    const store = createCommandStore(options(), f.deps);
+    const off1 = store.subscribe(() => undefined);
+    const once = f.listening();
+    const off2 = store.subscribe(() => undefined);
+    expect(f.listening()).to.equal(once);
+    off1();
+    expect(f.listening()).to.equal(once);
+    off2();
+    expect(f.listening()).to.equal(0);
+  });
+
+  it("unlessSame gives previous back for the same content, next for another", () => {
+    const previous = { a: 1, b: [1, 2] };
+    expect(unlessSame(previous, { a: 1, b: [1, 2] })).to.equal(previous);
+    const next = { a: 1, b: [2, 1] };
+    expect(unlessSame(previous, next)).to.equal(next);
   });
 });
