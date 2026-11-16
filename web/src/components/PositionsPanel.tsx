@@ -106,7 +106,7 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
       .then((r) => {
         const freed = held.filter((h) => !r.refused?.includes(h));
         showLockToast(
-          [freed.length ? w.handedBack.replace("{names}", () => headNames(p, freed)) : "", r.refused?.length ? w.refused.replace("{names}", () => headNames(p, r.refused!)) : ""].filter(Boolean).join(" · "),
+          [freed.length ? w.handedBack.replace("{names}", () => headNames(p, freed)) : "", r.refused?.length ? (r.refused.length === 1 ? w.refusedOne : w.refused).replace("{names}", () => headNames(p, r.refused!)) : ""].filter(Boolean).join(" · "),
           r.refused?.length ? "alert" : "neutral",
         );
       })

@@ -341,7 +341,8 @@ export function Calibration({
         {tab === "guided" && (
           <div className="cal-guided">
             <div className="calibration-pad">
-              <XyPad fixture={head} label={heads.find((h) => h.id === head)?.name} onError={onError} />
+              {/* the aiming zones as this head sees them (decision P-c): the guided marks are often taken on them */}
+              <XyPad fixture={head} label={heads.find((h) => h.id === head)?.name} onError={onError} showZones />
             </div>
             {error && (
               <p className="error" role="alert">

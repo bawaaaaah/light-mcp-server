@@ -9205,7 +9205,7 @@ test("named positions: the Live widget recalls its position, lit while held, say
     // frozen hard: nothing moves, and the toast names the head left in place
     await asDesk(page, "motion.freeze", { level: "hard" });
     await button.click();
-    await expect(page.getByTestId("lock-toast")).toHaveText("Figées par le verrou, laissées en place : Lyre");
+    await expect(page.getByTestId("lock-toast")).toHaveText("Figée par le verrou, laissée en place : Lyre");
     await asDesk(page, "motion.unfreeze");
     // its menu: the position chosen there, and MIDI like the other buttons
     await button.click({ button: "right" });

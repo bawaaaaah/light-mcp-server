@@ -11,9 +11,11 @@ import { noKeyRepeat, useArm } from "../hooks/useArm";
 import { useThrottledSend } from "../hooks/useThrottledSend";
 import { holdText } from "../hold-text";
 import { arrowStep, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, type PadSpan } from "../correctionPad";
-import { leftOut } from "../positionRecall";
+import { leftOut } from "../leftOut";
 import { placeLabels, textWidth } from "../plan-tools";
-import { useZoneProjection, type ProjectedZone } from "../hooks/useZoneProjection";
+import { useZoneProjection } from "../hooks/useZoneProjection";
+import { fromView, toView, WHOLE_PAD, zoneUnder, zonesView, type PadView, type ProjectedZone } from "../pad-zones";
+import { textOn } from "../color";
 import { showLockToast } from "./MotionLockButton";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
@@ -46,18 +48,23 @@ type XyPadProps = {
    */
   zones?: readonly ZoneChip[];
   /**
-   * A single head's pad (its panel, T27 lot 5): the aiming zones drawn as this head sees them, in pan/tilt
-   * (`stage.zone.project`), read-only. Not on a correction pad (`span`).
+   * A single head's pad (its panel, the guided calibration; T27 lot 5): the aiming zones drawn as this head sees them, in
+   * pan/tilt (`stage.zone.project`); a tap in one sends the head to it, a legend of chips under the pad too. Not on a
+   * correction pad (`span`).
    */
   showZones?: boolean;
+  /** The dashboard is arranged: the widget is moved, not played; no press or key acts (nothing is disabled). */
+  inert?: boolean;
 };
 
 /** The projected zones' names on the pad (px). */
-const ZONE_LABEL_PX = 11;
+const ZONE_LABEL_PX = 12;
+/** How far (px) a press in an aiming zone may wander and still be a tap (to the zone) rather than a drag (free). */
+const TAP_SLOP_PX = 8;
 
 /** An aiming zone as a chip: its name and its colour (absent: the aiming zones' colour). */
 export type ZoneChip = { id: string; name: string; color?: string | undefined };
-type AimReply = { results?: { fixture: string; error?: string }[]; refused?: string[] };
+type AimReply = { results?: { fixture: string; error?: string; unplaced?: true }[]; refused?: string[] };
 
 type Axis = "pan" | "tilt";
 type PositionWrite = { target: MotionTarget; point: Position };
@@ -97,13 +104,28 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved, zones, showZones = false }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved, zones, showZones = false, inert = false }: XyPadProps): ReactElement {
   const t = useT();
+  // the aiming zones as this head sees them (T27, lot 5): its own pad only, never a group's (each head its own frame)
+  const zonesOn = showZones && Boolean(fixture) && !span;
+  const projection = useZoneProjection(zonesOn ? fixture : undefined);
+  const projected = projection.zones;
+  /** The zones with something drawn: an empty one would give no frame and no label. */
+  const drawn = projected.filter((z) => z.paths.some((path) => path.length > 1));
+  /** « Point exact » (decision P-a): a tap in a zone is the pad's own gesture, as Alt / Option. */
+  const [exact, setExact] = useState(false);
+  /** « Zoom sur les zones » (U1): the pad framed on the zones drawn; the dots and the gesture follow. */
+  const [zoomed, setZoomed] = useState(false);
+  const zoomView: PadView | undefined = zoomed ? zonesView(drawn) : undefined;
   /** A logical position → where it sits on the pad (0..1 across and up), kept on the pad's edge when beyond it. */
   const placed = (p: Position): Position => {
+    const edge = (at: Position): Position => ({ pan: Math.max(0, Math.min(1, at.pan)), tilt: Math.max(0, Math.min(1, at.tilt)) });
+    if (zoomView) {
+      const [pan, tilt] = toView(zoomView, p.pan, p.tilt);
+      return edge({ pan, tilt });
+    }
     if (!span) return p;
-    const at = logicalToPad(span, p);
-    return { pan: Math.max(0, Math.min(1, at.pan)), tilt: Math.max(0, Math.min(1, at.tilt)) };
+    return edge(logicalToPad(span, p));
   };
   /** Where a position is, as read: percent of the travel, or on a correction pad its offset from the centre in degrees. */
   const positionText = (p: Position, sep: string): string => {
@@ -122,8 +144,6 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const moved = (axis: Axis, v: number): number => (span ? onPad(span, axis, v) : clamp(v));
   const target: MotionTarget = fixture ? { fixtures: [fixture] } : group ? { group } : {};
   const { heads: scopedHeads, loaded, refresh, markGesture } = useMotionHeads(target);
-  // the aiming zones as this head sees them (T27, lot 5): its own pad only, never a group's (each head its own frame)
-  const projected = useZoneProjection(showZones && fixture && !span ? fixture : undefined);
   // « Figer les lyres » (T26): every targeted head frozen hard → the pad is off, with the reason and « Défiger »; frozen
   // soft → the pad still moves them; some frozen hard on a group → the others move (decision U1), those stay
   const lockView = useMotionLock();
@@ -171,7 +191,9 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const zonesId = useId();
   /** The pad's size on screen (px): the projected zones' names keep their size and never overlap. */
   const [padSize, setPadSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
-  const hasZones = projected.length > 0;
+  const hasZones = zonesOn && projected.length > 0;
+  /** A press in an aiming zone (decision P-a): a tap until it wanders TAP_SLOP_PX (then a drag), nothing sent before. */
+  const tap = useRef<{ zone: ProjectedZone; x: number; y: number } | null>(null);
   useEffect(() => {
     const el = pad.current;
     if (!hasZones || !el || typeof ResizeObserver === "undefined") return;
@@ -228,6 +250,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     setPos(null);
     setConfirmation("");
     setKeyboardHint("");
+    setZoomed(false);
+    tap.current = null;
   }, [group, fixture]);
   useEffect(() => refresh(), [refresh, resync]);
   const manualSignature = scopedHeads.map((h) => `${h.id}:${h.manual?.pan},${h.manual?.tilt}`).join("|");
@@ -314,16 +338,25 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     // Layout may change during a gesture; the pad's geometry at pointerdown remains the gesture's reference.
     const rect = dragRect.current ?? pad.current!.getBoundingClientRect();
     const [x, y] = [(event.clientX - rect.left) / rect.width, 1 - (event.clientY - rect.top) / rect.height];
-    return span ? padToLogical(span, x, y) : { pan: clamp(x), tilt: clamp(y) };
+    if (span) return padToLogical(span, x, y);
+    const [pan, tilt] = fromView(zoomView ?? WHOLE_PAD, x, y);
+    return { pan: clamp(pan), tilt: clamp(tilt) };
   };
   const endPointer = (event: React.PointerEvent): void => {
     if (activePointer.current !== event.pointerId) return;
     activePointer.current = null;
     dragRect.current = null;
+    const tapped = event.type === "pointerup" ? tap.current?.zone : undefined;
+    tap.current = null;
     setDragging(false);
+    if (tapped) void aimAtZone(tapped);
   };
+  /** The aiming zone under a pad point, found on the stage (the beam to each zone's aiming plane); only a zone whose aiming point the head reaches. */
+  const zoneAtPad = (p: Position): ProjectedZone | undefined =>
+    projection.head ? zoneUnder(projection.head, projected.filter((z) => z.aim), p.pan, p.tilt) : undefined;
 
   const runMotion = async (name: "position.releaseTop" | "position.home" | "position.rest.set" | "position.rest.clear", args: Record<string, unknown> = {}): Promise<void> => {
+    if (inert) return; // arranging: a key on a button acts no more than a press
     const actionTarget = cloneTarget(targetRef.current);
     try {
       if (name !== "position.rest.set" && name !== "position.rest.clear") {
@@ -459,7 +492,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
    * heads frozen hard (T26) and heads that cannot reach it are said in the app's toast, never left unsaid.
    */
   const aimAtZone = async (zone: ZoneChip): Promise<void> => {
-    if (disabled) return;
+    if (disabled || inert) return;
     const aimTarget = cloneTarget(targetRef.current);
     keyBurst.current = null;
     setPos(null);
@@ -467,11 +500,14 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     await sender.drop();
     try {
       const reply = await cmd<AimReply>("position.aim", { ...aimTarget, zone: zone.id });
-      const unreachable = (reply?.results ?? []).flatMap((r) => (r.error ? [{ fixture: r.fixture, error: r.error }] : []));
+      const unreachable = (reply?.results ?? []).flatMap((r) => (r.error ? [{ fixture: r.fixture, error: r.error, ...(r.unplaced ? { unplaced: true as const } : {}) }] : []));
       const said = leftOut(t, zone.name, { refused: reply?.refused ?? [], unreachable }, nameOfHead);
       if (said.length) showLockToast(said.join(" · "));
-      markGesture();
-      onMovedRef.current?.();
+      // a head that went there: the pad follows it (and the Show page keeps it adjusted); none moved, nothing to follow
+      if ((reply?.results ?? []).some((r) => !r.error)) {
+        markGesture();
+        onMovedRef.current?.();
+      }
     } catch (error) {
       const refused = error instanceof ApiError ? error.detail?.refused : undefined;
       const said = Array.isArray(refused) ? leftOut(t, zone.name, { refused: refused.filter((id): id is string => typeof id === "string") }, nameOfHead) : [];
@@ -495,6 +531,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   // the head's or the group's own lock
   const globalHard = lockView?.lock.level === "hard";
   const unfreeze = (): void => {
+    if (inert) return;
     // someone may be up by a head: a second press, as for a look marked « À confirmer »; the target as it was when armed
     const fire = armUnfreeze("unfreeze", cloneTarget(targetRef.current));
     if (fire) void cmd("motion.unfreeze", fire.payload).then(refresh, (error: Error) => onErrorRef.current(error.message));
@@ -511,7 +548,17 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   }, [canRelease]);
 
   const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (disabled) return;
+    if (disabled || inert) return;
+    if (event.key === "Enter" && hasZones) {
+      // the keyboard's tap (decision P-a): the head onto the aiming point of the zone it points at
+      event.preventDefault();
+      event.stopPropagation();
+      const pointed = shown ?? firstSent;
+      const zone = pointed ? zoneAtPad(pointed) : undefined;
+      if (zone) void aimAtZone(zone);
+      else setKeyboardHint(t.zoneAim.noZoneHere);
+      return;
+    }
     const axis = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "pan" : event.key === "ArrowUp" || event.key === "ArrowDown" ? "tilt" : undefined;
     if (event.key !== "Home" && !axis) return;
     // a correction pad: a hundredth of the pad (Shift a tenth, Alt one real step of the output); else 1 % of the travel (Shift 10 %)
@@ -549,6 +596,13 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     const at = pos ?? (sameManual ? firstManual : null) ?? (sameSent ? firstSent : null) ?? (span ? padCenter(span) : { pan: 0.5, tilt: 0.5 });
     send({ ...at, [axis]: moved(axis, at[axis] + delta) });
   };
+
+  /** What a projected zone's legend line says besides its name: its reach, its aiming point beyond the stops, the axis. */
+  const zoneStates = (z: ProjectedZone): string[] => [
+    ...(z.reach === "none" ? [t.zoneAim.projectedOut] : z.reach === "partial" ? [t.zoneAim.projectedPartial] : []),
+    ...(!z.aim && z.reach !== "none" ? [t.zoneAim.projectedAimOut] : []),
+    ...(z.axisInside ? [t.zoneAim.projectedAxis] : []),
+  ];
 
   const legend = (
     <ul className="xy-legend" aria-label={t.motionLegend}>
@@ -666,17 +720,28 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
           activePointer.current = event.pointerId;
           keyBurst.current = null;
           event.currentTarget.setPointerCapture(event.pointerId);
+          const at = fromEvent(event);
+          // in an aiming zone (Alt / Option and « Point exact » aside): a tap, unless it turns into a drag
+          const zone = hasZones && !exact && !event.altKey ? zoneAtPad(at) : undefined;
+          tap.current = zone ? { zone, x: event.clientX, y: event.clientY } : null;
+          if (zone) return;
           setDragging(true);
-          send(fromEvent(event));
+          send(at);
         }}
         onPointerMove={(event) => {
-          if (activePointer.current === event.pointerId && !disabled) send(fromEvent(event));
+          if (activePointer.current !== event.pointerId || disabled) return;
+          const pending = tap.current;
+          if (pending) {
+            if (Math.hypot(event.clientX - pending.x, event.clientY - pending.y) < TAP_SLOP_PX) return;
+            tap.current = null;
+            setDragging(true);
+          }
+          send(fromEvent(event));
         }}
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
       >
-        <span className="cross" />
-        {hasZones && <ZoneOutlines zones={projected} size={padSize} />}
+        {!zoomView && <span className="cross" />}
         {allHard && (
           <span className="xy-lock-mark" aria-hidden="true">
             🔒🔒
@@ -702,12 +767,17 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
             />
           );
         })}
+        {/* over the dots: the head's dot never hides the outline it sits on */}
+        {hasZones && drawn.length > 0 && <ZoneOutlines zones={drawn} size={padSize} view={zoomView ?? WHOLE_PAD} zoomed={Boolean(zoomView)} />}
       </div>
       <span id={hintId} className="sr-only">{t.padKeysHelp} {t.padDotsHelp}</span>
       {hasZones && (
         <span id={zonesId} className="sr-only" data-testid="xy-zones-text">
           {`${t.zoneAim.projected.replace("{name}", () => label ?? t.heads)}${t.colon} ${projected
-            .map((z) => (z.reach === "full" ? z.name : `${z.name} (${z.reach === "partial" ? t.zoneAim.projectedPartial : t.zoneAim.projectedOut})`))
+            .map((z) => {
+              const states = zoneStates(z);
+              return states.length ? `${z.name} (${states.join(", ")})` : z.name;
+            })
             .join(", ")}. ${t.zoneAim.projectedHelp}`}
         </span>
       )}
@@ -815,6 +885,47 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         )}
         {compact && infoBubble}
       </div>
+      {zonesOn && projection.reason === "no-position" && (
+        <small className="hint xy-zone-unplaced" data-testid="xy-zones-unplaced">
+          {t.zoneAim.padUnplaced}
+        </small>
+      )}
+      {hasZones && (
+        <>
+          <div className="row xy-zone-tools">
+            <button type="button" className={exact ? "on" : undefined} aria-pressed={exact} title={t.zoneAim.padExactHelp} data-testid="xy-zone-exact" onClick={() => setExact((on) => !on)}>
+              {t.zoneAim.exact}
+            </button>
+            <button type="button" className={zoomed ? "on" : undefined} aria-pressed={zoomed} title={t.zoneAim.padZoomHelp} disabled={!drawn.length} data-testid="xy-zone-zoom" onClick={() => setZoomed((on) => !on)}>
+              {t.zoneAim.padZoom}
+            </button>
+          </div>
+          {/* the legend of the pad's zones, one line each, that sends the head there (decisions P-b, U1) */}
+          <div className="xy-zone-chips xy-zone-legend" role="group" aria-label={t.zoneAim.padLegend} data-testid="xy-zone-legend">
+            {projected.map((z) => {
+              const states = zoneStates(z);
+              return (
+                <button
+                  key={z.id}
+                  type="button"
+                  className="xy-zone-chip"
+                  data-zone={z.id}
+                  data-reach={z.reach}
+                  disabled={disabled || !scopedHeads.length}
+                  title={z.aim ? t.zoneAim.padChipHelp.replace("{name}", () => z.name) : t.zoneAim.padChipFails.replace("{name}", () => z.name)}
+                  style={{ "--zone-color": z.color ?? "var(--aim-color)" } as React.CSSProperties}
+                  onClick={() => void aimAtZone(z)}
+                >
+                  <i className={`zone-chip-mark${z.reach === "full" ? "" : " dashed"}`} aria-hidden="true" />
+                  {z.name}
+                  {states.length > 0 && <small className="zone-chip-state">{states.join(", ")}</small>}
+                </button>
+              );
+            })}
+            {projected.some((z) => z.reach === "partial") && <small className="hint xy-zone-dashed">{t.zoneAim.padDashed}</small>}
+          </div>
+        </>
+      )}
       {zones && zones.length > 0 && (
         <div className="xy-zone-chips" role="group" aria-label={t.zoneAim.chips} data-testid="xy-zone-chips">
           {zones.map((zone) => (
@@ -839,18 +950,24 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
 }
 
 /**
- * The aiming zones as one head sees them (T27, lot 5), over its pad: each outline in its colour (the runs in reach; a
- * dashed run is part of a zone partly out of reach), its aiming point marked, its name placed without overlap
- * (`placeLabels`, as on the plan). Drawn under the dots and never in the way of a gesture (no pointer events).
+ * The aiming zones as one head sees them (T27, lot 5), over its pad: each outline in its colour (a dark colour with a light
+ * rim; a dashed run is part of a zone partly out of reach), its aiming point circled. A name is written next to its own
+ * outline only (`placeLabels`, clear of the aiming points), never nearer to another zone's outline than to its own:
+ * otherwise only the legend under the pad names it. Over the dots, never in the way of a gesture (no pointer events).
+ * `view`: the part of the pad shown (« Zoom sur les zones »).
  */
-function ZoneOutlines({ zones, size }: { zones: readonly ProjectedZone[]; size: { w: number; h: number } }): ReactElement {
-  const shown = zones.filter((z) => z.reach !== "none");
-  const at = (p: [number, number]): { x: number; y: number } => ({ x: p[0] * size.w, y: (1 - p[1]) * size.h });
-  // each name outside its outline (under it, else over it), centred on it and kept within the pad: never over the
-  // aiming point, where the head's dot lands
+function ZoneOutlines({ zones, size, view, zoomed }: { zones: readonly ProjectedZone[]; size: { w: number; h: number }; view: PadView; zoomed: boolean }): ReactElement {
+  const inView = (p: readonly [number, number]): [number, number] => toView(view, p[0], p[1]);
+  const at = (p: readonly [number, number]): { x: number; y: number } => {
+    const [x, y] = inView(p);
+    return { x: x * size.w, y: (1 - y) * size.h };
+  };
+  const outlinePx = new Map(zones.map((z) => [z.id, z.paths.flat().map(at)]));
+  /** The distance (px) from a point to a zone's drawn outline (its points, sampled every 10 cm on the stage). */
+  const nearest = (id: string, x: number, y: number): number => Math.min(...(outlinePx.get(id) ?? []).map((p) => Math.hypot(p.x - x, p.y - y)));
   const place = new Map(
-    shown.map((z) => {
-      const pts = z.paths.flat().map(at);
+    zones.map((z) => {
+      const pts = outlinePx.get(z.id)!;
       const xs = pts.map((p) => p.x);
       const ys = pts.map((p) => p.y);
       const width = textWidth(z.name, ZONE_LABEL_PX) + ZONE_LABEL_PX; // the colour dot before the name
@@ -858,25 +975,57 @@ function ZoneOutlines({ zones, size }: { zones: readonly ProjectedZone[]; size: 
       return [z.id, { x, width, below: Math.max(...ys) + ZONE_LABEL_PX * 1.3, above: Math.min(...ys) - ZONE_LABEL_PX * 0.4 }] as const;
     }),
   );
-  const labels = size.w > 0 ? placeLabels(shown.map((z) => ({ id: z.id, ...place.get(z.id)! })), ZONE_LABEL_PX) : new Map<string, number>();
-  const points = (path: readonly [number, number][]) => path.map(([pan, tilt]) => `${pan},${1 - tilt}`).join(" ");
+  const marks = zones.flatMap((z) => (z.aim ? [{ id: `#aim-${z.id}`, ...at(z.aim) }] : []));
+  const labels = new Map<string, number>();
+  if (size.w > 0) {
+    const placed = placeLabels(
+      [
+        // the aiming points first: no name over one (the head's dot lands there)
+        ...marks.map((m) => ({ id: m.id, x: m.x, below: m.y + ZONE_LABEL_PX * 0.4, above: m.y + ZONE_LABEL_PX * 0.4, width: ZONE_LABEL_PX * 1.4 })),
+        ...zones.map((z) => ({ id: z.id, ...place.get(z.id)! })),
+      ],
+      ZONE_LABEL_PX,
+    );
+    for (const z of zones) {
+      const y = placed.get(z.id);
+      if (y === undefined) continue;
+      const { x, width } = place.get(z.id)!;
+      const middle = y - ZONE_LABEL_PX * 0.35;
+      // within the pad, and nearer to its own outline than to any other's (measured at its middle and both ends)
+      if (y - ZONE_LABEL_PX > size.h || y < 0) continue;
+      const own = Math.min(...[x - width / 2, x, x + width / 2].map((px) => nearest(z.id, px, middle)));
+      const other = Math.min(Infinity, ...zones.filter((o) => o.id !== z.id).flatMap((o) => [x - width / 2, x, x + width / 2].map((px) => nearest(o.id, px, middle))));
+      if (own <= other) labels.set(z.id, y);
+    }
+  }
+  const points = (path: readonly [number, number][]) =>
+    path
+      .map((p) => {
+        const [x, y] = inView(p);
+        return `${x},${1 - y}`;
+      })
+      .join(" ");
+  const halo = (z: ProjectedZone): boolean => z.color !== undefined && textOn(z.color) === "#ffffff";
   return (
     <>
-      <svg className="xy-zones" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="xy-zones">
-        {shown.map((z) => (
+      <svg className={zoomed ? "xy-zones zoomed" : "xy-zones"} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="xy-zones">
+        {zones.map((z) => (
           <g key={z.id} data-zone={z.id} data-reach={z.reach} style={{ "--zone-color": z.color ?? "var(--aim-color)" } as React.CSSProperties}>
+            {/* a dark colour of its own: a light rim under it keeps it visible on the dark pad */}
+            {halo(z) && z.paths.map((path, i) => (z.closed ? <polygon key={`h${i}`} className="halo" points={points(path)} /> : <polyline key={`h${i}`} className="halo" points={points(path)} />))}
             {z.paths.map((path, i) => (z.closed ? <polygon key={i} points={points(path)} /> : <polyline key={i} points={points(path)} />))}
           </g>
         ))}
       </svg>
-      {shown.map((z) => {
+      {zones.map((z) => {
         const a = z.aim ? at(z.aim) : undefined;
         const y = labels.get(z.id);
         const x = place.get(z.id)!.x;
         const style = { "--zone-color": z.color ?? "var(--aim-color)" } as React.CSSProperties;
+        const shownAim = a && a.x >= 0 && a.x <= size.w && a.y >= 0 && a.y <= size.h;
         return (
           <span key={z.id} className="xy-zone" data-zone={z.id} aria-hidden="true">
-            {a && <span className="xy-zone-aim" style={{ ...style, left: `${a.x}px`, top: `${a.y}px` }} />}
+            {shownAim && <span className={halo(z) ? "xy-zone-aim halo" : "xy-zone-aim"} style={{ ...style, left: `${a.x}px`, top: `${a.y}px` }} />}
             {y !== undefined && (
               <span className={z.reach === "partial" ? "xy-zone-name partial" : "xy-zone-name"} style={{ ...style, left: `${x}px`, top: `${y - ZONE_LABEL_PX * 0.85}px`, fontSize: `${ZONE_LABEL_PX}px` }}>
                 {z.name}

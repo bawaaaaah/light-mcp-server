@@ -1,4 +1,4 @@
-import { TEXTS, type Texts } from "./i18n";
+import { TEXTS, type Texts } from "./i18n.js";
 
 /** The interface's language is French: « » quotes, a space before ? and :. */
 export const isFrench = (t: Texts): boolean => t === TEXTS.fr;

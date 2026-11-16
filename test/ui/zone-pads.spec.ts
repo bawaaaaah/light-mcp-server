@@ -4,8 +4,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * T27, lots 4 and 5 (docs/specs/venue-fixtures-stage.md, « Zones » ; docs/specs/ui-dashboards.md): the aiming zones on
  * the pads. On the target pad (top view) they are drawn in their colour and a tap in one puts the target on its aiming
  * point (`target.zone`), a drag stays free; under a group's XY pad, one chip per aiming zone sends the heads there
- * (`position.aim {zone}`), what is left out said in the toast; on a single head's pad (its panel), the zones' outlines
- * projected in pan/tilt (`stage.zone.project`). Everything made here is put back at the end (other specs count it).
+ * (`position.aim {zone}`), what is left out said in the toast; on a single head's pad (its panel, the guided calibration),
+ * the zones' outlines projected in pan/tilt (`stage.zone.project`): a tap in one sends the head there (decision P-a),
+ * a legend of chips under the pad too (P-b). Everything made here is put back at the end (other specs count it).
  */
 
 type Dashboard = { id: string; widgets: { id: string; kind: string; x: number; y: number; w: number; h: number; target?: string; label?: string }[] };
@@ -101,7 +102,8 @@ test("T27 lot 4: the target pad draws the aiming zones; a tap in one puts the ta
       // in its own colour, its aiming point marked, its name written
       expect(await zone.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { stroke: string } }).getComputedStyle(el).stroke)).toBe("rgb(34, 197, 94)");
       await expect(pad.locator(`g.tp-zone-aim[data-aim="${ZONE.id}"]`)).toHaveCount(1);
-      await expect(pad.locator(`text[data-zone-name="${ZONE.id}"]`)).toHaveText(ZONE.name);
+      // its name on the plan when it fits inside it, else in the legend under the plan (U2)
+      await expect(pad.locator(`text[data-zone-name="${ZONE.id}"]`).or(pad.getByTestId("target-zone-legend").locator(`li[data-zone="${ZONE.id}"]`))).toHaveText(ZONE.name);
       // a tap anywhere in it: the target goes to its aiming point, at its aiming height
       const box = (await zone.boundingBox())!;
       const writes: string[] = [];
@@ -134,6 +136,24 @@ test("T27 lot 4: the target pad draws the aiming zones; a tap in one puts the ta
       await plan.focus();
       await page.keyboard.press("Enter");
       await expect.poll(async () => targetPoint(page)).toEqual({ x: -2, y: 3, z: 1.5 });
+      // « Point exact » (decision P-d): the finger's Alt, pressed, then a tap is the exact point
+      const exact = pad.getByTestId("target-exact");
+      await expect(exact).toHaveAttribute("aria-pressed", "false");
+      await exact.click();
+      await expect(exact).toHaveAttribute("aria-pressed", "true");
+      await page.mouse.click(box.x + box.width * 0.8, box.y + box.height * 0.8);
+      await expect.poll(async () => (await targetPoint(page)).x).toBeCloseTo(-1.4, 0);
+      await exact.click();
+      // Enter outside any aiming zone: a short hint, said
+      await desk(page, "target.set", { id: "t27p", x: 3, y: 5 });
+      await expect(plan).toHaveAttribute("aria-valuenow", "3");
+      await plan.focus();
+      await page.keyboard.press("Enter");
+      await expect(pad.getByTestId("target-key-hint")).toHaveText("Pas de zone de visée ici.");
+      // every zone has an accessible name; the names are 12 px at least on screen
+      await expect(pad.locator(`polygon.tp-zone[data-zone="${PLAIN.id}"] title`)).toHaveText(PLAIN.name);
+      const named = pad.locator("text.tp-zone-name").first();
+      if (await named.count()) expect((await named.boundingBox())!.height).toBeGreaterThanOrEqual(11);
       await pad.screenshot({ path: "test-results/t27-target-pad-desktop.png" });
     });
   });
@@ -184,7 +204,8 @@ test("T27 lot 4: a zone chip under a group's pad sends its heads to the zone; ou
         // a head that cannot reach the zone (its stops, T8): said in the toast, by name
         await desk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung", orientation: { limits: { tilt: [-5, 5] } } } });
         await chip.click();
-        await expect(page.getByTestId("lock-toast")).toContainText("Hors de portée : Lyre");
+        // the reason after a dash, never in nested brackets
+        await expect(page.getByTestId("lock-toast")).toContainText(/Hors de portée : Lyre — au-delà des butées : pan −?\d+°, tilt −?\d+°/);
         // frozen hard: the pad is off, its chips too
         await desk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung" } });
         await desk(page, "motion.freeze", { fixtures: ["spot"], level: "hard" });
@@ -197,21 +218,72 @@ test("T27 lot 4: a zone chip under a group's pad sends its heads to the zone; ou
   expect(errors).toEqual([]);
 });
 
-test("T27 lot 4: on a phone, the zone chips are 44 px high and scroll sideways in their cell", async ({ browser }) => {
+/** Three more aiming zones (long names): the chips of a narrow cell wrap onto lines. */
+const MORE = [1, 2, 3].map((n) => ({ id: `t27p-more-${n}`, name: `T27 zone de visée numéro ${n}`, type: "stage", polygon: [[-3 + n, 4.5], [-2.5 + n, 4.5], [-2.5 + n, 5], [-3 + n, 5]], aim: { height: 1.5 } }));
+async function withMoreZones(page: Page, body: () => Promise<void>): Promise<void> {
+  for (const zone of MORE) await desk(page, "stage.zone.put", { zone });
+  try {
+    await body();
+  } finally {
+    for (const zone of MORE) await desk(page, "stage.zone.delete", { id: zone.id, force: true });
+  }
+}
+
+/** Every chip whole inside its row (no chip cut, nothing scrolled sideways). */
+async function chipsWhole(chips: Locator): Promise<void> {
+  const row = (await chips.boundingBox())!;
+  for (const chip of await chips.getByRole("button").all()) {
+    const b = (await chip.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(row.x - 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(row.x + row.width + 1);
+  }
+}
+
+test("T27 lot 4: the zone chips wrap onto lines in a narrow cell, each whole, the focus ring never clipped", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withZones(page, async () => {
+    await withMoreZones(page, async () => {
+      await withWidget(page, { kind: "xy", w: 3, h: 6 }, async () => {
+        const chips = page.getByTestId("xy-zone-chips").last();
+        await chips.scrollIntoViewIfNeeded();
+        await expect(chips.getByRole("button")).toHaveCount(4);
+        await chipsWhole(chips);
+        // on several lines, not one row scrolled sideways
+        const tops = new Set(await Promise.all((await chips.getByRole("button").all()).map(async (c) => Math.round((await c.boundingBox())!.y))));
+        expect(tops.size).toBeGreaterThan(1);
+        expect(await chips.evaluate((el) => (el as unknown as { scrollWidth: number; clientWidth: number }).scrollWidth <= (el as unknown as { clientWidth: number }).clientWidth + 1)).toBe(true);
+        // the third chip by the keyboard: focused, its ring inside the row's padding
+        const third = chips.getByRole("button").nth(2);
+        await third.focus();
+        await expect(third).toBeFocused();
+        expect(await chips.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { paddingTop: string } }).getComputedStyle(el).paddingTop)).toBe("4px");
+        await chips.screenshot({ path: "test-results/t27-zone-chips-wrap-desktop.png" });
+      });
+    });
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T27 lot 4: on a phone, the zone chips are 44 px high and wrap in their cell", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "fr-FR" });
   const page = await context.newPage();
   const errors = watchErrors(page);
   try {
     await login(page);
     await withZones(page, async () => {
-      await withWidget(page, { kind: "xy", w: 3, h: 4 }, async () => {
-        const chips = page.getByTestId("xy-zone-chips").last(); // the dashboard has its own XY pad: ours is at the bottom
-        await chips.scrollIntoViewIfNeeded();
-        const chip = chips.getByRole("button", { name: ZONE.name });
-        expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        await chip.tap();
-        await expect.poll(async () => (await manualOf(page)) !== undefined).toBe(true);
-        await page.screenshot({ path: "test-results/t27-zone-chips-phone.png" });
+      await withMoreZones(page, async () => {
+        await withWidget(page, { kind: "xy", w: 3, h: 6 }, async () => {
+          const chips = page.getByTestId("xy-zone-chips").last(); // the dashboard has its own XY pad: ours is at the bottom
+          await chips.scrollIntoViewIfNeeded();
+          const chip = chips.getByRole("button", { name: ZONE.name });
+          expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          await chipsWhole(chips);
+          await chip.tap();
+          await expect.poll(async () => (await manualOf(page)) !== undefined).toBe(true);
+          await page.screenshot({ path: "test-results/t27-zone-chips-phone.png" });
+        });
       });
     });
     expect(errors).toEqual([]);
@@ -235,42 +307,139 @@ async function openSpotPanel(page: Page): Promise<Locator> {
   return panel;
 }
 
-test("T27 lot 5: a head's pad shows the aiming zones as it sees them, follows a zone moved and its stops, read-only", async ({ page }) => {
+/** The pad point (client px) of a logical pan/tilt on `pad`. */
+async function padPx(pad: Locator, pan: number, tilt: number): Promise<{ x: number; y: number }> {
+  const b = (await pad.boundingBox())!;
+  return { x: b.x + pan * b.width, y: b.y + (1 - tilt) * b.height };
+}
+
+test("T27 lot 5: a head's pad shows the aiming zones as it sees them; a tap in one sends the head there, a drag stays free", async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1400, height: 900 });
   await login(page);
   await withZones(page, async (spot) => {
+    const aimed = ((await desk(page, "position.aim", { fixtures: ["spot"], zone: ZONE.id })) as { results: { pan: number; tilt: number }[] }).results[0]!;
+    await desk(page, "position.home", {});
     const panel = await openSpotPanel(page);
+    const pad = panel.locator(".xy .pad");
     const zones = panel.getByTestId("xy-zones");
     const outline = zones.locator(`g[data-zone="${ZONE.id}"]`);
     await expect(outline).toHaveAttribute("data-reach", "full");
-    await expect(outline.locator("polygon")).toHaveCount(1);
+    await expect(outline.locator("polygon:not(.halo)")).toHaveCount(1);
     await expect(zones.locator(`g[data-zone="${PLAIN.id}"]`)).toHaveCount(0); // not an aiming zone
-    await expect(panel.locator(`.xy-zone[data-zone="${ZONE.id}"] .xy-zone-name`)).toHaveText(ZONE.name);
     await expect(panel.getByTestId("xy-zones-text")).toContainText(`Zones de visée vues par Lyre : ${ZONE.name}`);
-    // its aiming point is where position.aim {zone} sends the head: the head's dot lands on it
-    await desk(page, "position.aim", { fixtures: ["spot"], zone: ZONE.id });
+    // the legend under the pad, one chip a zone (decision P-b)
+    const legend = panel.getByTestId("xy-zone-legend");
+    await expect(legend.getByRole("button")).toHaveText([ZONE.name]);
+    // a tap inside the zone, off its aiming point: the head goes to the zone's aiming point (position.aim)
+    const sent: string[] = [];
+    page.on("request", (r) => {
+      if (/\/commands\/position\.(set|aim)$/.test(r.url())) sent.push(r.url().split("/").at(-1)!);
+    });
+    const corner = ((await outline.locator("polygon:not(.halo)").getAttribute("points"))!.split(" ")[0]!.split(",").map(Number)) as [number, number];
+    // a quarter of the way from the aiming point to a corner (the pad's drawing: x = pan, y = 1 − tilt)
+    const [inPan, inTilt] = [aimed.pan + (corner[0] - aimed.pan) / 3, aimed.tilt + (1 - corner[1] - aimed.tilt) / 3];
+    // read again before each gesture: a button pressed below the pad may scroll the panel
+    const where = async () => {
+      await pad.scrollIntoViewIfNeeded();
+      return { inside: await padPx(pad, inPan, inTilt), box: (await pad.boundingBox())! };
+    };
+    let { inside, box } = await where();
+    await page.mouse.click(inside.x, inside.y);
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo(aimed.pan, 3);
+    expect((await manualOf(page))!.tilt).toBeCloseTo(aimed.tilt, 3);
+    expect(sent).toEqual(["position.aim"]); // a tap sends nothing else
+    // its aiming point is where the head's dot lands
     const mark = panel.locator(`.xy-zone[data-zone="${ZONE.id}"] .xy-zone-aim`);
     const dot = panel.getByTestId("xy-sent-dot");
-    await expect
-      .poll(async () => {
-        const [a, b] = [(await mark.boundingBox())!, (await dot.boundingBox())!];
-        return Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2));
-      })
-      .toBeLessThan(3);
-    // read-only: a press on the outline is the pad's own gesture (the overlay takes no pointer)
+    const gap = async () => {
+      const [a, b] = [(await mark.boundingBox())!, (await dot.boundingBox())!];
+      return Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2));
+    };
+    await expect.poll(gap).toBeLessThan(3);
+    // a drag from inside the zone: free, the head ends where the pointer stops
+    ({ inside, box } = await where());
+    await page.mouse.move(inside.x, inside.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) await page.mouse.move(inside.x + i * 4, inside.y + i * 2);
+    await page.mouse.up();
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo((inside.x + 24 - box.x) / box.width, 2);
+    // Alt + tap: the exact point
+    ({ inside, box } = await where());
+    await page.keyboard.down("Alt");
+    await page.mouse.click(inside.x, inside.y);
+    await page.keyboard.up("Alt");
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo((inside.x - box.x) / box.width, 2);
+    // « Point exact » pressed: the same, for the finger
+    const exact = panel.getByTestId("xy-zone-exact");
+    await exact.click();
+    await expect(exact).toHaveAttribute("aria-pressed", "true");
+    await desk(page, "position.home", {});
+    await expect.poll(async () => manualOf(page)).toBeUndefined();
+    ({ inside, box } = await where());
+    await page.mouse.click(inside.x, inside.y);
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo((inside.x - box.x) / box.width, 2);
+    await exact.click();
+    // the keyboard: Enter sends the head to the zone it points at
+    await pad.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo(aimed.pan, 3);
+    // the legend's chip does it too
+    await desk(page, "position.home", {});
+    await expect.poll(async () => manualOf(page)).toBeUndefined();
+    await legend.getByRole("button", { name: ZONE.name }).click();
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo(aimed.pan, 3);
+    // « Zoom sur les zones »: the outline fills more of the pad, the dot still on the aiming point
+    const before = (await outline.boundingBox())!;
+    const zoom = panel.getByTestId("xy-zone-zoom");
+    await zoom.click();
+    await expect(zoom).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await outline.boundingBox())!.width).toBeGreaterThan(before.width * 2);
+    await expect.poll(gap).toBeLessThan(3);
+    // zoomed, a tap still finds the zone (the gesture follows the frame)
+    await desk(page, "position.home", {});
+    await expect.poll(async () => manualOf(page)).toBeUndefined();
+    await pad.scrollIntoViewIfNeeded();
+    const zoomedMark = (await mark.boundingBox())!;
+    await page.mouse.click(zoomedMark.x + zoomedMark.width / 2 + 10, zoomedMark.y + zoomedMark.height / 2 + 10);
+    await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo(aimed.pan, 3);
+    await panel.screenshot({ path: "test-results/t27-projected-desktop-zoom.png" });
+    await zoom.click();
+    // the overlay takes no pointer (the pad's own gesture)
     expect(await zones.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { pointerEvents: string } }).getComputedStyle(el).pointerEvents)).toBe("none");
     await panel.screenshot({ path: "test-results/t27-projected-desktop.png" });
     // the zone moved: the outline follows without reopening the panel
-    const before = await outline.locator("polygon").getAttribute("points");
+    const was = await outline.locator("polygon:not(.halo)").getAttribute("points");
     await desk(page, "stage.zone.put", { zone: { ...ZONE, polygon: [[-2, 2], [0, 2], [0, 4], [-2, 4]] } });
-    await expect.poll(() => outline.locator("polygon").getAttribute("points")).not.toBe(before);
-    // its stops (T8): the part beyond them is left out, the rest dashed
+    await expect.poll(() => outline.locator("polygon:not(.halo)").getAttribute("points")).not.toBe(was);
+    // its stops (T8): the part beyond them is left out, the rest dashed, the legend says it
     await desk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung", orientation: { limits: { tilt: [-30, 30] } } } });
     await expect(outline).toHaveAttribute("data-reach", "partial");
     await expect(outline.locator("polyline").first()).toBeAttached();
     await expect(panel.getByTestId("xy-zones-text")).toContainText("en partie hors de portée");
+    await expect(legend).toContainText("Pointillés");
     await panel.screenshot({ path: "test-results/t27-projected-partial.png" });
+    // a head with no stage position: said on the pad
+    const { position: _placed, ...unplaced } = spot;
+    await desk(page, "venue.fixture.put", { fixture: { ...unplaced, mount: "hung" } });
+    await expect(panel.getByTestId("xy-zones-unplaced")).toContainText("Position sur la scène inconnue");
+  });
+  expect(errors).toEqual([]);
+});
+
+test("T27 lot 5: the guided calibration's pad shows the aiming zones too (decision P-c)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  await withZones(page, async () => {
+    await page.locator("nav.pages button", { hasText: "Lieu" }).click();
+    await page.getByText("Calibrer les lyres").click();
+    const box = page.locator(".calibration");
+    await box.getByLabel("Lyres").selectOption("spot");
+    const pad = box.locator(".calibration-pad .xy");
+    await expect(pad.getByTestId("xy-zones").locator(`g[data-zone="${ZONE.id}"]`)).toHaveCount(1);
+    await expect(pad.getByTestId("xy-zone-legend").getByRole("button")).toHaveText([ZONE.name]);
+    await box.screenshot({ path: "test-results/t27-calibration-guided.png" });
   });
   expect(errors).toEqual([]);
 });
@@ -287,10 +456,23 @@ for (const [name, viewport] of [["tablet", { width: 1180, height: 820 }], ["phon
         const pad = panel.locator(".xy .pad");
         await expect(pad.getByTestId("xy-zones").locator(`g[data-zone="${ZONE.id}"] polygon`)).toHaveCount(1);
         await pad.scrollIntoViewIfNeeded();
-        // the name stays inside the pad
-        const [n, p] = [(await pad.locator(".xy-zone-name").first().boundingBox())!, (await pad.boundingBox())!];
-        expect(n.x).toBeGreaterThanOrEqual(p.x - 1);
-        expect(n.x + n.width).toBeLessThanOrEqual(p.x + p.width + 1);
+        // a name written on the pad stays inside it; the legend names the zone anyway, its chips 44 px high
+        for (const n of await pad.locator(".xy-zone-name").all()) {
+          const [b, p] = [(await n.boundingBox())!, (await pad.boundingBox())!];
+          expect(b.x).toBeGreaterThanOrEqual(p.x - 1);
+          expect(b.x + b.width).toBeLessThanOrEqual(p.x + p.width + 1);
+        }
+        const chip = panel.getByTestId("xy-zone-legend").getByRole("button", { name: ZONE.name });
+        expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect((await panel.getByTestId("xy-zone-zoom").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        // a tap in the zone sends the head there
+        const aimed = ((await desk(page, "position.aim", { fixtures: ["spot"], zone: ZONE.id })) as { results: { pan: number; tilt: number }[] }).results[0]!;
+        await desk(page, "position.home", {});
+        await expect.poll(async () => manualOf(page)).toBeUndefined();
+        const at = await padPx(pad, aimed.pan, aimed.tilt);
+        await page.touchscreen.tap(at.x + 2, at.y + 2);
+        await expect.poll(async () => (await manualOf(page))?.pan).toBeCloseTo(aimed.pan, 3);
+        await panel.getByTestId("xy-zone-zoom").tap();
         await panel.screenshot({ path: `test-results/t27-projected-${name}.png` });
       });
       expect(errors).toEqual([]);

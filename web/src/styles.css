@@ -738,6 +738,7 @@ textarea {
   width: 100%;
   height: 100%;
   overflow: visible;
+  background: none; /* over the dots: never hide them */
   pointer-events: none;
 }
 .xy .xy-zones :is(polygon, polyline) {
@@ -751,18 +752,33 @@ textarea {
 .xy .xy-zones polygon {
   fill: color-mix(in srgb, var(--zone-color) 12%, transparent);
 }
+/* zoomed on the zones: what lies beyond the frame is cut at the pad's edge */
+.xy .xy-zones.zoomed {
+  overflow: hidden;
+}
+/* a dark colour of its own: a light rim under the outline, as on the venue's plan */
+.xy .xy-zones :is(polygon, polyline).halo {
+  fill: none;
+  stroke: rgba(245, 247, 250, 0.55);
+  stroke-width: 4;
+  stroke-dasharray: none;
+}
 /* a zone partly out of reach: its runs dashed, so a cut reads as « goes on beyond », not as the zone's edge */
 .xy .xy-zones [data-reach="partial"] polyline {
   stroke-dasharray: 6 4;
 }
 .xy .xy-zone-aim {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  margin: -5px 0 0 -5px;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
   border: 2px solid var(--zone-color);
   border-radius: 50%;
   pointer-events: none;
+}
+.xy .xy-zone-aim.halo {
+  filter: drop-shadow(0 0 1.5px rgba(245, 247, 250, 0.9));
 }
 .xy .xy-zone-name {
   position: absolute;
@@ -786,14 +802,16 @@ textarea {
 .xy .xy-zone-name.partial {
   font-style: italic;
 }
-/* T27, lot 4: the aiming zones under a group's pad, one chip each (a press sends the heads there); one row that
-   scrolls sideways in a Live cell, never pushing the pad out */
+/* T27, lots 4-5: the aiming zones under a pad, one chip each (a press sends the heads there); they wrap onto lines
+   (a chip never cut, its focus ring never clipped: the padding gives it room, the margin gives it back) */
 .xy-zone-chips {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.35em;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  padding: 4px;
+  margin: -4px;
 }
 .xy-zone-chip {
   display: inline-flex;
@@ -812,6 +830,40 @@ textarea {
   height: 0.7em;
   border-radius: 50%;
   background: var(--zone-color);
+}
+/* a zone partly out of reach: its swatch dashed, as its outline on the pad */
+.xy-zone-chip .zone-chip-mark.dashed {
+  background: transparent;
+  border: 2px dashed var(--zone-color);
+  box-sizing: border-box;
+}
+.xy-zone-chip .zone-chip-state {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.xy-zone-legend .xy-zone-dashed,
+.xy-zone-unplaced {
+  flex-basis: 100%;
+  font-size: 0.75rem;
+}
+.xy-zone-tools {
+  gap: 0.35em;
+}
+.xy-zone-tools button {
+  min-height: 32px;
+  font-size: 0.75rem;
+}
+.xy-zone-tools button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+/* a phone, or a finger anywhere (a desktop with a touch screen too): 44 px targets */
+@media (max-width: 600px), (pointer: coarse), (any-pointer: coarse) {
+  .xy-zone-chip,
+  .xy-zone-tools button,
+  .target-pad-actions .tp-exact {
+    min-height: 44px;
+  }
 }
 .xy-release-info {
   flex: 0 0 auto;
@@ -5006,9 +5058,34 @@ fieldset.group-lock legend {
   stroke: var(--danger);
   stroke-dasharray: 5 4;
 }
+/* a zone's name: legible on the dark ground (a plain zone's a little quieter than an aiming one's) */
 .target-pad-plan .tp-zone-name {
-  fill: var(--muted);
+  fill: color-mix(in srgb, var(--text) 82%, var(--muted));
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-linejoin: round;
   pointer-events: none;
+}
+/* the aiming zones too small for their name on the plan: named under it, with their colour */
+.tp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.8em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.tp-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.tp-legend i {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: var(--zone-color);
 }
 /* an aiming zone (T27): its outline, its name and its aiming point in its colour; a tap in it goes to that point */
 .target-pad-plan .tp-zone.aim {

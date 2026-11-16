@@ -6,27 +6,11 @@
 import { ApiError, cmd } from "./api";
 import { showLockToast } from "./components/MotionLockButton";
 import type { Texts } from "./i18n";
-import { quoted } from "./typography";
+import { leftOut, type GoReply } from "./leftOut";
 
-interface GoReply {
-  fixtures: string[];
-  refused?: string[];
-  notCovered?: string[];
-  unreachable?: { fixture: string; error: string }[];
-}
+export { leftOut };
 
 const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-
-/** What a recall left out, as sentences (empty: every head asked went there). Pure, for the tests. */
-export function leftOut(t: Texts, name: string, reply: Partial<GoReply>, nameOf: (id: string) => string): string[] {
-  const w = t.positions;
-  const names = (list: string[]) => list.map(nameOf).join(", ");
-  return [
-    reply.refused?.length ? w.refused.replace("{names}", () => names(reply.refused!)) : "",
-    reply.notCovered?.length ? w.notCovered.replace("{name}", () => quoted(t, name)).replace("{names}", () => names(reply.notCovered!)) : "",
-    reply.unreachable?.length ? w.unreachable.replace("{names}", () => reply.unreachable!.map((u) => `${nameOf(u.fixture)} (${u.error})`).join(", ")) : "",
-  ].filter(Boolean);
-}
 
 /**
  * Recalls `id` on `fixtures` (all it covers when absent). Resolves to the heads that went there; a refusal is said in

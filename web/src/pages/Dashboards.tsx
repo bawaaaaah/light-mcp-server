@@ -11,6 +11,7 @@ import { useStored } from "../hooks/useStored";
 import { XyPad, type ZoneChip } from "../components/XyPad";
 import { TargetWidget, type PadFixture, type PadZone } from "../components/TargetPad";
 import { useTargetNames } from "../hooks/useTargets";
+import { PROJECTION_CHANGES } from "../hooks/useZoneProjection";
 import { usePositions } from "../hooks/usePositions";
 import { PositionButton } from "../components/PositionButton";
 import { MotionLockButton } from "../components/MotionLockButton";
@@ -104,6 +105,8 @@ interface SongState {
 }
 
 /** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
+/** What changes the target pads' plan and the zone chips: the fixtures, the zones (T24, T27). */
+const TARGET_STAGE_CHANGES = [...PROJECTION_CHANGES, "stage."];
 const SUB = 4;
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
@@ -476,7 +479,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     void Promise.all([cmd<PadFixture[]>("venue.fixture.list"), cmd<PadZone[]>("stage.zone.list")]).then(([fixtures, zones]) => setTargetStage({ fixtures, zones }), () => undefined);
   }, []);
   useEffect(readTargetStage, [readTargetStage, hasTargetPad]);
-  useCommandEvents(["venue.", "stage.", "show.open", "import.", "history."], readTargetStage);
+  // what changes the fixtures or the zones (the same as a head's projected zones, stage.zone.project)
+  useCommandEvents(TARGET_STAGE_CHANGES, readTargetStage);
   /** The aiming zones, as chips under the group pads (T27, lot 4). */
   const zoneChips = useMemo<ZoneChip[]>(() => targetStage.zones.flatMap((z) => (z.aim ? [{ id: z.id, name: z.name, color: z.aim.color }] : [])), [targetStage.zones]);
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
@@ -773,7 +777,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         // edit mode: `inert` guards the presses without disabling the buttons, so the widget is still dragged and selected
         return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} onError={setError} />;
       case "xy":
-        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact zones={zoneChips} />;
+        // edit mode: `inert` guards the keys too (its chips, « Rendre la main »), the widget is still moved and selected
+        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact zones={zoneChips} inert={edit} />;
       case "target":
         // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu. Keyed by the target:
         // another target is another pad (its pending write goes out for the target it was made for)

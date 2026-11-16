@@ -29,7 +29,6 @@ export interface PadZone {
   id: string;
   name: string;
   polygon: Pt[];
-  floorHeight?: number;
   noAim?: boolean;
   /** An aiming zone (T27): a tap in it puts the target on its aiming point (`target.zone`). */
   aim?: { height: number; point?: Pt; color?: string };
@@ -227,6 +226,15 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
    * zone's aiming point (target.zone, its height included); a drag stays a free move. Alt / Option: the exact point.
    */
   const tap = useRef<{ zone: PadZone; x: number; y: number } | null>(null);
+  /** « Point exact » (decision P-d): a tap in an aiming zone is a free move, as with Alt / Option. */
+  const [exact, setExact] = useState(false);
+  /** The keyboard's Enter outside any aiming zone: a short hint, said (aria-live), gone after a moment. */
+  const [keyHint, setKeyHint] = useState("");
+  useEffect(() => {
+    if (!keyHint) return;
+    const timer = window.setTimeout(() => setKeyHint(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [keyHint]);
   /** The aiming zone drawn on top at a stage point, if the zone on top is one. */
   const aimZoneAt = (p: { x: number; y: number }): PadZone | undefined => {
     const z = zoneAt(zones, p);
@@ -261,10 +269,10 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
     if (e.key === "Enter" && !off) {
       // the keyboard's tap: the target onto the aiming point of the aiming zone it is in
       const zone = aimZoneAt(point);
-      if (!zone) return;
       e.preventDefault();
       e.stopPropagation();
-      void toZone(zone);
+      if (zone) void toZone(zone);
+      else setKeyHint(t.zoneAim.noZoneHere);
       return;
     }
     const step = e.shiftKey ? BIG_STEP : STEP;
@@ -303,12 +311,12 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
   const ry = sy(point.y);
   const ring = Math.max(RING_PX * unit, Math.min(2 * RING_PX * unit, 0.3 * scale));
   const heightText = `${t.targets.z} ${metres(t, point.z)} m`;
-  const zoneLabel = LABEL * 0.9;
+  const zoneLabel = LABEL;
   const ownHeads = placed.filter((f) => stateOf.has(f.id));
   const aimZones = zones.filter((z) => z.aim);
-  // a forbidden zone's dashed outline, edge by edge: the height is never written across it
+  // a forbidden zone's dashed outline and an aiming zone's, edge by edge: the height is never written across them
   const outlines = zones
-    .filter((z) => z.noAim)
+    .filter((z) => z.noAim || z.aim)
     .flatMap((z) =>
       z.polygon.map(([x0, y0], i) => {
         const [x1, y1] = z.polygon[(i + 1) % z.polygon.length]!;
@@ -329,17 +337,23 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
         const at = aimSpot(z);
         return { id: `#aim-${z.id}`, x: sx(at.x), below: sy(at.y) + 0.3 * LABEL, above: sy(at.y) + 0.3 * LABEL, width: 3.6 * AIM_MARK_PX * unit };
       }),
-      // the aiming zones' names first: they are where a tap goes
-      ...[...aimZones, ...zones.filter((z) => !z.aim)].map((z) => {
+      // the aiming zones' names first: they are where a tap goes; a name that does not fit inside its zone is left
+      // out (an aiming zone's then goes to the legend under the pad)
+      ...[...aimZones, ...zones.filter((z) => !z.aim)].flatMap((z) => {
         const xs = z.polygon.map((p) => p[0]);
         const ys = z.polygon.map((p) => p[1]);
         const cx = sx((Math.min(...xs) + Math.max(...xs)) / 2);
+        const width = textWidth(z.name, zoneLabel);
+        const [wide, deep] = [sx(Math.max(...xs)) - sx(Math.min(...xs)), sy(Math.min(...ys)) - sy(Math.max(...ys))];
+        if (width + zoneLabel > wide || 1.8 * zoneLabel > deep) return [];
         // inside the zone, clear of its outline: above its front edge, else under its back edge
-        return { id: z.id, x: cx, below: sy(Math.min(...ys)) - 0.45 * zoneLabel, above: sy(Math.max(...ys)) + 1.15 * zoneLabel, width: textWidth(z.name, zoneLabel) };
+        return [{ id: z.id, x: cx, below: sy(Math.min(...ys)) - 0.45 * zoneLabel, above: sy(Math.max(...ys)) + 1.15 * zoneLabel, width }];
       }),
     ],
     LABEL,
   );
+  /** The aiming zones whose name the plan could not write: named in a legend under it (U2). */
+  const unnamed = aimZones.filter((z) => !labels.has(z.id));
   const shown = (v: number) => metres(t, v);
   const where = t.targets.point.replace("{x}", () => shown(point.x)).replace("{y}", () => shown(point.y)).replace("{z}", () => shown(point.z));
   const line = row.heads.length ? parts.map((p) => partText(t, p)).join(" · ") : t.targets.noHeadsShort;
@@ -372,8 +386,8 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
             e.currentTarget.setPointerCapture(e.pointerId);
             draggingRef.current = true;
             const at = fromEvent(e);
-            // in an aiming zone (Alt / Option aside): a tap, unless it turns into a drag (nothing sent until then)
-            const zone = e.altKey ? undefined : aimZoneAt(at);
+            // in an aiming zone (Alt / Option and « Point exact » aside): a tap, unless it turns into a drag (nothing sent until then)
+            const zone = e.altKey || exact ? undefined : aimZoneAt(at);
             tap.current = zone ? { zone, x: e.clientX, y: e.clientY } : null;
             if (zone) return;
             setDragging(true);
@@ -402,7 +416,10 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
               // an aiming zone in its colour (T27), as on the venue's plan
               style={z.aim && !z.noAim ? ({ "--zone-color": z.aim.color ?? "var(--aim-color)" } as React.CSSProperties) : undefined}
               points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
-            />
+            >
+              {/* every zone named, also one too small for its name on the plan */}
+              <title>{z.name}</title>
+            </polygon>
           ))}
           {aimZones.map((z) => {
             // its aiming point: a small cross in its colour (a tap in the zone puts the target there)
@@ -421,7 +438,7 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
             if (y === undefined) return null;
             const xs = z.polygon.map((p) => p[0]);
             return (
-              <text key={`n-${z.id}`} className={z.aim ? "tp-zone-name aim" : "tp-zone-name"} data-zone-name={z.id} x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: zoneLabel }}>
+              <text key={`n-${z.id}`} className={z.aim ? "tp-zone-name aim" : "tp-zone-name"} data-zone-name={z.id} x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: zoneLabel, strokeWidth: 3 * unit }}>
                 {z.name}
               </text>
             );
@@ -487,6 +504,19 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
           <strong>{name}</strong>
           <small className="target-pad-where">{where}</small>
         </div>
+        {unnamed.length > 0 && (
+          <ul className="tp-legend" aria-label={t.zoneAim.targetLegend} data-testid="target-zone-legend">
+            {unnamed.map((z) => (
+              <li key={z.id} data-zone={z.id} style={{ "--zone-color": z.aim!.color ?? "var(--aim-color)" } as React.CSSProperties}>
+                <i aria-hidden="true" />
+                {z.name}
+              </li>
+            ))}
+          </ul>
+        )}
+        <span className="hint tp-key-hint" aria-live="polite" data-testid="target-key-hint">
+          {keyHint}
+        </span>
         {/* two lines at most; a press shows it whole (a tablet has no tooltip) */}
         <button type="button" className={`target-pad-line${lineOpen ? " open" : ""}`} aria-expanded={lineOpen} title={lineOpen ? undefined : t.targets.lineMore} onClick={() => setLineOpen((o) => !o)}>
           <span id={statusId} data-testid="target-status" aria-live="polite" aria-atomic="true">
@@ -513,6 +543,22 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
         <button data-testid="target-disengage" title={t.targets.disengageHelp} aria-disabled={off || !row.engaged || undefined} onClick={() => row.engaged && engage(false)}>
           {t.targets.disengage}
         </button>
+        {aimZones.length > 0 && (
+          // decision P-d: Alt / Option for the finger, as on the venue's plan
+          <button
+            type="button"
+            className="tp-exact"
+            aria-pressed={exact}
+            aria-disabled={off || undefined}
+            title={t.zoneAim.targetExactHelp}
+            data-testid="target-exact"
+            onClick={() => {
+              if (!off) setExact((on) => !on);
+            }}
+          >
+            {t.zoneAim.exact}
+          </button>
+        )}
       </div>
     </div>
   );

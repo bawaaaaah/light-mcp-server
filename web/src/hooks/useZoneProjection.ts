@@ -1,53 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cmd } from "../api";
 import { useCommandEvents } from "./useTopic";
+import type { PadHead, ProjectedZone } from "../pad-zones";
 
-/** A pad point: logical pan and tilt, 0..1 (stage.zone.project, as position.set). */
-export type PadPoint = [number, number];
-
-/** An aiming zone as one moving head sees it (T27, lot 5; `stage.zone.project`, venue/zone-project.ts). */
-export interface ProjectedZone {
-  id: string;
-  name: string;
-  color?: string;
-  paths: PadPoint[][];
-  closed: boolean;
-  aim?: PadPoint;
-  reach: "full" | "partial" | "none";
+/** What `stage.zone.project` answers for one head (T27, lot 5): its aiming data and its aiming zones, or why none. */
+export interface ZoneProjection {
+  head?: PadHead;
+  zones: ProjectedZone[];
+  /** The head has no stage position: nothing can be projected. */
+  reason?: "no-position";
 }
 
+const EMPTY: ZoneProjection = { zones: [] };
+
 /**
- * What changes a projection: the venue (the head's place, mount, orientation, stops), the zones, a calibration applied,
- * another show or venue, an undo. Read-only commands are never announced, so stage.zone.project does not call itself.
+ * What changes a projection: the venue (the head's place, mount, orientation, stops), the zones, a calibration, another
+ * show or venue, an import, an undo, a backup put back, a fixture definition (its travel). Read-only commands are never
+ * announced, so stage.zone.project does not call itself.
  */
-const CHANGES = ["venue.", "stage.zone.", "calibration.solve", "calibration.correct", "show.open", "import.", "history."];
+export const PROJECTION_CHANGES = ["venue.", "stage.zone.", "calibration.", "show.", "import.", "history.", "backup.restore", "fixture.definition."];
 
 /**
  * The aiming zones as `fixture` sees them, for its pad (T27, lot 5): read once, then again when something that changes
- * them succeeds (the server keeps each projection per head setup and zone, so a read that changes nothing costs little).
- * A reply for a head no longer shown is dropped. Absent fixture: nothing read.
+ * them succeeds. Only the latest read is kept (a slow answer to an earlier one never overwrites it), and a reply for a
+ * head no longer shown is dropped. Absent fixture: nothing read.
  */
-export function useZoneProjection(fixture: string | undefined): ProjectedZone[] {
-  const [zones, setZones] = useState<ProjectedZone[]>([]);
+export function useZoneProjection(fixture: string | undefined): ZoneProjection {
+  const [projection, setProjection] = useState<ZoneProjection>(EMPTY);
   const current = useRef(fixture);
   current.current = fixture;
+  const sequence = useRef(0);
   // useCommandEvents keeps the function it was first given: it reads the head shown through the ref
   const read = useCallback(() => {
     const id = current.current;
+    const asked = ++sequence.current;
     if (!id) return;
-    cmd<{ fixture: string; zones: ProjectedZone[] }>("stage.zone.project", { fixture: id }).then(
+    const latest = () => asked === sequence.current && current.current === id;
+    cmd<ZoneProjection & { fixture: string }>("stage.zone.project", { fixture: id }).then(
       (reply) => {
-        if (current.current === id) setZones(reply?.zones ?? []);
+        if (latest()) setProjection({ zones: reply?.zones ?? [], ...(reply?.head ? { head: reply.head } : {}), ...(reply?.reason ? { reason: reply.reason } : {}) });
       },
       () => {
-        if (current.current === id) setZones([]);
+        if (latest()) setProjection(EMPTY);
       },
     );
   }, []);
   useEffect(() => {
-    setZones([]);
+    setProjection(EMPTY);
     read();
   }, [fixture, read]);
-  useCommandEvents(CHANGES, read);
-  return zones;
+  useCommandEvents(PROJECTION_CHANGES, read);
+  return projection;
 }
