@@ -9,7 +9,8 @@
 import { stableStringify, type Collection, type FolderStore } from "../data/store.js";
 import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
-import { gone, hueUnderManual, MANUAL_COLOUR_FADE_MS, manualColourOf, nextManual, settled, underManual, type ManualColour } from "./manual-colour.js";
+import { MANUAL_COLOUR_FADE_MS } from "./manual-colour.js";
+import { ColourLayer } from "./colour-layer.js";
 import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
 import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
@@ -325,8 +326,8 @@ export class ShowRuntime {
   private readonly flashes = new Set<string>();
   /** Manual positions (XY pad, aiming): the manual claims of the motion layer, one per head, until released. */
   private readonly manualPositions = new Map<string, ManualPosition>();
-  /** Colours applied by hand (T41, show/manual-colour.ts): above the looks, one per fixture, until released. */
-  private readonly manualColours = new Map<string, ManualColour>();
+  /** Colours applied by hand (T41, show/colour-layer.ts): above the looks, one per fixture, until released. */
+  private readonly colours: ColourLayer;
   /**
    * The motion layer (engine/motion.ts, T25): its state from the last frame really rendered, and the logical position
    * each head was really sent then — read back in the output after the rules, and again after the guard (the DMX
@@ -413,6 +414,12 @@ export class ShowRuntime {
     this.settings = store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
     this.lockHeld = heldOf(this.settings.motionLock);
+    this.colours = new ColourLayer({
+      now: () => this.now(),
+      venue,
+      excludedFrom: (look) => this.excludedFrom(look),
+      lightingLooks: () => [...this.active.values(), ...this.releasing.values()].map((a) => a.look),
+    });
     // a patch change may put another fixture's channel on a remembered slot: the Reset protection forgets
     venue.store.onChange((e) => {
       if (e.collection === "fixtures" || e.collection === "models") this.atRest.clear();
@@ -702,15 +709,12 @@ export class ShowRuntime {
 
   /** The colours held by hand now (T41), by fixture: a release fading out holds none. */
   heldColours(): Record<string, string> {
-    return Object.fromEntries([...this.manualColours].flatMap(([f, m]) => (m.hex ? [[f, m.hex] as const] : [])));
+    return this.colours.held();
   }
 
   /** Puts colours held by hand back (panic.undo), at once (review 2 m1: the undo puts back what showed, without a fade). */
   restoreColours(colours: Record<string, string>): string[] {
-    const done: string[] = [];
-    const known = new Set(this.venue.fixtures.list().map((f) => f.id));
-    for (const [f, hex] of Object.entries(colours)) if (known.has(f)) done.push(...this.setColour([f], hex, 0));
-    return done;
+    return this.colours.restore(colours);
   }
 
   /** The live state a snapshot saves: looks playing, DCA, channel faders, grand master, program, the motion lock levels (T26). */
@@ -834,7 +838,7 @@ export class ShowRuntime {
     if (this.active.has(lookId)) {
       fadeOut();
       // launched again on fixtures holding a colour by hand: they go back to it (decision C2)
-      this.releaseColours(this.fixturesPainted(look));
+      this.colours.releaseUnder(look);
       return { started: false, released };
     }
     // Resuming keeps the player of the queue, so the animation keeps its place — unless the look was edited
@@ -869,7 +873,7 @@ export class ShowRuntime {
       if (beside !== undefined && !leaving.length && this.crossfades.has(beside)) this.sharedSheet.set(lookId, beside);
     } else fadeOut();
     // a new look on fixtures holding a colour by hand takes them back (T41): their colour fades back to the looks
-    this.releaseColours(this.fixturesPainted(look));
+    this.colours.releaseUnder(look);
     return { started: true, released };
   }
 
@@ -879,78 +883,27 @@ export class ShowRuntime {
    * on them. `hex` null releases. Returns the fixtures it changed.
    */
   setColour(fixtures: readonly string[], hex: string | null, fadeMs: number = MANUAL_COLOUR_FADE_MS): string[] {
-    const now = this.now();
-    const to = hex === null ? null : manualColourOf(hex);
-    const done: string[] = [];
-    for (const f of fixtures) {
-      const prev = this.manualColours.get(f);
-      if (hex === null && !prev) continue;
-      if (prev && prev.hex === hex && settled(prev, now)) {
-        done.push(f);
-        continue;
-      }
-      this.manualColours.set(f, nextManual(prev, to, hex, now, fadeMs));
-      done.push(f);
-    }
-    return done;
+    return this.colours.set(fixtures, hex, fadeMs);
   }
 
   /** Gives the looks their colour back on these fixtures (every fixture holding one when none is given), fading. */
   releaseColours(fixtures?: Iterable<string>, fadeMs: number = MANUAL_COLOUR_FADE_MS): string[] {
-    const ids = fixtures ? [...fixtures].filter((f) => this.manualColours.get(f)?.to) : [...this.manualColours].filter(([, m]) => m.to).map(([f]) => f);
-    return this.setColour(ids, null, fadeMs);
+    return this.colours.release(fixtures, fadeMs);
   }
 
   /** Drops every manual colour at once (the Panic: safety first, no fade). */
   clearColours(): string[] {
-    const ids = [...this.manualColours].filter(([, m]) => m.to).map(([f]) => f);
-    this.manualColours.clear();
-    return ids;
+    return this.colours.clear();
   }
 
-  /**
-   * Whether a look playing (or still fading out) paints a fixture (review 2, I-2): a colour applied by hand shows only
-   * where a look lights it (decision C1). Read from the looks themselves, not from one frame's level: a chase or a
-   * flash dark at that instant still lights the fixture.
-   */
+  /** Whether a look playing (or still fading out) paints a fixture (review 2, I-2): a colour applied by hand shows only where a look lights it (decision C1). */
   paintedByLooks(fixture: string): boolean {
-    const looks = [...this.active.values(), ...this.releasing.values()].map((a) => a.look);
-    return looks.some((l) => this.fixturesPainted(l).has(fixture));
+    return this.colours.paintedByLooks(fixture);
   }
 
   /** The colour a fixture holds by hand (`#rrggbb`), if any (a release fading out holds none). */
   manualColour(fixture: string): string | undefined {
-    return this.manualColours.get(fixture)?.hex ?? undefined;
-  }
-
-  /** The fixtures a look paints: its canvas's, but those its groups exclude. */
-  private fixturesPainted(look: Look): Set<string> {
-    const out = new Set<string>();
-    if (look.technique.kind === "aucune") return out; // it only moves heads: their colour stays
-    try {
-      for (const cell of this.venue.cellTargets(look.canvas)) for (const t of cell) out.add(t.fixture);
-    } catch {
-      return out; // an unknown canvas paints nothing
-    }
-    for (const f of this.excludedFrom(look)) out.delete(f);
-    return out;
-  }
-
-  /** The manual colours over what the looks paint on this frame (T41): their colours, their wheels' hues, their tracks' layers. */
-  private applyManualColours(frame: AttributeFrame, now: number): void {
-    if (!this.manualColours.size) return;
-    const heads = (f: string, colors: ReadonlyMap<number, Color>, at = underManual): Map<number, Color> => {
-      const m = this.manualColours.get(f)!;
-      return new Map([...colors].map(([h, c]) => [h, at(m, c, now)]));
-    };
-    for (const f of this.manualColours.keys()) {
-      const colors = frame.colors.get(f);
-      if (colors) frame.colors.set(f, heads(f, colors));
-      const by = frame.paintedBy.get(f);
-      // the wheel's slot follows the hue, never a mix of two (it switches at mid-fade); its level follows the heads
-      if (by) frame.paintedBy.set(f, by.map((p) => ({ ...p, heads: heads(f, p.heads), hues: heads(f, p.hues ?? p.heads, hueUnderManual) })));
-      for (const layer of frame.tracks.get(f) ?? []) if (layer.colors) layer.colors = heads(f, layer.colors);
-    }
+    return this.colours.colourOf(fixture);
   }
 
   /**
@@ -1138,7 +1091,7 @@ export class ShowRuntime {
     this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();
-    this.manualColours.clear();
+    this.colours.reset();
     this.targetGlide = new Glide();
     this.glidingTargets.clear();
     this.aimBases = new Map();
@@ -2408,7 +2361,7 @@ export class ShowRuntime {
         else if (now - a.t0 >= a.dur) this.lockArrivals.delete(head);
       }
       // manual colours whose fade back to the looks is over go, on a real frame only (strictBounds samples ahead, I1)
-      for (const [f, m] of this.manualColours) if (gone(m, now)) this.manualColours.delete(f);
+      this.colours.prune(now);
       const run: MotionRun = { state: this.motionState, sent: this.sentPositions, bpm: tempo.bpm ?? FALLBACK_BPM, status: this.lastMotion, bases: this.aimBases };
       const read = new Set<string>();
       this.targetsRead = read;
@@ -2745,7 +2698,7 @@ export class ShowRuntime {
       mergeColors(frame.colors, colors, this.settings.looksMerge);
     }
     // the colours applied by hand (T41) replace what the looks paint on their fixtures, at the looks' brightness
-    this.applyManualColours(frame, now);
+    this.colours.apply(frame, now);
     // The motion layer (engine/motion.ts, T25): a position for every installed moving head, on every frame — who
     // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
     const movers = this.movingHeads();

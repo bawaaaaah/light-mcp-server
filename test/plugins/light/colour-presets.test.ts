@@ -400,7 +400,7 @@ describe("colour presets (T41)", () => {
       await run("colour.release", { fade: 0.2 });
       during(400);
       expect(plugin.runtime.heldColours()).to.deep.equal({});
-      expect((plugin.runtime as unknown as { manualColours: Map<string, unknown> }).manualColours.size).to.equal(0);
+      expect((plugin.runtime as unknown as { colours: { size: number } }).colours.size).to.equal(0);
     });
 
     it("asks the right to launch a look to apply or give back a colour", async () => {
