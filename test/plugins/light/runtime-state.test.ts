@@ -41,6 +41,8 @@ function setup() {
   const pan = (): number => (venue.sentPosition(venue.resolve("spot16") as ResolvedFixture, last) as Position).pan;
   /** The par's red, green and blue bytes on the last frame. */
   const rgb = (): number[] => [...last.slice(20, 23)];
+  /** One byte of the last frame (0-based slot). */
+  const byte = (slot: number): number => last[slot]!;
   /** Counts the writes of show.json from now on. */
   const writes = (): { count: number } => {
     const seen = { count: 0 };
@@ -51,7 +53,7 @@ function setup() {
     }) as typeof write;
     return seen;
   };
-  return { dir, venue, show, clock, look, run, pan, rgb, writes };
+  return { dir, venue, show, clock, look, run, pan, rgb, byte, writes };
 }
 
 const near = (v: number, to: number) => expect(v).to.be.closeTo(to, 2 / 255);
@@ -172,6 +174,43 @@ describe("show runtime: state kept and dropped (T48)", () => {
       const at = t.show.heldPosition("spot16")!;
       expect(at.pan).to.be.closeTo(0.1, 1e-9);
       expect(at.tilt).to.be.closeTo(0.9, 1e-9);
+    });
+
+    it("an opened show's heads glide to where it froze them, over a second at least (decision D4)", () => {
+      const t = setup();
+      t.show.setMotionLock({ level: "off", heads: { spot16: "soft" } });
+      t.run(100);
+      near(t.pan(), 0.5);
+      t.show.store.writeManifest("show.json", { ...t.show.settings, motionLock: { level: "off", heads: { spot16: "hard" }, held: { spot16: { pan: 0.1, tilt: 0.9 } } } });
+      t.show.reloadSettings();
+      t.run(600); // past half the glide: on its way
+      expect(t.pan()).to.be.within(0.15, 0.45);
+      t.run(600);
+      near(t.pan(), 0.1);
+    });
+
+    it("the hard lock writes the head back over a channel fader, but not on a slot the DMX console parks", () => {
+      const t = setup();
+      t.show.faders.put({ id: "fp", name: "Pan", channels: [{ fixture: "spot16", offset: 0 }], level: 0 });
+      t.show.setMotionLock({ level: "off", heads: { spot16: "hard" } });
+      t.run(100); // frozen at rest
+      t.show.faders.putLive({ ...t.show.faders.get("fp")!, level: 0.95 });
+      t.run(); // whatever the fader writes on its pan
+      near(t.pan(), 0.5);
+      t.show.consoleSlots = () => new Map([[1, new Set([0])]]);
+      t.run();
+      expect(t.byte(0)).to.equal(242); // the console's slot: the fader's byte stays
+    });
+
+    it("the useful stops bound a channel fader on pan, but not on a slot the DMX console parks", () => {
+      const t = setup();
+      t.venue.fixtures.put({ ...t.venue.fixtures.get("spot16")!, orientation: { yaw: 0, invertPan: false, invertTilt: false, swapPanTilt: false, panOffset: 0, tiltOffset: 0, limits: { pan: [0, 100], tilt: [0, 180] } } });
+      t.show.faders.put({ id: "fp", name: "Pan", channels: [{ fixture: "spot16", offset: 0 }], level: 0.95 });
+      t.run(100);
+      expect(t.byte(0)).to.be.below(242); // bounded to the stop
+      t.show.consoleSlots = () => new Map([[1, new Set([0])]]);
+      t.run();
+      expect(t.byte(0)).to.equal(242);
     });
 
     it("an opened show gets no write pending for the show before: a freeze", async () => {
