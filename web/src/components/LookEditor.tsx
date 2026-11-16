@@ -21,7 +21,7 @@ import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
 import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
 import { confirmDelete } from "./confirmDelete";
-import { Versions } from "./Versions";
+import { EditorActions } from "./EditorActions";
 import { SearchPicker } from "./SearchPicker";
 import { targetsStore, useTargets } from "../hooks/useTargets";
 import { positionsStore, usePositions, type PositionRow } from "../hooks/usePositions";
@@ -855,32 +855,19 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
       </div>
       <textarea placeholder={t.notes} value={look.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />
 
-      <div className="row actions">
-        <button className="primary" onClick={() => void save()}>
-          {t.save}
-        </button>
+      <EditorActions
+        onSave={() => void save()}
+        onClose={() => onClose()}
+        onDelete={isNew ? undefined : () => void confirmDelete("look", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message))}
+        error={error || previewError}
+        onDismissError={() => (setError(""), setPreviewError(""))}
+        alert
+        errorRef={errorEl}
+        versions={isNew ? undefined : { collection: "looks", id: initial.id, onRestored: () => onClose() }}
+      >
         <button onClick={() => void save(true)}>{t.saveAndPlay}</button>
         {!isNew && <button onClick={() => setLook({ ...look, id: "", name: `${look.name} (${t.copySuffix})` })}>{t.duplicate}</button>}
-        <button className="ghost" onClick={() => onClose()}>
-          {t.close}
-        </button>
-        {!isNew && (
-          <button
-            className="ghost danger"
-            onClick={() => {
-              void confirmDelete("look", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message));
-            }}
-          >
-            {t.delete}
-          </button>
-        )}
-        {(error || previewError) && (
-          <span ref={errorEl} className="error" role="alert" onClick={() => (setError(""), setPreviewError(""))}>
-            {error || previewError}
-          </span>
-        )}
-      </div>
-      {!isNew && <Versions collection="looks" id={initial.id} onRestored={() => onClose()} />}
+      </EditorActions>
     </section>
   );
 }

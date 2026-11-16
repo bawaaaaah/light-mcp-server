@@ -8,6 +8,7 @@
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+import { EditorActions } from "./EditorActions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { usePositions, type PositionRow } from "../hooks/usePositions";
 import { AXES, pointFields, pointOf, wrongAxis as firstWrongAxis, type SaveReply } from "../positionForm";
@@ -213,19 +214,7 @@ function SavePositionForm({ fixture, onDone }: { fixture: Named; onDone: () => v
         </fieldset>
       )}
       <SwatchPicker label={w.color} noneLabel={w.noColor} value={color} onChange={setColor} />
-      <div className="row">
-        <button type="submit" className="primary" disabled={busy}>
-          {t.save}
-        </button>
-        <button type="button" className="ghost" onClick={onDone}>
-          {t.close}
-        </button>
-        {problem && (
-          <span className="error" role="alert">
-            {problem}
-          </span>
-        )}
-      </div>
+      <EditorActions saveDisabled={busy} onClose={onDone} error={problem} />
     </form>
   );
 }

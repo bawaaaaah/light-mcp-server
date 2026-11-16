@@ -7,6 +7,7 @@
 import { useId, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
+import { EditorActions } from "./EditorActions";
 import { colourPresetsStore, useColourPresets, type ColourPresetRow } from "../hooks/useColourPresets";
 import { quoted } from "../typography";
 import { confirmDelete } from "./confirmDelete";
@@ -180,26 +181,18 @@ function ColourForm({ preset, onClose }: { preset?: ColourPresetRow; onClose: ()
         )}
       </div>
       {preset?.origin === "show" && <Versions collection="colours" id={preset.id} help={w.versionsHelp} onRestored={onClose} />}
-      <div className="row">
-        <button type="submit" className="primary">
-          {preset ? t.save : w.create}
-        </button>
-        {preset && (
-          <button type="button" className="ghost" onClick={onClose}>
-            {t.close}
-          </button>
-        )}
-        {warning && (
-          <span className="warn" role="status">
-            {warning}
-          </span>
-        )}
-        {problem && (
-          <span className="error" role="alert">
-            {problem}
-          </span>
-        )}
-      </div>
+      <EditorActions
+        saveLabel={preset ? t.save : w.create}
+        onClose={preset ? onClose : undefined}
+        error={problem}
+        status={
+          warning && (
+            <span className="warn" role="status">
+              {warning}
+            </span>
+          )
+        }
+      />
     </form>
   );
 }

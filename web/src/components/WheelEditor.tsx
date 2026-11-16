@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+import { ScopeRadio, type SegmentedRadioHandle } from "./SegmentedRadio";
 
 /** One range of the wheel channel, as venue.wheel.get gives it (the definition's colours; `colorless`: it gives none). */
 interface Slot {
@@ -86,7 +87,7 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
   const latest = useRef<{ scope: Scope; settings: WheelSettings } | null>(null);
   const inflight = useRef(0);
   const sentTurn = useRef<number | null>(null);
-  const scopeButtons = useRef<Record<Scope, HTMLButtonElement | null>>({ model: null, fixture: null });
+  const scopeRadio = useRef<SegmentedRadioHandle>(null);
   const load = useCallback(
     (first = false) =>
       cmd<WheelInfo | null>("venue.wheel.get", { id: fixtureId }).then(
@@ -134,7 +135,7 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
   /** Asked inline, never in a window; the focus goes back to the scope in force once answered. */
   const endClearing = (confirmed: boolean) => {
     setClearing(false);
-    scopeButtons.current[scope]?.focus();
+    scopeRadio.current?.focus();
     if (!confirmed) return;
     setError("");
     latest.current = null;
@@ -160,17 +161,6 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
     setTurn(String(bounded));
     save((c) => ({ ...c, changeMs: bounded }));
   };
-  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
-    const keys: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-    const step = keys[e.key];
-    if (!step) return;
-    e.preventDefault();
-    const order: Scope[] = ["model", "fixture"];
-    const next = order[(order.indexOf(from) + step + order.length) % order.length]!;
-    setScope(next);
-    setClearing(false);
-    scopeButtons.current[next]?.focus();
-  };
   const held = scope === "fixture" ? info.own : info.model;
   return (
     <div className="field wheel-entry">
@@ -179,25 +169,14 @@ export function WheelEntry({ fixtureId, onSaved }: { fixtureId: string; onSaved:
       </button>
       {open && (
         <div className="wheel-editor" role="group" aria-label={t.wheelEdit}>
-          <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
-            {(["model", "fixture"] as const).map((s) => (
-              <button
-                key={s}
-                ref={(el) => void (scopeButtons.current[s] = el)}
-                className={`ghost${scope === s ? " on" : ""}`}
-                role="radio"
-                aria-checked={scope === s}
-                tabIndex={scope === s ? 0 : -1}
-                onKeyDown={(e) => moveScope(e, s)}
-                onClick={() => {
-                  setScope(s);
-                  setClearing(false);
-                }}
-              >
-                {s === "model" ? t.headsScopeModel : t.headsScopeFixture}
-              </button>
-            ))}
-          </div>
+          <ScopeRadio
+            value={scope}
+            onChange={(s) => {
+              setScope(s);
+              setClearing(false);
+            }}
+            handle={scopeRadio}
+          />
           <small className="hint">{t.wheelScopeHelp}</small>
           {scope === "fixture" && !info.own && <small className="hint">{t.wheelScopeCopies}</small>}
           <small className="hint">

@@ -8,7 +8,7 @@ import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
-import { Versions } from "./Versions";
+import { EditorActions } from "./EditorActions";
 import { LockChoice } from "./MotionLockButton";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock } from "../hooks/useMotionLock";
@@ -153,30 +153,14 @@ export function GroupEditor({ initial, existing, onClose }: { initial: GroupDraf
       </div>
       {!isNew && <GroupLock group={initial.id} edited={JSON.stringify(g.members) !== JSON.stringify(initial.members)} onError={setError} />}
       <textarea placeholder={t.notes} value={g.notes ?? ""} onChange={(e) => setG({ ...g, notes: e.target.value || undefined })} />
-      <div className="row actions">
-        <button className="primary" onClick={save}>
-          {t.save}
-        </button>
-        <button className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {!isNew && (
-          <button
-            className="ghost danger"
-            onClick={() => {
-              void confirmDelete("group", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message));
-            }}
-          >
-            {t.delete}
-          </button>
-        )}
-        {error && (
-          <span className="error" onClick={() => setError("")}>
-            {error}
-          </span>
-        )}
-      </div>
-      {!isNew && <Versions collection="groups" id={initial.id} onRestored={onClose} />}
+      <EditorActions
+        onSave={save}
+        onClose={onClose}
+        onDelete={isNew ? undefined : () => void confirmDelete("group", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message))}
+        error={error}
+        onDismissError={() => setError("")}
+        versions={isNew ? undefined : { collection: "groups", id: initial.id, onRestored: onClose }}
+      />
     </section>
   );
 }

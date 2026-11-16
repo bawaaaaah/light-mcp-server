@@ -9,6 +9,7 @@ import { useT } from "../App";
 import { slug, uniqueId } from "../util";
 import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type MappingDraft } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
+import { EditorActions } from "./EditorActions";
 
 export { actionOf, build, newMapping, type Action, type MappingDraft } from "../mappingActions";
 
@@ -203,24 +204,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           </label>
         </div>
       </fieldset>
-      <div className="row actions">
-        <button className="primary" onClick={save}>
-          {t.save}
-        </button>
-        <button className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {initial.id && (
-          <button className="ghost danger" onClick={() => void cmd("midi.mapping.delete", { id: initial.id }).then(onClose)}>
-            {t.delete}
-          </button>
-        )}
-        {error && (
-          <span className="error" onClick={() => setError("")}>
-            {error}
-          </span>
-        )}
-      </div>
+      <EditorActions onSave={save} onClose={onClose} onDelete={initial.id ? () => void cmd("midi.mapping.delete", { id: initial.id }).then(onClose) : undefined} error={error} onDismissError={() => setError("")} />
     </section>
   );
 }

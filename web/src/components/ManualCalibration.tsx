@@ -35,6 +35,10 @@ import { isFrench, quoted } from "../typography";
 import type { Texts } from "../i18n";
 import { XyPad } from "./XyPad";
 import { DmxModeSection } from "./DmxModeSection";
+import { ScopeRadio, SegmentedRadio } from "./SegmentedRadio";
+
+/** The spans of the correction pad, as the radio group shows them. */
+const SPAN_OPTIONS = CORRECTION_SPANS.map((s) => ({ value: s, label: `± ${s}°` }));
 
 interface Orientation {
   yaw?: number;
@@ -474,8 +478,6 @@ export function ManualCalibration({
   const [keeping, setKeeping] = useState<string[]>([]);
   const [scope, setScope] = useState<"model" | "fixture">("model");
   const [travelDraft, setTravelDraft] = useState<Partial<Record<Axis, string>>>({});
-  const scopeButtons = useRef<Partial<Record<"model" | "fixture", HTMLButtonElement | null>>>({});
-  const spanButtons = useRef<Partial<Record<CorrectionSpan, HTMLButtonElement | null>>>({});
   const lockView = useMotionLock();
   const frozenHard = Boolean(lockView && stricter(lockView.lock.heads[head] ?? "off", lockView.lock.level) === "hard");
   const { heads } = useMotionHeads({ fixtures: [head] });
@@ -662,26 +664,6 @@ export function ManualCalibration({
   const spanNow = travel ? (span ?? defaultSpan(travel.step)) : null;
   const stepOf = (axis: Axis) => (travel ? `${axis} ${stepText(t, travel.step[axis])} (${travel.fine[axis] ? m.stepFine : m.stepCoarse})` : "");
   const coarse = travel ? AXES.filter((a) => !travel.fine[a]) : [];
-  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: "model" | "fixture") => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
-      return;
-    }
-    e.preventDefault();
-    const next = from === "model" ? "fixture" : "model";
-    setScope(next);
-    scopeButtons.current[next]?.focus();
-  };
-  const moveSpan = (e: KeyboardEvent<HTMLButtonElement>, from: CorrectionSpan) => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (!step) {
-      return;
-    }
-    e.preventDefault();
-    const i = CORRECTION_SPANS.indexOf(from);
-    const next = CORRECTION_SPANS[(i + step + CORRECTION_SPANS.length) % CORRECTION_SPANS.length]!;
-    setSpan(next);
-    spanButtons.current[next]?.focus();
-  };
   const sourceName = (s: TravelSource) => m.sources[s];
   const scopeCorrection = travel ? (scope === "model" ? travel.model : travel.own) : null;
   const travelKey = (axis: Axis) => (axis === "pan" ? "panMax" : "tiltMax");
@@ -728,25 +710,7 @@ export function ManualCalibration({
           <button ref={aimButton} type="button" className={aimedOnce ? "" : "primary"} disabled={frozenHard || !markValid} onClick={() => void aim()}>
             {aimedOnce ? m.aimAgain : m.aim}
           </button>
-          {travel && (
-            <div className="swatches" role="radiogroup" aria-label={m.span}>
-              {CORRECTION_SPANS.map((s) => (
-                <button
-                  key={s}
-                  ref={(el) => void (spanButtons.current[s] = el)}
-                  type="button"
-                  role="radio"
-                  aria-checked={spanNow === s}
-                  className={`ghost${spanNow === s ? " on" : ""}`}
-                  tabIndex={spanNow === s ? 0 : -1}
-                  onKeyDown={(e) => moveSpan(e, s)}
-                  onClick={() => setSpan(s)}
-                >
-                  ± {s}°
-                </button>
-              ))}
-            </div>
-          )}
+          {travel && <SegmentedRadio label={m.span} options={SPAN_OPTIONS} value={spanNow} onChange={setSpan} />}
         </div>
         {!markValid && <p className="hint">{m.heightFirst}</p>}
         {errors.aim && (
@@ -884,23 +848,7 @@ export function ManualCalibration({
             <br />
             <small className="hint">{m.travelDefinition.replace("{pan}", num(t, travel.definition.panMax)).replace("{tilt}", num(t, travel.definition.tiltMax))}</small>
           </p>
-          <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
-            {(["model", "fixture"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                ref={(el) => void (scopeButtons.current[s] = el)}
-                className={`ghost${scope === s ? " on" : ""}`}
-                role="radio"
-                aria-checked={scope === s}
-                tabIndex={scope === s ? 0 : -1}
-                onKeyDown={(e) => moveScope(e, s)}
-                onClick={() => setScope(s)}
-              >
-                {s === "model" ? t.headsScopeModel : t.headsScopeFixture}
-              </button>
-            ))}
-          </div>
+          <ScopeRadio value={scope} onChange={setScope} />
           <div className="manual-fields">
             {AXES.map((axis) => (
               <label key={axis} className="field manual-field">

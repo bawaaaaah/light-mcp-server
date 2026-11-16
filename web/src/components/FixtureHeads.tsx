@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-
-type Scope = "model" | "fixture";
+import { ScopeRadio, type SettingScope as Scope } from "./SegmentedRadio";
 
 interface HeadRow {
   head: number;
@@ -34,7 +33,6 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
   const [heads, setHeads] = useState<Heads | null>(null);
   const [scope, setScope] = useState<Scope | null>(null);
   const [error, setError] = useState("");
-  const scopeButtons = useRef<Record<Scope, HTMLButtonElement | null>>({ model: null, fixture: null });
   /** The last request sent: the answer to an older one (another fixture, the menu closed, a save overtaken) is dropped. */
   const latest = useRef(0);
   useEffect(() => {
@@ -70,16 +68,6 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
       },
     );
   };
-  /** Arrows, Home and End move the scope as in any radio group: one tab stop, on the checked radio. */
-  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
-    const order: Scope[] = ["model", "fixture"];
-    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Partial<Record<string, number>>)[e.key];
-    const next = e.key === "Home" ? order[0]! : e.key === "End" ? order[order.length - 1]! : step ? order[(order.indexOf(from) + step + order.length) % order.length]! : undefined;
-    if (!next) return;
-    e.preventDefault();
-    setScope(next);
-    scopeButtons.current[next]?.focus();
-  };
   const shown = heads && (scope === "model" ? { rows: heads.model.heads, follow: heads.model.follow } : { rows: heads.heads, follow: heads.follow });
   /** The accent is said by channel names: those of every head marked, with `head` switched. */
   const toggle = (head: number) => {
@@ -114,22 +102,7 @@ export function FixtureHeads({ fixture, onSaved }: { fixture: string; onSaved: (
             <small className="hint">{t.headsWhole}</small>
           ) : (
             <>
-              <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
-                {(["model", "fixture"] as const).map((s) => (
-                  <button
-                    key={s}
-                    ref={(el) => void (scopeButtons.current[s] = el)}
-                    className={`ghost${scope === s ? " on" : ""}`}
-                    role="radio"
-                    aria-checked={scope === s}
-                    tabIndex={scope === s ? 0 : -1}
-                    onKeyDown={(e) => moveScope(e, s)}
-                    onClick={() => setScope(s)}
-                  >
-                    {s === "model" ? t.headsScopeModel : t.headsScopeFixture}
-                  </button>
-                ))}
-              </div>
+              <ScopeRadio value={scope} onChange={setScope} />
               {note && <small className="hint">{note}</small>}
               {shown.rows.map((h) => {
                 const names = h.channels.map((c) => c.name).join(", ");

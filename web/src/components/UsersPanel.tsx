@@ -5,14 +5,13 @@ import { roleLabel } from "../i18n";
 import { CopyButton } from "./Copy";
 import { QrCode } from "./QrCode";
 import { quoted } from "../typography";
+import { PasskeyTable } from "./PasskeyTable";
 
 interface RoleRow {
   id: string;
   name: string;
   rights: string[];
 }
-
-const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
 /**
  * Users (administrator): each has a role (its rights), a PIN and/or hardware keys (YubiKey, passkeys).
@@ -160,24 +159,7 @@ export function UsersPanel({ role }: { role: Role }): ReactElement {
       <p className="hint">{keysHere ? t.keysHelp : t.keysUnavailable}</p>
       {!admin && role.user && keysHere && <button onClick={() => addKey(undefined, `${t.keyOf} ${role.name}`)}>{t.addMyKey}</button>}
       {keys.length === 0 && <p className="hint">{t.noKeys}</p>}
-      <table className="keys-table">
-        <tbody>
-          {keys.map((k) => (
-            <tr key={k.id}>
-              <td>{k.name}</td>
-              <td className="hint">{nameOf(k.userId)}</td>
-              <td className="hint">
-                {k.rpId} · {day(k.createdAt)} · {t.lastUsed} {day(k.lastUsedAt)}
-              </td>
-              <td>
-                <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} ${quoted(t, k.name)}`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"))}>
-                  {t.delete}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PasskeyTable keys={keys} ownerOf={nameOf} onRemoved={(deleted) => act(deleted)} />
 
       {admin && withPin.length > 0 && (
         <div className="share-link">

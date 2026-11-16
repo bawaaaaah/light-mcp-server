@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+import { ScopeRadio, type SegmentedRadioHandle } from "./SegmentedRadio";
 
 type Kind = "dimmer" | "colour" | "position" | "wheel" | "other";
 /** A fixture's fadeable tracks, as venue.tracks.get gives them (T5). */
@@ -36,7 +37,7 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
   const [error, setError] = useState("");
   // puts go one after the other (two quick ticks never overwrite each other)
   const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const scopeButtons = useRef<Record<Scope, HTMLButtonElement | null>>({ model: null, fixture: null });
+  const scopeRadio = useRef<SegmentedRadioHandle>(null);
   // the list a tick just asked for, shown (and built on by the next tick) until every put has come back
   const [asked, setAsked] = useState<{ scope: Scope; list: string[] } | null>(null);
   const inflight = useRef(0);
@@ -102,14 +103,6 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
     const names = namesOf(kinds);
     put(allTicked(kinds) ? list.filter((n) => !names.includes(n)) : [...new Set([...list, ...names])]);
   };
-  const moveScope = (e: KeyboardEvent<HTMLButtonElement>, from: Scope) => {
-    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Record<string, number>)[e.key];
-    if (!step) return;
-    e.preventDefault();
-    const next: Scope = from === "model" ? "fixture" : "model";
-    setScope(next);
-    scopeButtons.current[next]?.focus();
-  };
   const others = info.model.ids.length;
   const allOn = info.model.enabled.length === others;
   // what the switches show: what was just asked, until the answers are back
@@ -143,22 +136,7 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
               {(modelOn ? t.tracksDisableModel : t.tracksEnableModel).replace("{n}", String(others))}
             </button>
           )}
-          <div className="swatches" role="radiogroup" aria-label={t.headsScope}>
-            {(["model", "fixture"] as const).map((s) => (
-              <button
-                key={s}
-                ref={(el) => void (scopeButtons.current[s] = el)}
-                className={`ghost${scope === s ? " on" : ""}`}
-                role="radio"
-                aria-checked={scope === s}
-                tabIndex={scope === s ? 0 : -1}
-                onKeyDown={(e) => moveScope(e, s)}
-                onClick={() => setScope(s)}
-              >
-                {s === "model" ? t.headsScopeModel : t.headsScopeFixture}
-              </button>
-            ))}
-          </div>
+          <ScopeRadio value={scope} onChange={setScope} handle={scopeRadio} />
           <small className="hint">
             {t.tracksApplies}
             {t.tracksAppliesNames[info.applies]}
@@ -171,7 +149,7 @@ export function TracksEntry({ fixtureId, mode, onSaved }: { fixtureId: string; /
               className="ghost"
               onClick={() => {
                 // the button goes once the list is back to the model's: the focus waits on the scope in force
-                scopeButtons.current[scope]?.focus();
+                scopeRadio.current?.focus();
                 run("venue.tracks.clear", { fixture: fixtureId });
               }}
             >

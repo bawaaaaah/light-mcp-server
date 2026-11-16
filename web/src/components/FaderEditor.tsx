@@ -10,7 +10,7 @@ import { slug, uniqueId } from "../util";
 import { ChannelTree, type PickedChannel } from "./ChannelTree";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
-import { Versions } from "./Versions";
+import { EditorActions } from "./EditorActions";
 import { faderFunctions, functionsOf, unfitted } from "../fader-functions";
 import { FunctionPicker } from "./FunctionPicker";
 
@@ -141,30 +141,14 @@ export function FaderEditor({ initial, existing, onClose }: { initial: FaderDraf
         {channels.length} {t.faderChannelCount}
       </p>
       <textarea placeholder={t.notes} value={notes ?? ""} onChange={(e) => setNotes(e.target.value || undefined)} />
-      <div className="row actions">
-        <button className="primary" onClick={save}>
-          {t.save}
-        </button>
-        <button className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {!isNew && (
-          <button
-            className="ghost danger"
-            onClick={() => {
-              void confirmDelete("fader", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message));
-            }}
-          >
-            {t.delete}
-          </button>
-        )}
-        {error && (
-          <span className="error" onClick={() => setError("")}>
-            {error}
-          </span>
-        )}
-      </div>
-      {!isNew && <Versions collection="faders" id={initial.id} onRestored={onClose} />}
+      <EditorActions
+        onSave={save}
+        onClose={onClose}
+        onDelete={isNew ? undefined : () => void confirmDelete("fader", initial.id, initial.name, t).then((done) => done && onClose(), (e: Error) => setError(e.message))}
+        error={error}
+        onDismissError={() => setError("")}
+        versions={isNew ? undefined : { collection: "faders", id: initial.id, onRestored: onClose }}
+      />
     </section>
   );
 }

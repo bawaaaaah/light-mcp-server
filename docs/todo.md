@@ -32,6 +32,7 @@ Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes du
 - Pied d'éditeur (Enregistrer, Fermer, Supprimer, erreur, Versions) répété dans 13 éditeurs → `EditorActions`.
 - Bascule « modèle / appareil » (groupe radio au clavier) répétée dans FixtureHeads, TracksEditor, WheelEditor, ManualCalibration → `SegmentedRadio`.
 - Liste des clés d'accès copiée entre `UsersPanel` et `Account` → `PasskeyTable`.
+- **Fait (2026-11-16, branche `refactor/t44-t47-web-cleanup`)** : `EditorActions` (pied des éditeurs de fader, groupe, look, chant, setlist, mapping MIDI, et des formulaires de position, de cible, de position d'appareil et de preset de couleur ; sans `onSave`, il ferme un formulaire), `SegmentedRadio` et `ScopeRadio` (« modèle / appareil » des têtes, de la roue, des pistes et de la course, plus l'empan du pad de correction), `PasskeyTable`. Mêmes rôles, classes et libellés. Seul écart : les touches Début et Fin vont au premier et au dernier choix dans les quatre groupes, comme le faisaient déjà les têtes (les pistes et la roue les ignoraient, la course basculait).
 
 ### T48 — Découper `ShowRuntime` (après T20b et T28)
 - `show/runtime.ts` : 2 851 lignes, environ 140 méthodes (looks, couleurs, niveaux et DCA, explication, remises à zéro, mouvement, rendu) ; `compose` fait 324 lignes.

@@ -2,9 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, type KeyRow, type Role, type UserRow } from "../api";
 import { useT } from "../App";
 import { roleLabel } from "../i18n";
-import { quoted } from "../typography";
-
-const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—");
+import { PasskeyTable } from "../components/PasskeyTable";
 
 /**
  * Who is signed in, their security keys (YubiKey, passkeys) and their PIN. Signed in with the master
@@ -98,27 +96,7 @@ export function AccountPage({ role }: { role: Role }): ReactElement {
               {t.addKey}
             </button>
           )}
-          {keys.length === 0 ? (
-            <p className="hint">{t.noKeys}</p>
-          ) : (
-            <table className="keys-table">
-              <tbody>
-                {keys.map((k) => (
-                  <tr key={k.id}>
-                    <td>{k.name}</td>
-                    <td className="hint">
-                      {k.rpId} · {day(k.createdAt)} · {t.lastUsed} {day(k.lastUsedAt)}
-                    </td>
-                    <td>
-                      <button className="ghost" onClick={() => confirm(`${t.removeKeyConfirm} ${quoted(t, k.name)}`) && act(api(`/api/auth/passkeys/${encodeURIComponent(k.id)}`, "DELETE"), t.deleted)}>
-                        {t.delete}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          {keys.length === 0 ? <p className="hint">{t.noKeys}</p> : <PasskeyTable keys={keys} onRemoved={(deleted) => act(deleted, t.deleted)} />}
         </section>
       )}
 

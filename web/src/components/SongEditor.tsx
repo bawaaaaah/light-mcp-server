@@ -13,6 +13,7 @@ import { useT } from "../App";
 import { plain, slug, splitList, uniqueId } from "../util";
 import { TempoFromAudio } from "./TempoFromAudio";
 import { quoted, beforeMark } from "../typography";
+import { EditorActions } from "./EditorActions";
 
 export interface SectionDraft {
   id: string;
@@ -384,10 +385,19 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
       </div>
       <textarea placeholder={t.notes} value={song.notes ?? ""} onChange={(e) => set({ notes: e.target.value || undefined })} />
 
-      <div className="row actions">
-        <button className="primary" onClick={() => void save().then((ok) => ok && onClose())}>
-          {t.save}
-        </button>
+      <EditorActions
+        onSave={() => void save().then((ok) => ok && onClose())}
+        onClose={onClose}
+        onDelete={
+          isNew
+            ? undefined
+            : () => {
+                if (confirm(`${t.delete} ${quoted(t, initial.title)}${beforeMark(t)}?`)) void cmd("song.delete", { id: initial.id }).then(onClose);
+              }
+        }
+        error={error}
+        onDismissError={() => setError("")}
+      >
         <span className="row" title={t.gridFillHelp}>
           <button disabled={!song.mood.length || !canvas} onClick={() => void fillGrid()}>
             {t.gridFill}
@@ -400,25 +410,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
             ))}
           </select>
         </span>
-        <button className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {!isNew && (
-          <button
-            className="ghost danger"
-            onClick={() => {
-              if (confirm(`${t.delete} ${quoted(t, initial.title)}${beforeMark(t)}?`)) void cmd("song.delete", { id: initial.id }).then(onClose);
-            }}
-          >
-            {t.delete}
-          </button>
-        )}
-        {error && (
-          <span className="error" onClick={() => setError("")}>
-            {error}
-          </span>
-        )}
-      </div>
+      </EditorActions>
     </section>
   );
 }
@@ -470,27 +462,17 @@ export function SetlistEditor({ initial, songs, existing, onClose }: { initial: 
           </option>
         ))}
       </select>
-      <div className="row actions">
-        <button
-          className="primary"
-          onClick={() => {
-            if (!list.name.trim()) return setError(t.nameRequired);
-            void cmd("setlist.put", { setlist: { ...list, id } })
-              .then(onClose)
-              .catch((e: Error) => setError(e.message));
-          }}
-        >
-          {t.save}
-        </button>
-        <button className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {error && (
-          <span className="error" onClick={() => setError("")}>
-            {error}
-          </span>
-        )}
-      </div>
+      <EditorActions
+        onSave={() => {
+          if (!list.name.trim()) return setError(t.nameRequired);
+          void cmd("setlist.put", { setlist: { ...list, id } })
+            .then(onClose)
+            .catch((e: Error) => setError(e.message));
+        }}
+        onClose={onClose}
+        error={error}
+        onDismissError={() => setError("")}
+      />
     </section>
   );
 }

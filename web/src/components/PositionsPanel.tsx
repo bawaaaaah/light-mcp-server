@@ -11,6 +11,7 @@
 import { useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
+import { EditorActions } from "./EditorActions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { headNames, holding, storedOf, usePositions, type PositionRow } from "../hooks/usePositions";
 import { AXES, pointFields, pointOf, wrongAxis, type SaveReply } from "../positionForm";
@@ -317,19 +318,7 @@ function PositionEditForm({ position: p, onClose }: { position: PositionRow; onC
       )}
       <SwatchPicker label={w.color} noneLabel={w.noColor} value={color} onChange={setColor} />
       <Versions collection="positions" id={p.id} help={w.versionsHelp} onRestored={onClose} />
-      <div className="row">
-        <button type="submit" className="primary">
-          {t.save}
-        </button>
-        <button type="button" className="ghost" onClick={onClose}>
-          {t.close}
-        </button>
-        {problem && (
-          <span className="error" role="alert">
-            {problem}
-          </span>
-        )}
-      </div>
+      <EditorActions onClose={onClose} error={problem} />
     </form>
   );
 }

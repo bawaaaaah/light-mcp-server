@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
+import { EditorActions } from "./EditorActions";
 import { useCommandEvents } from "../hooks/useTopic";
 import type { Box3, MoveFade, Smoothing, TargetRow } from "../hooks/useTargets";
 import { slug, uniqueId } from "../util";
@@ -320,19 +321,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
               {w.changedElsewhere}
             </p>
           )}
-          <div className="row">
-            <button type="submit" className="primary">
-              {t.save}
-            </button>
-            <button type="button" className="ghost" onClick={() => open(null)}>
-              {t.close}
-            </button>
-            {problem && (
-              <span className="error" role="alert">
-                {problem}
-              </span>
-            )}
-          </div>
+          <EditorActions onClose={() => open(null)} error={problem} />
         </form>
       )}
     </div>
