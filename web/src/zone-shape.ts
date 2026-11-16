@@ -269,3 +269,22 @@ export function movedZone<Z extends { polygon: Pt[]; aim?: { height: number; poi
 export function aimSpot(zone: { polygon: readonly Pt[]; aim?: { point?: Pt } | undefined }): { x: number; y: number } {
   return zone.aim?.point ? { x: zone.aim.point[0], y: zone.aim.point[1] } : zoneCentre(zone.polygon);
 }
+
+/** What can be dragged on a zone besides the zone (lot Z4): one of its corners, or its aiming point. */
+export type ZoneHandle = number | "aim";
+
+/**
+ * A zone with a handle moved to `p` (lot Z4), to the centimetre: its aiming point placed there; a rectangle's corner moves
+ * with the opposite corner held (it stays an upright rectangle); any other polygon's corner moves alone. An ellipse has
+ * no corners to drag (its menu edits its axes).
+ */
+export function reshapedZone<Z extends { polygon: Pt[]; aim?: { height: number; point?: Pt } | undefined; outline?: ZoneOutline | undefined }>(zone: Z, handle: ZoneHandle, p: { x: number; y: number }): Z {
+  const at: Pt = [cm(p.x), cm(p.y)];
+  if (handle === "aim") return zone.aim ? { ...zone, aim: { ...zone.aim, point: at } } : zone;
+  // a rectangle drawn as one, or made on the Lieu page (no outline, upright)
+  if (zone.outline?.kind === "rect" || (zone.outline === undefined && zoneRect(zone.polygon))) {
+    const [ox, oy] = zone.polygon[(handle + 2) % 4]!;
+    return { ...zone, polygon: rectFromDrag({ x: ox, y: oy }, { x: at[0], y: at[1] }) };
+  }
+  return { ...zone, polygon: zone.polygon.map((c, i) => (i === handle ? at : c)) };
+}

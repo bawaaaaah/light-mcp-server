@@ -27,7 +27,7 @@ import { useT } from "../App";
 import { stream } from "../ws";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
-import { aimSpot, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, validZone, zoneCentre, type Pt, type ZoneOutline } from "../zone-shape";
+import { aimSpot, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, reshapedZone, validZone, zoneCentre, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
@@ -196,6 +196,10 @@ export function StagePlan({
   /** « Déplacer les zones »: on, a zone dragged moves (never by a stray click otherwise). */
   const [movingZones, setMovingZones] = useState(false);
   const [zoneDrag, setZoneDrag] = useState<{ id: string; from: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
+  /** « Déplacer les zones » (T27, lot Z4): a polygon's corner (`index`) or a zone's aiming point (`aim`) held, where it is now. */
+  const [handleDrag, setHandleDrag] = useState<{ id: string; handle: ZoneHandle; at: P } | null>(null);
+  /** Why a reshaped zone was refused (its edges cross): said by the plan's tools. */
+  const [moveError, setMoveError] = useState("");
   /** « Dessiner une zone » (T27): the shape being drawn, or none. */
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
   /** A rectangle or an ellipse: its box, from the first corner (Shift: square). */
@@ -425,6 +429,20 @@ export function StagePlan({
     setZoneDrag(null);
     if (z && onZoneMove && (dx || dy)) onZoneMove(z, movedZone(z, dx, dy));
   };
+  /** A handle let go, or nudged by a key: the zone reshaped is written when the server would take it, else said. */
+  const commitHandle = (z: PlanZone, handle: ZoneHandle, p: P) => {
+    const next = reshapedZone(z, handle, onGrid(onPlan(p)));
+    if (JSON.stringify(next) === JSON.stringify(z)) return;
+    if (handle !== "aim" && !validZone(next.polygon)) return setMoveError(t.zoneDraw.invalid);
+    setMoveError("");
+    onZoneMove?.(z, next);
+  };
+  const dropHandle = () => {
+    if (!handleDrag) return;
+    setHandleDrag(null);
+    const z = zones.find((x) => x.id === handleDrag.id);
+    if (z) commitHandle(z, handleDrag.handle, handleDrag.at);
+  };
   const dropDrag = () => {
     if (!drag) return;
     setDrag(null);
@@ -514,6 +532,8 @@ export function StagePlan({
   // ---- « Dessiner une zone » (T27)
   /** Drawing units per screen pixel: marks keep their size on screen at any zoom. */
   const unit = VW / drawnWidth;
+  /** A zone's handles (lot Z4), px on screen: a finger's size on a touch screen. */
+  const handleRadius = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches ? 14 : 7;
   /** A point of the plan on the magnetic grid (to the centimetre when free). */
   const onGrid = (p: P): P => {
     const step = gridStep || 0.01;
@@ -742,7 +762,7 @@ export function StagePlan({
         )}
         {onZoneMove && !front && !in3d && (
           <label className="row" title={t.moveZonesHelp}>
-            <input type="checkbox" checked={movingZones} onChange={(e) => (setMovingZones(e.target.checked), setPlacing(false), setOrienting(false), setAiming(false), chooseTool(null))} /> {t.moveZones}
+            <input type="checkbox" checked={movingZones} onChange={(e) => (setMovingZones(e.target.checked), setMoveError(""), setPlacing(false), setOrienting(false), setAiming(false), chooseTool(null))} /> {t.moveZones}
           </label>
         )}
         {onZoneDraw && !front && !in3d && (
@@ -845,6 +865,11 @@ export function StagePlan({
           </p>
         </div>
       )}
+      {movingZones && moveError && (
+        <p className="error move-error" role="alert">
+          {moveError}
+        </p>
+      )}
       {aiming && !compact && zones.some((z) => z.aim) && (
         <small className="hint aim-zone-hint">
           <span className="pointer-only">{t.zoneAim.aimHint}</span>
@@ -877,6 +902,7 @@ export function StagePlan({
         }}
         onPointerMove={(e) => {
           if (drawing) return drawMove(e);
+          if (handleDrag) return setHandleDrag({ ...handleDrag, at: onGrid(eventToStage(e)) });
           if (zoneDrag) return setZoneDrag({ ...zoneDrag, at: eventToStage(e) });
           if (band) return setBand({ ...band, at: eventToStage(e) });
           if (!drag) return turnTo(e);
@@ -884,7 +910,7 @@ export function StagePlan({
           // a few pixels before it moves: a click only chooses
           setDrag({ ...drag, at, moved: drag.moved || Math.hypot(at.x - drag.from.x, at.y - drag.from.y) * pxPerMetre > 3 });
         }}
-        onPointerUp={(e) => (drawing ? drawUp(e) : (dropZone(), dropDrag(), dropBand(), dropTurn()))}
+        onPointerUp={(e) => (drawing ? drawUp(e) : (dropHandle(), dropZone(), dropDrag(), dropBand(), dropTurn()))}
         role="group"
         aria-label={t.stagePreview}
         tabIndex={drawing ? 0 : undefined}
@@ -901,7 +927,7 @@ export function StagePlan({
         <rect x={-pad.left} y={-pad.top} width={VW} height={VH} fill="#12141a" />
         {front && <line x1={-pad.left} x2={W + pad.right} y1={sy(0)} y2={sy(0)} stroke="#3b4150" />}
         {shown.zones.map((zone) => {
-          const z = zoneDrag?.id === zone.id ? movedZone(zone, zoneOffset[0]!, zoneOffset[1]!) : zone;
+          const z = zoneDrag?.id === zone.id ? movedZone(zone, zoneOffset[0]!, zoneOffset[1]!) : handleDrag?.id === zone.id ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
           // no menu while drawing: a long press must not open one under the finger putting a corner
           const menu = onZoneMenu && !drawing ? zoneMenu(z.id) : undefined;
           const aimColor = z.aim ? (z.aim.color ?? AIM_COLOR) : undefined;
@@ -975,6 +1001,46 @@ export function StagePlan({
           </g>
           );
         })}
+        {movingZones && onZoneMove && !front && !in3d &&
+          shown.zones.map((zone) => {
+            // « Déplacer les zones » (lot Z4): a dot on each corner (not an ellipse's: its menu edits it) and its aiming
+            // point, dragged by the mouse or a finger, or moved by the arrows once focused
+            const z = handleDrag?.id === zone.id ? reshapedZone(zone, handleDrag.handle, handleDrag.at) : zone;
+            const handles: { handle: ZoneHandle; at: P; label: string }[] = [
+              ...(z.outline?.kind === "ellipse" ? [] : z.polygon.map(([x, y], i) => ({ handle: i, at: { x, y }, label: t.zoneAim.vertexHandle.replace("{n}", String(i + 1)).replace("{name}", () => z.name) }))),
+              ...(z.aim ? [{ handle: "aim" as const, at: aimSpot(z), label: t.zoneAim.aimHandle.replace("{name}", () => z.name) }] : []),
+            ];
+            return (
+              <g key={`handles-${z.id}`} className="zone-handles" data-handles={z.id}>
+                {handles.map(({ handle, at, label }) => (
+                  <circle
+                    key={String(handle)}
+                    className={handle === "aim" ? "zone-handle aim" : "zone-handle"}
+                    data-handle={handle}
+                    cx={sx(at.x)}
+                    cy={sy(at.y)}
+                    r={handleRadius * unit}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={label}
+                    onPointerDown={(e) => {
+                      if (e.pointerType === "mouse" && e.button !== 0) return;
+                      e.stopPropagation();
+                      svg.current?.setPointerCapture(e.pointerId);
+                      setHandleDrag({ id: zone.id, handle, at });
+                    }}
+                    onKeyDown={(e) => {
+                      const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] } as Record<string, [number, number]>)[e.key];
+                      if (!d) return;
+                      e.preventDefault();
+                      const step = (gridStep || 0.01) * (e.shiftKey ? 10 : 1);
+                      commitHandle(zone, handle, { x: at.x + d[0] * step, y: at.y + d[1] * step });
+                    }}
+                  />
+                ))}
+              </g>
+            );
+          })}
         {(placing || drawing) && gridStep > 0 && (() => {
           // the magnetic grid, while placing: its step where it reads (8 px apart at least), its metres otherwise
           const step = gridStep * pxPerMetre >= 8 ? gridStep : pxPerMetre >= 8 ? 1 : 0;

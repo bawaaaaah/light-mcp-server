@@ -574,7 +574,7 @@ const fr = {
   zoneMenu: "Zone",
   zoneNotRect: "Ce n'est pas un rectangle : ses dimensions restent telles quelles (la déplacer sur le plan).",
   moveZones: "Déplacer les zones",
-  moveZonesHelp: "Activé : une zone glissée sur le plan se déplace (par 10 cm), en vue de dessus. Désactivé, un clic sur une zone ne la touche pas : elle ne bouge jamais par erreur.",
+  moveZonesHelp: "Activé : une zone glissée sur le plan se déplace (par 10 cm), en vue de dessus ; un sommet (rond) glissé la reforme, le point de visée (réticule) glissé se place, au clavier aussi (Tab jusqu'à lui, puis les flèches). Désactivé, un clic sur une zone ne la touche pas : elle ne bouge jamais par erreur.",
   zoneHint: "Clic droit sur une zone (appui long sur tablette) : son nom, ses dimensions et ses réglages",
   /** T27: drawing a zone on the plan, and what makes it an aiming zone. */
   zoneDraw: {
@@ -625,6 +625,8 @@ const fr = {
     rotation: "rotation (°)",
     noAimConflict: "Interdite aux lyres et zone de visée : les lyres qui la visent s'y éteindront. Décocher l'une des deux.",
     zoneOnPlan: "Zone « {name} » (Maj+F10 : ses réglages)",
+    vertexHandle: "Sommet {n} de « {name} » (glisser ou flèches pour le déplacer)",
+    aimHandle: "Point de visée de « {name} » (glisser ou flèches pour le placer)",
     usedBy: "est encore utilisée :",
     deleteAnyway: "La supprimer quand même ? Ces endroits nommeront une zone qui n'existe plus.",
     deleteUnchecked: "Les autres shows de ce lieu n'ont pas pu être vérifiés : ceux qui l'utilisent perdront aussi cette zone. La supprimer quand même ?",
@@ -2381,7 +2383,7 @@ const en: typeof fr = {
   zoneMenu: "Zone",
   zoneNotRect: "Not a rectangle: its sizes stay as drawn (move it on the plan).",
   moveZones: "Move the zones",
-  moveZonesHelp: "On: a zone dragged on the plan moves (by 10 cm), seen from above. Off, a click on a zone does nothing to it, so it is never moved by mistake.",
+  moveZonesHelp: "On: a zone dragged on the plan moves (by 10 cm), seen from above; a corner (dot) dragged reshapes it, the aiming point (reticle) dragged is placed, by the keyboard too (Tab to it, then the arrows). Off, a click on a zone does nothing to it, so it is never moved by mistake.",
   zoneHint: "Right-click a zone (long press on a tablet): its name, sizes and settings",
   zoneDraw: {
     toggle: "Draw a zone",
@@ -2430,6 +2432,8 @@ const en: typeof fr = {
     rotation: "rotation (°)",
     noAimConflict: "Closed to moving heads and an aiming zone: the heads aiming at it will go dark there. Untick one of the two.",
     zoneOnPlan: "Zone “{name}” (Shift+F10: its settings)",
+    vertexHandle: "Corner {n} of “{name}” (drag or arrows to move it)",
+    aimHandle: "Aiming point of “{name}” (drag or arrows to place it)",
     usedBy: "is still used by:",
     deleteAnyway: "Delete it anyway? These places will name a zone that no longer exists.",
     deleteUnchecked: "The venue's other shows could not be checked: those using it will lose this zone too. Delete it anyway?",

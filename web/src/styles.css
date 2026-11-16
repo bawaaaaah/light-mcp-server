@@ -2143,6 +2143,30 @@ table.rules td {
   color: var(--zone-color);
   border: 1px solid color-mix(in srgb, var(--zone-color) 60%, transparent);
 }
+/* « Déplacer les zones » (lot Z4): a zone's corners and its aiming point, to drag */
+.stage-plan .zone-handle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+  touch-action: none;
+}
+.stage-plan .zone-handle.aim {
+  fill: transparent;
+  stroke-dasharray: 3 2;
+  cursor: crosshair;
+}
+.stage-plan .zone-handle:focus {
+  outline: none;
+}
+.stage-plan .zone-handle:focus-visible {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+.stage-plan .move-error {
+  margin: 0.3em 0;
+}
 /* the zone's form: its buttons stay in sight at the bottom of a long menu */
 .zone-menu .menu-actions {
   position: sticky;

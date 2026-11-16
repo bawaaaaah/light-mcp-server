@@ -508,3 +508,82 @@ test("T27: on a touch tablet, an ellipse dragged becomes a zone", async ({ brows
   }
   expect(errors).toEqual([]);
 });
+
+test("T27 lot Z4: « Déplacer les zones » drags a corner and the aiming point (mouse, keyboard), a crossing refused", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await login(page);
+  await api(page, "stage.zone.put", { zone: REF });
+  await api(page, "stage.zone.put", { zone: { id: "t27-poly", name: "T27 forme", type: "stage", polygon: [[1, 1], [3, 1], [3, 3], [1, 3]], outline: { kind: "polygon" }, aim: { height: 1.5, point: [2, 2] } } });
+  try {
+    await openVenue(page);
+    await page.getByLabel("Déplacer les zones").check();
+    const handles = page.locator('.stage-plan g[data-handles="t27-poly"]');
+    await expect(handles.locator(".zone-handle")).toHaveCount(5); // four corners and the aiming point
+    let at = await frame(page);
+    // a corner dragged with the mouse: only that corner moves
+    const from = at(3, 3);
+    const to = at(3.5, 4);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => (await zoneNamed(page, "T27 forme"))?.polygon[2]).toEqual([3.5, 4]);
+    expect((await zoneNamed(page, "T27 forme"))!.polygon[0]).toEqual([1, 1]);
+    // the aiming point dragged: placed where it was let go
+    at = await frame(page);
+    const aim = at(2, 2);
+    const there = at(1.5, 1.5);
+    await page.mouse.move(aim.x, aim.y);
+    await page.mouse.down();
+    await page.mouse.move(there.x, there.y, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => (await zoneNamed(page, "T27 forme"))?.aim?.point).toEqual([1.5, 1.5]);
+    // by the keyboard: a corner focused, an arrow moves it by a grid step
+    const corner = handles.locator('[data-handle="0"]');
+    await corner.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await zoneNamed(page, "T27 forme"))?.polygon[0]).toEqual([0.9, 1]);
+    // a corner pulled across the zone: refused before it is sent, said by the plan
+    at = await frame(page);
+    const c1 = at(3, 1);
+    const across = at(0.5, 2.5);
+    await page.mouse.move(c1.x, c1.y);
+    await page.mouse.down();
+    await page.mouse.move(across.x, across.y, { steps: 6 });
+    await page.mouse.up();
+    await expect(page.locator(".stage-plan .move-error")).toContainText("ne peut pas être une zone");
+    expect((await zoneNamed(page, "T27 forme"))!.polygon[1]).toEqual([3, 1]);
+    await page.screenshot({ path: "test-results/t27-z4-handles.png" });
+  } finally {
+    await cleanUp(page);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("T27 lot Z4: on a touch tablet, the aiming point is dragged with a finger", async ({ browser }) => {
+  const { ctx, page } = await touchPage(browser, { width: 1180, height: 820 });
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "stage.zone.put", { zone: REF });
+  await api(page, "stage.zone.put", { zone: { id: "t27-touch", name: "T27 doigt visée", type: "stage", polygon: [[1, 1], [3, 1], [3, 3], [1, 3]], aim: { height: 1.5 } } });
+  try {
+    await openVenue(page);
+    await page.getByLabel("Déplacer les zones").check();
+    const aimHandle = page.locator('.stage-plan g[data-handles="t27-touch"] .zone-handle.aim');
+    // a finger's size
+    expect((await aimHandle.boundingBox())!.width).toBeGreaterThanOrEqual(24);
+    const at = await frame(page);
+    const cdp = await ctx.newCDPSession(page);
+    const [from, to] = [at(2, 2), at(2.5, 1.5)];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: Math.round(from.x), y: Math.round(from.y) }] });
+    for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: Math.round(from.x + ((to.x - from.x) * i) / 8), y: Math.round(from.y + ((to.y - from.y) * i) / 8) }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(async () => (await zoneNamed(page, "T27 doigt visée"))?.aim?.point).toEqual([2.5, 1.5]);
+    await page.screenshot({ path: "test-results/t27-z4-tablet.png" });
+  } finally {
+    await cleanUp(page);
+    await ctx.close();
+  }
+  expect(errors).toEqual([]);
+});
