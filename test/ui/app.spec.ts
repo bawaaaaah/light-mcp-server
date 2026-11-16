@@ -8057,6 +8057,15 @@ test("target pad: a drag moves the reticle at 25 writes a second at most, the ke
     expect(writes.length).toBeLessThan(12); // the latest only, never one write per pointer sample
     // at most 25 a second: never two writes less than 40 ms apart (35 ms here: the test's own clock), the last one
     // carries the point the finger stopped at, for the target it was made for
+    // the last write may still be in flight after the poll above: wait until no write came for 100 ms and the target
+    // listed is the one the last write carried, then read x
+    await expect
+      .poll(async () => {
+        const seen = writes.length;
+        await page.waitForTimeout(100);
+        return writes.length === seen && (await listedTarget(page, "t24"))!.point.x === writes.at(-1)!.body.x;
+      })
+      .toBe(true);
     for (let i = 1; i < writes.length; i++) expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(35);
     const x = (await listedTarget(page, "t24"))!.point.x;
     expect(writes.at(-1)!.body).toMatchObject({ id: "t24", x });
