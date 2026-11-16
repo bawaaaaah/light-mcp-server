@@ -15,6 +15,7 @@ import { say } from "../../../core/lang.js";
 import { parseQxf, sameName, type FixtureDefinition } from "./qxf-import.js";
 import { ID_RE } from "../data/store.js";
 import { readDefinitionText } from "./definition-files.js";
+import { showsOnVenue } from "../data/show-folders.js";
 
 export { readDefinitionText };
 import { definitionDirsFor, patchModels, resolveModels } from "../data/archive-fixtures.js";
@@ -82,7 +83,7 @@ export function copyDefinition(source: string, target: string): FixtureDefinitio
 }
 
 /** Bytes written through a temporary file renamed over the target: the library never reads half a file. */
-function writeWhole(target: string, bytes: Uint8Array): void {
+export function writeWhole(target: string, bytes: Uint8Array): void {
   mkdirSync(path.dirname(target), { recursive: true });
   const tmp = `${target}.tmp-${randomBytes(6).toString("hex")}`;
   try {
@@ -187,20 +188,20 @@ export function trashEntry(dataRoot: string, id: string): { entry: TrashEntry; f
   return { entry, full: path.join(trashDirOf(dataRoot), id, entry.file) };
 }
 
-/** Puts a trashed file back in `dir` (under a free name), and forgets the entry. Returns the file name. */
-export function restoreFromTrash(dataRoot: string, id: string, dir: string): string {
+/** Puts a trashed file back in `dir` (under `as`, or a free name), and forgets the entry. Returns the file name. */
+export function restoreFromTrash(dataRoot: string, id: string, dir: string, as?: string): string {
   const { full } = trashEntry(dataRoot, id);
   parseQxf(readDefinitionText(full).text); // still a definition: never put an unreadable file back
-  const name = freeFileName(dir, path.basename(full));
+  const name = as !== undefined && !existsSync(path.join(dir, as)) ? as : freeFileName(dir, as ?? path.basename(full));
   mkdirSync(dir, { recursive: true });
   moveFile(full, path.join(dir, name));
   rmSync(path.join(trashDirOf(dataRoot), id), { recursive: true, force: true });
   return name;
 }
 
-/** Empties the trash for good: the entries it lists (one whose note cannot be read stays). Returns them. */
-export function emptyTrash(dataRoot: string): TrashEntry[] {
-  const entries = listTrash(dataRoot);
+/** Empties the trash for good: the entries it lists, or those of `ids` (one whose note cannot be read stays). Returns them. */
+export function emptyTrash(dataRoot: string, ids?: readonly string[]): TrashEntry[] {
+  const entries = listTrash(dataRoot).filter((e) => !ids || ids.includes(e.id));
   for (const e of entries) rmSync(path.join(trashDirOf(dataRoot), e.id), { recursive: true, force: true });
   return entries;
 }
@@ -230,7 +231,7 @@ export function restoreDirOf(dataRoot: string, entry: TrashEntry): { dir: string
  * The other venues (folders of data/venues) whose patch resolves a model to this library file, with their fixtures'
  * names and the modes they use (through their aliases).
  */
-export function otherVenuesUsing(dataRoot: string, current: string, full: string): { venue: string; fixtures: string[]; modes: string[] }[] {
+export function otherVenuesUsing(dataRoot: string, current: string, full: string): { venue: string; name: string; fixtures: string[]; modes: string[] }[] {
   const venues = path.join(dataRoot, "venues");
   if (!existsSync(venues)) return [];
   const target = path.resolve(full);
@@ -248,8 +249,42 @@ export function otherVenuesUsing(dataRoot: string, current: string, full: string
         const to = aliasTarget(lookup, f);
         return hit.some((m) => sameName(m.manufacturer, to.manufacturer) && sameName(m.model, to.model)) ? [{ name: f.name, mode: to.mode ?? f.mode }] : [];
       });
-      return users.length ? [{ venue: v, fixtures: users.map((f) => f.name).sort(), modes: [...new Set(users.map((f) => f.mode))].sort() }] : [];
+      return users.length ? [{ venue: v, name: venueName(dataRoot, v), fixtures: users.map((f) => f.name).sort(), modes: [...new Set(users.map((f) => f.mode))].sort() }] : [];
     });
+}
+
+/**
+ * A venue as people know it: by the shows that play on it (« le lieu de « Concert » »), its folder's id only when no
+ * show names it. Venues have no name of their own.
+ */
+export function venueName(dataRoot: string, venue: string): string {
+  const shows = showsOnVenue(dataRoot, venue, undefined, () => undefined).map((x) => `« ${x.settings.name || x.id} »`);
+  return shows.length ? say(`le lieu de ${shows.join(", ")}`, `the venue of ${shows.join(", ")}`) : venue;
+}
+
+/**
+ * How many fixtures of the other venues of this machine resolve each library file (full path), through their aliases
+ * and in their own reading order: the « elsewhere » count of the library list. One pass per venue.
+ */
+export function otherVenuesUsage(dataRoot: string, current: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const venues = path.join(dataRoot, "venues");
+  if (!existsSync(venues)) return out;
+  for (const v of readdirSync(venues)) {
+    if (v === current || !isDir(path.join(venues, v))) continue;
+    const files = venueJson(path.join(venues, v));
+    const lookup = aliasLookup(Object.entries(files).flatMap(([name, text]) => (name.startsWith("aliases/") ? parseOr(AliasSchema, text) : [])));
+    const patched = Object.entries(files).flatMap(([name, text]) => (name.startsWith("fixtures/") ? parseOr(z.object({ manufacturer: z.string(), model: z.string() }).loose(), text) : []));
+    const models = patchModels(files);
+    const found = resolveModels(definitionDirsFor(dataRoot, v), models);
+    for (const f of patched) {
+      const to = aliasTarget(lookup, f);
+      const i = models.findIndex((m) => sameName(m.manufacturer, to.manufacturer) && sameName(m.model, to.model));
+      const full = i >= 0 ? found[i]?.full : undefined;
+      if (full) out.set(path.resolve(full), (out.get(path.resolve(full)) ?? 0) + 1);
+    }
+  }
+  return out;
 }
 
 /** A venue folder's patch and alias files (`fixtures/<id>.json`, `aliases/<id>.json`) as text. */

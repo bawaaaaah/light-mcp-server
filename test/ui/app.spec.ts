@@ -262,8 +262,11 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   const changed = Buffer.from(spot.replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>"));
   await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: changed });
   await expect(page.locator(".added-definitions")).toContainText("✖ test-spot.qxf");
-  page.once("dialog", (d) => void d.accept());
   await page.locator(".added-definitions").getByRole("button", { name: "Remplacer" }).click();
+  // « Remplacer » shows its plan first (the old version goes to the Library's trash), then replaces on a yes
+  const replace = page.getByRole("dialog", { name: "Remplacer par test-spot.qxf" });
+  await expect(replace).toContainText("corbeille");
+  await replace.getByRole("button", { name: "Remplacer", exact: true }).click();
   await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
   await page.locator('input[type=file][accept=".qxw"]').setInputFiles({ name: "Autre salle.qxw", mimeType: "text/xml", buffer: fixture("efx.qxw") });
   await expect(page.locator(".report")).toBeVisible();

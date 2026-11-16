@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 /** The UI test server's port (playwright.config.ts). */
@@ -38,7 +39,7 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   const table = page.locator("table.library-table");
   await expect(row(page, "Mode Par")).toHaveCount(1);
   // the patched spot is used here; the filter keeps only what this venue uses
-  await expect(row(page, "Spot 7")).toContainText("1 appareil");
+  await expect(row(page, "Spot 7")).toContainText("ici : 1 appareil");
   await page.getByLabel("Utilisées dans ce lieu").check();
   await expect(row(page, "Mode Par")).toHaveCount(0);
   await page.getByLabel("Utilisées dans ce lieu").uncheck();
@@ -52,7 +53,7 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   const dup = page.getByRole("dialog", { name: "Dupliquer Test Mode Par" });
   await expect(dup.getByLabel("Modèle")).toHaveValue("Mode Par (copie)");
   await dup.getByRole("button", { name: "Dupliquer", exact: true }).click();
-  await expect(page.locator(".library-page .notice")).toContainText("Mode Par (copie)");
+  await expect(page.locator(".library-toast")).toContainText("Mode Par (copie)");
   await expect(row(page, "Mode Par (copie)")).toContainText("Ce lieu");
 
   // the copy forwarded to the original: an alias, with its mode table
@@ -144,6 +145,9 @@ for (const [label, viewport, mobile] of [
     await expect(row(page, "Mode Par")).toHaveCount(1);
     await expect(page.locator(".library-table .model", { hasText: "Projecteur-a-tres-long" })).toHaveCount(1);
     expect(await page.evaluate<number>("document.documentElement.scrollWidth")).toBeLessThanOrEqual(viewport.width);
+    // every row's ⋯ is on screen, whatever the names and chips
+    const outside = await page.locator(".library-table .row-actions").evaluateAll((els, w) => els.filter((e) => e.getBoundingClientRect().right > w).length, viewport.width);
+    expect(outside).toBe(0);
     const small = await page.locator(".library-page button:visible, .library-page select:visible, .library-page input[type=search]:visible, .library-page label.inline:visible").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 80)));
     expect(small).toEqual([]);
     // a finger held on a row opens its menu
@@ -179,4 +183,42 @@ test("library in English", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /^Library/ })).toBeVisible();
   await expect(page.getByLabel("Used in this venue")).toBeVisible();
   await page.evaluate(() => localStorage.setItem("lang", "fr"));
+});
+
+test("library by keyboard: the menu's arrows, the dialog takes the focus and gives it back to the row's ⋯", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page);
+  await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
+  const actions = page.getByRole("button", { name: "Actions sur Test Mode Par" });
+  await actions.focus();
+  await page.keyboard.press("Enter");
+  const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par" });
+  await expect(menu.getByRole("button", { name: /Dupliquer/ })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(menu.getByRole("button", { name: /Supprimer/ })).toBeFocused();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  const dup = page.getByRole("dialog", { name: "Dupliquer Test Mode Par" });
+  await expect(dup).toBeVisible();
+  // the focus is inside the dialog, not lost on the page
+  await expect(dup.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(dup).toHaveCount(0);
+  await expect(actions).toBeFocused();
+});
+
+test("library: a Latin-1 .qxf imported from the Import page is kept byte for byte", async ({ page }) => {
+  const errors = watchErrors(page);
+  await signIn(page);
+  await page.locator("nav.pages button", { hasText: "Import" }).click();
+  const latin = readFileSync(new URL("../fixtures/latin1-eclat.qxf", import.meta.url));
+  await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "eclat-latin1.qxf", mimeType: "text/xml", buffer: latin });
+  await expect(page.locator(".added-definitions")).toContainText("✔ eclat-latin1.qxf");
+  await expect(page.locator(".added-definitions")).toContainText("Société Fictive Projecteur Éclat");
+  const got = (await api(page, "library.get", { id: "shared/eclat-latin1.qxf" })) as { base64?: string; modes: { name: string }[] };
+  expect(Buffer.from(got.base64!, "base64").equals(latin)).toBe(true);
+  expect(got.modes.map((m) => m.name)).toEqual(["Défaut", "Réduit"]);
+  await api(page, "library.delete", { id: "shared/eclat-latin1.qxf" });
+  await api(page, "library.trash.empty");
+  expect(errors).toEqual([]);
 });

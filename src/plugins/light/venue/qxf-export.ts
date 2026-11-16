@@ -7,7 +7,7 @@
  * venue's corrections has no place in a `.qxf`: `planCorrections` names it, the export says it.
  */
 import { say } from "../../../core/lang.js";
-import { definitionFileName } from "./definition-files.js";
+import { decodeXmlReferences, definitionFileName } from "./definition-files.js";
 import { foldLatin } from "./names.js";
 import { headsOf, partsOf } from "./heads.js";
 import type { FixtureOverrides } from "./overrides.js";
@@ -75,22 +75,12 @@ interface XmlElement {
 }
 
 /**
- * An attribute's value as the import reads it (fast-xml-parser, qxf-import.ts): trimmed, the five predefined entities
- * and the numeric character references decoded in one pass (the import decodes both; it also knows HTML's named
- * entities, which a .qxf does not use: such a name is not matched, and that is caught when the file is read again).
- * Names compared through this
- * match those of the parsed definition; a DOCTYPE's own entities do not, and what is then not written is caught when
- * the file is read again.
+ * An attribute's value as the import reads it (qxf-import.ts): trimmed, the five predefined entities and the numeric
+ * character references decoded in one pass by the import's own function (`decodeXmlReferences`; HTML's named
+ * entities stay as written on both sides). Names compared through this match those of the parsed definition; a
+ * DOCTYPE's own entities do not, and what is then not written is caught when the file is read again.
  */
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-const decode = (s: string): string =>
-  s.trim().replace(/&(amp|lt|gt|quot|apos|#x[0-9a-fA-F]+|#\d+);/g, (m, e: string) => {
-    if (!e.startsWith("#")) return ENTITIES[e]!;
-    const cp = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
-    // as the parser does: beyond Unicode kept as written, NUL and a lone surrogate dropped
-    if (!(cp <= 0x10ffff)) return m;
-    return cp === 0 || (cp >= 0xd800 && cp <= 0xdfff) ? "" : String.fromCodePoint(cp);
-  });
+const decode = (s: string): string => decodeXmlReferences(s.trim());
 const escapeAttr = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 const NAME_RE = /[^\s/>=]+/y;

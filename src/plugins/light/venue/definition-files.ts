@@ -46,16 +46,44 @@ export function definitionFileName(name: string): string {
   return `${stem || "definition"}.qxf`;
 }
 
+/** A prolog declaring a single-byte Western encoding (`<?xml … encoding="ISO-8859-1"?>`, Latin-1, Windows-1252). */
+const LATIN1_PROLOG = /^(?:\uFEFF)?<\?xml[^>]*\bencoding\s*=\s*["'](?:iso-?8859-1|latin-?1|l1|windows-1252|cp1252)["']/i;
+
 /**
- * A definition file's text: as UTF-8, or byte for byte as Latin-1 when its bytes are not valid UTF-8 (an ISO-8859-1
- * file, read as `fixture.definition.export` reads it), with which one it was, so that a retouch is written back alike.
- * The library, the archives and the library commands all read a .qxf through this, so they see the same names.
+ * A definition's text from its bytes: as Latin-1 byte for byte when its prolog declares ISO-8859-1 (even an all-ASCII
+ * file: a retouch must be written back under that declaration) or when they are not valid UTF-8, else as UTF-8; with
+ * which one it was, so that a retouch is written back alike.
  */
-export function readDefinitionText(full: string): { text: string; latin1: boolean; bytes: Buffer } {
-  const bytes = readFileSync(full);
+export function decodeDefinition(bytes: Buffer): { text: string; latin1: boolean; bytes: Buffer } {
+  if (LATIN1_PROLOG.test(bytes.subarray(0, 200).toString("latin1"))) return { text: bytes.toString("latin1"), latin1: true, bytes };
   try {
     return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), latin1: false, bytes };
   } catch {
     return { text: bytes.toString("latin1"), latin1: true, bytes };
   }
+}
+
+/**
+ * A definition file's text (`decodeDefinition`), read as `fixture.definition.export` reads it. The library, the archives,
+ * the import (`fixture.definition.add`) and the library commands all read a .qxf through this, so they see the same names.
+ */
+export function readDefinitionText(full: string): { text: string; latin1: boolean; bytes: Buffer } {
+  return decodeDefinition(readFileSync(full));
+}
+
+const XML_ENTITIES: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+/**
+ * A .qxf's text with its references decoded as the import reads it, in one pass: the five XML entities, the numeric
+ * character references (`&#233;`, `&#x175;`; beyond Unicode kept as written, NUL and a lone surrogate dropped), and the
+ * entities `declared` (a DOCTYPE's); never HTML's named entities (`&deg;`, `&nbsp;` stay as written). The import
+ * (qxf-import.ts) and the export's name comparison (qxf-export.ts) share it.
+ */
+export function decodeXmlReferences(s: string, declared: Readonly<Record<string, string>> = {}): string {
+  return s.replace(/&(#x[0-9a-fA-F]+|#\d+|[A-Za-z_][\w.-]*);/g, (m, e: string) => {
+    if (!e.startsWith("#")) return XML_ENTITIES[e] ?? declared[e] ?? m;
+    const cp = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+    if (!(cp <= 0x10ffff)) return m;
+    return cp === 0 || (cp >= 0xd800 && cp <= 0xdfff) ? "" : String.fromCodePoint(cp);
+  });
 }

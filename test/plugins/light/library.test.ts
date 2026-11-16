@@ -121,7 +121,7 @@ describe("fixture library (T20b)", () => {
       mkdirSync(other, { recursive: true });
       writeFileSync(join(other, "spot-1.json"), JSON.stringify({ id: "spot-1", name: "Hall spot", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 1 }));
       const refused = await failure(run("library.delete", { id: "shared/spot.qxf" }));
-      expect(refused.detail).to.deep.include({ otherVenues: [{ venue: "hall", fixtures: ["Hall spot"], modes: ["Standard"] }] });
+      expect(refused.detail).to.deep.include({ otherVenues: [{ venue: "hall", name: "hall", fixtures: ["Hall spot"], modes: ["Standard"] }] });
       // that venue's own copy would take over there: then the shared file is free to go
       mkdirSync(join(dataRoot, "venues", "hall", "fixture-definitions"), { recursive: true });
       writeFileSync(join(dataRoot, "venues", "hall", "fixture-definitions", "spot.qxf"), SPOT);
@@ -140,7 +140,7 @@ describe("fixture library (T20b)", () => {
       expect(plugin.runtime.venue.models.get("test_spot7copie")?.overrides.wheel).to.deep.equal({ doubles: false });
       expect((plugin.runtime.venue.resolve("spot") as { def: { model: string } }).def.model).to.equal("Spot 7"); // the patch is unchanged
       // again: the next free name; a name given that exists is refused
-      expect(await run("library.duplicate", { id: "shared/spot.qxf" })).to.deep.include({ model: "Spot 7 (copie) 2" });
+      expect(await run("library.duplicate", { id: "shared/spot.qxf" })).to.deep.include({ model: "Spot 7 (copie 2)" });
       expect((await failure(run("library.duplicate", { id: "shared/spot.qxf", model: "Bar 4" }))).message).to.match(/déjà/);
     });
 
@@ -344,7 +344,7 @@ describe("fixture library (T20b)", () => {
       // pick: a shared keep must have the modes the other venue uses
       writeFileSync(join(shared(), "spot2.qxf"), SPOT.replace('<Mode Name="Standard">', '<Mode Name="Other">'));
       const pick = await failure(run("library.merge", { keep: "shared/spot2.qxf", drop: ["shared/spot.qxf"], as: "pick" }));
-      expect(pick.detail).to.deep.include({ lostModes: ["hall: Standard"] });
+      expect(pick.detail).to.deep.include({ lostModes: ["hall : Standard"] });
       expect(existsSync(join(shared(), "spot.qxf"))).to.equal(true);
     });
 
@@ -437,7 +437,7 @@ describe("fixture library (T20b)", () => {
       writeFileSync(join(dataRoot, "backups", "deleted-definitions", "broken", "meta.json"), "{oops");
       const regisseur = { origin: "ui" as const, can: (r: string) => r === "show:write" || r === "dashboards:view" };
       expect(((await failure(plugin.commands.invoke("library.trash.empty", {}, regisseur))) as CommandError).code).to.equal("forbidden");
-      expect(await run("library.trash.empty", { dryRun: true })).to.deep.include({ count: 1, removed: [{ id: ((await run("library.trash")) as { id: string }[])[0]!.id, file: "spot.qxf", manufacturer: "Test", model: "Spot 7" }] });
+      expect(await run("library.trash.empty", { dryRun: true })).to.deep.include({ count: 1, removed: [{ id: ((await run("library.trash")) as { id: string }[])[0]!.id, file: "spot.qxf", manufacturer: "Test", model: "Spot 7", folder: "shared", deletedAt: "2026-11-16T10:00:00.000Z" }] });
       expect(await run("library.trash.empty")).to.deep.include({ count: 1 });
       expect(existsSync(join(dataRoot, "backups", "deleted-definitions", "broken"))).to.equal(true);
     });
@@ -489,9 +489,9 @@ describe("fixture library (T20b)", () => {
       hallUses("Spot 7", "Standard");
       const noStandard = SPOT.replace('<Mode Name="Standard">', '<Mode Name="Std">');
       const refused = await failure(run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true }));
-      expect(refused.detail).to.deep.include({ lostModes: ["hall: Standard"], force: true });
+      expect(refused.detail).to.deep.include({ lostModes: ["hall : Standard"], force: true });
       expect(readFileSync(join(shared(), "spot.qxf"), "utf8")).to.equal(SPOT);
-      expect(await run("fixture.definition.add", { name: "spot.qxf", xml: V2, replace: true })).to.deep.include({ otherVenues: [{ venue: "hall", fixtures: ["Hall one"], modes: ["Standard"] }] });
+      expect(await run("fixture.definition.add", { name: "spot.qxf", xml: V2, replace: true })).to.deep.include({ otherVenues: [{ venue: "hall", name: "hall", fixtures: ["Hall one"], modes: ["Standard"] }] });
       await run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true, force: true });
       // a file of that name holding the model another venue uses, replaced by another model: refused
       const other = await failure(run("fixture.definition.add", { name: "spot.qxf", xml: SPOT.replace("<Model>Spot 7</Model>", "<Model>Fresh</Model>"), replace: true }));
@@ -527,6 +527,94 @@ describe("fixture library (T20b)", () => {
       await run("library.merge", { keep: "shared/bar4.qxf", drop: ["shared/pixel-bar.qxf"], as: "alias" });
       const plan = (await run("library.unalias", { id: "other_pixelbar", dryRun: true })) as { repointed: unknown[] };
       expect(plan.repointed).to.deep.equal([{ from: { manufacturer: "Other", model: "Third Bar" }, to: { manufacturer: "Test", model: "Bar 4" }, previousTo: { manufacturer: "Other", model: "Pixel Bar" } }]);
+    });
+  });
+
+  describe("review 3", () => {
+    const hallUses = (model: string, mode: string) => {
+      mkdirSync(join(dataRoot, "venues", "hall", "fixtures"), { recursive: true });
+      writeFileSync(join(dataRoot, "venues", "hall", "fixtures", "h1.json"), JSON.stringify({ id: "h1", name: "Hall one", manufacturer: "Test", model, mode, universe: 1, address: 1 }));
+    };
+    const LATIN = readFileSync(new URL("../../fixtures/latin1-eclat.qxf", import.meta.url));
+
+    it("UB1: a Latin-1 .qxf imported as bytes is written byte for byte and read with its accents", async () => {
+      const r = await run("fixture.definition.add", { name: "eclat.qxf", base64: LATIN.toString("base64") });
+      expect(r).to.deep.include({ file: "eclat.qxf", manufacturer: "Société Fictive", model: "Projecteur Éclat" });
+      expect(readFileSync(join(shared(), "eclat.qxf"))).to.deep.equal(LATIN);
+      expect(plugin.runtime.venue.definitionFor("Société Fictive", "Projecteur Éclat")!.modes.map((m) => m.name)).to.deep.equal(["Défaut", "Réduit"]);
+      // the same bytes again: nothing written
+      expect(await run("fixture.definition.add", { name: "eclat.qxf", base64: LATIN.toString("base64") })).to.deep.include({ unchanged: true });
+    });
+
+    it("I1/M1: « Remplacer » asks before dropping or relaying a mode this venue's fixtures use, and says the other venues", async () => {
+      await put("s", "Test", "Spot 7", "Standard");
+      const noStandard = SPOT.replace('<Mode Name="Standard">', '<Mode Name="Std">');
+      const refused = await failure(run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true }));
+      expect(refused.detail).to.deep.include({ lostModes: ["Standard"], usedBy: [{ id: "s", name: "S" }], force: true });
+      expect(readFileSync(join(shared(), "spot.qxf"), "utf8")).to.equal(SPOT);
+      // the same mode name, other channels: asked too
+      const relaid = SPOT.replace(/<Mode Name="Standard">([\s\S]*?)<\/Mode>/, (m) => m.replace("<Channel Number=\"0\">Pan</Channel>", "<Channel Number=\"0\">Dimmer</Channel>"));
+      expect((await failure(run("fixture.definition.add", { name: "spot.qxf", xml: relaid, replace: true }))).detail).to.deep.include({ changedModes: ["Standard"] });
+      expect(await run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true, dryRun: true })).to.deep.include({ refused: true, lostModes: ["Standard"] });
+      await run("fixture.definition.add", { name: "spot.qxf", xml: noStandard, replace: true, force: true });
+      // other venues are named in the result
+      hallUses("Spot 7", "Std");
+      expect(await run("fixture.definition.add", { name: "spot.qxf", xml: SPOT.replace('<Mode Name="Standard">', '<Mode Name="Std">').replace("<Type>", "<!-- v3 --><Type>"), replace: true, force: true })).to.deep.include({ otherVenues: [{ venue: "hall", name: "hall", fixtures: ["Hall one"], modes: ["Std"] }] });
+    });
+
+    it("M2: HTML's named entities stay as written; numeric references and the five XML ones are decoded", () => {
+      const def = parseQxf(SPOT.replace("<Model>Spot 7</Model>", "<Model>Spot 7&deg; &amp; &#233;</Model>"));
+      expect(def.model).to.equal("Spot 7&deg; & é");
+    });
+
+    it("M3: an all-ASCII file declaring ISO-8859-1 is copied in Latin-1 under its declaration", async () => {
+      writeFileSync(join(shared(), "ascii.qxf"), SPOT.replace('encoding="UTF-8"', 'encoding="ISO-8859-1"').replace("<Model>Spot 7</Model>", "<Model>Ascii Spot</Model>"));
+      const copy = (await run("library.duplicate", { id: "shared/ascii.qxf", model: "Copié ŵ" })) as { id: string };
+      const out = readFileSync(join(own(), copy.id.slice("venue/".length)));
+      expect(out.includes(Buffer.from([0x43, 0x6f, 0x70, 0x69, 0xe9]))).to.equal(true); // « Copié » in Latin-1
+      expect(out.toString("latin1")).to.contain("&#x175;");
+      expect(parseQxf(out.toString("latin1")).model).to.equal("Copié ŵ");
+    });
+
+    it("M4: a fixture patched under the misread name of a Latin-1 file still resolves it, with its corrections", async () => {
+      writeFileSync(join(shared(), "eclat.qxf"), LATIN);
+      plugin.runtime.venue.refreshDefinitions(); // dropped while the server runs
+      const misread = (s: string) => Buffer.from(s, "latin1").toString("utf8");
+      await put("old", misread("Société Fictive"), misread("Projecteur Éclat"), "Défaut");
+      expect((plugin.runtime.venue.resolve("old") as { def: { model: string } }).def.model).to.equal("Projecteur Éclat");
+      // corrections stored then, under the misread key, still apply; and those under the proper names too
+      await run("venue.fixture.heads.set", { fixture: "old", scope: "model", follow: false });
+      expect(plugin.runtime.venue.overridesOf(plugin.runtime.venue.fixtures.get("old")!).heads).to.deep.equal({ follow: false });
+    });
+
+    it("M5/M6: a restore names the folders, and sees an identical displaced file in another venue's own folder", async () => {
+      // another venue's own copy of Spot 7, identical to what goes back there
+      const hallDefs = join(dataRoot, "venues", "hall", "fixture-definitions");
+      hallUses("Spot 7", "Standard");
+      mkdirSync(hallDefs, { recursive: true });
+      writeFileSync(join(hallDefs, "spot.qxf"), SPOT);
+      writeFileSync(join(hallDefs, "a-spot.qxf"), SPOT);
+      const id = moveToTrash(dataRoot, join(hallDefs, "a-spot.qxf"), { folder: "venue", venue: "hall", manufacturer: "Test", model: "Spot 7" }, clock);
+      expect(await run("library.restore", { id, dryRun: true })).to.deep.include({ displaces: "spot.qxf", identical: true, refused: false });
+      // the shared one: an older version back as spot-2.qxf, before spot.qxf; the refusal names both folders
+      await put("spot", "Test", "Spot 7", "Standard");
+      await run("fixture.definition.add", { name: "spot.qxf", xml: SPOT.replace("<Type>", "<!-- v2 --><Type>").replace('Name="Shutter"', 'Name="Shut"').replace(/>Shutter</g, ">Shut<"), replace: true, force: true });
+      const old = ((await run("library.trash")) as { id: string; reason?: string }[]).find((e) => e.reason === "replaced")!.id;
+      expect((await failure(run("library.restore", { id: old }))).message).to.match(/spot-2\.qxf \(partagée\) passerait avant spot\.qxf \(partagée\)/);
+      // beside: under a name read after it, nothing changes; in its place: the current one to the trash
+      expect(await run("library.restore", { id: old, as: "beside", dryRun: true })).to.deep.include({ file: "spot_old.qxf", winner: false, refused: false });
+      expect(await run("library.restore", { id: old, as: "replace" })).to.deep.include({ file: "spot.qxf", restored: true });
+      expect(readFileSync(join(shared(), "spot.qxf"), "utf8")).to.equal(SPOT);
+      expect(((await run("library.trash")) as { reason?: string }[]).some((e) => e.reason === "replaced")).to.equal(true);
+    });
+
+    it("M7: emptying the trash removes only what was listed; an entry gone since is said", async () => {
+      await run("library.delete", { id: "shared/spot.qxf" });
+      const listed = ((await run("library.trash.empty", { dryRun: true })) as { removed: { id: string }[] }).removed.map((e) => e.id);
+      await run("library.delete", { id: "shared/pixel-bar.qxf" }); // arrives after the list was shown
+      const r = (await run("library.trash.empty", { ids: [...listed, "2026-01-01T00-00-00-000Z-gone"] })) as { count: number; missing?: string[] };
+      expect(r).to.deep.include({ count: 1, missing: ["2026-01-01T00-00-00-000Z-gone"] });
+      expect(((await run("library.trash")) as { model: string }[]).map((e) => e.model)).to.deep.equal(["Pixel Bar"]);
     });
   });
 });

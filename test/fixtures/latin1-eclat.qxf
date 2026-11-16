@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Manufacturer>Société Fictive</Manufacturer>
+ <Model>Projecteur Éclat</Model>
+ <Type>Color Changer</Type>
+ <Channel Name="Intensité" Preset="IntensityMasterDimmer"/>
+ <Channel Name="Rouge" Preset="IntensityRed"/>
+ <Channel Name="Vert" Preset="IntensityGreen"/>
+ <Channel Name="Bleu" Preset="IntensityBlue"/>
+ <Mode Name="Défaut">
+  <Channel Number="0">Intensité</Channel>
+  <Channel Number="1">Rouge</Channel>
+  <Channel Number="2">Vert</Channel>
+  <Channel Number="3">Bleu</Channel>
+ </Mode>
+ <Mode Name="Réduit">
+  <Channel Number="0">Rouge</Channel>
+  <Channel Number="1">Vert</Channel>
+  <Channel Number="2">Bleu</Channel>
+ </Mode>
+</FixtureDefinition>

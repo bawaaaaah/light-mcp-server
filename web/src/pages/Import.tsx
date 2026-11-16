@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { ApiError, cmd, switchingShow } from "../api";
 import { useT } from "../App";
 import { quoted } from "../typography";
+import { Modal } from "../components/Modal";
 
 interface Proposal {
   applied: boolean;
@@ -33,14 +34,15 @@ interface DefinitionResult {
   file: string;
   ok: boolean;
   detail: string;
-  /** A definition refused because another file of that name, or of that model, differs: kept so « Remplacer » can send it again. */
+  /** A definition refused because another file of that name, or of that model, differs: « Remplacer » opens its plan. */
   retry?: File;
-  /** The library file « Remplacer » overwrites (the server's detail), and whether it is the venue's own copy. */
-  target?: { file: string; venue: boolean };
+  /** A file of that name holds another model in service: only « Ajouter sous le nom… » is offered. */
+  rename?: File;
 }
 /** What `fixture.definition.add` answers (T40: `unchanged` when the library already had that model the same). */
 interface AddedDefinition {
   file: string;
+  folder?: "venue" | "shared";
   manufacturer: string;
   model: string;
   unchanged?: true;
@@ -48,6 +50,23 @@ interface AddedDefinition {
   previous?: string;
   /** This venue's own copy was replaced: the shared file stays as it was for the other venues. */
   sharedUnchanged?: true;
+  usedBy?: { name: string }[];
+  otherVenues?: { name: string; fixtures: string[] }[];
+}
+/** A « Remplacer » plan (`fixture.definition.add` with dryRun). */
+interface ReplacePlan extends AddedDefinition {
+  target: string;
+  replaced?: true;
+  lostModes?: string[];
+  changedModes?: string[];
+  refused?: boolean;
+}
+/** A file's bytes in base64: a .qxf goes to the server byte for byte (an ISO-8859-1 file stays one, T20b review 3). */
+async function fileBase64(f: File): Promise<string> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
 }
 /** The result of an import into a new show, kept across the reload that opening it causes. */
 const LAST_IMPORT = "lastImport";
@@ -114,38 +133,47 @@ export function ImportPage(): ReactElement {
   };
   /** What an added definition says: its model, and that nothing was written when the library already had it the same (T40). */
   const addedDetail = (r: AddedDefinition) => `${r.manufacturer} ${r.model}${r.unchanged ? ` — ${t.libraryPage.alreadyThere.replace("{file}", () => r.file)}` : ""}`;
+  /** The definition « Remplacer » is asked for: its plan opens in a window. */
+  const [replacing, setReplacing] = useState<File | null>(null);
+  /** The file name typed for « Ajouter sous le nom… », per refused file. */
+  const [renames, setRenames] = useState<Record<string, string>>({});
+  const addOne = async (f: File, name = f.name): Promise<DefinitionResult> => {
+    try {
+      const r = await cmd<AddedDefinition>("fixture.definition.add", { name, base64: await fileBase64(f) });
+      return { file: f.name, ok: true, detail: addedDetail(r) };
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.detail : undefined;
+      // another model in service under that file name: never replaced, added under another name instead
+      if (detail?.otherModel) return { file: f.name, ok: false, detail: (e as Error).message, rename: f };
+      return { file: f.name, ok: false, detail: (e as Error).message, ...(detail?.exists ? { retry: f } : {}) };
+    }
+  };
   const addDefinitions = async (files: FileList | null) => {
     const results: DefinitionResult[] = [];
-    for (const f of Array.from(files ?? [])) {
-      try {
-        const r = await cmd<AddedDefinition>("fixture.definition.add", { name: f.name, xml: await f.text() });
-        results.push({ file: f.name, ok: true, detail: addedDetail(r) });
-      } catch (e) {
-        const exists = e instanceof ApiError && e.detail?.exists;
-        // the file the library uses for that model, or the one of that name: the one « Remplacer » overwrites
-        const overwritten = exists && typeof e.detail?.file === "string" ? { file: e.detail.file, venue: e.detail.folder === "venue" } : undefined;
-        results.push({ file: f.name, ok: false, detail: (e as Error).message, ...(exists ? { retry: f, target: overwritten } : {}) });
-      }
-    }
+    for (const f of Array.from(files ?? [])) results.push(await addOne(f));
     setAdded(results);
     loadLibrary();
     if (xml) await propose(xml); // the proposal now sees them
   };
-  const replaceDefinition = async (f: File, overwritten?: { file: string; venue: boolean }) => {
-    if (!confirm(`${t.replaceDefinitionAsk} ${overwritten?.file ?? f.name}${overwritten?.venue ? t.libraryPage.venueOwn : ""}`)) return;
-    try {
-      const args = { name: f.name, xml: await f.text(), replace: true };
-      // a shared file other venues use with a mode the new version lacks: said, replaced only on a second yes
-      const r = await cmd<AddedDefinition>("fixture.definition.add", args).catch(async (e: unknown) => {
-        if (!(e instanceof ApiError && e.detail?.force) || !confirm(`${e.message}\n\n${t.libraryPage.replaceAnyway}`)) throw e;
-        return cmd<AddedDefinition>("fixture.definition.add", { ...args, force: true });
-      });
-      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: [`${addedDetail(r)} (${r.file})`, r.previous ? t.libraryPage.replacedKept : "", r.sharedUnchanged ? t.libraryPage.sharedUnchanged : ""].filter(Boolean).join(" ; ") } : a)));
-      loadLibrary();
-      if (xml) await propose(xml);
-    } catch (e) {
-      setAdded((rows) => rows.map((a) => (a.retry === f ? { ...a, detail: (e as Error).message } : a)));
-    }
+  const addUnder = async (f: File) => {
+    const name = (renames[f.name] ?? "").trim();
+    if (!name) return;
+    const r = await addOne(f, name.toLowerCase().endsWith(".qxf") ? name : `${name}.qxf`);
+    setAdded((rows) => rows.map((a) => (a.rename === f ? { ...r, file: f.name } : a)));
+    loadLibrary();
+  };
+  /** After « Remplacer »: the row says what was written, where the old version went, and who else got it. */
+  const replaced = (f: File, r: AddedDefinition) => {
+    const parts = [
+      `${addedDetail(r)} (${r.file})`,
+      r.previous ? t.libraryPage.replacedKept : "",
+      r.sharedUnchanged ? t.libraryPage.sharedUnchanged : "",
+      r.otherVenues?.length ? t.libraryPage.replacedFor.replace("{list}", () => r.otherVenues!.map((v) => `${v.name} (${v.fixtures.join(", ")})`).join(", ")) : "",
+    ].filter(Boolean);
+    setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: parts.join(" ; ") } : a)));
+    setReplacing(null);
+    loadLibrary();
+    if (xml) void propose(xml);
   };
   const apply = () => {
     if (!xml) return;
@@ -176,7 +204,7 @@ export function ImportPage(): ReactElement {
         <p className="hint">{t.importDefinitionsHelp}</p>
         <div className="row">
           <span>
-            {definitions ?? "…"} {t.definitionsInLibrary}
+            {definitions === null ? `… ${t.definitionsInLibrary}` : definitions === 1 ? t.libraryPage.definitionsOne : t.libraryPage.definitionsMany.replace("{n}", String(definitions))}
           </span>
           <label className="button-like">
             ⤒ {t.addQxf}
@@ -189,15 +217,31 @@ export function ImportPage(): ReactElement {
               <li key={a.file} className={a.ok ? "" : "error"}>
                 {a.ok ? "✔" : "✖"} {a.file}{t.colon} {a.detail}
                 {a.retry && (
-                  <button type="button" onClick={() => void replaceDefinition(a.retry!, a.target)}>
+                  <button type="button" onClick={() => setReplacing(a.retry!)}>
                     {t.replaceDefinition}
                   </button>
+                )}
+                {a.rename && (
+                  <span className="add-under">
+                    <input
+                      aria-label={`${t.libraryPage.addUnder} (${a.file})`}
+                      placeholder={a.file.replace(/\.qxf$/i, "-2.qxf")}
+                      value={renames[a.file] ?? ""}
+                      onChange={(e) => setRenames({ ...renames, [a.file]: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && void addUnder(a.rename!)}
+                    />
+                    <button type="button" disabled={!(renames[a.file] ?? "").trim()} onClick={() => void addUnder(a.rename!)}>
+                      {t.libraryPage.addIt}
+                    </button>
+                  </span>
                 )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {replacing && <ReplaceDialog file={replacing} onClose={() => setReplacing(null)} onDone={(r) => replaced(replacing, r)} />}
 
       <section className="step">
         <h2>2. {t.importTitle}</h2>
@@ -404,5 +448,60 @@ export function ImportPage(): ReactElement {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * « Remplacer » (T20b review 3): the plan first (fixture.definition.add dry run) — the file it takes the place of and
+ * where, the old version going to the Library's trash, this venue's fixtures and the other venues concerned, modes they
+ * lose or that change —, then a yes, « Le faire quand même » when modes in use change.
+ */
+function ReplaceDialog({ file, onClose, onDone }: { file: File; onClose: () => void; onDone: (r: AddedDefinition) => void }): ReactElement {
+  const t = useT();
+  const l = t.libraryPage;
+  const [plan, setPlan] = useState<ReplacePlan | null>(null);
+  const [force, setForce] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    void fileBase64(file).then((base64) => cmd<ReplacePlan>("fixture.definition.add", { name: file.name, base64, replace: true, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)));
+  }, [file]);
+  const go = () =>
+    void fileBase64(file)
+      .then((base64) => cmd<AddedDefinition>("fixture.definition.add", { name: file.name, base64, replace: true, force }))
+      .then(onDone, (e: Error) => setError(e.message));
+  const title = l.importReplaceTitle.replace("{file}", file.name);
+  const folder = plan?.folder === "venue" ? l.folderVenue : l.folderShared;
+  return (
+    <Modal label={title} className="narrow library-dialog" onClose={onClose}>
+      <h3>{title}</h3>
+      {!plan && !error && <p role="status">{t.loading}</p>}
+      {plan && (
+        <>
+          <p>{l.importReplaceInto.replace("{file}", plan.target).replace("{folder}", folder)}</p>
+          {plan.replaced && <p className="hint">{l.importOldToTrash}</p>}
+          {plan.sharedUnchanged && <p className="hint">{l.sharedUnchanged}</p>}
+          {(plan.usedBy ?? []).length > 0 && <p>{l.importChangesHere.replace("{list}", plan.usedBy!.map((u) => u.name).join(", "))}</p>}
+          {(plan.otherVenues ?? []).length > 0 && <p className="warn">{l.importChangesElsewhere.replace("{list}", plan.otherVenues!.map((v) => `${v.name} (${v.fixtures.join(", ")})`).join(", "))}</p>}
+          {(plan.lostModes ?? []).length > 0 && <p className="warn">{l.importLost.replace("{list}", plan.lostModes!.join(", "))}</p>}
+          {(plan.changedModes ?? []).length > 0 && <p className="warn">{l.importChanged.replace("{list}", plan.changedModes!.join(", "))}</p>}
+          {plan.refused && (
+            <label className="inline">
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> {l.forceDelete}
+            </label>
+          )}
+        </>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="row">
+        <button onClick={onClose}>{t.cancel}</button>
+        <button className="primary" disabled={!plan || (plan.refused && !force)} onClick={go}>
+          {l.importReplaceIt}
+        </button>
+      </div>
+    </Modal>
   );
 }

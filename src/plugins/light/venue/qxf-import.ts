@@ -3,7 +3,8 @@
  * channels with typed attributes and capabilities, modes with heads = cells).
  * Pure: takes the XML text.
  */
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, type EntityDecoderOptions } from "fast-xml-parser";
+import { decodeXmlReferences } from "./definition-files.js";
 import { GENERIC_DIMMER_NAMES, sameName } from "./names.js";
 
 export type ColorComponent = "red" | "green" | "blue" | "white" | "amber" | "uv" | "cyan" | "magenta" | "yellow" | "lime" | "warmWhite" | "coldWhite";
@@ -63,14 +64,28 @@ export interface FixtureDefinition {
 }
 
 const ARRAYS = new Set(["Channel", "Capability", "Mode", "Head"]);
+/**
+ * The parser's entity decoder: the five XML entities, the numeric character references (a Latin-1 file holds a letter
+ * outside Latin-1 as `&#x175;`, library.duplicate writes one) and a DOCTYPE's own entities — never HTML's named ones
+ * (`&deg;` stays as written). The same function as the export's name comparison (definition-files.ts).
+ */
+function entityDecoder(): EntityDecoderOptions {
+  let declared: Record<string, string> = {};
+  return {
+    setExternalEntities: (entities) => void (declared = { ...declared, ...entities }),
+    addInputEntities: (entities) => void (declared = { ...declared, ...entities }),
+    reset: () => void (declared = {}),
+    decode: (value) => decodeXmlReferences(value, declared),
+    setXmlVersion: () => undefined,
+  };
+}
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
   parseTagValue: false,
-  // numeric character references (&#233;, &#x175;) decoded like the predefined entities: a Latin-1 file holds a letter
-  // outside Latin-1 that way (library.duplicate writes one), and the export's names (qxf-export.ts decode) agree
-  htmlEntities: true,
+  entityDecoder: entityDecoder(),
   isArray: (name) => ARRAYS.has(name),
 });
 

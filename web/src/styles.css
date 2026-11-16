@@ -2684,6 +2684,50 @@ table.rules td {
   min-width: 2.4em;
   color: var(--text);
 }
+/* the ⋯ column stays in view when a narrow screen scrolls the table sideways */
+.library-table th:last-child,
+.library-table td:last-child {
+  position: sticky;
+  right: 0;
+  background: var(--bg);
+}
+.library-table .elsewhere {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+/* chips wrap instead of widening the model column */
+.library-table .chip {
+  white-space: normal;
+}
+/* the message after an action, in view wherever the action was */
+.library-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1em + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(36em, calc(100vw - 2em));
+  margin: 0;
+  padding: 0.6em 1em;
+  border: 1px solid var(--on);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--on);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.library-list.compact {
+  gap: 0.2em;
+  font-size: 0.85rem;
+  max-height: 14em;
+  overflow-y: auto;
+}
+.import .add-under {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-left: 0.4em;
+}
 /* the manufacturer under the model: only on a phone, where its column goes */
 .library-table .maker {
   display: none;

@@ -13,7 +13,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FolderStore, Collection } from "../data/store.js";
 import { listQxfFiles, readDefinitionText } from "./definition-files.js";
-import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
+import { findDefinition, findMode, parseQxf, sameName, strobeHz, type ColorComponent, type FixtureDefinition, type FixtureMode } from "./qxf-import.js";
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { headsOf } from "./heads.js";
@@ -415,6 +415,9 @@ export interface WheelChoice extends WheelHeld {
   gap: number;
 }
 
+/** A name as the library read it when it decoded a Latin-1 file as UTF-8: each non-ASCII letter became U+FFFD. */
+const misread = (s: string): string => Buffer.from(s, "latin1").toString("utf8");
+
 export class Venue {
   readonly definitions: FixtureDefinition[] = [];
   /** The file name of each definition, in the order of `definitions`. */
@@ -433,6 +436,8 @@ export class Venue {
   /** Names, sizes and dates of the .qxf files last read, and the errors they gave. */
   private definitionStamp = "";
   private definitionErrors: string[] = [];
+  /** The names the library gave each Latin-1 definition when it read every file as UTF-8 (accents lost as U+FFFD). */
+  private readonly legacyNames = new Map<FixtureDefinition, { manufacturer: string; model: string }>();
 
   constructor(
     readonly store: FolderStore,
@@ -518,13 +523,21 @@ export class Venue {
     this.definitions.length = 0;
     this.definitionSources = [];
     this.definitionPaths = [];
+    this.legacyNames.clear();
     const names = new Map<string, number>();
     for (const f of files) names.set(path.basename(f), (names.get(path.basename(f)) ?? 0) + 1);
     this.store.loadErrors.splice(0, this.store.loadErrors.length, ...this.store.loadErrors.filter((e) => !this.definitionErrors.includes(e)));
     this.definitionErrors = [];
     for (const f of files) {
       try {
-        this.definitions.push(parseQxf(readDefinitionText(f).text)); // a Latin-1 file keeps its accents
+        const read = readDefinitionText(f);
+        const def = parseQxf(read.text); // a Latin-1 file keeps its accents
+        this.definitions.push(def);
+        // its names as the library read them before (UTF-8, accents lost as U+FFFD): fixtures patched then still find it
+        if (read.latin1) {
+          const legacy = { manufacturer: misread(def.manufacturer), model: misread(def.model) };
+          if (!sameName(legacy.manufacturer, def.manufacturer) || !sameName(legacy.model, def.model)) this.legacyNames.set(def, legacy);
+        }
         // two library folders may hold the same file name: then the message says the folder
         this.definitionSources.push(names.get(path.basename(f))! > 1 ? `${path.basename(path.dirname(f))}/${path.basename(f)}` : path.basename(f));
         this.definitionPaths.push(f);
@@ -550,7 +563,16 @@ export class Venue {
   /** The definition a model resolves to: through the venue's aliases (T20b), then the library (the first file wins). */
   definitionFor(manufacturer: string, model: string): FixtureDefinition | undefined {
     const to = aliasTarget(this.aliases, { manufacturer, model });
-    return findDefinition(this.definitions, to.manufacturer, to.model);
+    return findDefinition(this.definitions, to.manufacturer, to.model) ?? this.legacyDefinition(to.manufacturer, to.model);
+  }
+
+  /**
+   * A Latin-1 definition patched under the names the library gave it before it read Latin-1 (accents lost as U+FFFD,
+   * « �clairage »): those fixtures keep resolving it (T20b review 3), and keep their model's corrections stored then.
+   */
+  private legacyDefinition(manufacturer: string, model: string): FixtureDefinition | undefined {
+    for (const [def, legacy] of this.legacyNames) if (sameName(legacy.manufacturer, manufacturer) && sameName(legacy.model, model)) return def;
+    return undefined;
   }
 
   /**
@@ -619,16 +641,32 @@ export class Venue {
 
   /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
   overridesOf(patch: PatchedFixture): FixtureOverrides {
-    const { manufacturer, model } = this.modelOf(patch);
-    const key = modelKeyOrUndefined(manufacturer, model);
-    return mergeOverrides(key ? this.models.get(key)?.overrides : undefined, patch.overrides);
+    return mergeOverrides(this.modelRecord(patch)?.overrides, patch.overrides);
   }
 
   /** The travel correction of a fixture's model (T8), apart from its own: a model's applies to modes without their own travel only. */
   modelTravelOf(patch: PatchedFixture): TravelOverrides | undefined {
-    const { manufacturer, model } = this.modelOf(patch);
-    const key = modelKeyOrUndefined(manufacturer, model);
-    return key ? this.models.get(key)?.overrides.travel : undefined;
+    return this.modelRecord(patch)?.overrides.travel;
+  }
+
+  /**
+   * A fixture's model corrections: under its model's key (through an alias), else — a Latin-1 definition patched under
+   * its old misread names, or the other way round — under the definition's proper names (T20b review 3).
+   */
+  private modelRecord(patch: { manufacturer: string; model: string }): ModelOverrides | undefined {
+    const names = this.modelOf(patch);
+    const key = modelKeyOrUndefined(names.manufacturer, names.model);
+    const own = key ? this.models.get(key) : undefined;
+    if (own) return own;
+    const def = this.definitionFor(patch.manufacturer, patch.model);
+    const legacy = def ? this.legacyNames.get(def) : undefined;
+    if (!def || !legacy) return undefined;
+    for (const n of [def, legacy]) {
+      const k = modelKeyOrUndefined(n.manufacturer, n.model);
+      const found = k && k !== key ? this.models.get(k) : undefined;
+      if (found) return found;
+    }
+    return undefined;
   }
 
   /**
@@ -760,7 +798,7 @@ export class Venue {
     else {
       // through the venue's aliases (T20b): the target's definition, the mode by the alias' table
       const to = aliasTarget(this.aliases, patch);
-      const def = findDefinition(this.definitions, to.manufacturer, to.model);
+      const def = findDefinition(this.definitions, to.manufacturer, to.model) ?? this.legacyDefinition(to.manufacturer, to.model);
       const mode = def ? findMode(def, to.mode ?? patch.mode) : undefined;
       // an alias whose target has no definition (deleted since) says where it points, in the reader's language too
       const lost = to.alias && !def ? to : undefined;

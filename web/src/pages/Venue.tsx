@@ -30,6 +30,8 @@ interface Fixture {
   name: string;
   manufacturer: string;
   model: string;
+  /** Patched under a model that is an alias (T20b): the definition and mode it really plays. */
+  resolvesAs?: { manufacturer: string; model: string; mode: string };
   mode: string;
   universe: number;
   address: number;
@@ -292,6 +294,7 @@ export function VenuePage(): ReactElement {
                   <td>
                     <small>
                       {f.manufacturer} {f.model} · {f.mode}
+                      {f.resolvesAs && <span className="aliased"> {t.libraryPage.patchedAs.replace("{model}", `${f.resolvesAs.manufacturer} ${f.resolvesAs.model}`)}</span>}
                     </small>
                     {undefinedFixtures.has(f.id) && (
                       <span className="badge conflict" title={t.noDefinitionHelp}>

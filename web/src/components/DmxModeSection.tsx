@@ -196,7 +196,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     }
   };
 
-  const items: SearchItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: tm.channels.replace("{n}", String(m.channels)), current: m.name === playing }));
+  const items: SearchItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: m.channels === 1 ? t.libraryPage.oneChannel : tm.channels.replace("{n}", String(m.channels)), current: m.name === playing }));
   const others = plan?.sharedWith ?? [];
   const lostList = plan ? losses(plan) : [];
   const nothing = plan && !plan.moved.length && !lostList.length && !plan.cellsWithoutRender.length;

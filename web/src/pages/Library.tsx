@@ -20,6 +20,8 @@ export interface LibraryRow {
   sameStructure: { manufacturer: string; model: string }[];
   sameStructureCount?: number;
   usedBy: { id: string; name: string }[];
+  /** Fixtures of the other venues of this machine that resolve it. */
+  usedElsewhere?: number;
   overrides: boolean;
   aliasedTo?: { manufacturer: string; model: string };
   aliasedFrom?: { manufacturer: string; model: string }[];
@@ -39,6 +41,7 @@ interface TrashRow {
   manufacturer: string;
   model: string;
   deletedAt: string;
+  reason?: "deleted" | "replaced";
 }
 interface Duplicates {
   sameName: { manufacturer: string; model: string; winner: string; others: { source: string; identical: boolean; message?: string }[] }[];
@@ -59,6 +62,9 @@ const PAGE = 100;
 const fill = (s: string, values: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
 const named = (r: { manufacturer: string; model: string }) => `${r.manufacturer} ${r.model}`;
 type L = Texts["libraryPage"];
+/** A text compared without case nor accents (« eclat » finds « Éclat »). */
+const folded = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const modesCount = (l: L, n: number) => (n === 1 ? l.modesOne : fill(l.modesMany, { n }));
 /** « 1 appareil », « 3 appareils »: never « appareil(s) ». */
 const fixturesCount = (l: L, n: number) => (n === 1 ? l.usedOne : fill(l.usedMany, { n }));
 const folderName = (l: L, f: LibraryRow["folder"] | TrashRow["folder"]) => (f === "venue" ? l.folderVenue : f === "shared" ? l.folderShared : l.folderBuiltin);
@@ -111,10 +117,10 @@ export function LibraryPage(): ReactElement {
   const manufacturers = useMemo(() => [...new Set(rows.map((r) => r.manufacturer))].sort((a, b) => a.localeCompare(b)), [rows]);
   const types = useMemo(() => [...new Set(rows.map((r) => r.type).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [rows]);
   const filtered = useMemo(() => {
-    const words = filter.search.toLowerCase().split(/\s+/).filter(Boolean);
+    const words = folded(filter.search).split(/\s+/).filter(Boolean);
     return rows.filter(
       (r) =>
-        words.every((w) => `${r.manufacturer} ${r.model} ${r.file}`.toLowerCase().includes(w)) &&
+        words.every((w) => folded(`${r.manufacturer} ${r.model} ${r.file}`).includes(w)) &&
         (!filter.manufacturer || r.manufacturer === filter.manufacturer) &&
         (!filter.type || r.type === filter.type) &&
         (!filter.folder || r.folder === filter.folder) &&
@@ -136,12 +142,24 @@ export function LibraryPage(): ReactElement {
     const r = e.currentTarget.getBoundingClientRect();
     setMenu({ id, x: r.left, y: r.bottom });
   };
-  /** After an action: the message, the lists read again, the dialog closed. */
-  const done = (message: string) => {
+  /** The row whose ⋯ a dialog gives the keyboard back to when it closes. */
+  const lastRow = useRef<string | null>(null);
+  const closeDialog = () => {
     setDialog(null);
+    // after the dialog's own clean-up: the row's ⋯ (still there), else nothing to do
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current ?? "")}"]`)?.focus({ preventScroll: true }));
+  };
+  /** After an action: the message (a toast, in view wherever the action was), the lists read again, the dialog closed. */
+  const done = (message: string) => {
+    closeDialog();
     setNotice(message);
     void refresh();
   };
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 8000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const menuRow = menu ? byId.get(menu.id) : undefined;
   const mayEmpty = me ? can(me, "show:admin") : false;
 
@@ -193,11 +211,6 @@ export function LibraryPage(): ReactElement {
             {loaded ? fill(l.showing, { n: Math.min(shown, filtered.length), total: filtered.length }) : t.loading}
           </p>
         )}
-        {notice && (
-          <p className="notice" role="status">
-            {notice}
-          </p>
-        )}
         {loaded && filtered.length === 0 && <p className="hint">{t.noMatch}</p>}
         {filtered.length > 0 && (
           <div className="library-scroll">
@@ -230,11 +243,19 @@ export function LibraryPage(): ReactElement {
                       <span className={`folder-chip ${r.folder}`}>{folderName(l, r.folder)}</span>
                       {r.file && <FileName file={r.file} />}
                     </td>
-                    <td title={r.usedBy.map((u) => u.name).join(", ") || undefined}>{r.usedBy.length ? fixturesCount(l, r.usedBy.length) : "—"}</td>
+                    <td title={r.usedBy.map((u) => u.name).join(", ") || undefined}>
+                      {r.usedBy.length ? `${l.here} : ${fixturesCount(l, r.usedBy.length)}` : r.usedElsewhere ? "" : "—"}
+                      {r.usedElsewhere ? (
+                        <span className="elsewhere" title={l.elsewhereHint}>
+                          {fill(l.elsewhere, { n: r.usedElsewhere })}
+                        </span>
+                      ) : null}
+                    </td>
                     <td>
                       {r.folder !== "builtin" && (
                         <button
                           className="ghost row-actions"
+                          data-row-actions={r.id}
                           aria-haspopup="dialog"
                           aria-label={fill(l.actionsOf, { model: named(r) })}
                           onKeyDown={keyMenu(r.id)}
@@ -340,7 +361,7 @@ export function LibraryPage(): ReactElement {
                 <li key={e.id}>
                   <span>{named(e)}</span>
                   <span className="hint">
-                    {e.file} · {folderName(l, e.folder)}
+                    {e.reason === "replaced" ? l.reasonReplaced : l.reasonDeleted} · {e.file} · {folderName(l, e.folder)}
                     {e.venue ? ` (${e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
                   </span>
                   <button aria-label={`${l.restore} ${named(e)}`} onClick={() => setDialog({ kind: "restore", entry: e })}>
@@ -349,6 +370,7 @@ export function LibraryPage(): ReactElement {
                 </li>
               ))}
             </ul>
+            {!mayEmpty && <p className="hint">{l.adminOnlyTrash}</p>}
             {mayEmpty && (
               <button className="danger" onClick={() => setDialog({ kind: "empty" })}>
                 {l.emptyTrash}
@@ -358,6 +380,9 @@ export function LibraryPage(): ReactElement {
         )}
       </section>
 
+      <p className="library-toast" role="status" hidden={!notice}>
+        {notice}
+      </p>
       {menu && menuRow && (
         <RowMenu
           row={menuRow}
@@ -365,18 +390,20 @@ export function LibraryPage(): ReactElement {
           l={l}
           onClose={() => setMenu(null)}
           onPick={(d) => {
+            lastRow.current = menu.id;
             setMenu(null);
-            setDialog(d);
+            // once the menu has given the focus back to the row: the dialog then takes it, and gives it back on close
+            window.setTimeout(() => setDialog(d), 0);
           }}
         />
       )}
-      {dialog?.kind === "delete" && <DeleteDialog row={dialog.row} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "duplicate" && <DuplicateDialog row={dialog.row} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "alias" && <AliasDialog row={dialog.row} rows={rows} initial={dialog.target} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "pick" && <PickDialog keep={dialog.keep} drop={dialog.drop} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "unalias" && <UnaliasDialog alias={dialog.alias} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "restore" && <RestoreDialog entry={dialog.entry} l={l} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "empty" && <EmptyTrashDialog l={l} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog?.kind === "delete" && <DeleteDialog row={dialog.row} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "duplicate" && <DuplicateDialog row={dialog.row} rows={rows} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "alias" && <AliasDialog row={dialog.row} rows={rows} initial={dialog.target} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "pick" && <PickDialog keep={dialog.keep} drop={dialog.drop} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "unalias" && <UnaliasDialog alias={dialog.alias} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "restore" && <RestoreDialog entry={dialog.entry} l={l} onClose={closeDialog} onDone={done} />}
+      {dialog?.kind === "empty" && <EmptyTrashDialog l={l} onClose={closeDialog} onDone={done} />}
     </div>
   );
 }
@@ -404,7 +431,26 @@ function RowMenu({ row, at, l, onClose, onPick }: { row: LibraryRow; at: { x: nu
   const trap = useMenuFocus(box);
   useEffect(() => box.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true }), [box]);
   return (
-    <div ref={box} className="widget-menu library-menu" role="dialog" aria-label={fill(l.actionsOf, { model: named(row) })} style={style} onKeyDown={trap} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      ref={box}
+      className="widget-menu library-menu"
+      role="dialog"
+      aria-label={fill(l.actionsOf, { model: named(row) })}
+      style={style}
+      onKeyDown={(e) => {
+        // ↑ ↓ between the entries, Début / Fin to the first and last
+        const items = [...(box.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+        const current = items.indexOf(document.activeElement as HTMLElement);
+        const to = e.key === "ArrowDown" ? (current + 1) % items.length : e.key === "ArrowUp" ? (current - 1 + items.length) % items.length : e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : -1;
+        if (to >= 0 && items.length) {
+          e.preventDefault();
+          items[to]!.focus();
+          return;
+        }
+        trap(e);
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <h3>{named(row)}</h3>
       <button onClick={() => onPick({ kind: "duplicate", row })}>
         <span aria-hidden="true">⧉</span> {l.duplicate}
@@ -437,7 +483,7 @@ function DeleteDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; onCl
   const t = useT();
   type Plan = {
     usedBy: { name: string }[];
-    otherVenues: { venue: string; fixtures: string[] }[];
+    otherVenues: { venue: string; name?: string; fixtures: string[] }[];
     fallback?: string;
     identicalFallback?: boolean;
     aliases: { id: string; from: { manufacturer: string; model: string }; fixtures: { name: string }[] }[];
@@ -463,7 +509,7 @@ function DeleteDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; onCl
           {plan.usedBy.length > 0 && <p>{fill(l.usedHere, { list: fixtureList(plan.usedBy) })}</p>}
           {plan.otherVenues.map((v) => (
             <p key={v.venue} className="warn">
-              {fill(l.usedElsewhere, { venue: v.venue, list: v.fixtures.join(", ") })}
+              {fill(l.usedElsewhere, { venue: v.name ?? v.venue, list: v.fixtures.join(", ") })}
             </p>
           ))}
           {(plan.usedBy.length > 0 || plan.otherVenues.length > 0) && <p className={plan.fallback ? "hint" : "warn"}>{plan.fallback ? fill(plan.identicalFallback ? l.fallbackIdentical : l.fallback, { id: human(l, plan.fallback) }) : l.noFallback}</p>}
@@ -500,10 +546,19 @@ function DeleteDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; onCl
   );
 }
 
-function DuplicateDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
+/** « <modèle> (copie) », else « (copie 2) », « (copie 3) »…: the first one no definition of that manufacturer has. */
+function freeCopyName(row: LibraryRow, rows: readonly LibraryRow[], l: L): string {
+  const taken = new Set(rows.filter((r) => folded(r.manufacturer) === folded(row.manufacturer)).map((r) => folded(r.model)));
+  const base = l.copySuffix.replace(/\)$/, "");
+  let name = `${row.model} ${l.copySuffix}`;
+  for (let i = 2; taken.has(folded(name)); i++) name = `${row.model} ${base} ${i})`;
+  return name;
+}
+
+function DuplicateDialog({ row, rows, l, onClose, onDone }: { row: LibraryRow; rows: readonly LibraryRow[]; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
   const [same, setSame] = useState(false);
-  const [names, setNames] = useState({ manufacturer: row.manufacturer, model: `${row.model} ${l.copySuffix}` });
+  const [names, setNames] = useState(() => ({ manufacturer: row.manufacturer, model: freeCopyName(row, rows, l) }));
   const [error, setError] = useState("");
   const go = () => {
     const args = same ? { id: row.id, sameName: true } : { id: row.id, ...(names.manufacturer.trim() !== row.manufacturer ? { manufacturer: names.manufacturer.trim() } : {}), model: names.model.trim() };
@@ -527,7 +582,13 @@ function DuplicateDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; o
         )}
       </fieldset>
       {!same && (
-        <div className="library-names">
+        <form
+          className="library-names"
+          onSubmit={(e) => {
+            e.preventDefault(); // Enter in a field duplicates
+            if (names.model.trim() && names.manufacturer.trim()) go();
+          }}
+        >
           <label className="field">
             <span>{l.manufacturer}</span>
             <input value={names.manufacturer} onChange={(e) => setNames({ ...names, manufacturer: e.target.value })} />
@@ -536,7 +597,8 @@ function DuplicateDialog({ row, l, onClose, onDone }: { row: LibraryRow; l: L; o
             <span>{l.colModel}</span>
             <input value={names.model} onChange={(e) => setNames({ ...names, model: e.target.value })} />
           </label>
-        </div>
+          <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+        </form>
       )}
       <p className="hint">{same ? l.asVenueCopyHelp : `${l.asNewModelHelp} ${l.newCopyStructure}`}</p>
       <DialogError error={error} />
@@ -559,7 +621,7 @@ type MergePlan = {
   targetModes?: { name: string; channels: number }[];
   overrides?: "none" | "copied" | "replaced-target" | "kept-target" | "conflict";
   lostModes?: string[];
-  otherVenues?: { venue: string; fixtures: string[] }[];
+  otherVenues?: { venue: string; name?: string; fixtures: string[] }[];
   losesDefinition?: string[];
   differs?: string[];
   refused: boolean;
@@ -572,7 +634,13 @@ type MergePlan = {
  */
 function AliasDialog({ row, rows, initial, l, onClose, onDone }: { row: LibraryRow; rows: LibraryRow[]; initial?: string; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
-  const targets = useMemo(() => rows.filter((r) => r.folder !== "builtin" && r.winner && !r.aliasedTo && `${r.manufacturer}|${r.model}`.toLowerCase() !== `${row.manufacturer}|${row.model}`.toLowerCase()), [rows, row]);
+  const targets = useMemo(
+    () =>
+      rows
+        .filter((r) => r.folder !== "builtin" && r.winner && !r.aliasedTo && `${r.manufacturer}|${r.model}`.toLowerCase() !== `${row.manufacturer}|${row.model}`.toLowerCase())
+        .sort((a, b) => a.manufacturer.localeCompare(b.manufacturer) || a.model.localeCompare(b.model)),
+    [rows, row],
+  );
   const [target, setTarget] = useState(initial ?? "");
   const [search, setSearch] = useState("");
   /** The modes chosen by hand: old mode → target mode; the others follow the server's proposal. */
@@ -595,7 +663,7 @@ function AliasDialog({ row, rows, initial, l, onClose, onDone }: { row: LibraryR
   }, [target, JSON.stringify(modes), overrides, force]);
   // the target changed: the hand-made choices were for another one's modes
   useEffect(() => setModes({}), [target]);
-  const shown = targets.filter((r) => `${r.manufacturer} ${r.model}`.toLowerCase().includes(search.toLowerCase())).slice(0, 50);
+  const shown = targets.filter((r) => folded(`${r.manufacturer} ${r.model}`).includes(folded(search))).slice(0, 50);
   const blocked = !plan || (plan.unmapped?.length ?? 0) > 0 || plan.overrides === "conflict" || ((plan.channelChanges?.length ?? 0) > 0 && !force);
   const go = () =>
     void cmd<{ retargeted?: { from: { manufacturer: string; model: string }; previousTo?: { manufacturer: string; model: string } }[] }>("library.merge", args).then((r) => {
@@ -613,7 +681,7 @@ function AliasDialog({ row, rows, initial, l, onClose, onDone }: { row: LibraryR
         <option value="">{l.chooseTarget}</option>
         {shown.map((r) => (
           <option key={r.id} value={r.id}>
-            {named(r)} ({r.modes.length} {l.colModes.toLowerCase()})
+            {named(r)} ({modesCount(l, r.modes.length)})
           </option>
         ))}
         {target && !shown.some((r) => r.id === target) && <option value={target}>{human(l, target)}</option>}
@@ -699,13 +767,14 @@ function PickDialog({ keep, drop, l, onClose, onDone }: { keep: LibraryRow; drop
     <Modal label={title} className="narrow library-dialog" onClose={onClose}>
       <h3>{title}</h3>
       <p>{fill(l.pickHelp, { list: drop.map((d) => human(l, d)).join(", ") })}</p>
+      {plan && <p className={(plan.differs ?? []).length && plan.fixtures.length ? "warn" : "hint"}>{(plan.differs ?? []).length && plan.fixtures.length ? fill(l.pickChanges, { list: fixtureList(plan.fixtures) }) : l.pickSame}</p>}
       {!plan && !error && <p role="status">{t.loading}</p>}
       {plan && (plan.differs ?? []).length > 0 && <p className="warn">{fill(l.pickDiffers, { list: plan.differs!.map((d) => human(l, d)).join(", ") })}</p>}
       {plan && (plan.lostModes ?? []).length > 0 && <p className="error">{fill(l.lostModes, { list: plan.lostModes!.join(", ") })}</p>}
       {plan &&
         (plan.otherVenues ?? []).map((v) => (
           <p key={v.venue} className="warn">
-            {fill(l.usedElsewhere, { venue: v.venue, list: v.fixtures.join(", ") })}
+            {fill(l.usedElsewhere, { venue: v.name ?? v.venue, list: v.fixtures.join(", ") })}
           </p>
         ))}
       {loses && (
@@ -745,9 +814,9 @@ function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; o
       {!plan && !error && <p role="status">{t.loading}</p>}
       {plan && (
         <>
-          <p>{plan.fixtures.length ? fill(l.followers, { list: fixtureList(plan.fixtures) }) : l.noFollowers}</p>
+          <p>{plan.fixtures.length ? fill(l.unaliasBack, { list: fixtureList(plan.fixtures) }) : l.noFollowers}</p>
           {plan.noDefinition && plan.fixtures.length > 0 && <p className="warn">{fill(l.unaliasNoDefinition, { from: named(alias.from) })}</p>}
-          {plan.fixtures.some((f) => f.after) && <p>{fill(l.unaliasModes, { list: plan.fixtures.map((f) => `${f.name} : ${f.before?.mode ?? "—"} → ${f.after?.mode ?? "—"}`).join(", ") })}</p>}
+          {plan.fixtures.some((f) => f.after) && <p>{fill(l.unaliasModes, { list: plan.fixtures.map((f) => `${f.name} (${f.before?.mode ?? "—"} → ${f.after?.mode ?? "—"})`).join(", ") })}</p>}
           {plan.repointed.length > 0 && <p className="warn">{fill(l.repointedNote, { list: plan.repointed.map((x) => named(x.from)).join(", "), from: named(alias.from), to: named(alias.to) })}</p>}
           {changes.length > 0 && <p className="warn">{fill(l.unaliasChannels, { list: changes.map((f) => `${f.name} ${f.before!.channels} → ${f.after!.channels}`).join(", ") })}</p>}
         </>
@@ -766,19 +835,32 @@ function UnaliasDialog({ alias, l, onClose, onDone }: { alias: AliasRow; l: L; o
 /** « Vider la corbeille » (show:admin, decision L4): what goes, listed by a dry run, then a yes. */
 function EmptyTrashDialog({ l, onClose, onDone }: { l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
-  type Plan = { removed: { manufacturer: string; model: string; file: string }[]; count: number };
+  type Plan = { removed: { id: string; manufacturer: string; model: string; file: string; folder: TrashRow["folder"]; venue?: string; deletedAt: string }[]; count: number; missing?: string[] };
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   useEffect(() => void cmd<Plan>("library.trash.empty", { dryRun: true }).then(setPlan, (e: Error) => setError(e.message)), []);
-  const go = () => void cmd<Plan>("library.trash.empty").then((r) => onDone(fill(l.emptied, { n: r.count })), (e: Error) => setError(e.message));
+  // only what was listed here goes: a definition put in the trash since stays
+  const go = () =>
+    void cmd<Plan>("library.trash.empty", { ids: plan!.removed.map((e) => e.id) }).then(
+      (r) => onDone(`${fill(l.emptied, { n: r.count })}${r.missing?.length ? ` ${fill(l.emptiedMissing, { n: r.missing.length })}` : ""}`),
+      (e: Error) => setError(e.message),
+    );
   return (
     <Modal label={l.emptyTrash} className="narrow library-dialog" onClose={onClose}>
       <h3>{l.emptyTrash}</h3>
       <DialogError error={error} />
       {plan && (
         <>
-          <p>{fill(l.emptyTrashAsk, { n: plan.count })}</p>
-          <p className="hint">{fill(l.emptyTrashList, { list: plan.removed.map((e) => `${named(e)} (${e.file})`).join(", ") })}</p>
+          <p>{plan.count === 1 ? l.emptyTrashAskOne : fill(l.emptyTrashAsk, { n: plan.count })}</p>
+          <p className="hint">{l.emptyTrashList}</p>
+          <ul className="library-list compact">
+            {plan.removed.map((e) => (
+              <li key={e.id}>
+                {named(e)} · {e.file} · {folderName(l, e.folder)}
+                {e.venue ? ` (${e.venue})` : ""} · {new Date(e.deletedAt).toLocaleString()}
+              </li>
+            ))}
+          </ul>
         </>
       )}
       <div className="row">
@@ -805,14 +887,29 @@ function FileName({ file }: { file: string }): ReactElement {
 /** « Restaurer »: where it goes back, whether it then wins for its model and whose definition changes, then a yes. */
 function RestoreDialog({ entry, l, onClose, onDone }: { entry: TrashRow; l: L; onClose: () => void; onDone: (m: string) => void }): ReactElement {
   const t = useT();
-  type Plan = { file: string; toShared?: boolean; displaces?: string; identical?: boolean; copies: string[]; usedBy: { name: string }[]; otherVenues: { venue: string; fixtures: string[] }[]; refused: boolean };
+  type Plan = {
+    file: string;
+    where: string;
+    toShared?: boolean;
+    displaces?: string;
+    displacesWhere?: string;
+    identical?: boolean;
+    options?: { replace: string; beside: string };
+    copies: string[];
+    usedBy: { name: string }[];
+    otherVenues: { venue: string; name?: string; fixtures: string[] }[];
+    refused: boolean;
+  };
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [as, setAs] = useState<"auto" | "replace" | "beside">("auto");
   const [force, setForce] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => void cmd<Plan>("library.restore", { id: entry.id, dryRun: true }).then(setPlan, (e: Error) => setError(e.message)), [entry.id]);
-  const go = () => void cmd<{ file: string; toShared?: boolean }>("library.restore", { id: entry.id, force }).then((r) => onDone(fill(r.toShared ? l.restoredToShared : l.restored, { file: r.file })), (e: Error) => setError(e.message));
+  const go = () => void cmd<{ file: string; toShared?: boolean }>("library.restore", { id: entry.id, as, force }).then((r) => onDone(fill(r.toShared ? l.restoredToShared : l.restored, { file: r.file })), (e: Error) => setError(e.message));
   const title = fill(l.restoreTitle, { file: entry.file });
-  const affected = plan ? [...plan.usedBy.map((u) => u.name), ...plan.otherVenues.map((v) => `${v.venue} (${v.fixtures.join(", ")})`)] : [];
+  const affected = plan ? [...plan.usedBy.map((u) => u.name), ...plan.otherVenues.map((v) => `${v.name ?? v.venue} (${v.fixtures.join(", ")})`)] : [];
+  // with a choice, « replace » is the explicit yes and « beside » changes nothing: only « auto » may need « quand même »
+  const needsYes = Boolean(plan?.refused) && as === "auto";
   return (
     <Modal label={title} className="narrow library-dialog" onClose={onClose}>
       <h3>{title}</h3>
@@ -823,15 +920,29 @@ function RestoreDialog({ entry, l, onClose, onDone }: { entry: TrashRow; l: L; o
       {!plan && !error && <p role="status">{t.loading}</p>}
       {plan && (
         <>
-          {plan.toShared && <p className="warn">{fill(l.restoredToShared, { file: plan.file })}</p>}
-          {plan.displaces && (
+          {plan.toShared && <p className="warn">{fill(l.willGoToShared, { file: plan.file })}</p>}
+          {plan.displaces && !plan.options && (
             <p className={plan.identical ? "hint" : "warn"}>
-              {fill(l.restoreWins, { file: plan.file, displaces: plan.displaces })} {plan.identical ? l.restoreIdentical : ""}
+              {fill(l.restoreWins, { file: plan.file, where: plan.where, displaces: plan.displaces, displacesWhere: plan.displacesWhere ?? "" })} {plan.identical ? l.restoreIdentical : ""}
             </p>
           )}
+          {plan.options && (
+            <fieldset>
+              <legend>{l.restoreHow}</legend>
+              <label className="inline">
+                <input type="radio" name="restore-as" checked={as === "replace"} onChange={() => setAs("replace")} /> {fill(l.restoreReplace, { file: plan.options.replace })}
+              </label>
+              <label className="inline">
+                <input type="radio" name="restore-as" checked={as === "beside"} onChange={() => setAs("beside")} /> {fill(l.restoreBeside, { file: plan.options.beside, current: plan.options.replace })}
+              </label>
+              <label className="inline">
+                <input type="radio" name="restore-as" checked={as === "auto"} onChange={() => setAs("auto")} /> {fill(l.restoreAuto, { file: plan.file })}
+              </label>
+            </fieldset>
+          )}
           {plan.copies.length > 0 && <p className="hint">{fill(l.restoreCopies, { list: plan.copies.map((c) => human(l, c)).join(", ") })}</p>}
-          {affected.length > 0 && !plan.identical && <p className="warn">{fill(l.restoreChanges, { list: affected.join(", ") })}</p>}
-          {plan.refused && (
+          {affected.length > 0 && !plan.identical && as !== "beside" && <p className="warn">{fill(l.restoreChanges, { list: affected.join(", ") })}</p>}
+          {needsYes && (
             <label className="inline">
               <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> {l.forceDelete}
             </label>
@@ -841,7 +952,7 @@ function RestoreDialog({ entry, l, onClose, onDone }: { entry: TrashRow; l: L; o
       <DialogError error={error} />
       <div className="row">
         <button onClick={onClose}>{t.cancel}</button>
-        <button className="primary" disabled={!plan || (plan.refused && !force)} onClick={go}>
+        <button className="primary" disabled={!plan || (needsYes && !force)} onClick={go}>
           {l.restoreIt}
         </button>
       </div>
