@@ -105,6 +105,40 @@ interface Crossfade {
   apart?: boolean;
 }
 
+/**
+ * One frame being composed (`ShowRuntime.compose`): its instant, the frame it builds and the errors it says, and what
+ * its steps share, all dropped with the frame.
+ */
+interface ComposePass {
+  readonly now: number;
+  readonly beats: number;
+  readonly frame: AttributeFrame;
+  readonly errors: string[];
+  /** Who doses what on this frame (show/dca.ts): one snapshot. */
+  readonly doses: Doses;
+  /**
+   * Raw channels of the looks, by fixture then offset: every look's write with its weight and its sheet — a crossfade
+   * and the looks it replaces share one (`x:<incoming>`), any other look has its own — so that venue.toDmx shares a
+   * channel inside a sheet and keeps the highest sheet (rawOver).
+   */
+  readonly lookChannels: Map<string, Map<number, RawWrite[]>>;
+  /**
+   * The fixtures whose tracks are enabled (T5, venue/tracks.ts), with their verbatim offsets (pan/tilt, past their mode):
+   * the looks reach them as layers (layerOf), not through the colours and raw channels — but for those offsets, which
+   * stay raw. `trackColours`: their colour offsets.
+   */
+  readonly trackFixtures: Map<string, (offset: number) => boolean>;
+  readonly trackColours: Map<string, Set<number>>;
+  /** Per canvas, whether it reaches a fixture with tracks (touchesTracks). */
+  readonly reachesTracks: Map<string, boolean>;
+  /** The launch rank of each layer laid on a fixture with tracks: they stack by it. */
+  readonly ranks: Map<TrackLayer, number>;
+  /** What each look paints at full (atFull), once per player and frame. */
+  readonly full: Map<LookPlayer, AttributeFrame["colors"]>;
+  /** Colour maps painted at fade 1 and masters 1: already at full, no second paint needed. */
+  readonly full1: WeakSet<AttributeFrame["colors"]>;
+}
+
 /** What `ShowRuntime.explainChannel` answers: `intensity` is absent when no fixture owns the channel. */
 export interface ChannelExplanation {
   /** `head`: the colour head (0-based) the channel drives on a fixture with several; `accent` when that head is an accent one (a halo). */
@@ -1555,28 +1589,44 @@ export class ShowRuntime {
     return [...byRule].map(([id, clamps]) => ({ rule: strict.find((r) => r.id === id)!, clamps }));
   }
 
-  /** The show's output before the rules: looks, positions, levels, raw channels, channel faders. */
-  private compose(buffers: Uint8Array[], now: number, beats: number, wheels: Map<string, WheelChoice>, motion: MotionRun): string[] {
-    const frame = emptyFrame();
-    const errors: string[] = [];
-    // Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing).
+  /**
+   * The show's output before the rules: looks, positions, levels, raw channels, channel faders. In this order: the fades
+   * over drop, then each look on its own sheet merged onto the others (show setting looksMerge) — the looks fading out on
+   * exit, those leaving under an incoming look, then the looks playing, so that a look just started (or still playing)
+   * wins over the one leaving in colours, their weight riding into their raw channels the same way —, the colours
+   * applied by hand over them, the motion layer, the intensities, venue.toDmx, the channel faders.
+   */
+  private compose(buffers: Uint8Array[], now: number, beats: number, wheels: Map<string, WheelChoice>, run: MotionRun): string[] {
+    this.dropEndedFades();
+    const pass = this.startPass(now, beats);
+    this.composeExits(pass);
+    const rising = this.risingColours(pass);
+    const shared = this.composeLeaving(pass, rising);
+    this.composePlaying(pass, rising, shared);
+    // the colours applied by hand (T41) replace what the looks paint on their fixtures, at the looks' brightness
+    this.colours.apply(pass.frame, now);
+    // The motion layer (engine/motion.ts, T25): a position for every installed moving head, on every frame — who
+    // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
+    this.motion.place(pass.frame, now, beats, run, pass.errors);
+    this.composeLevels(pass);
+    pass.errors.push(...this.venue.toDmx(pass.frame, buffers, wheels, { now, merge: this.settings.looksMerge }));
+    this.applyChannelFaders(buffers, pass.doses);
+    return pass.errors;
+  }
+
+  /** Fades that ended in real time go (not at a sampled future instant: strictBounds() must change nothing). */
+  private dropEndedFades(): void {
     const real = this.now();
     for (const [id, r] of this.releasing) if ((real - r.stopTime) / 1000 >= r.exitFade) this.releasing.delete(id);
     for (const [id, c] of this.crossfades) if (real >= Math.max(c.t0 + c.tIn * 1000, ...c.outgoing.map((o) => o.t + o.dur * 1000))) this.crossfades.delete(id);
     // a shared sheet lasts as long as the crossfade it is shared with, for a look still playing or leaving through its own
     for (const [id, other] of this.sharedSheet) if (!this.crossfades.has(other) || !(this.active.has(id) || this.crossfades.has(id))) this.sharedSheet.delete(id);
-    /**
-     * Raw channels of the looks, by fixture then offset: every look's write with its weight and its sheet — a
-     * crossfade and the looks it replaces share one (`x:<incoming>`), any other look has its own — so that
-     * venue.toDmx shares a channel inside a sheet and keeps the highest sheet (rawOver).
-     */
+  }
+
+  /** A frame to compose at `now`: who doses what (one snapshot, dropped with the frame) and the fixtures whose tracks are enabled. */
+  private startPass(now: number, beats: number): ComposePass {
     const lookChannels = new Map<string, Map<number, RawWrite[]>>();
-    // who doses what on this frame (show/dca.ts): one snapshot, dropped with the frame
     const doses = this.doses();
-    /**
-     * The fixtures whose tracks are enabled (T5, venue/tracks.ts), with their pan/tilt offsets: the looks reach them as
-     * layers (layerOf), not through the colours and raw channels below — but for pan/tilt and offsets past their mode, which stay raw and verbatim.
-     */
     const trackFixtures = new Map<string, (offset: number) => boolean>();
     const trackColours = new Map<string, Set<number>>();
     for (const f of this.venue.installed()) {
@@ -1585,177 +1635,59 @@ export class ShowRuntime {
       trackFixtures.set(f.id, verbatimOffsets(r));
       trackColours.set(f.id, new Set([...r.heads.values()].flatMap((c) => Object.values(c))));
     }
-    /** Removes the fixtures with tracks from a look's colours, in place (after `paints`, which must still see them: the wheel). */
-    const withoutTracks = <M extends Map<string, unknown>>(colors: M): M => {
-      if (trackFixtures.size) for (const f of trackFixtures.keys()) colors.delete(f);
-      return colors;
-    };
-    /** Whether a look's canvas reaches a fixture with tracks: only then is it painted at full for them. */
-    const reachesTracks = new Map<string, boolean>();
-    const touches = (canvas: string): boolean => {
-      let hit = reachesTracks.get(canvas);
-      if (hit === undefined) {
-        try {
-          hit = this.venue.cellTargets(canvas).some((cell) => cell.some((t) => trackFixtures.has(t.fixture)));
-        } catch {
-          hit = false; // an unknown canvas paints nothing (told by the look's own colours)
-        }
-        reachesTracks.set(canvas, hit);
-      }
-      return hit;
-    };
-    /**
-     * A look on the fixtures with tracks, as one layer each (venue/tracks.ts): what it paints there at full (atFull,
-     * its exclusions taken out), its raw channels but pan/tilt, the weight and sheet of its raw writes, and the level
-     * its groups give it per light channel (Doses.lookLevel, T35: not by those already dosing the fixture).
-     */
-    const ranks = new Map<TrackLayer, number>();
-    const layerOf = (look: Look, player: LookPlayer, weight: number, sheet: string, row: readonly number[] | undefined, rank = this.launchOrder.get(player) ?? 0): void => {
-      const painted = touches(look.canvas) ? atFull(look, player) : undefined;
-      const excluded = painted ? this.excludedFrom(look) : new Set<string>();
-      const raw = new Map<string, Map<number, number>>();
-      look.channels?.targets.forEach((t, k) => {
-        const verbatim = trackFixtures.get(t.fixture);
-        if (!verbatim || verbatim(t.offset)) return;
-        raw.set(t.fixture, (raw.get(t.fixture) ?? new Map<number, number>()).set(t.offset, row?.[k] ?? 0));
-      });
-      const included = doses.isIncluded(look.id);
-      for (const f of trackFixtures.keys()) {
-        const colors = excluded.has(f) ? undefined : painted?.get(f);
-        const own = raw.get(f);
-        if (!colors && !own) continue;
-        let level: Map<number, number> | undefined;
-        const light = included ? doses.light(f) : undefined;
-        if (light)
-          for (const o of [...light.dimmers, ...light.colours]) {
-            const l = doses.lookLevel(look.id, f, o);
-            if (l !== 1) (level ??= new Map()).set(o, l);
-          }
-        const layer: TrackLayer = { look: look.id, sheet, weight, raw: own ?? new Map(), ...(colors ? { colors } : {}), ...(level ? { level } : {}) };
-        ranks.set(layer, rank);
-        const stack = frame.tracks.get(f);
-        if (stack) stack.push(layer);
-        else frame.tracks.set(f, [layer]);
-      }
-    };
-    /**
-     * `tracks`: on the fixtures with tracks, the sheet when it is not the raw writes' own (a crossfade sharing another's,
-     * sharedSheet), and `leaving`: the part of a look started again while it left that still lies at the rank it had —
-     * the rest of its weight is laid at its new rank, in the same sheet (venue/tracks.ts overSheets keeps their mean),
-     * or in a sheet of its own (`leaving.sheet`) when the look released others as it came back.
-     */
-    const rawOf = (look: Look, player: LookPlayer, weight: number, sheet: string, tracks?: { sheet: string; leaving?: { weight: number; rank: number; sheet?: string } }): void => {
-      const row = look.channels ? (look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? []) : undefined;
-      if (trackFixtures.size) {
-        const left = tracks?.leaving;
-        if (left && left.weight > 0) layerOf(look, player, left.weight, left.sheet ?? tracks.sheet, row, left.rank);
-        layerOf(look, player, weight - (left?.weight ?? 0), tracks?.sheet ?? sheet, row);
-      }
-      if (!look.channels || !row) return;
-      const included = doses.isIncluded(look.id);
-      look.channels.targets.forEach((t, k) => {
-        // a fixture with tracks keeps only its raw pan/tilt and offsets past its mode here (verbatim): the rest rides on its layers
-        const verbatim = trackFixtures.get(t.fixture);
-        if (verbatim && !verbatim(t.offset)) return;
-        const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
-        const level = included ? doses.lookLevel(look.id, t.fixture, t.offset) : 1;
-        byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet, ...(level === 1 ? {} : { level }) }]);
-        lookChannels.set(t.fixture, byOffset);
-      });
-    };
-    /**
-     * Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine
-     * fade). Not those it paints on their accent heads only (a halo): that is no full colour of the fixture.
-     */
-    const paints = (colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] => {
-      for (const [f, heads] of colors) {
-        if (!this.venue.lightsBody(f, heads.keys())) continue;
-        const byLook = frame.painted.get(f) ?? new Map<string, number>();
-        frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
-        // a lamp's colour wheel follows one look: which look paints what, on which sheet, and its colour at full
-        if (this.venue.hasWheel(f)) frame.paintedBy.set(f, [...(frame.paintedBy.get(f) ?? []), { look: look.id, sheet, heads, hues: (full1.has(colors) && weight >= 1 ? heads : (atFull(look, player).get(f) ?? heads)) }]);
-      }
-      return colors;
-    };
-    /**
-     * What a look paints at full, before its fades and its masters: a colour wheel pre-positions on it while the
-     * light is still dark. Painted once per look and frame, and only for a look that reaches a wheel.
-     */
-    const full = new Map<LookPlayer, AttributeFrame["colors"]>();
-    /** Colour maps painted at fade 1 and masters 1: already at full, no second paint needed. */
-    const full1 = new WeakSet<AttributeFrame["colors"]>();
-    const atFull = (look: Look, player: LookPlayer): AttributeFrame["colors"] => {
-      let own = full.get(player);
-      if (!own) {
-        const sheet = emptyFrame();
-        try {
-          this.venue.paintCanvas(sheet, look.canvas, player.state(now, beats));
-        } catch {
-          // told once already, by the look's own colours
-        }
-        // the halo spelt out as in colorsOf, so that the same heads are read at full and now
-        this.venue.followAccents(sheet.colors);
-        full.set(player, (own = sheet.colors));
-      }
-      return own;
-    };
-    /**
-     * A look's colours on its own sheet, scaled by `fade` and, fixture by fixture, by the masters of the groups
-     * including it (lookLevelOn: not by those already dosing the fixture), its exclusions taken out.
-     */
-    const colorsOf = (look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] => {
-      let step: Step = player.render(now, beats);
-      const excluded = this.excludedFrom(look);
-      if (fade < 1) step = step.map((c) => (c ? scaleColor(c, fade) : c));
-      const own = emptyFrame();
-      try {
-        this.venue.paintCanvas(own, look.canvas, step);
-      } catch (err) {
-        errors.push((err as Error).message);
-      }
-      for (const f of excluded) own.colors.delete(f);
-      // the halo as this look shows it, before any merge or fade: it then fades and merges like any head
-      this.venue.followAccents(own.colors);
-      // the groups including the look dose it per fixture, its halo with it: a factor per fixture (or per channel)
-      // commutes with how paintCanvas merges the cells there (highest, mean), so it can come after the paint
-      let dosed = false;
-      if (doses.isIncluded(look.id)) for (const [f, heads] of own.colors) dosed = this.doseLookColours(doses, look.id, f, heads) || dosed;
-      if (fade >= 1 && !dosed) full1.add(own.colors);
-      return own.colors;
-    };
-    // Each look on its own sheet, then onto the others (show setting looksMerge), in this order so that a look just
-    // started (or still playing) wins over the one leaving, in colours; their weight rides into the looks' raw
-    // channels the same way. Where the heads go is the motion layer's, below. First the looks fading out on exit.
+    return { now, beats, frame: emptyFrame(), errors: [], doses, lookChannels, trackFixtures, trackColours, reachesTracks: new Map(), ranks: new Map(), full: new Map(), full1: new WeakSet() };
+  }
+
+  /** The looks fading out on exit, first: under every other. */
+  private composeExits(pass: ComposePass): void {
+    const { now, frame } = pass;
     for (const [id, r] of this.releasing) {
       const t = exitProgress(r, now);
       if (t >= 1) continue;
       // the exit fade composes with an entry still running (a look stopped mid-rise), like the colours read it
       const w = (1 - ease(t)) * r.player.entryWeight(now);
-      mergeColors(frame.colors, withoutTracks(paints(colorsOf(r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`)), this.settings.looksMerge);
-      rawOf(r.look, r.player, w, `exit:${id}`, r.shared !== undefined && this.crossfades.has(r.shared) ? { sheet: this.trackSheet(r.shared) } : undefined);
+      mergeColors(frame.colors, this.withoutTracks(pass, this.paints(pass, this.colorsOf(pass, r.look, r.player, 1 - ease(t)), w, r.look, r.player, `exit:${id}`)), this.settings.looksMerge);
+      this.rawOf(pass, r.look, r.player, w, `exit:${id}`, r.shared !== undefined && this.crossfades.has(r.shared) ? { sheet: this.trackSheet(r.shared) } : undefined);
     }
-    // Then the looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their
-    // weights add up on one sheet; what is on the fixtures the incoming look paints waits to share them with it, the
-    // rest goes under the active looks like the ones above.
+  }
+
+  /** The colours of the playing looks that come in through a crossfade, at the weight they have risen to: what the looks leaving under them share. */
+  private risingColours(pass: ComposePass): Map<Crossfade, AttributeFrame["colors"]> {
     const ownOf = new Map<Crossfade, AttributeFrame["colors"]>();
     for (const { look, player } of this.active.values()) {
       const x = this.crossfades.get(look.id);
-      if (x) ownOf.set(x, colorsOf(look, player, this.inWeight(x, now)));
+      if (x) ownOf.set(x, this.colorsOf(pass, look, player, this.inWeight(x, pass.now)));
     }
+    return ownOf;
+  }
+
+  /**
+   * The looks leaving under an incoming look (docs/specs/engine-effects-timing.md, « Fondu enchaîné »): their weights
+   * add up on one sheet; what is on the fixtures the incoming look paints waits to share them with it (returned, by
+   * crossfade), the rest goes under the active looks like the looks fading out on exit.
+   */
+  private composeLeaving(pass: ComposePass, rising: ReadonlyMap<Crossfade, AttributeFrame["colors"]>): Map<Crossfade, WeightedColors> {
+    const { now, frame } = pass;
     const shared = new Map<Crossfade, WeightedColors>();
     for (const [key, x] of this.crossfades) {
       let leaving: WeightedColors = new Map();
       for (const o of x.outgoing) {
         const w = this.outWeight(o, now);
         if (w <= 0) continue; // gone: it would only paint black over the others
-        leaving = addWeighted(leaving, weighted(withoutTracks(paints(colorsOf(o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`)), w));
+        leaving = addWeighted(leaving, weighted(this.withoutTracks(pass, this.paints(pass, this.colorsOf(pass, o.look, o.player, w), w * o.player.entryWeight(now), o.look, o.player, `x:${key}`)), w));
         const whole = w * o.player.entryWeight(now);
-        rawOf(o.look, o.player, whole, `x:${key}`, { sheet: this.trackSheet(key), ...(o.left ? { leaving: { weight: whole * o.left.share, rank: o.left.rank, ...(o.left.sheet ? { sheet: o.left.sheet } : {}) } } : {}) });
+        this.rawOf(pass, o.look, o.player, whole, `x:${key}`, { sheet: this.trackSheet(key), ...(o.left ? { leaving: { weight: whole * o.left.share, rank: o.left.rank, ...(o.left.sheet ? { sheet: o.left.sheet } : {}) } } : {}) });
       }
-      const { inside, outside } = splitByShown(leaving, ownOf.get(x) ?? emptyFrame().colors);
+      const { inside, outside } = splitByShown(leaving, rising.get(x) ?? emptyFrame().colors);
       shared.set(x, inside);
       mergeColors(frame.colors, settle(outside), this.settings.looksMerge);
     }
+    return shared;
+  }
+
+  /** The looks playing, last: on top. One coming in over others (a crossfade) shares their sheet on the fixtures it paints. */
+  private composePlaying(pass: ComposePass, rising: ReadonlyMap<Crossfade, AttributeFrame["colors"]>, shared: ReadonlyMap<Crossfade, WeightedColors>): void {
+    const { now, frame } = pass;
     for (const { look, player } of this.active.values()) {
       const x = this.crossfades.get(look.id);
       // a look rising on its own rises with its entry fade, like its colours; one coming in over another
@@ -1767,41 +1699,47 @@ export class ShowRuntime {
       const risen = x && x.from < 1 ? (inW - x.from) / (1 - x.from) : 1;
       const leaving = x?.rank === undefined ? undefined : { weight: x.from * (1 - risen) * player.entryWeight(now), rank: x.rank, ...(x.apart ? { sheet: `was:${look.id}` } : {}) };
       const sheet = x ? `x:${look.id}` : `look:${look.id}`;
-      rawOf(look, player, w, sheet, x || this.sharedSheet.has(look.id) ? { sheet: this.sharedSheet.has(look.id) ? this.trackSheet(look.id) : sheet, ...(leaving ? { leaving } : {}) } : undefined);
-      const colors = x ? settle(addWeighted(shared.get(x)!, weighted(withoutTracks(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`)), inW))) : withoutTracks(paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`));
+      this.rawOf(pass, look, player, w, sheet, x || this.sharedSheet.has(look.id) ? { sheet: this.sharedSheet.has(look.id) ? this.trackSheet(look.id) : sheet, ...(leaving ? { leaving } : {}) } : undefined);
+      const colors = x
+        ? settle(addWeighted(shared.get(x)!, weighted(this.withoutTracks(pass, this.paints(pass, rising.get(x)!, w, look, player, `x:${look.id}`)), inW)))
+        : this.withoutTracks(pass, this.paints(pass, this.colorsOf(pass, look, player, 1), w, look, player, `look:${look.id}`));
       mergeColors(frame.colors, colors, this.settings.looksMerge);
     }
-    // the colours applied by hand (T41) replace what the looks paint on their fixtures, at the looks' brightness
-    this.colours.apply(frame, now);
-    // The motion layer (engine/motion.ts, T25): a position for every installed moving head, on every frame — who
-    // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
-    this.motion.place(frame, now, beats, motion, errors);
+  }
+
+  /**
+   * The intensity of every fixture, the looks' raw channels collected with their weight (the venue's pass classifies and
+   * emits them, by address even without a definition), and the layers of the fixtures with tracks in launch order.
+   */
+  private composeLevels(pass: ComposePass): void {
+    const { frame, doses } = pass;
     for (const f of this.venue.fixtures.list()) frame.intensity.set(f.id, this.intensityOf(f.id, doses.index));
-    // The looks' raw channels, collected above with their weight: the venue's pass classifies and
-    // emits them, by address even without a definition.
-    frame.raw = lookChannels;
+    frame.raw = pass.lookChannels;
     // a fixture with tracks stacks its looks as they were launched: one leaving keeps its place while it fades
-    for (const layers of frame.tracks.values()) layers.sort((a, b) => ranks.get(a)! - ranks.get(b)!);
+    for (const layers of frame.tracks.values()) layers.sort((a, b) => pass.ranks.get(a)! - pass.ranks.get(b)!);
     // and is lit at rest where a channel fader holds one of its colours up (the pass below): its dimmer then composes
     // from full, not from black, or that colour would go dark when a look comes in (venue/tracks.ts composeTracks)
-    if (trackFixtures.size)
+    if (pass.trackFixtures.size)
       for (const fader of this.faders.list()) {
         const travel = this.faderTravel(fader);
         for (const c of fader.channels) {
-          if (frame.lit.has(c.fixture) || !trackColours.get(c.fixture)?.has(c.offset)) continue;
+          if (frame.lit.has(c.fixture) || !pass.trackColours.get(c.fixture)?.has(c.offset)) continue;
           const own = doses.faderValue(fader, travel, c.fixture, c.offset);
           if (!own.doses && Math.round(own.level * 255) > 0) frame.lit.add(c.fixture);
         }
       }
-    errors.push(...this.venue.toDmx(frame, buffers, wheels, { now, merge: this.settings.looksMerge }));
-    // Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the
-    // master dimmer of a colour fixture, which the show holds at full (the DCAs dose it, docs/specs/
-    // groups-masters.md): there the fader doses it too (at 0 the fixture is dark), several faders on
-    // one dimmer by the highest. A lamp's dimmer (a dimmer pack) is its light: the fader raises it.
-    // On a light channel (a dimmer, a colour) held by the highest, what the show sends there first follows
-    // the DCAs the faders are linked to (a look writing a fader's channel follows its DCA, T35); the fader's
-    // own value follows its DCA, and on the channel carrying the light the grand master and the DCAs covering
-    // the fixture (« tout baisse »), each DCA once (Doses.faderValue, which dmx.explain reads too).
+  }
+
+  /**
+   * Channel faders: highest takes precedence with the show, like QLC+ level sliders — except on the master dimmer of a
+   * colour fixture, which the show holds at full (the DCAs dose it, docs/specs/groups-masters.md): there the fader doses
+   * it too (at 0 the fixture is dark), several faders on one dimmer by the highest. A lamp's dimmer (a dimmer pack) is
+   * its light: the fader raises it. On a light channel (a dimmer, a colour) held by the highest, what the show sends
+   * there first follows the DCAs the faders are linked to (a look writing a fader's channel follows its DCA, T35); the
+   * fader's own value follows its DCA, and on the channel carrying the light the grand master and the DCAs covering the
+   * fixture (« tout baisse »), each DCA once (Doses.faderValue, which dmx.explain reads too).
+   */
+  private applyChannelFaders(buffers: Uint8Array[], doses: Doses): void {
     const dimmerDoses = new Map<Uint8Array, Map<number, number>>();
     const highest = new Map<Uint8Array, Map<number, number>>();
     const showDosed = new Map<Uint8Array, Set<number>>();
@@ -1835,7 +1773,151 @@ export class ShowRuntime {
     }
     for (const [buf, top] of highest) for (const [index, value] of top) if (buf[index]! < value) buf[index] = value;
     for (const [buf, dosed] of dimmerDoses) for (const [index, level] of dosed) buf[index] = Math.round(buf[index]! * level);
-    return errors;
+  }
+
+  /** Removes the fixtures with tracks from a look's colours, in place (after `paints`, which must still see them: the wheel). */
+  private withoutTracks<M extends Map<string, unknown>>(pass: ComposePass, colors: M): M {
+    if (pass.trackFixtures.size) for (const f of pass.trackFixtures.keys()) colors.delete(f);
+    return colors;
+  }
+
+  /** Whether a look's canvas reaches a fixture with tracks: only then is it painted at full for them. */
+  private touchesTracks(pass: ComposePass, canvas: string): boolean {
+    let hit = pass.reachesTracks.get(canvas);
+    if (hit === undefined) {
+      try {
+        hit = this.venue.cellTargets(canvas).some((cell) => cell.some((t) => pass.trackFixtures.has(t.fixture)));
+      } catch {
+        hit = false; // an unknown canvas paints nothing (told by the look's own colours)
+      }
+      pass.reachesTracks.set(canvas, hit);
+    }
+    return hit;
+  }
+
+  /**
+   * A look on the fixtures with tracks, as one layer each (venue/tracks.ts): what it paints there at full (atFull,
+   * its exclusions taken out), its raw channels but pan/tilt, the weight and sheet of its raw writes, and the level
+   * its groups give it per light channel (Doses.lookLevel, T35: not by those already dosing the fixture).
+   */
+  private layerOf(pass: ComposePass, look: Look, player: LookPlayer, weight: number, sheet: string, row: readonly number[] | undefined, rank = this.launchOrder.get(player) ?? 0): void {
+    const { doses, frame, trackFixtures } = pass;
+    const painted = this.touchesTracks(pass, look.canvas) ? this.atFull(pass, look, player) : undefined;
+    const excluded = painted ? this.excludedFrom(look) : new Set<string>();
+    const raw = new Map<string, Map<number, number>>();
+    look.channels?.targets.forEach((t, k) => {
+      const verbatim = trackFixtures.get(t.fixture);
+      if (!verbatim || verbatim(t.offset)) return;
+      raw.set(t.fixture, (raw.get(t.fixture) ?? new Map<number, number>()).set(t.offset, row?.[k] ?? 0));
+    });
+    const included = doses.isIncluded(look.id);
+    for (const f of trackFixtures.keys()) {
+      const colors = excluded.has(f) ? undefined : painted?.get(f);
+      const own = raw.get(f);
+      if (!colors && !own) continue;
+      let level: Map<number, number> | undefined;
+      const light = included ? doses.light(f) : undefined;
+      if (light)
+        for (const o of [...light.dimmers, ...light.colours]) {
+          const l = doses.lookLevel(look.id, f, o);
+          if (l !== 1) (level ??= new Map()).set(o, l);
+        }
+      const layer: TrackLayer = { look: look.id, sheet, weight, raw: own ?? new Map(), ...(colors ? { colors } : {}), ...(level ? { level } : {}) };
+      pass.ranks.set(layer, rank);
+      const stack = frame.tracks.get(f);
+      if (stack) stack.push(layer);
+      else frame.tracks.set(f, [layer]);
+    }
+  }
+
+  /**
+   * A look's raw channels, by fixture then offset (`ComposePass.lookChannels`), and its layers on the fixtures with
+   * tracks. `tracks`: on those fixtures, the sheet when it is not the raw writes' own (a crossfade sharing another's,
+   * sharedSheet), and `leaving`: the part of a look started again while it left that still lies at the rank it had —
+   * the rest of its weight is laid at its new rank, in the same sheet (venue/tracks.ts overSheets keeps their mean),
+   * or in a sheet of its own (`leaving.sheet`) when the look released others as it came back.
+   */
+  private rawOf(pass: ComposePass, look: Look, player: LookPlayer, weight: number, sheet: string, tracks?: { sheet: string; leaving?: { weight: number; rank: number; sheet?: string } }): void {
+    const { now, beats, doses, lookChannels, trackFixtures } = pass;
+    const row = look.channels ? (look.channels.steps[player.rawStep(now, beats, look.channels.steps.length)] ?? []) : undefined;
+    if (trackFixtures.size) {
+      const left = tracks?.leaving;
+      if (left && left.weight > 0) this.layerOf(pass, look, player, left.weight, left.sheet ?? tracks.sheet, row, left.rank);
+      this.layerOf(pass, look, player, weight - (left?.weight ?? 0), tracks?.sheet ?? sheet, row);
+    }
+    if (!look.channels || !row) return;
+    const included = doses.isIncluded(look.id);
+    look.channels.targets.forEach((t, k) => {
+      // a fixture with tracks keeps only its raw pan/tilt and offsets past its mode here (verbatim): the rest rides on its layers
+      const verbatim = trackFixtures.get(t.fixture);
+      if (verbatim && !verbatim(t.offset)) return;
+      const byOffset = lookChannels.get(t.fixture) ?? new Map<number, RawWrite[]>();
+      const level = included ? doses.lookLevel(look.id, t.fixture, t.offset) : 1;
+      byOffset.set(t.offset, [...(byOffset.get(t.offset) ?? []), { value: row[k] ?? 0, weight, look: look.id, sheet, ...(level === 1 ? {} : { level }) }]);
+      lookChannels.set(t.fixture, byOffset);
+    });
+  }
+
+  /**
+   * Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine
+   * fade). Not those it paints on their accent heads only (a halo): that is no full colour of the fixture.
+   */
+  private paints(pass: ComposePass, colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] {
+    const { frame } = pass;
+    for (const [f, heads] of colors) {
+      if (!this.venue.lightsBody(f, heads.keys())) continue;
+      const byLook = frame.painted.get(f) ?? new Map<string, number>();
+      frame.painted.set(f, byLook.set(look.id, Math.max(byLook.get(look.id) ?? 0, Math.max(0, weight))));
+      // a lamp's colour wheel follows one look: which look paints what, on which sheet, and its colour at full
+      if (this.venue.hasWheel(f)) frame.paintedBy.set(f, [...(frame.paintedBy.get(f) ?? []), { look: look.id, sheet, heads, hues: pass.full1.has(colors) && weight >= 1 ? heads : (this.atFull(pass, look, player).get(f) ?? heads) }]);
+    }
+    return colors;
+  }
+
+  /**
+   * What a look paints at full, before its fades and its masters: a colour wheel pre-positions on it while the light is
+   * still dark. Painted once per look and frame (`ComposePass.full`), and only for a look that reaches a wheel.
+   */
+  private atFull(pass: ComposePass, look: Look, player: LookPlayer): AttributeFrame["colors"] {
+    let own = pass.full.get(player);
+    if (!own) {
+      const sheet = emptyFrame();
+      try {
+        this.venue.paintCanvas(sheet, look.canvas, player.state(pass.now, pass.beats));
+      } catch {
+        // told once already, by the look's own colours
+      }
+      // the halo spelt out as in colorsOf, so that the same heads are read at full and now
+      this.venue.followAccents(sheet.colors);
+      pass.full.set(player, (own = sheet.colors));
+    }
+    return own;
+  }
+
+  /**
+   * A look's colours on its own sheet, scaled by `fade` and, fixture by fixture, by the masters of the groups
+   * including it (lookLevelOn: not by those already dosing the fixture), its exclusions taken out.
+   */
+  private colorsOf(pass: ComposePass, look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] {
+    const { doses } = pass;
+    let step: Step = player.render(pass.now, pass.beats);
+    const excluded = this.excludedFrom(look);
+    if (fade < 1) step = step.map((c) => (c ? scaleColor(c, fade) : c));
+    const own = emptyFrame();
+    try {
+      this.venue.paintCanvas(own, look.canvas, step);
+    } catch (err) {
+      pass.errors.push((err as Error).message);
+    }
+    for (const f of excluded) own.colors.delete(f);
+    // the halo as this look shows it, before any merge or fade: it then fades and merges like any head
+    this.venue.followAccents(own.colors);
+    // the groups including the look dose it per fixture, its halo with it: a factor per fixture (or per channel)
+    // commutes with how paintCanvas merges the cells there (highest, mean), so it can come after the paint
+    let dosed = false;
+    if (doses.isIncluded(look.id)) for (const [f, heads] of own.colors) dosed = this.doseLookColours(doses, look.id, f, heads) || dosed;
+    if (fade >= 1 && !dosed) pass.full1.add(own.colors);
+    return own.colors;
   }
 
   /** The master dimmer of a colour fixture, which the show holds at full and the DCAs dose (not a lamp's, nor one no colour paints): a channel fader on it doses it. */
