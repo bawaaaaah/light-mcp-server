@@ -3,9 +3,10 @@
  * « Définitions dans l'archive »): packing the ones a venue's patch uses, and merging an archive's
  * into the instance library on restore. Works on folders only, no server state.
  *
- * The library is a list of folders read in order (data/fixtures, then the venue's own
- * fixture-definitions), each one's `.qxf` files sorted by name (listQxfFiles, as Venue reads them):
- * the first definition of a manufacturer/model wins, as in Venue.
+ * The library is a list of folders read in order (the venue's own fixture-definitions, then the
+ * shared data/fixtures: decision Q1 of T20b, a copy kept for a venue wins), each one's `.qxf` files
+ * sorted by name (listQxfFiles, as Venue reads them): the first definition of a manufacturer/model
+ * wins, as in Venue.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -13,6 +14,7 @@ import { z } from "zod";
 import { say } from "../../../core/lang.js";
 import { parseQxf, sameName, type FixtureDefinition } from "../venue/qxf-import.js";
 import { definitionFileName, isPlainQxfName, listQxfFiles } from "../venue/definition-files.js";
+import { AliasSchema, aliasLookup, aliasTarget, type Alias } from "../venue/aliases.js";
 
 export { isPlainQxfName };
 
@@ -23,8 +25,15 @@ export type FixturePolicy = z.infer<typeof FixturePolicySchema>;
 /** Largest definition an archive may carry (real ones are a few kB, the biggest well under 1 MB). */
 export const MAX_DEFINITION_BYTES = 4 * 1024 * 1024;
 
-/** Where the library lives for a venue: the shared folder, then the venue's own. */
-export const definitionDirsFor = (dataRoot: string, venue: string): string[] => [path.join(dataRoot, "fixtures"), path.join(dataRoot, "venues", venue, "fixture-definitions")];
+/** The folder of a venue's own definitions (data/venues/<id>/fixture-definitions). */
+export const venueDefinitionDir = (dataRoot: string, venue: string): string => path.join(dataRoot, "venues", venue, "fixture-definitions");
+
+/**
+ * Where the library lives for a venue, in reading order: the venue's own folder first, then the shared one (decision
+ * Q1 of T20b, 2026-11-16): a copy of a model kept for this venue wins over the shared definition of that model. The
+ * same order rules the venue's resolution, what an archive packs, the restore preview and which duplicate « wins ».
+ */
+export const definitionDirsFor = (dataRoot: string, venue: string): string[] => [venueDefinitionDir(dataRoot, venue), path.join(dataRoot, "fixtures")];
 
 interface LibraryFile {
   file: string;
@@ -83,14 +92,30 @@ export function resolveModels(dirs: string[], models: Model[]): (LibraryFile | u
   return out;
 }
 
-/** The manufacturer/model pairs of the fixtures in venue files (`fixtures/<id>.json`). */
+/**
+ * The manufacturer/model pairs the fixtures in venue files (`fixtures/<id>.json`) resolve to: through the venue's
+ * aliases (`aliases/<id>.json`, T20b), so that an archive carries the definition a merged model really uses.
+ */
 export function patchModels(venueFiles: Record<string, Uint8Array | string>): Model[] {
+  const text = (data: Uint8Array | string) => (typeof data === "string" ? data : Buffer.from(data).toString("utf8"));
+  const aliases: Alias[] = [];
+  for (const [name, data] of Object.entries(venueFiles)) {
+    if (!/^aliases\/[^/]+\.json$/.test(name)) continue;
+    try {
+      aliases.push(AliasSchema.parse(JSON.parse(text(data))));
+    } catch {
+      /* a damaged alias file aliases nothing */
+    }
+  }
+  const lookup = aliasLookup(aliases);
   const seen = new Map<string, Model>();
   for (const [name, data] of Object.entries(venueFiles)) {
     if (!/^fixtures\/[^/]+\.json$/.test(name)) continue;
     try {
-      const f = JSON.parse(typeof data === "string" ? data : Buffer.from(data).toString("utf8")) as { manufacturer?: unknown; model?: unknown };
-      if (typeof f.manufacturer === "string" && typeof f.model === "string") seen.set(`${f.manufacturer}|${f.model}`.toLowerCase(), { manufacturer: f.manufacturer, model: f.model });
+      const f = JSON.parse(text(data)) as { manufacturer?: unknown; model?: unknown };
+      if (typeof f.manufacturer !== "string" || typeof f.model !== "string") continue;
+      const { manufacturer, model } = aliasTarget(lookup, { manufacturer: f.manufacturer, model: f.model });
+      seen.set(`${manufacturer}|${model}`.toLowerCase(), { manufacturer, model });
     } catch {
       /* a damaged patch file has no model to resolve */
     }

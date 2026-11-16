@@ -48,7 +48,7 @@ function walk(dir: string): Record<string, Uint8Array> {
 }
 
 /**
- * `definitionDirs`: the library folders (data/fixtures, then the venue's own), searched for the
+ * `definitionDirs`: the library folders (the venue's own, then data/fixtures), searched for the
  * definitions the packed venue's patch uses: they go under `fixtures/`, never the whole library.
  * Without a venue there is no patch, so no definitions. Two packs of the same folders differ only
  * by `createdAt` (sorted entries, fixed zip dates). `show.extra`: files added to the show's part

@@ -17,6 +17,7 @@ import { findDefinition, findMode, parseQxf, strobeHz, type ColorComponent, type
 import type { Position } from "../engine/move.js";
 import { displayHex } from "../engine/display.js";
 import { headsOf } from "./heads.js";
+import { aliasedDefinitions, AliasSchema, aliasTarget, type Alias } from "./aliases.js";
 import { findDuplicateDefinitions, type DuplicateReport } from "./definition-duplicates.js";
 import {
   beyondMessage,
@@ -424,6 +425,8 @@ export class Venue {
   readonly canvases: Collection<Canvas>;
   /** Per-model corrections of the definitions (venue/overrides.ts), overridden by a fixture's own. */
   readonly models: Collection<ModelOverrides>;
+  /** Models merged into another (venue/aliases.ts, T20b): their fixtures resolve the target's definition. */
+  readonly aliases: Collection<Alias>;
   private resolved = new Map<string, ResolvedFixture | { error: string }>();
   /** Fixtures not installed for the open show (set from its settings): no DMX, no address conflicts. */
   absent: ReadonlySet<string> = new Set();
@@ -439,6 +442,7 @@ export class Venue {
     this.fixtures = store.collection("fixtures", PatchedFixtureSchema);
     this.canvases = store.collection("canvases", CanvasSchema);
     this.models = store.collection("models", ModelOverridesSchema);
+    this.aliases = store.collection("aliases", AliasSchema);
     store.onChange(() => this.resolved.clear());
     this.migrateModelKeys();
   }
@@ -532,8 +536,48 @@ export class Venue {
     this.resolved.clear();
   }
 
+  /** The library folders, in reading order: the venue's own first, then the shared one (decision Q1 of T20b). */
+  get libraryDirs(): readonly string[] {
+    return this.definitionDirs;
+  }
+
+  /** Every definition read from a file, with its full path and its name as the library lists it, in reading order. */
+  libraryFiles(): { def: FixtureDefinition; path: string; source: string }[] {
+    this.refreshDefinitions();
+    return this.definitions.map((def, i) => ({ def, path: this.definitionPaths[i]!, source: this.definitionSources[i]! }));
+  }
+
+  /** The definition a model resolves to: through the venue's aliases (T20b), then the library (the first file wins). */
   definitionFor(manufacturer: string, model: string): FixtureDefinition | undefined {
-    return findDefinition(this.definitions, manufacturer, model);
+    const to = aliasTarget(this.aliases, { manufacturer, model });
+    return findDefinition(this.definitions, to.manufacturer, to.model);
+  }
+
+  /**
+   * The library as code that looks definitions up by name in a list sees it (the QLC+ import): the aliased models first,
+   * each one a view of its target under its own names (venue/aliases.ts), then the definitions read from files.
+   */
+  definitionsThroughAliases(): FixtureDefinition[] {
+    this.refreshDefinitions();
+    return aliasedDefinitions(this.definitions, this.aliases.list(), (m, n) => findDefinition(this.definitions, m, n));
+  }
+
+  /** The library file of a model by its own names, aliases ignored (the library's own operations: add, delete, merge). */
+  libraryFileFor(manufacturer: string, model: string): { def: FixtureDefinition; path: string; source: string } | undefined {
+    const def = findDefinition(this.definitions, manufacturer, model);
+    const i = def ? this.definitions.indexOf(def) : -1;
+    return def && i >= 0 ? { def, path: this.definitionPaths[i]!, source: this.definitionSources[i]! } : undefined;
+  }
+
+  /** The names a patched fixture's model resolves under: its alias' target (T20b), else its own. */
+  private modelOf(patch: { manufacturer: string; model: string }): { manufacturer: string; model: string } {
+    return aliasTarget(this.aliases, patch);
+  }
+
+  /** The key a fixture's model corrections are stored under (`modelKey`): its alias' target's (T20b, decision Q5), else its own. */
+  modelKeyOf(patch: { manufacturer: string; model: string }): string | undefined {
+    const { manufacturer, model } = this.modelOf(patch);
+    return modelKeyOrUndefined(manufacturer, model);
   }
 
   /**
@@ -575,13 +619,15 @@ export class Venue {
 
   /** The corrections that apply to a fixture: its model's (collection « models »), each part replaced by the fixture's own. */
   overridesOf(patch: PatchedFixture): FixtureOverrides {
-    const key = modelKeyOrUndefined(patch.manufacturer, patch.model);
+    const { manufacturer, model } = this.modelOf(patch);
+    const key = modelKeyOrUndefined(manufacturer, model);
     return mergeOverrides(key ? this.models.get(key)?.overrides : undefined, patch.overrides);
   }
 
   /** The travel correction of a fixture's model (T8), apart from its own: a model's applies to modes without their own travel only. */
   modelTravelOf(patch: PatchedFixture): TravelOverrides | undefined {
-    const key = modelKeyOrUndefined(patch.manufacturer, patch.model);
+    const { manufacturer, model } = this.modelOf(patch);
+    const key = modelKeyOrUndefined(manufacturer, model);
     return key ? this.models.get(key)?.overrides.travel : undefined;
   }
 
@@ -605,10 +651,12 @@ export class Venue {
       this.fixtures.put(Object.keys(own).length ? { ...bare, overrides: own } : bare);
       return;
     }
-    const id = modelKey(f.manufacturer, f.model);
+    // an aliased model's corrections are its target's (T20b, decision Q5)
+    const names = this.modelOf(f);
+    const id = modelKey(names.manufacturer, names.model);
     const m = this.models.get(id);
     const overrides = withPart(m?.overrides);
-    if (Object.keys(overrides).length) this.models.put({ id, manufacturer: m?.manufacturer ?? f.manufacturer, model: m?.model ?? f.model, overrides });
+    if (Object.keys(overrides).length) this.models.put({ id, manufacturer: m?.manufacturer ?? names.manufacturer, model: m?.model ?? names.model, overrides });
     else this.models.delete(id);
   }
 
@@ -710,8 +758,10 @@ export class Venue {
     // the result is cached: its message is worded when read, in the language of whoever reads it
     if (!patch) result = { get error() { return say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`); } };
     else {
-      const def = this.definitionFor(patch.manufacturer, patch.model);
-      const mode = def ? findMode(def, patch.mode) : undefined;
+      // through the venue's aliases (T20b): the target's definition, the mode by the alias' table
+      const to = aliasTarget(this.aliases, patch);
+      const def = findDefinition(this.definitions, to.manufacturer, to.model);
+      const mode = def ? findMode(def, to.mode ?? patch.mode) : undefined;
       if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})`); } };
       else {
         const dimmers: number[] = [];

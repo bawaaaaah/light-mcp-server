@@ -14,7 +14,7 @@ import { aimSetupOf, CanvasSchema, DegreeRangeSchema, PatchedFixtureSchema, type
 import { projectZone } from "../venue/zone-project.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
-import { modelKeyOrUndefined, TravelOverridesSchema, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
+import { TravelOverridesSchema, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
 import { GENERIC_DIMMER } from "../venue/qxf-import.js";
 import { trackNamesProblem } from "../venue/tracks.js";
 import { finerModes, modesKeepingTravel, stepDeg, travelOf } from "../venue/travel.js";
@@ -387,7 +387,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   });
   // ---- heads and accent heads (venue/heads.ts): corrected per model, overridden per fixture (venue/overrides.ts)
   const headsScope = z.enum(["model", "fixture"]).default("model").describe("model: every fixture of its manufacturer and model follows; fixture: this one only, over its model's");
-  const keyOrUndefined = (f: { manufacturer: string; model: string }) => modelKeyOrUndefined(f.manufacturer, f.model);
+  // through the venue's aliases: a merged model's corrections are its target's (T20b)
+  const keyOrUndefined = (f: { manufacturer: string; model: string }) => venue.modelKeyOf(f);
   /** A fixture's heads as it resolves, and as its model's correction alone gives them (what « this model » edits). */
   const headsOfFixture = (fixtureId: string) => {
     const f = venue.fixtures.get(fixtureId);

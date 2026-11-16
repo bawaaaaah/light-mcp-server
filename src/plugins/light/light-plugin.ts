@@ -28,6 +28,7 @@ import { registerFixtureModeCommands, showFolder } from "./commands/fixture-mode
 import { ActivityLog, commandNotice, undoOf } from "./activity.js";
 import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
+import { registerLibraryCommands } from "./commands/library-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
@@ -365,6 +366,8 @@ export class LightPlugin implements McpPlugin {
     };
     registerColourPresetCommands(this.commands, this.runtime, this.colours);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
+    // the fixture library (T20b): list, duplicates, duplicate, delete to a trash, merge (pick or alias)
+    registerLibraryCommands(this.commands, { runtime: this.runtime, dataRoot, venue: () => this.config.venue, ...(opts.now ? { now: opts.now } : {}) });
     this.files = {
       dataRoot,
       current: () => ({ show: this.config.show, venue: this.config.venue }),

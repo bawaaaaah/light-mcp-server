@@ -174,8 +174,8 @@ export function describeDiff(d: DefinitionDiff): string {
 export function sameNameMessage(g: SameNameGroup): string {
   const others = g.others.map((o) => (o.identical ? say(`${o.source} (identique)`, `${o.source} (identical)`) : `${o.source} (${describeDiff(o.diff!)})`));
   return say(
-    `${g.others.length + 1} fichiers pour ${g.manufacturer} ${g.model} : ${g.winner} est utilisé (premier dans l'ordre de lecture), les autres sont ignorés : ${others.join(" ; ")}`,
-    `${g.others.length + 1} files for ${g.manufacturer} ${g.model}: ${g.winner} is used (first in reading order), the others are ignored: ${others.join(", ")}`,
+    `${g.others.length + 1} fichiers pour ${g.manufacturer} ${g.model} : ${g.winner} est utilisé (premier dans l'ordre de lecture : dossier du lieu, puis dossier partagé), les autres sont ignorés : ${others.join(" ; ")}`,
+    `${g.others.length + 1} files for ${g.manufacturer} ${g.model}: ${g.winner} is used (first in reading order: the venue's folder, then the shared one), the others are ignored: ${others.join(", ")}`,
   );
 }
 

@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { ResolvedFixture } from "../venue/venue.js";
-import { modelKeyOrUndefined, type TrackOverrides } from "../venue/overrides.js";
+import type { TrackOverrides } from "../venue/overrides.js";
 import { trackChannels, trackNamesProblem, tracksOf } from "../venue/tracks.js";
 import { say } from "../../../core/lang.js";
 
@@ -15,7 +15,8 @@ const Scope = z.enum(["model", "fixture"]).describe("model: every fixture of its
 
 export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime): void {
   const venue = show.venue;
-  const keyOf = (f: { manufacturer: string; model: string }) => modelKeyOrUndefined(f.manufacturer, f.model);
+  // through the venue's aliases: a merged model's corrections are its target's (T20b)
+  const keyOf = (f: { manufacturer: string; model: string }) => venue.modelKeyOf(f);
   const resolved = (fixtureId: string): ResolvedFixture => {
     if (!venue.fixtures.get(fixtureId)) throw new Error(say(`fixture inconnue : ${fixtureId}`, `unknown fixture: ${fixtureId}`));
     const r = venue.resolve(fixtureId);

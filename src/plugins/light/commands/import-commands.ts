@@ -2,16 +2,15 @@
  * Import commands: QLC+ workspace → venue + show. Dry run by default (returns the proposal
  * report); `apply: true` writes it. Files are read from <dataRoot>/imports only.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { CommandError, type CommandRegistry } from "./registry.js";
+import type { CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection, FolderStore } from "../data/store.js";
 import { mappingInputKey, type Mapping, type MidiMapper } from "../midi/mapping.js";
 import { parseQxw } from "../presets/qxw-import.js";
-import { parseQxf } from "../venue/qxf-import.js";
-import { definitionFileName } from "../venue/definition-files.js";
+import { addDefinition } from "./library-commands.js";
 import { exportDefinition } from "../venue/definition-export.js";
 import { mergeImport } from "../presets/merge-import.js";
 
@@ -39,21 +38,12 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     name: "fixture.definition.add",
     title: "Ajouter une définition de projecteur",
     description:
-      "Adds a QLC+ fixture definition (.qxf, as text) to data/fixtures, the library every import and patch reads; checked before it is written. An existing file of the same name is only replaced with replace: true.",
+      "Adds a QLC+ fixture definition (.qxf, as text) to data/fixtures, the library every import and patch reads; checked before it is written. A file of the same name, or another file of the same model (manufacturer + model), with another content is refused (detail: exists, file, folder, sameModel) unless replace: true, which then writes over the file the library uses for that model, where it lies (this venue's own folder or data/fixtures). The same model already there, identical: nothing is written (unchanged).",
     right: "show:write",
     profiles: ["setup"],
     schema: z.object({ name: z.string().min(1), xml: z.string().min(1), replace: z.boolean().default(false) }),
-    run: ({ name, xml, replace }) => {
-      const def = parseQxf(xml); // throws on anything that is not a definition
-      const file = definitionFileName(name);
-      const target = path.join(s.fixturesDir, file);
-      if (existsSync(target) && readFileSync(target, "utf8") !== xml && !replace)
-        throw new CommandError("failed", say(`${file} existe déjà (replace pour le remplacer)`, `${file} already exists (replace to replace it)`), { exists: true, file }); // detail: the UI offers « Remplacer »
-      mkdirSync(s.fixturesDir, { recursive: true });
-      writeFileSync(target, xml);
-      s.runtime.venue.refreshDefinitions();
-      return { file, manufacturer: def.manufacturer, model: def.model, modes: def.modes.map((m) => m.name) };
-    },
+    // a file of that name, or another file of the same model, with another content: refused unless replace (T34, T40)
+    run: ({ name, xml, replace }) => addDefinition(s.runtime.venue, s.fixturesDir, name, xml, replace),
   });
   reg.register({
     name: "fixture.definition.export",
@@ -97,7 +87,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       }
       const ws = parseQxw(text);
       s.runtime.venue.refreshDefinitions();
-      const p = qxwToShow(ws, s.runtime.venue.definitions);
+      const p = qxwToShow(ws, s.runtime.venue.definitionsThroughAliases()); // a merged model the workspace cites finds its target (T20b)
       const state = s.show.readManifest("import-state.json", ImportStateSchema, {});
       // An imported mapping never takes a MIDI input that one of the user's own mappings answers:
       // theirs wins, the imported one is left out and reported (before and after applying).

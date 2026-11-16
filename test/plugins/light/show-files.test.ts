@@ -126,8 +126,35 @@ describe("show files (new, open, duplicate, reset, backups)", () => {
     await run("fixture.definition.add", { name: "Mon spot.qxf", xml });
     await run("fixture.definition.add", { name: "Mon spot.qxf", xml: v2, replace: true });
     expect(readFileSync(join(dataRoot, "fixtures", "Mon-spot.qxf"), "utf8")).to.equal(v2);
-    await run("fixture.definition.add", { name: "Neuf.qxf", xml, replace: true });
+    const other = xml.replace("<Model>Spot 7</Model>", "<Model>Spot Neuf</Model>");
+    await run("fixture.definition.add", { name: "Neuf.qxf", xml: other, replace: true });
     expect(existsSync(join(dataRoot, "fixtures", "Neuf.qxf"))).to.equal(true);
+  });
+
+  it("T40: the same model under another file name is refused, and « Remplacer » replaces the file the library uses", async () => {
+    const xml = readFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), "utf8");
+    await run("fixture.definition.add", { name: "Spot.qxf", xml });
+    // the same content under another name: nothing written, said
+    expect(await run("fixture.definition.add", { name: "spot (1).qxf", xml })).to.deep.include({ file: "Spot.qxf", unchanged: true });
+    expect(existsSync(join(dataRoot, "fixtures", "spot-1-.qxf"))).to.equal(false);
+    // another content of that model under another name: refused (before, it was added and ignored: Spot.qxf kept winning)
+    const v2 = xml.replace("<Model>Spot 7</Model>", "<Model>Spot 7</Model><!-- v2 -->").replace('<Mode Name="Basic">', '<Mode Name="Basic 2">');
+    const refused = await run("fixture.definition.add", { name: "Test-Spot-7.qxf", xml: v2 }).catch((e: unknown) => e);
+    expect(refused).to.be.instanceOf(CommandError);
+    expect((refused as CommandError).detail).to.deep.equal({ exists: true, file: "Spot.qxf", folder: "shared", sameModel: true });
+    // replace writes over the file in use: the library reads the new version at once
+    expect(await run("fixture.definition.add", { name: "Test-Spot-7.qxf", xml: v2, replace: true })).to.deep.include({ file: "Spot.qxf", replaced: true });
+    expect(existsSync(join(dataRoot, "fixtures", "Test-Spot-7.qxf"))).to.equal(false);
+    expect(plugin.runtime.venue.definitionFor("Test", "Spot 7")!.modes.map((m) => m.name)).to.include("Basic 2");
+    // a copy kept for this venue wins (decision Q1): « Remplacer » then replaces that copy, named so
+    const own = join(dataRoot, "venues", "default", "fixture-definitions");
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, "mine.qxf"), xml);
+    plugin.runtime.venue.refreshDefinitions();
+    const again = await run("fixture.definition.add", { name: "Spot.qxf", xml: v2 }).catch((e: unknown) => e);
+    expect((again as CommandError).detail).to.deep.include({ file: "mine.qxf", folder: "venue", sameModel: true });
+    await run("fixture.definition.add", { name: "Spot.qxf", xml: v2, replace: true });
+    expect(readFileSync(join(own, "mine.qxf"), "utf8")).to.equal(v2);
   });
 
   it("lists venues with their shows, detaches a shared one, and attaches a show to another", async () => {
