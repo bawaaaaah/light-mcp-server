@@ -203,7 +203,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
     title: "Supprimer un look",
     titleEn: "Delete a look",
     hints: "DI",
-    changes: ["looks"],
+    changes: ["looks", "playback"],
     description: "Deletes a look. Refused while something uses it (see show.references), unless force.",
     right: "show:write",
     profiles: ["design"],
@@ -215,7 +215,7 @@ export function registerLookCommands(common: ShowCommandScope): LookCommands {
     title: "Lancer un look",
     titleEn: "Launch a look",
     hints: "I",
-    changes: ["playback"],
+    changes: ["playback", "colours"],
     description:
       "Starts a look (idempotent: starting a playing look does nothing); releases the other looks of its exclusive groups. A rule set to reject refuses it when it would bound it; one set to confirm asks first: tell the user which rule and why, and send confirm: true only on their yes.",
     right: "commands:trigger",

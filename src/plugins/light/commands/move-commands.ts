@@ -320,7 +320,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     titleEn: "Freeze the moving heads",
     // a toggle switches each call: not idempotent; freezing alone only hardens
     hints: "",
-    changes: ["motion"],
+    changes: ["motion", "settings"],
     description:
       "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: every installed head frozen, by the global or its own lock → everything freed, else the global lock at that level, never loosening a head already frozen; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays), and is refused when every head is frozen hard. Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
@@ -359,7 +359,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Défiger les lyres",
     titleEn: "Unfreeze the moving heads",
     hints: "I",
-    changes: ["motion"],
+    changes: ["motion", "settings"],
     description:
       "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: everything — the global lock and every head's own lock (heads absent or no longer patched included); with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position; refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI only a soft lock is loosened (a hard one stays hard; refused when the target is only frozen hard: unfreeze it from the interface). Returns the lock levels and each head's effective level.",
     right: "commands:position",
@@ -483,7 +483,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Calculer la calibration",
     titleEn: "Compute the calibration",
     hints: "DI",
-    changes: ["calibration", "patch"],
+    changes: ["calibration", "patch", "motion"],
     description:
       "Guided calibration, step 2: from the recorded marks, finds the head's yaw, tilt offset and pan/tilt inversions (with the angular error per mark). With apply, writes them into the patch and forgets the marks; apply is refused while the head is frozen hard (motion.freeze: new inversions would move it), solving alone is not.",
     right: "show:write",
@@ -522,7 +522,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Corriger sur un repère",
     titleEn: "Correct on a mark",
     hints: "DI",
-    changes: ["calibration", "patch"],
+    changes: ["calibration", "patch", "motion"],
     description:
       "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's geometric centre (never its placed aiming point; for a concave zone, a point inside it) at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and keeps the held position when it already points at the spot with the new offsets, else aims the head at the spot again from where it is held (the same solution, never a half turn, the stops left to the output): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
     right: "show:write",

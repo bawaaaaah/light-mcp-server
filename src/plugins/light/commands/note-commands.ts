@@ -49,7 +49,7 @@ export function registerNoteCommands(common: ShowCommandScope): void {
     title: "Écrire une note",
     titleEn: "Write a note",
     hints: "D",
-    changes: ["notes"],
+    changes: ["notes", "patch", "canvases", "zones", "rules", "looks", "groups", "songs", "midi", "dashboards"],
     description: "Sets (or clears with an empty text) the notes of any object: collection (fixtures, canvases, zones, rules, palettes, looks, groups, songs, mappings, dashboards) and id.",
     right: "show:write",
     profiles: ["setup", "design", "live"],

@@ -163,7 +163,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Corriger la course d'une lyre",
     titleEn: "Correct a moving head's travel",
     hints: "I",
-    changes: ["patch"],
+    changes: ["patch", "motion"],
     description:
       "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model, in the DMX modes that declare no travel of their own: a mode that declares one keeps it, listed in modesKeepingTravel) or for this fixture only (over its model's and its mode's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
     right: "show:write",
