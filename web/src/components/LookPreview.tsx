@@ -16,6 +16,8 @@ export interface Preview {
   flashes?: Flashes;
   /** A look with a move: the moving heads it places (T32, the coverage of a named position). */
   heads?: string[];
+  /** Following a named position that is a point: the heads that cannot aim at it now, with why (T32). */
+  unreachable?: { fixture: string; error: string }[];
 }
 interface Timing {
   every: { beats?: number; seconds?: number };

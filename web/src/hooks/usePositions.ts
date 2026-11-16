@@ -29,9 +29,12 @@ export interface PositionRow {
 
 /**
  * Commands after which a position, its coverage or its freshness may have changed: the positions themselves (but a
- * recall, which changes none), the show, the patch and the stage (a head moved or recalibrated makes one stale).
+ * recall, which changes none), the show, the patch and the stage (a head moved or recalibrated makes one stale), a head's own settings (`fixture.`: its
+ * travel, its stops, its mode).
  */
-const PREFIXES = ["position.preset.", "show.", "history.", "venue.", "stage.", "calibration.", "import.", "backup."];
+const PREFIXES = ["position.preset.", "show.", "history.", "venue.", "stage.", "calibration.", "fixture.", "import.", "backup."];
+/** A first read that failed (the server restarting, a lost link) is tried again after this long, while someone listens. */
+const RETRY_MS = 2000;
 const READS_NOTHING = new Set(["position.preset.go", "position.preset.list"]);
 
 /**
@@ -46,6 +49,7 @@ class PositionsStore {
   private reading = false;
   private again = false;
   private stop: (() => void) | undefined;
+  private retry: number | undefined;
   /** Every name a position had while this page was open: a deleted one is still called by it, not by its id. */
   private readonly lastNames = new Map<string, string>();
 
@@ -57,6 +61,10 @@ class PositionsStore {
       if (this.listeners.size) return;
       this.stop?.();
       this.stop = undefined;
+      // nobody listens any more: a read asked meanwhile, or a retry, is not owed to anyone
+      this.again = false;
+      window.clearTimeout(this.retry);
+      this.retry = undefined;
     };
   };
 
@@ -73,7 +81,14 @@ class PositionsStore {
     this.reading = true;
     void cmd<PositionRow[]>("position.preset.list")
       .then((list) => this.set(list))
-      .catch(() => undefined)
+      .catch(() => {
+        // never read yet: tried again, or the screens would wait on « … » for good
+        if (!this.loaded && this.listeners.size && this.retry === undefined)
+          this.retry = window.setTimeout(() => {
+            this.retry = undefined;
+            if (this.listeners.size) this.refresh();
+          }, RETRY_MS);
+      })
       .finally(() => {
         this.reading = false;
         if (this.again && this.listeners.size) {

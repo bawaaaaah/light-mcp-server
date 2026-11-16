@@ -205,11 +205,23 @@ export function WidgetMenu({
         <div className="field">
           <span>{t.widgetColor}</span>
           <div className="swatches" role="radiogroup" aria-label={t.widgetColor}>
-            <button className={`swatch none ${!widget.color ? "chosen" : ""}`} role="radio" aria-checked={!widget.color} title={t.noColor} aria-label={t.noColor} onClick={() => onChange({ color: undefined })} />
-            {widget.kind === "look" && (
-              <button className={`swatch auto ${widget.color === "auto" ? "chosen" : ""}`} role="radio" aria-checked={widget.color === "auto"} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => onChange({ color: "auto" })}>
-                A
-              </button>
+            {widget.kind === "position" ? (
+              // a named position's button (T32): « auto » (its position's colour) by default, « none » to keep it neutral
+              <>
+                <button className={`swatch none ${widget.color === "none" ? "chosen" : ""}`} role="radio" aria-checked={widget.color === "none"} title={t.noColor} aria-label={t.noColor} onClick={() => onChange({ color: "none" })} />
+                <button className={`swatch auto ${!widget.color || widget.color === "auto" ? "chosen" : ""}`} role="radio" aria-checked={!widget.color || widget.color === "auto"} title={t.positions.autoColorHelp} aria-label={t.positions.autoColorHelp} onClick={() => onChange({ color: undefined })}>
+                  A
+                </button>
+              </>
+            ) : (
+              <>
+                <button className={`swatch none ${!widget.color ? "chosen" : ""}`} role="radio" aria-checked={!widget.color} title={t.noColor} aria-label={t.noColor} onClick={() => onChange({ color: undefined })} />
+                {widget.kind === "look" && (
+                  <button className={`swatch auto ${widget.color === "auto" ? "chosen" : ""}`} role="radio" aria-checked={widget.color === "auto"} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => onChange({ color: "auto" })}>
+                    A
+                  </button>
+                )}
+              </>
             )}
             {SWATCHES.map(([name, hex]) => (
               <button key={hex} className={`swatch ${widget.color === hex ? "chosen" : ""}`} role="radio" aria-checked={widget.color === hex} title={t.swatchNames[name as keyof typeof t.swatchNames]} aria-label={t.swatchNames[name as keyof typeof t.swatchNames]} style={{ background: hex }} onClick={() => onChange({ color: hex })} />
@@ -273,7 +285,10 @@ export function WidgetMenu({
                   {playable && (
                     <div className="midi-settings">
                       {/* a note on « Figer les lyres » too: « Déclencher » switches, « Marche / arrêt » or « Momentané » are other ways to play it */}
-                      {(action.action === "look" || action.action === "blackout" || action.action === "freeze" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
+                      {/* a named position is recalled at each press (Déclencher): no mode to choose, said instead */}
+                      {action.action === "position" ? (
+                        <small className="hint">{t.positions.modeLockedHint}</small>
+                      ) : (action.action === "look" || action.action === "blackout" || action.action === "freeze" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
                         <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
                           {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                             <option key={mode} value={mode}>

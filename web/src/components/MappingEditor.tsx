@@ -66,7 +66,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const dj = m.input.port === "OS2L";
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
-  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && m.input.type !== "cc");
+  // a named position is recalled at each press (T32): always « Déclencher »
+  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && m.input.type !== "cc") || action === "position";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
@@ -115,7 +116,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         <div className="mapping-grid">
           <label className="field wide">
             <span>{t.mode}</span>
-            <select value={m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
+            <select value={action === "position" ? "trigger" : m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
               {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
                 <option key={x} value={x}>
                   {t.modes[x]}
@@ -132,7 +133,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           )}
         </div>
         {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
-        <p className="hint">{modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
+        <p className="hint">{action === "position" ? t.positions.modeLockedHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
       </fieldset>
       <fieldset className="mapping-group">

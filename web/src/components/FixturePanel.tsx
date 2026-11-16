@@ -328,7 +328,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
               {may("commands:position") ? (
                 <>
                   <XyPad fixture={fixture.id} label={fixture.name} onError={onError} restControls />
-                  <FixturePositions fixture={fixture} canRecall canSave={may("show:write")} />
+                  <FixturePositions fixture={fixture} canSave={may("show:write")} />
                 </>
               ) : (
                 <small className="hint">{t.panelNoPositionRight}</small>

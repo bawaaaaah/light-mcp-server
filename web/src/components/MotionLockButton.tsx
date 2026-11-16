@@ -110,13 +110,15 @@ function apartNotes(t: Texts, scope: LockScope): string[] {
 /** « Appuyer encore » said for what the second press does: free the heads, or free the pad (hard → soft). */
 const pressAgainFor = (t: Texts, level: LockLevel): string => (level === "soft" ? t.motionLock.pressAgainSoft : t.motionLock.pressAgain);
 
-type ToastMessage = { text: string; seq: number };
+/** « alert »: something was refused or left out (the lock's warning border); « neutral »: a success, said quietly. */
+export type ToastTone = "alert" | "neutral";
+type ToastMessage = { text: string; seq: number; tone?: ToastTone };
 const toastListeners = new Set<(message: ToastMessage) => void>();
 let toastSeq = 0;
 
 /** Says a lock control's message: the latest replaces the one shown (one at a time, never stacked), for NOTICE_MS. */
-export function showLockToast(text: string): void {
-  const message = { text, seq: ++toastSeq };
+export function showLockToast(text: string, tone: ToastTone = "alert"): void {
+  const message = { text, seq: ++toastSeq, tone };
   for (const listener of toastListeners) listener(message);
 }
 
@@ -152,7 +154,7 @@ export function LockToastHost(): ReactElement {
   return createPortal(
     <div className="lock-toast-host" role="status">
       {message.text && (
-        <div className="lock-toast" data-testid="lock-toast">
+        <div className={message.tone === "neutral" ? "lock-toast neutral" : "lock-toast"} data-testid="lock-toast">
           {message.text}
         </div>
       )}

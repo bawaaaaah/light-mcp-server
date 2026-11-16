@@ -4,14 +4,15 @@
  * one, and « à revoir » when one is stale. Each is recalled, renamed and recoloured (a point moved), saved again from
  * the heads held by hand, deleted (asking when something uses it), and its earlier versions put back. A stale one
  * offers the three choices of decision Q4: recompute it from the point it was aimed at, adjust it by hand (its heads
- * recalled, a pad each, then saved), or keep it as it is. Nothing is corrected silently.
+ * recalled, a pad each, then only the heads adjusted there saved: decision Q-A of 2026-11-16), or keep it as it is.
+ * Nothing is corrected silently. While heads hold one by hand, « Rendre la main » on its row lets them go (Q-B).
  */
 import { useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { headNames, holding, storedOf, usePositions, type PositionRow } from "../hooks/usePositions";
-import type { Point3 } from "../hooks/useTargets";
+import { AXES, pointFields, pointOf, wrongAxis, type SaveReply } from "../positionForm";
 import { recallPosition } from "../positionRecall";
 import { metresText } from "../target-status";
 import { quoted } from "../typography";
@@ -21,19 +22,12 @@ import { SwatchPicker } from "./SwatchPicker";
 import { Versions } from "./Versions";
 import { XyPad } from "./XyPad";
 
-type Axis = "x" | "y" | "z";
-const AXES: readonly Axis[] = ["x", "y", "z"];
-const metres = (v: string): number => (v.trim() === "" ? NaN : Number(v.replace(",", ".")));
-
-interface SaveReply {
-  position: PositionRow;
-  captured?: string[];
-}
 interface RefreshReply {
   position: PositionRow;
   refreshed: string[];
   unreachable?: { fixture: string; error: string }[];
   notAimed?: string[];
+  leftAim?: string[];
 }
 
 export function PositionsPanel({ onError }: { onError: (message: string) => void }): ReactElement {
@@ -42,46 +36,94 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
   const me = useMe() as Role | null;
   const may = (right: string) => (me ? can(me, right) : false);
   const { positions, loaded } = usePositions();
-  const { heads } = useMotionHeads();
+  const { heads, loaded: headsLoaded } = useMotionHeads();
   const [editing, setEditing] = useState<string | null>(null);
-  /** The stale position being adjusted by hand, and the heads recalled for it. */
-  const [byHand, setByHand] = useState<{ id: string; heads: string[] } | null>(null);
+  /** The stale position being adjusted by hand, the heads recalled for it, and those moved at their pad since (Q-A). */
+  const [byHand, setByHand] = useState<{ id: string; heads: string[]; touched: string[] } | null>(null);
+  const list = useRef<HTMLUListElement | null>(null);
+  const uid = useId();
   const installed = new Set(heads.map((h) => h.id));
   const m = (v: number) => metresText(v, t.decimalMark);
   const fail = (e: unknown) => onError((e as Error).message);
+  /** A head by its name: one the position covers, else any installed head (one it does not cover, said by a recall). */
+  const nameIn = (p: PositionRow) => (id: string) => heads.find((h) => h.id === id)?.name ?? headNames(p, [id]);
+  /** The focus back on a row's button once what it opened is closed. */
+  const focusRow = (id: string, button: string) =>
+    window.requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`li[data-position="${CSS.escape(id)}"] ${button}`)?.focus());
 
-  const resave = (p: PositionRow, then?: () => void) =>
+  const resave = (p: PositionRow) =>
     void cmd<SaveReply>("position.preset.save", { id: p.id })
-      .then((r) => {
-        showLockToast(w.resaved.replace("{name}", () => quoted(t, p.name)).replace("{names}", () => headNames(r.position, r.captured ?? [])));
-        then?.();
-      })
+      .then((r) => showLockToast(w.resaved.replace("{name}", () => quoted(t, p.name)).replace("{names}", () => headNames(r.position, r.captured ?? [])), "neutral"))
       // P3: refused when no head of it is held by hand; the reason goes in the toast, where the eye is
       .catch((e: Error) => showLockToast(e.message));
+  /** « Enregistrer les lyres ajustées » (Q-A): only the heads moved at their pad in this panel; refused when none was. */
+  const saveAdjusted = (p: PositionRow) => {
+    const touched = byHand?.id === p.id ? byHand.touched : [];
+    if (!touched.length) return showLockToast(w.byHandNone);
+    void cmd<SaveReply>("position.preset.save", { id: p.id, fixtures: touched })
+      .then((r) => {
+        showLockToast(`${w.resaved.replace("{name}", () => quoted(t, p.name)).replace("{names}", () => headNames(r.position, r.captured ?? []))} · ${w.stillHeld}`, "neutral");
+        setByHand(null);
+        focusRow(p.id, "button.position-by-hand-open");
+      })
+      .catch((e: Error) => showLockToast(e.message));
+  };
+  const closeByHand = (p: PositionRow) => {
+    setByHand(null);
+    // the heads recalled for it stay where they are, held by hand (Q-B): said, with the way to let them go
+    showLockToast(w.stillHeld, "neutral");
+    focusRow(p.id, "button.position-by-hand-open");
+  };
   const refresh = (p: PositionRow, how: "recompute" | "keep") =>
     void cmd<RefreshReply>("position.preset.refresh", { id: p.id, how })
       .then((r) => {
         const said = [r.refreshed.length ? (how === "recompute" ? w.recomputed : w.kept).replace("{names}", () => headNames(r.position, r.refreshed)) : ""];
+        if (r.leftAim?.length) said.push(w.leftAim.replace("{names}", () => headNames(p, r.leftAim!)));
         if (r.unreachable?.length) said.push(w.unreachable.replace("{names}", () => r.unreachable!.map((u) => `${headNames(p, [u.fixture])} (${u.error})`).join(", ")));
         if (r.notAimed?.length) said.push(w.notAimed.replace("{names}", () => headNames(p, r.notAimed!)));
-        showLockToast(said.filter(Boolean).join(" · "));
+        const text = said.filter(Boolean).join(" · ");
+        // nothing refreshed and nothing to say: still said, never an empty toast
+        showLockToast(text || w.nothingRefreshed, r.refreshed.length && !r.unreachable?.length && !r.notAimed?.length ? "neutral" : "alert");
       })
       .catch((e: Error) => showLockToast(e.message));
   const adjustByHand = (p: PositionRow) => {
     const stale = p.stale.filter((h) => installed.has(h));
     // the heads to review go to the position first: the pad starts from where it puts them
-    void recallPosition(t, p.id, p.name, (id) => headNames(p, [id]), stale).then((recalled) => recalled.length && setByHand({ id: p.id, heads: recalled }));
+    void recallPosition(t, p.id, p.name, nameIn(p), stale).then((recalled) => recalled.length && setByHand({ id: p.id, heads: recalled, touched: [] }));
   };
+  const touch = (h: string) => setByHand((b) => (b && !b.touched.includes(h) ? { ...b, touched: [...b.touched, h] } : b));
+  /** « Rendre la main » (Q-B): the heads of the position held by hand let go, one claim down. */
+  const handBack = (p: PositionRow, held: string[]) =>
+    void cmd<{ refused?: string[] }>("position.releaseTop", { fixtures: held })
+      .then((r) => {
+        const freed = held.filter((h) => !r.refused?.includes(h));
+        showLockToast(
+          [freed.length ? w.handedBack.replace("{names}", () => headNames(p, freed)) : "", r.refused?.length ? w.refused.replace("{names}", () => headNames(p, r.refused!)) : ""].filter(Boolean).join(" · "),
+          r.refused?.length ? "alert" : "neutral",
+        );
+      })
+      .catch((e: Error) => showLockToast(e.message));
 
   return (
     <div className="positions-panel">
       <p className="hint">{w.help}</p>
       {loaded && positions.length === 0 && <p className="hint">{w.none}</p>}
-      <ul className="position-list">
+      <ul className="position-list" ref={list}>
         {positions.map((p) => {
           const holds = holding(p.id, heads);
           const covered = p.kind === "point" ? heads.length : p.covers.filter((c) => installed.has(c.id)).length;
+          // held by hand: those that recalled it, and for a pan/tilt one any head it covers set at a pad (Q-B)
+          const held = p.kind === "point" ? holds : heads.filter((h) => h.manual !== null && (h.recalled === p.id || Object.hasOwn(p.values, h.id))).map((h) => h.id);
           const stale = p.stale.length > 0;
+          /** One of the three choices of Q4, its help written beside it (not only in a title) and read with the button. */
+          const choice = (key: string, help: string, button: (describedBy: string) => ReactElement) => (
+            <div className="position-choice">
+              {button(`${uid}-${p.id}-${key}`)}
+              <small className="hint" id={`${uid}-${p.id}-${key}`}>
+                {help}
+              </small>
+            </div>
+          );
           return (
             <li key={p.id} className="position-row" data-position={p.id} style={p.color ? ({ "--position-color": p.color } as CSSProperties) : undefined}>
               <div className="position-line">
@@ -96,23 +138,30 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
                 </small>
                 {holds.length > 0 && (
                   <span className="badge recalled" data-testid="position-recalled">
-                    ● {holds.length === covered ? w.recalledBadge : w.recalledPart.replace("{n}", String(holds.length)).replace("{m}", String(covered))}
+                    <span aria-hidden="true">● </span>
+                    {holds.length === covered ? w.recalledBadge : w.recalledPart.replace("{n}", String(holds.length)).replace("{m}", String(covered))}
                   </span>
                 )}
                 {stale && (
                   <span className="badge stale" title={w.staleHelp} data-testid="position-stale">
-                    ⚠ {w.stale}
+                    <span aria-hidden="true">⚠ </span>
+                    {w.stale}
                   </span>
                 )}
                 <span className="grow" />
                 {may("commands:position") && (
-                  <button title={w.recallHelp} aria-label={w.recallName.replace("{name}", () => p.name)} onClick={() => void recallPosition(t, p.id, p.name, (id) => headNames(p, [id]))}>
+                  <button title={w.recallHelp} aria-label={w.recallName.replace("{name}", () => p.name)} disabled={!headsLoaded} onClick={() => void recallPosition(t, p.id, p.name, nameIn(p))}>
                     {w.recall}
+                  </button>
+                )}
+                {may("commands:position") && held.length > 0 && (
+                  <button className="position-hand-back" title={w.handBackHelp} aria-label={w.handBackName.replace("{name}", () => p.name)} onClick={() => handBack(p, held)}>
+                    {t.releaseTop}
                   </button>
                 )}
                 {may("show:write") && (
                   <>
-                    <button aria-label={w.editing.replace("{name}", () => p.name)} aria-expanded={editing === p.id} onClick={() => setEditing(editing === p.id ? null : p.id)}>
+                    <button className="position-edit" aria-label={w.editing.replace("{name}", () => p.name)} aria-expanded={editing === p.id} onClick={() => setEditing(editing === p.id ? null : p.id)}>
                       {w.edit}
                     </button>
                     {p.kind === "pantilt" && (
@@ -134,23 +183,23 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
                     <small>{w.staleHelp}</small>
                   </p>
                   {may("show:write") && (
-                    <div className="row position-choices">
-                      <button title={p.aim ? w.recomputeHelp : w.recomputeNone} disabled={!p.aim} aria-describedby={p.aim ? undefined : `${p.id}-norecompute`} onClick={() => refresh(p, "recompute")}>
-                        {w.recompute}
-                      </button>
-                      {may("commands:position") && (
-                        <button title={w.byHandHelp} aria-expanded={byHand?.id === p.id} onClick={() => (byHand?.id === p.id ? setByHand(null) : adjustByHand(p))}>
-                          {w.byHand}
+                    <div className="position-choices">
+                      {choice("recompute", p.aim ? w.recomputeHelp : w.recomputeNone, (d) => (
+                        <button aria-describedby={d} disabled={!p.aim} onClick={() => refresh(p, "recompute")}>
+                          {w.recompute}
                         </button>
-                      )}
-                      <button title={w.keepHelp} onClick={() => refresh(p, "keep")}>
-                        {w.keep}
-                      </button>
-                      {!p.aim && (
-                        <small className="hint" id={`${p.id}-norecompute`}>
-                          {w.recomputeNone}
-                        </small>
-                      )}
+                      ))}
+                      {may("commands:position") &&
+                        choice("by-hand", w.byHandHelp, (d) => (
+                          <button className="position-by-hand-open" aria-describedby={d} aria-expanded={byHand?.id === p.id} onClick={() => (byHand?.id === p.id ? closeByHand(p) : adjustByHand(p))}>
+                            {w.byHand}
+                          </button>
+                        ))}
+                      {choice("keep", w.keepHelp, (d) => (
+                        <button aria-describedby={d} onClick={() => refresh(p, "keep")}>
+                          {w.keep}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -158,23 +207,34 @@ export function PositionsPanel({ onError }: { onError: (message: string) => void
               {p.missing.length > 0 && <p className="hint">{w.missing.replace("{names}", () => headNames(p, p.missing))}</p>}
               {byHand?.id === p.id && (
                 <div className="position-by-hand">
-                  <p className="hint">{w.byHandHelp}</p>
                   <div className="position-pads">
                     {byHand.heads.map((h) => (
-                      <XyPad key={h} fixture={h} label={headNames(p, [h])} onError={onError} />
+                      <XyPad key={h} fixture={h} label={headNames(p, [h])} onError={onError} onMoved={() => touch(h)} />
                     ))}
                   </div>
+                  <p className="hint" data-testid="position-adjusted">
+                    {byHand.touched.length ? w.byHandAdjusted.replace("{names}", () => headNames(p, byHand.touched)) : w.byHandNoneYet}
+                  </p>
                   <div className="row">
-                    <button className="primary" onClick={() => resave(p, () => setByHand(null))}>
+                    <button className="primary" onClick={() => saveAdjusted(p)}>
                       {w.byHandSave}
                     </button>
-                    <button className="ghost" onClick={() => setByHand(null)}>
+                    <button className="ghost" onClick={() => closeByHand(p)}>
                       {t.close}
                     </button>
                   </div>
                 </div>
               )}
-              {editing === p.id && <PositionEditForm key={p.id} position={p} onClose={() => setEditing(null)} />}
+              {editing === p.id && (
+                <PositionEditForm
+                  key={p.id}
+                  position={p}
+                  onClose={() => {
+                    setEditing(null);
+                    focusRow(p.id, "button.position-edit");
+                  }}
+                />
+              )}
             </li>
           );
         })}
@@ -190,20 +250,20 @@ function PositionEditForm({ position: p, onClose }: { position: PositionRow; onC
   const id = useId();
   const [name, setName] = useState(p.name);
   const [color, setColor] = useState(p.color);
-  const [point, setPoint] = useState<Record<Axis, string> | null>(p.point ? { x: String(p.point.x), y: String(p.point.y), z: String(p.point.z) } : null);
+  // with the interface's decimal mark (« 1,5 » in French), as the row says it
+  const [point, setPoint] = useState(() => (p.point ? pointFields(p.point, t.decimalMark) : null));
   const [problem, setProblem] = useState("");
   const form = useRef<HTMLFormElement | null>(null);
   const save = async () => {
     if (!name.trim()) return setProblem(w.nameRequired);
-    let moved: Point3 | undefined;
     if (point) {
-      const wrong = AXES.find((a) => !Number.isFinite(metres(point[a])));
+      const wrong = wrongAxis(point);
       if (wrong) {
         form.current?.querySelector<HTMLInputElement>(`input[data-axis="${wrong}"]`)?.focus();
         return setProblem(w.pointNumber);
       }
-      moved = { x: metres(point.x), y: metres(point.y), z: metres(point.z) };
     }
+    const moved = point ? pointOf(point) : undefined;
     try {
       await cmd("position.preset.put", { position: storedOf(p, { name: name.trim(), color: color ?? null, ...(moved ? { point: moved } : {}) }) });
       onClose();
@@ -220,6 +280,13 @@ function PositionEditForm({ position: p, onClose }: { position: PositionRow; onC
       onSubmit={(e) => {
         e.preventDefault();
         void save();
+      }}
+      onKeyDown={(e) => {
+        // Escape closes the form (its row's « Modifier » takes the focus back), not the page around it
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
       }}
     >
       <label className="field">

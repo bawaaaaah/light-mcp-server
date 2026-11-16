@@ -34,6 +34,8 @@ type XyPadProps = {
    * calibration computes) instead of the whole travel, on the output's grid (correctionPad.ts). Absent: the whole travel.
    */
   span?: PadSpan;
+  /** Called on each move sent from this pad (a drag, a tap, an arrow key): the Show page's « Modifier à la main » keeps the heads adjusted (T32, Q-A). */
+  onMoved?: () => void;
 };
 
 type Axis = "pan" | "tilt";
@@ -74,7 +76,7 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved }: XyPadProps): ReactElement {
   const t = useT();
   /** A logical position → where it sits on the pad (0..1 across and up), kept on the pad's edge when beyond it. */
   const placed = (p: Position): Position => {
@@ -147,6 +149,8 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   targetRef.current = target;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onMovedRef = useRef(onMoved);
+  onMovedRef.current = onMoved;
   /** Heads a gesture left in place (frozen hard on a partly frozen group): said in the status line, not as an error. */
   const refusedRef = useRef<(ids: string[]) => void>(() => undefined);
 
@@ -177,6 +181,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     setKeyboardHint("");
     sender.send({ writes: writes.map((write) => ({ target: cloneTarget(write.target), point: { ...write.point } })) });
     markGesture();
+    onMovedRef.current?.();
   };
   const send = (point: Position): void => sendBatch([{ target: targetRef.current, point }], point);
 

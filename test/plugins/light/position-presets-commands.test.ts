@@ -738,4 +738,23 @@ describe("named positions: the commands (T32)", () => {
     await run("dashboard.put", { dashboard: { id: "d", name: "D", widgets: [{ id: "w", kind: "position", target: "p", x: 0, y: 0 }] } });
     expect((await failure(run("position.preset.delete", { id: "p" }))).message).to.match(/widget|D/);
   });
+  it("an id made from a name folds its letters (« chœur » → choeur); a look following a point says the heads that cannot aim at it (review 1)", async () => {
+    await run("position.set", { fixtures: ["spot"], pan: 0.2, tilt: 0.7 });
+    expect(((await run("position.preset.save", { name: "Point chœur", fixtures: ["spot"] })) as { position: Listed }).position.id).to.equal("point-choeur");
+    // spot3 has no stage position: it cannot aim at the point, and the preview names it; an empty group moves no head
+    plugin.venue.fixtures.put({ id: "spot3", name: "Spot 3", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 1, address: 31 });
+    plugin.runtime.groups.put({ id: "trois", name: "Trois", members: { fixtures: ["spot", "spot3"] } });
+    plugin.runtime.groups.put({ id: "vide", name: "Vide", members: { fixtures: [] } });
+    during(40);
+    await run("position.preset.save", { name: "Pupitre", point: { x: 0, y: 2, z: 1.5 } });
+    const look = { id: "l", name: "L", canvas: "lyres", technique: { kind: "aucune" }, timing: { every: { beats: 1 }, attack: 0, order: "loop", entryFade: 0 } };
+    type Preview = { heads?: string[]; unreachable?: { fixture: string; error: string }[] };
+    const onPoint = (await run("look.preview", { look: { ...look, move: { shape: "fixe", group: "trois", at: { position: "pupitre" } } } })) as Preview;
+    expect(onPoint.heads).to.deep.equal(["spot", "spot3"]);
+    expect(onPoint.unreachable!.map((u) => u.fixture)).to.deep.equal(["spot3"]);
+    expect(onPoint.unreachable![0]!.error).to.be.a("string").and.not.equal("");
+    // a pan/tilt position says no unreachable head; an empty group gives no head at all
+    expect((await run("look.preview", { look: { ...look, move: { shape: "fixe", group: "trois", at: { position: "point-choeur" } } } })) as object).to.not.have.property("unreachable");
+    expect(((await run("look.preview", { look: { ...look, move: { shape: "fixe", group: "vide", at: { position: "pupitre" } } } })) as Preview).heads).to.deep.equal([]);
+  });
 });

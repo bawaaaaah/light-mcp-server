@@ -310,19 +310,33 @@ export function MoveFadeInput({
 
 /**
  * Which of the look's moving heads a named position covers (T32, lot 7): all, some (the others are left to the layer
- * below), none; a point is aimed at by every head. Said in words, by name, live as the look's heads change.
+ * below), none; a point is aimed at by every head (those that cannot reach it named); a look that moves no head says
+ * so. Said in words, by name, live as the look's heads change.
  */
-function PositionCoverage({ position, moved, heads }: { position: PositionRow | undefined; moved: string[] | undefined; heads: Named[] }): ReactElement | null {
+function PositionCoverage({ position, moved, unreachable = [], heads }: { position: PositionRow | undefined; moved: string[] | undefined; unreachable?: { fixture: string; error: string }[]; heads: Named[] }): ReactElement | null {
   const t = useT();
   const w = t.positions;
   if (!position || !moved) return null;
-  if (position.kind === "point")
+  const nameOf = (id: string) => heads.find((h) => h.id === id)?.name ?? id;
+  // nothing to place: the look itself moves no head (its group empty or unknown), whatever the position covers
+  if (!moved.length)
     return (
-      <p className="hint position-coverage" data-testid="position-coverage">
-        {w.coverPoint}
+      <p className="warning position-coverage" data-testid="position-coverage" role="status">
+        {w.lookNoHeads}
       </p>
     );
-  const nameOf = (id: string) => heads.find((h) => h.id === id)?.name ?? id;
+  if (position.kind === "point")
+    return (
+      <p className={unreachable.length ? "warning position-coverage" : "hint position-coverage"} data-testid="position-coverage" role="status">
+        {w.coverPoint}
+        {unreachable.length > 0 && (
+          <>
+            {" "}
+            {w.pointUnreachable.replace("{names}", () => unreachable.map((u) => `${nameOf(u.fixture)} (${u.error})`).join(", "))}
+          </>
+        )}
+      </p>
+    );
   const covered = moved.filter((h) => Object.hasOwn(position.values, h));
   const left = moved.filter((h) => !covered.includes(h));
   const first = !covered.length
@@ -737,7 +751,7 @@ export function LookEditor({ initial, existing, folders, onClose }: { initial: L
                   ) : (
                     positionsLoaded && <p className="hint">{t.positions.pickNone}</p>
                   )}
-                  <PositionCoverage position={positions.find((x) => x.id === look.move?.at?.position)} moved={preview?.heads} heads={heads} />
+                  <PositionCoverage position={positions.find((x) => x.id === look.move?.at?.position)} moved={preview?.heads} unreachable={preview?.unreachable} heads={heads} />
                   <small className="hint">{t.positions.aimPositionHelp}</small>
                 </div>
               )}

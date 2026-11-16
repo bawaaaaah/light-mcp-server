@@ -8621,7 +8621,10 @@ test("named positions: the Show page lists them, a stale one offers recompute, a
     await expect(douche.locator(".position-stale .warning")).toContainText("À revoir : Lyre");
     // without an aim point it cannot be recomputed: the button says why
     await expect(douche.getByRole("button", { name: "Recalculer" })).toBeDisabled();
-    await expect(douche.locator(".position-choices .hint")).toHaveText("Recalculer : seulement pour une position enregistrée en visant un point.");
+    // each choice says what it does beside it, not only in a title
+    await expect(douche.getByRole("button", { name: "Recalculer" })).toHaveAccessibleDescription("Recalculer : seulement pour une position enregistrée en visant un point.");
+    await expect(douche.locator(".position-choice .hint")).toHaveCount(3);
+    await expect(douche.locator(".position-choice .hint").nth(2)).toBeVisible();
     await douche.scrollIntoViewIfNeeded();
     await page.screenshot({ path: "test-results/t32-show-stale-desktop.png" });
     // 1. recompute from the point it aimed at
@@ -8644,12 +8647,19 @@ test("named positions: the Show page lists them, a stale one offers recompute, a
     const box = (await pad.boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.6);
     await expect.poll(async () => Math.round(((await spotHead(page)).sent?.pan ?? 0) * 10)).toBe(3);
+    await expect(douche.getByTestId("position-adjusted")).toHaveText("Ajustées, seules enregistrées : Lyre");
     await page.screenshot({ path: "test-results/t32-show-by-hand-desktop.png" });
     await douche.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
-    await expect(page.getByTestId("lock-toast")).toHaveText("« Douche T32 » réenregistrée : Lyre");
+    // a success is said quietly (not in the lock's warning style), with the heads still held and how to let them go
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Douche T32 » réenregistrée : Lyre · Les lyres restent tenues à la main : « Rendre la main » sur la ligne de la position les libère.");
+    await expect(page.getByTestId("lock-toast")).toHaveClass(/neutral/);
     await expect(douche.getByTestId("position-stale")).toHaveCount(0);
     await expect(douche.locator(".position-pads")).toHaveCount(0);
     expect((await listedPositions(page)).find((p) => p.id === "t32-douche")!.values.spot!.pan).toBeCloseTo(0.3, 1);
+    // « Rendre la main » on its row while its head is held by hand (Q-B): the head lets go, the button goes
+    await douche.getByRole("button", { name: "Rendre la main sur Douche T32" }).click();
+    await expect.poll(async () => (await asDesk(page, "position.list") as { id: string; manual: unknown }[]).find((h) => h.id === "spot")!.manual).toBeNull();
+    await expect(douche.getByRole("button", { name: "Rendre la main sur Douche T32" })).toHaveCount(0);
     // renamed and recoloured: nothing captured, the values stay
     await douche.getByRole("button", { name: "Modifier la position Douche T32" }).click();
     const edit = douche.getByRole("form", { name: "Modifier la position « Douche T32 »" });
@@ -8658,6 +8668,11 @@ test("named positions: the Show page lists them, a stale one offers recompute, a
     await edit.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(edit).toHaveCount(0);
     await expect(douche.locator("strong")).toHaveText("Douche bis T32");
+    // Escape closes the form and hands the focus back to its « Modifier »
+    await douche.getByRole("button", { name: "Modifier la position Douche bis T32" }).click();
+    await douche.getByRole("form").getByRole("textbox", { name: "Nom" }).press("Escape");
+    await expect(douche.getByRole("form")).toHaveCount(0);
+    await expect(douche.getByRole("button", { name: "Modifier la position Douche bis T32" })).toBeFocused();
     const renamed = (await listedPositions(page)).find((p) => p.id === "t32-douche")!;
     expect(renamed.color).toBe("#ef4444");
     expect(renamed.values.spot!.pan).toBeCloseTo(0.3, 1);
@@ -8785,7 +8800,7 @@ test("look editor: « Position nommée » picks a position, says which heads it 
     await asDesk(page, "group.put", { group: { id: "t32-lyres", name: "Lyres T32", members: { fixtures: [] } } });
     await page.getByRole("button", { name: "Modifier T32 cercle" }).click();
     await expect(editor.getByTestId("move-aim-position")).toHaveAttribute("aria-checked", "true");
-    await expect(editor.getByTestId("position-coverage")).toHaveText("Ne couvre aucune lyre du look : le look ne les bougera pas.");
+    await expect(editor.getByTestId("position-coverage")).toHaveText("Le look ne bouge aucune lyre (son groupe est vide ou inconnu) : la position n'a rien à placer.");
     // back to the pan/tilt centre
     await editor.getByTestId("move-aim-center").click();
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
@@ -8796,6 +8811,249 @@ test("look editor: « Position nommée » picks a position, says which heads it 
     for (const id of ["t32-look", "t32-look-2"]) await asDesk(page, "position.preset.delete", { id, force: true });
     await asDesk(page, "group.delete", { id: "t32-lyres", force: true });
     await asDesk(page, "position.home", {});
+  }
+  expect(errors).toEqual([]);
+});
+
+/**
+ * T32, review 1: two more moving heads beside « spot » (« Lyre B », « Lyre C », the same test model), all three placed
+ * on the stage; `move` moves one (its positions go stale), `done` removes the two and puts « spot » back.
+ */
+async function threeHeads(page: Page): Promise<{ done: () => Promise<void>; move: (id: string, x: number) => Promise<void> }> {
+  type Fixture = { id: string; name: string; manufacturer: string; model: string; mode: string; universe: number; address: number };
+  const spot = ((await asDesk(page, "venue.fixture.list")) as Fixture[]).find((f) => f.id === "spot")!;
+  const fixtures: Record<string, Fixture> = {
+    spot,
+    "spot-b": { id: "spot-b", name: "Lyre B", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 20 },
+    "spot-c": { id: "spot-c", name: "Lyre C", manufacturer: "Test", model: "Spot 7", mode: "Standard", universe: 2, address: 40 },
+  };
+  const at = (id: string, x: number) => asDesk(page, "venue.fixture.put", { fixture: { ...fixtures[id], position: { x, y: 1, z: 4 }, mount: "hung" } });
+  for (const [id, x] of [["spot", 0], ["spot-b", -2], ["spot-c", 2]] as const) await at(id, x);
+  return {
+    move: async (id, x) => void (await at(id, x)),
+    done: async () => {
+      await asDesk(page, "motion.unfreeze");
+      await asDesk(page, "position.home", {});
+      for (const id of ["spot-b", "spot-c"]) await asDesk(page, "venue.fixture.delete", { id, force: true });
+      await asDesk(page, "venue.fixture.put", { fixture: spot });
+    },
+  };
+}
+type HeadRow = { id: string; recalled?: string; manual: { pan: number; tilt: number } | null; sent: { pan: number; tilt: number } | null };
+const headRow = async (page: Page, id: string) => ((await asDesk(page, "position.list")) as HeadRow[]).find((h) => h.id === id)!;
+
+test("named positions with three heads: « Plusieurs lyres », « rappelée 1/3 », a pad per head, only the adjusted heads saved, « Rendre la main » (T32, Q-A, Q-B)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page, "9999");
+  const stage = await threeHeads(page);
+  try {
+    // the panel's form: a point starts empty, never at 0/0/0; « Plusieurs lyres » ticks the heads covered
+    const panel = await spotPanel(page);
+    await panel.getByRole("button", { name: "Enregistrer cette position…" }).click();
+    const form = panel.getByRole("form", { name: "Enregistrer la position de « Lyre »" });
+    await form.getByRole("radio", { name: "Point de la scène (3D)" }).check();
+    for (const axis of ["X (m)", "Y (m)", "Z (m)"]) await expect(form.getByRole("textbox", { name: axis })).toHaveValue("");
+    await form.getByRole("radio", { name: "Pan / tilt (ce qu'on voit)" }).check();
+    await form.getByRole("textbox", { name: "Nom" }).fill("Trio T32");
+    await expect(form.getByRole("radio", { name: "Toutes les lyres (3)" })).toBeVisible();
+    await form.getByRole("radio", { name: "Plusieurs lyres" }).check();
+    await expect(form.getByRole("checkbox", { name: "Lyre", exact: true })).toBeChecked();
+    await form.getByRole("checkbox", { name: "Lyre B" }).check();
+    await form.getByRole("checkbox", { name: "Lyre C" }).check();
+    await form.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Trio T32 » enregistrée");
+    await expect(page.getByTestId("lock-toast")).toHaveClass(/neutral/);
+    const trio = (await listedPositions(page)).find((p) => p.name === "Trio T32")!;
+    expect(Object.keys(trio.values).sort()).toEqual(["spot", "spot-b", "spot-c"]);
+    await asDesk(page, "position.preset.put", { position: { id: "trio-t32", name: "Trio T32", values: { spot: { pan: 0.5, tilt: 0.5 }, "spot-b": { pan: 0.5, tilt: 0.5 }, "spot-c": { pan: 0.5, tilt: 0.5 } } } });
+    await asDesk(page, "position.preset.put", { position: { id: "t32-duo", name: "Duo T32", values: { spot: { pan: 0.4, tilt: 0.5 }, "spot-b": { pan: 0.4, tilt: 0.5 } } } });
+
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const row = page.locator('.position-row[data-position="trio-t32"]');
+    await expect(row.locator(".position-line small").first()).toHaveText("3 lyres");
+    // one head of three holds it: « rappelée 1/3 », then all of them
+    await asDesk(page, "position.preset.go", { id: "trio-t32", fixtures: ["spot"] });
+    await expect(row.getByTestId("position-recalled")).toHaveText("● rappelée 1/3");
+    await row.getByRole("button", { name: "Rappeler Trio T32" }).click();
+    await expect(row.getByTestId("position-recalled")).toHaveText("● rappelée");
+    // a head the position does not cover is said by its name in the toast (the request asks for Lyre C too)
+    await page.route("**/commands/position.preset.go", (route) => route.continue({ postData: JSON.stringify({ ...(route.request().postDataJSON() as object), fixtures: ["spot", "spot-c"] }) }));
+    await page.locator('.position-row[data-position="t32-duo"]').getByRole("button", { name: "Rappeler Duo T32" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Duo T32 » ne couvre pas : Lyre C");
+    await page.unroute("**/commands/position.preset.go");
+
+    // Q-A: B and C moved on the stage (to review); Lyre held elsewhere by hand, at another place
+    await stage.move("spot-b", -3);
+    await stage.move("spot-c", 3);
+    await asDesk(page, "position.set", { fixtures: ["spot"], pan: 0.9, tilt: 0.5 });
+    await expect(row.getByTestId("position-stale")).toBeVisible();
+    await expect(row.locator(".position-stale .warning")).toContainText("À revoir : Lyre B, Lyre C");
+    await row.getByRole("button", { name: "Modifier à la main" }).click();
+    const pads = row.locator(".position-pads");
+    await expect(pads.getByRole("slider")).toHaveCount(2);
+    await expect(row.getByTestId("position-adjusted")).toHaveText("Aucune lyre ajustée pour l'instant.");
+    // nothing touched yet: refused, said
+    await row.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Aucune lyre ajustée : en bouger une au pad avant d'enregistrer.");
+    await expect(page.getByTestId("lock-toast")).not.toHaveClass(/neutral/);
+    const padB = pads.getByRole("slider", { name: "Lyre B" });
+    await padB.scrollIntoViewIfNeeded();
+    const box = (await padB.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
+    await expect.poll(async () => Math.round(((await headRow(page, "spot-b")).sent?.pan ?? 0) * 10)).toBe(2);
+    await expect(row.getByTestId("position-adjusted")).toHaveText("Ajustées, seules enregistrées : Lyre B");
+    await page.screenshot({ path: "test-results/t32-three-by-hand-desktop.png" });
+    await row.getByRole("button", { name: "Enregistrer les lyres ajustées" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("« Trio T32 » réenregistrée : Lyre B · Les lyres restent tenues à la main : « Rendre la main » sur la ligne de la position les libère.");
+    const after = (await listedPositions(page)).find((p) => p.id === "trio-t32")!;
+    expect(after.values["spot-b"]!.pan).toBeCloseTo(0.2, 1);
+    // Lyre C, recalled but not touched, and Lyre, held elsewhere by hand, keep their value
+    expect(after.values["spot-c"]).toEqual({ pan: 0.5, tilt: 0.5 });
+    expect(after.values.spot).toEqual({ pan: 0.5, tilt: 0.5 });
+    expect(after.stale).toEqual(["spot-c"]);
+    // Q-B: closing the panel says the heads stay held, and how to let them go
+    await row.getByRole("button", { name: "Modifier à la main" }).click();
+    await expect(pads.getByRole("slider")).toHaveCount(1);
+    await row.locator(".position-by-hand").getByRole("button", { name: "Fermer" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Les lyres restent tenues à la main : « Rendre la main » sur la ligne de la position les libère.");
+    await expect(row.getByRole("button", { name: "Modifier à la main" })).toBeFocused();
+    await row.getByRole("button", { name: "Rendre la main sur Trio T32" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText(/^Main rendue : /);
+    for (const id of ["spot", "spot-b", "spot-c"]) await expect.poll(async () => (await headRow(page, id)).manual).toBeNull();
+    await expect(row.getByRole("button", { name: "Rendre la main sur Trio T32" })).toHaveCount(0);
+    await page.screenshot({ path: "test-results/t32-three-show-desktop.png" });
+  } finally {
+    for (const p of await listedPositions(page)) if (["trio-t32", "t32-duo"].includes(p.id) || p.name === "Trio T32") await asDesk(page, "position.preset.delete", { id: p.id, force: true });
+    await stage.done();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("named positions: a role without the rights sees the button greyed with its reason; in English; the widget's colour auto or none (T32)", async ({ page, browser }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const stage = await threeHeads(page);
+  const dash = ((await api(page, "dashboard.list")) as TestDashboard[])[0]!;
+  const bottom = dash.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+  const long = "Contre-jour très long pour une cellule T32";
+  await asDesk(page, "position.preset.put", { position: { id: "t32-r", name: long, color: "#3b82f6", values: { spot: { pan: 0.3, tilt: 0.2 }, "spot-b": { pan: 0.3, tilt: 0.2 }, "spot-c": { pan: 0.3, tilt: 0.2 } } } });
+  await api(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t32-r-w", kind: "position", target: "t32-r", x: 0, y: bottom, w: 1, h: 1 }] } });
+  try {
+    await page.reload();
+    const button = page.getByTestId("position-button");
+    await button.scrollIntoViewIfNeeded();
+    // a cut name is whole in the title and for screen readers
+    await expect(button).toHaveAttribute("title", new RegExp(`^${long} — `));
+    await expect(button).toHaveAccessibleName(long);
+    // one head of three holds it
+    await asDesk(page, "position.preset.go", { id: "t32-r", fixtures: ["spot"] });
+    await expect(button).toContainText("● rappelée 1/3");
+    await expect(button).toHaveAccessibleName(`${long} · rappelée 1/3`);
+    await asDesk(page, "position.releaseTop", { fixtures: ["spot"] });
+    // its colour: the position's by default (« auto »), none on demand, auto again
+    const cell = button.locator("xpath=..");
+    await expect(cell).toHaveClass(/tinted/);
+    await button.click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    await expect(menu.getByRole("radio", { name: "Auto : la couleur de sa position" })).toHaveAttribute("aria-checked", "true");
+    await menu.getByRole("radio", { name: "Sans couleur" }).click();
+    await expect(cell).not.toHaveClass(/tinted/);
+    await menu.getByRole("radio", { name: "Auto : la couleur de sa position" }).click();
+    await expect(cell).toHaveClass(/tinted/);
+    await page.keyboard.press("Escape");
+
+    // a role without commands:position nor show:write: greyed, the reason written on it, nothing recalled
+    const ctx = await browser.newContext({ viewport: { width: 1180, height: 820 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+    const reader = await ctx.newPage();
+    const readerErrors = watchErrors(reader);
+    await login(reader, "1357");
+    const greyed = reader.getByTestId("position-button");
+    await greyed.scrollIntoViewIfNeeded();
+    await expect(greyed).toBeDisabled();
+    await expect(greyed.locator(".position-no-right")).toHaveText("droit requis");
+    await greyed.click({ force: true });
+    await reader.waitForTimeout(300);
+    expect((await headRow(page, "spot")).recalled).toBeUndefined();
+    await reader.screenshot({ path: "test-results/t32-widget-no-right.png" });
+    expect(readerErrors).toEqual([]);
+    await ctx.close();
+
+    // in English: the Show page's row and choices, the widget's state
+    await stage.move("spot-c", 3);
+    await page.evaluate(() => localStorage.setItem("lang", "en"));
+    await page.reload();
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    const row = page.locator('.position-row[data-position="t32-r"]');
+    await expect(row.locator(".position-line small").first()).toHaveText("3 heads");
+    await expect(row.getByTestId("position-stale")).toHaveText("⚠ to review");
+    await expect(row.locator(".position-stale .warning")).toContainText("To review: Lyre C");
+    for (const name of ["Recompute", "Adjust by hand", "Keep as it is"]) await expect(row.getByRole("button", { name, exact: true })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Recompute" })).toHaveAccessibleDescription("Recompute: only for a position saved by aiming at a point.");
+    await row.getByRole("button", { name: `Recall ${long}` }).click();
+    await expect(row.getByTestId("position-recalled")).toHaveText("● recalled");
+    await expect(row.getByRole("button", { name: `Hand back ${long}` })).toBeVisible();
+    await row.getByRole("button", { name: "Keep as it is" }).click();
+    await expect(page.getByTestId("lock-toast")).toHaveText("Kept as it is: Lyre C");
+    await page.screenshot({ path: "test-results/t32-show-en.png" });
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("lang"));
+    await api(page, "dashboard.put", { dashboard: dash });
+    await asDesk(page, "position.preset.delete", { id: "t32-r", force: true });
+    await stage.done();
+  }
+  expect(errors).toEqual([]);
+});
+
+test("look editor: a position covering 2 of 3 heads says which; Cible ↔ Position nommée keeps both choices (T32)", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await login(page);
+  const stage = await threeHeads(page);
+  const canvas = ((await api(page, "look.get", { id: "checker" })) as { canvas: string }).canvas;
+  await asDesk(page, "group.put", { group: { id: "t32-trio", name: "Trio T32", members: { fixtures: ["spot", "spot-b", "spot-c"] } } });
+  await asDesk(page, "position.preset.put", { position: { id: "t32-duo", name: "Duo T32", values: { spot: { pan: 0.4, tilt: 0.3 }, "spot-b": { pan: 0.4, tilt: 0.3 } } } });
+  await asDesk(page, "position.preset.put", { position: { id: "t32-autre", name: "Autre T32", values: { spot: { pan: 0.6, tilt: 0.3 } } } });
+  await asDesk(page, "target.put", { target: { id: "t32-cible", name: "Cible T32", fixtures: ["spot"], bounds: T24_BOUNDS, point: { x: 0, y: 3, z: 1 } } });
+  await asDesk(page, "look.put", { look: { id: "t32-trio-look", name: "T32 trio", canvas, technique: { kind: "plat", color: "#00ff00" }, move: { shape: "cercle", group: "t32-trio", size: { pan: 0.1, tilt: 0.1 } } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "Show" }).click();
+    await page.getByRole("button", { name: "Modifier T32 trio" }).click();
+    const editor = page.locator(".look-editor");
+    await editor.getByTestId("move-aim-position").click();
+    const positions = editor.getByRole("region", { name: "Position suivie" });
+    await positions.getByRole("button", { name: /Duo T32/ }).click();
+    // in the look's order (its group's heads by their place on the stage, left to right)
+    await expect(editor.getByTestId("position-coverage")).toHaveText("Couvre 2 des 3 lyres du look : Lyre B, Lyre. Non couvertes, laissées à la couche du dessous : Lyre C.");
+    await page.screenshot({ path: "test-results/t32-look-cover-some.png" });
+    // to « Cible », a target picked, and back: each keeps its choice
+    await editor.getByTestId("move-aim-target").click();
+    await editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible T32/ }).click();
+    await editor.getByTestId("move-aim-position").click();
+    await expect(positions.getByRole("button", { name: /Duo T32/ })).toHaveAttribute("aria-current", "true");
+    await editor.getByTestId("move-aim-target").click();
+    await expect(editor.getByRole("region", { name: "Cible suivie" }).getByRole("button", { name: /Cible T32/ })).toHaveAttribute("aria-current", "true");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t32-trio-look" })) as { move: { at?: object } }).move.at).toEqual({ target: "t32-cible" });
+    // opened again on its target: « Position nommée » finds no position chosen until one is picked, then saves it
+    await page.getByRole("button", { name: "Modifier T32 trio" }).click();
+    await expect(editor.getByTestId("move-aim-target")).toHaveAttribute("aria-checked", "true");
+    await editor.getByTestId("move-aim-position").click();
+    await positions.getByRole("button", { name: /Duo T32/ }).click();
+    await editor.getByTestId("move-aim-target").click();
+    await editor.getByTestId("move-aim-position").click();
+    await expect(positions.getByRole("button", { name: /Duo T32/ })).toHaveAttribute("aria-current", "true");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(((await api(page, "look.get", { id: "t32-trio-look" })) as { move: { at?: object } }).move.at).toEqual({ position: "t32-duo" });
+  } finally {
+    await asDesk(page, "look.delete", { id: "t32-trio-look", force: true });
+    for (const id of ["t32-duo", "t32-autre"]) await asDesk(page, "position.preset.delete", { id, force: true });
+    await asDesk(page, "target.delete", { id: "t32-cible", force: true });
+    await asDesk(page, "group.delete", { id: "t32-trio", force: true });
+    await stage.done();
   }
   expect(errors).toEqual([]);
 });

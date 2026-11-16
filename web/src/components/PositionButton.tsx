@@ -25,20 +25,36 @@ export function PositionButton({ id, label, disabled, inert }: { id: string | un
   const holds = holding(p.id, heads).length;
   const name = label ?? p.name;
   const state = holds === 0 ? "" : holds >= covered ? w.recalledBadge : w.recalledPart.replace("{n}", String(holds)).replace("{m}", String(covered));
+  const stale = p.stale.length > 0;
+  // the whole name, in the title and for screen readers: a narrow cell cuts it with an ellipsis
+  const said = [name, state, stale ? w.stale : "", disabled ? t.noRight : ""].filter(Boolean).join(" · ");
   return (
     <button
       className={`fill position-button ${holds ? "on" : ""}`}
       data-testid="position-button"
       data-position={p.id}
-      title={disabled ? t.noRight : w.widgetHelp.replace("{name}", () => quoted(t, p.name))}
+      title={`${name} — ${disabled ? t.noRight : w.widgetHelp.replace("{name}", () => quoted(t, p.name))}`}
+      aria-label={said}
       disabled={disabled}
-      onClick={() => !inert && void recallPosition(t, p.id, p.name, (h) => headNames(p, [h]))}
+      onClick={() => !inert && void recallPosition(t, p.id, p.name, (h) => heads.find((x) => x.id === h)?.name ?? headNames(p, [h]))}
     >
       <span className="position-name">{name}</span>
-      {(state || p.stale.length > 0) && (
+      {(state || stale || disabled) && (
         <small className="position-state">
-          {state && <span>● {state}</span>}
-          {p.stale.length > 0 && <span title={w.staleHelp}> ⚠ {w.stale}</span>}
+          {state && (
+            <span>
+              <span aria-hidden="true">● </span>
+              {state}
+            </span>
+          )}
+          {stale && (
+            <span title={w.staleHelp}>
+              <span aria-hidden="true"> ⚠ </span>
+              {w.stale}
+            </span>
+          )}
+          {/* without the right, said on the button itself, not only in a title a finger never sees */}
+          {disabled && <span className="position-no-right">{t.noRight}</span>}
         </small>
       )}
     </button>

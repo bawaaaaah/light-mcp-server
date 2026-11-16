@@ -48,7 +48,10 @@ interface Widget {
   label?: string;
   /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
   mode?: ButtonMode;
-  /** "#rrggbb", or "auto" (a look button takes its look's colour); absent = neutral. */
+  /**
+   * "#rrggbb", or "auto" (a look button takes its look's colour); absent = neutral. A named position's button (T32)
+   * takes its position's colour when absent or "auto", and is neutral only with "none".
+   */
   color?: string;
   /** Two presses to switch on (look, Blackout, snapshot). */
   confirm?: boolean;
@@ -888,9 +891,12 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     }
   };
 
-  /** The colour a widget shows: its own, or its look's for « auto ». */
+  /** The colour a widget shows: its own, or its look's for « auto »; a position's button its position's unless « none ». */
   const colorOf = (w: Widget): string | undefined =>
-    w.color === "auto" ? lookById.get(w.target ?? "")?.swatch : isHex(w.color) ? w.color : w.kind === "position" && !w.color ? positionColor(w.target) : undefined;
+    isHex(w.color) ? w.color : w.kind === "position" ? (w.color === "none" ? undefined : positionColor(w.target)) : w.color === "auto" ? lookById.get(w.target ?? "")?.swatch : undefined;
+  /** Neutral, said per kind: a position's button needs « none » (absent is its position's colour). */
+  const neutral = (w: Widget): boolean => (w.kind === "position" ? w.color === "none" : !w.color);
+  const autoColored = (w: Widget): boolean => w.color === "auto" || (w.kind === "position" && !w.color);
   const tint = (w: Widget) => {
     const c = colorOf(w);
     return c ? { className: " tinted", style: { "--wc": c, "--wc-text": textOn(c) } as React.CSSProperties } : { className: "", style: {} };
@@ -1076,9 +1082,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             {many.length} {t.widgetsSelected}
           </strong>
           <div className="swatches" role="radiogroup" aria-label={t.widgetColor}>
-            <button className={`swatch none ${many.every((w) => !w.color) ? "chosen" : ""}`} role="radio" aria-checked={many.every((w) => !w.color)} title={t.noColor} aria-label={t.noColor} onClick={() => patchMany(() => ({ color: undefined }))} />
-            {many.some((w) => w.kind === "look") && (
-              <button className={`swatch auto ${shared("color", many) === "auto" ? "chosen" : ""}`} role="radio" aria-checked={shared("color", many) === "auto"} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => patchMany((w) => (w.kind === "look" ? { color: "auto" } : undefined))}>
+            <button className={`swatch none ${many.every(neutral) ? "chosen" : ""}`} role="radio" aria-checked={many.every(neutral)} title={t.noColor} aria-label={t.noColor} onClick={() => patchMany((w) => ({ color: w.kind === "position" ? "none" : undefined }))} />
+            {many.some((w) => w.kind === "look" || w.kind === "position") && (
+              <button className={`swatch auto ${many.every(autoColored) ? "chosen" : ""}`} role="radio" aria-checked={many.every(autoColored)} title={t.autoColorHelp} aria-label={t.autoColorHelp} onClick={() => patchMany((w) => (w.kind === "look" ? { color: "auto" } : w.kind === "position" ? { color: undefined } : undefined))}>
                 A
               </button>
             )}

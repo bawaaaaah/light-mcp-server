@@ -24,7 +24,10 @@ export function textOn(hex: string): string {
     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   };
   const l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return l > 0.36 ? "#111111" : "#ffffff";
+  // WCAG contrast of each against the colour (#111111 ≈ 0.0056): the higher wins, so a mid violet or blue gets dark text
+  const dark = (l + 0.05) / (0.0056 + 0.05);
+  const light = 1.05 / (l + 0.05);
+  return dark >= light ? "#111111" : "#ffffff";
 }
 
 export const isHex = (c: string | undefined): c is string => Boolean(c && /^#[0-9a-f]{6}$/i.test(c));

@@ -10,6 +10,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { usePositions, type PositionRow } from "../hooks/usePositions";
+import { AXES, pointFields, pointOf, wrongAxis as firstWrongAxis, type SaveReply } from "../positionForm";
 import { recallPosition } from "../positionRecall";
 import type { SearchItem } from "../search-picker";
 import { quoted } from "../typography";
@@ -19,25 +20,16 @@ import { SwatchPicker } from "./SwatchPicker";
 
 type Kind = "pantilt" | "point";
 type Heads = "this" | "some" | "all";
-type Axis = "x" | "y" | "z";
-const AXES: readonly Axis[] = ["x", "y", "z"];
 interface Named {
   id: string;
   name: string;
 }
-interface SaveReply {
-  position: PositionRow;
-  captured?: string[];
-  unreachable?: { fixture: string; error: string }[];
-}
-
-/** A number typed in metres (a decimal comma accepted); NaN when it is not one. */
-const metres = (v: string): number => (v.trim() === "" ? NaN : Number(v.replace(",", ".")));
 
 /** Whether a position places this head: a pan/tilt one that covers it, or any point. */
 const places = (p: PositionRow, head: string): boolean => p.kind === "point" || Object.hasOwn(p.values, head);
 
-export function FixturePositions({ fixture, canRecall, canSave }: { fixture: Named; canRecall: boolean; canSave: boolean }): ReactElement | null {
+/** Shown to whoever may move the heads (the panel's pad); saving asks `show:write` too. */
+export function FixturePositions({ fixture, canSave }: { fixture: Named; canSave: boolean }): ReactElement {
   const t = useT();
   const w = t.positions;
   const { positions, loaded } = usePositions();
@@ -45,7 +37,6 @@ export function FixturePositions({ fixture, canRecall, canSave }: { fixture: Nam
   const recalled = heads.find((h) => h.id === fixture.id)?.recalled;
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement | null>(null);
-  if (!canRecall && !canSave) return null;
   const mine = positions.filter((p) => places(p, fixture.id));
   const items: SearchItem[] = mine.map((p) => ({
     key: p.id,
@@ -61,8 +52,7 @@ export function FixturePositions({ fixture, canRecall, canSave }: { fixture: Nam
   };
   return (
     <div className="position-tools">
-      {canRecall &&
-        loaded &&
+      {loaded &&
         (items.length ? (
           <>
             <SearchPicker
@@ -100,7 +90,8 @@ function SavePositionForm({ fixture, onDone }: { fixture: Named; onDone: () => v
   const [kind, setKind] = useState<Kind>("pantilt");
   const [heads, setHeads] = useState<Heads>("this");
   const [some, setSome] = useState<string[]>([fixture.id]);
-  const [point, setPoint] = useState<Record<Axis, string>>({ x: "0", y: "0", z: "0" });
+  // empty, never 0/0/0: a point is typed, not taken by default
+  const [point, setPoint] = useState(() => pointFields(undefined, t.decimalMark));
   const [keep, setKeep] = useState(false);
   const [color, setColor] = useState<string | undefined>(undefined);
   const [problem, setProblem] = useState("");
@@ -116,7 +107,7 @@ function SavePositionForm({ fixture, onDone }: { fixture: Named; onDone: () => v
   const nameOf = (id: string) => installed.find((h) => h.id === id)?.name ?? (id === fixture.id ? fixture.name : id);
   /** The heads it captures: none for a point (each placed head aims at it when recalled) unless aimed now. */
   const capturesHeads = kind === "pantilt" || keep;
-  const wrongAxis = kind === "point" ? AXES.find((a) => !Number.isFinite(metres(point[a]))) : undefined;
+  const wrongAxis = kind === "point" ? firstWrongAxis(point) : undefined;
 
   const save = async () => {
     setTried(true);
@@ -132,12 +123,13 @@ function SavePositionForm({ fixture, onDone }: { fixture: Named; onDone: () => v
       const reply = await cmd<SaveReply>("position.preset.save", {
         name: name.trim(),
         ...(color ? { color } : {}),
-        ...(kind === "point" ? { point: { x: metres(point.x), y: metres(point.y), z: metres(point.z) }, ...(keep ? { pantilt: true } : {}) } : {}),
+        ...(kind === "point" ? { point: pointOf(point), ...(keep ? { pantilt: true } : {}) } : {}),
         ...(fixtures ? { fixtures } : {}),
       });
       const said = [w.saved.replace("{name}", () => quoted(t, reply.position.name))];
       if (reply.unreachable?.length) said.push(w.unreachable.replace("{names}", () => reply.unreachable!.map((u) => `${nameOf(u.fixture)} (${u.error})`).join(", ")));
-      showLockToast(said.join(" · "));
+      // a success is said quietly; heads left out are a warning
+      showLockToast(said.join(" · "), reply.unreachable?.length ? "alert" : "neutral");
       onDone();
     } catch (e) {
       setProblem((e as Error).message);

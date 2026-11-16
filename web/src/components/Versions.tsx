@@ -137,7 +137,7 @@ export function RecentlyDeleted({ collections, onRestored }: { collections: Vers
               {lists[c]!.map((g) => (
                 <li key={g.id}>
                   <span>
-                    {g.name ?? g.id} <small className="hint">{t.deletedOn} {when(g.at)}</small>
+                    {g.name ?? g.id} <small className="hint">{c === "positions" ? t.deletedOnFeminine : t.deletedOn} {when(g.at)}</small>
                   </span>{" "}
                   <button onClick={() => restore(c, g)}>{t.restore}</button>
                 </li>

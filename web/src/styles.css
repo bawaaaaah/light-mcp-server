@@ -4266,6 +4266,18 @@ fieldset.checklist .checklist-search {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* a success (a position saved, recomputed): said quietly, never in the lock's warning colour; on a phone at the top,
+   under the header, where it never covers a form's « Enregistrer » at the bottom; taps go through it */
+.lock-toast.neutral {
+  border-color: var(--line);
+  pointer-events: none;
+}
+@media (max-width: 600px) {
+  .lock-toast.neutral {
+    bottom: auto;
+    top: calc(env(safe-area-inset-top, 0px) + 64px);
+  }
+}
 .motion-lock-menu button {
   display: flex;
   align-items: center;
@@ -4896,10 +4908,6 @@ fieldset.group-lock legend {
 .positions-panel .position-stale .warning small {
   color: var(--muted);
 }
-.positions-panel .position-choices {
-  flex-wrap: wrap;
-  gap: 0.4em;
-}
 .positions-panel .position-pads {
   display: flex;
   flex-wrap: wrap;
@@ -4953,6 +4961,27 @@ button.position-button .position-state {
   font-size: 0.75rem;
   font-weight: 400;
 }
+/* lit: its state in bold and a little larger, readable on the colour on a phone */
+button.position-button.on .position-state {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+button.position-button .position-no-right {
+  font-style: italic;
+}
+.positions-panel .position-choices {
+  display: grid;
+  gap: 0.4em;
+}
+.positions-panel .position-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2em 0.6em;
+}
+.positions-panel .position-choice .hint {
+  flex: 1 1 16em;
+}
 button.position-button.on {
   background: var(--on);
   color: #062;
@@ -4974,8 +5003,11 @@ button.position-button.on {
     min-height: 24px;
     margin: 0;
   }
+  /* the whole label is the target of its box: 44 px tall, and wide enough even for a short name */
   .position-form .choice {
     min-height: 44px;
+    min-width: 44px;
+    padding-inline-end: 0.3em;
   }
   .position-form .swatches .swatch {
     width: 44px;

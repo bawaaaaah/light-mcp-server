@@ -11,6 +11,7 @@ import { PositionPresetSchema, StagePointSchema, type PositionPreset } from "../
 import { aimedHeads, coveredHeads, fillBasis, positionStale } from "../show/position-presets.js";
 import { inUseMessage } from "../show/references.js";
 import { slugify } from "../data/store.js";
+import { foldLatin } from "../venue/names.js";
 import { say } from "../../../core/lang.js";
 
 /** Fixtures given directly or through a group (move-commands.ts `Target`). */
@@ -37,9 +38,9 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
   };
   const basisNow = (f: string) => show.positionBasis(f);
   const headNow = (f: string) => show.positionHeadNow(f);
-  /** A free id from a name: « Avant-scène » → avant-scene, then avant-scene-2… */
+  /** A free id from a name: « Avant-scène » → avant-scene, « Point chœur » → point-choeur, then avant-scene-2… */
   const freeId = (name: string): string => {
-    const base = slugify(name) || "position";
+    const base = slugify(foldLatin(name)) || "position";
     let id = base;
     for (let i = 2; presets.get(id); i++) id = `${base.slice(0, 60)}-${i}`;
     return id;

@@ -83,7 +83,8 @@ export function SearchPicker<T extends SearchItem>({ title, items, onPick, disab
                 {i.color && <span className="swatch" style={{ background: i.color }} />}
               </span>
               <span className="name">
-                {i.current && <span aria-hidden>● </span>}
+                {/* a row with a colour already has its dot: the word alone marks it current */}
+                {i.current && !i.color && <span aria-hidden>● </span>}
                 {i.label}
                 {i.current && <small className="now"> · {currentLabel ?? t.fixtureMode.current}</small>}
                 {i.badge && <small className="badge"> · {i.badge}</small>}
