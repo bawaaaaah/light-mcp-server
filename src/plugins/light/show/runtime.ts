@@ -334,7 +334,7 @@ export class ShowRuntime {
     this.settings = this.store.readManifest("show.json", ShowSettingsSchema, ShowSettingsSchema.parse({}));
     this.venue.absent = new Set(this.settings.absentFixtures);
     // the lock is the open show's, with its heads where that show froze them
-    this.motion.reloadLock();
+    this.motion.frozen.reload();
   }
 
   saveSettings(patch: Partial<ShowSettings>): ShowSettings {
@@ -355,27 +355,27 @@ export class ShowRuntime {
    * unlocked forgets where it was held and glides back to what claims it (at least a second). Saved in show.json.
    */
   setMotionLock(state: MotionLockState): void {
-    this.motion.setLock(state);
+    this.motion.frozen.setLock(state);
   }
 
   /** A fixture gone from the patch leaves the motion lock (T26): its own level and where it was held. Saved at once. */
   forgetLockedHead(id: string): void {
-    this.motion.forgetLockedHead(id);
+    this.motion.frozen.forgetLockedHead(id);
   }
 
   /** Whether new pan/tilt inversions or swap would move a hard-frozen moving head (T26): refused until it is unfrozen. */
   flipsMoveFrozen(fixture: string, before: HeadFlips, after: HeadFlips): boolean {
-    return this.motion.flipsMoveFrozen(fixture, before, after);
+    return this.motion.frozen.flipsMoveFrozen(fixture, before, after);
   }
 
   /** Where a locked head is frozen (T26 `held`); undefined for a free head. */
   heldPosition(fixture: string): Position | undefined {
-    return this.motion.heldPosition(fixture);
+    return this.motion.frozen.heldPosition(fixture);
   }
 
   /** Writes a pending change of `held` now (before the show changes, on stop); a failed write is said and retried a second later, never thrown. */
   flushHeld(): void {
-    this.motion.flushHeld();
+    this.motion.frozen.flushHeld();
   }
 
   /** The technique with its palette applied (palettes are used by reference). */
@@ -1488,7 +1488,7 @@ export class ShowRuntime {
       const tempo = this.tempo.state();
       const now = this.now();
       // the motion lock (T26): where the locked heads are frozen, and show.json written right after the frame
-      this.motion.beginFrame(now, tempo.bpm);
+      this.motion.frozen.beginFrame(now, tempo.bpm);
       // manual colours whose fade back to the looks is over go, on a real frame only (strictBounds samples ahead, I1)
       this.colours.prune(now);
       const run = this.motion.run(tempo.bpm ?? FALLBACK_BPM);
@@ -1946,7 +1946,7 @@ export class ShowRuntime {
       if (buf) for (const [index, value] of slots) buf[index] = value;
     }
     // a head under a hard lock (T26) does not move, whoever writes its pan/tilt but the DMX console (decision Q4)
-    this.motion.freezeHard(buffers);
+    this.motion.frozen.freezeHard(buffers);
     // the useful stops (T8) hold over whatever wrote pan/tilt after the motion layer, but the DMX console
     this.motion.boundToStops(buffers);
     const rules = this.rulesInForce();
