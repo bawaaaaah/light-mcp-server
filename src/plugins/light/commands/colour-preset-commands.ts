@@ -195,9 +195,17 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     return ids;
   };
   /** Whether a colour can show on a fixture: it mixes colours, or its colour wheel answers them. */
-  const colourable = (f: string): string | undefined => {
+  /**
+   * Whether a colour can show on a fixture: it mixes colours, or its colour wheel answers them. A colour of the white
+   * LED alone (`#000000+wNN`, review 2 m4) only on a fixture with a white LED: anywhere else it would be dark.
+   */
+  const colourable = (f: string, whiteOnly: boolean): string | undefined => {
     const r = show.venue.resolve(f);
     if ("error" in r) return r.error;
+    if (whiteOnly) {
+      const white = [...r.heads].some(([h, comps]) => !r.accent.has(h) && comps.white !== undefined);
+      return white ? undefined : say("pas de LED blanche pour une couleur seulement blanche (#000000+wNN)", "no white LED for a white-only colour (#000000+wNN)");
+    }
     if (!r.lampOnly || show.venue.hasWheel(f)) return undefined;
     return say("ni mélange de couleurs ni roue de couleurs", "neither colour mixing nor a colour wheel");
   };
@@ -207,7 +215,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.apply",
     title: "Appliquer une couleur",
-    description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look's colour is (red, green and blue; white, amber and UV at 0; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped; those no look lights now in dark (the colour shows once a look or a fader lights them).`,
+    description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look painting that colour on the fixture is (every emitter the colour names: red, green, blue and the white LED part +wNN; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped; those no look playing paints in dark (the colour shows once a look lights them); names gives the names of the fixtures listed there.`,
     // a play action, like launching a look: the volunteer who may launch looks may colour them
     right: "commands:trigger",
     profiles: ["live", "design"],
@@ -215,18 +223,21 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     run: ({ id, color, fade, fixtures, group }) => {
       if ((id === undefined) === (color === undefined)) throw new CommandError("invalid", say("donner un preset (id) ou une couleur (color), l'un des deux", "give a preset (id) or a colour (color), one of the two"));
       const hex = color ?? get(id!).color;
+      const whiteOnly = hex.startsWith("#000000+w");
       const ok: string[] = [];
       const skipped: { fixture: string; error: string }[] = [];
       for (const f of fixturesOf(fixtures, group)) {
-        const why = show.venue.absent.has(f) ? say("absent de ce show", "absent from this show") : colourable(f);
+        const why = show.venue.absent.has(f) ? say("absent de ce show", "absent from this show") : colourable(f, whiteOnly);
         if (why) skipped.push({ fixture: f, error: why });
         else ok.push(f);
       }
       if (!ok.length && skipped.length) throw new CommandError("failed", say(`couleur appliquée à aucun appareil : ${skipped.map((x) => `${x.fixture} (${x.error})`).join(" ; ")}`, `colour applied to no fixture: ${skipped.map((x) => `${x.fixture} (${x.error})`).join("; ")}`), { skipped });
       const applied = show.setColour(ok, hex, (fade ?? MANUAL_COLOUR_FADE_MS / 1000) * 1000);
       // no look lights them now: the colour waits for their light (decision C1), said
-      const dark = applied.filter((f) => !show.litByLook(f));
-      return { color: hex, ...(id ? { id } : {}), applied, skipped, ...(dark.length ? { dark } : {}) };
+      const dark = applied.filter((f) => !show.paintedByLooks(f));
+      // the fixtures said back by their names (review 2, m9): a screen tells them as people know them
+      const names = Object.fromEntries([...dark, ...skipped.map((x) => x.fixture)].map((f) => [f, show.venue.fixtures.get(f)?.name ?? f]));
+      return { color: hex, ...(id ? { id } : {}), applied, skipped, ...(dark.length ? { dark } : {}), names };
     },
   });
 

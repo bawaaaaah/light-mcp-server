@@ -31,7 +31,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [snapshots, setSnapshots] = useState<Named[]>([]);
   const [positions, setPositions] = useState<Named[]>([]);
   // a saved colour (T41) and the group it colours ("" = every fixture)
-  const { presets: colours } = useColourPresets();
+  const { presets: colours, loaded: coloursLoaded } = useColourPresets();
   const [colourGroup, setColourGroup] = useState(() => colourGroupOf(initial));
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
@@ -166,7 +166,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
               </select>
             </label>
           )}
-          {action === "colour" && target && colours.length > 0 && !colours.some((c) => c.id === target) && (
+          {action === "colour" && target && coloursLoaded && !colours.some((c) => c.id === target) && (
             <p className="warn wide" role="status">
               {t.colours.mappingDeleted}
             </p>

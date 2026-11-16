@@ -496,7 +496,7 @@ export function MidiPage(): ReactElement {
                   <td>
                     {m.label || `${m.on.command} ${plain(m.on.args.id)}`}
                     {/* a colour preset deleted since (T41): the mapping applies nothing, said here as show.lint says it */}
-                    {m.on.command === "colour.apply" && colourLoaded && !colourIds.has(plain(m.on.args.id)) && <small className="warn"> ⚠ {t.colours.deletedMark}</small>}
+                    {m.on.command === "colour.apply" && colourLoaded && typeof m.on.args.id === "string" && !colourIds.has(m.on.args.id) && <small className="warn"> ⚠ {t.colours.deletedMark}</small>}
                   </td>
                   <td>
                     <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m as unknown as MappingDraft)}>

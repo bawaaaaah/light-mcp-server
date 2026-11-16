@@ -214,6 +214,11 @@ test("colour presets: applied by hand from a fixture's panel, the Live widget an
       await dot.scrollIntoViewIfNeeded();
       expect((await dot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       expect((await dot.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+      // the dot on a line of its own: M keeps its whole width, above it (review 2, I-3)
+      const mute = dot.locator("xpath=..").locator("button.mute");
+      const m = (await mute.boundingBox())!;
+      expect(m.y + m.height).toBeLessThanOrEqual((await dot.boundingBox())!.y + 1);
+      expect(await mute.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       await w.getByRole("button", { name: "Appliquer Rouge T41" }).tap();
       await expect.poll(() => colourOf(bars[1]!)).toBe("#ff0000");
       expect(await touch.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);

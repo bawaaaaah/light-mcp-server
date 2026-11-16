@@ -32,11 +32,12 @@ const counted = (n: number, one: string, many: string) => (n === 1 ? one : many)
 export async function applyColour(t: Texts, preset: ColourPresetRow, scope: ColourScope): Promise<void> {
   const w = t.colours;
   try {
-    const r = await cmd<{ applied: string[]; skipped: { fixture: string }[]; dark?: string[] }>("colour.apply", { id: preset.id, ...scope });
+    const r = await cmd<{ applied: string[]; skipped: { fixture: string }[]; dark?: string[]; names?: Record<string, string> }>("colour.apply", { id: preset.id, ...scope });
+    const name = (f: string) => r.names?.[f] ?? f;
     appliedStore.refresh();
     const said = [counted(r.applied.length, w.appliedOne, w.appliedMany).replace("{name}", () => quoted(t, preset.name))];
-    if (r.dark?.length) said.push(counted(r.dark.length, w.darkOne, w.darkMany).replace("{names}", () => r.dark!.join(", ")));
-    if (r.skipped.length) said.push(w.skipped.replace("{names}", () => r.skipped.map((s) => s.fixture).join(", ")));
+    if (r.dark?.length) said.push(counted(r.dark.length, w.darkOne, w.darkMany).replace("{names}", () => r.dark!.map(name).join(", ")));
+    if (r.skipped.length) said.push(w.skipped.replace("{names}", () => r.skipped.map((s) => name(s.fixture)).join(", ")));
     showLockToast(said.join(" · "), r.skipped.length || r.dark?.length ? "alert" : "neutral");
   } catch (e) {
     showLockToast((e as Error).message);

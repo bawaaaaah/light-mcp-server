@@ -171,9 +171,12 @@ class AppliedStore {
       const e = d as { name: string; ok: boolean };
       if (e.ok && e.name !== "colour.applied" && APPLIED_PREFIXES.some((p) => e.name.startsWith(p))) this.refresh();
     });
+    // the song follower starts a section's look outside any command (review 2, I-1): its look takes its fixtures' colour back
+    const offSong = control.subscribe("light:song", () => this.refresh());
     const offStatus = control.onStatus((up) => up && this.refresh());
     this.stop = () => {
       offEvents();
+      offSong();
       offStatus();
     };
     this.refresh();

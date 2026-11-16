@@ -367,6 +367,42 @@ describe("colour presets (T41)", () => {
       expect(lit.dark).to.equal(undefined);
     });
 
+    it("review 2: dark by the looks playing, not one frame's level; the Panic's undo at once; two Panics; white only; the entry leaves", async () => {
+      // a look playing on par at black this instant (a chase, a flash between two flashes): par is not dark (I-2)
+      plugin.runtime.looks.put({ id: "noir", name: "Noir", canvas: "one", technique: { kind: "plat", color: "#000000" } });
+      await run("look.go", { id: "noir" });
+      during(100);
+      const r = (await run("colour.apply", { color: "#0000ff", fixtures: ["par", "par2"], fade: 0 })) as { dark?: string[]; names: Record<string, string> };
+      expect(r.dark).to.deep.equal(["par2"]);
+      expect(r.names).to.deep.equal({ par2: "Par 2" }); // m9: said by name
+      await run("look.stopall");
+      await run("colour.release", { fade: 0 });
+      // m1: the Panic's undo puts the colour back at once
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#0000ff", fixtures: ["par"], fade: 0 });
+      during(100);
+      await run("panic");
+      during(100);
+      await run("panic.undo");
+      during(40);
+      expect(out(1, 3)).to.deep.equal([0, 0, 255]);
+      // m2: a colour applied between two Panics makes the second one the one to undo
+      await run("panic");
+      await run("look.go", { id: "rouge" });
+      await run("colour.apply", { color: "#00ff00", fixtures: ["par2"], fade: 0 });
+      await run("panic");
+      await run("panic.undo");
+      expect(plugin.runtime.manualColour("par2")).to.equal("#00ff00");
+      // m4: white LED only, on fixtures without one: left out, said
+      const w = await failure(run("colour.apply", { color: "#000000+w255", fixtures: ["par"] }));
+      expect(w.message).to.match(/LED blanche/);
+      // m6: released and its fade over, the entry leaves the table
+      await run("colour.release", { fade: 0.2 });
+      during(400);
+      expect(plugin.runtime.heldColours()).to.deep.equal({});
+      expect((plugin.runtime as unknown as { manualColours: Map<string, unknown> }).manualColours.size).to.equal(0);
+    });
+
     it("asks the right to launch a look to apply or give back a colour", async () => {
       const only = (rights: string[]): CommandContext => ({ origin: "ui", can: (r: string) => rights.includes(r) });
       await run("look.go", { id: "rouge" });

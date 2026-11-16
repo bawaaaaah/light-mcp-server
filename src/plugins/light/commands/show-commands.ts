@@ -2438,7 +2438,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "panic.undo",
     title: "Annuler le Panic",
-    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement, the colours applied by hand, fading in again); the DMX console forcing and hand-aimed heads it released stay released.",
+    description: "Within a minute of a Panic, puts back what played just before it (looks, DCA, channel faders, grand master, program, Blackout, the motion lock as it was, the targets' points and engagement, the colours applied by hand, at once); the DMX console forcing and hand-aimed heads it released stay released.",
     right: "commands:panic",
     profiles: ["live"],
     schema: z.object({}),

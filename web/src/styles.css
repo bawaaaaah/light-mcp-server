@@ -5853,6 +5853,14 @@ button.position-button.on {
     min-width: 44px;
     min-height: 44px;
   }
+  /* a fader one column wide: the dot on a line of its own under M and F, which keep their whole width (review 2, I-3) */
+  .cell .fader .row:has(.colour-group) {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .cell .fader .row .colour-group {
+    flex-basis: 100%;
+  }
   .colour-form input:not([type="checkbox"]):not([type="radio"]),
   .colour-form button {
     min-height: 44px;
