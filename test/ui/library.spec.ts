@@ -38,7 +38,7 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   const table = page.locator("table.library-table");
   await expect(row(page, "Mode Par")).toHaveCount(1);
   // the patched spot is used here; the filter keeps only what this venue uses
-  await expect(row(page, "Spot 7")).toContainText("1 appareil(s)");
+  await expect(row(page, "Spot 7")).toContainText("1 appareil");
   await page.getByLabel("Utilisées dans ce lieu").check();
   await expect(row(page, "Mode Par")).toHaveCount(0);
   await page.getByLabel("Utilisées dans ce lieu").uncheck();
@@ -63,26 +63,32 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   await expect(fwd.locator(".mode-table tbody tr")).toHaveCount(4);
   await page.screenshot({ path: "test-results/library-alias-dialog.png" });
   await fwd.getByRole("button", { name: "Faire suivre", exact: true }).click();
-  await expect(page.locator(".library-list")).toContainText("Test Mode Par (copie) → Test Mode Par");
+  await expect(page.getByRole("region", { name: "Alias de ce lieu" })).toContainText("Test Mode Par (copie) → Test Mode Par");
   await expect(row(page, "Mode Par (copie)")).toContainText("suit Test Mode Par");
-  await page.getByRole("button", { name: "Retirer l'alias" }).click();
+  await page.getByRole("button", { name: "Retirer l'alias Test Mode Par (copie)" }).click();
+  const unalias = page.getByRole("dialog", { name: /Retirer l'alias Test Mode Par \(copie\)/ });
+  await expect(unalias).toContainText("Aucun appareil");
+  await unalias.getByRole("button", { name: "Retirer l'alias", exact: true }).click();
   await expect(page.getByText("Aucun alias dans ce lieu.")).toBeVisible();
 
   // delete (unused: no force asked), restore, delete again and empty the trash
-  await row(page, "Mode Par (copie)").focus();
+  await page.getByRole("button", { name: "Actions sur Test Mode Par (copie)" }).focus(); // one stop per row: its ⋯ button
   await page.keyboard.press("Shift+F10"); // the keyboard opens the same menu
   await page.getByRole("dialog", { name: /Actions sur Test Mode Par \(copie\)/ }).getByRole("button", { name: /Supprimer/ }).click();
   const del = page.getByRole("dialog", { name: /Supprimer Test Mode Par \(copie\)/ });
   await del.getByRole("button", { name: "Mettre à la corbeille" }).click();
   await expect(row(page, "Mode Par (copie)")).toHaveCount(0);
-  await expect(page.locator("#library-trash")).toContainText("(1)");
-  await page.getByRole("button", { name: "Restaurer" }).click();
+  // the trash may hold other definitions (an earlier « Remplacer » keeps the old version there)
+  await expect(page.getByRole("region", { name: /^Corbeille/ })).toContainText("Test Mode Par (copie)");
+  await page.getByRole("button", { name: "Restaurer Test Mode Par (copie)" }).click();
   await expect(row(page, "Mode Par (copie)")).toHaveCount(1);
   await row(page, "Mode Par (copie)").click({ button: "right" });
   await page.getByRole("dialog", { name: /Actions sur/ }).getByRole("button", { name: /Supprimer/ }).click();
   await page.getByRole("dialog", { name: /Supprimer Test Mode Par/ }).getByRole("button", { name: "Mettre à la corbeille" }).click();
   await page.getByRole("button", { name: "Vider la corbeille" }).click();
-  await page.getByRole("dialog", { name: "Vider la corbeille" }).getByRole("button", { name: "Vider définitivement" }).click();
+  const empty = page.getByRole("dialog", { name: "Vider la corbeille" });
+  await expect(empty).toContainText("Test Mode Par (copie)");
+  await empty.getByRole("button", { name: "Vider définitivement" }).click();
   await expect(page.getByText("La corbeille est vide.")).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -111,8 +117,8 @@ test("library: a definition in use asks before going, and two files of one model
   await expect(card).toBeVisible();
   await page.screenshot({ path: "test-results/library-duplicates.png", fullPage: true });
   // keep the shared one: the venue's copy goes to the trash
-  await card.locator("li", { hasText: "shared/spot.qxf" }).getByRole("button", { name: "Garder celle-ci" }).click();
-  const pick = page.getByRole("dialog", { name: "Garder shared/spot.qxf" });
+  await card.getByRole("button", { name: "Garder celle-ci : spot.qxf (Partagée)" }).click();
+  const pick = page.getByRole("dialog", { name: "Garder spot.qxf (Partagée)" });
   await pick.getByRole("button", { name: "Garder celle-ci" }).click();
   await expect(card).toHaveCount(0);
   await expect(row(page, "Spot 7")).toHaveCount(1);
@@ -135,7 +141,7 @@ for (const [label, viewport, mobile] of [
     await expect(row(page, "Mode Par")).toHaveCount(1);
     await expect(page.locator(".library-table .model", { hasText: "Projecteur-a-tres-long" })).toHaveCount(1);
     expect(await page.evaluate<number>("document.documentElement.scrollWidth")).toBeLessThanOrEqual(viewport.width);
-    const small = await page.locator(".library-page button:visible, .library-page select:visible, .library-page input[type=search]:visible").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 80)));
+    const small = await page.locator(".library-page button:visible, .library-page select:visible, .library-page input[type=search]:visible, .library-page label.inline:visible").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 80)));
     expect(small).toEqual([]);
     // a finger held on a row opens its menu
     const box = (await row(page, "Mode Par").boundingBox())!;
@@ -147,8 +153,14 @@ for (const [label, viewport, mobile] of [
     const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par" });
     await expect(menu).toBeVisible();
     await page.screenshot({ path: `test-results/library-${label}.png`, fullPage: true });
-    await page.keyboard.press("Escape");
-    await expect(menu).toHaveCount(0);
+    // its dialogs are as easy to hit with a finger
+    await menu.getByRole("button", { name: /Dupliquer/ }).click();
+    const dup = page.getByRole("dialog", { name: "Dupliquer Test Mode Par" });
+    const tiny = await dup.locator("button:visible, input:not([type=radio]):visible, label.inline:visible").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).map((e) => e.outerHTML.slice(0, 80)));
+    expect(tiny).toEqual([]);
+    await page.screenshot({ path: `test-results/library-${label}-dialog.png` });
+    await dup.getByRole("button", { name: "Annuler" }).click();
+    await expect(dup).toHaveCount(0);
     await api(page, "library.delete", { id: long.id });
     await api(page, "library.trash.empty");
     expect(errors).toEqual([]);

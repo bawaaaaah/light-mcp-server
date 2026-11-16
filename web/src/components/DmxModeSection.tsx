@@ -19,6 +19,8 @@ import type { SearchItem } from "../search-picker";
 
 interface Plan {
   unchanged?: true;
+  /** Patched under an aliased model (T20b): the change repatches it under the target's names. */
+  renamed?: { from: { manufacturer: string; model: string }; to: { manufacturer: string; model: string } };
   name: string;
   to: string;
   channels: { before: number | null; after: number };
@@ -74,7 +76,7 @@ export function revertPass(t: Texts, e: unknown, pass: { overwrite?: true; force
 /** The last change made from a fixture's menu in this page, so that reopening the menu still offers its undo. */
 const lastChange = new Map<string, Done>();
 
-export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; manufacturer?: string; model?: string; mode?: string }; onSaved: () => void }): ReactElement | null {
+export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; manufacturer?: string; model?: string; mode?: string; resolvesAs?: { manufacturer: string; model: string; mode: string } }; onSaved: () => void }): ReactElement | null {
   const t = useT();
   const tm = t.fixtureMode;
   const [modes, setModes] = useState<LibraryDef["modes"] | null>(null);
@@ -115,12 +117,15 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     focusNext.current = null;
     target.focus();
   });
+  // a fixture patched under an aliased model (T20b) plays its target's definition: its modes are offered, a change repatches it
+  const names = fixture.resolvesAs ?? fixture;
+  const playing = fixture.resolvesAs?.mode ?? fixture.mode;
   useEffect(() => {
-    if (!fixture.model) return;
-    void cmd<LibraryDef[]>("venue.library", { search: fixture.model })
-      .then((defs) => setModes(defs.find((d) => d.manufacturer === fixture.manufacturer && d.model === fixture.model)?.modes ?? []))
+    if (!names.model) return;
+    void cmd<LibraryDef[]>("venue.library", { search: names.model })
+      .then((defs) => setModes(defs.find((d) => d.manufacturer === names.manufacturer && d.model === names.model)?.modes ?? []))
       .catch(() => setModes([]));
-  }, [fixture.manufacturer, fixture.model]);
+  }, [names.manufacturer, names.model]);
   if (!fixture.model || modes === null) return null;
   const undoable = done && done.mode === fixture.mode ? done : null;
 
@@ -128,7 +133,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     setError("");
     setNote("");
     setChoice(shared);
-    if (mode === fixture.mode) return setPlan(null);
+    if (mode === playing && !fixture.resolvesAs) return setPlan(null);
     void cmd<Plan>("venue.fixture.mode", { id: fixture.id, mode, dryRun: true, ...(shared ? { shared } : {}) }).then((p) => setPlan(p.unchanged ? null : p), (e: Error) => setError(e.message));
   };
   const losses = (p: Plan) => [
@@ -191,7 +196,7 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
     }
   };
 
-  const items: SearchItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: tm.channels.replace("{n}", String(m.channels)), current: m.name === fixture.mode }));
+  const items: SearchItem[] = modes.map((m) => ({ key: m.name, label: m.name, detail: tm.channels.replace("{n}", String(m.channels)), current: m.name === playing }));
   const others = plan?.sharedWith ?? [];
   const lostList = plan ? losses(plan) : [];
   const nothing = plan && !plan.moved.length && !lostList.length && !plan.cellsWithoutRender.length;
@@ -209,6 +214,11 @@ export function DmxModeSection({ fixture, onSaved }: { fixture: { id: string; ma
       {plan && (
         <div className="mode-plan" role="region" aria-label={tm.planTitle.replace("{mode}", plan.to)} ref={planBox}>
           <strong>{tm.planTitle.replace("{mode}", plan.to)}</strong>
+          {plan.renamed && (
+            <p className="hint">
+              {t.libraryPage.modeRenamed.replace("{from}", () => `${plan.renamed!.from.manufacturer} ${plan.renamed!.from.model}`).replace(/\{to\}/g, () => `${plan.renamed!.to.manufacturer} ${plan.renamed!.to.model}`)}
+            </p>
+          )}
           <small>{tm.footprint.replace("{before}", String(plan.channels.before ?? "?")).replace("{after}", String(plan.channels.after)).replace("{u}", String(plan.address.universe)).replace("{from}", String(plan.address.from)).replace("{to}", String(plan.address.to))}</small>
           {nothing && <small className="hint">{tm.nothing}</small>}
           {plan.moved.length > 0 && (

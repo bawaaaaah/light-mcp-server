@@ -44,6 +44,10 @@ interface AddedDefinition {
   manufacturer: string;
   model: string;
   unchanged?: true;
+  /** The old version « Remplacer » kept in the definitions' trash. */
+  previous?: string;
+  /** This venue's own copy was replaced: the shared file stays as it was for the other venues. */
+  sharedUnchanged?: true;
 }
 /** The result of an import into a new show, kept across the reload that opening it causes. */
 const LAST_IMPORT = "lastImport";
@@ -131,7 +135,7 @@ export function ImportPage(): ReactElement {
     if (!confirm(`${t.replaceDefinitionAsk} ${overwritten?.file ?? f.name}${overwritten?.venue ? t.libraryPage.venueOwn : ""}`)) return;
     try {
       const r = await cmd<AddedDefinition>("fixture.definition.add", { name: f.name, xml: await f.text(), replace: true });
-      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: `${addedDetail(r)} (${r.file})` } : a)));
+      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: [`${addedDetail(r)} (${r.file})`, r.previous ? t.libraryPage.replacedKept : "", r.sharedUnchanged ? t.libraryPage.sharedUnchanged : ""].filter(Boolean).join(" ; ") } : a)));
       loadLibrary();
       if (xml) await propose(xml);
     } catch (e) {

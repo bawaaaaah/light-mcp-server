@@ -2621,7 +2621,8 @@ table.rules td {
   text-transform: none;
   letter-spacing: normal;
   color: var(--text);
-  border-bottom: 0;
+  /* the same line under it as the cells of its row */
+  border-bottom: 1px solid var(--line);
   padding: 0.3em;
 }
 .library-table .model {
