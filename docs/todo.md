@@ -178,12 +178,12 @@ Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plu
 - **Besoin** : pouvoir enregistrer des **presets de couleur** (une couleur, ou un jeu de couleurs) et en marquer certains en **favoris**, pour les retrouver et les appliquer vite.
 - **À prévoir** : ajouter, renommer, supprimer un preset ; ajouter ou retirer un favori ; ordre des favoris ; accès rapide depuis les looks, le panneau d'un appareil et le Live ; rangement dans le show ou dans la bibliothèque personnelle (comme les intentions, T15) ; export dans les `.lightshow`.
 - **Tranché avec l'utilisateur (2026-11-16)** : un preset de couleur est **une couleur seule nommée**, à part des palettes (qui restent des jeux de couleurs) ; rangé **au choix dans le show ou dans la bibliothèque personnelle** (comme les intentions) ; favoris accessibles dans **l'éditeur de look**, le **panneau d'un appareil**, un **widget du Live** et **depuis un groupe**.
-- **Rang** : moyen. À planifier.
-
-### T42 — LED blanche tirée automatiquement d'une couleur RVB, en option par look (demandé le 2026-11-16)
-- **Besoin** : sur un projecteur RGBW (LED blanche, parfois ambre ou UV), le moteur n'allume la LED blanche que si la couleur la demande explicitement (`#rrggbb+wNN`). L'utilisateur veut une **option par look** : quand elle est cochée, la part commune de rouge, vert et bleu passe sur la LED blanche (un blanc ou un pastel allume la LED W, plus lumineux et plus propre).
-- **À prévoir** : la case dans l'éditeur de look, le calcul (part de blanc = min(R, V, B), retirée des trois), ce qui se passe avec un preset de couleur appliqué (T41) par-dessus un tel look, l'ambre et l'UV, l'aperçu, la sortie identique pour les looks sans l'option.
-- **Rang** : moyen (moteur de couleur). À planifier.
+- **Rang** : moyen.
+- **Codé (2026-11-16, branche `feat/t41-colour-presets`, pas fusionné)** : modèle et commandes (`colour.preset.list/put/delete/favorite/order`, `colour.apply`, `colour.release`), versions, références, archives ; page Show (section « Couleurs »), ★ à côté des champs couleur de l'éditeur de look, section « Couleur » du panneau d'un appareil, widget « Couleurs favorites » du Live, bouton ● des faders de groupe, action MIDI « Appliquer une couleur ». Spec [presets-songs-notes](specs/presets-songs-notes.md), « Presets de couleur ». Tests : [colour-presets.test.ts](../test/plugins/light/colour-presets.test.ts), [web-colour-mapping.test.ts](../test/web-colour-mapping.test.ts), [colours.spec.ts](../test/ui/colours.spec.ts).
+- **Questions ouvertes pour l'utilisateur** :
+  - **Appliquer une couleur** à un appareil ou un groupe en cours de look : aujourd'hui, provisoirement, les faders de canaux rouge, vert, bleu (le plus haut l'emporte sur le look, canal par canal ; jusqu'à « Rendre la couleur »). Faut-il plutôt une **couche manuelle de couleur** au-dessus des looks (la couleur remplace celle du look, sans mélange), avec un fondu, et rendue comment (bouton, look suivant, Panic) ? Et les appareils à **roue de couleurs** ou à blanc/ambre/UV ?
+  - **Favoris** : propres à chaque show (choix actuel) ou attachés au preset (un favori personnel serait favori dans tous les shows) ?
+  - **Look** : la couleur choisie est **copiée** ; faut-il un lien (le look suit le preset recoloré, comme une palette) ?
 ## 🟠 Définitions de projecteurs (analyse du 2026-11-07 : une lyre wash, une lyre spot à roue, une machine à fumée RGB)
 
 Constats, relevés dans le code ([venue.ts](../src/plugins/light/venue/venue.ts), [qxf-import.ts](../src/plugins/light/venue/qxf-import.ts)) et dans les `.qxf` de `data/fixtures/` (privé, rien de tout ça ne va dans le dépôt) :

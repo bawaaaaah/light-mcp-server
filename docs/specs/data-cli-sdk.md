@@ -27,7 +27,9 @@ data/shows/<id>/
   dashboards/<id>.json
   notes/<id>.json
   intentions/<id>.json      # intentions du show (T15) : créées (id généré i-…, T15b), retouches, masques
+  colours/<id>.json         # presets de couleur du show (T41) : une couleur nommée, id généré c-…
 ```
+- La **bibliothèque personnelle de presets de couleur** (T41) vit dans `data/private/colours/<id>.json`, comme celle des intentions ; les **favoris** du show sont une liste ordonnée d'ids dans `show.json` (`colourFavorites`). Une archive du show emporte une copie des presets personnels qu'il cite (manifeste `colours`), et une restauration laisse dans la bibliothèque ceux que la machine a à l'identique (`coloursKnown` de l'aperçu). Voir [presets-songs-notes](presets-songs-notes.md), « Presets de couleur ».
 - La **bibliothèque personnelle d'intentions** (T15) vit hors des shows, dans `data/private/intentions/<clé>.json` (historique dans `data/backups/private/`) : partagée par tous les shows de la machine. Une archive du show n'en emporte que les intentions qu'il cite, copiées comme intentions du show (voir ci-dessous).
 - **Un fichier par objet**, clés triées, indentation fixe, identifiants stables : un diff git montre exactement ce qui a changé.
 - **Idempotence** : deux sauvegardes ou deux générations successives ne produisent aucun diff.
