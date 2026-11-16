@@ -6,6 +6,40 @@ Pour reprendre ce chantier avec une IA : voir [plan-agent.md](plan-agent.md).
 Les décisions de conception qui en sortiront vont dans [decisions.md](decisions.md) **et** dans la spec concernée.
 Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plus tard. « ◐ » = déjà en partie fait.
 
+## 🔴 Nettoyage du code (prioritaire, demandé le 2026-11-16)
+
+Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes dupliquées, 534 sur 60 110, en 31 blocs). Chaque chantier ne change **aucun comportement** : suite complète verte avant et après, un lot par chantier, avec la boucle de revue habituelle. T43 à T47 peuvent partir tout de suite ; T48 et T49 attendent l'intégration de T20b et T28, qui touchent les mêmes fichiers.
+
+### T43 — Partager entre serveur et web le code recopié
+- La géométrie des zones (`web/src/zone-shape.ts`, environ 200 lignes identiques à `venue/stage.ts` au nom de type près) et les dossiers de looks (`web/src/folder.ts` ↔ `show/folders.ts`) sont recopiés, tenus égaux par deux tests de parité.
+- Le calcul de visée du pad (`web/src/pad-zones.ts`, `pointingOf`) recopie la trigonométrie de `venue/aim.ts` : s'ils divergent, toucher le pad envoie la lyre sur la mauvaise zone.
+- **À faire** : un module pur (sans zod ni `say`) côté serveur, importé par le web comme `QxfExport.tsx` le fait déjà ; retirer les copies et les tests de parité. Corriger le commentaire « the web app shares no code with the server ».
+
+### T44 — Une seule mécanique pour les magasins du web lus par commande
+- Cinq classes répètent abonnement, lecture unique en vol, relecture, nouvel essai à 2 s et comparaison : positions nommées (`usePositions`), presets et couleurs appliquées (`useColourPresets`), cibles (`useTargets`), têtes mobiles (`useMotionHeads`).
+- **À faire** : une fabrique `createCommandStore({ command, prefixes, ignore, map })` ; les correctifs (ordre des réponses, nouvel essai) faits une fois.
+
+### T45 — Invalidation déclarée par le serveur, au lieu des listes de préfixes
+- 32 endroits du web listent à la main les préfixes de commandes qui les obligent à relire (25 `useCommandEvents`, 7 abonnements directs). Les revues de T27 et T20b y ont trouvé des oublis (`backup.restore`, `fixture.definition.`).
+- **À faire** : un champ `changes` (domaines modifiés : lieu, scène, show, positions…) dans `CommandDef`, recopié dans l'événement `light:command` ; un hook `useDomainEvents` côté web ; un test de contrat qui exige `changes` sur toute commande qui écrit. Après T44.
+
+### T46 — Les informations d'une commande en un seul endroit
+- Le titre français est dans `register`, le titre anglais dans `titles-en.ts` (234 lignes), les annotations MCP dans `tool-hints.ts` (202 lignes).
+- **À faire** : des champs `titleEn` et `hints` dans `CommandDef`, le test de contrat gardé.
+
+### T47 — Composants web communs pour les blocs répétés
+- Pied d'éditeur (Enregistrer, Fermer, Supprimer, erreur, Versions) répété dans 13 éditeurs → `EditorActions`.
+- Bascule « modèle / appareil » (groupe radio au clavier) répétée dans FixtureHeads, TracksEditor, WheelEditor, ManualCalibration → `SegmentedRadio`.
+- Liste des clés d'accès copiée entre `UsersPanel` et `Account` → `PasskeyTable`.
+
+### T48 — Découper `ShowRuntime` (après T20b et T28)
+- `show/runtime.ts` : 2 851 lignes, environ 140 méthodes (looks, couleurs, niveaux et DCA, explication, remises à zéro, mouvement, rendu) ; `compose` fait 324 lignes.
+- **À faire** : sortir `MotionController` (positions, cibles, tenues, verrous, environ 570 lignes) et `ColourLayer` (couleurs manuelles) ; découper `compose` en étapes nommées.
+
+### T49 — Découper `show-commands.ts` par domaine (après T20b et T28)
+- 2 464 lignes, 98 commandes de 18 domaines (26 `venue.`, 14 `show.`, 10 `look.`…).
+- **À faire** : un fichier par domaine (`venue-commands`, `look-commands`, `group-commands`, `stage-commands`…). Facultatif ensuite : `web/src/i18n.ts` (3 796 lignes) par page, le câblage du constructeur de `light-plugin.ts`.
+
 ## 🔴 Fiabilité de la sortie et du moteur
 
 ### T1 — Flashs sur la sortie DMX USB après un certain temps
@@ -407,6 +441,7 @@ Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les d�
 
 | Phase | Items | But | Fini quand |
 |---|---|---|---|
+| **P. Nettoyage (prioritaire, 2026-11-16)** | T43, T44, T45, T46, T47, puis T48 et T49 après T20b et T28 | moins de copies serveur/web, rafraîchissements fiables, fichiers lisibles | aucun comportement changé : suite complète verte avant et après chaque lot ; plus de test de parité serveur/web |
 | **0. Jouer proprement** | T2 ([plan-t2.md](plan-t2.md)), T4, T3 (avec sa précision sur les du groupe extérieur de l'utilisateur) | plus de flash en changeant de look, fader DCA juste, fondu respecté partout | un test moteur A → B → A passe ; le fader DCA garde sa course avec le lissage ; le fondu agit sur tous les projecteurs |
 | **1. Gains rapides** | T7 fait, T17 fait, T33 fait, T31 fait, T12, T16 faits, T14 | inversion pan/tilt, dossiers de looks, gestion des dossiers, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
 | **2. Définitions saines** | T20a (détecter les doublons et avertir), T21, T22, T18 | plus de définition choisie au hasard, le Wash allume ses 3 zones, patch contrôlé, roue de couleurs fiable | « Vérifier le show » signale un doublon ; les 10 couleurs du Spot tombent sur la bonne case ; Wash 29 canaux piloté sur toutes les zones |
