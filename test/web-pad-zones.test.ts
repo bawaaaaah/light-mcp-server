@@ -1,29 +1,12 @@
 import { expect } from "chai";
 import { aimAt, pointing, type AimSetup } from "../src/plugins/light/venue/aim.js";
 import { projectZone } from "../src/plugins/light/venue/zone-project.js";
-import { fromView, pointingOf, toView, zoneStateTexts, zonesView, zoneUnder } from "../web/src/pad-zones.js";
+import { fromView, toView, zoneStateTexts, zonesView, zoneUnder } from "../web/src/pad-zones.js";
 import { leftOut, reasonText } from "../web/src/leftOut.js";
 import { TEXTS } from "../web/src/i18n.js";
 
 /** T27, lots 4-5: the aiming zones on a single head's pad, in the browser (web/src/pad-zones.ts). */
 describe("aiming zones on a head's pad (web, T27)", () => {
-  it("points the beam as the server does (parity with aim.ts pointing)", () => {
-    let seed = 9;
-    const rnd = () => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 2 ** 32;
-    };
-    for (let i = 0; i < 200; i++) {
-      const setup: AimSetup = { position: { x: rnd() * 8 - 4, y: rnd() * 6, z: rnd() * 6 }, hung: rnd() < 0.5, yaw: rnd() * 360 - 180, panMax: 540, tiltMax: 270, panOffset: rnd() * 40 - 20, tiltOffset: rnd() * 10 - 5 };
-      const [pan, tilt] = [rnd(), rnd()];
-      const a = pointing(setup, { pan, tilt });
-      const b = pointingOf(setup, pan, tilt);
-      expect(b.x).to.be.closeTo(a.x, 1e-12);
-      expect(b.y).to.be.closeTo(a.y, 1e-12);
-      expect(b.z).to.be.closeTo(a.z, 1e-12);
-    }
-  });
-
   it("finds the zone under a pad point on the stage, the last of the list on top, each at its own aiming height", () => {
     const head: AimSetup = { position: { x: 0, y: 1, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
     const low = { id: "low", polygon: [[-3, 2], [-1, 2], [-1, 4], [-3, 4]] as [number, number][], plane: 0 };
@@ -57,7 +40,7 @@ describe("aiming zones on a head's pad (web, T27)", () => {
     const mirrorPan = pan + 180 / head.panMax;
     const mirrorTilt = 0.5 - (tilt - 0.5);
     expect(mirrorPan).to.be.within(0, 1);
-    const [a, b] = [pointingOf(head, pan, tilt), pointingOf(head, mirrorPan, mirrorTilt)];
+    const [a, b] = [pointing(head, { pan, tilt }), pointing(head, { pan: mirrorPan, tilt: mirrorTilt })];
     expect(b.x).to.be.closeTo(a.x, 1e-9);
     expect(b.y).to.be.closeTo(a.y, 1e-9);
     expect(zoneUnder(head, [zone], mirrorPan, mirrorTilt)).to.equal(undefined);

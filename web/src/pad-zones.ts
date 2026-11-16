@@ -3,31 +3,16 @@
  * lyre »): which zone lies under a pad point, found on the **stage** (the beam followed to each zone's aiming plane, then
  * the zone's polygon), never on the drawn outlines; and the pad's frame when it zooms on the zones. Pure, for the tests.
  *
- * `pointingOf` copies `pointing` / `directionOf` of src/plugins/light/venue/aim.ts (the interface shares no code with the
- * server): a parity test keeps them equal.
+ * The beam is followed with `pointing` of src/plugins/light/venue/beam-direction.ts, the server's own.
  */
 import type { AimSetup } from "../../src/plugins/light/venue/aim.js";
 import type { PadPoint, ProjectedZone } from "../../src/plugins/light/venue/zone-project.js";
+import { pointing } from "../../src/plugins/light/venue/beam-direction.js";
 import { pointInPolygon } from "./zone-shape.js";
 
 export type { PadPoint, ProjectedZone };
 /** A head's aiming data as `stage.zone.project` gives it (its stops aside: the drawing already left them out). */
 export type PadHead = Omit<AimSetup, "limits">;
-
-const rad = (d: number): number => (d * Math.PI) / 180;
-
-/** Where a head points from its logical pan/tilt (0..1, inversions undone): a unit vector, stage frame. */
-export function pointingOf(f: PadHead, pan: number, tilt: number): { x: number; y: number; z: number } {
-  const h = rad((pan - 0.5) * f.panMax + f.panOffset);
-  const t = rad((tilt - 0.5) * f.tiltMax + f.tiltOffset);
-  let x = Math.sin(t) * Math.sin(h);
-  const y = -Math.sin(t) * Math.cos(h);
-  let z = Math.cos(t);
-  if (f.hung) [x, z] = [-x, -z];
-  const c = Math.cos(rad(f.yaw));
-  const s = Math.sin(rad(f.yaw));
-  return { x: x * c - y * s, y: x * s + y * c, z };
-}
 
 /**
  * The zone under a pad point: the beam from the head followed to each zone's aiming plane, the last zone of the list
@@ -37,7 +22,7 @@ export function pointingOf(f: PadHead, pan: number, tilt: number): { x: number; 
  * or, for a zone around the axis (`axisInside`), within 90° of pan of it.
  */
 export function zoneUnder<Z extends Pick<ProjectedZone, "polygon" | "plane" | "aim" | "axisInside">>(head: PadHead, zones: readonly Z[], pan: number, tilt: number): Z | undefined {
-  const d = pointingOf(head, pan, tilt);
+  const d = pointing(head, { pan, tilt });
   for (let i = zones.length - 1; i >= 0; i--) {
     const zone = zones[i]!;
     if (zone.aim && !onBranch(head, zone.aim, zone.axisInside === true, pan, tilt)) continue;

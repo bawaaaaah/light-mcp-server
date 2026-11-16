@@ -4,7 +4,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
-import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../folder";
+import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../../../src/plugins/light/show/folders.js";
 import { tagNames, tagsShown } from "../intentions";
 import { pick } from "../selection";
 import { LookEditor, MoveFadeInput, newLook, type LookDraft, type MoveFade } from "../components/LookEditor";

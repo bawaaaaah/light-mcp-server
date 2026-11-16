@@ -19,7 +19,7 @@ import { LiveStage } from "./StagePlan";
 import { LookPreview, usePreviewFrame, type Preview } from "./LookPreview";
 import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { labelOf, slug, splitList, uniqueId } from "../util";
-import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../folder";
+import { folderLabel, folderOf, withFolder, withoutFolderTag } from "../../../src/plugins/light/show/folders.js";
 import { confirmDelete } from "./confirmDelete";
 import { EditorActions } from "./EditorActions";
 import { SearchPicker } from "./SearchPicker";

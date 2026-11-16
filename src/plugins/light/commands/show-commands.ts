@@ -1367,6 +1367,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ src: folderSource, under: folderSource.optional() }),
     run: async ({ src, under }, ctx) => {
       const target = nestOf(src, under);
+      if (target === undefined) throw new Error(say(`« ${src} » ne peut pas se placer sous « ${under} » : sa propre branche`, `“${src}” cannot be nested under “${under}”: its own branch`));
       if (target === src) return { nested: 0, from: src, to: target };
       const exists = underFolder(src).length > 0 || show.settings.folders.some((f) => f === src || f.startsWith(src + "/"));
       if (!exists) throw new Error(say(`dossier inconnu : ${src}`, `unknown folder: ${src}`));

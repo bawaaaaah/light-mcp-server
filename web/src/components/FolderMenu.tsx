@@ -2,7 +2,7 @@ import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
 import { useFloatingMenu } from "./menu";
-import { folderLabel } from "../folder";
+import { folderLabel } from "../../../src/plugins/light/show/folders.js";
 
 /**
  * Right-click (or a long press) on a folder header of the Show list: rename it (its `dossier:` tag

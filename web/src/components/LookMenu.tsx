@@ -3,7 +3,7 @@ import { cmd } from "../api";
 import { useT } from "../App";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
-import { folderLabel } from "../folder";
+import { folderLabel } from "../../../src/plugins/light/show/folders.js";
 import { confirmDelete } from "./confirmDelete";
 import type { LookDraft } from "./LookEditor";
 
