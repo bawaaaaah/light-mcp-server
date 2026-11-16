@@ -1023,9 +1023,13 @@ test("tablet, editing a dashboard: a blank strip on the right scrolls, widgets s
   await cell.scrollIntoViewIfNeeded();
   const column = () => cell.getAttribute("style");
   const before = await column();
+  // the swipe above may still be settling (a pixel of momentum): wait for the page to stand still first
+  await expect
+    .poll(() => page.evaluate<boolean>("new Promise((done) => { const y = window.scrollY; setTimeout(() => done(window.scrollY === y), 150); })"))
+    .toBe(true);
+  const scrollBefore = await page.evaluate<number>("window.scrollY");
   const c = (await cell.boundingBox())!;
   const from = { x: Math.round(c.x + c.width / 2), y: Math.round(c.y + c.height / 2) };
-  const scrollBefore = await page.evaluate<number>("window.scrollY");
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
   for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x + i * 25, y: from.y }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
