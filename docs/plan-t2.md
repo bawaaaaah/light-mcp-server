@@ -7,14 +7,14 @@
 Notes de l'utilisateur (2026-11-07) : « si je change trop vite entre les scènes, je peux avoir un flash, lié à la transition entre les looks (temps de montée/descente) ». Tâche T2 de `docs/todo.md`, phase 0 de `docs/plan-agent.md`. Le DMX USB est écarté (l'utilisateur joue en Art-Net), donc ce flash vient du moteur, pas de la sortie.
 
 ## Cause trouvée (lecture du code, à confirmer par mesure)
-Le comportement est même **documenté comme voulu** dans `docs/specs/engine-effects-timing.md` (« Un seul chemin… », ligne ~88) : *« Relancer A pendant la transition le repart à neuf (depuis le noir, avec son propre fondu d'entrée) et le retire de dessous B : son poids de queue tombe d'un coup. »*
+Le comportement est même **documenté comme voulu** dans `docs/specs/engine-effects-timing.md` (« Un seul chemin… », entrée « Fondu enchaîné ») : *« Relancer A pendant la transition le repart à neuf (depuis le noir, avec son propre fondu d'entrée) et le retire de dessous B : son poids de queue tombe d'un coup. »*
 
-Dans `src/plugins/light/show/runtime.ts`, `go(lookId)` (~l. 279) :
+Dans `src/plugins/light/show/runtime.ts`, `go(lookId)` :
 - `this.releasing.delete(lookId)` : la copie de A qui s'éteint (exitFade) disparaît d'un coup ;
-- `this.leaveCrossfades(lookId)` (~l. 389) : la queue de A sous le croisement de B disparaît d'un coup ;
+- `this.leaveCrossfades(lookId)` (méthode `leaveCrossfades`) : la queue de A sous le croisement de B disparaît d'un coup ;
 - A repart ensuite avec un **nouveau `LookPlayer`** et un poids d'entrée de **0** (ou à 100 % sans fondu).
 
-Donc A → B → A rapide : le poids total chute (creux sombre, ou saut de teinte) puis remonte, ce qui se voit comme un flash. Le test existant `show-runtime.test.ts:298` (« starting A again during the crossfade starts it fresh… ») fige ce saut : A passe à `[255, 0]` immédiatement.
+Donc A → B → A rapide : le poids total chute (creux sombre, ou saut de teinte) puis remonte, ce qui se voit comme un flash. Le test existant de `show-runtime.test.ts` « starting A again during the crossfade starts it fresh… » fige ce saut : A passe à `[255, 0]` immédiatement.
 
 ## Décision de l'utilisateur
 A relancé en plein fondu **repart de son niveau courant et reprend aussi sa position dans l'animation** (pas de retour au pas 0). Cela remplace la règle de la spec ci-dessus.
@@ -35,12 +35,12 @@ Noter les chiffres obtenus dans la description du commit.
 - **Position dans l'animation.** Réutiliser le `LookPlayer` de la queue (celui de `Leaving` ou de `ReleasingLook`) au lieu d'en construire un neuf, **seulement si le look n'a pas été modifié** depuis (comparer `JSON.stringify(look)` de la queue et du look courant ; sinon reconstruire, comme aujourd'hui pour un look édité en direct). Ne pas rappeler `player.start()` dans ce cas.
 - **`entryFade` = 0** : coupure nette inchangée (réglage voulu), mais le `player` reste continu.
 - `leaveCrossfades` garde son rôle pour la **suppression** d'un look (là, la queue doit bien tomber) : lui donner deux modes (« reprendre » / « supprimer ») plutôt que de dupliquer.
-- Garder intacts : la mise de côté de `strictBounds` (~l. 676-693, qui sauve et restaure `releasing` et `crossfades`), `stopAll` / `resetLive`, la protection des canaux bruts (coupés à l'arrêt), les moves de la queue.
+- Garder intacts : la mise de côté de `strictBounds` (qui sauve et restaure `releasing` et `crossfades`), `stopAll` / `resetLive`, la protection des canaux bruts (coupés à l'arrêt), les moves de la queue.
 
 ### 3. Tests existants et nouveaux
-- Remplacer l'attente du test `:298`, **en changeant son scénario** : `pair({ b: { entryFade: 2 } })` donne à A un `entryFade` de 0, donc `crossfade` est faux (runtime.ts:306) et A repart à 100 % d'un coup, ce qui ne peut rien prouver. Donner à A un `entryFade` > 0 (cas des presets : entrée 1 s, sortie 0), puis A → B → A : après `advance(1)` et `go("a")`, la sortie est **continue** (A ≈ son poids de queue, B ≈ son poids courant) puis rejoint `[255, 0]` sur l'entrée de A.
+- Remplacer l'attente du test « starting A again during the crossfade starts it fresh… », **en changeant son scénario** : `pair({ b: { entryFade: 2 } })` donne à A un `entryFade` de 0, donc `crossfade` est faux (la constante `crossfade` de `go`) et A repart à 100 % d'un coup, ce qui ne peut rien prouver. Donner à A un `entryFade` > 0 (cas des presets : entrée 1 s, sortie 0), puis A → B → A : après `advance(1)` et `go("a")`, la sortie est **continue** (A ≈ son poids de queue, B ≈ son poids courant) puis rejoint `[255, 0]` sur l'entrée de A.
 - Ajouter : relance depuis `releasing` (continuité) ; animation qui ne repart pas au pas 0 (look à plusieurs pas, mêmes pas avant et après la relance) ; look modifié entre-temps → repart à neuf ; `entryFade` 0 → coupure nette ; suppression d'un look en queue → la queue tombe (inchangé).
-- Jouer `npm test` en entier : les ~600 tests existants dont ceux de croisement (lignes 213-540) doivent rester verts, hors la ligne modifiée.
+- Jouer `npm test` en entier : les ~600 tests existants dont ceux de croisement (le `describe` des fondus enchaînés) doivent rester verts, hors la ligne modifiée.
 
 ### 4. Docs (dans le même commit, règle du dépôt)
 - `docs/specs/engine-effects-timing.md` : réécrire la phrase « Relancer A… son poids de queue tombe d'un coup » (entrée « Fondu enchaîné ») : A repart de son niveau courant, garde son animation sauf look modifié.
@@ -49,13 +49,13 @@ Noter les chiffres obtenus dans la description du commit.
 
 ## Précisions issues de la revue adversariale (14 modèles Ollama, 2026-11-08)
 À intégrer à l'implémentation (le détail et le tri sont dans le compte rendu de la revue) :
-1. **Ordre dans `go()`** : capturer le poids de A (queue de croisement et/ou copie `releasing`) et son `LookPlayer` **avant** `this.releasing.delete` et `leaveCrossfades` (runtime.ts:284-285), puis seulement retirer. `releasing` est une `Map` par look : une seule entrée ; pour les `outgoing`, **sommer puis borner à [0, 1]**.
-2. **Condition du croisement** (runtime.ts:306) : aujourd'hui `leaving.length > 0 && entryFade > 0`. Elle doit aussi être vraie quand A a un poids de queue > 0 et `entryFade` > 0, même sans look libéré (croisement à `outgoing` vide qui porte `from`).
-3. **Player réutilisé** : ne pas appeler `player.start()` (runtime.ts:313) ni `build()` dans ce cas ; sinon l'animation repart au pas 0. Détection d'une édition du look : **comparer d'abord la référence de l'objet `Look`** (O(1)) plutôt que `JSON.stringify` (fragile et coûteux) ; en cas de doute, reconstruire (comportement actuel). À vérifier au début : ce que renvoie `looks.get` après un `put`.
+1. **Ordre dans `go()`** : capturer le poids de A (queue de croisement et/ou copie `releasing`) et son `LookPlayer` **avant** `this.releasing.delete` et `leaveCrossfades` (au début de `go`), puis seulement retirer. `releasing` est une `Map` par look : une seule entrée ; pour les `outgoing`, **sommer puis borner à [0, 1]**.
+2. **Condition du croisement** (la constante `crossfade` de `go`) : aujourd'hui `leaving.length > 0 && entryFade > 0`. Elle doit aussi être vraie quand A a un poids de queue > 0 et `entryFade` > 0, même sans look libéré (croisement à `outgoing` vide qui porte `from`).
+3. **Player réutilisé** : ne pas appeler `player.start()` (branche du player neuf de `go`) ni `build()` dans ce cas ; sinon l'animation repart au pas 0. Détection d'une édition du look : **comparer d'abord la référence de l'objet `Look`** (O(1)) plutôt que `JSON.stringify` (fragile et coûteux) ; en cas de doute, reconstruire (comportement actuel). À vérifier au début : ce que renvoie `looks.get` après un `put`.
 4. **Bornes** : borner `from` dans [0, 1] et le résultat de `inWeight` à 1. Ne **pas** plafonner `from` à 0,5 (proposé par un modèle, faux). Durées égales : la somme des poids reste 1 ; durées différentes (A entrée 1 s, B sortie 3 s) : la fusion existante partage la cellule (÷ somme, jamais plus clair que le plus clair), à **prouver par un test** avec les deux durées et sous `looksMerge` `last` **et** `highest`.
 5. **`entryFade` = 0** : pas de croisement, donc saut de `from` à 1 (réglage de l'utilisateur) ; le player, lui, reste continu. À tester explicitement.
 6. **Tests supplémentaires** : un look à plusieurs pas, pour **séparer** le saut de poids du saut d'animation ; relance depuis `releasing` seul ; plusieurs queues du même look (somme bornée) ; `go("a") → stopAll → go("a")` (rien d'un état mort).
-7. **`strictBounds`** : il construit son propre player par `build()` et sort tôt si le look est déjà actif (runtime.ts:658) ; il ne doit **pas** passer par le chemin de réutilisation.
+7. **`strictBounds`** : il construit son propre player par `build()` et sort tôt si le look est déjà actif (premier `return` de `strictBounds`) ; il ne doit **pas** passer par le chemin de réutilisation.
 
 ## Fichiers critiques
 - `src/plugins/light/show/runtime.ts` : `go`, `leaveCrossfades`, `beginCrossfade`, `inWeight`, `startFadeOut`, interface `Crossfade`.

@@ -97,7 +97,7 @@ Les chemins sont des **points de départ** relevés le 2026-11-07, à vérifier 
 
 ### Phase 3 — Réglage et mouvements des lyres
 **T5** puis **T6** (T5 d'abord : les modes ne se fondent pas), **T11**, **T9**.
-Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (revoir la gestion des mouvements via les looks, avec **T29** sous-looks) est un chantier de **conception à discuter avec l'utilisateur avant tout code** (priorité des couches et sous-look partagé reportés à ce moment) ; puis **T26** (verrou à deux niveaux), **T24** (cible 3D par groupe), **T27** (zones de visée sur le pad XY). Points de départ : `show/runtime.ts` (`manualPositions`, `moveOf`), `engine/move.ts` (`MoveSchema`), `commands/move-commands.ts` (`position.*`, `calibration.*`), `venue/aim.ts`.
+Mouvements ([todo.md](todo.md), groupe « Mouvements des lyres ») : **T25** (revoir la gestion des mouvements via les looks, avec **T29** sous-looks) est un chantier de **conception à discuter avec l'utilisateur avant tout code** (priorité des couches et sous-look partagé reportés à ce moment) ; puis **T26** (verrou à deux niveaux), **T24** (cible 3D par groupe), **T27** (zones de visée sur le pad XY). Points de départ : `show/motion-controller.ts` (`manualPositions`, `motionClaims` ; avant T48, dans `show/runtime.ts`), `engine/move.ts` (`MoveSchema`), `commands/move-commands.ts` (`position.*`, `calibration.*`), `venue/aim.ts`.
 
 ### Phase 4 — Confort et contenu
 **T15** (intentions : commandes `design-commands.ts`, archives `.lightshow` dans `commands/file-commands.ts`, comme les définitions embarquées au commit d2f7844), **T13**, **T20b**, **T8**, puis **T23** (triangulation), **T30** (placement par angles) et **T28** (looks par zone, motifs, aléatoire).
