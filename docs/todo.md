@@ -378,6 +378,13 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 - **Interface** : partout où l'on choisit une position nommée — l'**éditeur de look** (référence du mouvement), le **panneau de la lyre sélectionnée** (rappel rapide) et le **Live** — le choix se fait dans une **liste déroulante avec recherche**, pas un `<select>` qui déborde dès qu'il y a beaucoup de positions. L'application n'a pas de combobox aujourd'hui : à créer à cette occasion (ou `<datalist>` natif, cf. le champ dossier du T17).
 - **Rang** : moyen-dur. **Phase 3-4** — l'enregistrement et le rappel d'une position (une lyre seule) est de la phase 3 ; la **référence dans les touches au modèle des looks** (T25 conçoit la couche Mouvement). S'articule avec T24 (la **cible** 3D est pilotée en continu, la position nommée est **statique** — complémentaires), T8, T27 et T28.
 
+## 🟡 Installation
+
+### T50 — Export complet du logiciel pour le dupliquer sur un autre ordinateur (demandé le 2026-11-16)
+- Aujourd'hui, une archive `.lightshow` emporte **un show** (et les définitions et intentions qu'il cite), et `backup.create` sauvegarde sur la même machine. Il manque un export de **toute l'installation** à restaurer d'un coup sur un autre ordinateur.
+- **À prévoir** : tous les shows et leurs lieux, la bibliothèque des définitions (dossier partagé, copies propres aux lieux, alias, corbeille ?), la bibliothèque personnelle (intentions, presets de couleur), les réglages (sorties Art-Net / sACN / DMX USB, MIDI, OSC, AbleSet), les utilisateurs et leurs droits.
+- **À trancher** : les secrets (jetons, clé maître) et les clés d'accès (passkeys, liées au nom de la machine) — exportés, chiffrés par un mot de passe, ou à refaire sur la nouvelle machine ; les sorties réseau (adresses propres à l'ancienne machine) à revoir à l'arrivée ; fusion ou remplacement si la nouvelle machine a déjà des données ; un aperçu avant restauration comme pour les archives.
+
 ## Restes de la revue du 2026-11-11 (T18a, T21, T22, T38, T11)
 
 Questions en attente de l'utilisateur : voir `docs/plans/00-questions-en-attente.md` (fichier pas encore suivi par git).
