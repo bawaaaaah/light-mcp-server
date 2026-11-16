@@ -32,6 +32,7 @@ src/
     output/                    # artnet, artnet-discovery, sacn, output-router
     venue/                     # fixtures (schéma OFL, imports OFL/.qxf), patch, stage, canvas (canevas et rendu)
     engine/                    # dmx-engine, merger, programmer, attributes
+    show/                      # show joué : runtime.ts (looks, fondus, niveaux, rendu), motion-controller.ts (couche Mouvement), colour-layer.ts (couleurs à la main)
     groups/                    # objet Groupe unifié (master, exclusif, limites, presets inclus ou exclus)
     rules/                     # règles et masque final
     functions/                 # looks, techniques (pas), effets (formes d'onde), cue stacks, collections, matrices
@@ -99,6 +100,8 @@ docs/
 4. **Blackout, freeze, flash.**
 5. **Masque de règles** : max et plages, capabilities interdites, zones protégées, drapeaux de section ([rules-limits](specs/rules-limits.md)).
 6. **Conversion attribut → DMX** selon le patch, puis buffers d'univers, puis `output-router`.
+
+Dans le code, le rendu d'un show est `ShowRuntime.render` (`plugins/light/show/runtime.ts`) : `compose` enchaîne des étapes nommées, dans cet ordre — fondus finis retirés, looks en sortie, looks qui partent sous un fondu enchaîné, looks qui jouent, couleurs appliquées à la main (`ColourLayer`, `show/colour-layer.ts`), couche Mouvement (`MotionController`, `show/motion-controller.ts` : positions manuelles, positions nommées, cibles, parcours, tenues, verrou des lyres), intensités, `venue.toDmx`, faders de canaux —, puis le masque des règles. Les deux modules ne lisent le runtime que par une interface étroite (`ColourHost`, `MotionHost`) ; les méthodes publiques restent sur `ShowRuntime`, qui leur délègue. Un test de référence (`test/plugins/light/runtime-golden.test.ts`) compare chaque trame des deux univers à des empreintes enregistrées avant ce découpage.
 
 ## Authentification et rôles
 - **Rôles** (droits : pages, dashboards, widgets, commandes ; types : admin du lieu, régisseur, bénévole limité, lecture seule) et **utilisateurs nommés** : chacun a un rôle, un PIN et/ou des **clés de sécurité** (WebAuthn : YubiKey, passkeys ; `core/passkeys.ts`, repris de wing). L'administrateur les crée, renomme, désactive (ses sessions se ferment) ou supprime dans Réglages, et y règle les **droits de chaque rôle** et ses dashboards visibles ; les rôles de base restent toujours (même si la liste enregistrée est vide), l'administrateur garde tous les droits. Les anciens PIN par rôle deviennent, au chargement, un utilisateur par rôle. Une clé ne marche que par `localhost` ou l'adresse publique HTTPS ; sur une IP du réseau local, le PIN reste.
