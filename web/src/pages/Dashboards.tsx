@@ -8,7 +8,7 @@ import { useFreezeFast, usePreviewFirst } from "../hooks/usePreviewSettings";
 import { asksBeforeLaunch } from "../preview-first";
 import { useCommandEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
-import { XyPad } from "../components/XyPad";
+import { XyPad, type ZoneChip } from "../components/XyPad";
 import { TargetWidget, type PadFixture, type PadZone } from "../components/TargetPad";
 import { useTargetNames } from "../hooks/useTargets";
 import { usePositions } from "../hooks/usePositions";
@@ -464,8 +464,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
       setError(e.message);
     });
   const dash = dashboards[current];
-  // the target pads' plan (T24): the venue's fixtures and zones, read once for all of them, only when there is one
-  const hasTargetPad = Boolean(dash?.widgets.some((w) => w.kind === "target"));
+  // the target pads' plan (T24): the venue's fixtures and zones, read once for all of them, only when there is one; the
+  // XY pads' zone chips (T27, lot 4) read the same zones
+  const hasTargetPad = Boolean(dash?.widgets.some((w) => w.kind === "target" || w.kind === "xy"));
   const [targetStage, setTargetStage] = useState<{ fixtures: PadFixture[]; zones: PadZone[] }>({ fixtures: [], zones: [] });
   const hasTargetPadRef = useRef(hasTargetPad);
   hasTargetPadRef.current = hasTargetPad;
@@ -476,6 +477,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   }, []);
   useEffect(readTargetStage, [readTargetStage, hasTargetPad]);
   useCommandEvents(["venue.", "stage.", "show.open", "import.", "history."], readTargetStage);
+  /** The aiming zones, as chips under the group pads (T27, lot 4). */
+  const zoneChips = useMemo<ZoneChip[]>(() => targetStage.zones.flatMap((z) => (z.aim ? [{ id: z.id, name: z.name, color: z.aim.color }] : [])), [targetStage.zones]);
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);
   // a look deleted while its sheet is open: forget it, or a look put back under the same id would bring the sheet back
   useEffect(() => {
@@ -770,7 +773,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         // edit mode: `inert` guards the presses without disabling the buttons, so the widget is still dragged and selected
         return <MotionLockButton variant="widget" group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} inert={edit} groupDeleted={Boolean(w.target) && groups.length > 0 && !groupById.has(w.target ?? "")} onError={setError} />;
       case "xy":
-        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact />;
+        return <XyPad group={w.target || undefined} label={w.label} onError={setError} disabled={!may("commands:position")} compact zones={zoneChips} />;
       case "target":
         // a 3D target (T24): its pad, its Z fader and « Engager »; chosen in the widget's menu. Keyed by the target:
         // another target is another pad (its pending write goes out for the target it was made for)

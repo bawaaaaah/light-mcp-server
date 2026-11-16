@@ -1,7 +1,15 @@
 import { expect } from "chai";
-import { aimSpot, cachedZoneCentre, ellipsePolygon, movedZone, moveZone, rectPolygon, reshapedZone, validZone, zoneCentre, zoneRect } from "../web/src/zone-shape.js";
+import { aimSpot, cachedZoneCentre, ellipsePolygon, movedZone, moveZone, rectPolygon, reshapedZone, validZone, zoneAt, zoneCentre, zoneRect } from "../web/src/zone-shape.js";
 
 describe("stage zones on the plan", () => {
+  it("finds the zone drawn on top at a point: the last of the list (T27, the plan and the target pad)", () => {
+    const under = { id: "under", polygon: rectPolygon(4, 4, 0, 0) };
+    const over = { id: "over", polygon: rectPolygon(2, 2, 0, 1) };
+    expect(zoneAt([under, over], { x: 0, y: 2 })?.id).to.equal("over");
+    expect(zoneAt([under, over], { x: 1.5, y: 0.5 })?.id).to.equal("under");
+    expect(zoneAt([over, under], { x: 0, y: 2 })?.id).to.equal("under"); // drawn after: on top
+    expect(zoneAt([under, over], { x: 5, y: 5 })).to.equal(undefined);
+  });
   it("draws a rectangle from its sizes and reads them back", () => {
     const stage = rectPolygon(8, 4, 0, 1);
     expect(stage).to.deep.equal([[-4, 1], [4, 1], [4, 5], [-4, 5]]);

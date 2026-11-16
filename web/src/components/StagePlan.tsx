@@ -27,7 +27,7 @@ import { useT } from "../App";
 import { stream } from "../ws";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
-import { aimSpot, cachedZoneCentre, ellipseFromDrag, ellipsePolygon, movedZone, pointInPolygon, rectFromDrag, reshapedZone, validZone, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
+import { aimSpot, cachedZoneCentre, ellipseFromDrag, ellipsePolygon, movedZone, rectFromDrag, reshapedZone, validZone, zoneAt, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
 import { pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { metresText } from "../target-status";
@@ -697,7 +697,7 @@ export function StagePlan({
     // the zone on top where it was clicked (the one drawn last); an aiming one gives its aiming point (decision Q3 of
     // T27), not an aiming zone hidden under another; Alt / Option or « Point exact »: the exact point clicked, at the
     // zone's aiming height above its floor
-    const zone = [...zones].reverse().find((z) => pointInPolygon(p.x, p.y, z.polygon));
+    const zone = zoneAt(zones, p);
     const aimZone = zone?.aim ? zone : undefined;
     // a selected moving head turns to the point alone; without a selection, all of them do
     const only = selected && heads.includes(selected) ? [selected] : undefined;

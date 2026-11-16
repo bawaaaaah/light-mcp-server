@@ -11,6 +11,8 @@ import { noKeyRepeat, useArm } from "../hooks/useArm";
 import { useThrottledSend } from "../hooks/useThrottledSend";
 import { holdText } from "../hold-text";
 import { arrowStep, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, type PadSpan } from "../correctionPad";
+import { leftOut } from "../positionRecall";
+import { showLockToast } from "./MotionLockButton";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
 import type { AxisReport } from "../../../src/plugins/light/show/motion-report";
 
@@ -36,7 +38,16 @@ type XyPadProps = {
   span?: PadSpan;
   /** Called on each move sent from this pad (a drag, a tap, an arrow key): the Show page's « Modifier à la main » keeps the heads adjusted (T32, Q-A). */
   onMoved?: () => void;
+  /**
+   * The aiming zones offered as chips under a group's pad (T27, lot 4): a press sends the pad's heads to the zone's
+   * aiming point (`position.aim {zone}`, layer Manuel). Absent: no chips.
+   */
+  zones?: readonly ZoneChip[];
 };
+
+/** An aiming zone as a chip: its name and its colour (absent: the aiming zones' colour). */
+export type ZoneChip = { id: string; name: string; color?: string | undefined };
+type AimReply = { results?: { fixture: string; error?: string }[]; refused?: string[] };
 
 type Axis = "pan" | "tilt";
 type PositionWrite = { target: MotionTarget; point: Position };
@@ -76,7 +87,7 @@ const sameChips = (a: LayerChip[], b: LayerChip[]): boolean => a.length === b.le
  * XY pad for moving heads: X = pan, Y = tilt (top = 1). One write is in flight and only the latest pending batch is
  * kept (useThrottledSend, at most 25 a second), so a slow link never builds a queue behind the finger. The shared store supplies sent positions and owners.
  */
-export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved }: XyPadProps): ReactElement {
+export function XyPad({ group, fixture, label, onError, disabled: disabledByCaller = false, resync, restControls = false, compact = false, span, onMoved, zones }: XyPadProps): ReactElement {
   const t = useT();
   /** A logical position → where it sits on the pad (0..1 across and up), kept on the pad's edge when beyond it. */
   const placed = (p: Position): Position => {
@@ -420,6 +431,31 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
   const maskedFull = claims.map(claimText).join("\n");
 
   const nameOfHead = (id: string): string => scopedHeads.find((h) => h.id === id)?.name ?? id;
+  /**
+   * A zone chip pressed (T27, lot 4): the pad's heads aim at the zone's aiming point, a manual position as the pad's;
+   * heads frozen hard (T26) and heads that cannot reach it are said in the app's toast, never left unsaid.
+   */
+  const aimAtZone = async (zone: ZoneChip): Promise<void> => {
+    if (disabled) return;
+    const aimTarget = cloneTarget(targetRef.current);
+    keyBurst.current = null;
+    setPos(null);
+    // the pad's pending write would land after the aim and undo it: dropped, the one on the wire awaited
+    await sender.drop();
+    try {
+      const reply = await cmd<AimReply>("position.aim", { ...aimTarget, zone: zone.id });
+      const unreachable = (reply?.results ?? []).flatMap((r) => (r.error ? [{ fixture: r.fixture, error: r.error }] : []));
+      const said = leftOut(t, zone.name, { refused: reply?.refused ?? [], unreachable }, nameOfHead);
+      if (said.length) showLockToast(said.join(" · "));
+      markGesture();
+      onMovedRef.current?.();
+    } catch (error) {
+      const refused = error instanceof ApiError ? error.detail?.refused : undefined;
+      const said = Array.isArray(refused) ? leftOut(t, zone.name, { refused: refused.filter((id): id is string => typeof id === "string") }, nameOfHead) : [];
+      showLockToast(said.length ? said.join(" · ") : (error as Error).message);
+    }
+    refresh();
+  };
   refusedRef.current = setRefusedIds;
   // the names first: a narrow cell cuts the end of the line, never who stayed in place
   const refusal = refusedIds.length ? (refusedIds.length === 1 ? t.motionLock.padRefusedOne : t.motionLock.padRefused).replace("{names}", () => refusedIds.map(nameOfHead).join(", ")) : "";
@@ -748,6 +784,25 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
         )}
         {compact && infoBubble}
       </div>
+      {zones && zones.length > 0 && (
+        <div className="xy-zone-chips" role="group" aria-label={t.zoneAim.chips} data-testid="xy-zone-chips">
+          {zones.map((zone) => (
+            <button
+              key={zone.id}
+              type="button"
+              className="xy-zone-chip"
+              data-zone={zone.id}
+              disabled={disabled || !scopedHeads.length}
+              title={t.zoneAim.chipHelp.replace("{name}", () => zone.name)}
+              style={{ "--zone-color": zone.color ?? "var(--aim-color)" } as React.CSSProperties}
+              onClick={() => void aimAtZone(zone)}
+            >
+              <i className="zone-chip-mark" aria-hidden="true" />
+              {zone.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

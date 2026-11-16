@@ -365,6 +365,15 @@ export function aimSpot(zone: { polygon: readonly Pt[]; aim?: { point?: Pt } | u
   return zone.aim?.point ? { x: zone.aim.point[0], y: zone.aim.point[1] } : cachedZoneCentre(zone.polygon);
 }
 
+/**
+ * The zone drawn on top at a stage point (the last of the list: the plan and the target pad draw them in that order):
+ * only it decides what a click does, an aiming zone hidden under another is not aimed at (T27).
+ */
+export function zoneAt<Z extends { polygon: readonly Pt[] }>(zones: readonly Z[], p: { x: number; y: number }): Z | undefined {
+  for (let i = zones.length - 1; i >= 0; i--) if (pointInPolygon(p.x, p.y, zones[i]!.polygon)) return zones[i];
+  return undefined;
+}
+
 /** What can be dragged on a zone besides the zone (lot Z4): one of its corners, or its aiming point. */
 export type ZoneHandle = number | "aim";
 

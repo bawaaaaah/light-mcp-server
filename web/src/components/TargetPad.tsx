@@ -13,6 +13,7 @@ import { useThrottledSend } from "../hooks/useThrottledSend";
 import { targetsStore, useTarget, type Point3, type TargetRow } from "../hooks/useTargets";
 import { fittedBox, pointerToDrawing, stageFrame, stageLayout } from "../stage-frame";
 import { placeLabels, textWidth } from "../plan-tools";
+import { aimSpot, zoneAt, type Pt } from "../zone-shape";
 import { metresText, targetHeads, targetParts, type TargetPart } from "../target-status";
 import { holdText } from "../hold-text";
 import { FaderTrack } from "./FaderTrack";
@@ -27,8 +28,11 @@ export interface PadFixture {
 export interface PadZone {
   id: string;
   name: string;
-  polygon: [number, number][];
+  polygon: Pt[];
+  floorHeight?: number;
   noAim?: boolean;
+  /** An aiming zone (T27): a tap in it puts the target on its aiming point (`target.zone`). */
+  aim?: { height: number; point?: Pt; color?: string };
 }
 
 /** The drawing's width (units); its height follows the stage. */
@@ -37,6 +41,10 @@ const W = 400;
 const LABEL_PX = 12;
 const HEAD_PX = 6;
 const RING_PX = 11;
+/** How far (px) a press in an aiming zone may wander and still be a tap (to the zone) rather than a drag (free). */
+const TAP_SLOP_PX = 8;
+/** The aiming point's mark of an aiming zone (px). */
+const AIM_MARK_PX = 5;
 /** Keyboard steps (metres): an arrow; Shift + arrow and Page up / Page down (the height, as on the Z fader). */
 const STEP = 0.1;
 const BIG_STEP = 1;
@@ -214,15 +222,51 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
     const { px, py } = pointerToDrawing(e, fittedBox(rect, W, H), W, H, { left: 0, top: 0 });
     return toStage(px, py);
   };
+  /**
+   * A press in an aiming zone (T27, lot 4): a tap until it wanders TAP_SLOP_PX, then a drag. A tap puts the target on the
+   * zone's aiming point (target.zone, its height included); a drag stays a free move. Alt / Option: the exact point.
+   */
+  const tap = useRef<{ zone: PadZone; x: number; y: number } | null>(null);
+  /** The aiming zone drawn on top at a stage point, if the zone on top is one. */
+  const aimZoneAt = (p: { x: number; y: number }): PadZone | undefined => {
+    const z = zoneAt(zones, p);
+    return z?.aim ? z : undefined;
+  };
+  const toZone = async (zone: PadZone): Promise<void> => {
+    if (off) return;
+    try {
+      // a drag's last write still on the wire lands first, then the zone's point wins
+      await sender.drop();
+      const reply = await cmd<{ id: string; point: Point3 }>("target.zone", { id: row.id, zone: zone.id });
+      if (reply?.point) targetsStore.patchPoint(row.id, reply.point);
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      // the server's point shows again, unless a new gesture began meanwhile
+      letGo();
+    }
+  };
   const endPointer = (e: React.PointerEvent): void => {
     if (activePointer.current !== e.pointerId) return;
     activePointer.current = null;
     rectAtDown.current = null;
+    const tapped = e.type === "pointerup" ? tap.current?.zone : undefined;
+    tap.current = null;
     draggingRef.current = false;
     setDragging(false);
-    letGo();
+    if (tapped) void toZone(tapped);
+    else letGo();
   };
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Enter" && !off) {
+      // the keyboard's tap: the target onto the aiming point of the aiming zone it is in
+      const zone = aimZoneAt(point);
+      if (!zone) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void toZone(zone);
+      return;
+    }
     const step = e.shiftKey ? BIG_STEP : STEP;
     const by: Partial<Record<string, Partial<Point3>>> = {
       ArrowLeft: { x: point.x - step },
@@ -261,6 +305,7 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
   const heightText = `${t.targets.z} ${metres(t, point.z)} m`;
   const zoneLabel = LABEL * 0.9;
   const ownHeads = placed.filter((f) => stateOf.has(f.id));
+  const aimZones = zones.filter((z) => z.aim);
   // a forbidden zone's dashed outline, edge by edge: the height is never written across it
   const outlines = zones
     .filter((z) => z.noAim)
@@ -279,7 +324,13 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
       { id: "#point", x: rx, below: ry + ring * 1.7 + LABEL, above: ry - ring * 1.7 - LABEL * 0.3, width: textWidth(heightText, LABEL), avoid: outlines },
       // the other placed fixtures, greyed: a zone's name does not cover their dot
       ...placed.filter((f) => !stateOf.has(f.id)).map((f) => ({ id: `#fixture-${f.id}`, x: sx(f.position!.x), below: sy(f.position!.y) + 0.3 * LABEL, above: sy(f.position!.y) + 0.3 * LABEL, width: 2 * HEAD_PX * unit })),
-      ...zones.map((z) => {
+      // the aiming zones' points (T27): no name over them either
+      ...aimZones.map((z) => {
+        const at = aimSpot(z);
+        return { id: `#aim-${z.id}`, x: sx(at.x), below: sy(at.y) + 0.3 * LABEL, above: sy(at.y) + 0.3 * LABEL, width: 3.6 * AIM_MARK_PX * unit };
+      }),
+      // the aiming zones' names first: they are where a tap goes
+      ...[...aimZones, ...zones.filter((z) => !z.aim)].map((z) => {
         const xs = z.polygon.map((p) => p[0]);
         const ys = z.polygon.map((p) => p[1]);
         const cx = sx((Math.min(...xs) + Math.max(...xs)) / 2);
@@ -320,11 +371,23 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
             activePointer.current = e.pointerId;
             e.currentTarget.setPointerCapture(e.pointerId);
             draggingRef.current = true;
+            const at = fromEvent(e);
+            // in an aiming zone (Alt / Option aside): a tap, unless it turns into a drag (nothing sent until then)
+            const zone = e.altKey ? undefined : aimZoneAt(at);
+            tap.current = zone ? { zone, x: e.clientX, y: e.clientY } : null;
+            if (zone) return;
             setDragging(true);
-            move(fromEvent(e));
+            move(at);
           }}
           onPointerMove={(e) => {
-            if (activePointer.current === e.pointerId && !off) move(fromEvent(e));
+            if (activePointer.current !== e.pointerId || off) return;
+            const pending = tap.current;
+            if (pending) {
+              if (Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < TAP_SLOP_PX) return;
+              tap.current = null;
+              setDragging(true);
+            }
+            move(fromEvent(e));
           }}
           onPointerUp={endPointer}
           onPointerCancel={endPointer}
@@ -332,15 +395,33 @@ export function TargetPad({ target: row, label, stage, onError, disabled = false
         >
           <rect className="tp-ground" x={0} y={0} width={W} height={H} />
           {zones.map((z) => (
-            <polygon key={z.id} className={z.noAim ? "tp-zone no-aim" : "tp-zone"} points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")} />
+            <polygon
+              key={z.id}
+              className={z.noAim ? "tp-zone no-aim" : z.aim ? "tp-zone aim" : "tp-zone"}
+              data-zone={z.id}
+              // an aiming zone in its colour (T27), as on the venue's plan
+              style={z.aim && !z.noAim ? ({ "--zone-color": z.aim.color ?? "var(--aim-color)" } as React.CSSProperties) : undefined}
+              points={z.polygon.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
+            />
           ))}
+          {aimZones.map((z) => {
+            // its aiming point: a small cross in its colour (a tap in the zone puts the target there)
+            const at = aimSpot(z);
+            const r = AIM_MARK_PX * unit;
+            return (
+              <g key={`a-${z.id}`} className="tp-zone-aim" data-aim={z.id} transform={`translate(${sx(at.x)} ${sy(at.y)})`} style={{ "--zone-color": z.aim!.color ?? "var(--aim-color)" } as React.CSSProperties}>
+                <line x1={-r} x2={r} y1={-r} y2={r} />
+                <line x1={-r} x2={r} y1={r} y2={-r} />
+              </g>
+            );
+          })}
           <rect className="tp-bounds" x={sx(bounds.min.x)} y={sy(bounds.max.y)} width={sx(bounds.max.x) - sx(bounds.min.x)} height={sy(bounds.min.y) - sy(bounds.max.y)} />
           {zones.map((z) => {
             const y = labels.get(z.id);
             if (y === undefined) return null;
             const xs = z.polygon.map((p) => p[0]);
             return (
-              <text key={`n-${z.id}`} className="tp-zone-name" x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: zoneLabel }}>
+              <text key={`n-${z.id}`} className={z.aim ? "tp-zone-name aim" : "tp-zone-name"} data-zone-name={z.id} x={sx((Math.min(...xs) + Math.max(...xs)) / 2)} y={y} textAnchor="middle" style={{ fontSize: zoneLabel }}>
                 {z.name}
               </text>
             );
