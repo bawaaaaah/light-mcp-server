@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { aimAt, pointing, type AimSetup } from "../src/plugins/light/venue/aim.js";
 import { projectZone } from "../src/plugins/light/venue/zone-project.js";
-import { fromView, pointingOf, toView, zonesView, zoneUnder } from "../web/src/pad-zones.js";
+import { fromView, pointingOf, toView, zoneStateTexts, zonesView, zoneUnder } from "../web/src/pad-zones.js";
 import { leftOut, reasonText } from "../web/src/leftOut.js";
 import { TEXTS } from "../web/src/i18n.js";
 
@@ -46,6 +46,23 @@ describe("aiming zones on a head's pad (web, T27)", () => {
     expect(zoneUnder(head, [low, high], 0.5, 1)).to.equal(undefined);
   });
 
+  it("finds a zone only on the branch its outline is drawn on, never on the mirror solution where nothing is drawn", () => {
+    const head: AimSetup = { position: { x: 0, y: 0, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
+    const zone = projectZone(head, { id: "z", name: "Z", polygon: [[-1, 3], [1, 3], [1, 5], [-1, 5]], floorHeight: 0, aim: { height: 1.5 } });
+    expect(zone.reach).to.equal("full");
+    const [pan, tilt] = zone.aim!;
+    // a point of the drawn outline's inside (its aiming point): the zone
+    expect(zoneUnder(head, [zone], pan, tilt)?.id).to.equal("z");
+    // the mirror solution: pan + 180°, the tilt on the other side of the axis; the same beam, but nothing drawn there
+    const mirrorPan = pan + 180 / head.panMax;
+    const mirrorTilt = 0.5 - (tilt - 0.5);
+    expect(mirrorPan).to.be.within(0, 1);
+    const [a, b] = [pointingOf(head, pan, tilt), pointingOf(head, mirrorPan, mirrorTilt)];
+    expect(b.x).to.be.closeTo(a.x, 1e-9);
+    expect(b.y).to.be.closeTo(a.y, 1e-9);
+    expect(zoneUnder(head, [zone], mirrorPan, mirrorTilt)).to.equal(undefined);
+  });
+
   it("frames the pad on the zones drawn, square and within the pad, and maps a point both ways", () => {
     const head: AimSetup = { position: { x: 0, y: 1, z: 5 }, hung: true, yaw: 0, panMax: 540, tiltMax: 270, panOffset: 0, tiltOffset: 0 };
     const zone = projectZone(head, { id: "z", name: "Z", polygon: [[-3, 2], [-1, 2], [-1, 4], [-3, 4]], floorHeight: 0, aim: { height: 1.5 } });
@@ -62,6 +79,14 @@ describe("aiming zones on a head's pad (web, T27)", () => {
       expect(back[1]).to.be.closeTo(tilt, 1e-9);
     }
     expect(zonesView([])).to.equal(undefined);
+  });
+
+  it("says « outline out of reach » when nothing is drawn but the aiming point is in reach (the chip works)", () => {
+    const t = TEXTS.fr.zoneAim;
+    expect(zoneStateTexts(t, { reach: "none", aim: [0.5, 0.3] })).to.deep.equal(["contour hors de portée"]);
+    expect(zoneStateTexts(t, { reach: "none" })).to.deep.equal(["hors de portée"]);
+    expect(zoneStateTexts(t, { reach: "partial" })).to.deep.equal(["en partie hors de portée", "point de visée hors butée"]);
+    expect(zoneStateTexts(t, { reach: "full", aim: [0.5, 0.5], axisInside: true })).to.deep.equal(["autour de l'axe de la lyre"]);
   });
 
   it("says what a zone chip left out: one or several frozen, unplaced apart, the reason without nested brackets", () => {

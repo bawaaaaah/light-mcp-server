@@ -31,18 +31,49 @@ export function pointingOf(f: PadHead, pan: number, tilt: number): { x: number; 
 
 /**
  * The zone under a pad point: the beam from the head followed to each zone's aiming plane, the last zone of the list
- * first (drawn on top, as on the plan); undefined when the beam meets none of them.
+ * first (drawn on top, as on the plan); undefined when the beam meets none of them. A zone with an aiming point counts
+ * only on the branch its outline is drawn on (the other solutions, pan ± 180° with the tilt mirrored or pan ± 360°, meet
+ * the same zone where nothing is drawn): within 180° of pan of its aiming point and on the same side of the head's axis,
+ * or, for a zone around the axis (`axisInside`), within 90° of pan of it.
  */
-export function zoneUnder<Z extends Pick<ProjectedZone, "polygon" | "plane">>(head: PadHead, zones: readonly Z[], pan: number, tilt: number): Z | undefined {
+export function zoneUnder<Z extends Pick<ProjectedZone, "polygon" | "plane" | "aim" | "axisInside">>(head: PadHead, zones: readonly Z[], pan: number, tilt: number): Z | undefined {
   const d = pointingOf(head, pan, tilt);
   for (let i = zones.length - 1; i >= 0; i--) {
     const zone = zones[i]!;
+    if (zone.aim && !onBranch(head, zone.aim, zone.axisInside === true, pan, tilt)) continue;
     const k = (zone.plane - head.position.z) / d.z;
     if (!(k > 0) || !Number.isFinite(k)) continue;
     if (pointInPolygon(head.position.x + d.x * k, head.position.y + d.y * k, zone.polygon)) return zone;
   }
   return undefined;
 }
+
+/** Whether a pad point is on the branch of the solution `aim` is on (see zoneUnder). */
+function onBranch(head: PadHead, aim: PadPoint, axisInside: boolean, pan: number, tilt: number): boolean {
+  const panGap = Math.abs(pan - aim[0]) * head.panMax;
+  if (axisInside) return panGap <= 90;
+  const side = (t: number): number => Math.sign((t - 0.5) * head.tiltMax + head.tiltOffset);
+  return panGap < 180 && side(tilt) === side(aim[1]);
+}
+
+/** The legend texts zoneStateTexts needs (the interface's `zoneAim` texts). */
+export interface ZoneStateTexts {
+  projectedOut: string;
+  projectedOutlineOut: string;
+  projectedPartial: string;
+  projectedAimOut: string;
+  projectedAxis: string;
+}
+
+/**
+ * What a projected zone's legend line says besides its name: its reach (nothing drawn while its aiming point is in
+ * reach: only its outline is out of reach, the chip still works), its aiming point beyond the stops, the axis.
+ */
+export const zoneStateTexts = (t: ZoneStateTexts, z: Pick<ProjectedZone, "reach" | "aim" | "axisInside">): string[] => [
+  ...(z.reach === "none" ? [z.aim ? t.projectedOutlineOut : t.projectedOut] : z.reach === "partial" ? [t.projectedPartial] : []),
+  ...(!z.aim && z.reach !== "none" ? [t.projectedAimOut] : []),
+  ...(z.axisInside ? [t.projectedAxis] : []),
+];
 
 /** A part of the pad, logical 0..1: pan from x0 to x1, tilt from y0 to y1. The whole pad: 0..1 both ways. */
 export interface PadView {

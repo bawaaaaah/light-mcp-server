@@ -186,7 +186,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
   reg.register({
     name: "position.aim",
     title: "Viser",
-    description: "Points moving heads at a stage zone (its aiming point: the centre of its surface unless one was placed; at `height` metres above its floor, by default the zone's own aiming height, else 1.5 = a standing person's face) or at a point {x,y,z} in metres. Needs the fixtures' position, mount and orientation (yaw, calibration). Sets a manual position, direct like the XY pad (no glide: the heads go there at once, bounded by the speed rules only); out-of-reach fixtures are reported. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
+    description: "Points moving heads at a stage zone (its aiming point: the centre of its surface unless one was placed; at `height` metres above its floor, by default the zone's own aiming height, else 1.5 = a standing person's face) or at a point {x,y,z} in metres. Needs the fixtures' position, mount and orientation (yaw, calibration). Sets a manual position, direct like the XY pad (no glide: the heads go there at once, bounded by the speed rules only); out-of-reach fixtures are reported (with `unplaced: true` when the fixture has no stage position). Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
     schema: Target.extend({ zone: z.string().optional(), point: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(), height: z.number().optional() }),

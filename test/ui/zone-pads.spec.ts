@@ -419,6 +419,12 @@ test("T27 lot 5: a head's pad shows the aiming zones as it sees them; a tap in o
     await expect(panel.getByTestId("xy-zones-text")).toContainText("en partie hors de portée");
     await expect(legend).toContainText("Pointillés");
     await panel.screenshot({ path: "test-results/t27-projected-partial.png" });
+    // nothing drawn any more (its whole outline beyond the stops): « Zoom sur les zones » no longer reads as pressed
+    await zoom.click();
+    await expect(zoom).toHaveAttribute("aria-pressed", "true");
+    await desk(page, "venue.fixture.put", { fixture: { ...spot, position: { x: 0, y: 1, z: 5 }, mount: "hung", orientation: { limits: { tilt: [-1, 1] } } } });
+    await expect(zoom).toBeDisabled();
+    await expect(zoom).toHaveAttribute("aria-pressed", "false");
     // a head with no stage position: said on the pad
     const { position: _placed, ...unplaced } = spot;
     await desk(page, "venue.fixture.put", { fixture: { ...unplaced, mount: "hung" } });

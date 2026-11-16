@@ -14,7 +14,7 @@ import { arrowStep, logicalToPad, offsetDeg, onPad, padCenter, padToLogical, typ
 import { leftOut } from "../leftOut";
 import { placeLabels, textWidth } from "../plan-tools";
 import { useZoneProjection } from "../hooks/useZoneProjection";
-import { fromView, toView, WHOLE_PAD, zoneUnder, zonesView, type PadView, type ProjectedZone } from "../pad-zones";
+import { fromView, toView, WHOLE_PAD, zoneStateTexts, zoneUnder, zonesView, type PadView, type ProjectedZone } from "../pad-zones";
 import { textOn } from "../color";
 import { showLockToast } from "./MotionLockButton";
 import type { AxisLayer } from "../../../src/plugins/light/engine/motion";
@@ -597,12 +597,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
     send({ ...at, [axis]: moved(axis, at[axis] + delta) });
   };
 
-  /** What a projected zone's legend line says besides its name: its reach, its aiming point beyond the stops, the axis. */
-  const zoneStates = (z: ProjectedZone): string[] => [
-    ...(z.reach === "none" ? [t.zoneAim.projectedOut] : z.reach === "partial" ? [t.zoneAim.projectedPartial] : []),
-    ...(!z.aim && z.reach !== "none" ? [t.zoneAim.projectedAimOut] : []),
-    ...(z.axisInside ? [t.zoneAim.projectedAxis] : []),
-  ];
+  const zoneStates = (z: ProjectedZone): string[] => zoneStateTexts(t.zoneAim, z);
 
   const legend = (
     <ul className="xy-legend" aria-label={t.motionLegend}>
@@ -896,7 +891,7 @@ export function XyPad({ group, fixture, label, onError, disabled: disabledByCall
             <button type="button" className={exact ? "on" : undefined} aria-pressed={exact} title={t.zoneAim.padExactHelp} data-testid="xy-zone-exact" onClick={() => setExact((on) => !on)}>
               {t.zoneAim.exact}
             </button>
-            <button type="button" className={zoomed ? "on" : undefined} aria-pressed={zoomed} title={t.zoneAim.padZoomHelp} disabled={!drawn.length} data-testid="xy-zone-zoom" onClick={() => setZoomed((on) => !on)}>
+            <button type="button" className={zoomed && drawn.length > 0 ? "on" : undefined} aria-pressed={zoomed && drawn.length > 0} title={t.zoneAim.padZoomHelp} disabled={!drawn.length} data-testid="xy-zone-zoom" onClick={() => setZoomed((on) => !on)}>
               {t.zoneAim.padZoom}
             </button>
           </div>
