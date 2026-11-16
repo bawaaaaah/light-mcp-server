@@ -2569,6 +2569,239 @@ table.rules td {
     align-items: center;
   }
 }
+/* ---- Library page (T20b, pages/Library.tsx) ---- */
+.library-page {
+  display: grid;
+  /* a wide table or a long name scrolls inside its section, never widens the page */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.2em;
+}
+.library-page > section {
+  min-width: 0;
+}
+.library-table .model {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .library-page .chip {
+    white-space: normal;
+  }
+}
+.library-page h2 .count {
+  color: var(--muted);
+  font-weight: normal;
+}
+.library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: center;
+}
+.library-filters > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.library-filters .search {
+  flex: 1 1 16em;
+}
+.library-page .notice {
+  color: var(--on);
+}
+/* a wide table scrolls on its own: the page never scrolls sideways */
+.library-scroll {
+  overflow-x: auto;
+}
+.library-table {
+  width: 100%;
+}
+/* a row's model is its header for the screen readers, but reads as a cell, not as a column name */
+.library-table th[scope="row"] {
+  font-weight: normal;
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  border-bottom: 0;
+  padding: 0.3em;
+}
+.library-table .model {
+  font-weight: 600;
+}
+.library-table tr.ignored .model {
+  color: var(--muted);
+}
+.library-table .file {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.library-table tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.library-page .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin-top: 0.2em;
+}
+.library-page .chip {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.library-page .chip.ok {
+  border-color: var(--on);
+  color: var(--on);
+}
+.library-page .chip.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.library-page .chip.accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.library-page .folder-chip {
+  font-size: 0.85rem;
+}
+.library-page .folder-chip.venue {
+  color: var(--accent);
+}
+.library-page .row-actions {
+  min-width: 2.4em;
+  color: var(--text);
+}
+/* the manufacturer under the model: only on a phone, where its column goes */
+.library-table .maker {
+  display: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.library-duplicates {
+  display: grid;
+  gap: 0.6em;
+}
+.dup-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5em 0.9em;
+  background: var(--panel);
+}
+.dup-card h3 {
+  margin: 0.2em 0 0.4em;
+  font-size: 1rem;
+}
+.dup-card ul,
+.library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4em;
+}
+.dup-card li,
+.library-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+}
+.dup-card li .file {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.dup-card li .chip {
+  white-space: normal;
+}
+.library-dialog fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0.4em 0;
+  display: grid;
+  gap: 0.3em;
+}
+.library-dialog .library-names {
+  display: grid;
+  gap: 0.4em;
+}
+.library-dialog .library-names input,
+.library-dialog select,
+.library-dialog .search {
+  width: 100%;
+}
+.library-dialog .mode-table caption {
+  text-align: left;
+  color: var(--muted);
+  padding-bottom: 0.2em;
+}
+.library-dialog .row {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin-top: 0.6em;
+}
+.library-menu > button {
+  text-align: left;
+}
+button.link-like {
+  font-size: 0.85rem;
+  font-weight: normal;
+  margin-left: 0.4em;
+}
+/* fingers: every control of the page at least 44 px high */
+@media (pointer: coarse) {
+  .library-page button,
+  .library-page select,
+  .library-page input[type="search"],
+  .library-page label.inline,
+  .library-dialog button,
+  .library-dialog select,
+  .library-dialog input,
+  .library-dialog label.inline,
+  .library-menu > button,
+  button.link-like {
+    min-height: 44px;
+  }
+  .library-page label.inline,
+  .library-dialog label.inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+  }
+  .library-page .row-actions {
+    min-width: 44px;
+  }
+}
+/* a phone: the filters one under the other, the type and modes columns go, the rest wraps */
+@media (max-width: 600px) {
+  .library-filters {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .library-filters select,
+  .library-filters .search {
+    width: 100%;
+  }
+  .library-table th:nth-child(2),
+  .library-table td:nth-child(2),
+  .library-table th:nth-child(3),
+  .library-table td:nth-child(3),
+  .library-table th:nth-child(4),
+  .library-table td:nth-child(4) {
+    display: none;
+  }
+  .library-table .maker {
+    display: block;
+  }
+}
 /* fixtures sharing channels: a sentence per pair, wrapped (a .badge would keep it on one line) */
 .widget-menu .overlap-alert {
   background: color-mix(in srgb, var(--danger) 18%, transparent);

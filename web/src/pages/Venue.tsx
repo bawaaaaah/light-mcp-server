@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
-import { useT } from "../App";
+import { useNav, useT } from "../App";
 import { useCommandEvents } from "../hooks/useTopic";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { stricter } from "../motionLock";
@@ -74,6 +74,7 @@ interface ShowRow {
 
 export function VenuePage(): ReactElement {
   const t = useT();
+  const nav = useNav();
   const lockView = useMotionLock();
   const [library, setLibrary] = useState<Def[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
@@ -497,7 +498,12 @@ export function VenuePage(): ReactElement {
           </div>
         </section>
         <section>
-          <h2>{t.library} ({library.length})</h2>
+          <h2>
+            {t.library} ({library.length}){" "}
+            <button type="button" className="ghost link-like" onClick={() => nav("library")}>
+              {t.libraryPage.manageLibrary} <span aria-hidden="true">→</span>
+            </button>
+          </h2>
           <input className="search" type="search" aria-label={t.search} placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="editor">
             <select aria-label={t.definition} value={draft.def} onChange={(e) => setDraft({ ...draft, def: e.target.value, mode: "" })}>

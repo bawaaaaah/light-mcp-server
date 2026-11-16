@@ -33,8 +33,17 @@ interface DefinitionResult {
   file: string;
   ok: boolean;
   detail: string;
-  /** A definition refused because another file of that name differs: kept so « Remplacer » can send it again. */
+  /** A definition refused because another file of that name, or of that model, differs: kept so « Remplacer » can send it again. */
   retry?: File;
+  /** The library file « Remplacer » overwrites (the server's detail), and whether it is the venue's own copy. */
+  target?: { file: string; venue: boolean };
+}
+/** What `fixture.definition.add` answers (T40: `unchanged` when the library already had that model the same). */
+interface AddedDefinition {
+  file: string;
+  manufacturer: string;
+  model: string;
+  unchanged?: true;
 }
 /** The result of an import into a new show, kept across the reload that opening it causes. */
 const LAST_IMPORT = "lastImport";
@@ -99,25 +108,30 @@ export function ImportPage(): ReactElement {
     setNewShow((n) => ({ ...n, name: n.name || file.name.replace(/\.qxw$/i, "") }));
     await propose(text);
   };
+  /** What an added definition says: its model, and that nothing was written when the library already had it the same (T40). */
+  const addedDetail = (r: AddedDefinition) => `${r.manufacturer} ${r.model}${r.unchanged ? ` — ${t.libraryPage.alreadyThere.replace("{file}", () => r.file)}` : ""}`;
   const addDefinitions = async (files: FileList | null) => {
     const results: DefinitionResult[] = [];
     for (const f of Array.from(files ?? [])) {
       try {
-        const r = await cmd<{ file: string; manufacturer: string; model: string }>("fixture.definition.add", { name: f.name, xml: await f.text() });
-        results.push({ file: r.file, ok: true, detail: `${r.manufacturer} ${r.model}` });
+        const r = await cmd<AddedDefinition>("fixture.definition.add", { name: f.name, xml: await f.text() });
+        results.push({ file: f.name, ok: true, detail: addedDetail(r) });
       } catch (e) {
-        results.push({ file: f.name, ok: false, detail: (e as Error).message, retry: e instanceof ApiError && e.detail?.exists ? f : undefined });
+        const exists = e instanceof ApiError && e.detail?.exists;
+        // the file the library uses for that model, or the one of that name: the one « Remplacer » overwrites
+        const overwritten = exists && typeof e.detail?.file === "string" ? { file: e.detail.file, venue: e.detail.folder === "venue" } : undefined;
+        results.push({ file: f.name, ok: false, detail: (e as Error).message, ...(exists ? { retry: f, target: overwritten } : {}) });
       }
     }
     setAdded(results);
     loadLibrary();
     if (xml) await propose(xml); // the proposal now sees them
   };
-  const replaceDefinition = async (f: File) => {
-    if (!confirm(`${t.replaceDefinitionAsk} ${f.name}`)) return;
+  const replaceDefinition = async (f: File, overwritten?: { file: string; venue: boolean }) => {
+    if (!confirm(`${t.replaceDefinitionAsk} ${overwritten?.file ?? f.name}${overwritten?.venue ? t.libraryPage.venueOwn : ""}`)) return;
     try {
-      const r = await cmd<{ file: string; manufacturer: string; model: string }>("fixture.definition.add", { name: f.name, xml: await f.text(), replace: true });
-      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: r.file, ok: true, detail: `${r.manufacturer} ${r.model}` } : a)));
+      const r = await cmd<AddedDefinition>("fixture.definition.add", { name: f.name, xml: await f.text(), replace: true });
+      setAdded((rows) => rows.map((a) => (a.retry === f ? { file: f.name, ok: true, detail: `${addedDetail(r)} (${r.file})` } : a)));
       loadLibrary();
       if (xml) await propose(xml);
     } catch (e) {
@@ -166,7 +180,7 @@ export function ImportPage(): ReactElement {
               <li key={a.file} className={a.ok ? "" : "error"}>
                 {a.ok ? "✔" : "✖"} {a.file}{t.colon} {a.detail}
                 {a.retry && (
-                  <button type="button" onClick={() => void replaceDefinition(a.retry!)}>
+                  <button type="button" onClick={() => void replaceDefinition(a.retry!, a.target)}>
                     {t.replaceDefinition}
                   </button>
                 )}

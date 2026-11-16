@@ -254,10 +254,12 @@ test("guided import: a .qxf added from the browser, then a QLC+ workspace into a
   await login(page, "9999");
   await page.locator("nav.pages button", { hasText: "Import" }).click();
   const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
-  await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: fixture("spot.qxf") });
+  // a model the library does not have yet (the server's spot.qxf is « Spot 7 »: the same model would be said already there, T40)
+  const spot = fixture("spot.qxf").toString().replace("<Model>Spot 7</Model>", "<Model>Spot T34</Model>");
+  await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: Buffer.from(spot) });
   await expect(page.locator(".added-definitions")).toContainText("✔ test-spot.qxf");
   // the same file name with another content is refused, and « Remplacer » overwrites it after a confirmation
-  const changed = Buffer.from(fixture("spot.qxf").toString().replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>"));
+  const changed = Buffer.from(spot.replace("</FixtureDefinition>", "<!-- v2 --></FixtureDefinition>"));
   await page.locator('input[type=file][accept=".qxf"]').setInputFiles({ name: "test-spot.qxf", mimeType: "text/xml", buffer: changed });
   await expect(page.locator(".added-definitions")).toContainText("✖ test-spot.qxf");
   page.once("dialog", (d) => void d.accept());

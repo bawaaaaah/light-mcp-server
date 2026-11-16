@@ -14,6 +14,7 @@ const SongsPage = lazy(() => import("./pages/Songs").then((m) => ({ default: m.S
 const ShowPage = lazy(() => import("./pages/Show").then((m) => ({ default: m.ShowPage })));
 const OscPage = lazy(() => import("./pages/Osc").then((m) => ({ default: m.OscPage })));
 const VenuePage = lazy(() => import("./pages/Venue").then((m) => ({ default: m.VenuePage })));
+const LibraryPage = lazy(() => import("./pages/Library").then((m) => ({ default: m.LibraryPage })));
 const NotesPage = lazy(() => import("./pages/Notes").then((m) => ({ default: m.NotesPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const ConnectPage = lazy(() => import("./pages/Connect").then((m) => ({ default: m.ConnectPage })));
@@ -60,11 +61,11 @@ export const useNav = (): ((page: Page) => void) => useContext(Nav);
 export const Me = createContext<Role | null>(null);
 export const useMe = (): Role | null => useContext(Me);
 
-export type Page = "live" | "songs" | "show" | "venue" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
+export type Page = "live" | "songs" | "show" | "venue" | "library" | "console" | "midi" | "osc" | "import" | "notes" | "files" | "connect" | "settings" | "account";
 /** The pages by what one does there; the side bar (or the tab strip on a tablet) shows these groups. */
 const GROUPS: [keyof Texts, Page[]][] = [
   ["navPlay", ["live", "songs"]],
-  ["navDesign", ["show", "venue", "console"]],
+  ["navDesign", ["show", "venue", "library", "console"]],
   ["navConnect", ["midi", "osc", "connect"]],
   ["navData", ["import", "files", "notes"]],
   ["navSystem", ["settings", "account"]],
@@ -79,6 +80,7 @@ const PAGE_RIGHTS: Partial<Record<Page, string>> = {
   songs: "show:write",
   show: "show:write",
   venue: "show:write",
+  library: "show:write",
   console: "commands:dmx",
   midi: "midi:configure",
   osc: "show:write",
@@ -418,6 +420,7 @@ export function App(): ReactElement | null {
         {shown === "songs" && <SongsPage />}
         {shown === "show" && <ShowPage />}
         {shown === "venue" && <VenuePage />}
+        {shown === "library" && <LibraryPage />}
         {shown === "console" && <ConsolePage />}
         {shown === "midi" && <MidiPage />}
         {shown === "osc" && <OscPage />}
