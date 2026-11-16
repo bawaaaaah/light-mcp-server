@@ -19,7 +19,7 @@ import { channelModes, valueOf } from "../venue/channel-modes.js";
 import { headsOf } from "../venue/heads.js";
 import { freeAddress, planReferences, remapByName, type Carried, type ModeLayout } from "../venue/mode-change.js";
 import { beyondMessage, overlapMessage, patchBeyondUniverse, patchOverlaps } from "../venue/patch-check.js";
-import { findMode, type FixtureDefinition, type FixtureMode } from "../venue/qxf-import.js";
+import { findMode, sameName as sameModelName, type FixtureDefinition, type FixtureMode } from "../venue/qxf-import.js";
 import type { Canvas } from "../venue/venue.js";
 import { CommandError, type CommandContext, type CommandRegistry } from "./registry.js";
 import type { ProposalHooks, ShowCommandsApi } from "./show-commands.js";
@@ -94,7 +94,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
     name: "venue.fixture.mode",
     title: "Changer le mode DMX",
     description:
-      "Changes a patched fixture's DMX mode (one of its definition's modes, venue.library), carrying over by channel name what names its channels: the raw channels of looks, the channels of channel faders, the heads canvases target (a head is known by its channels' names). A channel whose name is not in the new mode, or is repeated in either mode, is lost: taken out of the look or the fader (a fader left with none is deleted: emptied names what used it), a lost canvas target taken out of the canvas (cellsWithoutRender says which cells it leaves dark). dryRun: the plan only, nothing written (show it first). Written as one proposal, fixture first then canvases, faders, looks, all or nothing: show.revert with the returned proposal id takes it all back (not redone by show.apply: run it again). Refused unless force when something is lost, when another show's looks or faders cannot be read (unreadable), or when the new footprint shares channels with another fixture (freeAddress: the first place where it fits). A venue shared with other shows is refused unless `shared` says what to do: « copy » gives this show its own copy of the venue (show.venue.detach, made once every check passed; the show is reopened on it, its playing looks stop — `detach.stopped` — and an undo does not bring it back to the shared venue), « all » changes it for every show and carries over their looks and faders too. Looks playing whose channels move are restarted (relaunched). info: overrides of the model that no longer apply in the new mode (a wheel, a halo).",
+      "Changes a patched fixture's DMX mode (one of its definition's modes, venue.library), carrying over by channel name what names its channels: the raw channels of looks, the channels of channel faders, the heads canvases target (a head is known by its channels' names). A channel whose name is not in the new mode, or is repeated in either mode, is lost: taken out of the look or the fader (a fader left with none is deleted: emptied names what used it), a lost canvas target taken out of the canvas (cellsWithoutRender says which cells it leaves dark). dryRun: the plan only, nothing written (show it first). Written as one proposal, fixture first then canvases, faders, looks, all or nothing: show.revert with the returned proposal id takes it all back (not redone by show.apply: run it again). Refused unless force when something is lost, when another show's looks or faders cannot be read (unreadable), or when the new footprint shares channels with another fixture (freeAddress: the first place where it fits). A venue shared with other shows is refused unless `shared` says what to do: « copy » gives this show its own copy of the venue (show.venue.detach, made once every check passed; the show is reopened on it, its playing looks stop — `detach.stopped` — and an undo does not bring it back to the shared venue), « all » changes it for every show and carries over their looks and faders too. Looks playing whose channels move are restarted (relaunched). info: overrides of the model that no longer apply in the new mode (a wheel, a halo). A fixture patched under a model that is an alias of another (library.merge) is rewritten onto the target's manufacturer and model, its mode one of the target's (renamed says so); the alias stays for the others.",
     right: "show:write",
     profiles: ["setup"],
     dry: (a) => a.dryRun,
@@ -127,8 +127,13 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
       const target = def.modes.find((m) => m.name === mode) ?? findMode(def, mode);
       const known = def.modes.map((m) => `${m.name} (${m.channels.length})`).join(", ");
       if (!target) throw new CommandError("invalid", say(`mode inconnu pour ${def.model} : ${mode}. Modes : ${known}`, `unknown mode for ${def.model}: ${mode}. Modes: ${known}`), { modes: def.modes.map((m) => ({ name: m.name, channels: m.channels.length })) });
-      const current = findMode(def, f.mode);
-      if (f.mode === target.name) return { fixture: id, from: f.mode, to: target.name, unchanged: true };
+      // the mode it plays in now: through the venue's aliases (T20b), the alias' table naming it in the target's words
+      const resolved = venue.resolve(id);
+      const current = "error" in resolved ? findMode(def, f.mode) : resolved.mode;
+      // patched under a name that is an alias (decision L3 of T20b): the change rewrites it onto the target's names
+      const aliased = !sameModelName(f.manufacturer, def.manufacturer) || !sameModelName(f.model, def.model);
+      const renamed = aliased ? { from: { manufacturer: f.manufacturer, model: f.model }, to: { manufacturer: def.manufacturer, model: def.model } } : undefined;
+      if (!aliased && f.mode === target.name) return { fixture: id, from: f.mode, to: target.name, unchanged: true };
 
       // the other shows on the venue: their looks would keep the old offsets, so the user chooses
       let others: string[] = [];
@@ -207,6 +212,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
         name: f.name,
         from: f.mode,
         to: target.name,
+        ...(renamed ? { renamed } : {}),
         channels: { before: current?.channels.length ?? null, after: count },
         address: { universe: f.universe, from: f.address, to: f.address + count - 1 },
         moved: moved.map((c) => ({ ...c, message: sentence(c) })),
@@ -247,7 +253,7 @@ export function registerFixtureModeCommands(reg: CommandRegistry, engine: DmxEng
 
       // one proposal: the fixture first (looks and faders are checked against its mode), then canvases, faders, looks
       const changes = [
-        { command: "venue.fixture.put", args: { fixture: { ...fixture, mode: target.name } } },
+        { command: "venue.fixture.put", args: { fixture: { ...fixture, ...(renamed ? renamed.to : {}), mode: target.name } } },
         // the same cells drive the same lamps, renumbered: no look shifts, and the other shows were dealt with above
         ...here.canvases.map((c) => ({ command: "venue.canvas.put", args: { canvas: c, force: true, shared: true } })),
         ...here.faders.map((x) => ({ command: "fader.put", args: { fader: x } })),

@@ -46,6 +46,7 @@ import { zoneOf } from "../venue/stage.js";
 import { groupingMessage } from "../venue/grouping.js";
 import { holdAtRest, isBuiltinRule, powerOnResets, unprotectable } from "../rules/reset-protection.js";
 import { crossManufacturer, duplicatesUsedBy, sameNameMessage, sameSignatureMessage } from "../venue/definition-duplicates.js";
+import { aliasTarget } from "../venue/aliases.js";
 import { canvasIssues } from "../venue/canvas-edit.js";
 import { rawMotionAxes } from "../venue/tracks.js";
 import { positionStale } from "../show/position-presets.js";
@@ -768,7 +769,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         );
       // duplicate definitions: only those of a model the venue patches, and only when they change what it gets
       // (identical copies are harmless; an unused duplicate in the library is not this show's business)
-      const dups = duplicatesUsedBy(runtime.venue.duplicateDefinitions(), runtime.venue.fixtures.list());
+      const dups = duplicatesUsedBy(runtime.venue.duplicateDefinitions(), runtime.venue.fixtures.list().map((f) => aliasTarget(runtime.venue.aliases, f)));
       for (const g of dups.sameName.filter((x) => x.others.some((o) => !o.identical))) warn(say(`définition ${g.manufacturer} ${g.model}`, `definition ${g.manufacturer} ${g.model}`), sameNameMessage(g));
       for (const g of dups.sameSignature.filter(crossManufacturer)) warn(say("définitions", "definitions"), sameSignatureMessage(g));
       sameName("look", runtime.looks.list());

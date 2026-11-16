@@ -15,7 +15,7 @@ import { projectZone } from "../venue/zone-project.js";
 import { adaptLook, applyOps, CanvasOpSchema, canvasProblems, fits, impactMessage, impactOf, paintedRows, putMoves, rowsOfTechnique, withRows, type AffectedLook, type CanvasOp, type EditContext, type Impact, type LookRows } from "../venue/canvas-edit.js";
 import { accentProblems, headsOf } from "../venue/heads.js";
 import { TravelOverridesSchema, WheelOverridesSchema, type HeadOverrides } from "../venue/overrides.js";
-import { GENERIC_DIMMER } from "../venue/qxf-import.js";
+import { GENERIC_DIMMER, sameName } from "../venue/qxf-import.js";
 import { trackNamesProblem } from "../venue/tracks.js";
 import { finerModes, modesKeepingTravel, stepDeg, travelOf } from "../venue/travel.js";
 import { stopsOutsideTravel } from "../venue/stops-check.js";
@@ -205,7 +205,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "venue.fixture.list",
     title: "Patch",
-    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only; channels its DMX footprint, the channel count of its mode, missing when its definition or mode is not found).",
+    description: "Patched fixtures of the venue (address, mode, role, position, orientation; facing names the orientation when it is one of venue.fixture.orient's; movable says the fixture carries pan or tilt channels: the invert switches live on these only; resolvesAs the manufacturer, model and mode it really plays when its model is an alias of another (library.merge); channels its DMX footprint, the channel count of its mode, missing when its definition or mode is not found).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "design"],
@@ -215,7 +215,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
         const r = venue.resolve(f.id);
         const facing = facingOf(f.orientation);
         const base = venue.absent.has(f.id) ? { ...f, absent: true } : f;
-        return { ...base, ...("error" in r ? {} : { channels: r.mode.channels.length, ...(r.pan || r.tilt ? { movable: true } : {}) }), ...(facing ? { facing } : {}) };
+        // patched under a model that is an alias (T20b): the definition and mode it really plays
+        const aliased = !("error" in r) && (!sameName(r.def.manufacturer, f.manufacturer) || !sameName(r.def.model, f.model));
+        return { ...base, ...("error" in r ? {} : { channels: r.mode.channels.length, ...(r.pan || r.tilt ? { movable: true } : {}) }), ...(aliased ? { resolvesAs: { manufacturer: r.def.manufacturer, model: r.def.model, mode: r.mode.name } } : {}), ...(facing ? { facing } : {}) };
       }),
   });
   reg.register({

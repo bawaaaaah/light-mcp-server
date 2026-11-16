@@ -103,8 +103,10 @@ export interface Clamp {
 
 export function ruleApplies(rule: Rule, fx: ResolvedFixture, ch: FixtureChannel, zoneOfFixture?: (id: string) => string | undefined): boolean {
   if (rule.scope.zone && fx.patch.target !== rule.scope.zone && zoneOfFixture?.(fx.patch.id) !== rule.scope.zone) return false;
+  // the definition's name, or the one the fixture is patched under (an alias, T20b): a rule naming either applies
   const model = `${fx.def.manufacturer} ${fx.def.model}`.toLowerCase();
-  if (rule.scope.model && !model.includes(rule.scope.model.toLowerCase())) return false;
+  const patched = `${fx.patch.manufacturer} ${fx.patch.model}`.toLowerCase();
+  if (rule.scope.model && !model.includes(rule.scope.model.toLowerCase()) && !patched.includes(rule.scope.model.toLowerCase())) return false;
   if (rule.scope.fixture && rule.scope.fixture !== fx.patch.id) return false;
   const t = rule.target;
   if (t.channel && t.channel.toLowerCase() !== ch.name.toLowerCase()) return false;

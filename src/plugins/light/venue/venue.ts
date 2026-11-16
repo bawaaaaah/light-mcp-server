@@ -762,7 +762,9 @@ export class Venue {
       const to = aliasTarget(this.aliases, patch);
       const def = findDefinition(this.definitions, to.manufacturer, to.model);
       const mode = def ? findMode(def, to.mode ?? patch.mode) : undefined;
-      if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})`); } };
+      // an alias whose target has no definition (deleted since) says where it points
+      const via = to.alias && !def ? say(` (alias vers ${to.manufacturer} ${to.model} introuvable)`, ` (alias to ${to.manufacturer} ${to.model} not found)`) : "";
+      if (!def || !mode) result = { get error() { return say(`définition manquante : ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`, `missing definition: ${patch.manufacturer} ${patch.model} (${patch.mode})${via}`); } };
       else {
         const dimmers: number[] = [];
         const strobes: number[] = [];

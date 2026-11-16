@@ -365,7 +365,7 @@ export class LightPlugin implements McpPlugin {
       otherShows: (id) => machineColourUsers(dataRoot, id, this.config.show),
     };
     registerColourPresetCommands(this.commands, this.runtime, this.colours);
-    registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures") });
+    registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures"), ...(opts.now ? { now: opts.now } : {}) });
     // the fixture library (T20b): list, duplicates, duplicate, delete to a trash, merge (pick or alias)
     registerLibraryCommands(this.commands, { runtime: this.runtime, dataRoot, venue: () => this.config.venue, ...(opts.now ? { now: opts.now } : {}) });
     this.files = {
