@@ -790,7 +790,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         return <PositionButton id={w.target || undefined} label={w.label} disabled={!may("commands:position")} inert={edit} />;
       case "colours":
         // the show's favourite colours (T41): one button each, applied by hand to the widget's group (none: every fixture)
-        return <ColoursWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} disabled={!may("commands:level")} inert={edit} />;
+        return <ColoursWidget group={w.target || undefined} label={w.label ?? groupById.get(w.target ?? "")?.name} disabled={!may("commands:trigger")} inert={edit} />;
       case "channel-fader": {
         const f = faders.find((x) => x.id === w.target);
         if (!f) return <div className="fill missing">{w.target}</div>;
@@ -894,7 +894,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
                 F
               </button>
               {/* a saved colour on the group's fixtures (T41) */}
-              {!edit && may("commands:level") && (
+              {!edit && may("commands:trigger") && (
                 <ColourPresetPicker title={t.colours.groupButton.replace("{name}", () => w.label ?? g.name)} className="colour-group" onPick={(p) => void applyColour(t, p, { group: g.id })}>
                   <span aria-hidden="true">●</span>
                 </ColourPresetPicker>

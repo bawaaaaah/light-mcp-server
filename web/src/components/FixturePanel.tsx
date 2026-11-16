@@ -339,7 +339,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
             </section>
           )}
           {/* a saved colour applied by hand (T41): the favourites, every saved colour, and the colour given back */}
-          {may("commands:level") && channels.some((c) => ["red", "green", "blue"].includes(c.color ?? "")) && (
+          {may("commands:trigger") && channels.some((c) => ["red", "green", "blue"].includes(c.color ?? "") || c.attribute === "colorWheel") && (
             <section className="panel-colours">
               <h4>{t.colours.panelTitle}</h4>
               <ColourFavoriteButtons label={(p) => t.colours.apply.replace("{name}", () => p.name)} onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })} />

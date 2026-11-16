@@ -12,7 +12,7 @@ export interface ColourPresetRow {
   origin: "show" | "personal";
   /** A show preset of the id of a personal one: that one is hidden while it is there. */
   over?: "personal";
-  /** Its rank in the show's favourites; absent: not one. */
+  /** Its rank among the favourites, carried by the preset (a personal one is a favourite in every show); absent: not one. */
   favorite?: number;
   /** MIDI mappings and song cues naming it. */
   usedBy: string[];
@@ -20,7 +20,7 @@ export interface ColourPresetRow {
 
 export interface ColourPresets {
   presets: ColourPresetRow[];
-  /** The show's favourites, in their order (only the ones this machine has). */
+  /** The favourites the open show sees, in their order (by rank, then name). */
   favorites: ColourPresetRow[];
   loaded: boolean;
 }

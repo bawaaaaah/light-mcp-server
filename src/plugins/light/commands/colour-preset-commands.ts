@@ -1,31 +1,31 @@
 /**
  * Colour presets (T41; docs/specs/presets-songs-notes.md, « Presets de couleur »): list, create or change, delete,
- * favourites and their order, and the colour applied by hand to fixtures or a group. The presets live in the show or
- * in the personal library (show/colour-presets.ts); MCP, HTTP, OSC and the CLI are generated from these commands.
+ * favourites and their order, and the colour applied by hand to fixtures or a group (the manual colour layer of the
+ * runtime, show/manual-colour.ts). The presets live in the show or in the personal library (show/colour-presets.ts);
+ * MCP, HTTP, OSC and the CLI are generated from these commands.
  */
 import { z } from "zod";
 import { CommandError, type CommandRegistry } from "./registry.js";
 import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection } from "../data/store.js";
-import { channelFaderId, ownChannelFader } from "../show/channel-faders.js";
 import { inUseMessage } from "../show/references.js";
 import {
-  cleanFavorites,
   ColourPresetSchema,
   colourUses,
+  favoritesInOrder,
   HexColourSchema,
   MAX_COLOUR_NAME,
   MAX_COLOUR_NOTES,
   MAX_FAVORITES,
   newColourId,
   reorderFavorites,
-  rgbOf,
   stackColours,
   withFavorite,
   type ColourCiting,
   type ColourEntry,
   type ColourPreset,
 } from "../show/colour-presets.js";
+import { MANUAL_COLOUR_FADE_MS } from "../show/manual-colour.js";
 import { say } from "../../../core/lang.js";
 
 /** Where the presets live, and what names them in the open show. */
@@ -39,15 +39,48 @@ export interface ColourStores {
 }
 
 const Scope = z.enum(["show", "personal"]);
-/** The colour components a preset sets on a fixture's channel faders (the other colour channels are left as they are). */
-const RGB = ["red", "green", "blue"] as const;
+
+/** The store an entry lives in. */
+const storeOf = (stores: ColourStores, e: Pick<ColourEntry, "origin">) => (e.origin === "personal" ? stores.personal : stores.show);
+
+/**
+ * Writes the favourites as ranks on the presets themselves (decision of 2026-11-16): 1, 2, 3… in the order given,
+ * and no rank on the visible presets left out. Only the presets whose rank changes are written (each in its store).
+ */
+function writeRanks(stores: ColourStores, order: readonly string[]): void {
+  const stack = stackColours(stores.personal.list(), stores.show.list());
+  for (const e of stack.values()) {
+    const at = order.indexOf(e.id);
+    const rank = at >= 0 ? at + 1 : undefined;
+    if (e.favorite === rank) continue;
+    const store = storeOf(stores, e);
+    const { favorite: _old, ...rest } = store.get(e.id)!;
+    store.put(rank === undefined ? rest : { ...rest, favorite: rank });
+  }
+}
+
+/**
+ * The favourites of a show written before T41's decision 3 (an ordered `colourFavorites` in show.json) become ranks on
+ * the presets, in that order after the favourites they already carry; the list is then dropped from show.json.
+ */
+export function migrateColourFavorites(show: ShowRuntime, stores: ColourStores): void {
+  const legacy = show.settings.colourFavorites;
+  if (!legacy?.length) return;
+  const stack = stackColours(stores.personal.list(), stores.show.list());
+  const now = favoritesInOrder(stack.values()).map((e) => e.id);
+  writeRanks(stores, [...now, ...legacy.filter((id) => stack.has(id) && !now.includes(id))].slice(0, MAX_FAVORITES));
+  show.saveSettings({ colourFavorites: undefined });
+}
 
 export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRuntime, stores: ColourStores): void {
-  const stack = () => stackColours(stores.personal.list(), stores.show.list());
-  const favorites = () => cleanFavorites(show.settings.colourFavorites);
+  const stack = () => {
+    migrateColourFavorites(show, stores);
+    return stackColours(stores.personal.list(), stores.show.list());
+  };
+  const favorites = () => favoritesInOrder(stack().values()).map((e) => e.id);
   const saveFavorites = (list: string[]) => {
     if (list.length > MAX_FAVORITES) throw new CommandError("invalid", say(`${MAX_FAVORITES} favoris au plus`, `${MAX_FAVORITES} favourites at most`));
-    show.saveSettings({ colourFavorites: list });
+    writeRanks(stores, list);
     return list;
   };
   const get = (id: string): ColourEntry => {
@@ -62,31 +95,27 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     }
     throw new CommandError("failed", say("pas d'id libre pour un nouveau preset de couleur", "no free id for a new colour preset"));
   };
-  const describe = (e: ColourEntry, favs: string[]) => {
-    const at = favs.indexOf(e.id);
-    return { ...e, ...(at >= 0 ? { favorite: at } : {}), usedBy: colourUses(e.id, stores.citing()) };
-  };
+  const describe = (e: ColourEntry) => ({ ...e, usedBy: colourUses(e.id, stores.citing()) });
 
   reg.register({
     name: "colour.preset.list",
     title: "Presets de couleur",
     description:
-      "Colour presets the open show sees: one named colour each (#rrggbb), apart from the palettes. origin: show (stored in the open show, travels with it) or personal (the personal library of this machine, every show sees it); a show preset of the id of a personal one hides it (over: personal). favorite: its rank in the show's favourites (absent: not one). usedBy: MIDI mappings and song cues naming it. favorites: the show's favourite ids in their order (missing: favourites this machine does not have, a personal one of another machine).",
+      "Colour presets the open show sees: one named colour each (#rrggbb), apart from the palettes. origin: show (stored in the open show, travels with it) or personal (the personal library of this machine, every show sees it); a show preset of the id of a personal one hides it (over: personal). favorite: its rank among the favourites (absent: not one), carried by the preset itself: a favourite of the personal library is one in every show, one of the show in this show. usedBy: MIDI mappings and song cues naming it. favorites: the favourite ids the open show sees, in their order (by rank, then name: the library's and the show's interleaved by their ranks).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["design", "live"],
     schema: z.object({}),
     run: () => {
-      const all = stack();
-      const favs = favorites();
-      return { presets: [...all.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).map((e) => describe(e, favs)), favorites: favs.filter((id) => all.has(id)), missing: favs.filter((id) => !all.has(id)) };
+      const all = [...stack().values()];
+      return { presets: all.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).map(describe), favorites: favoritesInOrder(all).map((e) => e.id) };
     },
   });
 
   reg.register({
     name: "colour.preset.put",
     title: "Preset de couleur",
-    description: `Creates or changes a colour preset: name (${MAX_COLOUR_NAME} characters at most), color (#rrggbb), notes. scope "show" (default) stores it in the open show; "personal" in the personal library of this machine (every show sees it, and a show's .lightshow archive carries a copy of the ones it cites: favourites, MIDI mappings, song cues). Without id: a creation, with a generated id (c-…, returned). With an id: that preset is written in that scope (an edit; or a copy of a personal one into the show, which then wins over it, or of a show one into the library). favorite: true adds it to the show's favourites (at the end), false removes it. Versions of the show's presets are kept (history.list colours).`,
+    description: `Creates or changes a colour preset: name (${MAX_COLOUR_NAME} characters at most), color (#rrggbb), notes. scope "show" (default) stores it in the open show; "personal" in the personal library of this machine (every show sees it, and a show's .lightshow archive carries a copy of the ones it cites: favourites, MIDI mappings, song cues). Without id: a creation, with a generated id (c-…, returned). With an id: that preset is written in that scope (an edit; or a copy of a personal one into the show, which then wins over it, or of a show one into the library). favorite: true makes it a favourite (last), false takes it out; absent: it stays as it was (a copy keeps the rank of what it copies). Versions of the show's presets are kept (history.list colours).`,
     right: "show:write",
     profiles: ["design"],
     schema: z.object({
@@ -98,15 +127,17 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       const target = scope === "personal" ? stores.personal : stores.show;
       if (preset.id !== undefined && !/^[a-z0-9][a-z0-9_-]*$/.test(preset.id)) throw new CommandError("invalid", say(`id invalide : « ${preset.id} » (lettres minuscules, chiffres, - et _)`, `invalid id: “${preset.id}” (lower-case letters, digits, - and _)`));
       const id = preset.id ?? freshId();
+      // its favourite rank is kept by an edit and by a copy into the other place (decision 3: the preset carries it)
+      const rank = target.get(id)?.favorite ?? stack().get(id)?.favorite;
       try {
-        target.put(ColourPresetSchema.parse({ ...preset, id }));
+        target.put(ColourPresetSchema.parse({ ...preset, id, ...(rank === undefined ? {} : { favorite: rank }) }));
       } catch (err) {
         if (err instanceof z.ZodError) throw new CommandError("invalid", err.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; "));
         throw err;
       }
       if (favorite !== undefined) saveFavorites(withFavorite(favorites(), id, favorite));
       const entry = stack().get(id)!;
-      return { preset: describe(entry, favorites()), scope, ...(scope === "personal" && entry.origin === "show" ? { shadowedBy: "show" } : {}) };
+      return { preset: describe(entry), scope, ...(scope === "personal" && entry.origin === "show" ? { shadowedBy: "show" } : {}) };
     },
   });
 
@@ -114,7 +145,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     name: "colour.preset.delete",
     title: "Supprimer un preset de couleur",
     description:
-      "Deletes a colour preset by id. scope: \"show\" the show's own only, \"personal\" the personal library's (for every show of this machine), none: the one the open show sees. Refused while MIDI mappings or song cues of the open show name it and it would become unknown, unless force (the error names them, detail.uses). A show preset covering a personal one of its id gives that one back (reverted). When nothing of that id is left, it leaves the show's favourites.",
+      "Deletes a colour preset by id. scope: \"show\" the show's own only, \"personal\" the personal library's (for every show of this machine), none: the one the open show sees. Refused while MIDI mappings or song cues of the open show name it and it would become unknown, unless force (the error names them, detail.uses). A show preset covering a personal one of its id gives that one back (reverted), favourite or not as that one is.",
     right: "show:write",
     profiles: ["design"],
     schema: z.object({ id: z.string(), scope: Scope.optional(), force: z.boolean().default(false) }),
@@ -129,7 +160,6 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
       const uses = left ? [] : colourUses(id, stores.citing());
       if (uses.length && !force) throw new CommandError("invalid", inUseMessage(own.name, uses), { uses });
       from.delete(id);
-      if (!left && favorites().includes(id)) saveFavorites(withFavorite(favorites(), id, false));
       return { id, action: left && origin === "show" ? ("reverted" as const) : ("deleted" as const), scope: origin, usedBy: uses };
     },
   });
@@ -137,7 +167,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.favorite",
     title: "Favori de couleur",
-    description: `Adds a colour preset to the show's favourites (favorite: true; index places it, absent: at the end, or where it already is), moves it (with index) or removes it (favorite: false). ${MAX_FAVORITES} favourites at most. Returns the favourites in their order.`,
+    description: `Makes a colour preset a favourite (favorite: true; index places it among the favourites the open show sees, absent: last, or where it already is), moves it (with index) or takes it out (favorite: false). The rank is carried by the preset: a personal one is a favourite in every show of this machine, a show one in this show. The favourites seen are numbered again 1, 2, 3… (the presets whose rank changes are written). ${MAX_FAVORITES} favourites at most. Returns the favourites in their order.`,
     right: "show:write",
     profiles: ["design", "live"],
     schema: z.object({ id: z.string(), favorite: z.boolean().default(true), index: z.number().int().min(0).optional() }),
@@ -150,7 +180,7 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.preset.order",
     title: "Ordre des favoris de couleur",
-    description: "Puts the show's favourite colour presets in this order: the ids given first, in their order, then the favourites not given, as they were (refused when an id given is not a favourite). Returns the favourites in their order.",
+    description: "Puts the favourite colour presets the open show sees in this order: the ids given first, in their order, then the favourites not given, as they were (refused when an id given is not a favourite); their ranks are written on the presets (a personal one keeps its rank in the other shows). Returns the favourites in their order.",
     right: "show:write",
     profiles: ["design", "live"],
     schema: z.object({ ids: z.array(z.string()).max(MAX_FAVORITES) }),
@@ -173,85 +203,64 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
     if (!ids.length) throw new CommandError("invalid", say("aucun appareil dans cette sélection", "no fixture in this selection"));
     return ids;
   };
-  /** The red, green and blue channels of a fixture's full heads (an accent head, a halo, is left out), with their names. */
-  const rgbChannels = (fixture: string): { offset: number; comp: (typeof RGB)[number]; name: string }[] | { error: string } => {
-    const r = show.venue.resolve(fixture);
-    if ("error" in r) return { error: r.error };
-    const out: { offset: number; comp: (typeof RGB)[number]; name: string }[] = [];
-    for (const [head, comps] of r.heads) {
-      if (r.accent.has(head)) continue;
-      for (const comp of RGB) {
-        const offset = comps[comp];
-        if (offset !== undefined) out.push({ offset, comp, name: r.mode.channels[offset] ?? String(offset + 1) });
-      }
-    }
-    return out.length ? out : { error: say("pas de canaux rouge, vert et bleu (roue de couleurs ou lampe : pas encore pris en charge)", "no red, green and blue channels (a colour wheel or a lamp: not handled yet)") };
-  };
-  /** Sets the channel faders of these channels (created at the first use, as the fixture panel does) at their levels. */
-  const setFaders = (fixture: string, rows: { offset: number; name: string; level: number }[], create: boolean) => {
-    const patchName = show.venue.fixtures.get(fixture)?.name ?? fixture;
-    let n = 0;
-    for (const row of rows) {
-      const own = ownChannelFader(show.faders.list(), fixture, row.offset);
-      if (own) {
-        show.faders.putLive({ ...own, level: row.level });
-        n++;
-      } else if (create) {
-        show.faders.put({ id: channelFaderId(show.faders.list(), fixture, row.offset), name: `${patchName} · ${row.name}`, channels: [{ fixture, offset: row.offset }], level: row.level });
-        n++;
-      }
-    }
-    return n;
+  /** Whether a colour can show on a fixture: it mixes colours, or its colour wheel answers them. */
+  const colourable = (f: string): string | undefined => {
+    const r = show.venue.resolve(f);
+    if ("error" in r) return r.error;
+    if (!r.lampOnly || show.venue.hasWheel(f)) return undefined;
+    return say("ni mélange de couleurs ni roue de couleurs", "neither colour mixing nor a colour wheel");
   };
   const Selection = { fixtures: z.array(z.string()).optional(), group: z.string().optional() };
+  const Fade = z.number().min(0).max(30).optional().describe(`fade in seconds (default ${MANUAL_COLOUR_FADE_MS / 1000}; 0 = cut)`);
 
   reg.register({
     name: "colour.apply",
     title: "Appliquer une couleur",
-    description:
-      "Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). Provisional (T41, to be confirmed by the user): it sets the channel faders of the red, green and blue channels of each fixture's full heads, as the fixture panel's faders do (created at the first use, id panel-<fixture>-<offset>): the highest value wins over the looks channel by channel (HTP), dosed by the DCAs, until colour.release or the faders are moved. Other colour channels (white, amber, UV), the dimmer and a colour wheel are left as they are; fixtures without red, green and blue channels are returned in skipped.",
-    right: "commands:level",
+    description: `Applies a colour by hand to fixtures, a group (its members) or, given neither, every patched fixture: a colour preset (id) or a colour (#rrggbb). The manual colour layer (decision of 2026-11-16): above the looks, it REPLACES the colour they paint on those fixtures, at the brightness they paint it (the looks, the faders and the DCAs keep the light: a head no look lights stays dark), rendered as a look's colour is (red, green and blue; white, amber and UV at 0; a colour wheel takes its slot nearest to it, with the venue's corrected slot colours). It fades in from what showed (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}) and holds until colour.release, the Panic, or a new look started on those fixtures. Fixtures without colour mixing nor a colour wheel, or absent from the show, are returned in skipped.`,
+    // a play action, like launching a look: the volunteer who may launch looks may colour them
+    right: "commands:trigger",
     profiles: ["live", "design"],
-    schema: z.object({ id: z.string().optional().describe("a colour preset"), color: HexColourSchema.optional().describe("or a colour"), ...Selection }),
-    run: ({ id, color, fixtures, group }) => {
+    schema: z.object({ id: z.string().optional().describe("a colour preset"), color: HexColourSchema.optional().describe("or a colour"), fade: Fade, ...Selection }),
+    run: ({ id, color, fade, fixtures, group }) => {
       if ((id === undefined) === (color === undefined)) throw new CommandError("invalid", say("donner un preset (id) ou une couleur (color), l'un des deux", "give a preset (id) or a colour (color), one of the two"));
       const hex = color ?? get(id!).color;
-      const rgb = rgbOf(hex);
-      const applied: string[] = [];
+      const ok: string[] = [];
       const skipped: { fixture: string; error: string }[] = [];
       for (const f of fixturesOf(fixtures, group)) {
-        if (show.venue.absent.has(f)) {
-          skipped.push({ fixture: f, error: say("absent de ce show", "absent from this show") });
-          continue;
-        }
-        const ch = rgbChannels(f);
-        if ("error" in ch) {
-          skipped.push({ fixture: f, error: ch.error });
-          continue;
-        }
-        setFaders(f, ch.map((c) => ({ offset: c.offset, name: c.name, level: rgb[c.comp] })), true);
-        applied.push(f);
+        const why = show.venue.absent.has(f) ? say("absent de ce show", "absent from this show") : colourable(f);
+        if (why) skipped.push({ fixture: f, error: why });
+        else ok.push(f);
       }
-      if (!applied.length && skipped.length) throw new CommandError("failed", say(`couleur appliquée à aucun appareil : ${skipped.map((s) => `${s.fixture} (${s.error})`).join(" ; ")}`, `colour applied to no fixture: ${skipped.map((s) => `${s.fixture} (${s.error})`).join("; ")}`), { skipped });
+      if (!ok.length && skipped.length) throw new CommandError("failed", say(`couleur appliquée à aucun appareil : ${skipped.map((x) => `${x.fixture} (${x.error})`).join(" ; ")}`, `colour applied to no fixture: ${skipped.map((x) => `${x.fixture} (${x.error})`).join("; ")}`), { skipped });
+      const applied = show.setColour(ok, hex, (fade ?? MANUAL_COLOUR_FADE_MS / 1000) * 1000);
       return { color: hex, ...(id ? { id } : {}), applied, skipped };
     },
   });
 
   reg.register({
+    name: "colour.applied",
+    title: "Couleurs appliquées",
+    description: "The colours applied by hand now (colour.apply), by fixture id: #rrggbb. A fixture whose colour is fading back to the looks is not listed.",
+    right: "dashboards:view",
+    readOnly: true,
+    profiles: ["live", "design"],
+    schema: z.object({}),
+    run: () => Object.fromEntries(show.venue.fixtures.list().flatMap((f) => {
+      const hex = show.manualColour(f.id);
+      return hex ? [[f.id, hex] as const] : [];
+    })),
+  });
+
+  reg.register({
     name: "colour.release",
     title: "Rendre la couleur",
-    description: "Takes back a colour applied by hand (colour.apply) on fixtures, a group or, given neither, every patched fixture: the channel faders of their red, green and blue channels go back to 0, so the looks show again. Faders that do not exist are not created.",
-    right: "commands:level",
+    description: `Gives the looks their colour back on fixtures, a group or, given neither, every fixture holding a colour applied by hand (colour.apply), fading (fade, seconds, default ${MANUAL_COLOUR_FADE_MS / 1000}). Returns the fixtures released.`,
+    right: "commands:trigger",
     profiles: ["live", "design"],
-    schema: z.object(Selection),
-    run: ({ fixtures, group }) => {
-      const released: string[] = [];
-      for (const f of fixturesOf(fixtures, group)) {
-        const ch = rgbChannels(f);
-        if ("error" in ch) continue;
-        if (setFaders(f, ch.map((c) => ({ offset: c.offset, name: c.name, level: 0 })), false)) released.push(f);
-      }
-      return { released };
+    schema: z.object({ fade: Fade, ...Selection }),
+    run: ({ fade, fixtures, group }) => {
+      const ms = (fade ?? MANUAL_COLOUR_FADE_MS / 1000) * 1000;
+      return { released: show.releaseColours(fixtures === undefined && group === undefined ? undefined : fixturesOf(fixtures, group), ms) };
     },
   });
 }

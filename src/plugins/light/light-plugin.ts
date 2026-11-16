@@ -33,8 +33,8 @@ import { registerExportCommands } from "./commands/export-commands.js";
 import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
 import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
-import { registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
-import { citedColours, ColourPresetSchema, newColourId } from "./show/colour-presets.js";
+import { migrateColourFavorites, registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
+import { citedColours, ColourPresetSchema, favoritesInOrder, newColourId, stackColours } from "./show/colour-presets.js";
 import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
 import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, labelsOfRefs, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
 import { intentionUsesByKey } from "./show/references.js";
@@ -633,7 +633,8 @@ export class LightPlugin implements McpPlugin {
     const intentions = embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)] as const);
     // the personal colour presets it cites (favourites, mappings, cues) and has none of its own of that id (T41)
     const c = this.colours;
-    const cited = citedColours({ ...c.citing(), favorites: this.runtime.settings.colourFavorites });
+    migrateColourFavorites(this.runtime, c);
+    const cited = citedColours({ ...c.citing(), favorites: favoritesInOrder(stackColours(c.personal.list(), c.show.list()).values()).map((e) => e.id) });
     const colours = cited.flatMap((id) => {
       const p = !c.show.has(id) && c.personal.get(id);
       return p ? [[`colours/${id}.json`, stableStringify(p)] as const] : [];

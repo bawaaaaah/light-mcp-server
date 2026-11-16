@@ -2397,6 +2397,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     // and no target keeps them (T24, decision Q2): every target disengaged, the heads stay where they are
     show.disengageTargets();
     show.stopAll();
+    show.clearColours(); // the colours applied by hand go too (T41)
     show.releasePositions();
     engine.release();
     const snap = show.settings.safeSnapshot ? show.snapshots.get(show.settings.safeSnapshot) : undefined;
@@ -2418,7 +2419,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     name: "panic",
     title: "Panic neutre",
     description:
-      "Safety: stops every look, a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, disengages every target, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
+      "Safety: stops every look and the colours applied by hand (colour.apply), a voluntary reset under way (fixture.reset), the DMX console parks and the manual head positions, disengages every target, then recalls the show's safe state: its safe snapshot (the whole state saved ahead), else its safe look, else a Blackout. No moving head moves by itself: they hold where they really are (position.release or position.releaseTop lets them go) until a claim takes them; a safe snapshot or look that carries a move takes them, gliding. A safe snapshot's motion lock only freezes or hardens heads, never lifts the lock.",
     right: "commands:panic",
     profiles: ["setup", "design", "live"],
     schema: z.object({}),

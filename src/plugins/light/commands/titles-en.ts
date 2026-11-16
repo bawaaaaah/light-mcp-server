@@ -20,6 +20,7 @@ export const TITLES_EN: Record<string, string> = {
   "calibration.list": "Saved marks",
   "calibration.record": "Record a mark",
   "calibration.solve": "Compute the calibration",
+  "colour.applied": "Colours applied",
   "colour.apply": "Apply a colour",
   "colour.preset.delete": "Delete a colour preset",
   "colour.preset.favorite": "Colour favourite",

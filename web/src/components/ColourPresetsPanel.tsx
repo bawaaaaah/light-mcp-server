@@ -24,7 +24,7 @@ export function ColourPresetsPanel({ onError }: { onError: (message: string) => 
   const fail = (e: unknown) => onError((e as Error).message);
   // read again at once: the command's event may come later
   const favorite = (p: ColourPresetRow, on: boolean, index?: number) => void cmd("colour.preset.favorite", { id: p.id, favorite: on, ...(index === undefined ? {} : { index }) }).then(colourPresetsStore.refresh, fail);
-  const move = (p: ColourPresetRow, by: number) => favorite(p, true, Math.max(0, (p.favorite ?? 0) + by));
+  const move = (p: ColourPresetRow, by: number) => favorite(p, true, Math.max(0, favorites.findIndex((f) => f.id === p.id) + by));
   const originBadge = (p: ColourPresetRow) => (
     <span className={`badge origin-${p.origin}`} title={p.over ? `${w.originShowHelp} ${w.overHelp}` : p.origin === "show" ? w.originShowHelp : w.originPersonalHelp}>
       {p.origin === "show" ? w.originShow : w.originPersonal}

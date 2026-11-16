@@ -2,8 +2,9 @@
  * Colour presets (T41; docs/specs/presets-songs-notes.md, « Presets de couleur »): one named colour, apart from the
  * palettes (which stay sets of colours). Stored at the user's choice in the open show (`colours/`, it travels with
  * the show) or in the personal library of this machine (`data/private/colours/`, every show sees it), as the
- * intentions are (T15): the show's wins over a personal one of the same id, and the origin is said. The show's
- * favourites are an ordered list of ids in show.json (`colourFavorites`). Pure: the commands pass the lists.
+ * intentions are (T15): the show's wins over a personal one of the same id, and the origin is said. A favourite is
+ * a rank carried by the preset itself (decision of 2026-11-16): a personal favourite is one in every show, a show's in
+ * that show. Pure: the commands pass the lists.
  */
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
@@ -26,6 +27,8 @@ export const ColourPresetSchema = z.object({
   name: z.string().trim().min(1).max(MAX_COLOUR_NAME),
   color: HexColourSchema,
   notes: z.string().max(MAX_COLOUR_NOTES).optional(),
+  /** Its rank among the favourites (1 first); absent: not a favourite. */
+  favorite: z.number().int().min(1).optional(),
 });
 export type ColourPreset = z.infer<typeof ColourPresetSchema>;
 
@@ -54,7 +57,14 @@ export function newColourId(now: number, random: () => number = Math.random): st
   return `c-${Math.max(0, Math.floor(now)).toString(36)}-${tail}`;
 }
 
-/** The favourites as stored, read: each id once, in order. Unknown ids are kept (a personal one missing on this machine). */
+/**
+ * The favourites a show sees, in their order: by rank, then by name and id (the library's and the show's interleaved
+ * by their ranks; two of one rank, a library's met in another show, by name).
+ */
+export const favoritesInOrder = <T extends Pick<ColourPreset, "id" | "name" | "favorite">>(entries: Iterable<T>): T[] =>
+  [...entries].filter((e) => e.favorite !== undefined).sort((a, b) => a.favorite! - b.favorite! || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+
+/** A list of ids read once each, in order, empty ones left out. */
 export const cleanFavorites = (list: readonly string[]): string[] => [...new Set(list.filter((id) => id.trim() !== ""))];
 
 /**
@@ -80,7 +90,7 @@ export function reorderFavorites(list: readonly string[], ids: readonly string[]
   return [...given, ...now.filter((id) => !given.includes(id))];
 }
 
-/** What names colour presets in a show: commands of its MIDI mappings and song cues (`colour.apply {id}`). */
+/** What names colour presets in a show: commands of its MIDI mappings and song cues (`colour.apply {id}`), and the favourites it sees. */
 export interface ColourCiting {
   mappings: { id: string; label?: string; on: { command: string; args: Record<string, unknown> }; off?: { command: string; args: Record<string, unknown> } }[];
   songs: { id: string; title: string; cues?: { command: string; args: Record<string, unknown> }[] }[];
@@ -90,7 +100,7 @@ export interface ColourCiting {
 /** Where a preset is used (one line per place, show/references.ts): MIDI mappings and song cues. The favourites are not a use: a delete drops it from them. */
 export const colourUses = (id: string, show: Omit<ColourCiting, "favorites">): string[] => usesOf("colour", id, { groups: [], faders: [], dashboards: [], snapshots: [], looks: [], ...show, songs: show.songs.map((s) => ({ sections: [], ...s })) });
 
-/** Every preset id the show cites: its favourites, then what its mappings and cues name. What an archive carries a copy of. */
+/** Every preset id the show cites: the favourites it sees, then what its mappings and cues name. What an archive carries a copy of. */
 export function citedColours(show: ColourCiting): string[] {
   const out = new Set(cleanFavorites(show.favorites));
   const add = (command: string, args: Record<string, unknown>) => {
@@ -102,12 +112,4 @@ export function citedColours(show: ColourCiting): string[] {
   }
   for (const s of show.songs) for (const c of s.cues ?? []) add(c.command, c.args);
   return [...out];
-}
-
-/** The 0..1 red, green and blue of a `#rrggbb` colour. */
-export function rgbOf(hex: string): { red: number; green: number; blue: number } {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
-  if (!m) throw new Error(say(`couleur invalide : ${hex}`, `invalid colour: ${hex}`));
-  const at = (s: string) => Math.round((parseInt(s, 16) / 255) * 1000) / 1000;
-  return { red: at(m[1]!), green: at(m[2]!), blue: at(m[3]!) };
 }

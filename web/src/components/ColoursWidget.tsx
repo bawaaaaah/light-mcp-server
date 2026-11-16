@@ -1,6 +1,6 @@
 /**
  * The Live's « Couleurs favorites » widget (T41; docs/specs/ui-dashboards.md): the show's favourite colours as buttons,
- * applied by hand (`colour.apply`, right `commands:level`) to the widget's group, or every fixture without one, and
+ * applied by hand (`colour.apply`, right `commands:trigger`, the right to launch looks) to the widget's group, or every fixture without one, and
  * « Rendre la couleur ». A press is mapped to MIDI from the MIDI page (action « Appliquer une couleur »). While
  * arranging, a press only selects the widget.
  */

@@ -9,7 +9,8 @@
 import { stableStringify, type Collection, type FolderStore } from "../data/store.js";
 import { Glide } from "../engine/glide.js";
 import { LookPlayer, ease } from "../engine/player.js";
-import { generateSteps, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
+import { gone, MANUAL_COLOUR_FADE_MS, nextManual, settled, underManual, type ManualColour } from "./manual-colour.js";
+import { generateSteps, hexToColor, OFF, scaleColor, type Step, type Technique } from "../engine/techniques.js";
 import type { MoveFade, Position } from "../engine/move.js";
 import { AXES, claimKey, claimsAxis, ownerOfClaimKey, emptyMotionState, FALLBACK_BPM, holdMotion, isHeld, motionDurationMs, releasedOf, releaseMotion, resolveMotion, UNLOCK_MIN_MS, type Axis, type AxisLayer, type AxisMode, type HeadStatus, type LockLevel, type MotionClaim, type MotionState } from "../engine/motion.js";
 import { aimAt, aimNear, angleBetween, boundPosition, pointing, type AimOptions } from "../venue/aim.js";
@@ -310,6 +311,8 @@ export class ShowRuntime {
   private readonly flashes = new Set<string>();
   /** Manual positions (XY pad, aiming): the manual claims of the motion layer, one per head, until released. */
   private readonly manualPositions = new Map<string, ManualPosition>();
+  /** Colours applied by hand (T41, show/manual-colour.ts): above the looks, one per fixture, until released. */
+  private readonly manualColours = new Map<string, ManualColour>();
   /**
    * The motion layer (engine/motion.ts, T25): its state from the last frame really rendered, and the logical position
    * each head was really sent then — read back in the output after the rules, and again after the guard (the DMX
@@ -832,7 +835,79 @@ export class ShowRuntime {
       // alone to come back (nothing released): it goes on sharing the sheet of the tail it left
       if (beside !== undefined && !leaving.length && this.crossfades.has(beside)) this.sharedSheet.set(lookId, beside);
     } else fadeOut();
+    // a new look on fixtures holding a colour by hand takes them back (T41): their colour fades back to the looks
+    this.releaseColours(this.fixturesPainted(look));
     return { started: true, released };
+  }
+
+  /**
+   * Applies a colour by hand to fixtures (T41, the manual colour layer): it replaces the colour the looks paint there,
+   * at the brightness they paint it, fading from what showed (`fadeMs`) — until releaseColours, the Panic or a new look
+   * on them. `hex` null releases. Returns the fixtures it changed.
+   */
+  setColour(fixtures: readonly string[], hex: string | null, fadeMs: number = MANUAL_COLOUR_FADE_MS): string[] {
+    const now = this.now();
+    const to = hex === null ? null : hexToColor(hex);
+    const done: string[] = [];
+    for (const f of fixtures) {
+      const prev = this.manualColours.get(f);
+      if (hex === null && !prev) continue;
+      if (prev && prev.hex === hex && settled(prev, now)) {
+        done.push(f);
+        continue;
+      }
+      this.manualColours.set(f, nextManual(prev, to, hex, now, fadeMs));
+      done.push(f);
+    }
+    return done;
+  }
+
+  /** Gives the looks their colour back on these fixtures (every fixture holding one when none is given), fading. */
+  releaseColours(fixtures?: Iterable<string>, fadeMs: number = MANUAL_COLOUR_FADE_MS): string[] {
+    const ids = fixtures ? [...fixtures].filter((f) => this.manualColours.get(f)?.to) : [...this.manualColours].filter(([, m]) => m.to).map(([f]) => f);
+    return this.setColour(ids, null, fadeMs);
+  }
+
+  /** Drops every manual colour at once (the Panic: safety first, no fade). */
+  clearColours(): string[] {
+    const ids = [...this.manualColours].filter(([, m]) => m.to).map(([f]) => f);
+    this.manualColours.clear();
+    return ids;
+  }
+
+  /** The colour a fixture holds by hand (`#rrggbb`), if any (a release fading out holds none). */
+  manualColour(fixture: string): string | undefined {
+    return this.manualColours.get(fixture)?.hex ?? undefined;
+  }
+
+  /** The fixtures a look paints: its canvas's, but those its groups exclude. */
+  private fixturesPainted(look: Look): Set<string> {
+    const out = new Set<string>();
+    if (look.technique.kind === "aucune") return out; // it only moves heads: their colour stays
+    try {
+      for (const cell of this.venue.cellTargets(look.canvas)) for (const t of cell) out.add(t.fixture);
+    } catch {
+      return out; // an unknown canvas paints nothing
+    }
+    for (const f of this.excludedFrom(look)) out.delete(f);
+    return out;
+  }
+
+  /** The manual colours over what the looks paint on this frame (T41): their colours, their wheels' hues, their tracks' layers. */
+  private applyManualColours(frame: AttributeFrame, now: number): void {
+    for (const [f, m] of this.manualColours) if (gone(m, now)) this.manualColours.delete(f);
+    if (!this.manualColours.size) return;
+    const heads = (f: string, colors: ReadonlyMap<number, Color>): Map<number, Color> => {
+      const m = this.manualColours.get(f)!;
+      return new Map([...colors].map(([h, c]) => [h, underManual(m, c, now)]));
+    };
+    for (const f of this.manualColours.keys()) {
+      const colors = frame.colors.get(f);
+      if (colors) frame.colors.set(f, heads(f, colors));
+      const by = frame.paintedBy.get(f);
+      if (by) frame.paintedBy.set(f, by.map((p) => ({ ...p, heads: heads(f, p.heads), ...(p.hues ? { hues: heads(f, p.hues) } : {}) })));
+      for (const layer of frame.tracks.get(f) ?? []) if (layer.colors) layer.colors = heads(f, layer.colors);
+    }
   }
 
   /**
@@ -1020,6 +1095,7 @@ export class ShowRuntime {
     this.playbackStarted.clear();
     this.flashes.clear();
     this.manualPositions.clear();
+    this.manualColours.clear();
     this.targetGlide = new Glide();
     this.glidingTargets.clear();
     this.aimBases = new Map();
@@ -2447,6 +2523,8 @@ export class ShowRuntime {
       const colors = x ? settle(addWeighted(shared.get(x)!, weighted(withoutTracks(paints(ownOf.get(x)!, w, look, player, `x:${look.id}`)), inW))) : withoutTracks(paints(colorsOf(look, player, 1), w, look, player, `look:${look.id}`));
       mergeColors(frame.colors, colors, this.settings.looksMerge);
     }
+    // the colours applied by hand (T41) replace what the looks paint on their fixtures, at the looks' brightness
+    this.applyManualColours(frame, now);
     // The motion layer (engine/motion.ts, T25): a position for every installed moving head, on every frame — who
     // claims it (looks, raw pan/tilt, manual), where its rest is, and how it glides there from what was really sent.
     const movers = this.movingHeads();
