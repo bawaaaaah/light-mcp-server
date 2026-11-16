@@ -101,3 +101,17 @@ function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   if (list) list.push(value);
   else map.set(key, [value]);
 }
+
+/**
+ * Level of a group's DCA: its master level (1 without a master) within its limits — clamped, or
+ * the whole travel scaled onto min..max. Mute gives 0; a flash gives the max, never beyond. Pure.
+ */
+export function dcaLevel(g: Pick<Group, "master" | "limits">, flash = false): number {
+  const min = g.limits?.min ?? 0;
+  const max = g.limits?.max ?? 1;
+  if (flash) return max;
+  if (g.master?.mute) return 0;
+  const level = g.master?.level ?? 1;
+  if (g.limits?.mode === "scale") return min + level * (max - min);
+  return Math.min(max, Math.max(min, level));
+}

@@ -30,7 +30,7 @@ import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannel
 import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGrouping } from "../venue/grouping.js";
 import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
 import type { PathStop, StopPosition } from "../engine/path.js";
-import { DcaIndex } from "./dca.js";
+import { dcaLevel, DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, PositionPresetSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type PositionPreset, type ShowSettings, type Snapshot, type Target } from "./model.js";
 import type { HeadNow } from "./position-presets.js";
@@ -47,6 +47,7 @@ export type SnapshotLockMode = "exact" | "harden";
 export const PANIC_UNDO_MS = 60_000;
 
 export type { TempoSource } from "./runtime-pure.js";
+export { dcaLevel } from "./dca.js";
 
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
 const STRICT_FRAME_MS = 23;
@@ -2031,17 +2032,3 @@ export class ShowRuntime {
 
 /** What the type grouping proposal reads of a group. */
 const existingGroup = (g: Group): ExistingGroup => ({ id: g.id, name: g.name, fixtures: g.members.fixtures, groups: g.members.groups, ...(g.selector ? { selector: g.selector } : {}) });
-
-/**
- * Level of a group's DCA: its master level (1 without a master) within its limits — clamped, or
- * the whole travel scaled onto min..max. Mute gives 0; a flash gives the max, never beyond. Pure.
- */
-export function dcaLevel(g: Pick<Group, "master" | "limits">, flash = false): number {
-  const min = g.limits?.min ?? 0;
-  const max = g.limits?.max ?? 1;
-  if (flash) return max;
-  if (g.master?.mute) return 0;
-  const level = g.master?.level ?? 1;
-  if (g.limits?.mode === "scale") return min + level * (max - min);
-  return Math.min(max, Math.max(min, level));
-}
