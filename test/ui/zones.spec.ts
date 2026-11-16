@@ -286,6 +286,8 @@ test("T27: « Viser » aims at an aiming zone's point, Alt at the exact point; a
     page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Supprimer T27 visée" }).click();
     await expect.poll(async () => (await zones(page)).some((z) => z.id === "t27-aim")).toBe(false);
+    // what named it is said to name a missing zone now
+    await expect(page.locator(".venue > p.warn", { hasText: "n'existe plus" })).toContainText("règle du show « T27 règle »");
   } finally {
     await api(page, "rule.delete", { id: "t27-rule" });
     await api(page, "venue.fixture.put", { fixture: spot });
@@ -394,7 +396,7 @@ test("T27: a double-click on the first point closes the polygon once; the form k
     await page.screenshot({ path: "test-results/t27-pending.png" });
     // Tab stays inside the form
     for (let i = 0; i < 30; i++) await page.keyboard.press("Tab");
-    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')))).toBe(true);
+    expect(await page.evaluate<boolean>("Boolean(document.activeElement?.closest('[role=dialog]'))")).toBe(true);
     // Cancel: the polygon is open again, its three corners back, to be fixed
     await form.getByRole("button", { name: "Annuler" }).click();
     await expect(form).toHaveCount(0);

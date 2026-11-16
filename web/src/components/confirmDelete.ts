@@ -32,12 +32,15 @@ export async function confirmDelete(kind: keyof typeof DELETE_COMMAND, id: strin
   const question = uses.length ? `${quoted(t, name)} ${words.usedBy ?? t.usedBy}\n\n• ${uses.join("\n• ")}\n\n${words.anyway ?? t.deleteAnyway}` : (words.plain ?? `${t.delete} ${quoted(t, name)}${beforeMark(t)}?`);
   if (!confirm(shared ? `${shared}\n\n${question}` : question)) return false;
   try {
-    onDeleted?.(await cmd(DELETE_COMMAND[kind], { id, force: uses.length > 0 || Boolean(shared) }));
+    // awaited apart: `onDeleted?.(await …)` would skip the delete itself when there is no callback
+    const result = await cmd(DELETE_COMMAND[kind], { id, force: uses.length > 0 || Boolean(shared) });
+    onDeleted?.(result);
   } catch (e) {
     if (!(e instanceof ApiError && e.detail?.force)) throw e;
     const reason = typeof e.detail.reason === "string" ? e.detail.reason : e.message;
     if (!confirm(`${reason}\n\n${words.forced ?? t.deleteUnchecked}`)) return false;
-    onDeleted?.(await cmd(DELETE_COMMAND[kind], { id, force: true }));
+    const result = await cmd(DELETE_COMMAND[kind], { id, force: true });
+    onDeleted?.(result);
   }
   return true;
 }
