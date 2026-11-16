@@ -22,7 +22,7 @@ import type { Look, PositionPreset, ShowSettings, Snapshot, Target } from "./mod
 import { basisOf, legacyBasisOf, type HeadNow } from "./position-presets.js";
 import { beyondStops } from "../venue/stops-check.js";
 import { aimHead, clampPoint, type TargetHold, fromNormal, stageBounds, toNormal, type Bounds, type Point3, type StageAxis } from "../venue/target-aim.js";
-import { heldOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLockState } from "./motion-lock.js";
+import { heldOf, lockState, sameFlips, sameLock, type HeadFlips, type MotionLock, type MotionLockState } from "./motion-lock.js";
 import { hermiteAt } from "../engine/hermite.js";
 import { ownerNamer } from "./motion-report.js";
 import { seedOf, type TempoSource } from "./runtime-pure.js";
@@ -110,10 +110,10 @@ export interface MotionHost {
   readonly zones: Collection<Zone>;
   readonly tempo: TempoSource;
   now(): number;
-  settings(): ShowSettings;
-  /** Replaces the settings in memory only (the lock levels): `saveSettings` writes them. */
-  setSettings(settings: ShowSettings): void;
-  saveSettings(patch: Partial<ShowSettings>): ShowSettings;
+  /** The show settings, read only: the runtime is their one writer. */
+  settings(): Readonly<ShowSettings>;
+  /** Sets the show's motion lock (its levels and `held`): in memory, and written to show.json when `persist`. */
+  setMotionLock(lock: MotionLock, opts: { persist: boolean }): void;
   /** The effective lock level of a head (`ShowRuntime.motionLock`, a hook). */
   motionLock(head: string): LockLevel;
   /** The slots (0-based, per universe) the DMX console forces. */
@@ -288,6 +288,11 @@ export class MotionController {
     }
   }
 
+  /** The frames strictBounds plays after its first follow the layer's own course, no longer what render last sent. */
+  ownCourse(run: MotionRun): void {
+    run.sent = undefined;
+  }
+
   /** A pass of the layer from the state of the last frame really rendered (`render`, or a frame played in memory by strictBounds). */
   run(bpm: number): MotionRun {
     return { state: this.motionState, sent: this.sentPositions, bpm, status: this.lastMotion, bases: this.aimBases };
@@ -387,7 +392,7 @@ export class MotionController {
     // the same levels: nothing to do, nothing written (a show without a lock does not get `motionLock: off`)
     if (sameLock(state, lockState(this.host.settings().motionLock))) return;
     // the levels in effect first, `held` brought in line with them, then one write
-    this.host.setSettings({ ...this.host.settings(), motionLock: { level: state.level, heads: { ...state.heads }, held: Object.fromEntries(this.lockHeld) } });
+    this.host.setMotionLock({ level: state.level, heads: { ...state.heads }, held: Object.fromEntries(this.lockHeld) }, { persist: false });
     this.syncLockHeld();
     // a failed write (a full disk during a Panic) is said and retried, never thrown: the Panic goes on
     this.heldUrgent = true;
@@ -407,7 +412,7 @@ export class MotionController {
     this.lockArrivals.delete(id);
     this.lockLevels.delete(id);
     const { [id]: _gone, ...heads } = lock?.heads ?? {};
-    this.host.setSettings({ ...this.host.settings(), motionLock: { level: lock?.level ?? "off", heads, held: Object.fromEntries(this.lockHeld) } });
+    this.host.setMotionLock({ level: lock?.level ?? "off", heads, held: Object.fromEntries(this.lockHeld) }, { persist: false });
     this.heldUrgent = true;
     this.flushHeld();
   }
@@ -471,7 +476,7 @@ export class MotionController {
   /** Writes `held` to show.json (with the lock levels as they are); nothing is pending after it. Throws on a failed write. */
   private writeHeld(): void {
     const lock = this.host.settings().motionLock;
-    if (lock || this.lockHeld.size) this.host.saveSettings({ motionLock: { ...lockState(lock), held: Object.fromEntries(this.lockHeld) } });
+    if (lock || this.lockHeld.size) this.host.setMotionLock({ ...lockState(lock), held: Object.fromEntries(this.lockHeld) }, { persist: true });
     this.heldDirtySince = undefined;
     this.heldUrgent = false;
   }

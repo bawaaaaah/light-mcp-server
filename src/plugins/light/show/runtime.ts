@@ -288,10 +288,10 @@ export class ShowRuntime {
       tempo,
       now: () => this.now(),
       settings: () => this.settings,
-      setSettings: (settings) => {
-        this.settings = settings;
+      setMotionLock: (lock, { persist }) => {
+        if (persist) this.saveSettings({ motionLock: lock });
+        else this.settings = { ...this.settings, motionLock: lock };
       },
-      saveSettings: (patch) => this.saveSettings(patch),
       motionLock: (head) => this.motionLock(head),
       consoleSlots: () => this.consoleSlots(),
       fixturesOf: (id) => this.fixturesOf(id),
@@ -1544,7 +1544,7 @@ export class ShowRuntime {
       for (let k = 0; k < 20; k++) {
         const sampled = blank();
         this.compose(sampled, t0 + k * 200, b0 + (k * 0.2 * (bpm ?? 120)) / 60, wheels, run);
-        run.sent = undefined; // the frames after the first follow the layer's own course
+        this.motion.ownCourse(run); // the frames after the first follow the layer's own course
         eachFixture(sampled, (r, buf) => [...applyRules(strict, r, buf, zoneById), ...(speedRules.length ? applySpeeds(speedRules, r, buf, t0 + k * 200, speeds, zoneById) : [])]);
       }
       // and where everything lands: one frame once every fade and every glide is over, so that a long glide towards
