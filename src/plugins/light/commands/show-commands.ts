@@ -1197,6 +1197,24 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     const named = look.move?.at?.position;
     if (named !== undefined && at !== undefined) throw new Error(say("mouvement : une cible ou une position nommée, pas les deux", "move: a target or a named position, not both"));
     if (named !== undefined && !show.positionPresets.get(named) && named !== stored?.move?.at?.position) throw new Error(say(`position nommée inconnue : ${named}`, `unknown named position: ${named}`));
+    // a zone or a path (T28): one base at most, and what they name exists (one already named by the stored look, deleted
+    // since with force, stays editable: « Vérifier le show » says it)
+    const base = look.move?.at;
+    if (base && [base.target, base.position, base.zone, base.path].filter((v) => v !== undefined).length > 1)
+      throw new Error(say("mouvement : une seule base parmi cible, position nommée, zone et parcours", "move: one base only among target, named position, zone and path"));
+    if (base?.height !== undefined && base.zone === undefined) throw new Error(say("mouvement : la hauteur ne vaut que pour une zone", "move: the height applies to a zone only"));
+    const storedAt = stored?.move?.at;
+    const zoneKnown = (id: string, before: readonly (string | undefined)[]) => show.zones.get(id) !== undefined || before.includes(id);
+    if (base?.zone !== undefined && !zoneKnown(base.zone, [storedAt?.zone])) throw new Error(say(`zone inconnue : ${base.zone}`, `unknown zone: ${base.zone}`));
+    if (base?.path) {
+      const before = storedAt?.path?.stops ?? [];
+      base.path.stops.forEach((s, i) => {
+        const stopAt = say(`parcours, arrêt ${i + 1}`, `path, stop ${i + 1}`);
+        if (s.zone !== undefined && !zoneKnown(s.zone, before.map((b) => b.zone))) throw new Error(`${stopAt} : ${say(`zone inconnue : ${s.zone}`, `unknown zone: ${s.zone}`)}`);
+        if (s.position !== undefined && !show.positionPresets.get(s.position) && !before.some((b) => b.position === s.position)) throw new Error(`${stopAt} : ${say(`position nommée inconnue : ${s.position}`, `unknown named position: ${s.position}`)}`);
+        if (s.target !== undefined && !show.targets.get(s.target) && !before.some((b) => b.target === s.target)) throw new Error(`${stopAt} : ${say(`cible inconnue : ${s.target}`, `unknown target: ${s.target}`)}`);
+      });
+    }
     const folder = folderOf(look.tags);
     // only a move *into* a reserved name is refused: a look an older show already filed there stays editable
     if (folder !== undefined && isReservedFolder(folder) && folder !== (stored ? folderOf(stored.tags) : undefined)) throw new Error(say("« Sans dossier » désigne déjà les looks rangés nulle part : choisir un autre nom de dossier", "“No folder” already names the looks filed nowhere: choose another folder name"));
@@ -1206,7 +1224,7 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
   reg.register({
     name: "look.put",
     title: "Look",
-    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; at = {target: id} centres the move on a target's point, aimed head by head, engaged or not (target.list; an unknown target is refused), or at = {position: id} on a named position read at render (position.preset.list; a position readjusted moves the look): its pan/tilt on the heads it covers, the look's other heads left to the layer below, or its point aimed head by head (an unknown position, or both target and position, is refused); enabled: false = « Ne pas bouger les lyres », holds the heads where they are while it is the top look). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
+    description: "Creates or updates a look: technique (plat, damier, palette (random: each block draws its colour at random), creux, masques, masques-colores, respiration, orage, flamme, flash, onde = waveform with phase spread/blocks/wings/shuffle, pas, aucune = no colour), canvas, palette, optional raw channels (machines, lamps: targets fixture+offset and DMX values per step, stepped with the look), timing (every beats|seconds, attack 0 claque..1 respire, order), optional move for moving heads (shape fixe|cercle|huit|pan|tilt|tapis|aleatoire = a new point drawn in the box every cycle, center, size, every, spread, wings, reverse, shuffle = phases in a shuffled order, fan, group, fade = {beats: n} or {seconds: n} glide to this move, 0 = cut, absent = the show's moveFade; at = {target: id} centres the move on a target's point, aimed head by head, engaged or not (target.list; an unknown target is refused), or at = {position: id} on a named position read at render (position.preset.list; a position readjusted moves the look): its pan/tilt on the heads it covers, the look's other heads left to the layer below, or its point aimed head by head (an unknown position, or both target and position, is refused), or at = {zone: id, height?} on an aiming zone (stage.zone.list), aimed head by head (« one button per zone »), or at = {path: {stops: [{zone|point {x,y,z}|position|target, height? (zone only), weight?}] 1..32, order loop|pingpong|random|weighted, travel 0..1 = part of each step spent moving (default 0.5), heads ensemble|decales (each head one stop behind)|chacune (random: each head its own draw)}} = the heads go from stop to stop, one stop per `every`, gliding in pan/tilt (shape stays fixe; one base only among target, position, zone, path; unknown stops refused; the reply's warnings say stops out of reach, trips too fast for a speed rule and trips crossing a no-aim zone, where the head goes dark); enabled: false = « Ne pas bouger les lyres », holds the heads where they are while it is the top look). Its ambiance:<intention> tags: a name one intention only answers to is stored as its id; one several answer to stays a name and is returned in ambiguous. " + INTENTION_REFS_HELP,
     right: "show:write",
     profiles: ["design"],
     // a look from the brief list (partial) is refused before anything else: saved, it would lose its steps or raw channels
@@ -1226,7 +1244,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       const saved = show.looks.put(checkLook(migrateTags ? { ...look, tags: migrateTags(look.tags) } : look));
       // an ambiance: tag several intentions answer to stays a name (T15b): said, with which one it goes to
       const ambiguous = ambiguousTags?.(saved.tags) ?? [];
-      return ambiguous.length ? { ...saved, ambiguous } : saved;
+      // a path (T28) said ahead: stops out of reach, trips too fast for a speed rule, trips crossing a no-aim zone
+      const warnings = show.pathReport(saved)?.warnings.map((w) => w.message) ?? [];
+      return ambiguous.length || warnings.length ? { ...saved, ...(ambiguous.length ? { ambiguous } : {}), ...(warnings.length ? { warnings } : {}) } : saved;
     },
   });
   reg.register({
@@ -1384,7 +1404,9 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
               return "error" in at ? [{ fixture: h, error: at.error }] : [];
             })
           : [];
-      return { ...(heads ? { heads } : {}), ...(unreachable.length ? { unreachable } : {}), cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
+      // a path (T28): its stops resolved head by head, and its warnings (shown in the editor before saving)
+      const path = show.pathReport(look);
+      return { ...(heads ? { heads } : {}), ...(unreachable.length ? { unreachable } : {}), ...(path ? { path: { stops: path.stops, warnings: path.warnings } } : {}), cells: canvas.cells, topology: canvas.topology, columns: canvas.columns, steps: steps.map((step) => step.map((c) => (c ? displayHex(c) : null))), flashes: { ...flashProfile(steps, look.timing.attack, look.timing.order, true), max: MAX_FLASHES_PER_SECOND } };
     },
   });
   reg.register({

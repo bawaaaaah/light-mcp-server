@@ -1,7 +1,7 @@
 /**
  * Where a look, a group (DCA), a channel fader, a canvas, a patched fixture, an intention, a target (T24), a named position (T32) or a
  * stage zone (T27: the patch's `target`, rules scoped to it, commands naming it by `zone`) or a colour preset (T41: commands naming it by `id`) is used in the show: groups, channel faders, MIDI mappings, dashboards, snapshots, songs (sections, timeline cues, overall mood), looks (a canvas, an `ambiance:`
- * tag, a move following a target or a named position), targets (a fixture, a group), named positions (a fixture), rules (a fixture) and the safe
+ * tag, a move following a target, a named position or a zone, the stops of a path), targets (a fixture, a group), named positions (a fixture), rules (a fixture) and the safe
  * state. A snapshot holds no named position.
  * Pure: the commands pass the show's lists. Deleting something still in use is refused unless
  * forced, so a QLC+ import's look-alike objects (three DCAs all named « Master ») cannot be
@@ -18,7 +18,7 @@ export type ReferenceKind = "look" | "group" | "fader" | "canvas" | "fixture" | 
  */
 const COMMAND_PREFIX: Record<ReferenceKind, string> = { look: "look.", group: "group.", fader: "fader.", canvas: "venue.canvas.", fixture: "venue.fixture.", intention: "intention.", target: "target.", position: "position.preset.", zone: "stage.zone.", colour: "colour." };
 /** Dashboard widgets that drive an object of this kind through `target`. */
-const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy", "colours"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [], colour: [] };
+const WIDGETS: Record<ReferenceKind, string[]> = { look: ["look"], group: ["group-fader", "xy", "colours", "zones"], fader: ["channel-fader"], canvas: [], fixture: [], intention: [], target: ["target"], position: ["position"], zone: [], colour: [] };
 
 export interface ShowParts {
   groups: { id: string; name: string; members: { looks: string[]; groups: string[]; fixtures?: string[] }; presets?: { included: string[]; excluded: string[] } }[];
@@ -27,7 +27,7 @@ export interface ShowParts {
   dashboards: { id: string; name: string; widgets: { kind: string; target?: string }[] }[];
   snapshots: { id: string; name: string; looks: string[]; groups: Record<string, unknown>; faders: Record<string, unknown>; targets?: Record<string, unknown> }[];
   /** The looks play on a canvas (`look.canvas`); a move may follow a target (`move.at.target`, T24). */
-  looks: { id: string; name: string; canvas: string; move?: { group?: string; at?: { target?: string; position?: string } }; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
+  looks: { id: string; name: string; canvas: string; move?: { group?: string; at?: { target?: string; position?: string; zone?: string; path?: { stops: { zone?: string; position?: string; target?: string }[] } } }; channels?: { targets: { fixture: string }[] }; tags?: string[] }[];
   /** Targets (T24): the heads they move, as a list and a group. */
   targets?: { id: string; name: string; fixtures: string[]; group?: string }[];
   /** Named positions (T32): the heads a pan/tilt position covers. */
@@ -66,6 +66,10 @@ export function usesOf(kind: ReferenceKind, id: string, show: ShowParts, intenti
   if (kind === "group") for (const t of show.targets ?? []) if (t.group === id) uses.push(say(`cible « ${t.name} »`, `target “${t.name}”`));
   if (kind === "fixture") for (const t of show.targets ?? []) if (t.fixtures.includes(id)) uses.push(say(`cible « ${t.name} »`, `target “${t.name}”`));
   if (kind === "target") for (const l of show.looks) if (l.move?.at?.target === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
+  // a path's stops (T28): a zone, a named position or a target, each look said once
+  const stopKey = kind === "zone" ? "zone" : kind === "position" ? "position" : kind === "target" ? "target" : undefined;
+  if (stopKey) for (const l of show.looks) if (l.move?.at?.path?.stops.some((s) => s[stopKey] === id)) uses.push(say(`look « ${l.name} » (parcours)`, `look “${l.name}” (path)`));
+  if (kind === "zone") for (const l of show.looks) if (l.move?.at?.zone === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
   if (kind === "fixture") for (const p of show.positions ?? []) if (Object.hasOwn(p.values, id)) uses.push(say(`position nommée « ${p.name} »`, `named position “${p.name}”`));
   if (kind === "position") for (const l of show.looks) if (l.move?.at?.position === id) uses.push(say(`look « ${l.name} » (mouvement)`, `look “${l.name}” (move)`));
   if (kind === "zone") {

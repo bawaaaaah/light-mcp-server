@@ -488,6 +488,29 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         if (moved.length && left.length === moved.length) warn(`look ${l.id}`, say(`la position « ${p.name} » ne couvre aucune de ses lyres : le mouvement ne les place pas`, `the position “${p.name}” covers none of its heads: the move places none of them`));
         else if (left.length) note(`look ${l.id}`, say(`la position « ${p.name} » ne couvre pas ${left.map(headName).join(", ")} : ces lyres restent à la couche du dessous`, `the position “${p.name}” does not cover ${left.map(headName).join(", ")}: those heads stay with the layer below`));
       }
+      // a move aimed at a zone or along a path (T28): what they name, and what the path will do (stops out of reach, trips
+      // too fast for a speed rule that applies, trips crossing a no-aim zone: the head goes dark while it crosses)
+      for (const l of runtime.looks.list()) {
+        const at = l.move?.at;
+        if (at?.zone !== undefined && !runtime.zones.get(at.zone)) err(`look ${l.id}`, say(`zone inconnue ${at.zone} (mouvement) : ses lyres restent où elles sont`, `unknown zone ${at.zone} (move): its heads stay where they are`));
+        if (!at?.path) continue;
+        const unknown = new Set<number>();
+        at.path.stops.forEach((s, i) => {
+          const gone =
+            s.zone !== undefined && !runtime.zones.get(s.zone)
+              ? say(`zone inconnue ${s.zone}`, `unknown zone ${s.zone}`)
+              : s.position !== undefined && !runtime.positionPresets.get(s.position)
+                ? say(`position nommée inconnue ${s.position}`, `unknown named position ${s.position}`)
+                : s.target !== undefined && !runtime.targets.get(s.target)
+                  ? say(`cible inconnue ${s.target}`, `unknown target ${s.target}`)
+                  : undefined;
+          if (!gone) return;
+          unknown.add(i);
+          err(`look ${l.id}`, say(`parcours, arrêt ${i + 1} : ${gone} : les lyres y restent en place`, `path, stop ${i + 1}: ${gone}: the heads hold there`));
+        });
+        if (l.move?.enabled === false) continue;
+        for (const w of runtime.pathReport(l)?.warnings ?? []) if (!(w.kind === "nowhere" || w.kind === "unreachable") || !w.stops.every((i) => unknown.has(i))) warn(`look ${l.id}`, w.message);
+      }
       for (const p of runtime.positionPresets.list()) {
         const where = `position ${p.id}`;
         if (p.point) continue;
@@ -639,7 +662,8 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
         // its move (a shape around a target or a named point is aimed head by head, live: not checked here); around a
         // pan/tilt named position, each covered head's shape is centred on its pan/tilt (the others are not placed)
         const named = l.move?.at?.position === undefined ? undefined : runtime.positionPresets.get(l.move.at.position);
-        if (l.move && l.move.at?.target === undefined && (l.move.at?.position === undefined || (named && !named.point))) {
+        // a zone or a path (T28) is aimed head by head: its own checks below
+        if (l.move && l.move.at?.target === undefined && l.move.at?.zone === undefined && l.move.at?.path === undefined && (l.move.at?.position === undefined || (named && !named.point))) {
           // a canvas or group gone is said above (unknown references): nothing to check here
           let moved: string[];
           try {

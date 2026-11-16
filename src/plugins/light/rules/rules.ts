@@ -241,28 +241,46 @@ export function applyHolds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Arra
 }
 
 /**
+ * The pan/tilt speed limits that apply to a head (`maxDegPerSecond`), per axis: the slowest rule that applies to the
+ * channel that axis drives (model, zone, fixture, channel), with its id; an axis no rule bounds is left out. Read by
+ * `applySpeeds` and by the path checks (T28: a trip too fast for the rule is said ahead).
+ */
+export function speedLimits(rules: Rule[], fx: ResolvedFixture, zoneOfFixture?: (id: string) => string | undefined): { pan?: { degPerSecond: number; rule: string }; tilt?: { degPerSecond: number; rule: string } } {
+  const out: { pan?: { degPerSecond: number; rule: string }; tilt?: { degPerSecond: number; rule: string } } = {};
+  const speeds = rules.filter((r) => r.maxDegPerSecond);
+  if (!speeds.length) return out;
+  for (const [axis, ch] of [["pan", fx.pan], ["tilt", fx.tilt]] as const) {
+    if (!ch) continue;
+    const def = fx.def.channels.get(fx.mode.channels[ch.coarse]!);
+    const applying = def ? speeds.filter((r) => ruleApplies(r, fx, def, zoneOfFixture)) : [];
+    if (!applying.length) continue;
+    const slowest = applying.reduce((a, b) => (b.maxDegPerSecond! < a.maxDegPerSecond! ? b : a));
+    out[axis] = { degPerSecond: slowest.maxDegPerSecond!, rule: slowest.id };
+  }
+  return out;
+}
+
+/**
  * Pan/tilt speed bounds (`maxDegPerSecond`): each axis moves toward what is asked no faster than the
  * slowest rule allows, in degrees of the fixture's travel. `last` remembers each axis' last value
  * and time (16-bit, 0..1). Returns what it slowed.
  */
 export function applySpeeds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Array, now: number, last: Map<string, { v: number; t: number }>, zoneOfFixture?: (id: string) => string | undefined): Clamp[] {
   const clamps: Clamp[] = [];
-  const speeds = rules.filter((r) => r.maxDegPerSecond);
-  if (!speeds.length) return clamps;
+  const limits = speedLimits(rules, fx, zoneOfFixture);
+  if (!limits.pan && !limits.tilt) return clamps;
   const base = fx.patch.address - 1;
   for (const [axis, ch, travel] of [["pan", fx.pan, fx.panMax], ["tilt", fx.tilt, fx.tiltMax]] as const) {
-    if (!ch) continue;
+    const limit = limits[axis];
+    if (!ch || !limit) continue;
     const name = fx.mode.channels[ch.coarse]!;
-    const def = fx.def.channels.get(name);
-    const limits = def ? speeds.filter((r) => ruleApplies(r, fx, def, zoneOfFixture)).map((r) => r.maxDegPerSecond!) : [];
-    if (!limits.length) continue;
     const fine = ch.fine !== undefined;
     const v = fine ? ((buffer[base + ch.coarse] ?? 0) * 256 + (buffer[base + ch.fine!] ?? 0)) / 65535 : (buffer[base + ch.coarse] ?? 0) / 255;
     const key = `${fx.patch.id}/${axis}`;
     const prev = last.get(key);
     let out = v;
     if (prev) {
-      const step = ((Math.min(...limits) / travel) * Math.max(0, now - prev.t)) / 1000;
+      const step = ((limit.degPerSecond / travel) * Math.max(0, now - prev.t)) / 1000;
       if (Math.abs(v - prev.v) > step) out = prev.v + Math.sign(v - prev.v) * step;
     }
     last.set(key, { v: out, t: now });
@@ -273,7 +291,7 @@ export function applySpeeds(rules: Rule[], fx: ResolvedFixture, buffer: Uint8Arr
       buffer[base + ch.coarse] = v16 >> 8;
       buffer[base + ch.fine!] = v16 & 255;
     } else buffer[base + ch.coarse] = Math.round(out * 255);
-    clamps.push({ fixture: fx.patch.id, channel: name, from: before, to: buffer[base + ch.coarse]!, rule: speeds.find((r) => r.maxDegPerSecond === Math.min(...limits))!.id });
+    clamps.push({ fixture: fx.patch.id, channel: name, from: before, to: buffer[base + ch.coarse]!, rule: limit.rule });
   }
   return clamps;
 }

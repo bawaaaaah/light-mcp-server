@@ -7,6 +7,7 @@
  * venue applies inversion, swap and 16-bit encoding (venue.toDmx). Pure: no time source here.
  */
 import { z } from "zod";
+import { PathSchema } from "./path.js";
 import { EverySchema } from "./player.js";
 import { rng, shuffled } from "./techniques.js";
 
@@ -61,9 +62,22 @@ export const MoveSchema = z.object({
    * Where the shape is centred instead of `center`, one of: `target` (T24): a target's point, aimed head by head (the
    * shape drawn around each head's own aim); the target need not be engaged. `position` (T32): a named position, read at
    * render (a position readjusted moves the look): its pan/tilt for each head it covers (the look's other heads are left
-   * to the layer below), or its point aimed head by head. Other keys (T27 zones) are not declared yet: zod strips them.
+   * to the layer below), or its point aimed head by head. `zone` (T28): an aiming zone (T27), its aiming point at its
+   * aiming height or `height` metres above its floor, aimed head by head (« un bouton par zone »). `path` (T28): the
+   * heads go from stop to stop (`engine/path.ts`), one stop per `every`; the shape stays `fixe` (centre, size, fan,
+   * spread and wings are not used). One of the four at most (look.put refuses two). A version that does not know a key
+   * strips it (zod): the look then plays its shape around `center`.
    */
-  at: z.object({ target: z.string().optional(), position: z.string().optional() }).optional(),
+  at: z
+    .object({
+      target: z.string().optional(),
+      position: z.string().optional(),
+      zone: z.string().optional(),
+      /** With `zone`: metres above the zone's floor instead of its aiming height. */
+      height: z.number().min(0).max(30).optional(),
+      path: PathSchema.optional(),
+    })
+    .optional(),
 });
 export type Move = z.infer<typeof MoveSchema>;
 

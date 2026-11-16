@@ -18,10 +18,12 @@ import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { addWeighted, aimSetupOf, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
 import { slotHex } from "../venue/color-wheel.js";
-import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
+import { checkPath, type PathHead, type PathWarning } from "../venue/path-check.js";
+import { applyHolds, applyRules, applySpeeds, applySteady, speedLimits, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
 import { holdAtRest, isBuiltinRule, RESET_RULE_ID, RESET_WINDOW_MS, resetChannels, resetProtectionRule, type ResetChannel } from "../rules/reset-protection.js";
 import { affectedGroups, proposeTypeGrouping, type ExistingGroup, type TypeGrouping } from "../venue/grouping.js";
-import { beamCrosses, ZoneSchema, zoneOf, type Zone } from "../venue/stage.js";
+import { beamCrosses, ZoneSchema, zoneAimPoint, zoneOf, type Zone } from "../venue/stage.js";
+import { pathPosition, pathSequence, pathStep, sequenceKey, stopOffset, type Path, type PathStop, type StopPosition } from "../engine/path.js";
 import { DcaIndex } from "./dca.js";
 import { carriesLight, Doses, isLight, type LightOffsets } from "./doses.js";
 import { ChannelFaderSchema, GroupSchema, LookSchema, PaletteSchema, PositionPresetSchema, ShowSettingsSchema, SnapshotSchema, TargetSchema, type ChannelFader, type Group, type Look, type Palette, type PositionPreset, type ShowSettings, type Snapshot, type Target } from "./model.js";
@@ -306,6 +308,8 @@ export class ShowRuntime {
   private readonly crossfades = new Map<string, Crossfade>();
   /** palette id → number of edits: a queued look whose palette was edited has a stale player. */
   private readonly paletteRevs = new Map<string, number>();
+  /** The stop sequences of each path (T28), per head key (`sequenceKey`): memoised draws, dropped with the path object. */
+  private readonly pathSequences = new WeakMap<Path, Map<number, (i: number) => number>>();
   private orphans = 0;
   /** group id → flash held */
   private readonly flashes = new Set<string>();
@@ -1984,6 +1988,9 @@ export class ShowRuntime {
           // centred on a target's point (T24, move.at.target), aimed head by head; a target gone holds the heads where they are
           const at = named === undefined ? look.move.at?.target : undefined;
           const target = at === undefined ? undefined : this.targets.get(at);
+          // aimed at a zone (T28, move.at.zone, « un bouton par zone »), head by head, or along a path of stops (move.at.path)
+          const zoneId = named === undefined && at === undefined ? look.move.at?.zone : undefined;
+          const path = named === undefined && at === undefined && zoneId === undefined ? look.move.at?.path : undefined;
           if (named !== undefined) {
             const p = this.positionPresets.get(named);
             if (!p) errors.push(say(`look « ${look.name} » : position nommée inconnue : ${named}`, `look “${look.name}”: unknown named position: ${named}`));
@@ -1996,7 +2003,13 @@ export class ShowRuntime {
           } else if (at !== undefined && !target) {
             errors.push(say(`look « ${look.name} » : cible inconnue : ${at}`, `look “${look.name}”: unknown target: ${at}`));
             if (moved.length) claims.push({ ...own, heads: moved, base: { kind: "hold" } });
-          } else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
+          } else if (zoneId !== undefined) {
+            const zone = this.zones.get(zoneId);
+            if (!zone) errors.push(say(`look « ${look.name} » : zone inconnue : ${zoneId}`, `look “${look.name}”: unknown zone: ${zoneId}`));
+            // a zone gone holds the heads where they are (R14), as a target gone does
+            if (moved.length) claims.push({ ...own, heads: moved, base: zone ? { kind: "point", ...zoneAimPoint(zone, look.move.at?.height) } : { kind: "hold" }, ...(zone ? { shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } } : {}) });
+          } else if (path) claims.push(...this.pathClaims(look, path, player.position(now, beats, look.move.every), own, moved, errors));
+          else if (moved.length) claims.push({ ...own, heads: moved, ...(target ? { base: { kind: "point" as const, ...this.targetPoint(target) } } : {}), shape: { move: look.move, cycles: player.position(now, beats, look.move.every) } });
         } catch (err) {
           errors.push((err as Error).message);
         }
@@ -2039,6 +2052,125 @@ export class ShowRuntime {
       if (m.trail) claims.push(manualClaim(f, m.trail.claim));
     }
     return claims;
+  }
+
+  /**
+   * The claims of a look's path (T28, `move.at.path`): one per head, the position between the two stops of its step
+   * (`pathStep`, interpolated in pan/tilt), a fixed base the motion layer glides into like any other (no new kind of
+   * base). A step one of whose two stops the head cannot reach (out of reach, no stage position, a zone, position or
+   * target gone) holds the head where it is for that step (R14, never the layer below) and says why.
+   */
+  private pathClaims(look: Look, path: Path, cycles: number, own: Pick<MotionClaim, "owner" | "layer" | "order" | "fade">, moved: readonly string[], errors: string[]): MotionClaim[] {
+    let sequences = this.pathSequences.get(path);
+    if (!sequences) this.pathSequences.set(path, (sequences = new Map<number, (i: number) => number>()));
+    const seed = seedOf(look.id);
+    const claims: MotionClaim[] = [];
+    moved.forEach((head, index) => {
+      const key = sequenceKey(path, index);
+      let seq = sequences.get(key);
+      if (!seq) sequences.set(key, (seq = pathSequence(path, seed, index)));
+      const step = pathStep(path, seq, cycles, stopOffset(path, look.move ?? {}, index, moved.length));
+      const a = this.pathStopAt(path.stops[step.from]!, head);
+      const b = step.to === step.from ? a : this.pathStopAt(path.stops[step.to]!, head);
+      const bad = "error" in a ? { stop: step.from, error: a.error } : "error" in b ? { stop: step.to, error: b.error } : undefined;
+      if (bad) {
+        const name = this.venue.fixtures.get(head)?.name ?? head;
+        const said = say(`look « ${look.name} » : ${name} reste en place, arrêt ${bad.stop + 1} : ${bad.error}`, `look “${look.name}”: ${name} holds, stop ${bad.stop + 1}: ${bad.error}`);
+        if (!errors.includes(said)) errors.push(said);
+        claims.push({ ...own, heads: [head], base: { kind: "hold" } });
+        return;
+      }
+      const p = pathPosition(a as Position, b as Position, step.ease);
+      claims.push({ ...own, heads: [head], base: { kind: "fixed", pan: p.pan, tilt: p.tilt }, animated: true });
+    });
+    return claims;
+  }
+
+  /**
+   * Where a path stop puts `head` (T28): a zone's aiming point, a point, a named position's pan/tilt or point, a target's
+   * point now — a point aimed by `aimAt` (the solution closest to the centre of the travel: no state, the same stop gives
+   * the same position every time), or why the head cannot go there.
+   */
+  pathStopAt(stop: PathStop, head: string): StopPosition {
+    const r = this.venue.resolve(head);
+    if ("error" in r) return { error: r.error };
+    const aimPoint = (p: Point3): StopPosition => {
+      const setup = aimSetupOf(r);
+      if (!setup) return { error: say("position sur la scène inconnue", "stage position unknown") };
+      const res = aimAt(setup, p);
+      return "error" in res ? { error: res.error } : { pan: res.pan, tilt: res.tilt };
+    };
+    if (stop.zone !== undefined) {
+      const zone = this.zones.get(stop.zone);
+      return zone ? aimPoint(zoneAimPoint(zone, stop.height)) : { error: say(`zone inconnue : ${stop.zone}`, `unknown zone: ${stop.zone}`) };
+    }
+    if (stop.point) return aimPoint(stop.point);
+    if (stop.position !== undefined) {
+      const p = this.positionPresets.get(stop.position);
+      if (!p) return { error: say(`position nommée inconnue : ${stop.position}`, `unknown named position: ${stop.position}`) };
+      if (p.point) return aimPoint(p.point);
+      const v = Object.hasOwn(p.values, head) ? p.values[head] : undefined;
+      return v ? { pan: v.pan, tilt: v.tilt } : { error: say(`« ${p.name} » ne couvre pas cette lyre`, `“${p.name}” does not cover this head`) };
+    }
+    if (stop.target !== undefined) {
+      const t = this.targets.get(stop.target);
+      return t ? aimPoint(this.targetPoint(t)) : { error: say(`cible inconnue : ${stop.target}`, `unknown target: ${stop.target}`) };
+    }
+    return { error: say("arrêt sans destination", "stop without a destination") };
+  }
+
+  /** How a path stop is named in a message and in the editor: its zone, position or target by name, a point by its metres. */
+  pathStopName(stop: PathStop): string {
+    const m = (v: number) => String(Math.round(v * 100) / 100);
+    if (stop.zone !== undefined) return say(`zone « ${this.zones.get(stop.zone)?.name ?? stop.zone} »`, `zone “${this.zones.get(stop.zone)?.name ?? stop.zone}”`);
+    if (stop.position !== undefined) return say(`position « ${this.positionPresets.get(stop.position)?.name ?? stop.position} »`, `position “${this.positionPresets.get(stop.position)?.name ?? stop.position}”`);
+    if (stop.target !== undefined) return say(`cible « ${this.targets.get(stop.target)?.name ?? stop.target} »`, `target “${this.targets.get(stop.target)?.name ?? stop.target}”`);
+    if (stop.point) return `point (${m(stop.point.x)}, ${m(stop.point.y)}, ${m(stop.point.z)})`;
+    return "?";
+  }
+
+  /**
+   * A look's path as it will play (T28): each stop resolved for each head it moves (the render's own `pathStopAt`), and
+   * what to know ahead (venue/path-check.ts): stops out of reach, trips too fast for a speed rule that applies, trips
+   * crossing a no-aim zone this look does not open. Undefined for a look without a path. A group gone moves no head.
+   */
+  pathReport(look: Look): { heads: string[]; stops: { name: string; heads: ({ id: string } & StopPosition)[] }[]; warnings: PathWarning[] } | undefined {
+    const path = look.move?.at?.path;
+    if (!path || !look.move) return undefined;
+    let moved: string[];
+    try {
+      moved = this.movedBy(look);
+    } catch {
+      moved = [];
+    }
+    const rules = this.rulesInForce();
+    const zoneById = this.zoneLookup();
+    const heads: PathHead[] = moved.map((id) => {
+      const r = this.venue.resolve(id);
+      const stops = path.stops.map((s) => this.pathStopAt(s, id));
+      if ("error" in r) return { id, name: id, panMax: 0, tiltMax: 0, stops };
+      const limits = speedLimits(rules, r, zoneById);
+      return { id, name: r.patch.name, panMax: r.panMax, tiltMax: r.tiltMax, setup: aimSetupOf(r), stops, speed: { pan: limits.pan?.degPerSecond, tilt: limits.tilt?.degPerSecond } };
+    });
+    const every = look.move.every;
+    const bpm = "beats" in every ? this.bpmNow() : undefined;
+    const stepSeconds = "beats" in every ? (every.beats * 60) / bpm! : every.seconds;
+    const warnings = checkPath({
+      path,
+      heads,
+      travelSeconds: stepSeconds * path.travel,
+      // a zone this look opens (allowLooks) does not darken it
+      noAim: this.zones.list().filter((z) => z.noAim && !z.allowLooks.includes(look.id)),
+      stopName: (i) => this.pathStopName(path.stops[i]!),
+      ...(bpm === undefined ? {} : { bpm }),
+    });
+    return { heads: moved, stops: path.stops.map((s, i) => ({ name: this.pathStopName(s), heads: heads.map((h) => ({ id: h.id, ...h.stops[i]! })) })), warnings };
+  }
+
+  /** The tempo now, for a cadence in beats said in seconds (the motion layer's fallback when none is known). */
+  private bpmNow(): number {
+    const bpm = this.tempo.state().bpm;
+    return bpm !== undefined && Number.isFinite(bpm) && bpm > 0 ? bpm : FALLBACK_BPM;
   }
 
   /** The targets of a raw-channel table whose value differs between two of its steps. */

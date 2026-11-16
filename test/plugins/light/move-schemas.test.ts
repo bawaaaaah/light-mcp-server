@@ -25,8 +25,8 @@ describe("T25 lot 3: move schemas (fade, enabled, at, moveFade, rest positions)"
     const m = MoveSchema.parse({ shape: "cercle" });
     expect(m.fade).to.equal(undefined);
     expect(m.enabled).to.equal(undefined);
-    const full = MoveSchema.parse({ fade: { beats: 2 }, enabled: false, at: { target: "singer", zone: "z" } });
-    // T24 declares at.target; the keys of later lots (a zone, a named position) are still stripped
+    const full = MoveSchema.parse({ fade: { beats: 2 }, enabled: false, at: { target: "singer", later: "z" } });
+    // T24 declares at.target, T28 at.zone and at.path; a key of a later version is still stripped
     expect(full.at).to.deep.equal({ target: "singer" });
     expect(full.fade).to.deep.equal({ beats: 2 });
     expect(full.enabled).to.equal(false);
