@@ -54,10 +54,59 @@ function mixStep(a: Step, b: Step, t: number): Step {
 /** Smoothstep easing for fades. */
 export const ease = (t: number): number => t * t * (3 - 2 * t);
 
+/** The order a sequence of `n` items is played in: `TimingSchema.order` (and its `weights`), drawn from `seed`. */
+export interface SequenceSpec {
+  order: Timing["order"];
+  n: number;
+  /** Weighted order: weight per item (used only when there is one per item; missing = plain random). */
+  weights?: readonly number[] | undefined;
+  seed: number;
+}
+
+/**
+ * The item played at sequence index `i` (0, 1, 2…): loop, ping-pong, or drawn at random — deterministic for a seed,
+ * never the same item twice in a row except in weighted order (where repeats are the point). The draws are memoised:
+ * the function returned must be kept to replay the same sequence cheaply (a look's steps, a move's path stops, T28).
+ * Pure: the same spec gives the same sequence every time.
+ */
+export function stepSequence({ order, n, weights: given, seed }: SequenceSpec): (i: number) => number {
+  if (n <= 1) return () => 0;
+  if (order === "loop") return (i) => ((Math.floor(i) % n) + n) % n;
+  if (order === "pingpong") {
+    const period = 2 * n - 2;
+    return (i) => {
+      const p = ((Math.floor(i) % period) + period) % period;
+      return p < n ? p : period - p;
+    };
+  }
+  const cache: number[] = [];
+  const next = rng(seed);
+  const weights = given?.length === n ? given : undefined;
+  const total = weights?.reduce((a, b) => a + b, 0) ?? n;
+  return (i) => {
+    const at = Math.max(0, Math.floor(i));
+    while (cache.length <= at) {
+      const k = cache.length;
+      let pick: number;
+      if (weights && order === "weighted") {
+        let x = next() * total;
+        pick = 0;
+        while (pick < n - 1 && x >= weights[pick]!) x -= weights[pick++]!;
+      } else {
+        pick = Math.floor(next() * n);
+        // avoid repeating the same step twice in a row (except in weighted mode, where repeats are the point)
+        if (k > 0 && pick === cache[k - 1]) pick = (pick + 1) % n;
+      }
+      cache.push(pick);
+    }
+    return cache[at]!;
+  };
+}
+
 export class LookPlayer {
   private startBeats = 0;
   private startMs = 0;
-  private readonly random: (i: number) => number;
+  private readonly sequence: (i: number) => number;
 
   constructor(
     readonly steps: Step[],
@@ -65,28 +114,7 @@ export class LookPlayer {
     seed: number,
     private readonly entry: Step | null = null,
   ) {
-    const cache = new Map<number, number>();
-    const next = rng(seed);
-    const n = steps.length;
-    const weights = timing.weights?.length === n ? timing.weights : undefined;
-    const total = weights?.reduce((a, b) => a + b, 0) ?? n;
-    this.random = (i) => {
-      while (!cache.has(i)) {
-        const k = cache.size;
-        let pick: number;
-        if (weights && timing.order === "weighted") {
-          let x = next() * total;
-          pick = 0;
-          while (pick < n - 1 && x >= weights[pick]!) x -= weights[pick++]!;
-        } else {
-          pick = Math.floor(next() * n);
-          // avoid repeating the same step twice in a row (except in weighted mode, where repeats are the point)
-          if (n > 1 && k > 0 && pick === cache.get(k - 1)) pick = (pick + 1) % n;
-        }
-        cache.set(k, pick);
-      }
-      return cache.get(i)!;
-    };
+    this.sequence = stepSequence({ order: timing.order, n: steps.length, weights: timing.weights, seed });
   }
 
   start(nowMs: number, beats: number): void {
@@ -96,19 +124,7 @@ export class LookPlayer {
 
   /** Step number played at sequence index i. */
   stepAt(i: number): number {
-    const n = this.steps.length;
-    if (n === 1) return 0;
-    switch (this.timing.order) {
-      case "loop":
-        return i % n;
-      case "pingpong": {
-        const period = 2 * n - 2;
-        const p = i % period;
-        return p < n ? p : period - p;
-      }
-      default:
-        return this.random(i);
-    }
+    return this.sequence(i);
   }
 
   /** Progress in units of `every` since start (fractional): steps for the timing, cycles for a move. */
