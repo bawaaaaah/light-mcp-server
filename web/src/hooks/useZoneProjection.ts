@@ -15,8 +15,8 @@ export interface ZoneProjection {
 const EMPTY: ZoneProjection = { zones: [] };
 
 /**
- * What changes a projection: the venue (the head's place, mount, orientation, stops), the zones, a calibration, another
- * show or venue, an import, an undo, a backup put back, a fixture definition (its travel). Read-only commands are never
+ * What changes a projection: the patch (the head's place, mount, orientation, stops, a definition added: its travel),
+ * the zones, a calibration, the show or venue replaced (opened, imported, a backup put back). Read-only commands are never
  * announced, so stage.zone.project does not call itself.
  */
 export const PROJECTION_CHANGES: readonly Domain[] = ["patch", "zones", "calibration", "show"];
