@@ -14,7 +14,8 @@ import { useTargetNames } from "../hooks/useTargets";
 import { PROJECTION_CHANGES } from "../hooks/useZoneProjection";
 import { usePositions } from "../hooks/usePositions";
 import { PositionButton } from "../components/PositionButton";
-import { applyColour, ColourPresetPicker } from "../components/ColourFavorites";
+import { applyColour, ColourPresetPicker, releaseColour } from "../components/ColourFavorites";
+import { useColoursApplied } from "../hooks/useColourPresets";
 import { ColoursWidget } from "../components/ColoursWidget";
 import { MotionLockButton } from "../components/MotionLockButton";
 import { FaderTrack } from "../components/FaderTrack";
@@ -138,7 +139,7 @@ const DRAG_TYPE = "application/x-light-widget";
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
-const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 2 } };
+const SIZE: Partial<Record<Kind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 3 } };
 
 type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
 
@@ -150,6 +151,8 @@ function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, reque
 
 export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const t = useT();
+  // the colours applied by hand (T41): a group fader marks its own
+  const appliedColours = useColoursApplied();
   /** A control whose command the role may not run is shown, greyed, rather than refused on use. */
   const may = (right: string) => can(role, right);
   const locked = (right: string) => (may(right) ? {} : { disabled: true, title: t.noRight });
@@ -895,7 +898,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               </button>
               {/* a saved colour on the group's fixtures (T41) */}
               {!edit && may("commands:trigger") && (
-                <ColourPresetPicker title={t.colours.groupButton.replace("{name}", () => w.label ?? g.name)} className="colour-group" onPick={(p) => void applyColour(t, p, { group: g.id })}>
+                <ColourPresetPicker title={t.colours.groupButton.replace("{name}", () => w.label ?? g.name)} className={`colour-group ${appliedColours.groups[g.id] ? "held" : ""}`} held={appliedColours.groups[g.id]} onRelease={() => void releaseColour(t, { group: g.id })} onPick={(p) => void applyColour(t, p, { group: g.id })}>
                   <span aria-hidden="true">●</span>
                 </ColourPresetPicker>
               )}

@@ -86,7 +86,7 @@ test("colour presets: the Show page creates them in the show or the library, say
     const order = section.locator(".colour-favorites-order .colour-row");
     await expect(order).toHaveCount(2);
     await expect(order.nth(0)).toContainText("Ambre T41");
-    await expect(section.locator(`.colour-list:not(.colour-favorites-order) [data-colour="${bleu.id}"]`)).toContainText("personnelle");
+    await expect(section.locator(`.colour-list:not(.colour-favorites-order) [data-colour="${bleu.id}"]`)).toContainText("bibliothèque");
     await expect(section.locator(`.colour-list:not(.colour-favorites-order) [data-colour="${ambre.id}"]`)).toContainText("show");
     // moved up: Bleu first
     await section.getByRole("button", { name: "Monter Bleu T41 dans les favoris" }).click();
@@ -136,11 +136,17 @@ test("colour presets: the look editor picks a saved colour beside a colour field
     await picker.click();
     const menu = page.locator(".colour-menu");
     await expect(menu).toBeVisible();
+    // the focus goes to the first favourite, and Tab out of the menu closes it
+    await expect(menu.locator(".colour-favorites button").first()).toBeFocused();
     await page.screenshot({ path: "test-results/t41-look-editor-desktop.png" });
     await menu.locator(".colour-favorites").getByRole("button", { name: "Rose T41" }).click();
     await expect(menu).toHaveCount(0);
     await expect(picker).toBeFocused();
     await expect(editor.locator(".colour-with-presets input[type=color]").first()).toHaveValue("#ff66aa");
+    // on a phone, the star is finger-sized
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await picker.boundingBox())!.width).toBeGreaterThanOrEqual(44);
   } finally {
     await page.keyboard.press("Escape");
     await asDesk(page, "look.delete", { id: "t41-plat", force: true });
@@ -161,20 +167,34 @@ test("colour presets: applied by hand from a fixture's panel, the Live widget an
   // the first bar as patched (what the list adds dropped): placed on the plan for its panel, put back at the end
   const { channels: _c, movable: _m, facing: _f, absent: _a, ...barPatch } = ((await asDesk(page, "venue.fixture.list")) as Record<string, unknown>[]).find((f) => f.id === bars[0])!;
   // the colour a fixture holds by hand (colour.applied), if any
-  const colourOf = async (fixture: string) => ((await asDesk(page, "colour.applied")) as Record<string, string>)[fixture];
+  const colourOf = async (fixture: string) => ((await asDesk(page, "colour.applied")) as { fixtures: Record<string, string> }).fixtures[fixture];
   await asDesk(page, "dashboard.put", { dashboard: { ...dash, widgets: [...dash.widgets, { id: "t41-colours", kind: "colours", target: "t41-face", x: 0, y: bottom, w: 6, h: 2 }, { id: "t41-fader", kind: "group-fader", target: "t41-face", x: 6, y: bottom, w: 1, h: 4 }] } });
   try {
     await page.reload();
     const widget = page.getByTestId("colours-widget");
     await widget.scrollIntoViewIfNeeded();
     await expect(widget).toContainText("Face T41");
+    await expect(widget.getByRole("button", { name: "Rendre la couleur · Face T41" })).toBeDisabled();
     await widget.getByRole("button", { name: "Appliquer Vert T41" }).click();
-    await expect(page.getByTestId("lock-toast")).toContainText("« Vert T41 » : 2 appareil(s)");
+    await expect(page.getByTestId("lock-toast")).toContainText("« Vert T41 » : 2 appareils");
+    // the colour held is marked (pressed, check mark), and « Rendre la couleur » is active only now
+    await expect(widget.getByRole("button", { name: /Appliquer Vert T41/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(widget.getByRole("button", { name: /Appliquer Vert T41/ })).toContainText("✓");
+    await expect(widget.getByRole("button", { name: "Rendre la couleur · Face T41" })).toBeEnabled();
+    // no look lights them: said (decision C1)
+    await expect(page.getByTestId("lock-toast")).toContainText("Aucun look n'éclaire");
     await expect.poll(() => colourOf(bars[1]!)).toBe("#00ff00");
     await page.screenshot({ path: "test-results/t41-widget-desktop.png" });
     // the group fader's colour button: every saved colour, the group coloured
     await page.getByRole("button", { name: "Couleur du groupe Face T41" }).click();
     await page.locator(".colour-menu .colour-favorites").getByRole("button", { name: "Rouge T41" }).click();
+    await expect.poll(() => colourOf(bars[0]!)).toBe("#ff0000");
+    // the group's menu marks it and gives it back
+    await page.getByRole("button", { name: "Couleur du groupe Face T41" }).click();
+    await expect(page.locator(".colour-menu .colour-favorites").getByRole("button", { name: /Rouge T41/ })).toHaveAttribute("aria-pressed", "true");
+    await page.locator(".colour-menu").getByRole("button", { name: "Rendre la couleur" }).click();
+    await expect.poll(() => colourOf(bars[0]!)).toBe(undefined);
+    await widget.getByRole("button", { name: "Appliquer Rouge T41" }).click();
     await expect.poll(() => colourOf(bars[0]!)).toBe("#ff0000");
     // given back: the looks show again
     await widget.getByRole("button", { name: "Rendre la couleur · Face T41" }).click();
@@ -190,6 +210,10 @@ test("colour presets: applied by hand from a fixture's panel, the Live widget an
       const w = touch.getByTestId("colours-widget");
       await w.scrollIntoViewIfNeeded();
       for (const b of await w.getByRole("button").all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const dot = touch.getByRole("button", { name: "Couleur du groupe Face T41" });
+      await dot.scrollIntoViewIfNeeded();
+      expect((await dot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await dot.boundingBox())!.width).toBeGreaterThanOrEqual(44);
       await w.getByRole("button", { name: "Appliquer Rouge T41" }).tap();
       await expect.poll(() => colourOf(bars[1]!)).toBe("#ff0000");
       expect(await touch.evaluate<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
@@ -212,6 +236,9 @@ test("colour presets: applied by hand from a fixture's panel, the Live widget an
     await colours.getByRole("button", { name: "Appliquer Vert T41" }).click();
     await expect.poll(() => colourOf(bars[0]!)).toBe("#00ff00");
     expect(await colourOf(bars[1]!)).toBe(undefined);
+    // marked held in the panel, its « Rendre la couleur » active
+    await expect(colours.getByRole("button", { name: /Appliquer Vert T41/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(colours.getByRole("button", { name: "Rendre la couleur" })).toBeEnabled();
     await page.screenshot({ path: "test-results/t41-panel-desktop.png" });
   } finally {
     await asDesk(page, "dashboard.put", { dashboard: dash });

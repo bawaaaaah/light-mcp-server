@@ -264,7 +264,7 @@ describe("colour presets (T41)", () => {
       await run("colour.release", { fade: 0.2 });
       during(3000);
       expect(out(1, 14)).to.deep.equal(ref);
-      expect(await run("colour.applied")).to.deep.equal({});
+      expect(await run("colour.applied")).to.deep.equal({ fixtures: {}, groups: {} });
     });
 
     it("keeps the light of the DCA, the grand master and the Blackout", async () => {
@@ -372,8 +372,8 @@ describe("colour presets (T41)", () => {
       await run("look.go", { id: "rouge" });
       expect((await failure(run("colour.apply", { color: "#00ff00" }, only(["commands:level", "dashboards:view"])))).message).to.match(/commands:trigger|droit|right/);
       expect(await run("colour.apply", { color: "#00ff00" }, only(["commands:trigger"]))).to.have.property("applied");
+      expect(await run("colour.applied", {}, only(["dashboards:view"]))).to.deep.equal({ fixtures: { par: "#00ff00", par2: "#00ff00", wheel: "#00ff00" }, groups: { face: "#00ff00" }, all: "#00ff00" });
       expect(await run("colour.release", {}, only(["commands:trigger"]))).to.have.property("released");
-      expect(await run("colour.applied", {}, only(["dashboards:view"]))).to.deep.equal({});
     });
 
     it("packs the personal presets the show cites into its archive, and leaves them in the library when restored on a machine that has them", async () => {

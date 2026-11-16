@@ -233,15 +233,26 @@ export function registerColourPresetCommands(reg: CommandRegistry, show: ShowRun
   reg.register({
     name: "colour.applied",
     title: "Couleurs appliquées",
-    description: "The colours applied by hand now (colour.apply), by fixture id: #rrggbb. A fixture whose colour is fading back to the looks is not listed.",
+    description: "The colours applied by hand now (colour.apply): fixtures, by fixture id (#rrggbb); groups, by group id, the colour most of its fixtures holding one hold (absent: none holds one); all, the same over every fixture. A fixture whose colour is fading back to the looks is not listed.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["live", "design"],
     schema: z.object({}),
-    run: () => Object.fromEntries(show.venue.fixtures.list().flatMap((f) => {
-      const hex = show.manualColour(f.id);
-      return hex ? [[f.id, hex] as const] : [];
-    })),
+    run: () => {
+      const fixtures = show.heldColours();
+      /** The colour most of these fixtures hold, if one holds any. */
+      const most = (ids: Iterable<string>): string | undefined => {
+        const count = new Map<string, number>();
+        for (const f of ids) if (fixtures[f]) count.set(fixtures[f]!, (count.get(fixtures[f]!) ?? 0) + 1);
+        return [...count].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0];
+      };
+      const groups = Object.fromEntries(show.groups.list().flatMap((g) => {
+        const hex = most(show.fixturesOf(g.id));
+        return hex ? [[g.id, hex] as const] : [];
+      }));
+      const all = most(Object.keys(fixtures));
+      return { fixtures, groups, ...(all ? { all } : {}) };
+    },
   });
 
   reg.register({

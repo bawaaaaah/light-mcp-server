@@ -32,7 +32,6 @@ import { folderOf, inTree, isReservedFolder, nestOf, normalizeFolder, renamedPat
 import { IntentionSchema, INTENTION_REFS_HELP, newIntentionId, type AmbiguousRef } from "../knowledge/intentions.js";
 import { normalizeMood } from "../knowledge/knowledge.js";
 import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../show/references.js";
-import { channelFaderId, ownChannelFader } from "../show/channel-faders.js";
 import { ColourPresetSchema } from "../show/colour-presets.js";
 import type { ShowRuntime, SnapshotLockMode } from "../show/runtime.js";
 import { effectiveRule, RuleProgramSchema, RuleSchema } from "../rules/rules.js";
@@ -1560,6 +1559,8 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
       return show.faders.put(fader);
     },
   });
+  /** Whether a fader's range leaves part of the travel out (an explicit 0..255 is the whole travel). */
+  const narrowed = (range: { min: number; max: number } | undefined) => range !== undefined && (range.min > 0 || range.max < 255);
   reg.register({
     name: "fader.channel",
     title: "Fader d'un canal",
@@ -1569,12 +1570,15 @@ export function registerShowCommands(reg: CommandRegistry, engine: DmxEngine, sh
     schema: z.object({ fixture: z.string(), offset: z.number().int().min(0), name: z.string().min(1).optional().describe("the new fader's name; default « <fixture> · <offset + 1> »"), level: z.number().min(0).max(1).optional() }),
     run: ({ fixture, offset, name, level }) => {
       // only a fader over the whole travel is this channel's: one narrowed to a function (T12) is something else
-      const own = ownChannelFader(show.faders.list(), fixture, offset);
+      const own = show.faders.list().find((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture && f.channels[0]!.offset === offset && !narrowed(f.range));
       if (own) return { ...own, created: false };
       checkChannels([{ fixture, offset }]);
       const patch = venue.fixtures.get(fixture)!;
       const now = engine.output.get(patch.universe)[patch.address - 1 + offset] ?? 0;
-      const faderId = channelFaderId(show.faders.list(), fixture, offset);
+      const taken = new Set(show.faders.list().map((f) => f.id));
+      const base = `panel-${fixture}-${offset}`;
+      let faderId = base;
+      for (let k = 2; taken.has(faderId); k++) faderId = `${base}-${k}`;
       // a fader on a colour fixture's master dimmer doses it (runtime.compose): at 1 it changes nothing
       const unchanged = show.dosesDimmer(fixture, offset) ? 1 : Math.round((now / 255) * 1000) / 1000;
       const fader = show.faders.put({ id: faderId, name: name ?? `${patch.name} · ${offset + 1}`, channels: [{ fixture, offset }], level: level ?? unchanged });

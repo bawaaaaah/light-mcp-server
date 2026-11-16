@@ -7,6 +7,7 @@ import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
 import { Modal } from "../components/Modal";
 import { quoted } from "../typography";
+import { useColourPresets } from "../hooks/useColourPresets";
 
 interface Status {
   localAvailable: boolean;
@@ -214,6 +215,9 @@ interface AbleSetStatus {
 
 export function MidiPage(): ReactElement {
   const t = useT();
+  // the colour presets a mapping may name (T41): one deleted since is marked
+  const { presets: colourPresets, loaded: colourLoaded } = useColourPresets();
+  const colourIds = new Set(colourPresets.map((p) => p.id));
   const tempo = useTopic<{ bpm: number; source: string; clock?: boolean } | null>("light:tempo", null);
   // the Link session heard, while Link leads
   const [link, setLink] = useState<{ listening: boolean; peers: number; bpm?: number; phase?: boolean } | null>(null);
@@ -489,7 +493,11 @@ export function MidiPage(): ReactElement {
                     )}
                   </td>
                   <td>{t.modes[m.mode as keyof typeof t.modes] ?? m.mode}</td>
-                  <td>{m.label || `${m.on.command} ${plain(m.on.args.id)}`}</td>
+                  <td>
+                    {m.label || `${m.on.command} ${plain(m.on.args.id)}`}
+                    {/* a colour preset deleted since (T41): the mapping applies nothing, said here as show.lint says it */}
+                    {m.on.command === "colour.apply" && colourLoaded && !colourIds.has(plain(m.on.args.id)) && <small className="warn"> ⚠ {t.colours.deletedMark}</small>}
+                  </td>
                   <td>
                     <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m as unknown as MappingDraft)}>
                       ✎

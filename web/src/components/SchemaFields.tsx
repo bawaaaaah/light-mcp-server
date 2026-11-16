@@ -53,7 +53,7 @@ export function PresetColorInput({ value, onChange, field }: { value: string; on
   return (
     <span className="colour-with-presets">
       <ColorInput value={value} onChange={onChange} />
-      {presets.length > 0 && <ColourPresetPicker title={t.colours.pickFor.replace("{field}", () => field)} onPick={(p) => onChange(p.color + suffix)} />}
+      {presets.length > 0 && <ColourPresetPicker title={t.colours.pickFor.replace("{field}", () => field)} onPick={(p) => onChange(p.color.includes("+w") ? p.color : p.color + suffix)} />}
     </span>
   );
 }

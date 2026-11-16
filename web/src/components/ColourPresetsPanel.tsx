@@ -10,6 +10,7 @@ import { useMe, useT } from "../App";
 import { colourPresetsStore, useColourPresets, type ColourPresetRow } from "../hooks/useColourPresets";
 import { quoted } from "../typography";
 import { confirmDelete } from "./confirmDelete";
+import { screenHex } from "./ColourFavorites";
 import { Versions } from "./Versions";
 
 const fill = (text: string, name: string) => text.replace("{name}", () => name);
@@ -39,23 +40,23 @@ export function ColourPresetsPanel({ onError }: { onError: (message: string) => 
       {loaded && favorites.length === 0 && <p className="hint">{w.favoritesNone}</p>}
       <ol className="colour-list colour-favorites-order">
         {favorites.map((p, i) => (
-          <li key={p.id} className="colour-row" data-colour={p.id} style={{ "--colour": p.color } as CSSProperties}>
+          <li key={p.id} className="colour-row" data-colour={p.id} style={{ "--colour": screenHex(p.color) } as CSSProperties}>
             <span className="colour-swatch" aria-hidden="true" />
             <strong>{p.name}</strong>
             {originBadge(p)}
             <span className="grow" />
             {write && (
-              <>
+              <span className="colour-actions">
                 <button className="ghost" aria-label={fill(w.moveUp, p.name)} title={fill(w.moveUp, p.name)} disabled={i === 0} onClick={() => move(p, -1)}>
                   ↑
                 </button>
                 <button className="ghost" aria-label={fill(w.moveDown, p.name)} title={fill(w.moveDown, p.name)} disabled={i === favorites.length - 1} onClick={() => move(p, 1)}>
                   ↓
                 </button>
-                <button className="ghost colour-unfavorite" aria-label={fill(w.removeFavorite, p.name)} title={fill(w.removeFavorite, p.name)} onClick={() => favorite(p, false)}>
+                <button className="ghost colour-favorite on" aria-pressed="true" aria-label={fill(w.removeFavorite, p.name)} title={fill(w.removeFavorite, p.name)} onClick={() => favorite(p, false)}>
                   <span aria-hidden="true">★</span>
                 </button>
-              </>
+              </span>
             )}
           </li>
         ))}
@@ -64,7 +65,7 @@ export function ColourPresetsPanel({ onError }: { onError: (message: string) => 
       {loaded && presets.length === 0 && <p className="hint">{w.none}</p>}
       <ul className="colour-list">
         {presets.map((p) => (
-          <li key={p.id} className="colour-row" data-colour={p.id} style={{ "--colour": p.color } as CSSProperties}>
+          <li key={p.id} className="colour-row" data-colour={p.id} style={{ "--colour": screenHex(p.color) } as CSSProperties}>
             <div className="colour-line">
               <span className="colour-swatch" aria-hidden="true" />
               <strong>{p.name}</strong>
@@ -72,7 +73,7 @@ export function ColourPresetsPanel({ onError }: { onError: (message: string) => 
               {originBadge(p)}
               <span className="grow" />
               {write && (
-                <>
+                <span className="colour-actions">
                   <button
                     className={`ghost colour-favorite ${p.favorite !== undefined ? "on" : ""}`}
                     aria-pressed={p.favorite !== undefined}
@@ -88,7 +89,7 @@ export function ColourPresetsPanel({ onError }: { onError: (message: string) => 
                   <button className="ghost colour-delete" aria-label={fill(w.deleteName, p.name)} title={fill(w.deleteName, p.name)} onClick={() => void confirmDelete("colour", p.id, p.name, t).catch(fail)}>
                     ✕
                   </button>
-                </>
+                </span>
               )}
             </div>
             {p.usedBy.length > 0 && <small className="hint">{w.usedBy.replace("{list}", () => p.usedBy.join(", "))}</small>}
@@ -107,14 +108,22 @@ function ColourForm({ preset, onClose }: { preset?: ColourPresetRow; onClose: ()
   const w = t.colours;
   const id = useId();
   const [name, setName] = useState(preset?.name ?? "");
-  const [color, setColor] = useState(preset?.color ?? "#ff8000");
+  const [color, setColor] = useState(screenHex(preset?.color ?? "#ff8000"));
+  // the white LED's part as a look writes it (+wNN, decision C4): 0 = none
+  const [white, setWhite] = useState(() => Number(/\+w(\d+)$/.exec(preset?.color ?? "")?.[1] ?? 0));
+  // a name another colour has (show or library): allowed, said before it is saved (they are told apart by their place)
+  const { presets } = useColourPresets();
+  const key = name.trim().toLowerCase();
+  const taken = key ? presets.filter((p) => p.id !== preset?.id && p.name.trim().toLowerCase() === key) : [];
+  const warning = taken.length ? w.duplicate.replace("{list}", () => taken.map((d) => `${d.name} (${d.origin === "personal" ? w.originPersonal : w.originShow})`).join(", ")) : "";
   const [scope, setScope] = useState<"show" | "personal">(preset?.origin ?? "show");
   const [fav, setFav] = useState(true);
   const [problem, setProblem] = useState("");
   const save = async () => {
     if (!name.trim()) return setProblem(w.nameRequired);
     try {
-      await cmd("colour.preset.put", { preset: { ...(preset ? { id: preset.id, notes: preset.notes } : {}), name: name.trim(), color }, scope, ...(preset ? {} : { favorite: fav }) });
+      const w8 = Math.max(0, Math.min(255, Math.round(white) || 0));
+      await cmd("colour.preset.put", { preset: { ...(preset ? { id: preset.id, notes: preset.notes } : {}), name: name.trim(), color: w8 ? `${color}+w${w8}` : color }, scope, ...(preset ? {} : { favorite: fav }) });
       colourPresetsStore.refresh();
       if (preset) onClose();
       else {
@@ -150,6 +159,10 @@ function ColourForm({ preset, onClose }: { preset?: ColourPresetRow; onClose: ()
           <span>{w.color}</span>
           <input type="color" className="colour-input" value={color} onChange={(e) => setColor(e.target.value)} />
         </label>
+        <label className="field" title={w.whiteHelp}>
+          <span>{w.white}</span>
+          <input type="number" className="colour-white" min={0} max={255} step={1} inputMode="numeric" value={white} onChange={(e) => setWhite(Number(e.target.value))} />
+        </label>
         {!preset && (
           <fieldset className="colour-scope">
             <legend>{w.scope}</legend>
@@ -162,7 +175,7 @@ function ColourForm({ preset, onClose }: { preset?: ColourPresetRow; onClose: ()
         )}
         {!preset && (
           <label className="colour-fav-check">
-            <input type="checkbox" checked={fav} onChange={(e) => setFav(e.target.checked)} /> {w.favorites}
+            <input type="checkbox" checked={fav} onChange={(e) => setFav(e.target.checked)} /> {w.favoriteOne}
           </label>
         )}
       </div>
@@ -175,6 +188,11 @@ function ColourForm({ preset, onClose }: { preset?: ColourPresetRow; onClose: ()
           <button type="button" className="ghost" onClick={onClose}>
             {t.close}
           </button>
+        )}
+        {warning && (
+          <span className="warn" role="status">
+            {warning}
+          </span>
         )}
         {problem && (
           <span className="error" role="alert">

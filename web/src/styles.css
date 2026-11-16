@@ -5652,10 +5652,28 @@ button.position-button.on {
   min-width: 44px;
   min-height: 44px;
   padding: 4px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--muted);
   border-radius: 8px;
   font-weight: 600;
   max-width: 14em;
+  -webkit-tap-highlight-color: transparent;
+}
+/* pressed or hovered: the colour stays itself (never washed out), the press is felt by a slight shrink */
+.colour-button:hover {
+  border-color: var(--text);
+}
+.colour-button:active {
+  transform: scale(0.96);
+}
+/* the colour held there now: a double ring readable on every colour, and a check mark in the text (never the colour alone) */
+.colour-button.held {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+/* a colour of the personal library: a dashed edge (its place is also said in its name for screen readers) */
+.colour-button.library {
+  border-style: dashed;
 }
 .colour-button-name {
   display: block;
@@ -5683,6 +5701,8 @@ button.position-button.on {
   padding: 0 6px;
 }
 .colour-menu {
+  /* above the toast: a colour applied while it is open is said without covering it */
+  z-index: 95;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -5715,16 +5735,31 @@ button.position-button.on {
   height: 22px;
   border-radius: 50%;
   background: var(--colour);
-  border: 1px solid var(--line);
+  /* readable on the dark panel even for a very dark colour */
+  border: 1px solid var(--muted);
   flex: none;
+}
+.colour-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin-left: auto;
 }
 .colour-hex {
   color: var(--muted);
   font-family: ui-monospace, monospace;
 }
+.colour-row .badge {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 0.5em;
+  font-size: 0.8rem;
+}
+.colour-row .badge.origin-show {
+  color: var(--accent);
+}
 .colour-row .badge.origin-personal {
   color: var(--layer-target);
-  border-color: var(--layer-target);
 }
 .colour-row button {
   min-width: 44px;
@@ -5744,6 +5779,9 @@ button.position-button.on {
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
+}
+.colour-form .colour-white {
+  width: 6em;
 }
 .colour-form .colour-input {
   width: 64px;
@@ -5775,7 +5813,15 @@ button.position-button.on {
   flex-direction: column;
   gap: 4px;
   padding: 4px;
-  overflow: auto;
+}
+/* every favourite shown: the buttons wrap and narrow (44 px at least), never hidden in an inner scroll */
+.colours-widget .colour-favorites {
+  gap: 4px;
+}
+.colours-widget .colour-button {
+  flex: 1 1 5.5em;
+  max-width: none;
+  padding: 2px 6px;
 }
 .colours-widget-head {
   display: flex;
@@ -5790,12 +5836,38 @@ button.position-button.on {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.colours-widget .colours-release {
+.colours-widget .colours-release,
+.colours-widget .colours-more,
+.colour-release {
   min-height: 44px;
+  min-width: 44px;
+}
+.wheel-held {
+  display: block;
+  color: var(--accent);
+}
+/* to the finger: the group fader's dot, the look editor's star and the new colour's form */
+@media (pointer: coarse), (max-width: 600px) {
+  .cell .fader .row .colour-group,
+  .colour-with-presets .colour-pick {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .colour-form input:not([type="checkbox"]):not([type="radio"]),
+  .colour-form button {
+    min-height: 44px;
+  }
+  .colour-form input[type="checkbox"],
+  .colour-form input[type="radio"] {
+    width: 22px;
+    height: 22px;
+  }
 }
 /* the group fader's colour button sits with M and F: their size, a hue wheel for a dot */
-.cell .fader .row .colour-group {
-  min-height: 0;
+@media (pointer: fine) and (min-width: 601px) {
+  .cell .fader .row .colour-group {
+    min-height: 0;
+  }
 }
 .colour-group span {
   display: inline-block;

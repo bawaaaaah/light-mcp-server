@@ -24,6 +24,7 @@ import { FixturePositions } from "./FixturePositions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { openManualCalibration } from "../calibrationLink";
 import { applyColour, ColourFavoriteButtons, ColourPresetPicker, releaseColour } from "./ColourFavorites";
+import { useColoursApplied } from "../hooks/useColourPresets";
 
 interface ChannelMode {
   name: string;
@@ -153,6 +154,8 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   /** The channel faders that drive one channel of this fixture over its whole travel, by channel offset (as fader.channel finds them). */
   const byOffset = new Map(faders.filter((f) => f.channels.length === 1 && f.channels[0]!.fixture === fixture.id && !narrowed(f.range)).map((f) => [f.channels[0]!.offset, f]));
   const head = heads.find((h) => h.id === fixture.id);
+  // the colour applied by hand to this fixture (T41): marked, and its wheel said held by it
+  const heldColour = useColoursApplied().fixtures[fixture.id];
   const may = (right: string) => (me ? can(me, right) : false);
 
   // A channel without a fader shows what the fixture has now: its future fader starts there.
@@ -300,6 +303,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
         />
         <span className="value">{Math.round(level * 100)}%</span>
         <label title={c.name}>{c.name}</label>
+        {heldColour && c.attribute === "colorWheel" && <small className="hint wheel-held">{t.colours.wheelHeld}</small>}
       </div>
     );
   };
@@ -342,12 +346,12 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
           {may("commands:trigger") && channels.some((c) => ["red", "green", "blue"].includes(c.color ?? "") || c.attribute === "colorWheel") && (
             <section className="panel-colours">
               <h4>{t.colours.panelTitle}</h4>
-              <ColourFavoriteButtons label={(p) => t.colours.apply.replace("{name}", () => p.name)} onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })} />
+              <ColourFavoriteButtons held={heldColour} label={(p) => t.colours.apply.replace("{name}", () => p.name)} onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })} />
               <div className="row">
-                <ColourPresetPicker title={t.colours.pick} className="colour-pick" onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })}>
+                <ColourPresetPicker title={t.colours.pick} className="colour-pick" held={heldColour} onPick={(p) => void applyColour(t, p, { fixtures: [fixture.id] })}>
                   {t.colours.allPresets}
                 </ColourPresetPicker>
-                <button type="button" className="ghost" title={t.colours.releaseHelp} onClick={() => void releaseColour(t, { fixtures: [fixture.id] })}>
+                <button type="button" className="colour-release" title={t.colours.releaseHelp} disabled={!heldColour} onClick={() => void releaseColour(t, { fixtures: [fixture.id] })}>
                   {t.colours.release}
                 </button>
               </div>

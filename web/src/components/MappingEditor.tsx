@@ -47,7 +47,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   }, []);
 
   const targets: Named[] =
-    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "colour" ? colours : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
+    action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "colour" ? colours.map((c) => ({ id: c.id, name: `${c.name} (${c.origin === "personal" ? t.colours.originPersonal : t.colours.originShow})` })) : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
     void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
@@ -137,7 +137,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           )}
         </div>
         {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
-        <p className="hint">{action === "position" ? t.positions.modeLockedHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
+        <p className="hint">{action === "position" ? t.positions.modeLockedHint : action === "colour" ? t.colours.modeHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
       </fieldset>
       <fieldset className="mapping-group">
@@ -165,6 +165,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
                 ))}
               </select>
             </label>
+          )}
+          {action === "colour" && target && colours.length > 0 && !colours.some((c) => c.id === target) && (
+            <p className="warn wide" role="status">
+              {t.colours.mappingDeleted}
+            </p>
           )}
           {action === "colour" && (
             <label className="field wide">
