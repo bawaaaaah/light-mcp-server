@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { stricter } from "../motionLock";
@@ -514,7 +514,7 @@ export function ManualCalibration({
   }, [head, say]);
   useEffect(reload, [reload]);
   // changed elsewhere (the plan's orientation panel, the fixture menu, another client): read again
-  useCommandEvents(["venue.fixture.", "calibration."], reload);
+  useDomainEvents(["patch", "calibration"], reload);
   // frozen or unfrozen: the refusals said before no longer hold
   useEffect(() => {
     setErrors({});

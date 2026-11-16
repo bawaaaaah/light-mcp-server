@@ -1,6 +1,7 @@
+import type { Domain } from "../../../src/plugins/light/commands/domains.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cmd } from "../api";
-import { useCommandEvents } from "./useTopic";
+import { useDomainEvents } from "./useTopic";
 import type { PadHead, ProjectedZone } from "../pad-zones";
 
 /** What `stage.zone.project` answers for one head (T27, lot 5): its aiming data and its aiming zones, or why none. */
@@ -18,7 +19,7 @@ const EMPTY: ZoneProjection = { zones: [] };
  * show or venue, an import, an undo, a backup put back, a fixture definition (its travel). Read-only commands are never
  * announced, so stage.zone.project does not call itself.
  */
-export const PROJECTION_CHANGES = ["venue.", "stage.zone.", "calibration.", "show.", "import.", "history.", "backup.restore", "fixture.definition."];
+export const PROJECTION_CHANGES: readonly Domain[] = ["patch", "zones", "calibration", "show"];
 
 /**
  * The aiming zones as `fixture` sees them, for its pad (T27, lot 5): read once, then again when something that changes
@@ -30,7 +31,7 @@ export function useZoneProjection(fixture: string | undefined): ZoneProjection {
   const current = useRef(fixture);
   current.current = fixture;
   const sequence = useRef(0);
-  // useCommandEvents keeps the function it was first given: it reads the head shown through the ref
+  // useDomainEvents keeps the function it was first given: it reads the head shown through the ref
   const read = useCallback(() => {
     const id = current.current;
     const asked = ++sequence.current;
@@ -49,6 +50,6 @@ export function useZoneProjection(fixture: string | undefined): ZoneProjection {
     setProjection(EMPTY);
     read();
   }, [fixture, read]);
-  useCommandEvents(PROJECTION_CHANGES, read);
+  useDomainEvents(PROJECTION_CHANGES, read);
   return projection;
 }

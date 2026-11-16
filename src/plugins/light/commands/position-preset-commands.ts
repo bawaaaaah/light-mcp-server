@@ -85,6 +85,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     title: "Enregistrer une position",
     titleEn: "Save a position",
     hints: "",
+    changes: ["positions"],
     description:
       "Saves where moving heads are under a name: their pan/tilt as seen now (the XY pad's position where it holds a head, else what the looks or a target show at that instant, before the rules). Heads: fixtures, a group, or all moving heads (a new position) / the heads it covers that are held by hand (the pad, another position recalled; an existing one, decision P3: the others keep their stored pan/tilt; refused when none is). With the id of an existing pan/tilt position: readjusts it, replacing the heads captured and keeping the others (the freshness of those captured is renewed); what follows it (a recall, a look) glides there. With point {x,y,z} (metres): a 3D point position, which every placed head aims at when recalled and which is never stale (with the id of a point position: moves its point). With point and pantilt: true, the heads are aimed at the point now and their pan/tilt kept, with the point as aim (a stale head can then be recomputed from it). A pan/tilt position and a point position never change kind: delete and save again.",
     right: "show:write",
@@ -174,6 +175,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     title: "Position nommée",
     titleEn: "Named position",
     hints: "I",
+    changes: ["positions"],
     description:
       "Creates or replaces a named position as a whole (the AI, an import, a version put back): id, name, values {fixtureId: {pan, tilt}} (0..1, 0.5 = centre) or point {x,y,z} (metres), never both; optional aim (the point a pan/tilt position was aimed at), color, tags, notes. basis: leave it out — each head keeps the one stored while its pan/tilt is unchanged, a pan/tilt written anew is taken as meant for the fixture as it is now. Covered heads must be patched moving heads.",
     right: "show:write",
@@ -193,6 +195,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     title: "Rappeler une position",
     titleEn: "Recall a position",
     hints: "I",
+    changes: ["motion"],
     description:
       "Recalls a named position: the heads glide there (the show's moveFade) and hold it as a manual gesture, above the looks and targets, until « Rendre la main » (position.releaseTop), position.release or a Panic; they follow the position if it is readjusted meanwhile. Heads: fixtures, a group, or by default every head it covers (a pan/tilt position) / every installed moving head (a point). A pan/tilt position moves only the heads it covers (others given are listed in notCovered); a point is aimed head by head from where each is (never the long way round): heads without a stage position or out of reach stay as they are, listed in unreachable. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
     right: "commands:position",
@@ -227,6 +230,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     title: "Remettre à jour une position",
     titleEn: "Bring a position up to date",
     hints: "I",
+    changes: ["positions"],
     description:
       "For a stale pan/tilt position (position.preset.list stale), two of the three choices (decision Q4; the third, readjusting by hand, is position.preset.save with its id): how recompute aims the heads again at the point it was aimed at (its aim, kept by position.preset.save with point and pantilt), from their stored pan/tilt, never the long way round — heads out of reach are listed in unreachable (with limited when only their useful stops keep them from it) and left as they are; refused for a position without aim; only the heads whose pan/tilt came from the point (aimed) are recomputed, the others asked are listed in notAimed (readjust or keep them). how keep keeps the pan/tilt as they are and takes them as meant for the fixtures as they are now: no longer stale; an aimed head whose pan/tilt no longer point at the aim point leaves aimed (listed in leftAim; the aim goes with the last one). Heads: fixtures, else every stale head. Nothing moves on stage.",
     right: "show:write",
@@ -289,6 +293,7 @@ export function registerPositionPresetCommands(reg: CommandRegistry, show: ShowR
     title: "Supprimer une position",
     titleEn: "Delete a position",
     hints: "DI",
+    changes: ["positions"],
     description:
       "Deletes a named position. Refused while something uses it (a look's move following it, a dashboard widget, a MIDI mapping, a song's cue), unless force. Heads that recalled it and still hold it by hand stay where they are (an error says the position is gone) until « Rendre la main ».",
     right: "show:write",

@@ -281,6 +281,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
     title: "Proposer des changements",
     titleEn: "Propose changes",
     hints: "",
+    changes: ["proposals"],
     description:
       "Holds several changes (put commands and their arguments, as show.diff takes them) as one proposal, nothing written: each is checked and described field by field. One change per canvas (a whole put, or one venue.canvas.edit with several operations). Someone who may write applies it all or nothing (show.apply, or the Show page), show.revert takes it back together. For an AI client: propose, show the user what it does, apply on their yes — or leave it for them in the interface.",
     right: "show:propose",
@@ -346,6 +347,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
     title: "Appliquer une proposition",
     titleEn: "Apply a proposal",
     hints: "",
+    changes: ["proposals", "show"],
     description: "Applies a pending (or reverted) proposal through the usual put commands and their checks, all or nothing: if one is refused, those already made are taken back and nothing has changed.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -400,6 +402,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
     title: "Défaire une proposition",
     titleEn: "Revert a proposal",
     hints: "D",
+    changes: ["proposals", "show"],
     description:
       "Takes an applied proposal back as a whole: the objects it changed return to what they were just before it (later changes to them go too), the ones it created are removed; a put refused midway puts everything back as it was (nothing half undone). show.apply applies it again (redo), except a mode change (venue.fixture.mode), which is run again instead. A canvas is put back as venue.canvas.put does it, every canvas checked before the first object goes back, on the looks as they are now (force; shared for a venue shared with other shows). A mode change is taken back only over objects unchanged since (`detail.changed` lists the others; overwrite: true takes it back over them), and never while a later mode change still applied wrote the same objects (`detail.blockedBy`: take that one back first).",
     right: "show:write",
@@ -443,6 +446,7 @@ export function registerProposalCommands(common: ShowCommandScope, { checkCanvas
     title: "Écarter une proposition",
     titleEn: "Discard a proposal",
     hints: "DI",
+    changes: ["proposals"],
     description: "Drops a pending proposal without applying it.",
     right: "show:propose",
     profiles: ["setup", "design"],

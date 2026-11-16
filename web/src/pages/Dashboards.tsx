@@ -6,7 +6,7 @@ import { warmPeek } from "../components/LookPeek";
 import { PreviewBeforeLaunch } from "../components/PreviewBeforeLaunch";
 import { useFreezeFast, usePreviewFirst } from "../hooks/usePreviewSettings";
 import { asksBeforeLaunch } from "../preview-first";
-import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { useDomainEvents, useTopic } from "../hooks/useTopic";
 import { useStored } from "../hooks/useStored";
 import { XyPad, type ZoneChip } from "../components/XyPad";
 import { TargetWidget, type PadFixture, type PadZone } from "../components/TargetPad";
@@ -110,7 +110,7 @@ interface SongState {
 
 /** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
 /** What changes the target pads' plan and the zone chips: the fixtures, the zones (T24, T27). */
-const TARGET_STAGE_CHANGES = [...PROJECTION_CHANGES, "stage."];
+const TARGET_STAGE_CHANGES = PROJECTION_CHANGES;
 const SUB = 4;
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
@@ -176,14 +176,14 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const [knowledge, setKnowledge] = useState<KnowledgeIntentions | null>(null);
   const readKnowledge = useCallback(() => void cmd<KnowledgeIntentions>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
   useEffect(readKnowledge, [readKnowledge]);
-  useCommandEvents(["intention.put", "intention.delete", "show.open", "backup.restore"], readKnowledge);
+  useDomainEvents(["intentions", "show"], readKnowledge);
   const [groups, setGroups] = useState<Group[]>([]);
   const [faders, setFaders] = useState<ChannelFader[]>([]);
   /** The patch's channels and their named ranges: a channel fader on a channel cut into functions shows them beside its track (T6). */
   const [fixtureChannels, setFixtureChannels] = useState<FixtureFunctions[]>([]);
   const readChannels = useCallback(() => void cmd<FixtureFunctions[]>("venue.fixture.channels").then(setFixtureChannels, () => undefined), []);
   useEffect(readChannels, [readChannels]);
-  useCommandEvents(["venue.fixture.", "show.open", "show.venue", "import."], readChannels);
+  useDomainEvents(["patch", "show"], readChannels);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
   /** The show's 3D targets (T24), their names only: the menus (each pad reads its own target). */
   const { names: targets } = useTargetNames();
@@ -435,7 +435,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `mine` is a new closure on every render; the list is filtered once, when the page opens (the role does not change under it)
   }, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "panic", "import.", "selftest.", "song.", "setlist.", "snapshot.", "show.autopresets", "show.settings", "show.folder", "show.apply", "show.revert"], refresh);
+  useDomainEvents(["looks", "playback", "canvases", "groups", "faders", "settings", "snapshots", "songs", "show"], refresh);
   // an effective level read while the group still glided is stale (a fader left at 5 % kept showing
   // the 43 % it had half-way there): the topic announces the gliders still running, so a group that
   // leaves it has landed — read its effective level then, not once the last glide of the page ended
@@ -479,14 +479,14 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const [targetStage, setTargetStage] = useState<{ fixtures: PadFixture[]; zones: PadZone[] }>({ fixtures: [], zones: [] });
   const hasTargetPadRef = useRef(hasTargetPad);
   hasTargetPadRef.current = hasTargetPad;
-  // stable: useCommandEvents keeps the function it was first given
+  // stable: useDomainEvents keeps the function it was first given
   const readTargetStage = useCallback(() => {
     if (!hasTargetPadRef.current) return;
     void Promise.all([cmd<PadFixture[]>("venue.fixture.list"), cmd<PadZone[]>("stage.zone.list")]).then(([fixtures, zones]) => setTargetStage({ fixtures, zones }), () => undefined);
   }, []);
   useEffect(readTargetStage, [readTargetStage, hasTargetPad]);
   // what changes the fixtures or the zones (the same as a head's projected zones, stage.zone.project)
-  useCommandEvents(TARGET_STAGE_CHANGES, readTargetStage);
+  useDomainEvents(TARGET_STAGE_CHANGES, readTargetStage);
   /** The aiming zones, as chips under the group pads (T27, lot 4). */
   const zoneChips = useMemo<ZoneChip[]>(() => targetStage.zones.flatMap((z) => (z.aim ? [{ id: z.id, name: z.name, color: z.aim.color }] : [])), [targetStage.zones]);
   const lookById = useMemo(() => new Map(looks.map((l) => [l.id, l])), [looks]);

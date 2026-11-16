@@ -80,6 +80,7 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
     title: "Restaurer une version",
     titleEn: "Restore a version",
     hints: "I",
+    changes: ["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets", "positions", "colour-presets"],
     description: "Puts back an earlier version (stamp from history.list) through the usual put command and its checks (a target: its point and engagement, live, stay as they are; a canvas: refused unless force when looks of exact steps would no longer line up, as venue.canvas.put; shared for a venue shared with other shows); the current version goes to the history in turn, so a restore is undone the same way.",
     right: "show:write",
     profiles: ["setup", "design"],
@@ -98,6 +99,7 @@ export function registerHistoryCommands(common: ShowCommandScope, { looksOn, put
     title: "Annuler une modification",
     titleEn: "Undo a change",
     hints: "",
+    changes: ["looks", "groups", "faders", "dashboards", "canvases", "intentions", "targets", "positions", "colour-presets"],
     description:
       "Undoes one change to a look, group, channel fader, dashboard or canvas, as an activity.list line gives it (its undo, at and until): puts back the version that change replaced, so a deleted object comes back. Changes made to the object after it are undone too: the later activity lines on the same object say which, and by whom (tell the user before). A creation replaced nothing: delete the object instead. A canvas is put back as history.restore does (force, shared), and the looks whose steps that same change adapted (venue.canvas.edit with adapt) get their steps back with it, written together.",
     right: "show:write",

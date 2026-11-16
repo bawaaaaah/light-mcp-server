@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import type { CommandEvent, Origin } from "./commands/registry.js";
+import type { Domain } from "./commands/domains.js";
 
 export interface ActivityEntry {
   /** First and last time of the burst. */
@@ -95,10 +96,10 @@ export const ARGS_BROADCAST_MAX = 2048;
  * which object and whether it worked; the arguments only when short; never who ran it (the
  * activity log, with its right, says that).
  */
-export function commandNotice(e: CommandEvent): { name: string; origin: Origin; ok: boolean; at: number; error?: string; target?: string; args?: unknown } {
+export function commandNotice(e: CommandEvent): { name: string; origin: Origin; ok: boolean; at: number; error?: string; target?: string; args?: unknown; changes?: readonly Domain[] } {
   const target = targetOf(e.args, e.name);
   const short = JSON.stringify(e.args ?? {}).length <= ARGS_BROADCAST_MAX;
-  return { name: e.name, origin: e.origin, ok: e.ok, at: e.at, ...(e.error ? { error: e.error } : {}), ...(target ? { target } : {}), ...(short ? { args: e.args } : {}) };
+  return { name: e.name, origin: e.origin, ok: e.ok, at: e.at, ...(e.error ? { error: e.error } : {}), ...(target ? { target } : {}), ...(short ? { args: e.args } : {}), ...(e.changes ? { changes: e.changes } : {}) };
 }
 
 export class ActivityLog {

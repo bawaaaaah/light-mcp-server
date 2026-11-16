@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { api, can, cmd } from "../api";
 import { useMe, useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { slug, uniqueId } from "../util";
 import { roleLabel } from "../i18n";
 
@@ -101,9 +101,9 @@ export function RulesPanel({ fixtures, zones, onError }: { fixtures: Named[]; zo
     void cmd<typeof rules>("rule.list").then(setRules).catch((e: Error) => onError(e.message));
   }, [onError]);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["rule."], refresh);
+  useDomainEvents(["rules"], refresh);
   useEffect(loadPrograms, [loadPrograms]);
-  useCommandEvents(["program."], loadPrograms);
+  useDomainEvents(["rules"], loadPrograms);
   useEffect(() => {
     if (inspect) void cmd<Effective[]>("rule.effective", { fixture: inspect }).then(setEffective).catch((e: Error) => onError(e.message)); // with the active program
     else setEffective([]);

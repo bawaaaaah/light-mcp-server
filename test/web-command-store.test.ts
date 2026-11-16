@@ -49,8 +49,9 @@ function fakeDeps() {
     emit(topic: string, data: unknown) {
       for (const fn of [...(topics.get(topic) ?? [])]) fn(data);
     },
+    /** A command's event, with what it changes as the server says it (the things are looks here, `other.put` rules). */
     command(name: string, ok = true) {
-      this.emit("light:command", { name, ok });
+      this.emit("light:command", { name, ok, changes: name === "show.open" ? ["show"] : name.startsWith("thing.") ? ["looks"] : ["rules"] });
     },
     up(on = true) {
       for (const fn of [...status]) fn(on);
@@ -69,7 +70,7 @@ type Rows = { rows: { id: string; v: number }[]; loaded: boolean };
 const options = (extra: Partial<CommandStoreOptions<Rows, { id: string; v: number }[]>> = {}): CommandStoreOptions<Rows, { id: string; v: number }[]> => ({
   command: "thing.list",
   initial: { rows: [], loaded: false },
-  prefixes: ["thing.", "show."],
+  domains: ["looks", "show"],
   ignore: ["thing.list", "thing.go"],
   loaded: (s) => s.loaded,
   map: (list, previous) => {
@@ -140,7 +141,7 @@ describe("command store (web)", () => {
     expect(f.calls).to.have.length(0);
   });
 
-  it("reads again after a successful command of its prefixes, never after a failed, ignored or foreign one", async () => {
+  it("reads again after a successful command that changes its domains, never after a failed, ignored or foreign one", async () => {
     const f = fakeDeps();
     const store = createCommandStore(options(), f.deps);
     store.subscribe(() => undefined);

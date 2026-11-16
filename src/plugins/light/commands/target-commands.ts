@@ -103,6 +103,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Cible",
     titleEn: "Target",
     hints: "DI",
+    changes: ["targets"],
     description:
       "Creates or updates a target: name, the moving heads that follow it (fixtures and/or a group: their union), point {x,y,z} in metres (bounded to the bounds; absent: kept, or the middle of the bounds at 1.5 m for a new one), optional bounds {min,max} (default: the stage volume), smoothing of the point (as a fader's: curve, msPerStep), fade (how the heads take over when it is engaged, as look.move.fade; default the show's moveFade), color, notes. Whether it is engaged is live state, kept as it is: target.engage changes it.",
     right: "show:write",
@@ -133,6 +134,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Supprimer une cible",
     titleEn: "Delete a target",
     hints: "DI",
+    changes: ["targets"],
     description: "Deletes a target. Refused while something uses it (a look's move following it, a dashboard widget, a MIDI mapping, a snapshot, a song), unless force. engaged: true when it was engaged (its heads go back to what claims them below, gliding).",
     right: "show:write",
     profiles: ["setup"],
@@ -154,6 +156,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Déplacer une cible",
     titleEn: "Move a target",
     hints: "I",
+    changes: ["targets"],
     description:
       "Moves a target's point: x, y, z in metres, or nx, ny, nz from 0 to 1 across its bounds (for a MIDI fader or OSC: levelArg nx; a value past 0 or 1, an OSC float, counts as 0 or 1). Partial: the axes not given stay. Bounded to the bounds, never refused (a fader at its end stays valid). Giving x and nx (or y and ny, z and nz) together is refused. The heads that follow it move with it (gliding when the target has a smoothing); heads frozen hard (motion.freeze) ignore it, listed in frozen.",
     right: "commands:position",
@@ -180,6 +183,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Engager une cible",
     titleEn: "Engage a target",
     hints: "",
+    changes: ["targets", "motion"],
     description:
       "on: its heads follow the target (above the looks, below the XY pad and a soft lock); between two engaged targets sharing a head, the last engaged wins it, restart included; engaging one already engaged puts it back on top (the last engaged wins) and lifts « Rendre la main » on its heads. off: they go back to what claims them below (a look's move, else rest), gliding; off on a target not engaged changes nothing. A Panic disengages every target. Heads frozen hard (motion.freeze) ignore it until unfrozen, listed in frozen.",
     right: "commands:position",
@@ -196,6 +200,7 @@ export function registerTargetCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Cible sur une zone",
     titleEn: "Target on a zone",
     hints: "I",
+    changes: ["targets"],
     description:
       "Puts a target's point on a stage zone: its aiming point (the centre of its surface unless one was placed), `height` metres above its floor (default: the zone's own aiming height, else 1.5, a standing person's face), bounded. Refused when the point, once bounded, lies in a no-aim zone closed now (no look of its allowLooks plays): the heads would hold at once.",
     right: "commands:position",

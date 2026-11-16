@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useFloatingMenu } from "./menu";
 import { can, cmd, type Role } from "../api";
 import { useMe, useT } from "../App";
-import { useCommandEvents, useTopic } from "../hooks/useTopic";
+import { useDomainEvents, useTopic } from "../hooks/useTopic";
 import { rangeAt, type NamedRange } from "../fader-functions";
 import { quoted } from "../typography";
 import { stream } from "../ws";
@@ -124,7 +124,7 @@ export function FixturePanel({ fixture, onError, onClose }: { fixture: { id: str
   }, [fixture.id]);
   useEffect(read, [read]);
   // The shared motion store follows positions itself; this read concerns the light faders and patch.
-  useCommandEvents(["panic", "show.", "fader.", "venue.fixture.", "colour."], read);
+  useDomainEvents(["patch", "faders", "playback", "colours", "settings", "show"], read);
   const glide = useTopic<Glide>("light:glide", { faders: {} });
   // one universe followed, only while a channel has modes to show; left when the panel goes (a tablet keeps no stream)
   const followsModes = channels.some((c) => c.modes?.length);

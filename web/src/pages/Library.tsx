@@ -3,7 +3,7 @@ import { useMe, useT } from "../App";
 import { can, cmd } from "../api";
 import { Modal } from "../components/Modal";
 import { useContextMenu, useFloatingMenu, useMenuFocus } from "../components/menu";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
 
 /** A definition as `library.list` gives it (T20b). */
@@ -114,7 +114,7 @@ export function LibraryPage(): ReactElement {
     );
   useEffect(() => void refresh(), []);
   // a definition added, replaced or merged elsewhere (the Import page, another screen, an AI client): read again
-  useCommandEvents(["library.", "fixture.definition.", "venue.fixture.", "backup.restore"], () => void refresh());
+  useDomainEvents(["definitions", "patch", "show"], () => void refresh());
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
   const manufacturers = useMemo(() => [...new Set(rows.map((r) => r.manufacturer))].sort((a, b) => a.localeCompare(b)), [rows]);
   const types = useMemo(() => [...new Set(rows.map((r) => r.type).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [rows]);

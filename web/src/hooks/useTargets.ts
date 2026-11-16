@@ -1,3 +1,4 @@
+import type { Domain } from "../../../src/plugins/light/commands/domains.js";
 import { useSyncExternalStore } from "react";
 import { keepPatched, type PointPatch } from "../target-patches";
 import { keepRows } from "../command-store";
@@ -49,8 +50,8 @@ export interface TargetName {
   name: string;
 }
 
-/** Commands after which a target, its heads or its bounds may have changed (target.set aside: below). */
-const PREFIXES = ["target.", "show.", "history.", "panic", "snapshot.", "venue.", "group.", "stage.", "import.", "backup."];
+/** What may change a target, its heads or its bounds (target.set aside: below). */
+const DOMAINS: readonly Domain[] = ["targets", "patch", "zones", "groups", "show"];
 /**
  * A burst of target.set (a pad dragged, a MIDI fader: 25 a second) reads the list again at most once every 150 ms, the
  * latest state only: the pad that sent it already has its point from target.set's answer (`patchPoint`).
@@ -86,7 +87,7 @@ function next(previous: TargetsState, list: TargetRow[], loaded: boolean): Targe
 const store = createPageStore<TargetsState, TargetRow[]>({
   command: "target.list",
   initial: { rows: [], names: [], loaded: false },
-  prefixes: PREFIXES,
+  domains: DOMAINS,
   onCommand: (name) => {
     if (name !== "target.set") return false;
     soonTimer ??= window.setTimeout(() => {

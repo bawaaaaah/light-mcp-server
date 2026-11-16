@@ -77,6 +77,7 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Régler les pistes",
     titleEn: "Set the tracks",
     hints: "I",
+    changes: ["patch"],
     description:
       "Sets fadeable tracks. scope fixture (default): on each fixture given, enabled switches its tracks on or off, and fade (channel names, as venue.tracks.get gives them) replaces its own list (null: back to its model's). scope model: fade sets the list of the model of the fixtures given (all of one model), which every fixture of that model without a list of its own follows; enabled is refused there (a fixture enables its own tracks). Nothing ticked means every channel jumps. Returns the first fixture's tracks.",
     right: "show:write",
@@ -113,6 +114,7 @@ export function registerTracksCommands(reg: CommandRegistry, show: ShowRuntime):
     title: "Revenir à la liste du modèle",
     titleEn: "Back to the model's tracks",
     hints: "DI",
+    changes: ["patch"],
     description:
       "Removes a list of fadeable tracks. scope fixture (default): the fixture's own list goes (it follows its model's again; its tracks stay enabled or not). scope model: the model's list goes (its fixtures without a list of their own have nothing ticked: every channel jumps).",
     right: "show:write",

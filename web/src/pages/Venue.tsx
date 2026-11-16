@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
 import { useNav, useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { stricter } from "../motionLock";
 import { jumpTo, labelOf, slug, uniqueId } from "../util";
@@ -162,7 +162,7 @@ export function VenuePage(): ReactElement {
     refresh();
     void cmd<Def[]>("venue.library").then(setLibrary).catch(() => undefined);
   }, [refresh]);
-  useCommandEvents(["venue.", "stage.", "import.", "show.", "history."], refresh);
+  useDomainEvents(["patch", "canvases", "zones", "show", "shows"], refresh);
   const run = (name: string, args: unknown) => cmd(name, args).catch((e: Error) => setError(e.message));
   /** The open venue's row (venue.list), and the other shows that play on it. */
   const openVenue = useMemo(() => venueRows.find((v) => v.active), [venueRows]);

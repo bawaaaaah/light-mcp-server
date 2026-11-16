@@ -222,6 +222,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Intention",
     titleEn: "Intention",
     hints: "DI",
+    changes: ["intentions"],
     description: `Creates or changes an intention (a mood of the colour knowledge base): label (${MAX_LABEL} characters at most), 1 to ${MAX_INTENTION_COLORS} colours (#rrggbb, the first one leads), energy (pose, dynamique, survolte), family, notes. scope "show" (default) stores it in the open show: it travels in the show's .lightshow archives and backups. scope "personal" stores it in the personal library of this machine: every show sees it, and a show's archive carries a copy of the ones it uses. Without id: a creation, with a generated id (i-…, returned): several intentions may share a label (the other ones are returned in duplicates; a word naming that label goes to the most specific: show > personal > private file > shipped). With id: that id is written: an edit, a touch-up of a shipped or private one for the show (or for every show from the personal library), a copy into the show or into the library; the id never follows the label, which is free to change (songs and ambiance: tags name the id). A renamed one keeps its former labels in aliases (given aliases replace them), so that a word typed before still finds it. hidden: true (show only, an id known below) writes a mask as intention.delete does, but without its guard (history.restore and show.revert put a mask back this way): songs and looks still naming it are returned in usedBy, they now name an unknown intention. Intentions of the private file (data/private/knowledge.json) have their keyword's key as id: renaming a keyword there breaks what names it.`,
     right: "show:write",
     profiles: ["design"],
@@ -261,6 +262,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Supprimer une intention",
     titleEn: "Delete an intention",
     hints: "DI",
+    changes: ["intentions"],
     description:
       "Removes an intention, by id (or by a name: the one that name goes to, as songs read it). scope, as for intention.put: \"personal\" takes the personal library's, whatever the open show has of that key; \"show\" the show's own only; none, the one in use. One of the show: its file goes (a touch-up gives the one below back: reverted; a mask shows the masked one again: restored). One of the personal library (the show having none of that key): removed for every show of this machine. Shipped, or from the private file: masked for this show (hidden; deleting the mask brings it back). Refused while songs (mood) or looks (ambiance: tag) of the open show use it and it would become unknown, unless force: the error names them (detail.uses). A personal one with nothing below is also refused, unless force, while other shows of this machine name it: the same error names them (detail.otherShows), as show.references does. Returns what was done: deleted, reverted, hidden or restored.",
     right: "show:write",
@@ -349,6 +351,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Look par intention",
     titleEn: "Look from an intent",
     hints: "I",
+    changes: ["looks"],
     description:
       "Proposes a look from an intention: intentions by id or by name (e.g. intimite, joie, or a label as knowledge.get gives it), optional energy (pose, dynamique, survolte), extra colours, cut (true = claque, false = respire). Returns the look and an explanation; saved only if save is true. Its ambiance: tags name each intention by id when one intention only answers to the name (an unknown word stays as typed); a name several answer to stays a name (show.lint says it). " + INTENTION_REFS_HELP,
     right: "show:write",
@@ -369,6 +372,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Remplir la grille d'un chant",
     titleEn: "Fill a song's grid",
     hints: "I",
+    changes: ["songs", "groups"],
     description:
       "Gives every section without a look a proposed one, following the method: the song's mood is the guard rail, energy from the section (or its name: intro/couplet posé, refrain/pont dynamique, final/vamp survolté), dominant/accent swapped between neighbours for contrast. Also creates the song's exclusive group. Saved only if save is true.",
     right: "show:write",
@@ -924,6 +928,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     title: "Presets automatiques",
     titleEn: "Automatic presets",
     hints: "I",
+    changes: ["looks", "groups", "canvases", "settings"],
     description:
       "Wolfmix-like first lighting: base palettes from the colour knowledge (warm white, intimate, calm, joy, celebration, strength) and one look per main technique on a canvas, in an exclusive group; the warm white becomes the safe look if the show has none. Proposal unless apply is true; existing auto-* items are never overwritten. The colours follow the knowledge base as merged for the show: an intention touched up in the show changes them, a masked one falls back to the built-in colours.",
     right: "show:write",

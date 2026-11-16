@@ -4,7 +4,7 @@
  * Mouse only: on a touch screen a long press already opens the menu with the same preview.
  */
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { clearPeeks, LookPeek } from "./LookPeek";
 import { useFloatingMenu } from "./menu";
 
@@ -38,7 +38,7 @@ export function useHoverPeek(enabled: boolean): HoverPeek {
     setPeek(null);
   };
   // what a peek shows changes with the look, its palette or the venue: fetched again then
-  useCommandEvents(["look.put", "look.delete", "look.restore", "palette.", "venue.", "history.", "show.open", "archive."], clearPeeks);
+  useDomainEvents(["looks", "patch", "canvases", "show"], clearPeeks);
   useEffect(() => {
     if (!enabled) close();
     return () => window.clearTimeout(timer.current);

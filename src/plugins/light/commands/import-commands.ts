@@ -48,6 +48,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     title: "Ajouter une définition de projecteur",
     titleEn: "Add a fixture definition",
     hints: "DI",
+    changes: ["definitions", "patch"],
     description:
       "Adds a QLC+ fixture definition (.qxf) to data/fixtures, the library every import and patch reads; checked before it is written. Give its text (xml) or, to keep it byte for byte (an ISO-8859-1 file), its bytes (base64): it is read as the library reads it and written as given. A file of the same name, or another file of the same model (manufacturer + model), with another content is refused (detail: exists, file, folder, sameModel) unless replace: true, which then writes over the file the library uses for that model, where it lies (this venue's own folder or data/fixtures; sharedUnchanged: the shared file stays as it was for the other venues), the old version copied to the definitions' trash first (previous, for library.restore). A file holding another model that fixtures use — here or in another venue — is never overwritten. The fixtures that resolve the file replaced, here (usedBy) and in other venues (otherVenues), must find the modes they use, laid out alike: refused unless force otherwise (lostModes, changedModes). dryRun: the plan, nothing written. The same model already there, identical: nothing is written (unchanged).",
     right: "show:write",
@@ -96,6 +97,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     title: "Importer un workspace QLC+",
     titleEn: "Import a QLC+ workspace",
     hints: "DI",
+    changes: ["show"],
     description:
       "Converts a QLC+ workspace (.qxw) into the venue (patch, canvas) and the show (looks with exact steps tagged with the recognised technique, exclusive groups, masters, MIDI mappings with the same notes). Dry run unless apply is true. Give `file` (name inside data/imports) or `xml`.",
     right: "show:write",
@@ -189,6 +191,7 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
     title: "Reconstruire en technique",
     titleEn: "Rebuild as a technique",
     hints: "I",
+    changes: ["looks"],
     description:
       "Rebuilds imported looks (exact steps) into editable parametric techniques (plat, damier, palette, creux, masques) when the recognised technique allows it and the re-rendered result matches the original (fidelity ≥ minFidelity). Dry run unless save is true; the previous version is kept in the backups.",
     right: "show:write",

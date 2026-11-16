@@ -386,6 +386,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Supprimer une définition",
     titleEn: "Delete a definition",
     hints: "DI",
+    changes: ["definitions"],
     description:
       "Moves a library definition (id from library.list) to the trash (library.trash, library.restore). Refused unless force while fixtures resolve to it: this venue's (usedBy), unless another identical file of the same model takes over (fallback); for a shared file, any other venue's (otherVenues) always. With force, those fixtures fall back to fallback, or have no definition (show.lint says so). aliases: this venue's aliases whose target would have no definition left; dropAliases removes them too. dropOverrides: also removes this venue's corrections of the model when no file of it is left. dryRun: only says what it would do.",
     right: "show:write",
@@ -514,6 +515,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Restaurer une définition",
     titleEn: "Restore a definition",
     hints: "",
+    changes: ["definitions"],
     description:
       "Puts a definition of the trash (id from library.trash) back in the folder it came from, under a free name if its own is taken: the shared folder, or its venue's own (another venue's too) while that venue exists; a venue gone since: the shared folder (toShared). Says whether it then wins for its model (winner: it is read before the file in use, displaces, displacesWhere), the other files of the model (copies), and the fixtures whose definition would change that way, here (usedBy) and in other venues (otherVenues): refused unless force when there are some and the files differ (an old version kept by « Remplacer » would otherwise silently take over). When the file displaced is in the same folder (options), as: replace puts that file in the trash and the restored one under its name; as: beside restores it under a name read after it, which changes nothing. dryRun: the plan only.",
     right: "show:write",
@@ -549,6 +551,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Vider la corbeille des définitions",
     titleEn: "Empty the definitions trash",
     hints: "DI",
+    changes: ["definitions"],
     description:
       "Removes definitions of the trash for good (they can no longer be restored). Needs show:admin, the right of the other irreversible deletions (show.delete, show.reset), decision L4: a régisseur asks the venue's administrator. ids: the entries confirmed (what a dry run listed); one added since stays, one gone since is said (missing). Without ids, everything listed now. dryRun: what would go (removed lists them), nothing removed.",
     right: "show:admin",
@@ -576,6 +579,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Dupliquer une définition",
     titleEn: "Duplicate a definition",
     hints: "",
+    changes: ["definitions"],
     description:
       "Copies a library definition (id) into this venue's own folder (folder: shared for data/fixtures), as a new model: model (default « <model> (copie) »), manufacturer (default the same); the text is retouched on <Manufacturer> and <Model> only, in the file's own encoding (UTF-8, or Latin-1 byte for byte); this venue's corrections of the model are copied under the new name when it has none (copiedOverrides). sameName: true keeps the names instead — a byte-for-byte copy for this venue, which then wins over the shared definition of that model (its fixtures, takesOver, use the copy); only from a shared file. The original is untouched.",
     right: "show:write",
@@ -628,6 +632,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Fusionner deux définitions",
     titleEn: "Merge two definitions",
     hints: "D",
+    changes: ["definitions"],
     description:
       "Merges duplicates (ids from library.list). as pick: keep and drop are files of one model; the dropped files go to the trash, the fixtures stay as they are (refused when a mode in use — here, or by another venue resolving a dropped shared file — is missing from keep; refused unless force when a dropped shared file serves another venue and keep is this venue's own). as alias: drop's model, or from (a model name with no file), becomes a name of keep's (decision Q2): its fixtures, and those of the aliases that already followed it (retargeted, with their previous target), keep their manufacturer, model, mode and address and resolve keep's definition, their mode by the mode table (found by name, then channel count; modes gives the rest, old → keep's mode name; a mode in use without an equivalent refuses the alias, unmapped lists them; a footprint change needs force); the files stay, library.unalias undoes it. The old name's corrections are copied onto keep's model (kept under the old name too); when keep's model has its own, overrides must say which win (detail overridesConflict; source keeps the target's former ones in its history, replacedOverrides). dryRun: the plan only, never refused.",
     right: "show:write",
@@ -755,6 +760,7 @@ export function registerLibraryCommands(reg: CommandRegistry, s: LibraryServices
     title: "Retirer un alias",
     titleEn: "Remove an alias",
     hints: "DI",
+    changes: ["definitions"],
     description:
       "Removes an alias of this venue (id from library.list's aliases: the old model's key): its fixtures resolve their own model's definition again (fixtures: each one's mode before and after, channel counts; noDefinition when the old model has no file any more). The corrections copied onto the target stay there (decision L2); the old name kept its own. dryRun: the plan only.",
     right: "show:write",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ApiError, can, cmd, lightState, type Role } from "../api";
 import { useNav, useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { slug } from "../util";
 
 /** Widgets of the safety bar: a dashboard with only these is still to fill. */
@@ -45,7 +45,7 @@ export function GettingStarted({ role, looks, dashboards, current, onDashboard }
       }
     }, () => undefined);
   }, [load]);
-  useCommandEvents(["venue.", "import.", "show.", "history."], load);
+  useDomainEvents(["patch", "canvases", "show"], load);
 
   if (fixtures === null || hidden) return null;
   // one dashboard with something to play is enough: a second one left empty on purpose is no reason to show the guide

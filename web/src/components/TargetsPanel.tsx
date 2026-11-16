@@ -8,7 +8,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactElement } fr
 import { cmd } from "../api";
 import { useT } from "../App";
 import { EditorActions } from "./EditorActions";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import type { Box3, MoveFade, Smoothing, TargetRow } from "../hooks/useTargets";
 import { slug, uniqueId } from "../util";
 import { SwatchPicker } from "./SwatchPicker";
@@ -88,7 +88,7 @@ export function TargetsPanel({ targets, onError, onChanged }: { targets: TargetR
     void cmd<Box3>("target.volume").then(setStageVolume, () => undefined);
   }, []);
   useEffect(read, [read]);
-  useCommandEvents(["venue.", "stage.", "group.", "show.", "import.", "history."], read);
+  useDomainEvents(["patch", "zones", "groups", "settings", "show"], read);
   const [draft, setDraft] = useState<Draft | null>(null);
   /** The draft as it opened: Close and « Modifier » on another row ask before dropping changes. */
   const opened = useRef<string>("");

@@ -97,6 +97,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Position des lyres",
     titleEn: "Moving head position",
     hints: "I",
+    changes: ["motion"],
     description:
       "Sets a manual pan/tilt (normalised 0..1, 0.5 = centre) on moving heads (fixtures, a group, or all heads); it wins over the looks' moves until released. Direct, as a gesture: no glide. Pan or tilt alone claims that axis only, the other stays with the layer below. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
     right: "commands:position",
@@ -119,6 +120,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Position de repos",
     titleEn: "Rest position",
     hints: "DI",
+    changes: ["motion", "settings"],
     description: "Sets the rest position (normalised 0..1, 0.5 = centre) of moving heads, stored in the show: where a head nobody moves goes back to. Touches only the heads given, others keep theirs. Refused for an id that is not an installed moving head.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
@@ -134,6 +136,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Effacer la position de repos",
     titleEn: "Clear the rest position",
     hints: "DI",
+    changes: ["motion", "settings"],
     description: "Clears the rest position of moving heads: they go back to the centre. Other heads keep theirs.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
@@ -150,6 +153,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Relâcher les lyres",
     titleEn: "Release the moving heads",
     hints: "I",
+    changes: ["motion"],
     description:
       "Releases manual positions (fixtures, a group, or all) and the hold a Panic left on those heads: they glide back to the looks' moves, else to their rest position. Returns the heads released. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
     right: "commands:position",
@@ -169,6 +173,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Rendre la main",
     titleEn: "Hand back",
     hints: "",
+    changes: ["motion"],
     description:
       "« Rendre la main » on fixtures, a group, or all: finds the strongest top layer present across both axes of the targeted heads (manual, target, look, hold, rest) and releases only the axes at that layer: on one head held manual on pan and by a look on tilt, the first press releases pan only. Axes whose top is a lock (hard, or soft without a manual claim above it) are set aside. Other heads keep theirs; pressing again descends one more claim, gliding to rest. A released look claims again once restarted. Locks are never released: hard releases nothing (those heads are listed in refused), soft permits manual only. Returns, per head, the owners released (manual, target:<id>, look:<id>, hold).",
     right: "commands:position",
@@ -186,6 +191,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Lyres au repos",
     titleEn: "Moving heads to rest",
     hints: "I",
+    changes: ["motion"],
     description:
       "Sends moving heads (fixtures, a group, or all) to their rest position, gliding: every claim on them is released — the manual position, the looks' moves (a look started again claims them again), a Panic hold. Returns, per head, what was released. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are; under a soft lock only the manual position is released.",
     right: "commands:position",
@@ -202,6 +208,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Viser",
     titleEn: "Aim",
     hints: "I",
+    changes: ["motion"],
     description: "Points moving heads at a stage zone (its aiming point: the centre of its surface unless one was placed; at `height` metres above its floor, by default the zone's own aiming height, else 1.5 = a standing person's face) or at a point {x,y,z} in metres. Needs the fixtures' position, mount and orientation (yaw, calibration). Sets a manual position, direct like the XY pad (no glide: the heads go there at once, bounded by the speed rules only); out-of-reach fixtures are reported (with `unplaced: true` when the fixture has no stage position); the zone the heads then hold is reported as `aimed` by position.list (the Live's « Zones » widget, T28) until a gesture replaces it. To make a look go to a zone or along a path of zones, see look.put move.at.zone and move.at.path. Heads frozen hard (motion.freeze) are left out and listed in refused; refused when all are.",
     right: "commands:position",
     profiles: ["live", "design", "setup"],
@@ -313,6 +320,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     titleEn: "Freeze the moving heads",
     // a toggle switches each call: not idempotent; freezing alone only hardens
     hints: "",
+    changes: ["motion"],
     description:
       "« Figer les lyres »: the moving heads stay where they really are (the position sent, under a speed rule where the head has got to). soft (default): the looks and targets no longer move them, the XY pad and position.* still do; hard: nothing moves them, pad, aiming and calibration included (the DMX console still does); colours, dimmer, gobos play on. Without fixtures or group: the global lock, over every head; with them: those heads (a group is expanded into its heads now). Only hardens or keeps: asking soft on a hard lock does not loosen it (motion.unfreeze does). toggle: the target switches between free and the level given (global: every installed head frozen, by the global or its own lock → everything freed, else the global lock at that level, never loosening a head already frozen; heads: all locked on their own → freed, else locked). Survives a restart. Right commands:freeze for soft; hard and toggle need commands:position too. A toggle that would unfreeze is refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI it frees only what is frozen soft (a hard lock stays), and is refused when every head is frozen hard. Returns the lock levels and each head's effective level.",
     right: "commands:freeze",
@@ -351,6 +359,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Défiger les lyres",
     titleEn: "Unfreeze the moving heads",
     hints: "I",
+    changes: ["motion"],
     description:
       "Unfreezes moving heads frozen by motion.freeze: they glide (at least a second) from where they were held to what claims them now (a manual position, the look's move at its current phase, else rest). to: off (default) frees them, soft loosens a hard lock to soft (the pad moves them again); it never freezes. Without fixtures or group: everything — the global lock and every head's own lock (heads absent or no longer patched included); with them: those heads' own locks (a head still under the global lock stays frozen: see each head's effective level in the reply). Right commands:position; refused from OSC, OS2L, AbleSet and a song's timeline (they may freeze, never unfreeze); from MIDI only a soft lock is loosened (a hard one stays hard; refused when the target is only frozen hard: unfreeze it from the interface). Returns the lock levels and each head's effective level.",
     right: "commands:position",
@@ -447,6 +456,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Enregistrer un repère",
     titleEn: "Record a mark",
     hints: "",
+    changes: ["calibration"],
     description:
       "Guided calibration, step 1 (repeat for 2–3 marks): once the head has been aimed by hand (XY pad, position.set) at a known spot — a zone's geometric centre on its floor (never its placed aiming point; for a concave zone, a point inside it), or a point {x,y,z} in metres — records that spot with the position really sent to the head, read on the next frame. Refused while the head is frozen hard (motion.freeze), while a look or a target holds the head, while it glides, while it has not reached the position asked by hand (a speed rule, the DMX console or a fader on pan/tilt), and when no frame is rendered (output stopped).",
     right: "show:write",
@@ -467,12 +477,13 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     },
   });
   reg.register({ name: "calibration.list", title: "Repères enregistrés", titleEn: "Saved marks", description: "Calibration marks recorded for a head.", right: "dashboards:view", readOnly: true, profiles: ["setup"], schema: z.object({ fixture: z.string() }), run: ({ fixture }) => samples.get(fixture) ?? [] });
-  reg.register({ name: "calibration.clear", title: "Effacer les repères", titleEn: "Clear the marks", hints: "DI", description: "Forgets the calibration marks of a head.", right: "show:write", profiles: ["setup"], schema: z.object({ fixture: z.string() }), run: ({ fixture }) => ({ cleared: samples.delete(fixture) }) });
+  reg.register({ name: "calibration.clear", title: "Effacer les repères", titleEn: "Clear the marks", hints: "DI", changes: ["calibration"], description: "Forgets the calibration marks of a head.", right: "show:write", profiles: ["setup"], schema: z.object({ fixture: z.string() }), run: ({ fixture }) => ({ cleared: samples.delete(fixture) }) });
   reg.register({
     name: "calibration.solve",
     title: "Calculer la calibration",
     titleEn: "Compute the calibration",
     hints: "DI",
+    changes: ["calibration", "patch"],
     description:
       "Guided calibration, step 2: from the recorded marks, finds the head's yaw, tilt offset and pan/tilt inversions (with the angular error per mark). With apply, writes them into the patch and forgets the marks; apply is refused while the head is frozen hard (motion.freeze: new inversions would move it), solving alone is not.",
     right: "show:write",
@@ -511,6 +522,7 @@ export function registerMoveCommands(reg: CommandRegistry, show: ShowRuntime, ne
     title: "Corriger sur un repère",
     titleEn: "Correct on a mark",
     hints: "DI",
+    changes: ["calibration", "patch"],
     description:
       "Manual calibration: once the head, aimed at a known spot (position.aim with the calibration as it is), has been corrected by hand (XY pad, position.set) until its beam is really on that spot — a zone's geometric centre (never its placed aiming point; for a concave zone, a point inside it) at `height` metres above its floor (default 0, the floor), or a point {x,y,z} — gives the pan and tilt offsets that make the calibration agree, with the angular error on that mark before and after (degrees). With apply, writes them into the patch (one write; nothing else of the orientation changes) and keeps the held position when it already points at the spot with the new offsets, else aims the head at the spot again from where it is held (the same solution, never a half turn, the stops left to the output): it should not move. A pad pushed beyond a useful stop leaves the head at the stop: measured there, `note` says so (calibration.record too). One mark corrects the rigid error only (heading, tilt offset): a pan or tilt running backwards or a wrong travel needs two marks or more (calibration.record, calibration.solve) — `advice` says so when the correction is large. Refused as calibration.record is (frozen hard, held by a look or a target, gliding, not arrived, no frame rendered).",
     right: "show:write",

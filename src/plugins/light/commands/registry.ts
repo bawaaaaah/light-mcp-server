@@ -10,6 +10,7 @@
  */
 import type { z, ZodTypeAny } from "zod";
 import { say } from "../../../core/lang.js";
+import type { Domain } from "./domains.js";
 
 export type Origin = "ui" | "midi" | "osc" | "os2l" | "ableset" | "mcp" | "timeline" | "cli" | "system";
 
@@ -34,6 +35,11 @@ export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
    * looks at the network, the hardware or another program.
    */
   hints?: ToolHintCode;
+  /**
+   * What it changes (domains.ts): copied into its event (light:command), the screens showing one of them read again.
+   * Every command that writes says it (`[]` when no screen shows what it changes); a read-only one never does.
+   */
+  changes?: readonly Domain[];
   description: string; // for MCP tool descriptions
   /** Right required, e.g. "commands:dmx". */
   right: string;
@@ -71,6 +77,8 @@ export interface CommandEvent {
   error?: string;
   at: number;
   who?: string;
+  /** The command's `changes` (CommandDef). */
+  changes?: readonly Domain[];
 }
 
 export class CommandRegistry {
@@ -112,7 +120,7 @@ export class CommandRegistry {
       throw new CommandError("invalid", say(`arguments invalides pour ${name}${first ? ` (${where}${first.message})` : ""}`, `invalid arguments for ${name}${first ? ` (${where}${first.message})` : ""}`), parsed.error.flatten());
     }
     const quiet = Boolean(def.readOnly) || def.dry?.(parsed.data) === true;
-    const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}) };
+    const event: CommandEvent = { name, origin: ctx.origin, args: parsed.data, ok: true, at: Date.now(), ...(ctx.who ? { who: ctx.who } : {}), ...(def.changes ? { changes: def.changes } : {}) };
     try {
       const result = await def.run(parsed.data, ctx);
       if (!quiet) this.onStateChange();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import { ApiError, cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { Modal } from "./Modal";
 import { Versions } from "./Versions";
 import { canvasBlocks, type CanvasRender } from "../canvas-blocks";
@@ -213,7 +213,7 @@ export function CanvasEditor({ id, fixtures, onClose }: { id: string; fixtures: 
   }, [id, show, failed]);
   useEffect(() => reload(), [reload]);
   // another device, the AI or « Versions » changed it: read again (our own edits come back the same way, with our revision)
-  useCommandEvents(["venue.canvas.", "history.", "show.apply", "show.revert", "backup.restore"], reload);
+  useDomainEvents(["canvases", "show"], reload);
 
   /** Queues a gesture: they are sent one at a time, each reading the canvas the previous one left. A question open holds them back, and says so. */
   const chain = useRef<Promise<void>>(Promise.resolve());

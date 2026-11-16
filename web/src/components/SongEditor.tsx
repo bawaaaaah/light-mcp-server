@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ThemePicker } from "./ThemePicker";
 import { themesOf, type KnowledgeMoods } from "../themes";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { IntentionOrigins } from "./IntentionOrigins";
 import { cmd } from "../api";
 import { useT } from "../App";
@@ -106,7 +106,7 @@ export function SongEditor({ initial, existing, onClose }: { initial: SongDraft;
   const [knowledge, setKnowledge] = useState<KnowledgeMoods | null>(null);
   const readKnowledge = useCallback(() => void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
   useEffect(readKnowledge, [readKnowledge]);
-  useCommandEvents(["intention.put", "intention.delete"], readKnowledge);
+  useDomainEvents(["intentions"], readKnowledge);
   const themes = useMemo(() => themesOf(knowledge), [knowledge]);
 
   const id = isNew ? uniqueId(slug(song.title, "chant"), existing) : song.id;

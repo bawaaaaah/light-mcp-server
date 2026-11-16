@@ -2,7 +2,7 @@ import { beforeMark, quoted } from "../typography";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../../../src/plugins/light/show/folders.js";
 import { tagNames, tagsShown } from "../intentions";
@@ -159,10 +159,10 @@ export function ShowPage(): ReactElement {
       .catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  useCommandEvents(["look.", "venue.canvas.", "history.", "group.", "fader.", "import.", "show.settings", "show.folder", "show.autopresets", "show.apply", "show.revert", "song.grid_fill", "snapshot."], refresh);
+  useDomainEvents(["looks", "playback", "canvases", "groups", "faders", "settings", "snapshots", "show"], refresh);
   // the intentions and what uses them: the knowledge base alone is read again (T15)
   const refreshKnowledge = useCallback(() => void cmd<KnowledgeMoods>("knowledge.get").then(setKnowledge).catch(() => undefined), []);
-  useCommandEvents(["intention.put", "intention.delete", "song.put", "song.delete"], refreshKnowledge);
+  useDomainEvents(["intentions", "songs"], refreshKnowledge);
   const run = (name: string, args: unknown = {}) => cmd(name, args).catch((e: Error) => setError(e.message));
   const changeMoveFade = (moveFade: MoveFade) => {
     setSettings((current) => (current ? { ...current, moveFade } : current));

@@ -6,7 +6,9 @@ import type { ZodObject, ZodRawShape } from "zod";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { toolHints } from "../../../src/plugins/light/commands/tool-hints.js";
-import { commandTitle, type CommandDef } from "../../../src/plugins/light/commands/registry.js";
+import { commandTitle, systemContext, type CommandDef } from "../../../src/plugins/light/commands/registry.js";
+import { DOMAINS } from "../../../src/plugins/light/commands/domains.js";
+import { commandNotice } from "../../../src/plugins/light/activity.js";
 import { inLang } from "../../../src/core/lang.js";
 
 /**
@@ -46,6 +48,29 @@ describe("command contract", () => {
       expect(commandTitle(look)).to.equal(look.title);
       expect(inLang("en", () => commandTitle(look))).to.equal(look.titleEn);
       expect(look.titleEn).to.not.equal(look.title);
+    });
+  });
+
+  describe("what a command changes (T45)", () => {
+    it("says it on every command that writes, never on a read-only one", () => {
+      expect(commands.filter((c) => !c.readOnly && c.changes === undefined).map((c) => c.name)).to.deep.equal([]);
+      expect(commands.filter((c) => c.readOnly && c.changes !== undefined).map((c) => c.name)).to.deep.equal([]);
+    });
+
+    it("names only known domains, each once, and every domain is changed by some command", () => {
+      for (const c of commands) for (const d of c.changes ?? []) expect(DOMAINS, c.name).to.include(d);
+      for (const c of commands) expect(new Set(c.changes ?? []).size, c.name).to.equal((c.changes ?? []).length);
+      const changed = new Set(commands.flatMap((c) => c.changes ?? []));
+      expect(DOMAINS.filter((d) => !changed.has(d))).to.deep.equal([]);
+    });
+
+    it("carries them in the event every page receives", async () => {
+      const heard: unknown[] = [];
+      const off = plugin.commands.onCommand((e) => heard.push(commandNotice(e)));
+      await plugin.commands.invoke("grandmaster.set", { level: 1 }, systemContext());
+      off();
+      expect(heard).to.have.length(1);
+      expect(heard[0]).to.include({ name: "grandmaster.set", ok: true }).and.to.have.deep.property("changes", ["settings"]);
     });
   });
 

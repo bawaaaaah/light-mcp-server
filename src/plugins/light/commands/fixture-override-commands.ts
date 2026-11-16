@@ -62,6 +62,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Régler le halo d'une fixture",
     titleEn: "Set a fixture's halo",
     hints: "I",
+    changes: ["patch"],
     description:
       "Corrects a fixture's accent heads (a halo, a ring, a backlight), for its model (default) or this fixture only. accent: the colour channels (names, as venue.fixture.heads gives them) of the accent heads, whole heads only and never every head (an accent needs a full head beside it), checked against every mode of the model (a mode that has none of them keeps the detection by name); [] = no accent (every head is a full one); null = back to the detection by name. follow false: an accent head stays dark unless a look paints it (no colour from the other heads nor from a whole-fixture colour); null = back to the default (true). What is not given stays as set.",
     right: "show:write",
@@ -102,6 +103,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Annuler la correction des têtes",
     titleEn: "Halo found by its name",
     hints: "DI",
+    changes: ["patch"],
     description: "Removes the whole heads correction (accent and follow) of a fixture's model (default) or of this fixture only: the halo is found by its channel names again and follows the look (or the model's correction applies again).",
     right: "show:write",
     profiles: ["setup"],
@@ -161,6 +163,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Corriger la course d'une lyre",
     titleEn: "Correct a moving head's travel",
     hints: "I",
+    changes: ["patch"],
     description:
       "Corrects a moving head's pan/tilt travel (degrees, 1 to 1080) when its definition is wrong, for its model (default: every fixture of its manufacturer and model, in the DMX modes that declare no travel of their own: a mode that declares one keeps it, listed in modesKeepingTravel) or for this fixture only (over its model's and its mode's, axis by axis). panMax / tiltMax: the real travel; null = back to the model's or the definition's. What is not given stays as set. Aiming, the stops' conversion and the pad follow the travel; the bytes sent for a position do not change.",
     right: "show:write",
@@ -233,6 +236,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Régler la roue de couleurs",
     titleEn: "Set the colour wheel",
     hints: "DI",
+    changes: ["patch"],
     description:
       "Sets the colour → slot correspondence of a lamp fixture's colour wheel, for its whole model (scope model) or for this fixture only (scope fixture, which then replaces the model's settings as a whole). slots, keyed by a slot's first DMX value (\"16\"): color (#rrggbb) its real colour when the definition is wrong or gives none (a range without colour becomes a slot), answers the colours it answers to beside its own (an asked colour nearest one of them lands on it), off never chosen from a painted colour. doubles: split slots may be chosen when a look asks their two colours of the fixture (default true). change: \"mid\" the slot changes at mid-fade in a crossfade (default), \"black\" the dimmer goes through black there, held at 0 for changeMs after the change (the time the wheel takes to turn, default 300 ms: to measure on the fixture). Replaces the wheel settings of that scope.",
     right: "show:write",
@@ -257,6 +261,7 @@ export function registerFixtureOverrideCommands(common: ShowCommandScope): void 
     title: "Effacer les réglages de la roue",
     titleEn: "Clear the colour wheel settings",
     hints: "DI",
+    changes: ["patch"],
     description: "Removes the colour wheel settings of a fixture's model (scope model) or of this fixture (scope fixture): the model's settings, or the definition, apply again.",
     right: "show:write",
     profiles: ["setup"],

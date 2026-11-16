@@ -5,6 +5,7 @@
  * state really changed. Pure: the command, the control channel and the timers are given (page-store.ts in a page), so
  * it runs without one.
  */
+import { changesAny, type Domain } from "../../src/plugins/light/commands/domains.js";
 
 /** What the store reads through: `cmd` of api.ts and `control` of ws.ts in a page. */
 export interface CommandStoreDeps<H = unknown> {
@@ -27,13 +28,13 @@ export interface CommandStoreOptions<State, Answer> {
   /** The command that reads the state (`position.preset.list`). */
   command: string;
   initial: State;
-  /** Successful commands after which it reads again: those starting with one of these. */
-  prefixes: readonly string[];
+  /** Successful commands after which it reads again: those that change one of these (their event says it: domains.ts). */
+  domains: readonly Domain[];
   /** Commands among them that change nothing it shows (the read itself, a recall). */
   ignore?: readonly string[];
   /** Other control topics after which it reads again, whatever they carry. */
   topics?: readonly string[];
-  /** A successful command handled otherwise (a burst of target.set): true when it was. Asked before `prefixes`. */
+  /** A successful command handled otherwise (a burst of target.set): true when it was. Asked before `domains`. */
   onCommand?: (name: string) => boolean;
   /**
    * The next state from an answer: `previous` itself when nothing changed (nobody is told). Called only while the
@@ -62,7 +63,7 @@ export interface CommandStore<State> {
 export const RETRY_MS = 2000;
 
 export function createCommandStore<State, Answer, H = unknown>(options: CommandStoreOptions<State, Answer>, deps: CommandStoreDeps<H>): CommandStore<State> {
-  const { command, prefixes, topics = [], onCommand, map, loaded, retryMs = RETRY_MS, onStop } = options;
+  const { command, domains, topics = [], onCommand, map, loaded, retryMs = RETRY_MS, onStop } = options;
   const ignore = new Set(options.ignore ?? []);
   const listeners = new Set<() => void>();
   let state = options.initial;
@@ -112,9 +113,9 @@ export function createCommandStore<State, Answer, H = unknown>(options: CommandS
   const start = (): void => {
     const offs = [
       deps.control.subscribe("light:command", (data) => {
-        const e = data as { name: string; ok: boolean };
+        const e = data as { name: string; ok: boolean; changes?: readonly Domain[] };
         if (!e.ok || onCommand?.(e.name)) return;
-        if (!ignore.has(e.name) && prefixes.some((p) => e.name.startsWith(p))) refresh();
+        if (!ignore.has(e.name) && changesAny(e.changes, domains)) refresh();
       }),
       ...topics.map((topic) => deps.control.subscribe(topic, () => refresh())),
       deps.control.onStatus((up) => up && refresh()),

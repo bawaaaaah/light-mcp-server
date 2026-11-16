@@ -88,7 +88,7 @@ docs/
 | `light:rules` | control | bornages appliqués et leur provenance |
 | `light:conflicts` | control | conflits entre looks actifs |
 | `light:auth` | control | session et rôle |
-| `light:command` | control | chaque commande qui a changé quelque chose : nom, origine, objet visé, réussite ; ses arguments seulement s'ils sont courts (≤ 2 Kio : un import porte tout un workspace) ; jamais l'auteur (le journal d'activité, avec son droit, le donne) |
+| `light:command` | control | chaque commande qui a changé quelque chose : nom, origine, objet visé, réussite, ce qu'elle change (`changes`, domaines de `commands/domains.ts` : les écrans relisent sur eux, T45) ; ses arguments seulement s'ils sont courts (≤ 2 Kio : un import porte tout un workspace) ; jamais l'auteur (le journal d'activité, avec son droit, le donne) |
 | `light:glide` | control | faders lissés en chemin : `{ groups, faders, gm? }`, la valeur envoyée de chacun, ≤ 25 Hz pendant un glissement, puis un message vide ([groups-masters](specs/groups-masters.md) § Lissage) |
 | `light:motion` | control | pourquoi chaque lyre est là (couche, propriétaire, glissement, masqués, relâchés, position envoyée, repos : le rapport de `position.list`), au changement seulement (repos et nom des looks compris), au plus un message par 100 ms, construit à son départ ; pas un flux de positions ([moteur](specs/engine-effects-timing.md) § Couche Mouvement) |
 | `light:dmx` | stream | `params.universes`, 512 octets par univers, ≤ 25 Hz par client, envoyé seulement s'il y a un changement |

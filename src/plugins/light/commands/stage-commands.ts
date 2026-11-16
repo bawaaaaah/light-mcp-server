@@ -75,6 +75,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
     title: "Zone",
     titleEn: "Zone",
     hints: "DI",
+    changes: ["zones"],
     description:
       "Creates or updates a zone: polygon in metres (X stage left→right, Y front→upstage), floor height, type (stage, riser, floor, audience, wall, pillar, truss…), tags, protected, no-aim. `aim` makes it a destination for the moving heads (T27): `height` above its floor (default 1.5), `point` [x, y] aimed at (absent: the centre of its surface), `color`. `outline` says how it was drawn (rect, ellipse {cx, cy, rx, ry, rotation}, polygon), to edit it again; the polygon stays the truth. Refused when its edges cross or its surface is under 0.01 m² (checked only when the polygon changes: an older zone keeps its other edits).",
     right: "show:write",
@@ -91,6 +92,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
     title: "Supprimer une zone",
     titleEn: "Delete a zone",
     hints: "DI",
+    changes: ["zones"],
     description:
       "Deletes a zone. Refused while something uses it (fixtures of the patch aiming at it, show or venue rules scoped to it, MIDI mappings and song track actions naming it by `zone`: the error names them; see show.references), unless force; also refused, unless force, when the venue is shared with other shows (they lose the zone too, the error names them). A forced delete returns usedBy and a `warning` saying those places now name a missing zone.",
     right: "show:write",
@@ -126,6 +128,7 @@ export function registerStageCommands(common: ShowCommandScope, { putCanvas, sha
     title: "Canevas automatique",
     titleEn: "Automatic canvas",
     hints: "I",
+    changes: ["canvases"],
     description: "Builds a canvas from fixtures in the given order: one cell per full head, declared or deduced from the channel names (or per fixture without heads); an accent head (a halo) gets none, a whole-fixture colour reaches it. Topology line, line-mirror or ring. Over an existing canvas, checked as venue.canvas.put (force).",
     right: "show:write",
     profiles: ["setup", "design"],

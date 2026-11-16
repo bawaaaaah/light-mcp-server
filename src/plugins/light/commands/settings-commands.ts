@@ -18,6 +18,7 @@ export function registerSettingsCommands(common: ShowCommandScope): void {
     title: "Modifier les réglages du show",
     titleEn: "Change the show settings",
     hints: "I",
+    changes: ["settings"],
     description: "Updates show settings (safeSnapshot, startupSnapshot: the snapshot recalled when the application starts or the show is opened, safeLook, grandMaster, grandMasterSmoothing: the grand master glides to its level, msPerStep per 1/255 of the travel, null = at once, defaultButtonMode, liveAi: whether AI clients may touch up the service live with live.adjust, looksMerge: several looks on the same fixtures, « last » the last one started covers the others, « highest » each colour keeps its highest value, moveFade: default glide of the heads to a new position, {beats: n} at the current tempo or {seconds: n} (max 30), default {seconds: 1}, 0 = cut, restPositions: per fixture id the {pan, tilt} (0..1) a head nobody moves goes back to, absent = centre; prefer position.rest.set / position.rest.clear, which touch one head at a time).",
     right: "show:write",
     profiles: ["setup", "design"],

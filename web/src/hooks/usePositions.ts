@@ -1,3 +1,4 @@
+import type { Domain } from "../../../src/plugins/light/commands/domains.js";
 import { useSyncExternalStore } from "react";
 import { keepRows } from "../command-store";
 import { createPageStore } from "../page-store";
@@ -32,7 +33,7 @@ export interface PositionRow {
  * recall, which changes none), the show, the patch and the stage (a head moved or recalibrated makes one stale), a head's own settings (`fixture.`: its
  * travel, its stops, its mode).
  */
-const PREFIXES = ["position.preset.", "show.", "history.", "venue.", "stage.", "calibration.", "fixture.", "import.", "backup."];
+const DOMAINS: readonly Domain[] = ["positions", "patch", "zones", "calibration", "show"];
 const READS_NOTHING = ["position.preset.go", "position.preset.list"];
 
 interface PositionsState {
@@ -51,7 +52,7 @@ const lastNames = new Map<string, string>();
 const store = createPageStore<PositionsState, PositionRow[]>({
   command: "position.preset.list",
   initial: { rows: [], loaded: false },
-  prefixes: PREFIXES,
+  domains: DOMAINS,
   ignore: READS_NOTHING,
   loaded: (s) => s.loaded,
   map: (list, previous) => {

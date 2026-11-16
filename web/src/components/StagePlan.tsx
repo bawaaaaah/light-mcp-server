@@ -25,7 +25,7 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { cmd } from "../api";
 import { useT } from "../App";
 import { stream } from "../ws";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
 import { aimSpot, cachedZoneCentre, ellipseFromDrag, ellipsePolygon, movedZone, rectFromDrag, reshapedZone, validZone, zoneAt, type Pt, type ZoneHandle, type ZoneOutline } from "../zone-shape";
 import { arrange, dragOffset, inFrame, placeLabels, textWidth, type Arrange, type P } from "../plan-tools";
@@ -298,7 +298,7 @@ export function StagePlan({
   }, []);
   useEffect(readHeads, [readHeads, fixtures]);
   // the heads move from elsewhere too (another screen, MIDI, an aim, a Panic): read again
-  useCommandEvents(["position.", "panic", "show."], readHeads);
+  useDomainEvents(["motion", "positions", "settings", "show"], readHeads);
 
   // Frame: zones and placed fixtures, with a margin; unplaced fixtures go on a row in front (stage-frame.ts).
   // the targets (T24) are framed too (D2): a target outside the zones widens the plan instead of being cut at its edge;

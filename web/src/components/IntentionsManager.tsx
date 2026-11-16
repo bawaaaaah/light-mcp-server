@@ -9,7 +9,7 @@
  * open (`intention.library`, read here), each row with the shows that name it (page Fichiers).
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { cmd } from "../api";
 import { useT } from "../App";
 import type { Texts } from "../i18n";
@@ -56,17 +56,14 @@ export function IntentionsManager({ kb, onError, library = false }: { kb?: Knowl
   }, [library, onError]);
   useEffect(readLibrary, [readLibrary]);
   // what changes which shows use it too: songs, looks, another show opened, created, reset or restored
-  useCommandEvents(
-    ["intention.put", "intention.delete", "song.put", "song.delete", "look.put", "look.delete", "look.from_intent", "history.restore", "history.undo", "show.apply", "show.revert", "show.rename", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"],
-    readLibrary,
-  );
+  useDomainEvents(["intentions", "songs", "looks", "show", "shows"], readLibrary);
   // the library section also reads the whole base: what a new key replaces (shipped, private file), what a show overrides
   const [context, setContext] = useState<KnowledgeIntentions | null>(null);
   const readContext = useCallback(() => {
     if (library) void cmd<KnowledgeIntentions>("knowledge.get", { machine: true }).then(setContext).catch(() => undefined);
   }, [library]);
   useEffect(readContext, [readContext]);
-  useCommandEvents(["intention.put", "intention.delete", "show.open", "show.create", "show.reset", "show.delete", "backup.restore"], readContext);
+  useDomainEvents(["intentions", "show", "shows"], readContext);
   const list = useMemo(() => (library ? (own ?? []) : intentionsOf(kb)), [library, own, kb]);
   const everything = useMemo(() => (library ? intentionsOf(context) : list), [library, context, list]);
   const loaded = library ? own !== null : Boolean(kb);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from "rea
 import { api, cmd } from "../api";
 import { canvasPass, canvasQuestion } from "./Versions";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import { quoted, beforeMark } from "../typography";
 
 interface Entry {
@@ -102,7 +102,7 @@ export function ActivityPanel(): ReactElement {
       })
       .then(load, (err: Error) => setError(err.message));
   };
-  useCommandEvents([""], () => {
+  useDomainEvents("any", () => {
     if (timer.current !== null) return;
     timer.current = window.setTimeout(() => {
       timer.current = null;

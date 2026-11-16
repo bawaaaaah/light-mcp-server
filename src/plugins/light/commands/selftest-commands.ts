@@ -146,6 +146,7 @@ export function registerSelftestCommands(reg: CommandRegistry, engine: DmxEngine
     title: "Auto-test",
     titleEn: "Self-test",
     hints: "O",
+    changes: ["playback"],
     description:
       "Replays every MIDI mapping (except those that freeze or unfreeze the moving heads, listed as untested), checks its effect (look playing with DMX on its fixtures, group level), checks exclusive groups, measures trigger→frame time, then restores the previous state. With cadence: true, also plays each look (or the given ones) alone and measures its step cadence on the real output against the current tempo (about 4 steps per look: takes a while).",
     right: "commands:selftest",

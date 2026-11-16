@@ -1,3 +1,4 @@
+import type { Domain } from "../../../src/plugins/light/commands/domains.js";
 import { useSyncExternalStore } from "react";
 import { unlessSame } from "../command-store";
 import { createPageStore } from "../page-store";
@@ -25,8 +26,8 @@ export interface ColourPresets {
   loaded: boolean;
 }
 
-/** Commands after which the presets or the favourites may have changed (the presets themselves, a show opened or restored, a version put back). */
-const PREFIXES = ["colour.preset.", "show.", "history.", "backup.", "midi.mapping.", "song."];
+/** What changes the presets or the favourites: the presets themselves (a version put back too), the mappings and songs that use them, the show's settings, another show. */
+const DOMAINS: readonly Domain[] = ["colour-presets", "midi", "songs", "settings", "show"];
 const EMPTY: ColourPresets = { presets: [], favorites: [], loaded: false };
 
 /**
@@ -36,7 +37,7 @@ const EMPTY: ColourPresets = { presets: [], favorites: [], loaded: false };
 export const colourPresetsStore = createPageStore<ColourPresets, { presets: ColourPresetRow[]; favorites: string[] }>({
   command: "colour.preset.list",
   initial: EMPTY,
-  prefixes: PREFIXES,
+  domains: DOMAINS,
   ignore: ["colour.preset.list"],
   loaded: (s) => s.loaded,
   map: (r, previous) => {
@@ -58,15 +59,15 @@ export interface ColoursApplied {
   all?: string;
 }
 
-/** Commands after which a colour applied by hand may have come or gone (a look launched takes its fixtures' back). */
-const APPLIED_PREFIXES = ["colour.apply", "colour.release", "look.", "panic", "snapshot.", "show.", "backup.", "song."];
+/** What may bring or take a colour applied by hand (a look launched takes its fixtures' back, so does a look edited while it plays). */
+const APPLIED_DOMAINS: readonly Domain[] = ["colours", "playback", "looks", "show"];
 const NOTHING_APPLIED: ColoursApplied = { fixtures: {}, groups: {} };
 
 /** The colours applied by hand, read once for every screen that marks them (the widget, the panel, the group menu). */
 export const appliedStore = createPageStore<ColoursApplied, ColoursApplied>({
   command: "colour.applied",
   initial: NOTHING_APPLIED,
-  prefixes: APPLIED_PREFIXES,
+  domains: APPLIED_DOMAINS,
   ignore: ["colour.applied"],
   // the song follower starts a section's look outside any command (review 2, I-1): its look takes its fixtures' colour back
   topics: ["light:song"],

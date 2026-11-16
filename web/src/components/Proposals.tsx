@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../App";
-import { useCommandEvents } from "../hooks/useTopic";
+import { useDomainEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
 import { quoted } from "../typography";
 import { revertPass } from "./DmxModeSection";
@@ -47,7 +47,7 @@ export function Proposals({ onChanged }: { onChanged: () => void }): ReactElemen
   const [notice, setNotice] = useState("");
   const load = useCallback(() => void cmd<Proposal[]>("show.proposals").then(setList, () => setList([])), []);
   useEffect(load, [load]);
-  useCommandEvents(["show.propose", "show.apply", "show.revert", "show.discard"], load);
+  useDomainEvents(["proposals"], load);
   const act = (name: string, id: string, pass: { overwrite?: true; force?: true; shared?: true } = {}) => {
     setError("");
     setNotice("");

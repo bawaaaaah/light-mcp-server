@@ -178,6 +178,7 @@ export function registerCanvasCommands(common: ShowCommandScope, { checkLook }: 
     title: "Définir un canevas",
     titleEn: "Define a canvas",
     hints: "I",
+    changes: ["canvases", "looks"],
     description:
       "Creates or updates a canvas (topology, cell count) and its rendering onto the venue's fixtures (cell ranges → fixture heads). Over an existing canvas, compared cell by cell: when cells move (another count, or the same cells in another order), refused unless force when a look of exact steps on it (technique pas, or a mask read cell by cell) would no longer line up (the error names them) — or give their steps with the canvas (steps), written together, all or nothing — and refused unless shared (or force) when the venue is shared with other shows (their looks are not checked). revision: the one venue.canvas.get gave; refused if the canvas changed since or is gone. warnings: ranges reversed or past the end, fixtures not in the patch, heads they do not have (written anyway: an import may come before the patch). To change a few cells, venue.canvas.edit says what moves and adapts the steps itself.",
     right: "show:write",
@@ -190,6 +191,7 @@ export function registerCanvasCommands(common: ShowCommandScope, { checkLook }: 
     title: "Éditer un canevas",
     titleEn: "Edit a canvas",
     hints: "",
+    changes: ["canvases", "looks"],
     description:
       "Edits a canvas cell by cell, all operations at once or none: add (fixtures, one cell per full head as venue.canvas.auto, or the heads named, at a position), remove (cells), move (cells, contiguous or not, into the gap before cell `to`), reverse (from..to), duplicate (cells), retarget (cells → other fixture heads, the count unchanged), set (name, topology, columns, notes). Cells are 0-based, read as the previous operations left them; the ranges are written back compacted. impact: cell count before and after, whether cells moved (shifted), and the looks on the canvas it affects: reason steps for a look read cell by cell (technique pas, or a mask as long as the canvas) whose columns no longer line up — refused unless adapt (their columns follow their cells: a removed cell's column goes, an added cell is left untouched; adaptable shows the first rows before and after; the looks and the canvas are written together, all or nothing; steps gives the rows of each adapted look before and after) or force — and reason cells for a generated pattern that changes proportion (it still plays). On a venue shared with other shows, moving cells is refused unless shared (or force). dryRun: what it would do, nothing written. revision: the one an earlier answer (or venue.canvas.get) gave; refused if the canvas changed since.",
     right: "show:write",
@@ -232,6 +234,7 @@ export function registerCanvasCommands(common: ShowCommandScope, { checkLook }: 
     title: "Supprimer un canevas",
     titleEn: "Delete a canvas",
     hints: "DI",
+    changes: ["canvases"],
     description: "Deletes a canvas. Refused while a look uses it (the error names the looks, the snapshots and the Panic or startup recall that rely on it), unless force. With force, the looks playing on it are stopped.",
     right: "show:write",
     profiles: ["setup", "design"],
