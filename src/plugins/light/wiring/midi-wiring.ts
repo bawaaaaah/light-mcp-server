@@ -23,6 +23,9 @@ const MIDI_JOURNAL_SIZE = 300;
 /** Why a release came with no message (`MidiMapper.onRelease`): an input gone, gone with a profile change, a mapping changed. */
 export type ReleaseCause = "input" | "profile" | "mapping";
 
+/** The kind of input a port name is (the hub names them so). */
+const sourceOf = (port: string): MidiSource => (port.startsWith("Web MIDI") ? "web" : port.startsWith("RTP · ") ? "rtp" : "local");
+
 export interface MidiJournalEntry {
   at: number;
   port: string;
@@ -86,15 +89,12 @@ export class MidiWiring {
     // a port gone (by itself, or closed by a profile change): the wheels it had pushed are forgotten, what they held
     // released unless kept for that kind of input (docs/specs/midi.md, « Pitch bend »); a release made outside a message
     // runs as a message's would, and goes to the journal and the monitor with its cause
-    mapper.onRelease = (out, cause) => {
+    mapper.onRelease = (out, cause, port) => {
       const started = performance.now();
-      const port = cause === "mapping" ? "" : this.closing.port;
-      this.record({ at: Date.now(), port, source: this.closing.source, msg: { type: "release", cause: cause === "mapping" ? "mapping" : this.closing.profile ? "profile" : "input" }, matched: out.matched, calls: [], ms: 0 }, this.run(out, "midi"), started);
+      const why: ReleaseCause = cause === "mapping" ? "mapping" : this.closingForProfile ? "profile" : "input";
+      this.record({ at: Date.now(), port, source: sourceOf(port), msg: { type: "release", cause: why }, matched: out.matched, calls: [], ms: 0 }, this.run(out, "midi"), started);
     };
-    hub.on("inputClosed", (port: string, source: MidiSource) => {
-      this.closing = { ...this.closing, port, source };
-      mapper.forgetPort(port, this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release");
-    });
+    hub.on("inputClosed", (port: string, source: MidiSource, client?: string) => mapper.forgetPort(port, this.releasesOnLoss(source), client));
     registerMidiCommands(commands, {
       journal: () => this.journal,
       loopDelay: () => deps.loopDelay.stats(),
@@ -118,6 +118,7 @@ export class MidiWiring {
         await config.save();
       },
       portLoss: () => this.portLoss(),
+      clientOpen: (client) => this.liveLink?.isOpen(client) ?? true,
       setPortLoss: async (portLoss) => {
         config.put({ ...config.get(), portLoss });
         await config.save();
@@ -130,17 +131,34 @@ export class MidiWiring {
     return this.deps.config.get().portLoss;
   }
 
-  /** The input being closed while its wheels let go (the journal's port and cause). */
-  private closing: { port: string; source: string; profile: boolean } = { port: "", source: "midi", profile: false };
+  private releasesOnLoss(source: MidiSource): boolean {
+    return this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release";
+  }
 
-  /** The active profile applied: the inputs it no longer watches close, and their wheels let go as their kind says. */
+  /** The WebSocket hub's connections (none in a server run without it, as in tests: every client then counts as open). */
+  liveLink: { isOpen(id: string): boolean } | undefined;
+
+  /** A browser's connection closed (a tab closed, the browser cut from the network): the Web MIDI inputs it relayed go. */
+  clientClosed(client: string): void {
+    this.deps.mapper.forgetClient(client, this.releasesOnLoss("web"));
+  }
+
+  /** True while a profile change closes inputs: their releases are journalled as the profile's. */
+  private closingForProfile = false;
+
+  /**
+   * The active profile applied: the inputs it no longer watches close, and their wheels let go as their kind says. The hub
+   * closes them as the call starts (before its first wait), so only they are marked as the profile's.
+   */
   private async changeProfile(): Promise<void> {
-    this.closing.profile = true;
+    this.closingForProfile = true;
+    let applied: Promise<void>;
     try {
-      await this.hub.setConfig(activeMidiProfile(this.deps.config.get()));
+      applied = this.hub.setConfig(activeMidiProfile(this.deps.config.get()));
     } finally {
-      this.closing.profile = false;
+      this.closingForProfile = false;
     }
+    await applied;
   }
 
   /** In the journal at once, in the order of arrival; to the monitor once its commands are done, with their outcome. */
@@ -208,7 +226,7 @@ export class MidiWiring {
     tempo.handleMidi(m.msg);
     const t = m.msg.type;
     // a transport restart on this port rearms its wheels (mapper.handle answers it with nothing to do); the tempo is above
-    if (t === "start" || t === "continue" || t === "songposition") mapper.handle(m.msg, m.port);
+    if (t === "start" || t === "continue" || t === "songposition") mapper.handle(m.msg, m.port, m.client);
     if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
     // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
     if (m.msg.type === "programchange") {
@@ -218,7 +236,7 @@ export class MidiWiring {
         publish("state", this.deps.state());
       }
     }
-    const out = mapper.handle(m.msg, m.port);
+    const out = mapper.handle(m.msg, m.port, m.client);
     this.record({ at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 }, this.run(out, m.source === "os2l" ? "os2l" : "midi"), started);
   }
 }

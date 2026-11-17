@@ -186,6 +186,33 @@ describe("MIDI hub", () => {
     }
   });
 
+  it("says its RTP peers closed when a new profile replaces the session, but not when the server stops", async () => {
+    const config = { inputs: [], rtp: { enabled: true, port: 15704, name: "hub", advertise: false } };
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 300 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(ok()).to.equal(true);
+    };
+    const hub = new MidiHub(config, { native: null });
+    await hub.start();
+    const remote = new RtpMidiSession({ name: "Régie", port: 15706, host: "127.0.0.1" });
+    await remote.start();
+    const closed: [string, string][] = [];
+    hub.on("inputClosed", (port: string, source: string) => closed.push([port, source]));
+    try {
+      await remote.invite("127.0.0.1", 15704);
+      await until(() => hub.status().rtp.peers.length === 1);
+      await hub.setConfig({ ...config, rtp: { ...config.rtp, port: 15708 } }); // another session: its peers go
+      expect(closed).to.deep.equal([["RTP · Régie", "rtp"]]);
+      await remote.invite("127.0.0.1", 15708);
+      await until(() => hub.status().rtp.peers.length === 1);
+      hub.stop(); // the server stopping: nothing said, the show stops as it stands
+      expect(closed).to.have.length(1);
+    } finally {
+      remote.stop();
+      hub.stop();
+    }
+  });
+
   it("takes the next free port when its own is held, and says which", async () => {
     // On a Mac, the system's own network MIDI session usually holds 5004.
     const squatter = createSocket("udp4");

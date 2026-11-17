@@ -1,4 +1,5 @@
 // Adapted from wing-mcp-server (MIT, https://github.com/bawaaaaah/wing-mcp-server), src/core/ws-hub.ts.
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type PerMessageDeflateOptions, type RawData, type WebSocket } from "ws";
@@ -175,6 +176,8 @@ interface TokenBucket {
 }
 
 interface Connection {
+  /** Sent in « hello »: a request relayed for this connection names it (McpPlugin.liveConnections). */
+  readonly id: string;
   readonly ws: WebSocket;
   readonly channel: LiveChannel;
   readonly codec: WsCodec;
@@ -255,6 +258,7 @@ export class WsHub {
       }
     }
 
+    for (const plugin of opts.plugins) plugin.liveConnections?.({ isOpen: (id) => [...this.connections].some((c) => c.id === id) });
     this.unsubscribeBus = opts.eventBus.subscribe((event) => this.onBusEvent(event));
     this.heartbeatTimer = setInterval(() => this.heartbeat(), opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
@@ -399,6 +403,7 @@ export class WsHub {
 
   private onConnection(ws: WebSocket, spec: ProtocolSpec, credential: string, upgrade: IncomingMessage): void {
     const conn: Connection = {
+      id: randomUUID(),
       ws,
       channel: spec.channel,
       codec: WS_CODECS[spec.codec],
@@ -436,6 +441,7 @@ export class WsHub {
       t: "hello",
       v: WS_PROTOCOL_VERSION,
       channel: conn.channel,
+      connection: conn.id,
       topics: [...this.topics.values()].filter((entry) => entry.topic.channel === conn.channel).map((entry) => entry.id),
     });
   }
@@ -447,6 +453,14 @@ export class WsHub {
       this.leaveGroup(topicId, group, conn);
     }
     conn.subscriptions.clear();
+    // the server shutting down closes every connection: nothing they relayed is let go (the show stops as it stands)
+    for (const plugin of this.closed ? [] : this.opts.plugins) {
+      try {
+        plugin.liveConnectionClosed?.(conn.id);
+      } catch (err) {
+        console.error(`[ws] ${plugin.id}: connection close handler failed:`, err);
+      }
+    }
   }
 
   private closeConnection(conn: Connection, code: number, reason: string): void {

@@ -77,7 +77,7 @@ docs/
 ## Protocole WebSocket (repris de wing)
 - Endpoint `/api/ws`, ticket via `POST /api/auth/ws-ticket` (30 s, usage unique). Le ticket porte le rôle.
 - Sous-protocoles `light.control.v1.{msgpack|json}` et `light.stream.v1.{msgpack|json}`.
-- Enveloppe `{t, id?, topic?, data?}` avec les types `hello | sub | unsub | ack | evt | req | res | err`. `req` et `res` relaient les routes REST, corrélées par `id`.
+- Enveloppe `{t, id?, topic?, data?}` avec les types `hello | sub | unsub | ack | evt | req | res | err`. `req` et `res` relaient les routes REST, corrélées par `id`. Le `hello` porte `connection`, l'id de la connexion donné par le serveur : une requête relayée pour elle le nomme (le relais Web MIDI), et un plugin apprend sa fermeture (`McpPlugin.liveConnectionClosed`), sauf à l'arrêt du serveur.
 
 | Topic | Canal | Contenu |
 |---|---|---|

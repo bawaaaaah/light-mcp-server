@@ -26,6 +26,8 @@ export type MidiSource = "local" | "rtp" | "web" | "os2l";
 export interface HubMessage {
   source: MidiSource;
   port: string;
+  /** Who relays it: a browser's connection, for Web MIDI (its port name stays the same in every browser). */
+  client?: string;
   bytes: number[];
   msg: MidiMessage;
   ts: number;
@@ -147,14 +149,15 @@ export class MidiHub extends EventEmitter {
     this.feedbackPort = undefined;
     release(this.clockPort?.out);
     this.clockPort = undefined;
-    void this.stopRtp();
+    void this.stopRtp(false); // the server stopping: nothing let go, the show stops as it stands
   }
 
-  private async stopRtp(): Promise<void> {
+  /** `said`: its peers said gone (a session replaced); not when the server stops. */
+  private async stopRtp(said = true): Promise<void> {
     if (this.joinTimer) clearInterval(this.joinTimer);
     this.joinTimer = undefined;
     // the session's peers go with it (a profile with another session): said as when one leaves
-    for (const peer of this.rtp?.listPeers() ?? []) this.emit("inputClosed", `RTP · ${peer.name}`, "rtp");
+    if (said) for (const peer of this.rtp?.listPeers() ?? []) this.emit("inputClosed", `RTP · ${peer.name}`, "rtp");
     this.rtp?.stop();
     this.rtp = undefined;
     this.rtpPort = undefined;
@@ -283,8 +286,8 @@ export class MidiHub extends EventEmitter {
   }
 
   /** An input gone that the hub cannot see go by itself (a browser's Web MIDI): said as for its own ports. */
-  closeInput(port: string, source: MidiSource): void {
-    this.emit("inputClosed", port, source);
+  closeInput(port: string, source: MidiSource, client?: string): void {
+    this.emit("inputClosed", port, source, client);
   }
 
   /** Re-lists ports, opens newly visible watched inputs, notifies on changes. */
@@ -352,10 +355,10 @@ export class MidiHub extends EventEmitter {
   }
 
   /** Entry point for every source, including Web MIDI relayed by browsers. */
-  dispatch(source: MidiSource, port: string, bytes: number[]): void {
+  dispatch(source: MidiSource, port: string, bytes: number[], client?: string): void {
     const ts = performance.now();
     this.activity.set(port, Date.now());
-    this.emit("message", { source, port, bytes, msg: parseMidi(bytes), ts } satisfies HubMessage);
+    this.emit("message", { source, port, bytes, msg: parseMidi(bytes), ts, ...(client ? { client } : {}) } satisfies HubMessage);
   }
 
   sendFeedback(messages: number[][]): void {

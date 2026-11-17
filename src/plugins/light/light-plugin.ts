@@ -675,6 +675,16 @@ export class LightPlugin implements McpPlugin {
     });
   }
 
+  /** The hub's connections: a browser's Web MIDI relay names its own, checked here. */
+  liveConnections(link: { isOpen(id: string): boolean }): void {
+    this.midi.liveLink = link;
+  }
+
+  /** A browser's connection closed: the Web MIDI inputs it relayed go (as the « web » port-loss setting says). */
+  liveConnectionClosed(id: string): void {
+    this.midi.clientClosed(id);
+  }
+
   liveTopics(): Record<string, LiveTopic> {
     let lastPreview = "";
     let lastPreviewAt = 0;

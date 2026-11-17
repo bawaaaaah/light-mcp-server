@@ -119,6 +119,30 @@ describe("pitch bend to a button: one action per push", () => {
     expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]); // no other port holds it: a new push
   });
 
+  it("two browsers relaying one « Web MIDI · Pad » stay apart; one closing lets go of its own push only", () => {
+    const PAD = "Web MIDI · Pad";
+    const released: string[] = [];
+    const m = mapper("momentary");
+    m.onRelease = (out) => released.push(...out.calls.map((c) => c.command));
+    const bend = (v: number, client: string) => m.handle(parseMidi([0xe0, 0, v]), PAD, client).calls.map((c) => c.command);
+    expect(bend(127, "tab-a")).to.deep.equal(["look.go"]);
+    expect(bend(64, "tab-b")).to.deep.equal([]); // the other browser's wheel at rest: never pushed there
+    expect(bend(127, "tab-b")).to.deep.equal([]);
+    m.forgetPort(PAD, true, "tab-b"); // its page left: its own input only
+    expect(released).to.deep.equal([]);
+    m.forgetClient("tab-a", true); // the first tab closed
+    expect(released).to.deep.equal(["look.stop"]);
+    expect(bend(127, "tab-c")).to.deep.equal(["look.go"]); // reopened: no hold left behind, the mapping answers
+  });
+
+  it("back at rest, an action released elsewhere then started by hand stays on", () => {
+    const m = mapper("momentary");
+    play(m, [127], LIVE);
+    m.syncState("bend", false);
+    m.syncState("bend", true);
+    expect(play(m, [64], LIVE)).to.deep.equal([]);
+  });
+
   it("an action released elsewhere then started by hand is not the wheel's to release", () => {
     const released: string[] = [];
     const m = mapper("momentary");
@@ -237,6 +261,60 @@ describe("pitch bend through the plugin", () => {
       () => expect.fail("a local port"),
       (e: Error) => expect(e.message).to.match(/Web MIDI/),
     );
+  });
+
+  it("a tab closed with its wheel pushed: released (by default), and the mapping answers its reopening", async function () {
+    this.timeout(10_000);
+    const { run, until, plugin } = await wheelPlugin("momentary");
+    const pad = "Web MIDI · Pad";
+    await run("midi.in", { port: pad, bytes: [0xe0, 0, 127], client: "tab-a" });
+    expect(await until(true)).to.equal(true);
+    plugin.liveConnectionClosed("tab-a");
+    expect(await until(false)).to.equal(false);
+    await run("midi.in", { port: pad, bytes: [0xe0, 0, 127], client: "tab-b" });
+    expect(await until(true)).to.equal(true);
+    const journal = (await run("midi.journal")) as { port: string; msg: { type: string; cause?: string } }[];
+    expect(journal.find((e) => e.msg.type === "release")).to.deep.include({ port: pad, msg: { type: "release", cause: "input" } });
+  });
+
+  it("a closed connection kept when the « web » setting says so; a message on it refused", async function () {
+    this.timeout(10_000);
+    const { run, active, until, plugin } = await wheelPlugin("momentary");
+    const open = new Set(["tab-a"]);
+    plugin.liveConnections({ isOpen: (id) => open.has(id) });
+    await run("midi.portloss.set", { web: "keep" });
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 127], client: "tab-a" });
+    expect(await until(true)).to.equal(true);
+    open.delete("tab-a");
+    plugin.liveConnectionClosed("tab-a");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await active()).to.equal(true);
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64], client: "tab-a" }).then(
+      () => expect.fail("a closed connection"),
+      (e: Error) => expect(e.message).to.match(/connexion fermée|connection closed/),
+    );
+  });
+
+  it("learns a browser's input under its stable name, listed once whoever relays it", async function () {
+    this.timeout(10_000);
+    const { run } = await wheelPlugin("momentary");
+    const learnt = run("midi.learn", { timeoutMs: 2000 });
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0x90, 40, 100], client: "tab-a" });
+    expect(((await learnt) as { input: { port: string } }).input.port).to.equal("Web MIDI · Pad");
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0x90, 41, 100], client: "tab-b" });
+    const status = (await run("midi.status")) as { inputs: { name: string }[] };
+    expect(status.inputs.filter((i) => i.name === "Web MIDI · Pad")).to.have.length(1);
+  });
+
+  it("a mapping changed while its wheel holds: journalled as « mapping »", async function () {
+    this.timeout(10_000);
+    const { run, until } = await wheelPlugin("momentary");
+    await run("midi.in", { port, bytes: [0xe0, 0, 127] });
+    expect(await until(true)).to.equal(true);
+    await run("midi.mapping.put", { mapping: { id: "bend", input: { type: "pitchbend", channel: 2, number: 0 }, mode: "momentary", threshold: 64, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } } });
+    expect(await until(false)).to.equal(false);
+    const journal = (await run("midi.journal")) as { port: string; source: string; msg: { type: string; cause?: string }; matched: { id: string }[] }[];
+    expect(journal[0]).to.deep.include({ port, source: "web", msg: { type: "release", cause: "mapping" } });
   });
 
   it("the setting is read again after a restart", async function () {

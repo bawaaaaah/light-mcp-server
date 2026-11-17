@@ -58,6 +58,8 @@ export interface MidiServices {
   selectProfile: (name: string) => Promise<void>;
   saveProfile: (name: string, profile: MidiProfile) => Promise<void>;
   portLoss: () => PortLoss;
+  /** Whether a browser's live connection is still open (always, when the server runs without its WebSocket hub). */
+  clientOpen: (client: string) => boolean;
   setPortLoss: (next: PortLoss) => Promise<void>;
 }
 
@@ -100,12 +102,13 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     titleEn: "Web MIDI input closed",
     hints: "",
     changes: [],
-    description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ».",
+    description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ». client: the caller's live connection (from its « hello »), so only its own input goes; a closed connection lets go of all its inputs by itself.",
     right: "midi:input",
     // a browser's input only: never a local port or an RTP session, which the hub sees go by itself
-    schema: z.object({ port: z.string().startsWith("Web MIDI", { message: "un port Web MIDI commence par « Web MIDI »" }) }),
-    run: ({ port }) => {
-      s.hub.closeInput(port, "web");
+    schema: z.object({ port: z.string().startsWith("Web MIDI", { message: "un port Web MIDI commence par « Web MIDI »" }), client: z.string().max(64).optional() }),
+    run: ({ port, client }) => {
+      // the caller's own input only: another browser relaying a « Pad » of the same name keeps its own
+      s.hub.closeInput(port, "web", client);
       return { ok: true };
     },
   });
@@ -131,7 +134,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     title: "Journal MIDI",
     titleEn: "MIDI journal",
     description:
-      "The last MIDI messages received (clock excepted, 300 at most), newest first, and what each did: the mappings it matched (with their mode: a note off in latch matches and does nothing), each command and whether it worked, and how long it took (ms). To tell why a note « did not work ». port filters by input name, note by note number.",
+      "The last MIDI messages received (clock excepted, 300 at most), newest first, and what each did: the mappings it matched (with their mode: a note off in latch matches and does nothing), each command and whether it worked, and how long it took (ms). To tell why a note « did not work ». Also the releases made with no message (msg.type « release », msg.cause: « input » an input gone, « profile » an input closed by a profile change, « mapping » a mapping changed or removed), with the mapping let go and its commands. port filters by input name, note by note number.",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],
@@ -327,9 +330,16 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     changes: [],
     description: "Relays MIDI bytes received by a browser (Web MIDI) into the hub.",
     right: "midi:input",
-    schema: z.object({ port: z.string().default("Web MIDI"), bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3) }),
-    run: ({ port, bytes }) => {
-      s.hub.dispatch("web", port, bytes);
+    schema: z.object({
+      port: z.string().default("Web MIDI"),
+      bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3),
+      /** The browser's live connection relaying it (the id its « hello » gave): its inputs go when it closes. */
+      client: z.string().max(64).optional(),
+    }),
+    run: ({ port, bytes, client }) => {
+      // a connection already closed: its inputs were let go, a late message must not hold again
+      if (client && !s.clientOpen(client)) throw new Error(say("connexion fermée : ce relais Web MIDI n'existe plus", "connection closed: this Web MIDI relay is gone"));
+      s.hub.dispatch("web", port, bytes, client);
       return { ok: true };
     },
   });
