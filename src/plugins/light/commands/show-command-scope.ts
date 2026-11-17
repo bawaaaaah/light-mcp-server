@@ -13,8 +13,8 @@ import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../sho
 import type { ShowRuntime } from "../show/runtime.js";
 import { DashboardSchema, type Dashboard } from "../dashboards/dashboards.js";
 import { say } from "../../../core/lang.js";
-import { MappingSchema } from "../midi/mapping.js";
-import { SongSchema } from "../songs/songs.js";
+import { MappingSchema, type Mapping } from "../midi/mapping.js";
+import { SongSchema, type Song } from "../songs/songs.js";
 import type { HeadFlips } from "../show/motion-lock.js";
 
 /**
@@ -81,9 +81,14 @@ export interface ShowCommandScope {
   removable: (kind: ReferenceKind, i: string, name: string | undefined, force: boolean, otherShows?: string[]) => string[];
   sharedWithOrRefuse: (fixtureId: string, name: string, kind?: "fixture" | "zone") => string[];
   checkChannels: (channels: { fixture: string; offset: number }[]) => void;
-  /** The show's dashboards and intentions, opened once with their schemas when the commands are registered. */
+  /**
+   * The show's dashboards, intentions, songs and mappings, opened once with their schemas when the commands are
+   * registered (the plugin opens songs and mappings with the same ones; opening another show reloads them in place).
+   */
   dashboards: Collection<Dashboard>;
   intentions: Collection<Intention>;
+  songs: Collection<Song>;
+  mappings: Collection<Mapping>;
 }
 
 /** Builds the scope the show commands' domains share. */
@@ -91,6 +96,8 @@ export function createShowCommandScope(reg: CommandRegistry, engine: DmxEngine, 
   const dashboards = show.store.collection("dashboards", DashboardSchema);
   // the show's intentions (T15): a version put back goes through intention.put (history-commands.ts), a mask stays a mask
   const intentions = show.store.collection("intentions", IntentionSchema);
+  const songs = show.store.collection("songs", SongSchema);
+  const mappings = show.store.collection("mappings", MappingSchema);
   const { sharedWith = () => [], standby = () => false, intentionReferences, migrateTags, ambiguousTags, newIntentionId: freshIntentionId = () => newIntentionId(Date.now()) } = options;
   const venue = show.venue;
   /**
@@ -110,22 +117,18 @@ export function createShowCommandScope(reg: CommandRegistry, engine: DmxEngine, 
       { refused: [id] },
     );
   };
-  /**
-   * What uses a look, a group, a fader or a canvas (show/references.ts). Songs and mappings are opened on
-   * call, with the schemas the plugin opens them with (a store collection keeps the schema of its first
-   * opening, and the plugin opens those two after these commands are registered).
-   */
+  /** What uses a look, a group, a fader or a canvas (show/references.ts). */
   const parts = (): ShowParts => ({
     groups: show.groups.list(),
     faders: show.faders.list(),
-    mappings: show.store.collection("mappings", MappingSchema).list(),
+    mappings: mappings.list(),
     dashboards: dashboards.list(),
     snapshots: show.snapshots.list(),
     looks: show.looks.list(),
     targets: show.targets.list(),
     positions: show.positionPresets.list(),
     canvases: venue.canvases.list(),
-    songs: show.store.collection("songs", SongSchema).list(),
+    songs: songs.list(),
     rules: show.rules.list(),
     venueRules: show.venueRules.list(),
     patch: venue.fixtures.list(),
@@ -163,5 +166,5 @@ export function createShowCommandScope(reg: CommandRegistry, engine: DmxEngine, 
     }
   };
 
-  return { reg, engine, show, sharedWith, standby, intentionReferences, migrateTags, ambiguousTags, freshIntentionId, venue, idSchema, keepFrozenFlips, parts, removable, sharedWithOrRefuse, deletable, canvasDeletable, checkChannels, dashboards, intentions };
+  return { reg, engine, show, sharedWith, standby, intentionReferences, migrateTags, ambiguousTags, freshIntentionId, venue, idSchema, keepFrozenFlips, parts, removable, sharedWithOrRefuse, deletable, canvasDeletable, checkChannels, dashboards, intentions, songs, mappings };
 }
