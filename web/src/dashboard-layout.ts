@@ -4,10 +4,11 @@
  * kind offers (its target list, its press behaviour, its colour). Pure: no DOM, no React, tested without a browser.
  */
 import { isHex } from "./color.js";
+import { WIDGET_KINDS, type WidgetKind } from "../../src/plugins/light/dashboards/widget-kinds.js";
 
-/** The kinds of widget, in the palette's order: the union is derived from it, so a kind cannot be left out of the palette. */
-export const KINDS = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader", "colours", "zones"] as const;
-export type WidgetKind = (typeof KINDS)[number];
+export type { WidgetKind };
+/** The kinds of widget, in the palette's order: the server's own list (its schema validates the same kinds). */
+export const KINDS = WIDGET_KINDS;
 /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
 export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 
@@ -46,6 +47,11 @@ interface Box {
 const SIZE: Partial<Record<WidgetKind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 3 }, zones: { w: 6, h: 3 } };
 /** A new widget's size, in cells: a button is two cells wide. */
 export const defaultSize = (kind: WidgetKind): { w: number; h: number } => SIZE[kind] ?? { w: 2, h: 1 };
+
+/** A deep copy of a dashboard (plain JSON), kept for undo and redo, or duplicated. */
+export function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
 
 /** A grid cell is split in quarters, so a widget can sit between the lines of the magnetic grid. */
 export const SUB = 4;

@@ -4,10 +4,11 @@
  */
 import { z } from "zod";
 import type { ChannelFader, Group, Look } from "../show/model.js";
+import { WIDGET_KINDS } from "./widget-kinds.js";
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  kind: z.enum(["look", "group-fader", "panic", "blackout", "tap", "section", "song-nav", "label", "stop-all", "xy", "preview", "channel-fader", "snapshot", "grand-master", "motion-lock", "target", "position", "colours", "zones"]),
+  kind: z.enum(WIDGET_KINDS),
   /**
    * Grid position (columns × rows of the dashboard), by quarters of a cell: whole cells with the
    * magnetic grid, quarters without it.

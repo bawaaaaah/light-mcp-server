@@ -6,7 +6,6 @@ import type { Named } from "../components/WidgetMenu";
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 export const DRAG_TYPE = "application/x-light-widget";
 
-
 /**
  * The widgets to add while arranging: a chip per kind, then the looks, snapshots and positions already bound, found by
  * name. A chip is dragged onto the grid, or clicked to go under the others.

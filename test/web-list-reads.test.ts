@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { clone, latestRead, type ReadList } from "../web/src/list-reads.js";
+import { latestRead, type ReadList } from "../web/src/list-reads.js";
 
 describe("list reads", () => {
   it("applies a read only if no newer read of the same list started meanwhile", async () => {
@@ -13,12 +13,5 @@ describe("list reads", () => {
     latestRead(counters, "faders", Promise.reject(new Error("down")), (v) => applied.push(String(v))); // a failed read: nothing
     await new Promise((r) => setTimeout(r, 0));
     expect(applied).to.deep.equal(["new", "groups"]);
-  });
-
-  it("copies deeply: the copy kept for undo does not change with the original", () => {
-    const d = { id: "d", widgets: [{ id: "a", x: 0 }] };
-    const copy = clone(d);
-    d.widgets[0]!.x = 3;
-    expect(copy).to.deep.equal({ id: "d", widgets: [{ id: "a", x: 0 }] });
   });
 });

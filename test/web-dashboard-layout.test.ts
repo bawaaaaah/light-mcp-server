@@ -1,5 +1,7 @@
 import { expect } from "chai";
-import { added, autoColored, colorOf, confirmable, defaultSize, dragged, dropCell, holdable, KINDS, neutral, pressable, settle, shared, SUB, targetListOf, type Dashboard, type Drag, type Widget, type WidgetKind } from "../web/src/dashboard-layout.js";
+import { WIDGET_KINDS } from "../src/plugins/light/dashboards/widget-kinds.js";
+import { WidgetSchema } from "../src/plugins/light/dashboards/dashboards.js";
+import { added, autoColored, clone, colorOf, confirmable, defaultSize, dragged, dropCell, holdable, KINDS, neutral, pressable, settle, shared, SUB, targetListOf, type Dashboard, type Drag, type Widget, type WidgetKind } from "../web/src/dashboard-layout.js";
 
 const widget = (id: string, x: number, y: number, w = 2, h = 1, more: Partial<Widget> = {}): Widget => ({ id, kind: "look", x, y, w, h, ...more });
 /** A drag of the widget `w`, taken at (100, 100) px, on cells of 50 × 40 px. */
@@ -17,6 +19,18 @@ describe("dashboard layout", () => {
       expect(h, k).to.be.at.least(1);
     }
     expect(defaultSize("look")).to.deep.equal({ w: 2, h: 1 }); // a button, by default
+  });
+
+  it("offers the kinds the server accepts, in the palette's order", () => {
+    expect(KINDS).to.equal(WIDGET_KINDS);
+    expect(WidgetSchema.shape.kind.options).to.deep.equal([...KINDS]);
+  });
+
+  it("copies a dashboard deeply: the copy kept for undo does not change with it", () => {
+    const d: Dashboard = { id: "d", name: "D", columns: 12, widgets: [widget("a", 0, 0)] };
+    const copy = clone(d);
+    d.widgets[0]!.x = 3;
+    expect(copy.widgets[0]!.x).to.equal(0);
   });
 
   describe("settle", () => {
