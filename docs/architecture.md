@@ -27,8 +27,9 @@ src/
     extensions/                # chargement des plugins (manifeste, apiVersion, permissions, secrets)
     lang.ts                    # langue de la réponse : say(fr, en), en-tête x-light-lang de l'interface, français par défaut
   plugins/light/
-    light-plugin.ts
-    commands/                  # couche de commandes unique
+    light-plugin.ts            # racine de composition : construit et câble les pièces dans un ordre fixe
+    wiring/                    # câblage par rôle : config, MIDI, intentions et couleurs, journal d'activité, DJ/AbleSet/Link, publications par trame, sauvegarde auto, ressources MCP
+    commands/                  # couche de commandes unique (show-lint.ts : les contrôles de show.lint)
     data/                      # stores machine / lieu / show, format dossier, archive .lightshow, migrations
     output/                    # artnet, artnet-discovery, sacn, output-router
     venue/                     # fixtures (schéma OFL, imports OFL/.qxf), patch, stage, canvas (canevas et rendu)
