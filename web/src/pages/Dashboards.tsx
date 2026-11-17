@@ -14,7 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
-import { putInSet, WidgetMenu, type ExclusiveSet } from "../components/WidgetMenu";
+import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
 import type { GroupDraft } from "../components/GroupEditor";
@@ -70,9 +70,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   useDomainEvents(["patch", "show"], readChannels);
   const [snapshots, setSnapshots] = useState<{ id: string; name: string }[]>([]);
   /** The show's 3D targets (T24), their names only: the menus (each pad reads its own target). */
-  const { names: targets } = useTargetNames();
+  const { names: targets, loaded: targetsLoaded } = useTargetNames();
   /** The show's named positions (T32): their buttons, menus and colours. */
-  const { positions } = usePositions();
+  const { positions, loaded: positionsLoaded } = usePositions();
   const positionColor = (id: string | undefined) => positions.find((x) => x.id === id)?.color;
   /** Folders named ahead (show.folder.create): offered in the look editor like the Show page does. */
   const [namedFolders, setNamedFolders] = useState<string[]>([]);
@@ -209,11 +209,14 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   // a late answer arriving after a newer read of the same list must not rewrite the widgets with a
   // mid-glide snapshot (a thumb left at 20 % while the fader sits at 80 %): per list, only the last read wins
   const reads = useRef({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
+  /** The lists read at least once: before, a widget's target is not said « introuvable » (the list is only empty). */
+  const [listsRead, setListsRead] = useState({ looks: false, groups: false, faders: false, snapshots: false });
   const refresh = useCallback(() => {
-    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), setLooks);
-    latestRead(reads.current, "groups", cmd<Group[]>("group.list"), setGroups);
-    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), setFaders);
-    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), setSnapshots);
+    const readOnce = (list: keyof typeof listsRead) => setListsRead((r) => (r[list] ? r : { ...r, [list]: true }));
+    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), (v) => (setLooks(v), readOnce("looks")));
+    latestRead(reads.current, "groups", cmd<Group[]>("group.list"), (v) => (setGroups(v), readOnce("groups")));
+    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), (v) => (setFaders(v), readOnce("faders")));
+    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), (v) => (setSnapshots(v), readOnce("snapshots")));
     latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
   }, []);
   useEffect(() => {
@@ -423,6 +426,15 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const sel = dash?.widgets.find((w) => w.id === selected);
   // several selected: what they share is set for all of them at once (one step to undo)
   const many = selection.length > 1 ? (dash?.widgets.filter((w) => selection.includes(w.id)) ?? []) : [];
+  /** What a widget can drive, per list; a list not read yet is null. */
+  const targetLists: TargetLists = {
+    looks: listsRead.looks ? looks : null,
+    groups: listsRead.groups ? groups : null,
+    faders: listsRead.faders ? faders : null,
+    snapshots: listsRead.snapshots ? snapshots : null,
+    targets: targetsLoaded ? targets : null,
+    positions: positionsLoaded ? positions : null,
+  };
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
     <div className="dashboards">
@@ -577,7 +589,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           w={sel}
           columns={dash?.columns ?? 12}
           step={step}
-          lists={{ looks, groups, faders, snapshots, targets, positions }}
+          lists={targetLists}
           onPatch={(patch) => updateWidget(sel.id, patch)}
           onRemove={() => {
             update((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== sel.id) }));
@@ -701,12 +713,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           key={menu.id}
           widget={dash.widgets.find((w) => w.id === menu.id)!}
           at={menu}
-          looks={looks}
-          groups={groups}
-          faders={faders}
-          snapshots={snapshots}
-          targets={targets}
-          positions={positions}
+          lists={targetLists}
           exclusives={editor ? sets : undefined}
           onGroupsChange={refresh}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}

@@ -93,25 +93,31 @@ const inputText = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `
 /** The input as the menu shows it, its channel beside it. */
 const inputName = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : inputKey(t, i, "Note"));
 
-/** The show's lists a widget picks its target from, by `targetListOf`. */
-export type TargetLists = Record<TargetList, Named[]>;
+/** The show's lists a widget picks its target from, by `targetListOf`; null until the list is first read. */
+export type TargetLists = Record<TargetList, Named[] | null>;
+/** What a widget of `kind` picks its target from: none for a kind without a list, null while that list is not read yet. */
+export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null => {
+  const list = targetListOf(kind);
+  return list ? lists[list] : [];
+};
 
 /**
  * What a widget drives, chosen in its menu and in the edit panel alike: the list of its kind (none: no choice), named
  * for its kind; « — » (or « Toutes les lyres » to freeze them all) clears it, and a target no longer in the show is
- * kept, said « introuvable ». Hidden when there is nothing to choose and nothing to say.
+ * kept, said « introuvable » once its list is read (before that, shown as it is). Hidden when there is nothing to
+ * choose and nothing to say.
  */
 export function TargetSelect({ kind, value, lists, field = false, onChange }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; field?: boolean; onChange: (target: string | undefined) => void }): ReactElement | null {
   const t = useT();
-  const list = targetListOf(kind);
-  const options = list ? lists[list] : [];
-  const missing = Boolean(list && value && !options.some((x) => x.id === value));
+  const read = targetsOf(kind, lists);
+  const options = read ?? [];
+  const missing = Boolean(targetListOf(kind) && value && !options.some((x) => x.id === value));
   if (!options.length && !missing) return null;
   const name = kind === "look" ? t.assignLook : kind === "target" ? t.targets.aimTarget : t.assignTarget;
   const select = (
     <select aria-label={field ? undefined : name} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
       <option value="">{kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
-      {missing && <option value={value}>{t.targetMissing.replace("{id}", () => value!)}</option>}
+      {missing && <option value={value}>{read ? t.targetMissing.replace("{id}", () => value!) : value}</option>}
       {options.map((x) => (
         <option key={x.id} value={x.id}>
           {x.name}
@@ -138,12 +144,7 @@ export function TargetSelect({ kind, value, lists, field = false, onChange }: { 
 export function WidgetMenu({
   widget,
   at,
-  looks,
-  groups,
-  faders,
-  snapshots = [],
-  targets: targetList = [],
-  positions = [],
+  lists,
   exclusives,
   onGroupsChange,
   onChange,
@@ -153,14 +154,8 @@ export function WidgetMenu({
 }: {
   widget: MenuWidget;
   at: { x: number; y: number };
-  looks: Named[];
-  groups: Named[];
-  faders: Named[];
-  snapshots?: Named[];
-  /** The show's 3D targets (T24): a target widget picks its own here. */
-  targets?: Named[];
-  /** The show's named positions (T32): a position button picks its own here. */
-  positions?: Named[];
+  /** The show's looks, groups, faders, snapshots, 3D targets (T24) and named positions (T32): a widget picks its own here. */
+  lists: TargetLists;
   /** The show's exclusive sets, when this user may change them: a look button's set is chosen here. */
   exclusives?: ExclusiveSet[];
   /** A set changed: the groups to read again. */
@@ -188,9 +183,7 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
-  const lists: TargetLists = { looks, faders, groups, snapshots, targets: targetList, positions };
-  const list = targetListOf(widget.kind);
-  const targets: Named[] = list ? lists[list] : [];
+  const targets: Named[] = targetsOf(widget.kind, lists) ?? [];
   const learn = () => {
     if (!action) return;
     setLearning(true);

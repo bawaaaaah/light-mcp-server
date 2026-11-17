@@ -1,5 +1,4 @@
 import { expect } from "chai";
-import { WIDGET_KINDS } from "../src/plugins/light/dashboards/widget-kinds.js";
 import { WidgetSchema } from "../src/plugins/light/dashboards/dashboards.js";
 import { added, autoColored, clone, colorOf, confirmable, defaultSize, dragged, dropCell, holdable, KINDS, neutral, pressable, settle, shared, SUB, targetListOf, type Dashboard, type Drag, type Widget, type WidgetKind } from "../web/src/dashboard-layout.js";
 
@@ -22,7 +21,6 @@ describe("dashboard layout", () => {
   });
 
   it("offers the kinds the server accepts, in the palette's order", () => {
-    expect(KINDS).to.equal(WIDGET_KINDS);
     expect(WidgetSchema.shape.kind.options).to.deep.equal([...KINDS]);
   });
 

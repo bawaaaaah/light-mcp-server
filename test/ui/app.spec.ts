@@ -1274,6 +1274,7 @@ test("dashboards: a snapshot widget gets its snapshot from the edit panel, as fr
   page.on("dialog", (d) => void d.accept());
   await login(page);
   await api(page, "snapshot.save", { name: "Cible essai" });
+  await api(page, "snapshot.save", { name: "Autre essai" });
   await page.getByRole("button", { name: "✎" }).click();
   await page.getByRole("button", { name: "+ Nouveau" }).click();
   await expect(page.locator(".dashboards .bar .tab.active")).toContainText("Nouveau dashboard");
@@ -1292,9 +1293,49 @@ test("dashboards: a snapshot widget gets its snapshot from the edit panel, as fr
   await page.locator(`.dgrid .cell[data-widget="${saved.widgets[0]!.id}"]`).click();
   await expect(panel.getByLabel("Pilote")).toHaveValue("cible-essai");
   await expect(panel.getByLabel("Pilote").locator("option:checked")).toHaveText("cible-essai (introuvable)");
+  // another snapshot chosen: the missing one is no longer offered
+  await panel.getByLabel("Pilote").selectOption({ label: "Autre essai" });
+  await expect(panel.getByLabel("Pilote").locator("option", { hasText: "introuvable" })).toHaveCount(0);
+  // « — » clears the target: none saved
+  await panel.getByLabel("Pilote").selectOption({ label: "—" });
+  // a kind with nothing to drive has no picker
+  await page.locator(".palette .chips:not(.bound) .chip", { hasText: "Tap tempo" }).click();
+  await expect(panel.getByLabel("Libellé")).toBeVisible();
+  await expect(panel.getByLabel("Pilote")).toHaveCount(0);
+  await page.getByRole("button", { name: "✔" }).click();
+  const cleared = ((await api(page, "dashboard.list")) as Saved[]).find((d) => d.name === "Nouveau dashboard")!;
+  expect(cleared.widgets.find((w) => w.kind === "snapshot")).not.toHaveProperty("target");
+  await page.getByRole("button", { name: "✎" }).click();
   await page.locator(".dash-manage").getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".dashboards .bar .tab", { hasText: "Nouveau dashboard" })).toHaveCount(0);
   await page.getByRole("button", { name: "✕", exact: true }).first().click();
+  await api(page, "snapshot.delete", { id: "autre-essai" });
+  expect(errors).toEqual([]);
+});
+
+test("dashboards: a widget's target is not said « introuvable » while its list is still being read", async ({ page }) => {
+  const errors = watchErrors(page);
+  // the looks are slow to come: every look.list waits until the test lets it go
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  await page.route("**/api/plugins/light/commands/look.list", async (route) => {
+    await released;
+    await route.continue();
+  });
+  await login(page);
+  type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+  const hole = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+  await page.locator(`.dgrid .cell[data-widget="${hole.id}"]`).click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  const picker = menu.getByLabel("Look lancé");
+  await expect(picker).toHaveValue("hole");
+  await expect(picker.locator("option:checked")).toHaveText("hole");
+  await expect(menu).not.toContainText("introuvable");
+  release();
+  await expect(picker.locator("option:checked")).toHaveText("hole"); // the look's name, now read
+  await expect(picker.locator("option", { hasText: "introuvable" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.unroute("**/api/plugins/light/commands/look.list");
   expect(errors).toEqual([]);
 });
 
