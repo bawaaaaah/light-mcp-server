@@ -3,6 +3,16 @@ import http, { type Server as HttpServer } from "node:http";
 import { duplexPair } from "node:stream";
 import type { WsRestRequest, WsRestResponse } from "./ws-hub.js";
 
+const WS_CONNECTION = Symbol("light.wsConnection");
+
+/**
+ * The live connection a request came over (REST over WebSocket), from the transport: undefined for a plain HTTP request,
+ * whatever its headers or body say.
+ */
+export function wsConnectionOf(req: http.IncomingMessage): string | undefined {
+  return (req.socket as unknown as Record<symbol, string | undefined>)[WS_CONNECTION];
+}
+
 /**
  * REST over WebSocket: a `req` from a control connection is replayed as a real HTTP request into
  * this server's own HTTP listener, over an in-memory stream pair rather than a socket. It goes
@@ -18,6 +28,8 @@ export function replayThroughServer(server: HttpServer, req: WsRestRequest): Pro
     const [clientSide, serverSide] = duplexPair();
     // What Express reads req.ip (and the rate limiter its bucket) from, absent trust proxy.
     Object.defineProperty(serverSide, "remoteAddress", { value: req.remoteAddress });
+    // the connection it came over, on the stream itself: no header, so no HTTP client can claim one
+    Object.defineProperty(serverSide, WS_CONNECTION, { value: req.connectionId });
     server.emit("connection", serverSide);
 
     const search = new URLSearchParams();

@@ -205,6 +205,8 @@ async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
   const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } }, y: { inputs: [], rtp: { enabled: false } } }, ...midi } };
   const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
   const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+  /** A call made over a browser's live connection (REST over the WebSocket: the transport names it). */
+  const over = (connection: string) => (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, { ...systemContext(), connection });
   await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
   await run("midi.mapping.put", { mapping: { id: "bend", input: { type: "pitchbend", channel: 1, number: 0 }, mode, threshold: 64, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } } });
   const active = async () => ((await run("look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active;
@@ -212,7 +214,7 @@ async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
     for (let i = 0; i < 50 && (await active()) !== want; i++) await new Promise((r) => setTimeout(r, 10));
     return active();
   };
-  return { run, active, until, plugin };
+  return { run, over, active, until, plugin };
 }
 
 describe("pitch bend through the plugin", () => {
@@ -265,45 +267,52 @@ describe("pitch bend through the plugin", () => {
 
   it("a tab closed with its wheel pushed: released (by default), and the mapping answers its reopening", async function () {
     this.timeout(10_000);
-    const { run, until, plugin } = await wheelPlugin("momentary");
+    const { over, until, plugin } = await wheelPlugin("momentary");
     const pad = "Web MIDI · Pad";
-    await run("midi.in", { port: pad, bytes: [0xe0, 0, 127], client: "tab-a" });
+    await over("tab-a")("midi.in", { port: pad, bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
     plugin.liveConnectionClosed("tab-a");
     expect(await until(false)).to.equal(false);
-    await run("midi.in", { port: pad, bytes: [0xe0, 0, 127], client: "tab-b" });
+    await over("tab-b")("midi.in", { port: pad, bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
-    const journal = (await run("midi.journal")) as { port: string; msg: { type: string; cause?: string } }[];
+    const journal = (await over("tab-b")("midi.journal")) as { port: string; msg: { type: string; cause?: string } }[];
     expect(journal.find((e) => e.msg.type === "release")).to.deep.include({ port: pad, msg: { type: "release", cause: "input" } });
   });
 
-  it("a closed connection kept when the « web » setting says so; a message on it refused", async function () {
+  it("a closed connection kept when the « web » setting says so; a late message on it refused", async function () {
     this.timeout(10_000);
-    const { run, active, until, plugin } = await wheelPlugin("momentary");
-    const open = new Set(["tab-a"]);
-    plugin.liveConnections({ isOpen: (id) => open.has(id) });
+    const { run, over, active, until, plugin } = await wheelPlugin("momentary");
     await run("midi.portloss.set", { web: "keep" });
-    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 127], client: "tab-a" });
+    await over("tab-a")("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
-    open.delete("tab-a");
     plugin.liveConnectionClosed("tab-a");
     await new Promise((r) => setTimeout(r, 50));
     expect(await active()).to.equal(true);
-    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64], client: "tab-a" }).then(
+    await over("tab-a")("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64] }).then(
       () => expect.fail("a closed connection"),
       (e: Error) => expect(e.message).to.match(/connexion fermée|connection closed/),
     );
   });
 
-  it("learns a browser's input under its stable name, listed once whoever relays it", async function () {
+  it("a plain HTTP caller can neither release a browser's hold nor tie one to a connection", async function () {
     this.timeout(10_000);
-    const { run } = await wheelPlugin("momentary");
-    const learnt = run("midi.learn", { timeoutMs: 2000 });
-    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0x90, 40, 100], client: "tab-a" });
-    expect(((await learnt) as { input: { port: string } }).input.port).to.equal("Web MIDI · Pad");
-    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0x90, 41, 100], client: "tab-b" });
-    const status = (await run("midi.status")) as { inputs: { name: string }[] };
-    expect(status.inputs.filter((i) => i.name === "Web MIDI · Pad")).to.have.length(1);
+    const { run, over, active, until, plugin } = await wheelPlugin("momentary");
+    const pad = "Web MIDI · Pad";
+    await over("tab-a")("midi.in", { port: pad, bytes: [0xe0, 0, 127] });
+    expect(await until(true)).to.equal(true);
+    // the same port name over HTTP (a script, MCP): its rest and its « closed » reach nothing the browser holds
+    await run("midi.in", { port: pad, bytes: [0xe0, 0, 0], client: "tab-a" }); // a « client » argument is no identity
+    await run("midi.web.closed", { port: pad, client: "tab-a" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await active()).to.equal(true);
+    // its own push holds nothing a browser's connection could lose: the tab's close leaves it to its own rest
+    await over("tab-a")("midi.in", { port: pad, bytes: [0xe0, 0, 0] });
+    expect(await until(false)).to.equal(false);
+    await run("midi.in", { port: pad, bytes: [0xe0, 0, 127] });
+    expect(await until(true)).to.equal(true);
+    plugin.liveConnectionClosed("tab-a");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await active()).to.equal(true);
   });
 
   it("a mapping changed while its wheel holds: journalled as « mapping »", async function () {

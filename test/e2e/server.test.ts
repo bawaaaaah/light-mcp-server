@@ -341,6 +341,59 @@ describe("server end to end", function () {
     }
   });
 
+  it("ties a browser's Web MIDI wheel to its live connection: let go when it closes, or when the same browser reconnects", async () => {
+    const token = await login("1234");
+    const put = await command(token, "midi.mapping.put", {
+      mapping: { id: "ws-bend", input: { type: "pitchbend", channel: 3, number: 0 }, mode: "momentary", threshold: 64, feedback: "none", on: { command: "blackout", args: { on: true } }, off: { command: "blackout", args: { on: false } } },
+    });
+    expect(put.status).to.equal(200);
+    /** A control connection (as a tab's), optionally naming the one it replaces; its « hello ». */
+    const open = async (bearer: string, previous?: string) => {
+      const { ticket } = (await (await fetch(`${base}/api/auth/ws-ticket`, { method: "POST", headers: { authorization: `Bearer ${bearer}` } })).json()) as { ticket: string };
+      const ws = new WebSocket(`${base.replace("http", "ws")}/api/ws?ticket=${ticket}${previous ? `&previous=${previous}` : ""}`, "light.control.v1.json");
+      const hello = await new Promise<{ connection: string; resumed?: string }>((ok) => ws.once("message", (raw: Buffer) => ok(JSON.parse(raw.toString()) as { connection: string; resumed?: string })));
+      /** midi.in over this connection (REST over the WebSocket): the server knows who relays it from the socket itself. */
+      const relay = (bytes: number[]) =>
+        new Promise<number>((ok) => {
+          ws.on("message", (raw: Buffer) => {
+            const msg = JSON.parse(raw.toString()) as { t: string; id?: number; status?: number };
+            if (msg.t === "res" && msg.id === 7) ok(msg.status!);
+          });
+          ws.send(JSON.stringify({ t: "req", id: 7, method: "POST", path: "/api/plugins/light/commands/midi.in", body: { port: "Web MIDI · Pad", bytes } }));
+        });
+      return { ws, hello, relay };
+    };
+    const until = async (want: boolean) => {
+      for (let i = 0; i < 100 && running.light.engine.isBlackout() !== want; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(running.light.engine.isBlackout()).to.equal(want);
+    };
+    // the tab closed with its wheel pushed: released
+    const tab = await open(token);
+    expect(await tab.relay([0xe2, 0, 127])).to.equal(200);
+    await until(true);
+    tab.ws.close();
+    await until(false);
+    // the same browser reconnecting: its previous connection let go at once, the old socket still open
+    const before = await open(token);
+    await before.relay([0xe2, 0, 127]);
+    await until(true);
+    const after = await open(token, before.hello.connection);
+    expect(after.hello.resumed).to.equal(before.hello.connection);
+    await until(false);
+    // another session's id: refused, its push stays
+    const theirs = await open(token);
+    await theirs.relay([0xe2, 0, 127]);
+    await until(true);
+    const other = await login("1234");
+    const mine = await open(other, theirs.hello.connection);
+    expect(mine.hello.resumed).to.equal(undefined);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(running.light.engine.isBlackout()).to.equal(true);
+    for (const ws of [after.ws, theirs.ws, mine.ws]) ws.close();
+    await until(false);
+    await command(token, "midi.mapping.delete", { id: "ws-bend" });
+  });
+
   it("follows tap tempo", async () => {
     const token = await login("1234");
     await command(token, "tempo.tap", {});

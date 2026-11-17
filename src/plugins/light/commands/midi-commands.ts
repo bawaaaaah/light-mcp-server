@@ -58,7 +58,7 @@ export interface MidiServices {
   selectProfile: (name: string) => Promise<void>;
   saveProfile: (name: string, profile: MidiProfile) => Promise<void>;
   portLoss: () => PortLoss;
-  /** Whether a browser's live connection is still open (always, when the server runs without its WebSocket hub). */
+  /** Whether a browser's live connection is still open (not yet said closed). */
   clientOpen: (client: string) => boolean;
   setPortLoss: (next: PortLoss) => Promise<void>;
 }
@@ -102,13 +102,14 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     titleEn: "Web MIDI input closed",
     hints: "",
     changes: [],
-    description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ». client: the caller's live connection (from its « hello »), so only its own input goes; a closed connection lets go of all its inputs by itself.",
+    description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ». Only the caller's own input goes (its live connection, from the transport); a closed connection lets go of all its inputs by itself.",
     right: "midi:input",
     // a browser's input only: never a local port or an RTP session, which the hub sees go by itself
-    schema: z.object({ port: z.string().startsWith("Web MIDI", { message: "un port Web MIDI commence par « Web MIDI »" }), client: z.string().max(64).optional() }),
-    run: ({ port, client }) => {
-      // the caller's own input only: another browser relaying a « Pad » of the same name keeps its own
-      s.hub.closeInput(port, "web", client);
+    schema: z.object({ port: z.string().startsWith("Web MIDI", { message: "un port Web MIDI commence par « Web MIDI »" }).describe("The input gone (« Web MIDI · Pad »).") }),
+    run: ({ port }, ctx) => {
+      // the caller's own input only (its connection, from the transport): another browser's « Pad » of the same name keeps
+      // its own, and a plain HTTP caller reaches only what plain HTTP held
+      s.hub.closeInput(port, "web", ctx.connection ?? "");
       return { ok: true };
     },
   });
@@ -328,18 +329,17 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     titleEn: "Web MIDI message",
     hints: "",
     changes: [],
-    description: "Relays MIDI bytes received by a browser (Web MIDI) into the hub.",
+    description:
+      "Relays MIDI bytes received by a browser (Web MIDI) into the hub. Sent over the browser's live connection (REST over the WebSocket control channel), what its wheels hold is tied to that connection and let go when it closes; over plain HTTP or MCP, it holds nothing a browser's connection could lose, and releases nothing a browser holds.",
     right: "midi:input",
     schema: z.object({
-      port: z.string().default("Web MIDI"),
-      bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3),
-      /** The browser's live connection relaying it (the id its « hello » gave): its inputs go when it closes. */
-      client: z.string().max(64).optional(),
+      port: z.string().default("Web MIDI").describe("The input's name, the same in every browser (« Web MIDI · Pad »)."),
+      bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3).describe("One MIDI message, as received (status byte first)."),
     }),
-    run: ({ port, bytes, client }) => {
+    run: ({ port, bytes }, ctx) => {
       // a connection already closed: its inputs were let go, a late message must not hold again
-      if (client && !s.clientOpen(client)) throw new Error(say("connexion fermée : ce relais Web MIDI n'existe plus", "connection closed: this Web MIDI relay is gone"));
-      s.hub.dispatch("web", port, bytes, client);
+      if (ctx.connection && !s.clientOpen(ctx.connection)) throw new Error(say("connexion fermée : ce relais Web MIDI n'existe plus", "connection closed: this Web MIDI relay is gone"));
+      s.hub.dispatch("web", port, bytes, ctx.connection);
       return { ok: true };
     },
   });

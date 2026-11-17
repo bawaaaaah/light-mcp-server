@@ -6,7 +6,7 @@ import { MidiProfileSchema, registerMidiCommands, type MidiProfile, type PortLos
 import type { CommandRegistry } from "../commands/registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { MidiHub, type HubMessage, type MidiSource } from "../midi/hub.js";
-import { argText, MappingSchema, type Mapping, type MappingOutput, type MidiMapper } from "../midi/mapping.js";
+import { argText, MappingSchema, type Mapping, type MappingOutput, type MidiMapper, type ReleaseCause } from "../midi/mapping.js";
 import type { MidiMessage } from "../midi/parse.js";
 import type { OutputRouter } from "../output/output-router.js";
 import type { ShowRuntime } from "../show/runtime.js";
@@ -20,8 +20,8 @@ import { frozenFor } from "../show/motion-summary.js";
 
 const MIDI_JOURNAL_SIZE = 300;
 
-/** Why a release came with no message (`MidiMapper.onRelease`): an input gone, gone with a profile change, a mapping changed. */
-export type ReleaseCause = "input" | "profile" | "mapping";
+/** How many closed browser connections are remembered, to refuse their late requests. */
+const CLOSED_CLIENTS_KEPT = 256;
 
 /** The kind of input a port name is (the hub names them so). */
 const sourceOf = (port: string): MidiSource => (port.startsWith("Web MIDI") ? "web" : port.startsWith("RTP · ") ? "rtp" : "local");
@@ -118,7 +118,7 @@ export class MidiWiring {
         await config.save();
       },
       portLoss: () => this.portLoss(),
-      clientOpen: (client) => this.liveLink?.isOpen(client) ?? true,
+      clientOpen: (client) => !this.closedClients.has(client),
       setPortLoss: async (portLoss) => {
         config.put({ ...config.get(), portLoss });
         await config.save();
@@ -135,11 +135,13 @@ export class MidiWiring {
     return this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release";
   }
 
-  /** The WebSocket hub's connections (none in a server run without it, as in tests: every client then counts as open). */
-  liveLink: { isOpen(id: string): boolean } | undefined;
+  /** The browsers' connections said closed (the last ones): a request still on its way from one holds nothing again. */
+  private readonly closedClients = new Set<string>();
 
   /** A browser's connection closed (a tab closed, the browser cut from the network): the Web MIDI inputs it relayed go. */
   clientClosed(client: string): void {
+    this.closedClients.add(client);
+    if (this.closedClients.size > CLOSED_CLIENTS_KEPT) this.closedClients.delete(this.closedClients.values().next().value!);
     this.deps.mapper.forgetClient(client, this.releasesOnLoss("web"));
   }
 

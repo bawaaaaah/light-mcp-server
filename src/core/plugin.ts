@@ -73,10 +73,9 @@ export interface McpPlugin {
    */
   liveTopics?(): Record<string, LiveTopic>;
   /**
-   * The WebSocket hub's connections, given once when it starts: `isOpen` says whether a connection id (sent to the client
-   * in its « hello ») is still open, so a request naming the connection it relays for can be checked.
+   * A live connection closed (a tab closed, a browser cut from the network, or replaced by the same browser's new one):
+   * what it relayed is gone with it. Its id is the one its « hello » gave, which a request made over that connection
+   * carries (`wsConnectionOf`). Never called when the server stops: the show stops as it stands.
    */
-  liveConnections?(link: { isOpen(id: string): boolean }): void;
-  /** A live connection closed (a tab closed, a browser cut from the network): what it relayed is gone with it. */
   liveConnectionClosed?(id: string): void;
 }

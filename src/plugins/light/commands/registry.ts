@@ -22,6 +22,11 @@ export interface CommandContext {
   who?: string;
   /** The caller's role (id), for rules that apply to some roles only. */
   role?: string;
+  /**
+   * The live connection the call came over (REST over the WebSocket control channel), from the transport itself: a
+   * browser's Web MIDI relay. Absent for plain HTTP, MCP and the CLI, whatever their arguments say.
+   */
+  connection?: string;
 }
 
 export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {

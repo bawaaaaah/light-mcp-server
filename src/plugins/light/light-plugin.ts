@@ -6,6 +6,7 @@
  * that of the subscriptions (commands.onCommand: who hears a command first; hub.on; engine.onFrame) and of the
  * collections opened; the command list is sorted by name (registry.ts), whatever the registration order.
  */
+import { wsConnectionOf } from "../../core/ws-rest.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
 import { applyRestore, packArchive, previewRestore, readArchive, restoreBackupDir, type RestorePreview, type RestoreResult, type RestoreTargets } from "./data/archive.js";
@@ -428,10 +429,10 @@ export class LightPlugin implements McpPlugin {
   }
 
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
-  invoke(name: string, args: unknown, origin: Origin, credential?: string): Promise<unknown> {
+  invoke(name: string, args: unknown, origin: Origin, credential?: string, connection?: string): Promise<unknown> {
     const who = this.opts.auth?.nameOf(credential);
     const role = this.opts.auth?.roleOf(credential)?.id;
-    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true), ...(who ? { who } : {}), ...(role ? { role } : {}) };
+    const ctx: CommandContext = { origin, can: (right) => (this.opts.auth ? this.opts.auth.can(credential, right) : true), ...(who ? { who } : {}), ...(role ? { role } : {}), ...(connection ? { connection } : {}) };
     return this.commands.invoke(name, args, ctx);
   }
 
@@ -635,7 +636,8 @@ export class LightPlugin implements McpPlugin {
       try {
         // the CLI says so (activity log); anything else over HTTP is the interface or a script
         const origin = req.get("x-light-origin") === "cli" ? "cli" : "ui";
-        res.json({ ok: true, result: await this.invoke(String(req.params.name), req.body, origin, credential(req)) });
+        // the live connection it came over, if any: read from the transport, never from the request
+        res.json({ ok: true, result: await this.invoke(String(req.params.name), req.body, origin, credential(req), wsConnectionOf(req)) });
       } catch (err) {
         const status = err instanceof CommandError ? { unknown: 404, invalid: 400, forbidden: 403, failed: 422 }[err.code] : 500;
         res.status(status).json({ ok: false, error: err instanceof Error ? err.message : String(err), detail: err instanceof CommandError ? err.detail : undefined });
@@ -673,11 +675,6 @@ export class LightPlugin implements McpPlugin {
       if (!file) throw new HttpError(404, say("sauvegarde inconnue", "unknown backup"));
       res.download(file);
     });
-  }
-
-  /** The hub's connections: a browser's Web MIDI relay names its own, checked here. */
-  liveConnections(link: { isOpen(id: string): boolean }): void {
-    this.midi.liveLink = link;
   }
 
   /** A browser's connection closed: the Web MIDI inputs it relayed go (as the « web » port-loss setting says). */

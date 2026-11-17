@@ -158,6 +158,8 @@ export interface WsRestRequest {
   body?: unknown;
   /** The bearer credential the connection authenticated with — never sent back over the wire. */
   credential: string;
+  /** The connection's id (its « hello »): the route sees it through `wsConnectionOf`, never from the request itself. */
+  connectionId: string;
   remoteAddress: string | undefined;
   /** From the upgrade request, so a replayed request sees the same client as an HTTP one would. */
   headers: Record<string, string>;
@@ -233,6 +235,8 @@ export interface WsHubOptions {
 export class WsHub {
   private readonly servers: Record<LiveChannel, WebSocketServer>;
   private readonly connections = new Set<Connection>();
+  /** The open connections by id: a reconnecting browser names its previous one. */
+  private readonly byId = new Map<string, Connection>();
   private readonly topics = new Map<string, TopicEntry>();
   /** `${pluginId}:${eventType}` → the topics built from that event */
   private readonly topicsBySource = new Map<string, TopicEntry[]>();
@@ -258,7 +262,6 @@ export class WsHub {
       }
     }
 
-    for (const plugin of opts.plugins) plugin.liveConnections?.({ isOpen: (id) => [...this.connections].some((c) => c.id === id) });
     this.unsubscribeBus = opts.eventBus.subscribe((event) => this.onBusEvent(event));
     this.heartbeatTimer = setInterval(() => this.heartbeat(), opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
@@ -379,8 +382,9 @@ export class WsHub {
     }
 
     const spec = WS_SUBPROTOCOLS[protocol];
+    const previous = url.searchParams.get("previous") ?? undefined;
     this.servers[spec.channel].handleUpgrade(req, socket, head, (ws) => {
-      this.onConnection(ws, spec, credential, req);
+      this.onConnection(ws, spec, credential, req, previous);
     });
   }
 
@@ -401,7 +405,12 @@ export class WsHub {
     }
   }
 
-  private onConnection(ws: WebSocket, spec: ProtocolSpec, credential: string, upgrade: IncomingMessage): void {
+  /**
+   * `previous`: the connection this browser had before (a reconnection). Taken only from the same credential on the same
+   * channel: that one is let go at once (what it relayed released now, not at the heartbeat's next round), and « hello »
+   * says so (`resumed`). Another credential's id is ignored: nobody closes someone else's connection.
+   */
+  private onConnection(ws: WebSocket, spec: ProtocolSpec, credential: string, upgrade: IncomingMessage, previous?: string): void {
     const conn: Connection = {
       id: randomUUID(),
       ws,
@@ -419,6 +428,17 @@ export class WsHub {
       connectedAt: Date.now(),
     };
     this.connections.add(conn);
+    this.byId.set(conn.id, conn);
+    const old = previous === undefined ? undefined : this.byId.get(previous);
+    const resumed = old !== undefined && old !== conn && old.credential === credential && old.channel === conn.channel;
+    if (resumed) {
+      this.dropConnection(old);
+      try {
+        old.ws.terminate();
+      } catch {
+        // already gone
+      }
+    }
 
     ws.on("error", (err) => {
       // Oversized frames and protocol violations land here; ws closes the socket itself.
@@ -442,12 +462,14 @@ export class WsHub {
       v: WS_PROTOCOL_VERSION,
       channel: conn.channel,
       connection: conn.id,
+      ...(resumed ? { resumed: previous } : {}),
       topics: [...this.topics.values()].filter((entry) => entry.topic.channel === conn.channel).map((entry) => entry.id),
     });
   }
 
   private dropConnection(conn: Connection): void {
     if (!this.connections.delete(conn)) return;
+    this.byId.delete(conn.id);
     conn.gone.abort();
     for (const [topicId, group] of conn.subscriptions) {
       this.leaveGroup(topicId, group, conn);
@@ -554,6 +576,7 @@ export class WsHub {
           query: message.query,
           body: message.body,
           credential: conn.credential,
+          connectionId: conn.id,
           remoteAddress: conn.remoteAddress,
           headers: conn.forwardedHeaders,
           signal,

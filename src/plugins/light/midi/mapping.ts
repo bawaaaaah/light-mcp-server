@@ -133,8 +133,8 @@ const KEY_SEP = "\u0000";
 const holdKey = (port: string | undefined, client: string | undefined): string => `${port ?? ""}${KEY_SEP}${client ?? ""}`;
 const portOfKey = (key: string): string => key.slice(0, key.indexOf(KEY_SEP));
 
-/** Why a release came with no message: an input gone, or the mapping changed or removed. */
-export type ReleaseCause = "input" | "mapping";
+/** Why a release came with no message: an input gone, gone with a profile change (the host tells it apart), a mapping changed or removed. */
+export type ReleaseCause = "input" | "profile" | "mapping";
 
 export class MidiMapper {
   private mappings: Mapping[] = [];
