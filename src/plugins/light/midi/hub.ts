@@ -170,7 +170,7 @@ export class MidiHub extends EventEmitter {
       if (!this.isWatched(name)) {
         release(input);
         this.openInputs.delete(name);
-        this.emit("inputClosed", name);
+        this.emit("inputClosed", name, "local");
       }
     }
     release(this.feedbackPort?.out);
@@ -199,7 +199,7 @@ export class MidiHub extends EventEmitter {
       });
       session.on("peer", () => this.emit("ports"));
       session.on("peerLeft", (peer?: { name?: string }) => {
-        this.emit("inputClosed", `RTP · ${peer?.name ?? "session"}`);
+        this.emit("inputClosed", `RTP · ${peer?.name ?? "session"}`, "rtp");
         this.emit("ports");
       });
       try {
@@ -280,6 +280,11 @@ export class MidiHub extends EventEmitter {
     return this.config.inputs.some((w) => name.toLowerCase().includes(w.toLowerCase()));
   }
 
+  /** An input gone that the hub cannot see go by itself (a browser's Web MIDI): said as for its own ports. */
+  closeInput(port: string, source: MidiSource): void {
+    this.emit("inputClosed", port, source);
+  }
+
   /** Re-lists ports, opens newly visible watched inputs, notifies on changes. */
   scan(): void {
     if (!this.native) return;
@@ -299,7 +304,7 @@ export class MidiHub extends EventEmitter {
       if (!inputs.includes(name)) {
         release(input);
         this.openInputs.delete(name);
-        this.emit("inputClosed", name);
+        this.emit("inputClosed", name, "local");
       }
     }
     inputs.forEach((name, index) => {

@@ -1,7 +1,7 @@
 /** The light plugin's machine config (core/config-store.ts, scope « light ») and the one way to change it. */
 import { z } from "zod";
 import type { ScopedConfigStore } from "../../core/config-store.js";
-import { MidiProfileSchema } from "./commands/midi-commands.js";
+import { MidiProfileSchema, PortLossSchema } from "./commands/midi-commands.js";
 import { portPath } from "./output/dmx-usb.js";
 
 const RouteSchema = z.object({
@@ -33,6 +33,7 @@ export const LightConfigSchema = z.object({
     .object({
       profiles: z.record(z.string(), MidiProfileSchema).prefault({ local: MidiProfileSchema.parse({ inputs: ["IAC"] }) }),
       active: z.string().default("local"),
+      portLoss: PortLossSchema,
     })
     .prefault({}),
   osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).prefault({}),

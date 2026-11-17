@@ -101,6 +101,24 @@ describe("MIDI hub", () => {
     expect(hub.status().inputs.find((i) => i.name === "Launchpad X")!.open).to.equal(true);
   });
 
+  it("says an input is closed: gone at a scan, no longer watched at a new config", async () => {
+    const f = fakeNative();
+    const hub = new MidiHub({ inputs: ["iac", "usb"], rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });
+    const closed: [string, string][] = [];
+    hub.on("inputClosed", (port: string, source: string) => closed.push([port, source]));
+    hub.scan();
+    f.state.inputs = f.state.inputs.filter((n) => n !== "USB Pad"); // unplugged
+    hub.scan();
+    expect(closed).to.deep.equal([["USB Pad", "local"]]);
+    await hub.setConfig({ inputs: [], rtp: { enabled: false, port: 0, name: "t" } }); // IAC no longer watched
+    expect(closed).to.deep.equal([
+      ["USB Pad", "local"],
+      ["IAC Bus 1", "local"],
+    ]);
+    hub.closeInput("Web MIDI · Pad", "web"); // what a browser says
+    expect(closed.at(-1)).to.deep.equal(["Web MIDI · Pad", "web"]);
+  });
+
   it("refuses a feedback port that is also a watched input", () => {
     const f = fakeNative();
     const hub = new MidiHub({ inputs: ["iac"], feedbackOutput: "iac", rtp: { enabled: false, port: 0, name: "t" } }, { native: f.native });
@@ -195,8 +213,11 @@ describe("MIDI hub", () => {
       expect(await hub.rtpConnect({ address: "127.0.0.1", port: 15606 })).to.deep.equal({ name: "Régie", address: "127.0.0.1", port: 15606 });
       await until(() => remote.listPeers().length === 1);
       expect(hub.status().rtp.peers).to.deep.equal(["Régie (127.0.0.1)"]);
+      const closed: [string, string][] = [];
+      hub.on("inputClosed", (port: string, source: string) => closed.push([port, source]));
       expect(hub.rtpDisconnect("Régie")).to.equal(true);
       await until(() => remote.listPeers().length === 0);
+      expect(closed).to.deep.equal([["RTP · Régie", "rtp"]]); // its wheels forgotten (peerLeft)
       // found on the network (Bonjour stands in here), kept: joined again within seconds
       (hub as unknown as { browser: object }).browser = { ask: () => undefined, list: () => [{ name: "Régie", host: "regie", port: 15606, addresses: ["127.0.0.1"] }], stop: async () => undefined };
       expect(hub.rtpSessions()).to.deep.equal([{ name: "Régie", host: "regie", address: "127.0.0.1", port: 15606, connected: false, kept: true, self: false, local: false }]);

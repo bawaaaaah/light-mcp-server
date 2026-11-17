@@ -25,8 +25,11 @@
  * crosses its threshold upwards, one release when it comes back to it or under (a toggle flips on each
  * push). A jump (an automation stepping from 20 to 100) is one push; a value repeated above the
  * threshold (Live's chase) does nothing. The pushed state is kept by mapping and by input port (a
- * keyboard and Live on one channel stay apart); a Start, Continue or Song Position on a port puts its
- * wheels back at rest without a release (the value Live sends next fires again), a port gone forgets them.
+ * keyboard and Live on one channel stay apart): the action is released once no port pushes it any more.
+ * A Start, Continue or Song Position on a port rearms its wheels without a release: the next value above
+ * the threshold fires again, one at or under it releases what was held. A port gone forgets them,
+ * releasing what they held when asked (the server's MIDI setting); so does a mapping removed or changed.
+ * Releases made outside a message (`setMappings`, `forgetPort`) go to `onRelease`.
  */
 import { z } from "zod";
 import type { MidiMessage } from "./parse.js";
@@ -118,30 +121,67 @@ interface MappingState {
   caught: boolean;
 }
 
-/** Between a mapping's id and a port in the keys of `MidiMapper.pushed` (neither carries it). */
-const KEY_SEP = "\u0000";
+/** A pitch bend to a button action: played by edges (see the header). */
+const isWheelButton = (m: Mapping): boolean => m.input.type === "pitchbend" && !m.levelArg;
+
+/** A wheel's hold on one port: pushed above its threshold, or rearmed by a transport restart while pushed. */
+type Hold = "pushed" | "rearmed";
 
 export class MidiMapper {
   private mappings: Mapping[] = [];
   private readonly state = new Map<string, MappingState>();
-  /** The pitch bends to a button action pushed above their threshold, by mapping and input port (`id KEY_SEP port`). */
-  private readonly pushed = new Set<string>();
+  /** The wheels to a button holding their action, by mapping id, then by input port ("" without one). */
+  private readonly holds = new Map<string, Map<string, Hold>>();
+  /** Releases made outside a message (a mapping removed or changed, a port gone): the host runs their calls and feedback. */
+  onRelease: (out: MappingOutput) => void = () => undefined;
 
   setMappings(mappings: Mapping[]): void {
+    const before = new Map(this.mappings.map((m) => [m.id, m]));
     this.mappings = mappings.map((m) => MappingSchema.parse(m));
+    const out: MappingOutput = { calls: [], feedback: [], matched: [] };
+    // a wheel's hold no longer valid (its mapping removed, its input or its kind changed): released, forgotten
+    for (const id of [...this.holds.keys()]) {
+      const old = before.get(id);
+      const now = this.mappings.find((m) => m.id === id);
+      const same = old && now && isWheelButton(now) && now.input.channel === old.input.channel && (now.input.port ?? "") === (old.input.port ?? "") && now.levelArg === old.levelArg;
+      if (same) continue;
+      this.holds.delete(id);
+      if (old) this.releaseHeld(old, out);
+    }
     for (const id of [...this.state.keys()]) if (!this.mappings.some((m) => m.id === id)) this.state.delete(id);
-    for (const key of [...this.pushed]) if (!this.mappings.some((m) => key.startsWith(`${m.id}${KEY_SEP}`))) this.pushed.delete(key);
+    if (out.calls.length || out.feedback.length) this.onRelease(out);
   }
 
-  /** A transport restart on a port (Start, Continue, Song Position): its wheels back at rest, nothing released. */
+  /** A transport restart on a port (Start, Continue, Song Position): its wheels rearmed, nothing released yet. */
   rearm(port?: string): void {
-    for (const key of [...this.pushed]) if (key.endsWith(`${KEY_SEP}${port ?? ""}`)) this.pushed.delete(key);
+    for (const holds of this.holds.values()) if (holds.get(port ?? "") === "pushed") holds.set(port ?? "", "rearmed");
   }
 
-  /** An input port gone: its wheels forgotten; every port's when none is given (the MIDI profile changed). */
-  forgetPort(port?: string): void {
-    if (port === undefined) this.pushed.clear();
-    else this.rearm(port);
+  /**
+   * An input port gone (every port when none is given: the MIDI profile changed): its wheels forgotten. With `releaseHeld`,
+   * an action no other port holds any more is released (a toggle keeps its state: no port holds it).
+   */
+  forgetPort(port: string | undefined, releaseHeld: boolean): void {
+    const out: MappingOutput = { calls: [], feedback: [], matched: [] };
+    for (const [id, holds] of [...this.holds]) {
+      if (port === undefined) holds.clear();
+      else if (!holds.delete(port)) continue;
+      if (holds.size) continue;
+      this.holds.delete(id);
+      const m = this.mappings.find((x) => x.id === id);
+      if (m && releaseHeld) this.releaseHeld(m, out);
+    }
+    if (out.calls.length || out.feedback.length) this.onRelease(out);
+  }
+
+  /** Releases a wheel's held action (not a toggle's: its state is no hold), with its feedback. */
+  private releaseHeld(m: Mapping, out: MappingOutput): void {
+    const s = this.state.get(m.id);
+    if (!s?.active || m.mode === "toggle") return;
+    s.active = false;
+    s.level = restLevel(m);
+    release(m, out);
+    out.feedback.push(...this.feedbackFor(m, s));
   }
 
   list(): Mapping[] {
@@ -197,19 +237,31 @@ export class MidiMapper {
 
       if (m.input.type === "pitchbend" && !m.levelArg && msg.type === "pitchbend") {
         // a wheel to a button: by edges, by port (a jump is one push, a repeated value nothing new)
-        const key = `${m.id}${KEY_SEP}${port ?? ""}`;
+        const key = port ?? "";
+        let holds = this.holds.get(m.id);
+        const hold = holds?.get(key);
         const engaged = msg.value >> 7 > m.threshold;
-        if (engaged === this.pushed.has(key)) continue;
         if (engaged) {
-          this.pushed.add(key);
-          s.active = m.mode === "toggle" ? !s.active : true;
-          s.level = s.active ? 1 : restLevel(m);
-          if (s.active) out.calls.push(m.on);
-          else release(m, out);
+          if (hold === "pushed") continue;
+          if (!holds) this.holds.set(m.id, (holds = new Map<string, Hold>()));
+          holds.set(key, "pushed");
+          if (m.mode === "toggle") {
+            s.active = !s.active;
+            s.level = s.active ? 1 : restLevel(m);
+            if (s.active) out.calls.push(m.on);
+            else release(m, out);
+          } else if (!s.active || hold === "rearmed") {
+            // a new push; after a transport restart, the action again (Live's value fires once more)
+            s.active = true;
+            s.level = 1;
+            out.calls.push(m.on);
+          }
         } else {
-          this.pushed.delete(key);
-          // back at rest: released, except a toggle (its next push switches it)
-          if (m.mode !== "toggle" && s.active) {
+          if (!hold) continue;
+          holds!.delete(key);
+          if (holds!.size === 0) this.holds.delete(m.id);
+          // back at rest, and no other port pushing it: released, except a toggle (its next push switches it)
+          if (holds!.size === 0 && m.mode !== "toggle" && s.active) {
             s.active = false;
             s.level = restLevel(m);
             release(m, out);

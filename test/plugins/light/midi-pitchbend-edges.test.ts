@@ -70,15 +70,75 @@ describe("pitch bend to a button: one action per push", () => {
     expect(play(m, [127], KEYS)).to.deep.equal([]);
   });
 
-  it("a port gone forgets its wheels; the profile changed, every port's", () => {
-    const m = mapper("trigger");
+  it("rearmed, then a value at or under the threshold: what was held is released (momentary, latch)", () => {
+    for (const mode of ["momentary", "latch"] as const) {
+      const m = mapper(mode);
+      expect(play(m, [127], LIVE), mode).to.deep.equal(["look.go"]);
+      m.handle(parseMidi([0xf2, 0, 0]), LIVE); // Live's locate
+      expect(play(m, [0], LIVE), mode).to.deep.equal(["look.stop"]); // the automation back at 0: never left on
+      expect(play(m, [0], LIVE), mode).to.deep.equal([]);
+    }
+  });
+
+  it("a toggle rearmed then at rest keeps its state; its next push switches it", () => {
+    const m = mapper("toggle");
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
+    m.handle(parseMidi([0xfa]), LIVE);
+    expect(play(m, [0, 127], LIVE)).to.deep.equal(["look.stop"]);
+  });
+
+  it("two ports holding one mapping: released once neither pushes it", () => {
+    const m = mapper("momentary");
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
+    expect(play(m, [127], KEYS)).to.deep.equal([]); // already on
+    expect(play(m, [64], LIVE)).to.deep.equal([]); // the keyboard still holds it
+    expect(play(m, [64], KEYS)).to.deep.equal(["look.stop"]);
+  });
+
+  it("a port gone: what only it held is released when asked, kept otherwise; the next push is new", () => {
+    const released: string[] = [];
+    const m = mapper("momentary");
+    m.onRelease = (out) => released.push(...out.calls.map((c) => c.command));
     play(m, [127], LIVE);
     play(m, [127], KEYS);
-    m.forgetPort(LIVE);
-    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
-    expect(play(m, [127], KEYS)).to.deep.equal([]);
-    m.forgetPort();
+    m.forgetPort(LIVE, true);
+    expect(released).to.deep.equal([]); // the keyboard still holds it
+    m.forgetPort(KEYS, true);
+    expect(released).to.deep.equal(["look.stop"]);
     expect(play(m, [127], KEYS)).to.deep.equal(["look.go"]);
+    m.forgetPort(KEYS, false); // « keep »: left on, forgotten
+    expect(released).to.deep.equal(["look.stop"]);
+    expect(play(m, [64], KEYS)).to.deep.equal([]);
+  });
+
+  it("the profile changed: every port's wheels released and forgotten", () => {
+    const released: string[] = [];
+    const m = mapper("latch");
+    m.onRelease = (out) => released.push(...out.calls.map((c) => c.command));
+    play(m, [127], LIVE);
+    m.forgetPort(undefined, true);
+    expect(released).to.deep.equal(["look.stop"]);
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
+  });
+
+  it("a mapping removed, or changed under the same id, releases what its wheel held and forgets it", () => {
+    const base = { id: "bend", input: { type: "pitchbend" as const, channel: 1, number: 0 }, mode: "momentary" as const, threshold: 64, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } };
+    for (const next of [[], [{ ...base, input: { ...base.input, channel: 2 } }], [{ ...base, input: { ...base.input, type: "cc" as const, number: 7 } }], [{ ...base, levelArg: "level" }]]) {
+      const gone: string[] = [];
+      const changed = mapper("momentary");
+      changed.onRelease = (out) => gone.push(...out.calls.map((c) => c.command));
+      play(changed, [127], LIVE);
+      changed.setMappings(next.map((x) => MappingSchema.parse(x)));
+      expect(gone, JSON.stringify(next)).to.deep.equal(["look.stop"]);
+    }
+    // its label only changed: the hold stays
+    const released: string[] = [];
+    const m = mapper("momentary");
+    m.onRelease = (out) => released.push(...out.calls.map((c) => c.command));
+    play(m, [127], LIVE);
+    m.setMappings([MappingSchema.parse({ ...base, label: "Molette" })]);
+    expect(released).to.deep.equal([]);
+    expect(play(m, [64], LIVE)).to.deep.equal(["look.stop"]);
   });
 
   it("a CC is unchanged: every value above the threshold answers in trigger", () => {
@@ -95,32 +155,65 @@ describe("pitch bend to a button: one action per push", () => {
   });
 });
 
-describe("pitch bend rearmed through the plugin: a Start from Live fires the wheel again", () => {
-  it("a wheel held up does nothing more; after a Start on its port, the next value starts the look again", async function () {
+/** A plugin without native MIDI, the synthetic show loaded, and a wheel mapped to the « hole » look. */
+async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
+  const dataRoot = join(mkdtempSync(join(tmpdir(), "light-bend-")), "data");
+  mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
+  copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
+  const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } }, y: { inputs: [], rtp: { enabled: false } } }, ...midi } };
+  const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+  const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+  await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
+  await run("midi.mapping.put", { mapping: { id: "bend", input: { type: "pitchbend", channel: 1, number: 0 }, mode, threshold: 64, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } } });
+  const active = async () => ((await run("look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active;
+  const until = async (want: boolean) => {
+    for (let i = 0; i < 50 && (await active()) !== want; i++) await new Promise((r) => setTimeout(r, 10));
+    return active();
+  };
+  return { run, active, until };
+}
+
+describe("pitch bend through the plugin", () => {
+  const port = "Web MIDI · Live";
+  for (const [name, bytes] of [["Start", [0xfa]], ["Continue", [0xfb]], ["Song Position Pointer", [0xf2, 0x10, 0x00]]] as const) {
+    it(`a wheel held up does nothing more; after a ${name} on its port, the next value starts the look again`, async function () {
+      this.timeout(10_000);
+      const { run, active, until } = await wheelPlugin("trigger");
+      await run("midi.in", { port, bytes: [0xe0, 0, 127] });
+      expect(await until(true)).to.equal(true);
+      await run("look.stopall");
+      expect(await until(false)).to.equal(false);
+      await run("midi.in", { port, bytes: [0xe0, 0, 127] }); // the chase: nothing new
+      await new Promise((r) => setTimeout(r, 50));
+      expect(await active()).to.equal(false);
+      await run("midi.in", { port, bytes: [...bytes] });
+      await run("midi.in", { port, bytes: [0xe0, 0, 127] });
+      expect(await until(true)).to.equal(true);
+    });
+  }
+
+  it("midi.profile.select releases what a wheel held", async function () {
     this.timeout(10_000);
-    const dataRoot = join(mkdtempSync(join(tmpdir(), "light-bend-")), "data");
-    mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
-    copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
-    const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
-    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
-    const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
-    await run("import.qxw", { xml: readFileSync(new URL("../../fixtures/synthetic.qxw", import.meta.url), "utf8"), apply: true });
-    await run("midi.mapping.put", { mapping: { id: "bend", input: { type: "pitchbend", channel: 1, number: 0 }, mode: "trigger", threshold: 64, on: { command: "look.go", args: { id: "hole" } } } });
-    const active = async () => ((await run("look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active;
-    const until = async (want: boolean) => {
-      for (let i = 0; i < 50 && (await active()) !== want; i++) await new Promise((r) => setTimeout(r, 10));
-      return active();
-    };
-    const port = "Web MIDI · Live";
+    const { run, until } = await wheelPlugin("momentary");
     await run("midi.in", { port, bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
-    await run("look.stopall");
+    await run("midi.profile.select", { name: "y" });
     expect(await until(false)).to.equal(false);
-    await run("midi.in", { port, bytes: [0xe0, 0, 127] }); // the chase: nothing new
-    await new Promise((r) => setTimeout(r, 50));
-    expect(await active()).to.equal(false);
-    await run("midi.in", { port, bytes: [0xfa] }); // Live's Start
+  });
+
+  it("a browser's Web MIDI input closed: released by default, kept when the setting says so", async function () {
+    this.timeout(10_000);
+    const { run, active, until } = await wheelPlugin("momentary");
+    expect(((await run("midi.status")) as { portLoss: object }).portLoss).to.deep.equal({ local: "release", rtp: "release", web: "release" });
     await run("midi.in", { port, bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
+    await run("midi.web.closed", { port });
+    expect(await until(false)).to.equal(false);
+    expect(await run("midi.portloss.set", { web: "keep" })).to.deep.equal({ local: "release", rtp: "release", web: "keep" });
+    await run("midi.in", { port, bytes: [0xe0, 0, 127] });
+    expect(await until(true)).to.equal(true);
+    await run("midi.web.closed", { port });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await active()).to.equal(true);
   });
 });

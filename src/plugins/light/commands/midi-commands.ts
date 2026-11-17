@@ -30,6 +30,20 @@ export const MidiProfileSchema = z.object({
 });
 export type MidiProfile = z.infer<typeof MidiProfileSchema>;
 
+/**
+ * What a wheel (pitch bend) holding an action does when its input goes (decision of 2026-11-17), by kind of input: the
+ * local ports (USB, IAC), the network sessions (RTP-MIDI), a browser's Web MIDI. In the MIDI config, beside the profiles
+ * and not in one: a behaviour of the desk, kept whatever profile is active.
+ */
+export const PortLossSchema = z
+  .object({
+    local: z.enum(["release", "keep"]).default("release"),
+    rtp: z.enum(["release", "keep"]).default("release"),
+    web: z.enum(["release", "keep"]).default("release"),
+  })
+  .prefault({});
+export type PortLoss = z.infer<typeof PortLossSchema>;
+
 export interface MidiServices {
   /** The last MIDI messages and what each did. */
   journal: () => { at: number; port: string; msg: object; matched: { id: string; mode: string }[]; calls: { command: string; ok: boolean }[]; ms: number }[];
@@ -43,6 +57,8 @@ export interface MidiServices {
   activeProfile: () => string;
   selectProfile: (name: string) => Promise<void>;
   saveProfile: (name: string, profile: MidiProfile) => Promise<void>;
+  portLoss: () => PortLoss;
+  setPortLoss: (next: PortLoss) => Promise<void>;
 }
 
 export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): void {
@@ -57,7 +73,40 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     readOnly: true,
     profiles: ["setup", "live"],
     schema: z.object({}),
-    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()], node: s.loopDelay() }),
+    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()], portLoss: s.portLoss(), node: s.loopDelay() }),
+  });
+
+  reg.register({
+    name: "midi.portloss.set",
+    title: "Port MIDI perdu : relâcher ou conserver",
+    titleEn: "MIDI port lost: release or keep",
+    hints: "I",
+    changes: ["machine"],
+    description:
+      "What a wheel (pitch bend) holding a button action does when its input goes, by kind of input: local (USB, IAC ports), rtp (RTP-MIDI sessions), web (a browser's Web MIDI, seen when the browser says its port is gone or its MIDI page closes). « release » (default) releases what that input held, « keep » leaves it on. A profile change always releases. Kinds not given are unchanged.",
+    right: "midi:configure",
+    profiles: ["setup"],
+    schema: z.object({ local: z.enum(["release", "keep"]).optional(), rtp: z.enum(["release", "keep"]).optional(), web: z.enum(["release", "keep"]).optional() }),
+    run: async (patch) => {
+      const next = PortLossSchema.parse({ ...s.portLoss(), ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) });
+      await s.setPortLoss(next);
+      return next;
+    },
+  });
+
+  reg.register({
+    name: "midi.web.closed",
+    title: "Entrée Web MIDI fermée",
+    titleEn: "Web MIDI input closed",
+    hints: "",
+    changes: [],
+    description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ».",
+    right: "midi:input",
+    schema: z.object({ port: z.string().min(1) }),
+    run: ({ port }) => {
+      s.hub.closeInput(port, "web");
+      return { ok: true };
+    },
   });
 
   reg.register({

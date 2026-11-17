@@ -2,11 +2,11 @@
  * MIDI in the light plugin (docs/specs/midi.md): the hub and its ports, the show's mappings turned into commands,
  * the journal of what each message did, and the feedback that keeps the controllers' LEDs on the real state.
  */
-import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "../commands/midi-commands.js";
+import { MidiProfileSchema, PortLossSchema, registerMidiCommands, type MidiProfile } from "../commands/midi-commands.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
-import { MidiHub, type HubMessage } from "../midi/hub.js";
-import { argText, MappingSchema, type Mapping, type MidiMapper } from "../midi/mapping.js";
+import { MidiHub, type HubMessage, type MidiSource } from "../midi/hub.js";
+import { argText, MappingSchema, type Mapping, type MappingOutput, type MidiMapper } from "../midi/mapping.js";
 import type { MidiMessage } from "../midi/parse.js";
 import type { OutputRouter } from "../output/output-router.js";
 import type { ShowRuntime } from "../show/runtime.js";
@@ -79,8 +79,10 @@ export class MidiWiring {
     hub.on("message", (m: HubMessage) => this.onMessage(m));
     hub.on("ports", () => publish("midi", { status: hub.status() }));
     hub.on("warning", (w: string) => publish("midi", { warning: w }));
-    // a port gone: the wheels it had pushed are forgotten (docs/specs/midi.md, « Pitch bend »)
-    hub.on("inputClosed", (port: string) => mapper.forgetPort(port));
+    // a port gone: the wheels it had pushed are forgotten, what they held released unless kept for that kind of input
+    // (docs/specs/midi.md, « Pitch bend »); a release made outside a message runs as a message's would
+    mapper.onRelease = (out) => this.run(out, "midi");
+    hub.on("inputClosed", (port: string, source: MidiSource) => mapper.forgetPort(port, this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release"));
     registerMidiCommands(commands, {
       journal: () => this.journal,
       loopDelay: () => deps.loopDelay.stats(),
@@ -94,7 +96,7 @@ export class MidiWiring {
         const midi = config.get();
         if (!midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
         config.put({ ...midi, active: name });
-        mapper.forgetPort(); // another profile: every port's wheels forgotten
+        mapper.forgetPort(undefined, true); // another profile: every port's wheels released and forgotten
         await hub.setConfig(activeMidiProfile(config.get()));
         await config.save();
       },
@@ -102,12 +104,22 @@ export class MidiWiring {
         const midi = config.get();
         config.put({ ...midi, profiles: { ...midi.profiles, [name]: profile } });
         if (name === config.get().active) {
-          mapper.forgetPort();
+          mapper.forgetPort(undefined, true);
           await hub.setConfig(activeMidiProfile(config.get()));
         }
         await config.save();
       },
+      portLoss: () => this.portLoss(),
+      setPortLoss: async (portLoss) => {
+        config.put({ ...config.get(), portLoss });
+        await config.save();
+      },
     });
+  }
+
+  /** What a wheel holding an action does when its input goes (a config written before the setting: release). */
+  private portLoss() {
+    return PortLossSchema.parse(this.deps.config.get().portLoss ?? {});
   }
 
   /** Every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time. */
@@ -137,13 +149,29 @@ export class MidiWiring {
     this.hub.sendFeedback(full ? mapper.allFeedback() : out);
   }
 
+  /** A mapping output played: its feedback to the controller's LEDs (not the DJ's), its calls run; their outcomes. */
+  private run(out: MappingOutput, origin: "midi" | "os2l"): Promise<{ command: string; target: string; ok: boolean; error?: string }>[] {
+    const { commands, router, publish } = this.deps;
+    if (!router.isStandby() && origin !== "os2l") this.hub.sendFeedback(out.feedback);
+    return out.calls.map((call) => {
+      const target = argText(call.args.id ?? call.args.section);
+      return commands.invoke(call.command, call.args, { origin, can: () => true }).then(
+        () => ({ command: call.command, target, ok: true }),
+        (err: Error) => {
+          publish("midi", { error: `${call.command} : ${err.message}` });
+          return { command: call.command, target, ok: false, error: err.message };
+        },
+      );
+    });
+  }
+
   /**
    * Every MIDI message: tempo follows the clock; mappings turn the rest into commands. What each
    * message did (the mappings it matched, each command and whether it worked, how long it took)
    * goes to the monitor and the journal: a note that « did not work » shows why.
    */
   private onMessage(m: HubMessage): void {
-    const { commands, engine, router, runtime, mapper, tempo, publish } = this.deps;
+    const { engine, runtime, mapper, tempo, publish } = this.deps;
     const started = performance.now();
     tempo.handleMidi(m.msg);
     const t = m.msg.type;
@@ -159,17 +187,7 @@ export class MidiWiring {
       }
     }
     const out = mapper.handle(m.msg, m.port);
-    if (!router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
-    const calls = out.calls.map((call) => {
-      const target = argText(call.args.id ?? call.args.section);
-      return commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).then(
-        () => ({ command: call.command, target, ok: true }),
-        (err: Error) => {
-          publish("midi", { error: `${call.command} : ${err.message}` });
-          return { command: call.command, target, ok: false, error: err.message };
-        },
-      );
-    });
+    const calls = this.run(out, m.source === "os2l" ? "os2l" : "midi");
     // in the journal at once, in the order of arrival; its commands' outcome filled in when done
     const entry: MidiJournalEntry = { at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 };
     this.journal.push(entry);
