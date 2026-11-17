@@ -3691,6 +3691,7 @@ test("midi page: mappings in number order, and a search past a handful", async (
   await login(page);
   const numbers = [30, 3, 100, 29, 5, 12, 4];
   for (const n of numbers) await api(page, "midi.mapping.put", { mapping: { id: `sort-${n}`, label: `Tri ${n}`, input: { type: "note", channel: 9, number: n }, on: { command: "look.go", args: { id: "hole" } } } });
+  await api(page, "midi.mapping.put", { mapping: { id: "sort-bend", label: "Molette basse", input: { type: "pitchbend", channel: 9, number: 0 }, threshold: 64, on: { command: "look.go", args: { id: "hole" } } } });
   try {
     await page.locator("nav.pages").getByRole("button", { name: "MIDI" }).click();
     const rows = page.locator("tr", { hasText: "Tri " });
@@ -3699,7 +3700,11 @@ test("midi page: mappings in number order, and a search past a handful", async (
     await page.getByRole("searchbox", { name: /Chercher/ }).fill("note 29");
     await expect(rows).toHaveCount(1);
     await expect(page.getByRole("heading", { name: /Mappings \(1 \/ \d+\)/ })).toBeVisible();
+    // a wheel is found as it reads: « pitch bend »
+    await page.getByRole("searchbox", { name: /Chercher/ }).fill("pitch bend");
+    await expect(page.locator("tr", { hasText: "Molette basse" })).toHaveCount(1);
   } finally {
+    await api(page, "midi.mapping.delete", { id: "sort-bend" });
     for (const n of numbers) await api(page, "midi.mapping.delete", { id: `sort-${n}` });
   }
   expect(errors).toEqual([]);
@@ -6646,10 +6651,33 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   await expect(editor.getByLabel("Seuil")).toHaveValue("64");
   await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("none");
   await expect(editor.getByLabel("N° du retour")).toHaveCount(0);
-  await editor.getByRole("combobox", { name: "Retour" }).selectOption("note"); // a feedback chosen anyway: its number shows
+  await expect(editor.getByRole("combobox", { name: "Mode" }).locator("option", { hasText: "Basculer" })).toHaveCount(0); // a wheel never toggles
+  // a level action follows the whole wheel: from 0; a button again: above the rest
+  await editor.getByRole("combobox", { name: "Action" }).selectOption("dca");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await editor.getByRole("combobox", { name: "Action" }).selectOption("look");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("64");
+  await editor.getByRole("combobox", { name: "Retour" }).selectOption("cc"); // a feedback chosen anyway: its number shows
   await expect(editor.getByLabel("N° du retour")).toHaveValue("0");
+  await editor.getByRole("combobox", { name: "Retour" }).selectOption("none");
   await type.selectOption("note");
-  await expect(editor.getByLabel("Note / CC")).toHaveValue("36"); // not 0
+  // what the wheel took comes back: the number, the threshold, the feedback
+  await expect(editor.getByLabel("Note / CC")).toHaveValue("36");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("note");
+  await expect(editor.getByRole("combobox", { name: "Mode" }).locator("option", { hasText: "Basculer" })).toHaveCount(1);
+  // a wheel learnt, then a pad: the pad gets them back too
+  await editor.getByRole("button", { name: "Apprendre" }).click();
+  await expect(editor.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0xe0, 0x00, 0x7f] });
+  await expect(type).toHaveValue("pitchbend");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("64");
+  await editor.getByRole("button", { name: "Apprendre" }).click();
+  await expect(editor.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0x90, 40, 30] });
+  await expect(editor.getByLabel("Note / CC")).toHaveValue("40");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("note");
   await editor.getByRole("button", { name: "Fermer" }).click();
   expect(errors).toEqual([]);
 });

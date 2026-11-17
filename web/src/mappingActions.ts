@@ -35,15 +35,36 @@ export const answersEveryValue = (type: MidiType): boolean => type === "cc" || t
 /** A wheel at rest sends its centre (8192), 64 in the top 7 bits the threshold reads: above it, the wheel is pushed. */
 export const PITCHBEND_REST = 64;
 
-/**
- * The draft with another input type. A pitch bend is the channel's wheel: number 0 (the mapper ignores it), a threshold
- * at its rest when it had none (else the wheel at rest is engaged: a flash stuck on), no LED feedback (it would go to note
- * 0). Back from a pitch bend, the number it had before (`kept`) returns.
- */
-export function withInputType(m: MappingDraft, type: MidiType, kept = m.input.number): MappingDraft {
-  if (type === "pitchbend") return { ...m, input: { ...m.input, type, number: 0 }, threshold: m.threshold || PITCHBEND_REST, feedback: "none" };
-  return { ...m, input: { ...m.input, type, number: m.input.type === "pitchbend" ? kept : m.input.number } };
+/** What a pitch bend takes away from an input with a number, given back when another type is chosen again. */
+export interface KeptInput {
+  number: number;
+  threshold: number;
+  feedback: MappingDraft["feedback"];
 }
+export const keptOf = (m: MappingDraft): KeptInput => ({ number: m.input.number, threshold: m.threshold ?? 0, feedback: m.feedback });
+
+/** Actions whose control is a level (its value scaled, `levelArg`), not a button. */
+export const isLevelAction = (action: Action): boolean => action === "dca" || action === "fader" || action === "grandmaster";
+
+/**
+ * A pitch bend's threshold for an action: a button answers above the wheel's rest (else the wheel at rest is engaged: a
+ * flash stuck on), a level follows the whole wheel (0: the rest is no step to jump). A threshold chosen for a button is kept.
+ */
+export const bendThreshold = (threshold: number | undefined, action: Action): number => (isLevelAction(action) ? 0 : threshold || PITCHBEND_REST);
+
+/**
+ * The draft with another input type. A pitch bend is the channel's wheel: number 0 (the mapper ignores it), its threshold
+ * (`bendThreshold`), no LED feedback (it would go to note 0), never « toggle » (a gesture sends dozens of values: each would
+ * switch). Back from a pitch bend, the number, threshold and feedback it had before (`kept`) return.
+ */
+export function withInputType(m: MappingDraft, type: MidiType, action: Action, kept: KeptInput = keptOf(m)): MappingDraft {
+  if (type === "pitchbend") return { ...m, input: { ...m.input, type, number: 0 }, threshold: bendThreshold(m.threshold, action), feedback: "none", mode: wheelMode(m.mode) };
+  if (m.input.type !== "pitchbend") return { ...m, input: { ...m.input, type } };
+  return { ...m, input: { ...m.input, type, number: kept.number }, threshold: kept.threshold, feedback: kept.feedback };
+}
+
+/** A wheel's mode: « toggle » would flicker (each of a gesture's values switches), « latch » (on above the threshold, off below) instead. */
+const wheelMode = (mode: MappingDraft["mode"]): MappingDraft["mode"] => (mode === "toggle" ? "latch" : mode);
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
 export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position", "colour"] as const;
@@ -75,7 +96,8 @@ export const colourGroupOf = (m: MappingDraft): string => (m.on.command === "col
 
 /** `colourGroup`: for the « colour » action, the group whose fixtures it colours ("" = every fixture; absent: the mapping's own). */
 export function build(m: MappingDraft, action: Action, target: string, colourGroup?: string): MappingDraft {
-  const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0 };
+  // a pitch bend written in « toggle » (by hand, an AI client) plays « latch »: a toggle would flicker with the wheel
+  const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0, mode: m.input.type === "pitchbend" ? wheelMode(m.mode) : m.mode };
   switch (action) {
     case "look":
       return { ...base, on: { command: "look.go", args: { id: target } }, off: m.mode === "trigger" ? undefined : { command: "look.stop", args: { id: target } } };
@@ -87,7 +109,7 @@ export function build(m: MappingDraft, action: Action, target: string, colourGro
       return { ...base, on: { command: "grandmaster.set", args: {} }, levelArg: "level" };
     case "flash":
       // from a note, held while pressed; a CC or a pitch bend keeps its mode (a button may toggle or hold it, as the mapper plays it)
-      return { ...base, mode: answersEveryValue(m.input.type) ? m.mode : "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
+      return { ...base, mode: answersEveryValue(m.input.type) ? base.mode : "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
     case "section": {
       const [song, section] = target.split("/");
       return { ...base, on: { command: "song.section.go", args: { song, section } } };

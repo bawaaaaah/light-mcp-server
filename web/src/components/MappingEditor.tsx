@@ -7,7 +7,7 @@ import { useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, build, actionOf, colourGroupOf, withInputType, type Action, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
+import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 
@@ -22,7 +22,8 @@ interface Named {
 
 export function MappingEditor({ initial, existing, onClose }: { initial: MappingDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
-  const [m, setM] = useState<MappingDraft>(initial);
+  // a pitch bend never plays « toggle » (build plays it « latch »): shown as it will play
+  const [m, setM] = useState<MappingDraft>(() => (initial.input.type === "pitchbend" && initial.mode === "toggle" ? { ...initial, mode: "latch" } : initial));
   const [{ action, target }, setAction] = useState(actionOf(initial));
   const [looks, setLooks] = useState<Named[]>([]);
   const [groups, setGroups] = useState<Named[]>([]);
@@ -36,8 +37,14 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [colourGroup, setColourGroup] = useState(() => colourGroupOf(initial));
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
-  /** The number before a pitch bend was chosen (which has none): it comes back with another type. */
-  const [keptNumber, setKeptNumber] = useState(initial.input.number);
+  /** The number, threshold and feedback before a pitch bend was chosen: they come back with another type. */
+  const [kept, setKept] = useState<KeptInput>(() => (initial.input.type === "pitchbend" ? { number: initial.input.number, threshold: 0, feedback: newMapping().feedback } : keptOf(initial)));
+  /** What a pitch bend chosen now takes away (from the current draft), or what it took (the draft is one). */
+  const keptNow = (): KeptInput => (m.input.type === "pitchbend" ? kept : keptOf(m));
+  const setNumber = (number: number) => {
+    setM({ ...m, input: { ...m.input, number } });
+    setKept({ ...kept, number });
+  };
   const bendHintId = useId();
 
   useEffect(() => {
@@ -58,8 +65,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
       // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light (nor
       // for a pitch bend's wheel)
       .then((r) => {
-        const learnt: MappingDraft = { ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" || r.input.type === "pitchbend" ? "none" : r.input.type === "cc" ? "cc" : m.feedback };
-        setM(r.input.type === "pitchbend" ? withInputType(learnt, "pitchbend") : learnt);
+        // the type first (a pad after a wheel gets its threshold and feedback back), then what was heard
+        const k = keptNow();
+        setKept(k);
+        const typed = withInputType(m, r.input.type, action, k);
+        setM({ ...typed, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" || r.input.type === "pitchbend" ? "none" : r.input.type === "cc" ? "cc" : typed.feedback });
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLearning(false));
@@ -78,8 +88,14 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const dj = m.input.port === "OS2L";
   const bend = !dj && m.input.type === "pitchbend";
   const setType = (type: MidiType) => {
-    if (m.input.type !== "pitchbend") setKeptNumber(m.input.number);
-    setM(withInputType(m, type, m.input.type === "pitchbend" ? keptNumber : m.input.number));
+    const k = keptNow();
+    setKept(k);
+    setM(withInputType(m, type, action, k));
+  };
+  /** Another action: a wheel's threshold follows it (a button above the rest, a level from 0). */
+  const chooseAction = (next: Action) => {
+    setAction({ action: next, target: "" });
+    if (bend) setM({ ...m, threshold: bendThreshold(m.threshold, next) });
   };
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
@@ -125,7 +141,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           {!bend && (
             <label className="field">
               <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
-              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
+              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setNumber(Number(e.target.value))} />
             </label>
           )}
           <button className="learn" onClick={learn} disabled={learning}>
@@ -144,7 +160,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           <label className="field wide">
             <span>{t.mode}</span>
             <select value={action === "position" || action === "colour" ? "trigger" : m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
-              {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
+              {/* a wheel's gesture sends dozens of values: « toggle » would switch at each one */}
+              {(bend ? (["trigger", "latch", "momentary"] as const) : (["trigger", "latch", "momentary", "toggle"] as const)).map((x) => (
                 <option key={x} value={x}>
                   {t.modes[x]}
                 </option>
@@ -168,7 +185,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         <div className="mapping-grid">
           <label className="field wide">
             <span>{t.action}</span>
-            <select value={action} onChange={(e) => setAction({ action: e.target.value as Action, target: "" })}>
+            <select value={action} onChange={(e) => chooseAction(e.target.value as Action)}>
               {ACTIONS.map((a) => (
                 <option key={a} value={a}>
                   {t.mappingActions[a]}
@@ -228,7 +245,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           {bend && m.feedback !== "none" && (
             <label className="field">
               <span>{t.feedbackNumber}</span>
-              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
+              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setNumber(Number(e.target.value))} />
             </label>
           )}
         </div>
