@@ -212,7 +212,10 @@ test("T27 lot 4: a zone chip under a group's pad sends its heads to the zone; ou
         await expect(chip).toBeDisabled();
       });
     } finally {
-      // leave first: a busy page still showing the pad may read the group's heads after it is gone (a 422 in the console)
+      // leave first. A known, harmless race: a busy page still showing the pad may read the group's heads just after it is
+      // gone. The heads store already takes the refusal (no head shown, no retry, nothing unhandled: useMotionHeads.ts),
+      // but the browser itself logs any 422 answer as a console error, which watchErrors would count.
+      // (the server refusing an unknown group stays right: answering it as empty would hide a mistyped id)
       await page.goto("about:blank");
       await desk(page, "group.delete", { id: "t27p-lyres", force: true });
     }
