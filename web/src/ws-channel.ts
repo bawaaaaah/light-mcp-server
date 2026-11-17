@@ -53,11 +53,12 @@ export class Channel {
   private generation = 0;
   private readonly statusListeners = new Set<(up: boolean) => void>();
   /** The id the hub gave this connection in « hello »; undefined while there is none (closed, reconnecting). */
-  connectionId: string | undefined;
+  private connectionId: string | undefined;
   /** The connection lost, named when opening the next one: the hub lets it go at once (what it relayed released now). */
   private previousId: string | undefined;
-  /** Up: « hello » heard and every subscription taken; what is relayed waits for it (and is dropped meanwhile). */
-  online = false;
+  private up = false;
+  /** Up once, then lost: reconnecting (not the first connection, still on its way). */
+  private wasUp = false;
   /** Requests on their way over this connection (REST over the WebSocket), by id. */
   private readonly requests = new Map<number, { resolve: (r: { status: number; body: unknown }) => void; reject: (e: Error) => void }>();
 
@@ -72,8 +73,19 @@ export class Channel {
     return () => this.statusListeners.delete(fn);
   }
 
+  /** Up: « hello » heard and every subscription taken; what is relayed waits for it (and is dropped meanwhile). */
+  get online(): boolean {
+    return this.up;
+  }
+
+  /** The link as a page shows it: online, connecting the first time, or reconnecting after it was up. */
+  get state(): "online" | "connecting" | "reconnecting" {
+    return this.up ? "online" : this.wasUp && !this.closed ? "reconnecting" : "connecting";
+  }
+
   private setStatus(up: boolean): void {
-    this.online = up;
+    this.up = up;
+    if (up) this.wasUp = true;
     for (const l of this.statusListeners) l(up);
   }
 
@@ -142,14 +154,12 @@ export class Channel {
     };
     ws.onclose = () => {
       pending = null;
-      if (this.current(gen)) {
-        this.previousId = this.connectionId ?? this.previousId;
-        this.connectionId = undefined;
-      }
-      this.failRequests();
       this.deps.cancel(fallback);
-      // a socket of an older connection: the current one says its own status and reconnects itself
+      // a socket of an older connection: the current one says its own status, keeps its requests and reconnects itself
       if (!this.current(gen)) return;
+      this.previousId = this.connectionId ?? this.previousId;
+      this.connectionId = undefined;
+      this.failRequests();
       this.setStatus(false);
       this.deps.later(() => void this.open(gen), RECONNECT_MS);
     };
@@ -162,6 +172,7 @@ export class Channel {
     this.ws = null;
     this.connectionId = undefined;
     this.previousId = undefined;
+    this.wasUp = false;
     this.failRequests();
     this.setStatus(false);
   }

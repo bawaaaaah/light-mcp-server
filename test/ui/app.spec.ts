@@ -6751,6 +6751,55 @@ test("MIDI mapping: an older wheel to a level, its scale written by hand, keeps 
   expect(errors).toEqual([]);
 });
 
+test("Web MIDI: a refusal said beside the inputs, cleared once a message passes; « paused » while reconnecting only", async ({ page }) => {
+  const errors = watchErrors(page);
+  // a device with one input the test plays (the test browser has no MIDI)
+  await page.addInitScript(() => {
+    const pad = { id: "pad", name: "Pad", state: "connected", onmidimessage: null as null | ((e: { data: Uint8Array }) => void) };
+    (globalThis as unknown as { fakePad: typeof pad }).fakePad = pad;
+    (navigator as unknown as { requestMIDIAccess: () => Promise<unknown> }).requestMIDIAccess = async () => ({ inputs: new Map([["pad", pad]]), outputs: new Map(), onstatechange: null });
+  });
+  // the live connection, through the test: it can refuse the next Web MIDI message, or hold a reconnection back
+  let refuseNext = false;
+  let holdBack = false;
+  const pages: { close: () => Promise<void> }[] = [];
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    pages.push(ws);
+    if (holdBack) return; // reconnecting, and no hub answers yet
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string };
+      if (refuseNext && msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        refuseNext = false;
+        ws.send(JSON.stringify({ t: "res", id: msg.id, status: 500, body: { error: "refusé pour le test" } }));
+      } else server.send(message);
+    });
+  });
+  const play = (bytes: number[]) => page.evaluate((b) => (globalThis as unknown as { fakePad: { onmidimessage: (e: { data: Uint8Array }) => void } }).fakePad.onmidimessage({ data: new Uint8Array(b) }), bytes);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  const status = page.locator(".midi .bar span[role=status]").first();
+  await expect(status).toHaveText("Pad"); // online at once: never « paused » on the first connection
+  const alert = page.locator(".midi .bar [role=alert]");
+  refuseNext = true;
+  await play([0x90, 40, 100]);
+  await expect(alert).toContainText("Message Web MIDI refusé : refusé pour le test");
+  await expect(status).toHaveText("Pad"); // the inputs still shown beside it
+  await play([0x80, 40, 0]);
+  await expect(alert).toHaveCount(0); // accepted again: the refusal is over
+  // the connection lost, and its reconnection held back: « paused », said as a status
+  holdBack = true;
+  for (const ws of pages.splice(0)) await ws.close();
+  await expect(status).toContainText("Relais en pause, reconnexion…");
+  holdBack = false;
+  for (const ws of pages.splice(0)) await ws.close();
+  await expect(status).toHaveText("Pad");
+  await relay.uncheck();
+  expect(errors.filter((e) => !/WebSocket/.test(e))).toEqual([]);
+});
+
 test("Web MIDI: two tabs of one browser, only one relays; the other waits, then takes over", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
   // no MIDI device in the test browser: a Web MIDI access with no input, granted at once

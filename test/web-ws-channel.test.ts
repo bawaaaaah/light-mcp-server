@@ -178,28 +178,56 @@ describe("web live link (ws-channel): one socket per connection, whatever the or
 });
 
 describe("web live link: its connection id, and what is relayed over it", () => {
-  /** Connected and online: « hello » heard (no subscription to wait for). */
-  const online = async (h: ReturnType<typeof harness>, n: number, id: string) => {
+  /** Connection n opened (its ticket given) and its « hello » heard: online, no subscription to wait for. */
+  const online = async (h: ReturnType<typeof harness>, n: number, id: string | undefined) => {
     if (n === 0) void h.channel.connect();
+    else await h.tick(); // the reconnection's timer
     h.tickets[n]!.resolve(`t${n}`);
     await settle();
-    h.sockets[n]!.hear({ t: "hello", connection: id });
+    h.sockets[n]!.hear(id === undefined ? { t: "hello" } : { t: "hello", connection: id });
   };
 
-  it("sets the id at « hello », clears it at close(), and names the lost one when it reconnects", async () => {
+  it("names the lost connection when it reconnects, and the one after when it reconnects again", async () => {
     const h = harness();
     await online(h, 0, "c1");
-    expect(h.channel.connectionId).to.equal("c1");
+    expect(h.sockets[0]!.previous).to.equal(undefined);
     h.sockets[0]!.drop(); // the network went
-    expect(h.channel.connectionId).to.equal(undefined);
-    await h.tick(); // the reconnection
+    await online(h, 1, "c2");
+    expect(h.sockets[1]!.previous).to.equal("c1"); // the hub lets c1 go at once
+    h.sockets[1]!.drop();
+    await online(h, 2, "c3");
+    expect(h.sockets[2]!.previous).to.equal("c2");
+  });
+
+  it("forgets the lost one once a « hello » is heard, even one that gives no id", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    h.sockets[0]!.drop();
+    await online(h, 1, undefined); // an older hub: no id
+    h.sockets[1]!.drop();
+    await online(h, 2, "c3");
+    expect(h.sockets[2]!.previous).to.equal(undefined); // c1 named once, not again
+  });
+
+  it("close() forgets both: the next connect() names nothing", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    h.channel.close();
+    void h.channel.connect();
     h.tickets[1]!.resolve("t1");
     await settle();
-    expect(h.sockets[1]!.previous).to.equal("c1"); // the hub lets c1 go at once
-    h.sockets[1]!.hear({ t: "hello", connection: "c2" });
-    expect(h.channel.connectionId).to.equal("c2");
-    h.channel.close();
-    expect(h.channel.connectionId).to.equal(undefined);
+    expect(h.sockets[1]!.previous).to.equal(undefined);
+  });
+
+  it("reconnect(): the socket closed and a new one opened, naming the old", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    h.channel.reconnect();
+    expect(h.sockets[0]!.closed).to.equal(true);
+    h.sockets[0]!.onclose?.(); // what a browser does once closed
+    await online(h, 1, "c2");
+    expect(h.sockets[1]!.previous).to.equal("c1");
+    expect(h.channel.state).to.equal("online");
   });
 
   it("relays a request over the socket while online; refuses it at once while reconnecting, never later", async () => {
@@ -211,13 +239,59 @@ describe("web live link: its connection id, and what is relayed over it", () => 
     h.sockets[0]!.hear({ t: "res", id: req.id, status: 200, body: { ok: true } });
     expect(await answer).to.deep.equal({ status: 200, body: { ok: true } });
     h.sockets[0]!.drop();
+    expect(h.channel.state).to.equal("reconnecting");
     let refused = "";
     await h.channel.request("POST", "/x", {}).catch((e: Error) => (refused = e.message));
     expect(refused).to.equal("offline");
-    await h.tick();
+    await online(h, 1, "c2");
+    expect(h.sockets[1]!.sent.filter((m) => m.t === "req")).to.deep.equal([]); // nothing kept for later
+  });
+
+  it("not online yet (« hello » heard, a subscription not taken): a request is refused", async () => {
+    const h = harness();
+    h.channel.subscribe("light:command", () => undefined);
+    void h.channel.connect();
+    h.tickets[0]!.resolve("t0");
+    await settle();
+    h.sockets[0]!.hear({ t: "hello", connection: "c1" });
+    expect(h.channel.state).to.equal("connecting"); // the first connection: not « reconnecting »
+    let refused = "";
+    await h.channel.request("POST", "/x", {}).catch((e: Error) => (refused = e.message));
+    expect(refused).to.equal("offline");
+    expect(h.sockets[0]!.sent.filter((m) => m.t === "req")).to.deep.equal([]);
+  });
+
+  it("a request on its way when the socket drops is refused (« offline »), an error reply too", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    const errored = h.channel.request("POST", "/x", {});
+    const req = h.sockets[0]!.sent.find((m) => m.t === "req")!;
+    h.sockets[0]!.hear({ t: "err", id: req.id, error: "busy" });
+    expect(await errored.catch((e: Error) => e.message)).to.equal("busy");
+    const pending = h.channel.request("POST", "/x", {});
+    h.sockets[0]!.drop();
+    expect(await pending.catch((e: Error) => e.message)).to.equal("offline");
+  });
+
+  it("an older socket closing late leaves the new connection's requests alone", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    h.channel.close();
+    void h.channel.connect();
     h.tickets[1]!.resolve("t1");
     await settle();
     h.sockets[1]!.hear({ t: "hello", connection: "c2" });
-    expect(h.sockets[1]!.sent.filter((m) => m.t === "req")).to.deep.equal([]); // nothing kept for later
+    let settled = false;
+    const pending = h.channel.request("POST", "/x", {});
+    void pending.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    h.sockets[0]!.onclose?.(); // the first socket's close, heard late
+    await settle();
+    expect(settled).to.equal(false);
+    const req = h.sockets[1]!.sent.find((m) => m.t === "req")!;
+    h.sockets[1]!.hear({ t: "res", id: req.id, status: 200, body: null });
+    expect(await pending).to.deep.equal({ status: 200, body: null });
   });
 });

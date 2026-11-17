@@ -7,22 +7,41 @@ import type { Channel } from "./ws-channel.js";
 
 const COMMANDS = "/api/plugins/light/commands/";
 
+/** What the page hears of a relayed message's fate. */
+export interface RelayOutcome {
+  /** Accepted: a refusal said before is over. */
+  ok: () => void;
+  /** Refused (by its connection, already said closed; or another error): said; the relay goes on. */
+  refused: (why: string) => void;
+  /** Refused for a right missing (403): said, and the relay stops (more would only be refused). */
+  forbidden: (why: string) => void;
+}
+
+/** The refusal the server gives a connection already said closed: the only one a new connection cures. */
+const CLOSED = 422;
+const FORBIDDEN = 403;
+/** Dropped by the server past the flow's rate: counted and said there, nothing to do here. */
+const DROPPED = 429;
+
 /**
  * Sends a command over `channel`, only while it is online: while it reconnects, a message is dropped, never kept for later
- * (a wheel held must not fire late). A refusal is said (`refused`) and the connection opened again.
+ * (a wheel held must not fire late). A connection the server says closed (422) is opened again; a missing right (403)
+ * stops the relay without touching the connection every page shares.
  */
-export function relayOver(channel: Pick<Channel, "online" | "request" | "reconnect">, command: string, body: unknown, refused: (why: string) => void): void {
+export function relayOver(channel: Pick<Channel, "online" | "request" | "reconnect">, command: string, body: unknown, outcome: RelayOutcome): void {
   if (!channel.online) return;
   void channel.request("POST", `${COMMANDS}${command}`, body).then(
     (r) => {
-      if (r.status === 200) return;
-      refused((r.body as { error?: string } | null)?.error ?? String(r.status));
-      channel.reconnect();
+      if (r.status === 200) return outcome.ok();
+      if (r.status === DROPPED) return;
+      const why = (r.body as { error?: string } | null)?.error ?? String(r.status);
+      if (r.status === FORBIDDEN) return outcome.forbidden(why);
+      outcome.refused(why);
+      if (r.status === CLOSED) channel.reconnect();
     },
     (e: Error) => {
       if (e.message === "offline") return; // the connection went meanwhile: dropped, as while reconnecting
-      refused(e.message);
-      channel.reconnect();
+      outcome.refused(e.message);
     },
   );
 }
