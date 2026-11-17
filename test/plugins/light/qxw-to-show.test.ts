@@ -98,7 +98,8 @@ describe("QLC+ EFX → Move FX", () => {
     mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
     copyFileSync(new URL("../../fixtures/spot.qxf", import.meta.url), join(dataRoot, "fixtures", "spot.qxf"));
     const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
-    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+    let now = 1_000_000; // the runtime's clock, advanced by hand: no wait on the wall clock
+    const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null, now: () => now });
     const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
     await run("import.qxw", { xml: fixture("efx.qxw"), apply: true });
     plugin.runtime.saveSettings({ moveFade: { seconds: 0 } }); // no glide to the shape: the heads are on it at once
@@ -108,8 +109,9 @@ describe("QLC+ EFX → Move FX", () => {
       const b = plugin.engine.render()[0]!;
       return [(b[0]! << 8) | b[1]!, (b[10]! << 8) | b[11]!];
     };
+    now += 1000; // an eighth of the 8 s circle: off the start, where half a cycle apart the two pans still coincide
     const first = pan();
-    await new Promise((r) => setTimeout(r, 300));
+    now += 300;
     const later = pan();
     expect(later[0]).to.not.equal(first[0]); // moving
     expect(first[0]).to.not.equal(first[1]); // serial propagation: the two heads are out of phase
