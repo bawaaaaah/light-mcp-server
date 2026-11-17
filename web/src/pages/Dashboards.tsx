@@ -14,7 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
-import { putInSet, WidgetMenu, type ExclusiveSet, type TargetFailures, type TargetLists } from "../components/WidgetMenu";
+import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists, type TargetReadStates } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
 import type { GroupDraft } from "../components/GroupEditor";
@@ -33,6 +33,8 @@ import { WidgetView } from "../widgets/registry";
 import { ManyEditor, WidgetEditor } from "../widgets/WidgetEditor";
 import { DRAG_TYPE, Palette } from "../widgets/Palette";
 
+/** How long the failed reads of one refresh wait for each other before they are said (ms). */
+const FAILURES_TOGETHER_MS = 150;
 /** What changes the target pads' plan and the zone chips: the fixtures, the zones (T24, T27). */
 const TARGET_STAGE_CHANGES = PROJECTION_CHANGES;
 
@@ -228,8 +230,23 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
       snapshots: (v: { id: string; name: string }[]) => (setSnapshots(v), readOnce("snapshots")),
     };
   });
-  /** A read that fails twice is said, per list (and the list stays as it was). */
-  const [retry] = useState(() => (list: ReadList): ReadRetry => ({ onError: (e: Error) => setReadStates((s) => failed(s, list, e.message)) }));
+  /**
+   * A read that fails twice is said, per list (and the list stays as it was). The failures of one refresh come one by
+   * one: they are said together, once the others have had a moment to fail too, so the alert is announced once.
+   */
+  const pendingFailures = useRef<[ReadList, string][]>([]);
+  const failuresTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(failuresTimer.current), []);
+  const [retry] = useState(() => (list: ReadList): ReadRetry => ({
+    onError: (e: Error) => {
+      pendingFailures.current.push([list, e.message]);
+      window.clearTimeout(failuresTimer.current);
+      failuresTimer.current = window.setTimeout(() => {
+        const batch = pendingFailures.current.splice(0);
+        setReadStates((s) => batch.reduce((next, [l, message]) => failed(next, l, message), s));
+      }, FAILURES_TOGETHER_MS);
+    },
+  }));
   // the page leaving (a logout, another page): no read applied, retried or said after it, nor started by a late refresh
   const gone = useRef(false);
   useEffect(() => {
@@ -249,7 +266,6 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     });
   const readGroups = useCallback(() => readList("groups", () => cmd<Group[]>("group.list"), applyRead.groups), [applyRead, readList]);
   const refresh = useCallback(() => {
-    if (gone.current) return;
     readList("looks", () => cmd<Look[]>("look.list", { brief: true }), applyRead.looks);
     readGroups();
     readList("faders", () => cmd<ChannelFader[]>("fader.list"), applyRead.faders);
@@ -478,7 +494,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     const read = readStates[list];
     return read && { reading: read.reading, why: read.failure && readFailed([list], read.failure.message) };
   };
-  const readFailures: TargetFailures = { looks: readStateOf("looks"), groups: readStateOf("groups"), faders: readStateOf("faders"), snapshots: readStateOf("snapshots") };
+  const listReadStates: TargetReadStates = { looks: readStateOf("looks"), groups: readStateOf("groups"), faders: readStateOf("faders"), snapshots: readStateOf("snapshots") };
   const alert = alertLines(readStates);
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
@@ -595,8 +611,11 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             once they are read; closed by ✕, it comes back only if the failure changes */}
         {alert.length > 0 && (
           <span className="error read-error" role="alert">
-            <span>
-              {alert.map((line) => readFailed(line.lists, line.message)).join(" ")} {t.readFailedHow}
+            <span className="read-error-lines">
+              {alert.map((line) => (
+                <span key={line.lists.join()}>{readFailed(line.lists, line.message)}</span>
+              ))}
+              <span>{t.readFailedHow}</span>
             </span>
             <button
               className="ghost"
@@ -604,7 +623,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               title={t.close}
               onClick={() => {
                 // the focus stays in the bar, on its current tab, rather than falling to the page
-                topRef.current?.querySelector<HTMLElement>(".bar .tab.active, .bar button")?.focus();
+                const bar = topRef.current;
+                (bar?.querySelector<HTMLElement>(".bar .tab.active") ?? bar?.querySelector<HTMLElement>(".bar button"))?.focus();
                 setReadStates((s) => dismissed(s, alert.flatMap((line) => line.lists)));
               }}
             >
@@ -656,7 +676,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           columns={dash?.columns ?? 12}
           step={step}
           lists={targetLists}
-          failed={readFailures}
+          readStates={listReadStates}
           onRetry={refresh}
           onPatch={(patch) => updateWidget(sel.id, patch)}
           onRemove={() => {
@@ -782,7 +802,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           widget={dash.widgets.find((w) => w.id === menu.id)!}
           at={menu}
           lists={targetLists}
-          failed={readFailures}
+          readStates={listReadStates}
           onRetry={refresh}
           exclusives={editor ? sets : undefined}
           onGroupsChange={refresh}

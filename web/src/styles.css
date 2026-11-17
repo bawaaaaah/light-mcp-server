@@ -105,9 +105,15 @@ h2 {
   align-items: center;
   gap: 0.3em;
 }
-.read-error button {
+.read-error button,
+.read-why button {
   min-width: 44px;
   min-height: 44px;
+}
+/* one line per message */
+.read-error-lines {
+  display: flex;
+  flex-direction: column;
 }
 /* a widget's target picker whose list could not be read: why, and « Relire » (components/WidgetMenu.tsx) */
 .read-why {

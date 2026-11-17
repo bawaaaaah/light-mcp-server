@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
@@ -95,8 +95,8 @@ const inputName = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `
 
 /** The show's lists a widget picks its target from, by `targetListOf`; null until the list is first read. */
 export type TargetLists = Record<TargetList, Named[] | null>;
-/** Where the page's lists stand while not read: a read under way, or why it failed (said by the page). */
-export type TargetFailures = Partial<Record<TargetList, { reading: boolean; why?: string }>>;
+/** Where the page's lists stand while not read: a read under way, and why the last one failed (said by the page). */
+export type TargetReadStates = Partial<Record<TargetList, { reading: boolean; why?: string }>>;
 /** What a widget of `kind` picks its target from: none for a kind without a list, null while that list is not read yet. */
 export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null => {
   const list = targetListOf(kind);
@@ -109,23 +109,31 @@ export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null 
  * kept, said « introuvable » once its list is read (before that, shown as it is). Hidden when there is nothing to
  * choose and nothing to say.
  */
-export function TargetSelect({ kind, value, lists, failed, field = false, onChange, onRetry }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; failed?: TargetFailures; field?: boolean; onChange: (target: string | undefined) => void; onRetry?: () => void }): ReactElement | null {
+export function TargetSelect({ kind, value, lists, readStates, field = false, onChange, onRetry }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; readStates?: TargetReadStates; field?: boolean; onChange: (target: string | undefined) => void; onRetry?: () => void }): ReactElement | null {
   const t = useT();
   const whyId = useId();
+  const selectRef = useRef<HTMLSelectElement>(null);
+  /** « Relire » pressed: once the list is read, the focus goes to the picker (the button goes); failed, it stays on it. */
+  const retried = useRef(false);
   const read = targetsOf(kind, lists);
   const list = targetListOf(kind);
   // its list not read: busy while a read is under way (a list of the page without a state is still on its first);
   // failed, it says why under the field, where a finger and the keyboard reach it, with « Relire »
-  const state = list && !read ? failed?.[list] : undefined;
+  const state = list && !read ? readStates?.[list] : undefined;
   const why = state?.why;
   const busy = !read && (state ? state.reading : true);
+  useEffect(() => {
+    if (!read || !retried.current) return;
+    retried.current = false;
+    selectRef.current?.focus();
+  }, [read]);
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
   if (!options.length && !missing && !why) return null;
   const name = kind === "look" ? t.assignLook : kind === "target" ? t.targets.aimTarget : t.assignTarget;
   const select = (
     // a list not read yet: nothing to choose, and « — » not chosen by mistake while it comes
-    <select aria-label={field ? undefined : name} disabled={!read} aria-busy={busy} aria-describedby={why ? whyId : undefined} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+    <select ref={selectRef} aria-label={field ? undefined : name} disabled={!read} aria-busy={busy} aria-describedby={why ? whyId : undefined} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
       <option value="">{kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
       {missing && <option value={value}>{read ? t.targetMissing.replace("{id}", () => value!) : value}</option>}
       {options.map((x) => (
@@ -135,11 +143,20 @@ export function TargetSelect({ kind, value, lists, failed, field = false, onChan
       ))}
     </select>
   );
+  // « Relire » is never `disabled` while a read is under way: a disabled button would drop the focus to the page
   const reason = why && (
-    <small id={whyId} className="read-why">
-      {why}
+    <small className="read-why">
+      <span id={whyId}>{why}</span>
       {onRetry && (
-        <button type="button" disabled={busy} onClick={onRetry}>
+        <button
+          type="button"
+          aria-disabled={busy}
+          onClick={() => {
+            if (busy) return;
+            retried.current = true;
+            onRetry();
+          }}
+        >
           {t.readAgain}
         </button>
       )}
@@ -171,7 +188,7 @@ export function WidgetMenu({
   widget,
   at,
   lists,
-  failed,
+  readStates,
   onRetry,
   exclusives,
   onGroupsChange,
@@ -184,8 +201,8 @@ export function WidgetMenu({
   at: { x: number; y: number };
   /** The show's looks, groups, faders, snapshots, 3D targets (T24) and named positions (T32): a widget picks its own here. */
   lists: TargetLists;
-  /** The lists that could not be read, and why. */
-  failed?: TargetFailures;
+  /** Where the lists not read yet stand: a read under way, and why the last one failed. */
+  readStates?: TargetReadStates;
   /** Reads the lists again (« Relire » under a picker whose list failed). */
   onRetry?: () => void;
   /** The show's exclusive sets, when this user may change them: a look button's set is chosen here. */
@@ -241,7 +258,7 @@ export function WidgetMenu({
       {widget.kind === "look" && widget.target && (
         <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
-      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} failed={failed} onRetry={onRetry} onChange={(target) => onChange({ target })} />
+      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} readStates={readStates} onRetry={onRetry} onChange={(target) => onChange({ target })} />
       <label className="field">
         <span>{t.widgetLabel}</span>
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
