@@ -124,6 +124,22 @@ describe("show runtime: state kept and dropped (T48)", () => {
     });
   });
 
+  describe("a launch checked ahead (strictBounds)", () => {
+    it("plays its sampled frames on the layer's own course, not from where the heads were before the first", () => {
+      const t = setup();
+      // slower than a jump between two samples (200 ms), faster than the 2 s glide of the look
+      t.show.rules.put({ id: "lent", name: "Lent", level: "show", scope: { fixture: "spot16" }, target: {}, maxDegPerSecond: 400, onViolation: "reject" });
+      t.show.positionPresets.put(PositionPresetSchema.parse({ id: "p1", name: "P1", values: { spot16: { pan: 0.1, tilt: 0.5 } } }));
+      t.show.positionPresets.put(PositionPresetSchema.parse({ id: "p2", name: "P2", values: { spot16: { pan: 0.15, tilt: 0.5 } } }));
+      // its second step leads to a zone gone: the head holds where it is on its way, then glides on from there
+      t.look("tour", "lyres", { kind: "aucune" }, [0, 0], { move: { shape: "fixe", every: { seconds: 1 }, fade: { seconds: 2 }, at: { path: { stops: [{ position: "p1" }, { position: "p2" }, { zone: "gone" }] } } } });
+      t.run(200);
+      near(t.pan(), 0.5);
+      // played from what was sent before the first sample on every sample, the hold would send the head back to rest at once
+      expect(t.show.strictBounds("tour")).to.deep.equal([]);
+    });
+  });
+
   describe("another show opened (resetLive)", () => {
     it("forgets what a look covered through a named position since deleted", () => {
       const t = setup();

@@ -46,7 +46,6 @@ export type SnapshotLockMode = "exact" | "harden";
 /** How long a Panic stays undoable. */
 export const PANIC_UNDO_MS = 60_000;
 
-
 /** strictBounds: the frame the heads' speed is first measured from lies one output frame (44 Hz) before the first sample. */
 const STRICT_FRAME_MS = 23;
 /** strictBounds: how far ahead the arrival frame is played — past the longest fade and the longest glide (64 beats at a slow tempo). */

@@ -46,6 +46,7 @@ Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes du
 ### T51 — Stabiliser les tests UI qui échouent sous charge (relevé le 2026-11-16)
 - `test/ui/library.spec.ts` (l. 34, 188, 226) : machine chargée, Maj+F10 n'ouvre pas le menu de la ligne ; le premier test laisse une copie derrière lui et fait échouer les deux suivants (deux boutons « Actions sur … »). Verts seuls (32/32).
 - `test/ui/app.spec.ts` (« a group list answer that lands late does not rewrite the fader », vers la l. 1460) : échoue parfois sur une réponse tardive de la liste des groupes. Vert seul.
+- `test/ui/app.spec.ts` (« motion pad: sent dot, per-axis layers, a masked look and one layer released per press », vers la l. 7530, relevé le 2026-11-17) : sous charge, le point intermédiaire de la glisse n'est pas vu en 5 s (l. 7548). Vert seul, 3 fois sur 3.
 - **À faire** : chaque test nettoie ce qu'il crée (ou part d'un show neuf), attend l'état réel au lieu d'un délai, et la suite complète passe deux fois de suite pendant qu'une autre suite tourne.
 
 ## 🔴 Fiabilité de la sortie et du moteur
