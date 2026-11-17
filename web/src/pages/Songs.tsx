@@ -5,23 +5,8 @@ import { useDomainEvents, useTopic } from "../hooks/useTopic";
 import { newSong, SetlistEditor, SongEditor, type SetlistDraft, type SongDraft } from "../components/SongEditor";
 import { originsOf, type KnowledgeIntentions } from "../intentions";
 
-interface Section {
-  id: string;
-  name: string;
-  look?: string;
-  cue?: string;
-  idea?: string;
-  bars: number;
-}
-interface Song {
-  id: string;
-  title: string;
-  key?: string;
-  bpm: number;
-  beatsPerBar?: number;
-  mood: string[];
-  sections: Section[];
-}
+/** A song as song.list gives it: the stored song, every default filled in (songs/songs.ts SongSchema). */
+type Song = SongDraft;
 interface Setlist {
   id: string;
   name: string;
@@ -157,7 +142,7 @@ export function SongsPage(): ReactElement {
             )}
             {song.id === state.song && state.position !== undefined && (
               <small className="position">
-                {t.bar} {Math.floor(state.position / (song.beatsPerBar ?? 4)) + 1}.{Math.floor(state.position % (song.beatsPerBar ?? 4)) + 1}
+                {t.bar} {Math.floor(state.position / song.beatsPerBar) + 1}.{Math.floor(state.position % song.beatsPerBar) + 1}
               </small>
             )}
             <button
@@ -187,7 +172,7 @@ export function SongsPage(): ReactElement {
               aria-label={`${t.edit} ${song.title}`}
               onClick={(e) => {
                 e.stopPropagation();
-                setEditing(song as unknown as SongDraft);
+                setEditing(song);
               }}
             >
               ✎

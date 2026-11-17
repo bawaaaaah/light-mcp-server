@@ -8,7 +8,7 @@ import { plain } from "./plain.js";
 export interface MappingDraft {
   id: string;
   label: string;
-  input: { type: "note" | "cc" | "programchange"; channel: number; number: number; port?: string };
+  input: { type: "note" | "cc" | "programchange" | "pitchbend"; channel: number; number: number; port?: string };
   mode: "trigger" | "latch" | "momentary" | "toggle";
   /** Raw value a CC (or a note's velocity) must exceed to answer (0..126); 0 = immediate. */
   threshold?: number;

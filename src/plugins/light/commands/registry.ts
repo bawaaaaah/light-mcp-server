@@ -8,7 +8,7 @@
  *
  * MCP tools and HTTP routes are generated from this registry: no business logic lives in adapters.
  */
-import type { z, ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { say } from "../../../core/lang.js";
 import type { Domain } from "./domains.js";
 
@@ -56,6 +56,9 @@ export interface CommandDef<S extends ZodTypeAny = ZodTypeAny, R = unknown> {
 /** The codes of `CommandDef.hints`, in this order: D destructive, I idempotent, O open world. */
 export type ToolHintCode = "" | "D" | "I" | "O" | "DI" | "DO" | "IO" | "DIO";
 
+/** A command's argument fields, by name (MCP tool input, OSC parameters): none when its schema is not an object. */
+export const argsShape = (def: Pick<CommandDef, "schema">): z.ZodRawShape => (def.schema instanceof z.ZodObject ? def.schema.shape : {});
+
 /** The command's title in the language of the request being answered (French by default). */
 export const commandTitle = (def: Pick<CommandDef, "title" | "titleEn">): string => say(def.title, def.titleEn);
 
@@ -90,7 +93,7 @@ export class CommandRegistry {
 
   register<S extends ZodTypeAny, R>(def: CommandDef<S, R>): void {
     if (this.commands.has(def.name)) throw new Error(`command ${def.name} registered twice`);
-    this.commands.set(def.name, def as unknown as CommandDef);
+    this.commands.set(def.name, def);
   }
 
   list(): CommandDef[] {

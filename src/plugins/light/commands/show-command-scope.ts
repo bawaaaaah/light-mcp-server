@@ -13,6 +13,8 @@ import { inUseMessage, usesOf, type ReferenceKind, type ShowParts } from "../sho
 import type { ShowRuntime } from "../show/runtime.js";
 import { DashboardSchema, type Dashboard } from "../dashboards/dashboards.js";
 import { say } from "../../../core/lang.js";
+import { MappingSchema } from "../midi/mapping.js";
+import { SongSchema } from "../songs/songs.js";
 import type { HeadFlips } from "../show/motion-lock.js";
 
 /**
@@ -110,20 +112,20 @@ export function createShowCommandScope(reg: CommandRegistry, engine: DmxEngine, 
   };
   /**
    * What uses a look, a group, a fader or a canvas (show/references.ts). Songs and mappings are opened on
-   * call: a store collection keeps the schema of its first opening, and the plugin opens those two
-   * with their own schemas after these commands are registered.
+   * call, with the schemas the plugin opens them with (a store collection keeps the schema of its first
+   * opening, and the plugin opens those two after these commands are registered).
    */
   const parts = (): ShowParts => ({
     groups: show.groups.list(),
     faders: show.faders.list(),
-    mappings: show.store.collection("mappings", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["mappings"],
+    mappings: show.store.collection("mappings", MappingSchema).list(),
     dashboards: dashboards.list(),
     snapshots: show.snapshots.list(),
     looks: show.looks.list(),
     targets: show.targets.list(),
     positions: show.positionPresets.list(),
     canvases: venue.canvases.list(),
-    songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()).list() as unknown as ShowParts["songs"],
+    songs: show.store.collection("songs", SongSchema).list(),
     rules: show.rules.list(),
     venueRules: show.venueRules.list(),
     patch: venue.fixtures.list(),

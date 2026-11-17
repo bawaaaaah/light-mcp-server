@@ -4,6 +4,8 @@
  */
 import { z } from "zod";
 import { say } from "../../../core/lang.js";
+import { MappingSchema } from "../midi/mapping.js";
+import { SongSchema } from "../songs/songs.js";
 import type { ShowCommandScope } from "./show-command-scope.js";
 
 export function registerNoteCommands(common: ShowCommandScope): void {
@@ -18,8 +20,8 @@ export function registerNoteCommands(common: ShowCommandScope): void {
       palettes: show.palettes,
       looks: show.looks,
       groups: show.groups,
-      songs: show.store.collection("songs", z.object({ id: z.string() }).passthrough()),
-      mappings: show.store.collection("mappings", z.object({ id: z.string() }).passthrough()),
+      songs: show.store.collection("songs", SongSchema),
+      mappings: show.store.collection("mappings", MappingSchema),
       dashboards: dashboards,
     }) as Record<string, { list(): { id: string; name?: string; title?: string; label?: string; notes?: string }[]; get(id: string): unknown; put(v: unknown): unknown }>;
   reg.register({

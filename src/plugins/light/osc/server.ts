@@ -5,8 +5,7 @@
  * `/light/help` answers one /light/help/route message per address.
  */
 import { createSocket, type Socket } from "node:dgram";
-import type { z } from "zod";
-import { commandTitle, type CommandDef, type CommandRegistry } from "../commands/registry.js";
+import { argsShape, commandTitle, type CommandDef, type CommandRegistry } from "../commands/registry.js";
 import { decodeOsc, encodeOsc, type OscArg } from "./codec.js";
 
 export interface OscConfig {
@@ -29,7 +28,7 @@ export function oscRoutes(registry: CommandRegistry): OscRoute[] {
   return registry.list().map((d: CommandDef) => ({
     address: oscAddress(d.name),
     command: d.name,
-    params: Object.keys((d.schema as unknown as z.ZodObject).shape ?? {}),
+    params: Object.keys(argsShape(d)),
     description: commandTitle(d),
   }));
 }

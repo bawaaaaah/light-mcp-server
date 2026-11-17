@@ -61,7 +61,7 @@ import { dataRoot as defaultDataRoot } from "../../core/paths.js";
 import { LiveSnapshotFile } from "./data/live-snapshot.js";
 import { openApiDocument } from "./commands/openapi.js";
 import { getPackageVersion } from "../../core/version.js";
-import { CommandError, CommandRegistry, commandTitle, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
+import { argsShape, CommandError, CommandRegistry, commandTitle, type CommandContext, type CommandDef, type Origin } from "./commands/registry.js";
 import { toolHints } from "./commands/tool-hints.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
@@ -1101,7 +1101,7 @@ export class LightPlugin implements McpPlugin {
       }));
     }
     for (const def of this.commands.list()) {
-      const shape = (def.schema as unknown as z.ZodObject).shape ?? {};
+      const shape = argsShape(def);
       server.registerTool(
         toolName(def.name),
         { title: def.title, description: def.description, inputSchema: shape, annotations: toolHints(def) },

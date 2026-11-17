@@ -35,13 +35,8 @@ interface Look {
   /** Dominant colour of the look (look.list), for the dot before its name. */
   swatch?: string;
 }
-interface Group {
-  id: string;
-  name: string;
-  exclusive: boolean;
-  master?: { level: number; mute: boolean };
-  limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
-  members: { fixtures: string[]; looks: string[]; groups: string[] };
+/** A group as group.list gives it: the stored group (show/model.ts GroupSchema) with its live level and size. */
+interface Group extends GroupDraft {
   /** A live group: the fixtures whose role and tags match. */
   selector?: { role?: string; tags?: string[] };
   effectiveLevel: number;
@@ -812,7 +807,7 @@ export function ShowPage(): ReactElement {
             {groups.map((g) => (
               <tr key={g.id}>
                 <td className="nowrap">
-                  <button className="ghost" aria-label={`${t.edit} ${g.name}`} onClick={() => setEditingGroup(g as unknown as GroupDraft)}>
+                  <button className="ghost" aria-label={`${t.edit} ${g.name}`} onClick={() => setEditingGroup(g)}>
                     ✎
                   </button>{" "}
                   {g.name}

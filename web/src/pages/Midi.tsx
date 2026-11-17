@@ -22,15 +22,10 @@ interface Status {
   profiles: string[];
   profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string; advertise?: boolean; connect?: string[] } };
 }
-interface Mapping {
-  id: string;
-  label: string;
-  input: { type: string; channel: number; number: number; port?: string };
-  mode: string;
-  on: { command: string; args: Record<string, unknown> };
-}
-
-type HeardInput = Mapping["input"];
+/** A mapping as midi.mapping.list gives it: the stored mapping, every default filled in (midi/mapping.ts MappingSchema). */
+type Mapping = MappingDraft;
+/** An input heard by midi.learn: any MIDI message type, not only those a mapping answers. */
+type HeardInput = { type: string; channel: number; number: number; port?: string };
 
 /** The mappings a heard input plays — the same rule as the server's mapper (port by substring, the DJ's port only its own). */
 function playedBy(m: Mapping, heard: HeardInput): boolean {
@@ -499,7 +494,7 @@ export function MidiPage(): ReactElement {
                     {m.on.command === "colour.apply" && colourLoaded && typeof m.on.args.id === "string" && !colourIds.has(m.on.args.id) && <small className="warn"> ⚠ {t.colours.deletedMark}</small>}
                   </td>
                   <td>
-                    <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m as unknown as MappingDraft)}>
+                    <button className="ghost" aria-label={`${t.edit} ${m.label || m.id}`} onClick={() => setEditing(m)}>
                       ✎
                     </button>
                   </td>

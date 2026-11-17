@@ -153,9 +153,9 @@ export function registerImportCommands(reg: CommandRegistry, s: ImportServices):
       if (otherWorkspace && !force) throw new Error(otherWorkspace);
       const venue = s.runtime.venue;
       // « mode hybride »: untouched objects are updated, hand edits kept, live state always kept
-      const merge = <T extends { id: string }>(name: string, raw: T[], col: { get(id: string): T | undefined; put(v: unknown): T; parse(v: unknown): T }) => {
+      const merge = <T extends { id: string } & Record<string, unknown>>(name: string, raw: T[], col: { get(id: string): T | undefined; put(v: unknown): T; parse(v: unknown): T }) => {
         const incoming = raw.map((x) => col.parse(x)); // same defaults as what is stored, so fingerprints compare
-        const m = mergeImport(name, incoming as unknown as ({ id: string } & Record<string, unknown>)[], (id) => col.get(id) as unknown as ({ id: string } & Record<string, unknown>) | undefined, state[name] ?? {}, replace);
+        const m = mergeImport(name, incoming, (id) => col.get(id), state[name] ?? {}, replace);
         for (const item of m.write) col.put(item);
         state[name] = { ...(state[name] ?? {}), ...m.fingerprints };
         return { added: m.added.length, updated: m.updated.length, unchanged: m.unchanged.length, kept: m.kept, toCheck: m.toCheck };

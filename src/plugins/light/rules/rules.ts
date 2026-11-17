@@ -160,7 +160,7 @@ export function effectiveRule(rules: Rule[], fx: ResolvedFixture, ch: FixtureCha
     for (const k of CONSTRAINTS) {
       const v = r[k];
       if (v === undefined || (Array.isArray(v) && v.length === 0)) continue;
-      (eff as unknown as Record<string, unknown>)[k] = v;
+      Object.assign(eff, { [k]: v });
       eff.from[k] = r.id;
     }
   }

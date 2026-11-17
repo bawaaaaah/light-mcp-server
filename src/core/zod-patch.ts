@@ -18,12 +18,13 @@ function withoutDefault(type: z.ZodType): z.ZodType {
   if (type instanceof z.ZodOptional) return withoutDefault(type.unwrap() as z.ZodType).optional();
   if (type instanceof z.ZodNullable) return withoutDefault(type.unwrap() as z.ZodType).nullable();
   if (type instanceof z.ZodReadonly) return withoutDefault(type.unwrap() as z.ZodType).readonly();
-  if (type instanceof z.ZodPipe) return z.pipe(withoutDefault(type.in as z.ZodType), type.out as z.ZodType) as unknown as z.ZodType;
+  if (type instanceof z.ZodPipe) return z.pipe(withoutDefault(type.in as z.ZodType), type.out as z.ZodType);
   return type;
 }
 
 /** Every field of `schema` optional and without its default: what is absent stays absent in the parsed patch. */
 export function patchSchema<T extends z.ZodRawShape>(schema: z.ZodObject<T>): z.ZodObject<{ [K in keyof T]: z.ZodOptional<z.ZodType<z.output<T[K]>, z.input<T[K]>>> }> {
   const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, type]) => [key, withoutDefault(type as z.ZodType).optional()]));
-  return z.object(shape) as unknown as z.ZodObject<{ [K in keyof T]: z.ZodOptional<z.ZodType<z.output<T[K]>, z.input<T[K]>>> }>;
+  // Object.fromEntries forgets the keys: the shape built above is the one this type says
+  return z.object(shape) as z.ZodObject<{ [K in keyof T]: z.ZodOptional<z.ZodType<z.output<T[K]>, z.input<T[K]>>> }>;
 }

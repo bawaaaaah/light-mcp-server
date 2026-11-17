@@ -232,9 +232,9 @@ export class FolderStore {
 
   collection<T extends { id: string }>(name: string, schema: ZodType<T, unknown>): Collection<T> {
     const existing = this.collections.get(name);
-    if (existing) return existing as unknown as Collection<T>;
+    if (existing) return existing as Collection<T>; // opened with its first schema: the caller's T is trusted (one schema per collection name)
     const c = new Collection<T>(this, name, schema);
-    this.collections.set(name, c as unknown as Collection<{ id: string }>);
+    this.collections.set(name, c);
     return c;
   }
 
