@@ -276,7 +276,10 @@ async function deleteByKeyboard(page: Page, model: string): Promise<void> {
   await expect(menu.getByRole("button", { name: /Supprimer/ })).toBeFocused();
   await page.keyboard.press("Enter");
   const confirm = page.getByRole("dialog", { name: `Supprimer Test ${model}` }).getByRole("button", { name: "Mettre à la corbeille" });
+  // disabled until the delete's plan (its dry run) is back: focus() on it then does nothing, Enter goes elsewhere
+  await expect(confirm).toBeEnabled();
   await confirm.focus();
+  await expect(confirm).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(row(page, model)).toHaveCount(0);
 }
