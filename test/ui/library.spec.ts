@@ -31,17 +31,22 @@ async function api(page: Page, name: string, args: unknown = {}): Promise<unknow
 
 /** The library as the server starts it: what a test adds (copies, aliases, the trash) goes again after it, passed or not. */
 type Listing = { definitions: { id: string; folder: string }[]; aliases: { id: string }[] };
-const call = async (request: APIRequestContext, name: string, args: unknown = {}): Promise<unknown> =>
-  ((await (await request.post(`http://127.0.0.1:${PORT}/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+/** A command as the master token, refused loudly: a clean-up that fails must not pass in silence. */
+async function call(request: APIRequestContext, name: string, args: unknown = {}): Promise<unknown> {
+  const res = await request.post(`http://127.0.0.1:${PORT}/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args });
+  if (!res.ok()) throw new Error(`${name} answered ${res.status()}: ${await res.text()}`);
+  return ((await res.json()) as { result: unknown }).result;
+}
 let before: { ids: Set<string>; aliases: Set<string> } | undefined;
 test.beforeAll(async ({ request }) => {
   const list = (await call(request, "library.list")) as Listing;
   before = { ids: new Set(list.definitions.map((d) => d.id)), aliases: new Set(list.aliases.map((a) => a.id)) };
 });
 test.afterEach(async ({ request }) => {
+  if (!before) return;
   const list = (await call(request, "library.list")) as Listing;
-  for (const a of list.aliases) if (!before?.aliases.has(a.id)) await call(request, "library.unalias", { id: a.id });
-  for (const d of list.definitions) if (d.folder !== "builtin" && !before?.ids.has(d.id)) await call(request, "library.delete", { id: d.id, force: true, dropAliases: true });
+  for (const a of list.aliases) if (!before.aliases.has(a.id)) await call(request, "library.unalias", { id: a.id });
+  for (const d of list.definitions) if (d.folder !== "builtin" && !before.ids.has(d.id)) await call(request, "library.delete", { id: d.id, force: true, dropAliases: true });
   await call(request, "library.trash.empty");
 });
 
