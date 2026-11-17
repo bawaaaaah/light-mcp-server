@@ -212,6 +212,8 @@ test("T27 lot 4: a zone chip under a group's pad sends its heads to the zone; ou
         await expect(chip).toBeDisabled();
       });
     } finally {
+      // leave first: a busy page still showing the pad may read the group's heads after it is gone (a 422 in the console)
+      await page.goto("about:blank");
       await desk(page, "group.delete", { id: "t27p-lyres", force: true });
     }
   });

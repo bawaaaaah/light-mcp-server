@@ -1472,23 +1472,24 @@ test("a group list answer that lands late does not rewrite the fader", async ({ 
     const cell = page.locator(".cell .fader").first();
     const fader = cell.locator("input[type=range]");
     await expect(fader).toHaveValue("1000");
-    // the desk's slow link: the first group.list's answer is held in the wire
+    // the desk's slow link: the first group.list answer that brings the 20 % state is held in the wire. Not merely the
+    // first one: a busy machine may still be re-reading the 100 % state of the page load (its socket coming up) then.
     await page.route("**/api/plugins/light/commands/group.list", async (route) => {
-      lists++;
-      if (lists === 1) {
-        const response = await route.fetch();
-        held = { route, status: response.status(), headers: response.headers(), body: await response.text() };
+      const response = await route.fetch();
+      const body = await response.text();
+      if (held) lists++;
+      else if ((JSON.parse(body) as { result: G[] }).result.find((g) => g.id === master.id)?.master?.level === 0.2) {
+        held = { route, status: response.status(), headers: response.headers(), body };
         return;
       }
-      await route.fulfill({ response: await route.fetch() });
+      await route.fulfill({ status: response.status(), headers: response.headers(), body });
     });
     await api(page, "group.level", { id: master.id, level: 0.2 });
     await expect.poll(() => Boolean(held)).toBe(true);
-    await expect.poll(async () => (JSON.parse(held!.body) as { result: G[] }).result.find((g) => g.id === master.id)!.master!.level).toBe(0.2);
     await api(page, "group.level", { id: master.id, level: 0.8 });
     await expect(fader).toHaveValue("800");
     await expect(cell.locator(".ghost-bar")).toHaveCount(0, { timeout: 6000 });
-    await expect.poll(() => lists).toBeGreaterThanOrEqual(3); // the landing's own read ran after the held one
+    await expect.poll(() => lists).toBeGreaterThanOrEqual(2); // the landing's own read ran after the held one
 
     // the held answer is released now, after the landing: the last read must win
     await held!.route.fulfill({ status: held!.status, headers: held!.headers, body: held!.body });
@@ -7536,16 +7537,18 @@ test("motion pad: sent dot, per-axis layers, a masked look and one layer release
   const xy = page.locator(".xy").first();
   const layer = (axis: "pan" | "tilt") => xy.locator(`.xy-layers [data-axis~="${axis}"]`);
   try {
-    await api(page, "look.go", { id: "motion-layer" });
-    await expect(layer("pan")).toHaveText("Pan : Look « Position test »");
-    await expect(layer("tilt")).toHaveText("Tilt : Repos");
     const dot = xy.getByTestId("xy-sent-dot");
     await expect(dot).toBeVisible();
     const dotLeft = async () => Number((await dot.getAttribute("style"))?.match(/left: ([\d.]+)%/)?.[1]);
+    await expect.poll(dotLeft).toBeCloseTo(50, 0); // at rest before the look: the glide starts from the middle
+    await api(page, "look.go", { id: "motion-layer" });
+    // watched from the look's launch: on a busy machine the layer lines below may take most of the glide to show
     await expect.poll(async () => {
       const left = await dotLeft();
       return left > 17 && left < 49;
     }).toBe(true); // an intermediate sent point is required: a direct jump to the target does not pass
+    await expect(layer("pan")).toHaveText("Pan : Look « Position test »");
+    await expect(layer("tilt")).toHaveText("Tilt : Repos");
     await expect.poll(dotLeft, { timeout: 6000 }).toBeCloseTo(15.7, 0);
     await api(page, "position.set", { fixtures: ["spot"], pan: 0.8, tilt: 0.7 });
     await expect(layer("pan")).toHaveText("Pan/Tilt : Main"); // both axes held alike: one line says both

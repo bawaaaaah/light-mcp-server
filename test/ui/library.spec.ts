@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 /** The UI test server's port (playwright.config.ts). */
 const PORT = Number(process.env.UI_PORT ?? 8799);
@@ -29,6 +29,22 @@ async function api(page: Page, name: string, args: unknown = {}): Promise<unknow
   );
 }
 
+/** The library as the server starts it: what a test adds (copies, aliases, the trash) goes again after it, passed or not. */
+type Listing = { definitions: { id: string; folder: string }[]; aliases: { id: string }[] };
+const call = async (request: APIRequestContext, name: string, args: unknown = {}): Promise<unknown> =>
+  ((await (await request.post(`http://127.0.0.1:${PORT}/api/plugins/light/commands/${name}`, { headers: { authorization: "Bearer ui-test-token" }, data: args })).json()) as { result: unknown }).result;
+let before: { ids: Set<string>; aliases: Set<string> } | undefined;
+test.beforeAll(async ({ request }) => {
+  const list = (await call(request, "library.list")) as Listing;
+  before = { ids: new Set(list.definitions.map((d) => d.id)), aliases: new Set(list.aliases.map((a) => a.id)) };
+});
+test.afterEach(async ({ request }) => {
+  const list = (await call(request, "library.list")) as Listing;
+  for (const a of list.aliases) if (!before?.aliases.has(a.id)) await call(request, "library.unalias", { id: a.id });
+  for (const d of list.definitions) if (d.folder !== "builtin" && !before?.ids.has(d.id)) await call(request, "library.delete", { id: d.id, force: true, dropAliases: true });
+  await call(request, "library.trash.empty");
+});
+
 const row = (page: Page, model: string) => page.locator("table.library-table tbody tr", { has: page.locator(".model", { hasText: new RegExp(`^${model.replace(/[()]/g, "\\$&")}$`) }) });
 
 test("library: list and filters, duplicate, forward to another (alias), delete to the trash, restore, empty", async ({ page }) => {
@@ -48,8 +64,8 @@ test("library: list and filters, duplicate, forward to another (alias), delete t
   await page.screenshot({ path: "test-results/library-desktop.png", fullPage: true });
 
   // duplicate under another name, from the row's ⋯ button
-  await page.getByRole("button", { name: "Actions sur Test Mode Par" }).click();
-  await page.getByRole("dialog", { name: "Actions sur Test Mode Par" }).getByRole("button", { name: /Dupliquer/ }).click();
+  await page.getByRole("button", { name: "Actions sur Test Mode Par", exact: true }).click();
+  await page.getByRole("dialog", { name: "Actions sur Test Mode Par", exact: true }).getByRole("button", { name: /Dupliquer/ }).click();
   const dup = page.getByRole("dialog", { name: "Dupliquer Test Mode Par" });
   await expect(dup.getByLabel("Modèle")).toHaveValue("Mode Par (copie)");
   await dup.getByRole("button", { name: "Dupliquer", exact: true }).click();
@@ -157,7 +173,7 @@ for (const [label, viewport, mobile] of [
     await target.dispatchEvent("pointerdown", { pointerType: "touch", clientX: box.x + 10, clientY: box.y + 10, isPrimary: true, button: 0 });
     await page.waitForTimeout(700);
     await target.dispatchEvent("pointerup", { pointerType: "touch", clientX: box.x + 10, clientY: box.y + 10, isPrimary: true, button: 0 });
-    const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par" });
+    const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par", exact: true });
     await expect(menu).toBeVisible();
     await page.screenshot({ path: `test-results/library-${label}.png`, fullPage: true });
     // its dialogs are as easy to hit with a finger
@@ -189,10 +205,10 @@ test("library by keyboard: the menu's arrows, the dialog takes the focus and giv
   await page.setViewportSize({ width: 1400, height: 900 });
   await signIn(page);
   await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
-  const actions = page.getByRole("button", { name: "Actions sur Test Mode Par" });
+  const actions = page.getByRole("button", { name: "Actions sur Test Mode Par", exact: true });
   await actions.focus();
   await page.keyboard.press("Enter");
-  const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par" });
+  const menu = page.getByRole("dialog", { name: "Actions sur Test Mode Par", exact: true });
   await expect(menu.getByRole("button", { name: /Dupliquer/ })).toBeFocused();
   await page.keyboard.press("End");
   await expect(menu.getByRole("button", { name: /Supprimer/ })).toBeFocused();
@@ -230,8 +246,8 @@ test("library: a dialog opened from the trash gives the keyboard back to its but
   await api(page, "library.delete", { id: copy.id });
   await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
   // a row's menu used first: its ⋯ must not take the focus back later
-  await page.getByRole("button", { name: "Actions sur Test Mode Par" }).click();
-  await page.getByRole("dialog", { name: "Actions sur Test Mode Par" }).getByRole("button", { name: /Dupliquer/ }).click();
+  await page.getByRole("button", { name: "Actions sur Test Mode Par", exact: true }).click();
+  await page.getByRole("dialog", { name: "Actions sur Test Mode Par", exact: true }).getByRole("button", { name: /Dupliquer/ }).click();
   await page.getByRole("dialog", { name: "Dupliquer Test Mode Par" }).getByRole("button", { name: "Annuler" }).click();
   const empty = page.getByRole("button", { name: "Vider la corbeille" });
   await empty.click();
