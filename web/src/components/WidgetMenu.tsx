@@ -11,7 +11,8 @@ import { targetListOf, type ButtonMode, type Widget, type WidgetKind } from "../
 
 /** What the menu reads and changes of a widget: not its place on the grid. */
 type MenuWidget = Omit<Widget, "x" | "y" | "w" | "h">;
-interface Named {
+/** Something of the show a widget can drive: its id and name. */
+export interface Named {
   id: string;
   name: string;
 }

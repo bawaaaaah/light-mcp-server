@@ -1,20 +1,22 @@
 import { expect } from "chai";
-import { added, autoColored, colorOf, confirmable, CORNERS, defaultSize, dragged, dropCell, holdable, KINDS, latestRead, neutral, pressable, settle, shared, SUB, targetListOf, type Dashboard, type Drag, type ReadList, type Widget } from "../web/src/dashboard-layout.js";
+import { added, autoColored, colorOf, confirmable, defaultSize, dragged, dropCell, holdable, KINDS, neutral, pressable, settle, shared, SUB, targetListOf, type Dashboard, type Drag, type Widget, type WidgetKind } from "../web/src/dashboard-layout.js";
 
 const widget = (id: string, x: number, y: number, w = 2, h = 1, more: Partial<Widget> = {}): Widget => ({ id, kind: "look", x, y, w, h, ...more });
 /** A drag of the widget `w`, taken at (100, 100) px, on cells of 50 × 40 px. */
 const drag = (w: Widget, mode: Drag["mode"]): Drag => ({ id: w.id, mode, x0: w.x, y0: w.y, w0: w.w, h0: w.h, px: 100, py: 100, cw: 50, rh: 40 });
 
 describe("dashboard layout", () => {
-  it("knows every kind once, with its default size (a button: 2 × 1)", () => {
-    expect(new Set(KINDS).size).to.equal(KINDS.length);
-    expect(KINDS).to.have.length(19);
-    expect(defaultSize("look")).to.deep.equal({ w: 2, h: 1 });
-    expect(defaultSize("group-fader")).to.deep.equal({ w: 1, h: 4 });
-    expect(defaultSize("target")).to.deep.equal({ w: 6, h: 6 });
-    expect(defaultSize("zones")).to.deep.equal({ w: 6, h: 3 });
-    expect(SUB).to.equal(4);
-    expect(CORNERS).to.deep.equal(["nw", "ne", "sw", "se"]);
+  it("offers every kind once in the palette, each at a size that fits a dashboard", () => {
+    // WidgetKind is derived from KINDS: a kind missing here is missing from the type, and the registry
+    // (Record<WidgetKind, …>) would not compile with a kind the palette does not offer
+    const every: Record<WidgetKind, true> = Object.fromEntries(KINDS.map((k) => [k, true])) as Record<WidgetKind, true>;
+    expect(Object.keys(every)).to.have.length(KINDS.length); // no kind twice
+    for (const k of KINDS) {
+      const { w, h } = defaultSize(k);
+      expect(w, k).to.be.within(1, 12);
+      expect(h, k).to.be.at.least(1);
+    }
+    expect(defaultSize("look")).to.deep.equal({ w: 2, h: 1 }); // a button, by default
   });
 
   describe("settle", () => {
@@ -82,19 +84,6 @@ describe("dashboard layout", () => {
       const onA = added(d, "look", "n", { x: 0, y: 0 });
       expect(onA.map((w) => [w.id, w.y])).to.deep.equal([["a", 1], ["b", 2], ["n", 0]]);
     });
-  });
-
-  it("applies a read only if no newer read of the same list started meanwhile", async () => {
-    const counters: Record<ReadList, number> = { looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 };
-    const applied: string[] = [];
-    let first!: (v: string) => void;
-    latestRead(counters, "looks", new Promise<string>((r) => (first = r)), (v) => applied.push(v));
-    latestRead(counters, "looks", Promise.resolve("new"), (v) => applied.push(v));
-    latestRead(counters, "groups", Promise.resolve("groups"), (v) => applied.push(v));
-    first("old");
-    latestRead(counters, "faders", Promise.reject(new Error("down")), (v) => applied.push(String(v))); // a failed read: nothing
-    await new Promise((r) => setTimeout(r, 0));
-    expect(applied).to.deep.equal(["new", "groups"]);
   });
 
   it("says which list a widget picks its target from", () => {

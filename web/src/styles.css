@@ -4027,7 +4027,7 @@ ul.online {
   color: var(--warn);
 }
 
-/* Live: « ↶ Revenir » in the Panic's cell for a minute after a Panic (pages/Dashboards.tsx) */
+/* Live: « ↶ Revenir » in the Panic's cell for a minute after a Panic (widgets/Panic.tsx) */
 .panic-cell {
   display: flex;
   gap: 0.3em;

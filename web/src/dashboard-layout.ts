@@ -5,7 +5,9 @@
  */
 import { isHex } from "./color.js";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target" | "position" | "colours" | "zones";
+/** The kinds of widget, in the palette's order: the union is derived from it, so a kind cannot be left out of the palette. */
+export const KINDS = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader", "colours", "zones"] as const;
+export type WidgetKind = (typeof KINDS)[number];
 /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
 export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
 
@@ -18,7 +20,6 @@ export interface Widget {
   h: number;
   target?: string;
   label?: string;
-  /** Look and Blackout buttons: trigger (always on), latch (on/off), momentary (on while pressed). */
   mode?: ButtonMode;
   /**
    * "#rrggbb", or "auto" (a look button takes its look's colour); absent = neutral. A named position's button (T32)
@@ -42,8 +43,6 @@ interface Box {
   h: number;
 }
 
-/** The palette's order. */
-export const KINDS: WidgetKind[] = ["look", "group-fader", "grand-master", "section", "snapshot", "panic", "blackout", "tap", "stop-all", "song-nav", "label", "xy", "target", "position", "motion-lock", "preview", "channel-fader", "colours", "zones"];
 const SIZE: Partial<Record<WidgetKind, { w: number; h: number }>> = { "group-fader": { w: 1, h: 4 }, "grand-master": { w: 1, h: 4 }, "channel-fader": { w: 1, h: 4 }, xy: { w: 3, h: 4 }, target: { w: 6, h: 6 }, preview: { w: 6, h: 4 }, colours: { w: 6, h: 3 }, zones: { w: 6, h: 3 } };
 /** A new widget's size, in cells: a button is two cells wide. */
 export const defaultSize = (kind: WidgetKind): { w: number; h: number } => SIZE[kind] ?? { w: 2, h: 1 };
@@ -52,10 +51,6 @@ export const defaultSize = (kind: WidgetKind): { w: number; h: number } => SIZE[
 export const SUB = 4;
 export type Handle = "move" | "nw" | "ne" | "sw" | "se";
 export const CORNERS: Handle[] = ["nw", "ne", "sw", "se"];
-
-export function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T;
-}
 
 /** A widget dropped onto others pushes them down (in cascade), as in a classic dashboard editor. */
 export function settle<T extends Box>(widgets: T[], movedId: string): T[] {
@@ -133,15 +128,6 @@ export function added(d: Dashboard, kind: WidgetKind, id: string, at?: { x: numb
   const y = at?.y ?? d.widgets.reduce((m, w) => Math.max(m, w.y + w.h), 0);
   const x = Math.max(0, Math.min(at?.x ?? 0, d.columns - size.w));
   return settle([...d.widgets, { id, kind, x, y, ...size, ...(target ? { target } : {}) }], id);
-}
-
-/** The lists a dashboard reads; each can be read again while an older read is still on its way. */
-export type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
-
-/** Applies a read's answer only if no newer read of the same list started meanwhile. */
-export function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, request: Promise<T>, apply: (v: T) => void): void {
-  const stamp = ++counters[list];
-  void request.then((v) => stamp === counters[list] && apply(v)).catch(() => undefined);
 }
 
 /** What a widget drives, chosen in its menu: which of the show's lists it picks from. */

@@ -26,7 +26,8 @@ import { pick } from "../selection";
 import { quoted } from "../typography";
 import { useArm } from "../hooks/useArm";
 import { useKiosk } from "../hooks/useKiosk";
-import { added, clone, colorOf, CORNERS, dragged, dropCell, holdable, latestRead, settle, SUB, type Dashboard, type Drag, type Handle, type Widget, type WidgetKind } from "../dashboard-layout";
+import { added, colorOf, CORNERS, dragged, dropCell, holdable, settle, SUB, type Dashboard, type Drag, type Handle, type Widget, type WidgetKind } from "../dashboard-layout";
+import { clone, latestRead } from "../list-reads";
 import type { ChannelFader, Glide, Group, LightState, Look, Tempo, SongState, WidgetEnv } from "../widgets/env";
 import { WidgetView } from "../widgets/registry";
 import { ManyEditor, WidgetEditor } from "../widgets/WidgetEditor";
@@ -576,7 +577,6 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           w={sel}
           columns={dash?.columns ?? 12}
           step={step}
-          // the snapshots are chosen in the widget's menu, not here
           lists={{ looks, groups, faders, snapshots: [], targets, positions }}
           onPatch={(patch) => updateWidget(sel.id, patch)}
           onRemove={() => {

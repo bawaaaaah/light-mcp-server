@@ -33,7 +33,7 @@ export function RangeLadder({ ranges, value, label }: { ranges: readonly NamedRa
 }
 
 /** A vertical fader drawn entirely in DOM, with a native range kept for focus and assistive tools.
- *  Shared by the dashboard widgets (Dashboards.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
+ *  Shared by the dashboard's faders (widgets/GroupFader.tsx, ChannelFader.tsx, GrandMaster.tsx) and the fixture panel (FixturePanel.tsx). With `ranges`
  *  (a channel cut into functions, T6) the ranges around its value show on its left and the range input names
  *  the one it is in; `travel` is the fader's own range of DMX values (the whole travel by default). */
 export function FaderTrack({ label, value, sent, disabled, interactive, onChange, children, ranges, travel, rangesLabel, ladder = true, valueText, keyStep = 0.001, pageStep }: {

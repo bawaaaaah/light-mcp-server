@@ -1,13 +1,9 @@
 import type { ReactElement } from "react";
 import { useT } from "../i18n-context";
 import { isHex, SWATCHES } from "../color";
-import { SetSelect, type ExclusiveSet } from "../components/WidgetMenu";
+import { SetSelect, type ExclusiveSet, type Named } from "../components/WidgetMenu";
 import { autoColored, confirmable, neutral, pressable, shared, targetListOf, type ButtonMode, type TargetList, type Widget } from "../dashboard-layout";
 
-interface Named {
-  id: string;
-  name: string;
-}
 const MODES = ["latch", "momentary", "trigger", "toggle"] as const;
 
 /** The panel of the one widget selected while arranging: what it drives, its label, its mode, its place and size. */

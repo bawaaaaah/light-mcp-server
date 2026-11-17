@@ -1,15 +1,11 @@
 import type { ReactElement } from "react";
 import { useT } from "../i18n-context";
 import { KINDS, type WidgetKind } from "../dashboard-layout";
+import type { Named } from "../components/WidgetMenu";
 
 /** What a palette chip drops: a kind of widget, possibly already bound (a look, a snapshot). */
 export const DRAG_TYPE = "application/x-light-widget";
 
-interface Named {
-  id: string;
-  name: string;
-  color?: string;
-}
 
 /**
  * The widgets to add while arranging: a chip per kind, then the looks, snapshots and positions already bound, found by
@@ -18,7 +14,7 @@ interface Named {
 export function Palette({ looks, snapshots, positions, search, onSearch, onAdd }: {
   looks: (Named & { swatch?: string })[];
   snapshots: Named[];
-  positions: Named[];
+  positions: (Named & { color?: string })[];
   search: string;
   onSearch: (search: string) => void;
   onAdd: (kind: WidgetKind, target?: string) => void;
