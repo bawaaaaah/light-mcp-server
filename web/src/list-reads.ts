@@ -4,13 +4,20 @@
 export const READ_LISTS = ["looks", "groups", "faders", "snapshots", "folders"] as const;
 export type ReadList = (typeof READ_LISTS)[number];
 
+/** Waits `ms`, then runs `fn`; gives back what cancels it. Injectable: the tests run the clock by hand. */
+export type Later = (fn: () => void, ms: number) => () => void;
+const laterByTimer: Later = (fn, ms) => {
+  const id = setTimeout(fn, ms);
+  return () => clearTimeout(id);
+};
+
 /** How a failed read is told and tried again; the clock is injectable. */
 export interface ReadRetry {
   /** Where the failures go (`failuresTogether`): a read drops its list's failure still waiting, and fails twice there. */
   failures: Pick<FailuresTogether, "fail" | "drop">;
   /** The wait before the second try (ms). */
   delayMs?: number;
-  later?: (fn: () => void, ms: number) => void;
+  later?: Later;
 }
 export const RETRY_MS = 1000;
 
@@ -28,7 +35,7 @@ export function dropReads(counters: Record<ReadList, number>): void {
  */
 export function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, read: () => Promise<T>, apply: (v: T) => void, retry: ReadRetry): void {
   const stamp = ++counters[list];
-  const { failures, delayMs = RETRY_MS, later = (fn, ms) => void setTimeout(fn, ms) } = retry;
+  const { failures, delayMs = RETRY_MS, later = laterByTimer } = retry;
   failures.drop(list);
   const current = () => stamp === counters[list];
   const attempt = (left: number) =>
@@ -86,12 +93,6 @@ export function alertLines(s: ReadStates): { lists: ReadList[]; message: string 
 /** A message ending its sentence once: the server's own may already end with a point. */
 export const sentence = (message: string): string => `${message.replace(/[\s.]+$/, "")}.`;
 
-/** Waits `ms`, then runs `fn`; gives back what cancels it. Injectable: the tests run the clock by hand. */
-export type Later = (fn: () => void, ms: number) => () => void;
-const laterByTimer: Later = (fn, ms) => {
-  const id = setTimeout(fn, ms);
-  return () => clearTimeout(id);
-};
 
 /** The failures of one refresh, said together. */
 export interface FailuresTogether {
@@ -110,7 +111,6 @@ export function failuresTogether(say: (failures: [ReadList, string][]) => void, 
   let waiting: [ReadList, string][] = [];
   let stop: (() => void) | undefined;
   const flush = () => {
-    stop = undefined;
     const failures = waiting;
     waiting = [];
     if (failures.length) say(failures);
@@ -126,8 +126,7 @@ export function failuresTogether(say: (failures: [ReadList, string][]) => void, 
     },
     cancel() {
       stop?.();
-      stop = undefined;
-      waiting = [];
+      waiting = []; // a failure after this one does not bring the old ones back
     },
   };
 }

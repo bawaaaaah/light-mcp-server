@@ -1505,7 +1505,7 @@ test("dashboards: two reads failing 50 ms apart are said in one alert, announced
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: a failed « Relire » arms nothing: a later read from elsewhere steals no focus", async ({ page }) => {
+test("dashboards: a read from elsewhere steals no focus once « Relire » lost it", async ({ page }) => {
   const errors = watchErrors(page);
   let failing = true;
   await page.route("**/api/plugins/light/commands/group.list", async (route) => {
@@ -1514,6 +1514,7 @@ test("dashboards: a failed « Relire » arms nothing: a later read from elsewher
   });
   try {
     await login(page);
+    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1); // the page's reads failed first
     failing = false;
     type Saved = { widgets: { id: string; kind: string; target?: string }[] };
     const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
@@ -1539,6 +1540,72 @@ test("dashboards: a failed « Relire » arms nothing: a later read from elsewher
     await page.keyboard.press("Escape");
   } finally {
     await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+/** The Live with its groups failing, a DCA's menu open on « Relire »; `answer()` lets the next read through, held. */
+async function relireHeld(page: Page) {
+  let failing = true;
+  let hold: Promise<void> | null = null;
+  let answer = () => undefined as void;
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    if (hold) await hold;
+    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
+    await route.continue();
+  });
+  await login(page);
+  await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+  failing = false;
+  type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+  const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
+  expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
+  failing = true;
+  await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  const picker = menu.getByLabel("Pilote");
+  const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
+  await expect(again).toHaveAttribute("aria-disabled", "false");
+  // the next read will pass, once let go
+  failing = false;
+  hold = new Promise<void>((r) => (answer = r));
+  await again.focus();
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveAttribute("aria-busy", "true");
+  return { picker, again, answer: () => ((hold = null), answer()), done: () => page.unroute("**/api/plugins/light/commands/group.list") };
+}
+
+test("dashboards: « Relire » whose focus left for the page gives none to the picker once read", async ({ page }) => {
+  const errors = watchErrors(page);
+  const h = await relireHeld(page);
+  try {
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()); // the focus leaves for the page
+    h.answer();
+    await expect(h.picker).toBeEnabled();
+    await page.waitForTimeout(100);
+    await expect(h.picker).not.toBeFocused();
+    await page.keyboard.press("Escape");
+  } finally {
+    h.answer();
+    await h.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » keeps its focus through the window's blur (another app), and gives it to the picker", async ({ page }) => {
+  const errors = watchErrors(page);
+  const h = await relireHeld(page);
+  try {
+    // the window loses the focus: the button gets its blur, and stays the page's active element
+    await h.again.dispatchEvent("focusout", { bubbles: true, relatedTarget: null });
+    await expect(h.again).toBeFocused();
+    h.answer();
+    await expect(h.picker).toBeEnabled();
+    await expect(h.picker).toBeFocused();
+    await page.keyboard.press("Escape");
+  } finally {
+    h.answer();
+    await h.done();
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });

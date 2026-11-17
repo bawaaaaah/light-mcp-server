@@ -7,7 +7,7 @@ const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders:
 function retrying() {
   const waiting: { fn: () => void; ms: number }[] = [];
   const errors: string[] = [];
-  const retry: ReadRetry = { failures: { fail: (_list, message) => errors.push(message), drop: () => undefined }, delayMs: 500, later: (fn, ms) => waiting.push({ fn, ms }) };
+  const retry: ReadRetry = { failures: { fail: (_list, message) => errors.push(message), drop: () => undefined }, delayMs: 500, later: (fn, ms) => (waiting.push({ fn, ms }), () => undefined) };
   return { retry, waiting, errors, tick: () => waiting.splice(0).forEach((w) => w.fn()) };
 }
 
@@ -201,7 +201,7 @@ describe("list reads", () => {
     it("drops a list's failure still waiting when a read of that list starts", async () => {
       const p = page();
       const c = counters();
-      const retry: ReadRetry = { failures: p.together, delayMs: 0, later: (fn) => fn() };
+      const retry: ReadRetry = { failures: p.together, delayMs: 0, later: (fn) => (fn(), () => undefined) };
       latestRead(c, "groups", () => Promise.reject(new Error("down")), () => undefined, retry);
       await flush();
       await flush();
@@ -209,6 +209,18 @@ describe("list reads", () => {
       latestRead(c, "groups", () => new Promise<never>(() => undefined), () => undefined, retry); // read again, still under way
       p.advance(500);
       expect(p.updates()).to.equal(0);
+    });
+
+    it("keeps the other lists' failures when one list is read again", () => {
+      const said: [ReadList, string][][] = [];
+      const c = clock();
+      const together = failuresTogether((batch) => said.push(batch), { delayMs: 150, later: c.later });
+      together.fail("groups", "down");
+      together.fail("faders", "down");
+      c.advance(100);
+      together.drop("groups");
+      c.advance(50);
+      expect(said).to.deep.equal([[["faders", "down"]]]);
     });
 
     it("says nothing once cancelled (the page left)", () => {

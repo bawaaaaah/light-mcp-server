@@ -129,9 +129,7 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
   useEffect(() => {
     if (!read || !againFocused.current) return;
     againFocused.current = false;
-    // the button is gone: the focus it had fell to the page, unless it moved meanwhile
-    const at = document.activeElement;
-    if (at === null || at === document.body || at === againRef.current) selectRef.current?.focus();
+    selectRef.current?.focus(); // the button is gone with its reason: the focus it had would fall to the page
   }, [read]);
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
@@ -159,7 +157,8 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
           type="button"
           aria-disabled={busy}
           onFocus={() => (againFocused.current = true)}
-          onBlur={() => (againFocused.current = false)}
+          // the focus moved elsewhere; not when the window lost it (another app): the button keeps it there
+          onBlur={(e) => document.activeElement !== e.currentTarget && (againFocused.current = false)}
           onClick={() => {
             if (busy) return;
             onRetry();
