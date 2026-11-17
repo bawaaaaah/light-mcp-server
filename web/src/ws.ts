@@ -11,7 +11,7 @@ const browser: ChannelDeps = {
   ticket: wsTicket,
   socket: (ticket, protocol) => {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    return new WebSocket(`${scheme}://${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`, protocol) as unknown as SocketLike;
+    return new WebSocket(`${scheme}://${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`, protocol) as SocketLike;
   },
   later: (fn, ms) => setTimeout(fn, ms),
   cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout> | undefined),

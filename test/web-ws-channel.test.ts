@@ -142,4 +142,34 @@ describe("web live link (ws-channel): one socket per connection, whatever the or
     await settle();
     expect(sockets).to.have.length(2);
   });
+  it("the ack fallback of a connection closed since does not say up", async () => {
+    const { channel, sockets, tickets, status, tick } = harness();
+    channel.subscribe("light:command", () => undefined);
+    void channel.connect();
+    tickets[0]!.resolve("a");
+    await settle();
+    sockets[0]!.hear({ t: "hello" }); // the hub, busy, does not answer the « sub »
+    channel.close(); // the old socket's close has not come in yet
+    await tick(); // the 5 s fallback fires
+    expect(status).to.deep.equal([false]);
+  });
+
+  it("an older connection's socket still talking after close() and connect() is not heard", async () => {
+    const { channel, sockets, tickets, status } = harness();
+    const heard: unknown[] = [];
+    channel.subscribe("light:command", (d) => heard.push(d));
+    void channel.connect();
+    tickets[0]!.resolve("a");
+    await settle();
+    channel.close();
+    void channel.connect();
+    tickets[1]!.resolve("b");
+    await settle();
+    status.length = 0;
+    sockets[0]!.hear({ t: "hello" });
+    sockets[0]!.hear({ t: "evt", topic: "light:command", data: 1 });
+    expect(heard).to.deep.equal([]);
+    expect(status).to.deep.equal([]);
+    expect(sockets[1]!.sent).to.deep.equal([]);
+  });
 });

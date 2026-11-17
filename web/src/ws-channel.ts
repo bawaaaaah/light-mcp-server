@@ -97,6 +97,8 @@ export class Channel {
     let pending: Set<number> | null = null;
     let fallback: unknown;
     const up = () => {
+      // the ack fallback of a connection closed since: it must not say up for the next one
+      if (!this.current(gen)) return;
       pending = null;
       this.deps.cancel(fallback);
       this.setStatus(true);
