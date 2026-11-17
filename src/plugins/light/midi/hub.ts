@@ -153,6 +153,8 @@ export class MidiHub extends EventEmitter {
   private async stopRtp(): Promise<void> {
     if (this.joinTimer) clearInterval(this.joinTimer);
     this.joinTimer = undefined;
+    // the session's peers go with it (a profile with another session): said as when one leaves
+    for (const peer of this.rtp?.listPeers() ?? []) this.emit("inputClosed", `RTP · ${peer.name}`, "rtp");
     this.rtp?.stop();
     this.rtp = undefined;
     this.rtpPort = undefined;

@@ -111,19 +111,37 @@ describe("pitch bend to a button: one action per push", () => {
     expect(play(m, [64], KEYS)).to.deep.equal([]);
   });
 
-  it("the profile changed: every port's wheels released and forgotten", () => {
+  it("« keep », a button without off: the push after the input comes back fires again", () => {
+    const m = new MidiMapper();
+    m.setMappings([MappingSchema.parse({ id: "bend", input: { type: "pitchbend", channel: 1, number: 0 }, mode: "momentary", threshold: 64, on: { command: "look.go", args: { id: "hole" } } })]);
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
+    m.forgetPort(LIVE, false); // kept: nothing released, still « on » here
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]); // no other port holds it: a new push
+  });
+
+  it("an action released elsewhere then started by hand is not the wheel's to release", () => {
     const released: string[] = [];
-    const m = mapper("latch");
+    const m = mapper("momentary");
     m.onRelease = (out) => released.push(...out.calls.map((c) => c.command));
     play(m, [127], LIVE);
-    m.forgetPort(undefined, true);
-    expect(released).to.deep.equal(["look.stop"]);
+    m.syncState("bend", false); // stopped from the interface
+    m.syncState("bend", true); // started again by hand
+    m.forgetPort(LIVE, true);
+    expect(released).to.deep.equal([]);
+  });
+
+  it("a toggle held, a Start, the value sent back up: its state switches (each Play or jump with the wheel up)", () => {
+    const m = mapper("toggle");
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
+    m.handle(parseMidi([0xfa]), LIVE);
+    expect(play(m, [127], LIVE)).to.deep.equal(["look.stop"]);
+    m.handle(parseMidi([0xf2, 0, 0]), LIVE);
     expect(play(m, [127], LIVE)).to.deep.equal(["look.go"]);
   });
 
   it("a mapping removed, or changed under the same id, releases what its wheel held and forgets it", () => {
     const base = { id: "bend", input: { type: "pitchbend" as const, channel: 1, number: 0 }, mode: "momentary" as const, threshold: 64, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } };
-    for (const next of [[], [{ ...base, input: { ...base.input, channel: 2 } }], [{ ...base, input: { ...base.input, type: "cc" as const, number: 7 } }], [{ ...base, levelArg: "level" }]]) {
+    for (const next of [[], [{ ...base, input: { ...base.input, channel: 2 } }], [{ ...base, input: { ...base.input, type: "cc" as const, number: 7 } }], [{ ...base, levelArg: "level" }], [{ ...base, on: { command: "look.go", args: { id: "other" } } }]]) {
       const gone: string[] = [];
       const changed = mapper("momentary");
       changed.onRelease = (out) => gone.push(...out.calls.map((c) => c.command));
@@ -170,7 +188,7 @@ async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
     for (let i = 0; i < 50 && (await active()) !== want; i++) await new Promise((r) => setTimeout(r, 10));
     return active();
   };
-  return { run, active, until };
+  return { run, active, until, plugin };
 }
 
 describe("pitch bend through the plugin", () => {
@@ -192,13 +210,46 @@ describe("pitch bend through the plugin", () => {
     });
   }
 
-  it("midi.profile.select releases what a wheel held", async function () {
+  it("midi.profile.select lets go only what the inputs it closes held, and journals why", async function () {
     this.timeout(10_000);
-    const { run, until } = await wheelPlugin("momentary");
+    const { run, active, until, plugin } = await wheelPlugin("momentary");
     await run("midi.in", { port, bytes: [0xe0, 0, 127] });
     expect(await until(true)).to.equal(true);
-    await run("midi.profile.select", { name: "y" });
+    await run("midi.profile.select", { name: "y" }); // the browser's input stays open: it keeps its push
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await active()).to.equal(true);
+    // a profile that closes the input (as the hub says of a port it no longer watches): released, the cause journalled
+    const setConfig = plugin.hub.setConfig.bind(plugin.hub);
+    plugin.hub.setConfig = async (c) => {
+      plugin.hub.closeInput(port, "web");
+      await setConfig(c);
+    };
+    await run("midi.profile.select", { name: "x" });
     expect(await until(false)).to.equal(false);
+    const journal = (await run("midi.journal")) as { port: string; msg: { type: string; cause?: string }; matched: { id: string }[] }[];
+    expect(journal[0]).to.deep.include({ port, msg: { type: "release", cause: "profile" }, matched: [{ id: "bend", label: "", mode: "momentary" }] });
+  });
+
+  it("refuses to close a port that is not a browser's", async function () {
+    this.timeout(10_000);
+    const { run } = await wheelPlugin("momentary");
+    await run("midi.web.closed", { port: "IAC Live" }).then(
+      () => expect.fail("a local port"),
+      (e: Error) => expect(e.message).to.match(/Web MIDI/),
+    );
+  });
+
+  it("the setting is read again after a restart", async function () {
+    this.timeout(10_000);
+    let stored: unknown = { discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } } } } };
+    const config = { get: () => stored, set: async (v: unknown) => void (stored = v) };
+    const start = () => {
+      const dataRoot = join(mkdtempSync(join(tmpdir(), "light-portloss-")), "data");
+      const plugin = new LightPlugin({ eventBus: new EventBus(), config, dataRoot, midiNative: null } as never);
+      return (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
+    };
+    await start()("midi.portloss.set", { rtp: "keep" });
+    expect(((await start()("midi.status")) as { portLoss: object }).portLoss).to.deep.equal({ local: "release", rtp: "keep", web: "release" });
   });
 
   it("a browser's Web MIDI input closed: released by default, kept when the setting says so", async function () {

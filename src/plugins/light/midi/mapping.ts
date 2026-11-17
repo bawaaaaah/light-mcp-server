@@ -132,8 +132,10 @@ export class MidiMapper {
   private readonly state = new Map<string, MappingState>();
   /** The wheels to a button holding their action, by mapping id, then by input port ("" without one). */
   private readonly holds = new Map<string, Map<string, Hold>>();
+  /** The mappings whose action a wheel fired and still holds: set at its push, cleared once released, here or elsewhere. */
+  private readonly wheelHeld = new Set<string>();
   /** Releases made outside a message (a mapping removed or changed, a port gone): the host runs their calls and feedback. */
-  onRelease: (out: MappingOutput) => void = () => undefined;
+  onRelease: (out: MappingOutput, cause: "input" | "mapping") => void = () => undefined;
 
   setMappings(mappings: Mapping[]): void {
     const before = new Map(this.mappings.map((m) => [m.id, m]));
@@ -143,13 +145,21 @@ export class MidiMapper {
     for (const id of [...this.holds.keys()]) {
       const old = before.get(id);
       const now = this.mappings.find((m) => m.id === id);
-      const same = old && now && isWheelButton(now) && now.input.channel === old.input.channel && (now.input.port ?? "") === (old.input.port ?? "") && now.levelArg === old.levelArg;
+      const same =
+        old &&
+        now &&
+        isWheelButton(now) &&
+        now.input.channel === old.input.channel &&
+        (now.input.port ?? "") === (old.input.port ?? "") &&
+        now.levelArg === old.levelArg &&
+        JSON.stringify([now.on, now.off]) === JSON.stringify([old.on, old.off]); // another action: the old one released
       if (same) continue;
       this.holds.delete(id);
       if (old) this.releaseHeld(old, out);
     }
     for (const id of [...this.state.keys()]) if (!this.mappings.some((m) => m.id === id)) this.state.delete(id);
-    if (out.calls.length || out.feedback.length) this.onRelease(out);
+    for (const id of [...this.wheelHeld]) if (!this.mappings.some((m) => m.id === id)) this.wheelHeld.delete(id);
+    if (out.calls.length || out.feedback.length) this.onRelease(out, "mapping");
   }
 
   /** A transport restart on a port (Start, Continue, Song Position): its wheels rearmed, nothing released yet. */
@@ -158,26 +168,29 @@ export class MidiMapper {
   }
 
   /**
-   * An input port gone (every port when none is given: the MIDI profile changed): its wheels forgotten. With `releaseHeld`,
-   * an action no other port holds any more is released (a toggle keeps its state: no port holds it).
+   * An input port gone: its wheels forgotten. With `releaseHeld`, an action no other port holds any more is released (a
+   * toggle keeps its state: no port holds it).
    */
-  forgetPort(port: string | undefined, releaseHeld: boolean): void {
+  forgetPort(port: string, releaseHeld: boolean): void {
     const out: MappingOutput = { calls: [], feedback: [], matched: [] };
     for (const [id, holds] of [...this.holds]) {
-      if (port === undefined) holds.clear();
-      else if (!holds.delete(port)) continue;
+      if (!holds.delete(port)) continue;
       if (holds.size) continue;
       this.holds.delete(id);
       const m = this.mappings.find((x) => x.id === id);
       if (m && releaseHeld) this.releaseHeld(m, out);
     }
-    if (out.calls.length || out.feedback.length) this.onRelease(out);
+    if (out.calls.length || out.feedback.length) this.onRelease(out, "input");
   }
 
-  /** Releases a wheel's held action (not a toggle's: its state is no hold), with its feedback. */
+  /**
+   * Releases a wheel's held action, with its feedback: only one the wheel still holds (not a toggle's, whose state is no
+   * hold; not one released elsewhere, then started again by hand).
+   */
   private releaseHeld(m: Mapping, out: MappingOutput): void {
     const s = this.state.get(m.id);
-    if (!s?.active || m.mode === "toggle") return;
+    if (!this.wheelHeld.delete(m.id) || !s?.active || m.mode === "toggle") return;
+    out.matched.push({ id: m.id, label: m.label, mode: m.mode });
     s.active = false;
     s.level = restLevel(m);
     release(m, out);
@@ -244,17 +257,20 @@ export class MidiMapper {
         if (engaged) {
           if (hold === "pushed") continue;
           if (!holds) this.holds.set(m.id, (holds = new Map<string, Hold>()));
+          // another port pushing it already holds the action; else this push fires it (after a rearm, or a port kept)
+          const othersHold = [...holds.keys()].some((p) => p !== key);
           holds.set(key, "pushed");
           if (m.mode === "toggle") {
             s.active = !s.active;
             s.level = s.active ? 1 : restLevel(m);
             if (s.active) out.calls.push(m.on);
             else release(m, out);
-          } else if (!s.active || hold === "rearmed") {
+          } else if (!othersHold) {
             // a new push; after a transport restart, the action again (Live's value fires once more)
             s.active = true;
             s.level = 1;
             out.calls.push(m.on);
+            this.wheelHeld.add(m.id);
           }
         } else {
           if (!hold) continue;
@@ -262,6 +278,7 @@ export class MidiMapper {
           if (holds!.size === 0) this.holds.delete(m.id);
           // back at rest, and no other port pushing it: released, except a toggle (its next push switches it)
           if (holds!.size === 0 && m.mode !== "toggle" && s.active) {
+            this.wheelHeld.delete(m.id);
             s.active = false;
             s.level = restLevel(m);
             release(m, out);
@@ -398,6 +415,7 @@ export class MidiMapper {
     const m = this.mappings.find((x) => x.id === mappingId);
     if (!m) return [];
     const s = this.st(mappingId);
+    if (!active) this.wheelHeld.delete(mappingId); // released elsewhere: no longer the wheel's to release
     const nextLevel = level ?? (active ? 1 : 0);
     if (s.active === active && s.level === nextLevel) return [];
     s.active = active;

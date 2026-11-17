@@ -2,7 +2,7 @@
  * MIDI in the light plugin (docs/specs/midi.md): the hub and its ports, the show's mappings turned into commands,
  * the journal of what each message did, and the feedback that keeps the controllers' LEDs on the real state.
  */
-import { MidiProfileSchema, PortLossSchema, registerMidiCommands, type MidiProfile } from "../commands/midi-commands.js";
+import { MidiProfileSchema, registerMidiCommands, type MidiProfile, type PortLoss } from "../commands/midi-commands.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { DmxEngine } from "../engine/dmx-engine.js";
 import { MidiHub, type HubMessage, type MidiSource } from "../midi/hub.js";
@@ -20,11 +20,15 @@ import { frozenFor } from "../show/motion-summary.js";
 
 const MIDI_JOURNAL_SIZE = 300;
 
+/** Why a release came with no message (`MidiMapper.onRelease`): an input gone, gone with a profile change, a mapping changed. */
+export type ReleaseCause = "input" | "profile" | "mapping";
+
 export interface MidiJournalEntry {
   at: number;
   port: string;
   source: string;
-  msg: MidiMessage;
+  /** The message, or a release made outside one, with its cause. */
+  msg: MidiMessage | { type: "release"; cause: ReleaseCause };
   /** The mappings it matched (a note off in latch matches and does nothing). */
   matched: { id: string; label: string; mode: string }[];
   calls: { command: string; target: string; ok: boolean; error?: string }[];
@@ -79,10 +83,18 @@ export class MidiWiring {
     hub.on("message", (m: HubMessage) => this.onMessage(m));
     hub.on("ports", () => publish("midi", { status: hub.status() }));
     hub.on("warning", (w: string) => publish("midi", { warning: w }));
-    // a port gone: the wheels it had pushed are forgotten, what they held released unless kept for that kind of input
-    // (docs/specs/midi.md, « Pitch bend »); a release made outside a message runs as a message's would
-    mapper.onRelease = (out) => this.run(out, "midi");
-    hub.on("inputClosed", (port: string, source: MidiSource) => mapper.forgetPort(port, this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release"));
+    // a port gone (by itself, or closed by a profile change): the wheels it had pushed are forgotten, what they held
+    // released unless kept for that kind of input (docs/specs/midi.md, « Pitch bend »); a release made outside a message
+    // runs as a message's would, and goes to the journal and the monitor with its cause
+    mapper.onRelease = (out, cause) => {
+      const started = performance.now();
+      const port = cause === "mapping" ? "" : this.closing.port;
+      this.record({ at: Date.now(), port, source: this.closing.source, msg: { type: "release", cause: cause === "mapping" ? "mapping" : this.closing.profile ? "profile" : "input" }, matched: out.matched, calls: [], ms: 0 }, this.run(out, "midi"), started);
+    };
+    hub.on("inputClosed", (port: string, source: MidiSource) => {
+      this.closing = { ...this.closing, port, source };
+      mapper.forgetPort(port, this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release");
+    });
     registerMidiCommands(commands, {
       journal: () => this.journal,
       loopDelay: () => deps.loopDelay.stats(),
@@ -96,17 +108,13 @@ export class MidiWiring {
         const midi = config.get();
         if (!midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
         config.put({ ...midi, active: name });
-        mapper.forgetPort(undefined, true); // another profile: every port's wheels released and forgotten
-        await hub.setConfig(activeMidiProfile(config.get()));
+        await this.changeProfile(); // only the inputs it closes let their wheels go
         await config.save();
       },
       saveProfile: async (name, profile) => {
         const midi = config.get();
         config.put({ ...midi, profiles: { ...midi.profiles, [name]: profile } });
-        if (name === config.get().active) {
-          mapper.forgetPort(undefined, true);
-          await hub.setConfig(activeMidiProfile(config.get()));
-        }
+        if (name === config.get().active) await this.changeProfile();
         await config.save();
       },
       portLoss: () => this.portLoss(),
@@ -117,9 +125,33 @@ export class MidiWiring {
     });
   }
 
-  /** What a wheel holding an action does when its input goes (a config written before the setting: release). */
-  private portLoss() {
-    return PortLossSchema.parse(this.deps.config.get().portLoss ?? {});
+  /** What a wheel holding an action does when its input goes, by kind of input. */
+  private portLoss(): PortLoss {
+    return this.deps.config.get().portLoss;
+  }
+
+  /** The input being closed while its wheels let go (the journal's port and cause). */
+  private closing: { port: string; source: string; profile: boolean } = { port: "", source: "midi", profile: false };
+
+  /** The active profile applied: the inputs it no longer watches close, and their wheels let go as their kind says. */
+  private async changeProfile(): Promise<void> {
+    this.closing.profile = true;
+    try {
+      await this.hub.setConfig(activeMidiProfile(this.deps.config.get()));
+    } finally {
+      this.closing.profile = false;
+    }
+  }
+
+  /** In the journal at once, in the order of arrival; to the monitor once its commands are done, with their outcome. */
+  private record(entry: MidiJournalEntry, calls: Promise<MidiJournalEntry["calls"][number]>[], started: number): void {
+    this.journal.push(entry);
+    if (this.journal.length > MIDI_JOURNAL_SIZE) this.journal.shift();
+    void Promise.all(calls).then((done) => {
+      entry.calls = done;
+      entry.ms = Math.round((performance.now() - started) * 100) / 100;
+      this.deps.publish("midi", { monitor: entry });
+    });
   }
 
   /** Every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time. */
@@ -187,15 +219,6 @@ export class MidiWiring {
       }
     }
     const out = mapper.handle(m.msg, m.port);
-    const calls = this.run(out, m.source === "os2l" ? "os2l" : "midi");
-    // in the journal at once, in the order of arrival; its commands' outcome filled in when done
-    const entry: MidiJournalEntry = { at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 };
-    this.journal.push(entry);
-    if (this.journal.length > MIDI_JOURNAL_SIZE) this.journal.shift();
-    void Promise.all(calls).then((done) => {
-      entry.calls = done;
-      entry.ms = Math.round((performance.now() - started) * 100) / 100;
-      publish("midi", { monitor: entry });
-    });
+    this.record({ at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 }, this.run(out, m.source === "os2l" ? "os2l" : "midi"), started);
   }
 }

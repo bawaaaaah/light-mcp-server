@@ -83,7 +83,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     hints: "I",
     changes: ["machine"],
     description:
-      "What a wheel (pitch bend) holding a button action does when its input goes, by kind of input: local (USB, IAC ports), rtp (RTP-MIDI sessions), web (a browser's Web MIDI, seen when the browser says its port is gone or its MIDI page closes). « release » (default) releases what that input held, « keep » leaves it on. A profile change always releases. Kinds not given are unchanged.",
+      "What a wheel (pitch bend) holding a button action does when its input goes, by kind of input: local (USB, IAC ports), rtp (RTP-MIDI sessions), web (a browser's Web MIDI, seen when the browser says its port is gone or its MIDI page closes). « release » (default) releases what that input held, « keep » leaves it on. A profile change applies it to the inputs it closes; the others keep what they hold. Kinds not given are unchanged.",
     right: "midi:configure",
     profiles: ["setup"],
     schema: z.object({ local: z.enum(["release", "keep"]).optional(), rtp: z.enum(["release", "keep"]).optional(), web: z.enum(["release", "keep"]).optional() }),
@@ -102,7 +102,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     changes: [],
     description: "Says that a browser's Web MIDI input is gone (unplugged, or the MIDI page closed): the wheels it held are released or kept, as midi.portloss.set says for « web ».",
     right: "midi:input",
-    schema: z.object({ port: z.string().min(1) }),
+    // a browser's input only: never a local port or an RTP session, which the hub sees go by itself
+    schema: z.object({ port: z.string().startsWith("Web MIDI", { message: "un port Web MIDI commence par « Web MIDI »" }) }),
     run: ({ port }) => {
       s.hub.closeInput(port, "web");
       return { ok: true };
