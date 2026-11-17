@@ -486,6 +486,19 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   };
   const listReadStates: TargetReadStates = { looks: readStateOf("looks"), groups: readStateOf("groups"), faders: readStateOf("faders"), snapshots: readStateOf("snapshots") };
   const alert = alertLines(readStates);
+  /** The bar's active tab (or its first button) gets the focus when what had it in the bar goes. */
+  const focusBar = () => {
+    const bar = topRef.current;
+    (bar?.querySelector<HTMLElement>(".bar .tab.active") ?? bar?.querySelector<HTMLElement>(".bar button"))?.focus();
+  };
+  /** The alert has the focus (its « Relire »): once the lists are read it goes, and the focus stays in the bar. */
+  const alertFocused = useRef(false);
+  const alertShown = alert.length > 0;
+  useEffect(() => {
+    if (alertShown || !alertFocused.current) return;
+    alertFocused.current = false;
+    focusBar();
+  });
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
     <div className="dashboards">
@@ -600,21 +613,29 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         {/* the lists that could not be read: one alert, a line per message (a server away says it once for all), gone
             once they are read; closed by ✕, it comes back only if the failure changes */}
         {alert.length > 0 && (
-          <span className="error read-error" role="alert">
+          <span
+            className="error read-error"
+            role="alert"
+            onFocus={() => (alertFocused.current = true)}
+            // the focus left the alert; not when the window lost it (another app)
+            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && !e.currentTarget.contains(document.activeElement) && (alertFocused.current = false)}
+          >
             <span className="read-error-lines">
               {alert.map((line) => (
                 <span key={line.lists.join()}>{readFailed(line.lists, line.message)}</span>
               ))}
               <span>{t.readFailedHow}</span>
             </span>
+            {/* every role reads the lists again here: the menus and the edit mode are not everyone's */}
+            <button onClick={refresh}>{t.readAgain}</button>
             <button
               className="ghost"
               aria-label={t.close}
               title={t.close}
               onClick={() => {
                 // the focus stays in the bar, on its current tab, rather than falling to the page
-                const bar = topRef.current;
-                (bar?.querySelector<HTMLElement>(".bar .tab.active") ?? bar?.querySelector<HTMLElement>(".bar button"))?.focus();
+                alertFocused.current = false;
+                focusBar();
                 setReadStates((s) => dismissed(s, alert.flatMap((line) => line.lists)));
               }}
             >

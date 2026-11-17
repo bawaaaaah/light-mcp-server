@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useRef, type ReactElement } from "react";
 import { useT } from "../i18n-context";
 import { isHex, SWATCHES } from "../color";
 import { SetSelect, TargetSelect, type ExclusiveSet, type TargetLists, type TargetReadStates } from "../components/WidgetMenu";
@@ -19,10 +19,11 @@ export function WidgetEditor({ w, columns, step, lists, readStates, onRetry, onP
   onRemove: () => void;
 }): ReactElement {
   const t = useT();
+  const labelRef = useRef<HTMLInputElement>(null);
   return (
     <section className="editor">
-      <TargetSelect kind={w.kind} value={w.target} lists={lists} readStates={readStates} onRetry={onRetry} onChange={(target) => onPatch({ target })} />
-      <input placeholder={t.labelText} aria-label={t.labelText} value={w.label ?? ""} onChange={(e) => onPatch({ label: e.target.value || undefined })} />
+      <TargetSelect kind={w.kind} value={w.target} lists={lists} readStates={readStates} next={labelRef} onRetry={onRetry} onChange={(target) => onPatch({ target })} />
+      <input ref={labelRef} placeholder={t.labelText} aria-label={t.labelText} value={w.label ?? ""} onChange={(e) => onPatch({ label: e.target.value || undefined })} />
       {pressable(w) && (
         <select aria-label={t.mode} value={w.mode ?? "latch"} onChange={(e) => onPatch({ mode: e.target.value as ButtonMode })}>
           {MODES.map((m) => (

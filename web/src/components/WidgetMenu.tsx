@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement, type RefObject } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
@@ -98,7 +98,7 @@ export type TargetLists = Record<TargetList, Named[] | null>;
 /** Where the page's lists stand while not read: a read under way, and why the last one failed (said by the page). */
 export type TargetReadStates = Partial<Record<TargetList, { reading: boolean; why?: string }>>;
 /** What a widget of `kind` picks its target from: none for a kind without a list, null while that list is not read yet. */
-export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null => {
+const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null => {
   const list = targetListOf(kind);
   return list ? lists[list] : [];
 };
@@ -109,7 +109,17 @@ export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null 
  * kept, said « introuvable » once its list is read (before that, shown as it is). Hidden when there is nothing to
  * choose and nothing to say.
  */
-export function TargetSelect({ kind, value, lists, readStates, field = false, onChange, onRetry }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; readStates?: TargetReadStates; field?: boolean; onChange: (target: string | undefined) => void; onRetry?: () => void }): ReactElement | null {
+export function TargetSelect({ kind, value, lists, readStates, field = false, next, onChange, onRetry }: {
+  kind: WidgetKind;
+  value: string | undefined;
+  lists: TargetLists;
+  readStates?: TargetReadStates;
+  field?: boolean;
+  /** The control after the picker: it gets the focus « Relire » had when the list read leaves nothing to choose. */
+  next?: RefObject<HTMLElement | null>;
+  onChange: (target: string | undefined) => void;
+  onRetry?: () => void;
+}): ReactElement | null {
   const t = useT();
   const whyId = useId();
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -128,8 +138,10 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
   useEffect(() => {
     if (!read || !againFocused.current) return;
     againFocused.current = false;
-    selectRef.current?.focus(); // the button is gone with its reason: the focus it had would fall to the page
-  }, [read]);
+    // the button is gone with its reason: the focus it had would fall to the page. Nothing to choose (an empty list,
+    // no target): the picker is gone too, the control after it gets the focus
+    (selectRef.current ?? next?.current)?.focus();
+  }, [read, next]);
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
   if (!options.length && !missing && !why) return null;
@@ -223,6 +235,7 @@ export function WidgetMenu({
   const t = useT();
   const { box, style } = useFloatingMenu(at, onClose);
   const [label, setLabel] = useState(widget.label ?? "");
+  const labelRef = useRef<HTMLInputElement>(null);
   const [mappings, setMappings] = useState<MappingDraft[]>([]);
   const [learning, setLearning] = useState(false);
   /** The look's preview played on the stage: the menu widens for it. */
@@ -263,10 +276,10 @@ export function WidgetMenu({
       {widget.kind === "look" && widget.target && (
         <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
-      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} readStates={readStates} onRetry={onRetry} onChange={(target) => onChange({ target })} />
+      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} readStates={readStates} next={labelRef} onRetry={onRetry} onChange={(target) => onChange({ target })} />
       <label className="field">
         <span>{t.widgetLabel}</span>
-        <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
+        <input ref={labelRef} value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
       </label>
       {widget.kind === "grand-master" && <GrandMasterSmoothing onError={setError} />}
       {(widget.kind === "group-fader" || widget.kind === "channel-fader") && widget.target && <TargetSmoothing key={widget.target} kind={widget.kind === "group-fader" ? "group" : "fader"} id={widget.target} onError={setError} />}

@@ -1,7 +1,7 @@
 /** A dashboard page reads its lists (looks, groups, faders…) again and again: only the latest read of a list is applied. Pure. */
 
 /** The lists a dashboard reads; each can be read again while an older read is still on its way. */
-export const READ_LISTS = ["looks", "groups", "faders", "snapshots", "folders"] as const;
+const READ_LISTS = ["looks", "groups", "faders", "snapshots", "folders"] as const;
 export type ReadList = (typeof READ_LISTS)[number];
 
 /** Waits `ms`, then runs `fn`; gives back what cancels it. Injectable: the tests run the clock by hand. */

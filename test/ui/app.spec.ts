@@ -1366,7 +1366,7 @@ test("dashboards: the groups failing to read are said, and read again they make 
     await login(page);
     const alert = page.locator(".dashboards .bar .read-error");
     await expect(alert).toHaveAttribute("role", "alert");
-    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : groupes illisibles pour le test.", "Rouvrir le menu d'un widget (ou le mode édition) pour relire."]);
+    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : groupes illisibles pour le test.", "« Relire » les redemande au serveur."]);
     failing = false;
     type Saved = { widgets: { id: string; kind: string; target?: string }[] };
     const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
@@ -1455,7 +1455,7 @@ test("dashboards: a failed read's alert closed by ✕ keeps the focus in the bar
     // another failure: said again
     message = "autre panne pour le test";
     await api(page, "look.stopall");
-    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : autre panne pour le test.", "Rouvrir le menu d'un widget (ou le mode édition) pour relire."]);
+    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : autre panne pour le test.", "« Relire » les redemande au serveur."]);
   } finally {
     await page.unroute("**/api/plugins/light/commands/group.list");
     await page.unroute("**/api/plugins/light/commands/fader.list");
@@ -1529,7 +1529,6 @@ async function relireOpen(page: Page) {
   const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
   await expect(again).toHaveAttribute("aria-disabled", "false");
   return {
-    menu,
     picker: menu.getByLabel("Pilote"),
     label: menu.getByLabel("Libellé"),
     again,
@@ -1625,6 +1624,62 @@ test("dashboards: « Relire » keeps its focus through the window's blur (anothe
   } finally {
     h.answer();
     await h.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a volunteer reads the failed lists again from the alert itself, from the keyboard", async ({ page }) => {
+  const errors = watchErrors(page);
+  let failing = true;
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
+    await route.continue();
+  });
+  try {
+    await login(page, "5678"); // a volunteer: no widget menu, no edit mode
+    const alert = page.locator(".dashboards .bar .read-error");
+    await expect(alert).toContainText("Groupes illisibles : groupes illisibles pour le test.");
+    await expect(alert).toContainText("« Relire » les redemande au serveur.");
+    failing = false;
+    const read = page.waitForResponse((r) => r.url().endsWith("/commands/group.list") && r.ok());
+    await alert.getByRole("button", { name: "Relire" }).focus();
+    await page.keyboard.press("Enter");
+    await read; // read again
+    await expect(alert).toHaveCount(0);
+    // the alert gone, its focus stays in the bar
+    await expect(page.locator(".dashboards .bar .tab.active, .dashboards .bar button").first()).toBeFocused();
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » that reads an empty list for a widget without target gives the focus to its label", async ({ page }) => {
+  const errors = watchErrors(page);
+  let answer: "fail" | "empty" = "fail";
+  await page.route("**/api/plugins/light/commands/snapshot.list", (route) =>
+    answer === "fail" ? route.fulfill({ status: 500, json: { ok: false, error: "instantanés illisibles pour le test" } }) : route.fulfill({ json: { ok: true, result: [] } }),
+  );
+  try {
+    await login(page);
+    await api(page, "dashboard.put", { dashboard: { id: "t54-empty", name: "Liste vide", columns: 12, widgets: [{ id: "s", kind: "snapshot", x: 0, y: 0, w: 2, h: 1 }] } });
+    await page.reload();
+    await page.locator(".dashboards .bar .tab", { hasText: "Liste vide" }).click();
+    await expect(page.locator(".dashboards .bar .read-error")).toContainText("Instantanés illisibles");
+    await page.locator('.dgrid .cell[data-widget="s"]').click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
+    await expect(again).toHaveAttribute("aria-disabled", "false");
+    answer = "empty";
+    await again.focus();
+    await page.keyboard.press("Enter");
+    await expect(menu.locator(".read-why")).toHaveCount(0); // read: nothing to choose, no picker
+    await expect(menu.getByLabel("Pilote")).toHaveCount(0);
+    await expect(menu.getByLabel("Libellé")).toBeFocused();
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/snapshot.list");
+    await api(page, "dashboard.delete", { id: "t54-empty" });
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });

@@ -1718,7 +1718,7 @@ const fr = {
   targetMissing: "{id} (introuvable)",
   /** A list of the Live that could not be read, twice: which, why, and how to read it again. */
   readFailed: "{lists} illisibles : {message}",
-  readFailedHow: "Rouvrir le menu d'un widget (ou le mode édition) pour relire.",
+  readFailedHow: "« Relire » les redemande au serveur.",
   readAgain: "Relire",
   readLists: { looks: "Looks", groups: "Groupes", faders: "Faders", snapshots: "Instantanés", folders: "Dossiers" },
   pitchBend: "Pitch bend",
@@ -3858,7 +3858,7 @@ const en: typeof fr = {
   assignTarget: "Drives",
   targetMissing: "{id} (not found)",
   readFailed: "{lists} could not be read: {message}",
-  readFailedHow: "Reopen a widget's menu (or the edit mode) to read them again.",
+  readFailedHow: "“Read again” asks the server for them again.",
   readAgain: "Read again",
   readLists: { looks: "Looks", groups: "Groups", faders: "Faders", snapshots: "Snapshots", folders: "Folders" },
   pitchBend: "Pitch bend",
