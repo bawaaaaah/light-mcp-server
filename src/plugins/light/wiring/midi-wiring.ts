@@ -79,6 +79,8 @@ export class MidiWiring {
     hub.on("message", (m: HubMessage) => this.onMessage(m));
     hub.on("ports", () => publish("midi", { status: hub.status() }));
     hub.on("warning", (w: string) => publish("midi", { warning: w }));
+    // a port gone: the wheels it had pushed are forgotten (docs/specs/midi.md, « Pitch bend »)
+    hub.on("inputClosed", (port: string) => mapper.forgetPort(port));
     registerMidiCommands(commands, {
       journal: () => this.journal,
       loopDelay: () => deps.loopDelay.stats(),
@@ -92,13 +94,17 @@ export class MidiWiring {
         const midi = config.get();
         if (!midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
         config.put({ ...midi, active: name });
+        mapper.forgetPort(); // another profile: every port's wheels forgotten
         await hub.setConfig(activeMidiProfile(config.get()));
         await config.save();
       },
       saveProfile: async (name, profile) => {
         const midi = config.get();
         config.put({ ...midi, profiles: { ...midi.profiles, [name]: profile } });
-        if (name === config.get().active) await hub.setConfig(activeMidiProfile(config.get()));
+        if (name === config.get().active) {
+          mapper.forgetPort();
+          await hub.setConfig(activeMidiProfile(config.get()));
+        }
         await config.save();
       },
     });
@@ -141,6 +147,8 @@ export class MidiWiring {
     const started = performance.now();
     tempo.handleMidi(m.msg);
     const t = m.msg.type;
+    // a transport restart on this port rearms its wheels (mapper.handle answers it with nothing to do); the tempo is above
+    if (t === "start" || t === "continue" || t === "songposition") mapper.handle(m.msg, m.port);
     if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
     // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
     if (m.msg.type === "programchange") {

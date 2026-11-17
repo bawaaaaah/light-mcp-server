@@ -20,6 +20,13 @@
  * controllers send only CC 127, never 0) and releases below it. A released level action rests at the
  * bottom of its scale. The same threshold applies to a note's velocity: a note on at or under it does
  * not answer.
+ *
+ * A pitch bend to a button action (no level) plays by edges, like a key: one action when the wheel
+ * crosses its threshold upwards, one release when it comes back to it or under (a toggle flips on each
+ * push). A jump (an automation stepping from 20 to 100) is one push; a value repeated above the
+ * threshold (Live's chase) does nothing. The pushed state is kept by mapping and by input port (a
+ * keyboard and Live on one channel stay apart); a Start, Continue or Song Position on a port puts its
+ * wheels back at rest without a release (the value Live sends next fires again), a port gone forgets them.
  */
 import { z } from "zod";
 import type { MidiMessage } from "./parse.js";
@@ -111,13 +118,30 @@ interface MappingState {
   caught: boolean;
 }
 
+/** Between a mapping's id and a port in the keys of `MidiMapper.pushed` (neither carries it). */
+const KEY_SEP = "\u0000";
+
 export class MidiMapper {
   private mappings: Mapping[] = [];
   private readonly state = new Map<string, MappingState>();
+  /** The pitch bends to a button action pushed above their threshold, by mapping and input port (`id KEY_SEP port`). */
+  private readonly pushed = new Set<string>();
 
   setMappings(mappings: Mapping[]): void {
     this.mappings = mappings.map((m) => MappingSchema.parse(m));
     for (const id of [...this.state.keys()]) if (!this.mappings.some((m) => m.id === id)) this.state.delete(id);
+    for (const key of [...this.pushed]) if (!this.mappings.some((m) => key.startsWith(`${m.id}${KEY_SEP}`))) this.pushed.delete(key);
+  }
+
+  /** A transport restart on a port (Start, Continue, Song Position): its wheels back at rest, nothing released. */
+  rearm(port?: string): void {
+    for (const key of [...this.pushed]) if (key.endsWith(`${KEY_SEP}${port ?? ""}`)) this.pushed.delete(key);
+  }
+
+  /** An input port gone: its wheels forgotten; every port's when none is given (the MIDI profile changed). */
+  forgetPort(port?: string): void {
+    if (port === undefined) this.pushed.clear();
+    else this.rearm(port);
   }
 
   list(): Mapping[] {
@@ -158,6 +182,11 @@ export class MidiMapper {
 
   handle(msg: MidiMessage, port?: string): MappingOutput {
     const out: MappingOutput = { calls: [], feedback: [], matched: [] };
+    // the transport restarted on this port (Live's play, a locate): the value it sends next is a new push
+    if (msg.type === "start" || msg.type === "continue" || msg.type === "songposition") {
+      this.rearm(port);
+      return out;
+    }
     for (const m of this.mappings) {
       if (!this.matches(m, msg, port)) continue;
       out.matched.push({ id: m.id, label: m.label, mode: m.mode });
@@ -166,7 +195,27 @@ export class MidiMapper {
       // a note in « toggle » is a latch: each note on above the threshold flips it
       const mode = m.mode === "toggle" ? "latch" : m.mode;
 
-      if (m.input.type === "cc" || m.input.type === "pitchbend") {
+      if (m.input.type === "pitchbend" && !m.levelArg && msg.type === "pitchbend") {
+        // a wheel to a button: by edges, by port (a jump is one push, a repeated value nothing new)
+        const key = `${m.id}${KEY_SEP}${port ?? ""}`;
+        const engaged = msg.value >> 7 > m.threshold;
+        if (engaged === this.pushed.has(key)) continue;
+        if (engaged) {
+          this.pushed.add(key);
+          s.active = m.mode === "toggle" ? !s.active : true;
+          s.level = s.active ? 1 : restLevel(m);
+          if (s.active) out.calls.push(m.on);
+          else release(m, out);
+        } else {
+          this.pushed.delete(key);
+          // back at rest: released, except a toggle (its next push switches it)
+          if (m.mode !== "toggle" && s.active) {
+            s.active = false;
+            s.level = restLevel(m);
+            release(m, out);
+          }
+        }
+      } else if (m.input.type === "cc" || m.input.type === "pitchbend") {
         const raw = msg.type === "cc" ? msg.value : msg.type === "pitchbend" ? msg.value >> 7 : 0;
         const level = scaleValue(raw, m.scale);
         if (m.pickup && !s.caught) {

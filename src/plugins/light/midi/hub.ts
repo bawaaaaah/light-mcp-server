@@ -170,6 +170,7 @@ export class MidiHub extends EventEmitter {
       if (!this.isWatched(name)) {
         release(input);
         this.openInputs.delete(name);
+        this.emit("inputClosed", name);
       }
     }
     release(this.feedbackPort?.out);
@@ -197,7 +198,10 @@ export class MidiHub extends EventEmitter {
         this.dispatch("rtp", `RTP · ${peer?.name ?? "session"}`, bytes);
       });
       session.on("peer", () => this.emit("ports"));
-      session.on("peerLeft", () => this.emit("ports"));
+      session.on("peerLeft", (peer?: { name?: string }) => {
+        this.emit("inputClosed", `RTP · ${peer?.name ?? "session"}`);
+        this.emit("ports");
+      });
       try {
         await session.start();
       } catch (err) {
@@ -295,6 +299,7 @@ export class MidiHub extends EventEmitter {
       if (!inputs.includes(name)) {
         release(input);
         this.openInputs.delete(name);
+        this.emit("inputClosed", name);
       }
     }
     inputs.forEach((name, index) => {
