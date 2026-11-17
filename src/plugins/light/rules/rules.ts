@@ -147,6 +147,14 @@ export interface EffectiveRule {
   locked: string[];
 }
 
+/** Copies one constraint a rule sets (an empty list sets none) into the effective rule; whether it did. */
+function takeConstraint<K extends Constraint>(eff: EffectiveRule, rule: Pick<EffectiveRule, Constraint>, k: K): boolean {
+  const v = rule[k];
+  if (v === undefined || (Array.isArray(v) && v.length === 0)) return false;
+  eff[k] = v;
+  return true;
+}
+
 /**
  * The rule in force on one channel (docs/specs/rules-limits.md): each constraint comes from the
  * most specific rule that sets it — level (type < venue < show), then scope (all < model < zone <
@@ -157,12 +165,8 @@ export function effectiveRule(rules: Rule[], fx: ResolvedFixture, ch: FixtureCha
   if (!applicable.length) return undefined;
   const eff: EffectiveRule = { from: {}, locked: applicable.filter((r) => r.locked).map((r) => r.id) };
   for (const r of applicable) {
-    for (const k of CONSTRAINTS) {
-      const v = r[k];
-      if (v === undefined || (Array.isArray(v) && v.length === 0)) continue;
-      Object.assign(eff, { [k]: v });
-      eff.from[k] = r.id;
-    }
+    const constraints: Pick<EffectiveRule, Constraint> = r; // a rule's constraints are those of the effective rule
+    for (const k of CONSTRAINTS) if (takeConstraint(eff, constraints, k)) eff.from[k] = r.id;
   }
   // contradictory bounds (min above max): the more specific rule's bound wins
   if (eff.min !== undefined && eff.max !== undefined && eff.min > eff.max) {
