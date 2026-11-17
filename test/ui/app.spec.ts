@@ -7700,7 +7700,7 @@ test("motion pad: selectors, a sub-group, mixed keyboard offsets and strongest-o
     const cell = on.locator('[data-widget="xy"]');
     // One DOM snapshot: never compare a cell's old rectangle with its content after an asynchronous layout change.
     const measured = await cell.evaluate((cellElement) => {
-      const rect = (element: typeof cellElement) => {
+      const rect = (element: Pick<typeof cellElement, "getBoundingClientRect">) => {
         const r = element.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
       };
