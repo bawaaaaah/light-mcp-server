@@ -209,6 +209,14 @@ describe("web live link: its connection id, and what is relayed over it", () => 
     expect(h.sockets[2]!.previous).to.equal(undefined); // c1 named once, not again
   });
 
+  it("close() then connect(): « connecting », not « reconnecting » (a new first connection)", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    h.channel.close();
+    void h.channel.connect();
+    expect(h.channel.state).to.equal("connecting");
+  });
+
   it("close() forgets both: the next connect() names nothing", async () => {
     const h = harness();
     await online(h, 0, "c1");

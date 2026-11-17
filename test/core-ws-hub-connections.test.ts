@@ -142,4 +142,31 @@ describe("WebSocket hub: live connections", () => {
     expect(await answered).to.equal(200);
     tab.ws.close();
   });
+
+  /** Sends `n` frames at once; resolves with the close code once the hub closes the socket (or undefined after 1 s). */
+  const closeCodeAfter = (ws: WebSocket, frame: (i: number) => string, n: number) =>
+    new Promise<number | undefined>((resolve) => {
+      ws.on("close", (code: number) => resolve(code));
+      for (let i = 0; i < n; i++) ws.send(frame(i));
+      setTimeout(() => resolve(undefined), 1000);
+    });
+
+  it("any other request past the common rate closes the connection (4429)", async () => {
+    const tab = await open("token-a");
+    const code = await closeCodeAfter(tab.ws, (i) => JSON.stringify({ t: "req", id: i + 1, method: "POST", path: "/api/plugins/test/commands/other", body: {} }), 400);
+    expect(code).to.equal(4429);
+  });
+
+  it("invalid messages spend the common rate too: a flood of them closes (4429)", async () => {
+    const tab = await open("token-a");
+    const code = await closeCodeAfter(tab.ws, () => JSON.stringify({ t: "nonsense" }), 400);
+    expect(code).to.equal(4429);
+  });
+
+  it("the lossy rate is the control channel's only: a stream connection flooding that path is closed (4429)", async () => {
+    const stream = await open("token-a", undefined, "stream");
+    const code = await closeCodeAfter(stream.ws, (i) => JSON.stringify({ t: "req", id: i + 1, method: "POST", path: "/api/plugins/test/commands/midi.in", body: {} }), 200);
+    expect(code).to.equal(4429);
+    expect(dropped).to.deep.equal([]);
+  });
 });

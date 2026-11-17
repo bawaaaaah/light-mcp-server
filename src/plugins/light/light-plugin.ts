@@ -678,7 +678,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   /** A browser's Web MIDI relay is a sustained flow: past its own rate a message is dropped, never the connection closed. */
-  liveLossyRoutes(): string[] {
+  liveLossyRoutes(): readonly string[] {
     return ["commands/midi.in"];
   }
 

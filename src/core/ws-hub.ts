@@ -183,7 +183,7 @@ interface TokenBucket {
 }
 
 interface Connection {
-  /** Sent in « hello »: a request relayed for this connection names it (McpPlugin.liveConnections). */
+  /** Sent in « hello »; a request replayed from this connection carries it on its stream (`wsConnectionOf`), and its close is said to the plugins (`McpPlugin.liveConnectionClosed`). */
   readonly id: string;
   readonly ws: WebSocket;
   readonly channel: LiveChannel;
@@ -271,6 +271,7 @@ export class WsHub {
       }
     }
 
+    // exact paths, whatever the method, on control connections only
     for (const plugin of opts.plugins) for (const route of plugin.liveLossyRoutes?.() ?? []) this.lossyRoutes.set(`/api/plugins/${plugin.id}/${route}`, { plugin, route });
     this.unsubscribeBus = opts.eventBus.subscribe((event) => this.onBusEvent(event));
     this.heartbeatTimer = setInterval(() => this.heartbeat(), opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);

@@ -80,7 +80,7 @@ export class Channel {
 
   /** The link as a page shows it: online, connecting the first time, or reconnecting after it was up. */
   get state(): "online" | "connecting" | "reconnecting" {
-    return this.up ? "online" : this.wasUp && !this.closed ? "reconnecting" : "connecting";
+    return this.up ? "online" : this.wasUp ? "reconnecting" : "connecting";
   }
 
   private setStatus(up: boolean): void {

@@ -75,6 +75,14 @@ export class MidiWiring {
   /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
   private readonly clockOut = new ClockOut(() => this.deps.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
+  /** Web MIDI messages dropped past their rate (since the server started), and those not yet said on the monitor. */
+  private droppedTotal = 0;
+  private droppedUnsaid = 0;
+  private droppedTimer: NodeJS.Timeout | undefined;
+  /** The browsers' connections said closed (the last ones): a request still on its way from one holds nothing again. */
+  private readonly closedClients = new Set<string>();
+  /** True while a profile change closes inputs: their releases are journalled as the profile's. */
+  private closingForProfile = false;
 
   constructor(private readonly deps: MidiWiringDeps) {
     const { commands, show, mapper, config, publish } = deps;
@@ -136,11 +144,6 @@ export class MidiWiring {
     return this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release";
   }
 
-  /** Web MIDI messages dropped past their rate (since the server started), and those not yet said on the monitor. */
-  droppedTotal = 0;
-  private droppedUnsaid = 0;
-  private droppedTimer: NodeJS.Timeout | undefined;
-
   /** A Web MIDI message dropped: counted, said on the monitor at most once a second (a flood must not flood it too). */
   dropped(): void {
     this.droppedTotal++;
@@ -150,13 +153,11 @@ export class MidiWiring {
       this.droppedTimer = undefined;
       const n = this.droppedUnsaid;
       this.droppedUnsaid = 0;
-      this.deps.publish("midi", { warning: say(`${n} message(s) Web MIDI jeté(s) : flux trop rapide`, `${n} Web MIDI message(s) dropped: flow too fast`) });
+      // a plain string, as the hub's own warnings: a timer has no request, so no client's language to answer in
+      this.deps.publish("midi", { warning: `${n} message(s) Web MIDI jeté(s) : flux trop rapide` });
     }, 1000);
     this.droppedTimer.unref();
   }
-
-  /** The browsers' connections said closed (the last ones): a request still on its way from one holds nothing again. */
-  private readonly closedClients = new Set<string>();
 
   /** A browser's connection closed (a tab closed, the browser cut from the network): the Web MIDI inputs it relayed go. */
   clientClosed(client: string): void {
@@ -164,9 +165,6 @@ export class MidiWiring {
     if (this.closedClients.size > CLOSED_CLIENTS_KEPT) this.closedClients.delete(this.closedClients.values().next().value!);
     this.deps.mapper.forgetClient(client, this.releasesOnLoss("web"));
   }
-
-  /** True while a profile change closes inputs: their releases are journalled as the profile's. */
-  private closingForProfile = false;
 
   /**
    * The active profile applied: the inputs it no longer watches close, and their wheels let go as their kind says. The hub

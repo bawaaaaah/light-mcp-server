@@ -6751,6 +6751,108 @@ test("MIDI mapping: an older wheel to a level, its scale written by hand, keeps 
   expect(errors).toEqual([]);
 });
 
+/** A device with one input the test plays (the test browser has no MIDI); every status text the page ever shows, kept. */
+async function fakeWebMidi(page: Page): Promise<(bytes: number[]) => Promise<void>> {
+  await page.addInitScript(() => {
+    const pad = { id: "pad", name: "Pad", state: "connected", onmidimessage: null as null | ((e: { data: Uint8Array }) => void) };
+    const g = globalThis as unknown as { fakePad: typeof pad; statusSeen: string[] };
+    g.fakePad = pad;
+    g.statusSeen = [];
+    (navigator as unknown as { requestMIDIAccess: () => Promise<unknown> }).requestMIDIAccess = async () => ({ inputs: new Map([["pad", pad]]), outputs: new Map(), onstatechange: null });
+    const dom = globalThis as unknown as { document: { querySelectorAll(s: string): Iterable<{ textContent: string | null }> }; MutationObserver: new (cb: () => void) => { observe(target: unknown, o: object): void } };
+    new dom.MutationObserver(() => {
+      for (const el of dom.document.querySelectorAll("[role=status]")) g.statusSeen.push(el.textContent ?? "");
+    }).observe(dom.document, { subtree: true, childList: true, characterData: true });
+  });
+  return (bytes) => page.evaluate((b) => (globalThis as unknown as { fakePad: { onmidimessage: (e: { data: Uint8Array }) => void } }).fakePad.onmidimessage({ data: new Uint8Array(b) }), bytes);
+}
+
+test("Web MIDI: the first connection never says « paused », even while it is on its way", async ({ page }) => {
+  await fakeWebMidi(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).check(); // kept: on again at the reload
+  await page.reload(); // the MIDI page opens with Web MIDI on, while the live connection is still on its way
+  const status = page.locator(".midi .bar span[role=status]").first();
+  await expect(status).toHaveText("Pad");
+  const seen = await page.evaluate(() => (globalThis as unknown as { statusSeen: string[] }).statusSeen);
+  expect(seen.filter((s) => s.includes("Relais en pause"))).toEqual([]);
+  await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();
+});
+
+test("Web MIDI: a right missing (403) stops the relay, says so once, and lists no input as relayed", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  let reached = 0;
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        reached++;
+        ws.send(JSON.stringify({ t: "res", id: msg.id, status: 403, body: { error: "droit requis : midi:input" } }));
+      } else if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) {
+        // its « closed » refused too: no accepted message comes to clear what is said
+        ws.send(JSON.stringify({ t: "res", id: msg.id, status: 500, body: { error: "refusé pour le test" } }));
+      } else server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  const status = page.locator(".midi .bar span[role=status]").first();
+  await expect(status).toHaveText("Pad");
+  await play([0x90, 40, 100]);
+  await expect(page.locator(".midi .bar [role=alert]")).toHaveText("Relais Web MIDI arrêté : ce compte n'a pas le droit d'envoyer du MIDI (midi:input)");
+  await expect(status).toHaveText("arrêté");
+  expect(reached).toBe(1);
+  await play([0x80, 40, 0]).catch(() => undefined); // its relay is gone: nothing more sent
+  await page.waitForTimeout(200);
+  expect(reached).toBe(1);
+  await relay.uncheck();
+  await expect(page.locator(".midi .bar [role=alert]")).toHaveCount(0);
+  await relay.check(); // on again: what was said before is gone (nothing accepted since cleared it), the relay tries again
+  await expect(page.locator(".midi .bar [role=alert]")).toHaveCount(0);
+  await expect(status).toHaveText("Pad");
+  await relay.uncheck();
+});
+
+test("Web MIDI: an input switched off mid-gesture sends its last value first: a rest is never lost", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const values: number[][] = [];
+  const order: string[] = [];
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; path?: string; body?: { bytes?: number[] } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in") && msg.body?.bytes) {
+        values.push(msg.body.bytes);
+        order.push(`in ${msg.body.bytes.join(",")}`);
+      }
+      if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) order.push("closed");
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await page.evaluate(() => {
+    const pad = (globalThis as unknown as { fakePad: { onmidimessage: (e: { data: Uint8Array }) => void } }).fakePad;
+    pad.onmidimessage({ data: new Uint8Array([0xe5, 0, 127]) }); // pushed: at once
+    pad.onmidimessage({ data: new Uint8Array([0xe5, 0, 64]) }); // back at rest, inside the window
+    // switched off at once, before the window ends (a click in the test's own steps would come after it)
+    const dom = globalThis as unknown as { document: { querySelectorAll(s: string): Iterable<{ textContent: string | null; querySelector(s: string): { click(): void } | null }> } };
+    for (const label of dom.document.querySelectorAll(".midi .bar label")) if (label.textContent?.includes("MIDI de ce navigateur")) label.querySelector("input")!.click();
+  });
+  await expect(relay).not.toBeChecked();
+  await expect.poll(() => values.at(-1)).toEqual([0xe5, 0, 64]);
+  expect(values.filter((b) => b[0] === 0xe5)).toEqual([[0xe5, 0, 127], [0xe5, 0, 64]]); // the push at once, the rest after it
+  await expect.poll(() => order).toEqual(["in 229,0,127", "in 229,0,64", "closed"]); // the rest before the input is said gone
+  await play([0x90, 1, 1]).catch(() => undefined); // switched off: nothing relayed any more
+});
+
 test("Web MIDI: a refusal said beside the inputs, cleared once a message passes; « paused » while reconnecting only", async ({ page }) => {
   const errors = watchErrors(page);
   // a device with one input the test plays (the test browser has no MIDI)
