@@ -7,7 +7,7 @@
  * n-1-k), so colour radiates from the centre, like the user's own generator.
  */
 import { z } from "zod";
-import type { Color } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 import { say } from "../../../core/lang.js";
 
 export type CellState = Color | null; // null: cell not driven by this technique

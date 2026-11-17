@@ -5,7 +5,7 @@
  * whether the rebuild is worth proposing (docs/specs/presets-songs-notes.md, step 3).
  */
 import { generateSteps, hexToColor, type Technique } from "../engine/techniques.js";
-import type { Color } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 import { say } from "../../../core/lang.js";
 
 type Rgbw = [number, number, number, number];

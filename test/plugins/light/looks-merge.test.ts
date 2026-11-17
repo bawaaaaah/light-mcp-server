@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext } from "../../../src/plugins/light/commands/registry.js";
-import { mergeColors, type AttributeFrame } from "../../../src/plugins/light/venue/venue.js";
+import type { AttributeFrame } from "../../../src/plugins/light/venue/venue.js";
+import { mergeColors } from "../../../src/plugins/light/venue/frame-merge.js";
 
 const sheet = (entries: [string, [number, Record<string, number>][]][]): AttributeFrame["colors"] => new Map(entries.map(([f, heads]) => [f, new Map(heads)]));
 const plain = (c: AttributeFrame["colors"]) => Object.fromEntries([...c].map(([f, heads]) => [f, Object.fromEntries(heads)]));

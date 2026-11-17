@@ -1,7 +1,7 @@
 /**
  * Screen rendering of light colours (previews, storyboards): pure.
  */
-import type { Color } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 
 /** A light colour as screen red, green and blue (white and amber added, UV as a violet tint), not clamped: a sum may pass 1. */
 export function lightRgb(c: Color): [number, number, number] {

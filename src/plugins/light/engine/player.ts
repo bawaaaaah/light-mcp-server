@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { rng, type CellState, type Step } from "./techniques.js";
-import type { Color } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 
 /** A duration in beats (follows the tempo) or in seconds (fixed). */
 export const EverySchema = z.union([z.object({ beats: z.number().positive() }), z.object({ seconds: z.number().positive() })]);

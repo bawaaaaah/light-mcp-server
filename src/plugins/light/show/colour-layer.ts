@@ -3,7 +3,8 @@
  * colours applied by hand, one per fixture, above the looks until released, the Panic or a new look on them. The
  * fades themselves are pure (show/manual-colour.ts); this keeps the entries and lays them over a composed frame.
  */
-import type { AttributeFrame, Color, Venue } from "../venue/venue.js";
+import type { AttributeFrame, Venue } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 import { gone, hueUnderManual, MANUAL_COLOUR_FADE_MS, manualColourOf, nextManual, settled, underManual, type ManualColour } from "./manual-colour.js";
 import type { Look } from "./model.js";
 

@@ -18,7 +18,7 @@
  */
 import type { FixtureCapability } from "./qxf-import.js";
 import type { WheelOverrides } from "./overrides.js";
-import type { Color, LooksMerge } from "./venue.js";
+import type { Color, LooksMerge } from "./frame-merge.js";
 import { lightRgb, displayHex } from "../engine/display.js";
 import { chroma, oklab, oklabDistance, tintDistance, type Lab } from "../engine/oklab.js";
 

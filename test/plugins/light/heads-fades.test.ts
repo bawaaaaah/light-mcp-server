@@ -3,7 +3,8 @@ import { copyFileSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { mergeColors, Venue, type AttributeFrame } from "../../../src/plugins/light/venue/venue.js";
+import { Venue, type AttributeFrame } from "../../../src/plugins/light/venue/venue.js";
+import { mergeColors } from "../../../src/plugins/light/venue/frame-merge.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 
 /** Zones 1-3 (RGBW) at offsets 2-13, the halo (RGB) at 14-16 (test/fixtures/wash-zones.qxf, patched at 1). */

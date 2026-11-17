@@ -18,7 +18,7 @@
 import type { ColorComponent, FixtureDefinition, FixtureMode } from "./qxf-import.js";
 import type { TrackOverrides } from "./overrides.js";
 import type { WheelFrame } from "./color-wheel.js";
-import { rawOver, type Color, type CoarseFine, type LooksMerge } from "./venue.js";
+import { rawOver, type Color, type CoarseFine, type LooksMerge } from "./frame-merge.js";
 import { say } from "../../../core/lang.js";
 
 /** What the engine reads of a fixture's enabled tracks: the offsets that fade (coarse and fine) and, per axis, what the motion layer does. */

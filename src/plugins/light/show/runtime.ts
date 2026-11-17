@@ -22,7 +22,8 @@ import { FALLBACK_BPM, type HeadStatus, type LockLevel } from "../engine/motion.
 import type { AimOptions } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
-import { addWeighted, emptyFrame, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type AttributeFrame, type Canvas, type Color, type RawWrite, type ResolvedFixture, type Venue, type WeightedColors, type WheelChoice } from "../venue/venue.js";
+import { emptyFrame, type AttributeFrame, type Canvas, type ResolvedFixture, type Venue, type WheelChoice } from "../venue/venue.js";
+import { addWeighted, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type Color, type RawWrite, type WeightedColors } from "../venue/frame-merge.js";
 import { slotHex } from "../venue/color-wheel.js";
 import type { PathWarning } from "../venue/path-check.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";

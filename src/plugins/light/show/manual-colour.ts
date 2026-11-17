@@ -9,7 +9,7 @@
  */
 import { ease, mixColor } from "../engine/player.js";
 import { hexToColor } from "../engine/techniques.js";
-import type { Color } from "../venue/venue.js";
+import type { Color } from "../venue/frame-merge.js";
 
 /** Default length of the fade into and out of a manual colour. */
 export const MANUAL_COLOUR_FADE_MS = 1000;
