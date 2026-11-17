@@ -3,11 +3,11 @@
  * « Apprendre » (the next message received), mode, and the action — start a look, a DCA level,
  * a flash, a song section, a rule program, the transport, panic or blackout. Saved with `midi.mapping.put`.
  */
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, build, actionOf, colourGroupOf, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
+import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, build, actionOf, colourGroupOf, withInputType, type Action, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 
@@ -36,6 +36,9 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [colourGroup, setColourGroup] = useState(() => colourGroupOf(initial));
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
+  /** The number before a pitch bend was chosen (which has none): it comes back with another type. */
+  const [keptNumber, setKeptNumber] = useState(initial.input.number);
+  const bendHintId = useId();
 
   useEffect(() => {
     void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
@@ -54,7 +57,10 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     void cmd<{ input: LearntInput }>("midi.learn", { timeoutMs: 15000 })
       // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light (nor
       // for a pitch bend's wheel)
-      .then((r) => setM({ ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" || r.input.type === "pitchbend" ? "none" : r.input.type === "cc" ? "cc" : m.feedback }))
+      .then((r) => {
+        const learnt: MappingDraft = { ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" || r.input.type === "pitchbend" ? "none" : r.input.type === "cc" ? "cc" : m.feedback };
+        setM(r.input.type === "pitchbend" ? withInputType(learnt, "pitchbend") : learnt);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLearning(false));
   };
@@ -71,8 +77,10 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
 
   const dj = m.input.port === "OS2L";
   const bend = !dj && m.input.type === "pitchbend";
-  // a pitch bend matches whatever the number: keep it at 0, so two bends on one channel share the same input key
-  const setType = (type: MappingDraft["input"]["type"]) => setM({ ...m, input: { ...m.input, type, number: type === "pitchbend" ? 0 : m.input.number } });
+  const setType = (type: MidiType) => {
+    if (m.input.type !== "pitchbend") setKeptNumber(m.input.number);
+    setM(withInputType(m, type, m.input.type === "pitchbend" ? keptNumber : m.input.number));
+  };
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
   // a named position is recalled at each press (T32): always « Déclencher »
@@ -99,7 +107,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             <>
               <label className="field">
                 <span>{t.midiType}</span>
-                <select value={m.input.type} onChange={(e) => setType(e.target.value as MappingDraft["input"]["type"])}>
+                <select value={m.input.type} onChange={(e) => setType(e.target.value as MidiType)} aria-describedby={bend ? bendHintId : undefined}>
                   {MIDI_TYPES.map((x) => (
                     <option key={x} value={x}>
                       {t.midiTypes[x]}
@@ -124,7 +132,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             {learning ? t.learning : t.learn}
           </button>
         </div>
-        {bend && <p className="hint">{t.pitchbendHint}</p>}
+        {bend && (
+          <p className="hint" id={bendHintId}>
+            {t.pitchbendHint}
+          </p>
+        )}
       </fieldset>
       <fieldset className="mapping-group">
         <legend>{t.midiPlaySection}</legend>
@@ -212,6 +224,13 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
               <option value="none">—</option>
             </select>
           </label>
+          {/* a pitch bend's hidden number is where its feedback goes: shown once a feedback is chosen */}
+          {bend && m.feedback !== "none" && (
+            <label className="field">
+              <span>{t.feedbackNumber}</span>
+              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
+            </label>
+          )}
         </div>
       </fieldset>
       <EditorActions onSave={save} onClose={onClose} onDelete={initial.id ? () => void cmd("midi.mapping.delete", { id: initial.id }).then(onClose) : undefined} error={error} onDismissError={() => setError("")} />

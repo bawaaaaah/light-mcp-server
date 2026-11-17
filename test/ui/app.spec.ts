@@ -6609,23 +6609,48 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
 test("MIDI mapping: a pitch bend written by an AI client opens as one and saves as one", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  await api(page, "midi.mapping.put", { mapping: { id: "ui-bend", label: "Molette", input: { type: "pitchbend", channel: 3, number: 0 }, threshold: 64, on: { command: "look.go", args: { id: "hole" } } } });
+  // its feedback goes to note 5: the number it carries, never seen as an input number
+  await api(page, "midi.mapping.put", { mapping: { id: "ui-bend", label: "Molette", input: { type: "pitchbend", channel: 3, number: 5 }, threshold: 64, feedback: "note", on: { command: "look.go", args: { id: "hole" } } } });
   try {
     await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+    await expect(page.locator(".midi table tr", { hasText: "Molette" })).toContainText("pitch bend ch3"); // no number shown
     await page.getByRole("button", { name: "Modifier Molette" }).click();
     const editor = page.locator(".mapping-editor");
-    await expect(editor.getByRole("combobox", { name: "Type", exact: true })).toHaveValue("pitchbend");
-    await expect(editor.getByRole("combobox", { name: "Type", exact: true }).locator("option:checked")).toHaveText("pitch bend");
+    const type = editor.getByRole("combobox", { name: "Type", exact: true });
+    await expect(type).toHaveValue("pitchbend");
+    await expect(type.locator("option:checked")).toHaveText("pitch bend");
+    await expect(type).toHaveAccessibleDescription(/au repos la molette vaut 64/);
     await expect(editor.getByLabel("Note / CC")).toHaveCount(0); // the wheel has no number
-    await expect(editor).toContainText("n'a pas de numéro");
     await expect(editor.getByLabel("Canal")).toHaveValue("3");
+    await expect(editor.getByLabel("N° du retour")).toHaveValue("5"); // where its feedback goes, shown
     await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor).toHaveCount(0);
-    const saved = ((await api(page, "midi.mapping.list")) as { id: string; input: { type: string; channel: number }; threshold: number }[]).find((m) => m.id === "ui-bend");
-    expect(saved).toMatchObject({ input: { type: "pitchbend", channel: 3 }, threshold: 64 });
+    const saved = ((await api(page, "midi.mapping.list")) as { id: string; input: { type: string; channel: number; number: number }; threshold: number; feedback: string }[]).find((m) => m.id === "ui-bend");
+    expect(saved).toMatchObject({ input: { type: "pitchbend", channel: 3, number: 5 }, threshold: 64, feedback: "note" });
   } finally {
     await api(page, "midi.mapping.delete", { id: "ui-bend" });
   }
+  expect(errors).toEqual([]);
+});
+
+test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no feedback, and gives the note's number back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  const type = editor.getByRole("combobox", { name: "Type", exact: true });
+  await expect(editor.getByLabel("Note / CC")).toHaveValue("36");
+  await type.selectOption("pitchbend");
+  await expect(editor.getByLabel("Note / CC")).toHaveCount(0);
+  await expect(editor.getByLabel("Seuil")).toHaveValue("64");
+  await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("none");
+  await expect(editor.getByLabel("N° du retour")).toHaveCount(0);
+  await editor.getByRole("combobox", { name: "Retour" }).selectOption("note"); // a feedback chosen anyway: its number shows
+  await expect(editor.getByLabel("N° du retour")).toHaveValue("0");
+  await type.selectOption("note");
+  await expect(editor.getByLabel("Note / CC")).toHaveValue("36"); // not 0
+  await editor.getByRole("button", { name: "Fermer" }).click();
   expect(errors).toEqual([]);
 });
 
@@ -6642,6 +6667,7 @@ test("MIDI mapping: a pitch bend learnt fills the editor as one, and the reverse
   await expect(editor.getByLabel("Canal")).toHaveValue("4");
   await expect(editor.getByLabel("Note / CC")).toHaveCount(0);
   await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("none"); // no LED on a wheel
+  await expect(editor.getByLabel("Seuil")).toHaveValue("64"); // above the wheel's rest
   await editor.getByLabel("Cible").selectOption("hole");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);

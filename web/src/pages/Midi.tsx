@@ -5,6 +5,7 @@ import { control } from "../ws";
 import { plain } from "../util";
 import { useTopic } from "../hooks/useTopic";
 import { MappingEditor, newMapping, type LearntInput, type MappingDraft } from "../components/MappingEditor";
+import { withInputType, type MidiType } from "../mappingActions";
 import { Modal } from "../components/Modal";
 import { quoted } from "../typography";
 import { useColourPresets } from "../hooks/useColourPresets";
@@ -246,10 +247,10 @@ export function MidiPage(): ReactElement {
   const configureAbleSet = (patch: Partial<Pick<AbleSetStatus, "enabled" | "host">>) =>
     void cmd<AbleSetStatus>("ableset.configure", patch).then(setAbleset, (e: Error) => setError(e.message));
   // by channel, then notes, CCs, program changes and pitch bends, each in number order (not « note 29, note 3, note 30 »)
-  const TYPE_ORDER: Record<string, number> = { note: 0, cc: 1, programchange: 2, pitchbend: 3 };
+  const TYPE_ORDER: Record<MidiType, number> = { note: 0, cc: 1, programchange: 2, pitchbend: 3 };
   const needle = mappingSearch.trim().toLowerCase();
   const shownMappings = [...mappings]
-    .sort((a, b) => a.input.channel - b.input.channel || (TYPE_ORDER[a.input.type] ?? 9) - (TYPE_ORDER[b.input.type] ?? 9) || a.input.number - b.input.number || a.id.localeCompare(b.id))
+    .sort((a, b) => a.input.channel - b.input.channel || TYPE_ORDER[a.input.type] - TYPE_ORDER[b.input.type] || a.input.number - b.input.number || a.id.localeCompare(b.id))
     .filter((m) => !heard || playedBy(m, heard))
     .filter((m) => !needle || [`${m.input.type} ${m.input.number}`, m.label, m.on.command, plain(m.on.args.id)].some((x) => x.toLowerCase().includes(needle)));
   const loadMappings = () => void cmd<Mapping[]>("midi.mapping.list").then(setMappings).catch(() => undefined);
@@ -260,7 +261,9 @@ export function MidiPage(): ReactElement {
       .then((r) => setHeard(r.input), (e: Error) => setError(e.message))
       .finally(() => setListening(false));
   };
-  const heardText = (i: HeardInput) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "pitchbend" ? "pitch bend" : `${i.type === "programchange" ? "PC" : i.type} ${i.number}`} · ch${i.channel}${i.port ? ` · ${i.port}` : ""}`);
+  /** « note 50 », « PC 3 », « pitch bend » (the channel's wheel: no number). */
+  const inputName = (i: { type: MidiType; number: number }) => (i.type === "pitchbend" ? t.midiTypes.pitchbend : `${i.type === "programchange" ? "PC" : i.type} ${i.number}`);
+  const heardText = (i: HeardInput) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${inputName(i)} · ch${i.channel}${i.port ? ` · ${i.port}` : ""}`);
   /** Watch or stop watching a port in the active profile (patterns match by substring). */
   const saveProfile = (patch: Partial<NonNullable<Status["profileConfig"]>>) => {
     if (!status?.profileConfig) return;
@@ -465,7 +468,12 @@ export function MidiPage(): ReactElement {
                 <>
                   {" "}
                   <span className="hint">{t.heardUnmapped}</span>{" "}
-                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type, channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" || heard.type === "pitchbend" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
+                  <button className="ghost" onClick={() => {
+                      const draft: MappingDraft = { ...newMapping(), input: { type: heard.type, channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" ? "none" : heard.type === "cc" ? "cc" : "note" };
+                      // a wheel: its rest threshold, no feedback
+                      setEditing(heard.type === "pitchbend" ? withInputType(draft, "pitchbend") : draft);
+                    }}
+                  >
                     + {t.mapHeard}
                   </button>
                 </>
@@ -483,7 +491,7 @@ export function MidiPage(): ReactElement {
                       </>
                     ) : (
                       <>
-                        {m.input.type} {m.input.number} <small>ch{m.input.channel}</small>
+                        {inputName(m.input)} <small>ch{m.input.channel}</small>
                       </>
                     )}
                   </td>

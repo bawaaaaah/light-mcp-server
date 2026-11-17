@@ -5,9 +5,13 @@
  */
 import { plain } from "./plain.js";
 
+/** The input types a mapping answers (midi/mapping.ts `MappingSchema`). */
+export const MIDI_TYPES = ["note", "cc", "programchange", "pitchbend"] as const;
+export type MidiType = (typeof MIDI_TYPES)[number];
+
 /** What midi.learn answers (commands/midi-commands.ts): a note, a CC, a program change or a pitch bend (number 0), with the port it came on. */
 export interface LearntInput {
-  type: "note" | "cc" | "programchange" | "pitchbend";
+  type: MidiType;
   channel: number;
   number: number;
   port: string;
@@ -16,7 +20,7 @@ export interface LearntInput {
 export interface MappingDraft {
   id: string;
   label: string;
-  input: { type: "note" | "cc" | "programchange" | "pitchbend"; channel: number; number: number; port?: string };
+  input: { type: MidiType; channel: number; number: number; port?: string };
   mode: "trigger" | "latch" | "momentary" | "toggle";
   /** Raw value a CC (or a note's velocity) must exceed to answer (0..126); 0 = immediate. */
   threshold?: number;
@@ -25,11 +29,21 @@ export interface MappingDraft {
   levelArg?: string;
   feedback: "none" | "note" | "cc";
 }
-/** The input types a mapping answers (midi/mapping.ts `MappingSchema`). */
-export const MIDI_TYPES = ["note", "cc", "programchange", "pitchbend"] as const satisfies readonly MappingDraft["input"]["type"][];
-
 /** A CC or a pitch bend answers every value above its threshold, like a fader (midi/mapping.ts); a note or a program change is a press. */
-export const answersEveryValue = (type: MappingDraft["input"]["type"]): boolean => type === "cc" || type === "pitchbend";
+export const answersEveryValue = (type: MidiType): boolean => type === "cc" || type === "pitchbend";
+
+/** A wheel at rest sends its centre (8192), 64 in the top 7 bits the threshold reads: above it, the wheel is pushed. */
+export const PITCHBEND_REST = 64;
+
+/**
+ * The draft with another input type. A pitch bend is the channel's wheel: number 0 (the mapper ignores it), a threshold
+ * at its rest when it had none (else the wheel at rest is engaged: a flash stuck on), no LED feedback (it would go to note
+ * 0). Back from a pitch bend, the number it had before (`kept`) returns.
+ */
+export function withInputType(m: MappingDraft, type: MidiType, kept = m.input.number): MappingDraft {
+  if (type === "pitchbend") return { ...m, input: { ...m.input, type, number: 0 }, threshold: m.threshold || PITCHBEND_REST, feedback: "none" };
+  return { ...m, input: { ...m.input, type, number: m.input.type === "pitchbend" ? kept : m.input.number } };
+}
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
 export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position", "colour"] as const;
