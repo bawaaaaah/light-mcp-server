@@ -1,5 +1,5 @@
 /**
- * MIDI mapping editor (docs/specs/midi.md): input (note, CC, program change; channel, number) with
+ * MIDI mapping editor (docs/specs/midi.md): input (note, CC, program change, pitch bend; channel, number) with
  * « Apprendre » (the next message received), mode, and the action — start a look, a DCA level,
  * a flash, a song section, a rule program, the transport, panic or blackout. Saved with `midi.mapping.put`.
  */
@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
+import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, build, actionOf, colourGroupOf, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 
@@ -69,10 +69,13 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   };
 
   const dj = m.input.port === "OS2L";
+  const bend = !dj && m.input.type === "pitchbend";
+  // a pitch bend matches whatever the number: keep it at 0, so two bends on one channel share the same input key
+  const setType = (type: MappingDraft["input"]["type"]) => setM({ ...m, input: { ...m.input, type, number: type === "pitchbend" ? 0 : m.input.number } });
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
   // a named position is recalled at each press (T32): always « Déclencher »
-  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && m.input.type !== "cc") || action === "position" || action === "colour";
+  const modeLocked = action === "dca" || action === "fader" || action === "grandmaster" || (action === "flash" && !answersEveryValue(m.input.type)) || action === "position" || action === "colour";
   return (
     <section className="mapping-editor look-editor">
       <h2>{initial.id ? `${t.editLook} · ${initial.label}` : t.newMapping}</h2>
@@ -95,10 +98,12 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             <>
               <label className="field">
                 <span>{t.midiType}</span>
-                <select value={m.input.type} onChange={(e) => setM({ ...m, input: { ...m.input, type: e.target.value as MappingDraft["input"]["type"] } })}>
-                  <option value="note">note</option>
-                  <option value="cc">CC</option>
-                  <option value="programchange">program change</option>
+                <select value={m.input.type} onChange={(e) => setType(e.target.value as MappingDraft["input"]["type"])}>
+                  {MIDI_TYPES.map((x) => (
+                    <option key={x} value={x}>
+                      {t.midiTypes[x]}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="field">
@@ -107,14 +112,18 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
               </label>
             </>
           )}
-          <label className="field">
-            <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
-            <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
-          </label>
+          {/* a pitch bend is the channel's wheel: it has no number */}
+          {!bend && (
+            <label className="field">
+              <span>{dj ? t.djCommandNumber : t.midiNumber}</span>
+              <input type="number" min={0} max={127} value={m.input.number} onChange={(e) => setM({ ...m, input: { ...m.input, number: Number(e.target.value) } })} />
+            </label>
+          )}
           <button className="learn" onClick={learn} disabled={learning}>
             {learning ? t.learning : t.learn}
           </button>
         </div>
+        {bend && <p className="hint">{t.pitchbendHint}</p>}
       </fieldset>
       <fieldset className="mapping-group">
         <legend>{t.midiPlaySection}</legend>

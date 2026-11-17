@@ -245,8 +245,8 @@ export function MidiPage(): ReactElement {
   }, []);
   const configureAbleSet = (patch: Partial<Pick<AbleSetStatus, "enabled" | "host">>) =>
     void cmd<AbleSetStatus>("ableset.configure", patch).then(setAbleset, (e: Error) => setError(e.message));
-  // by channel, then notes, CCs and program changes, each in number order (not « note 29, note 3, note 30 »)
-  const TYPE_ORDER: Record<string, number> = { note: 0, cc: 1, programchange: 2 };
+  // by channel, then notes, CCs, program changes and pitch bends, each in number order (not « note 29, note 3, note 30 »)
+  const TYPE_ORDER: Record<string, number> = { note: 0, cc: 1, programchange: 2, pitchbend: 3 };
   const needle = mappingSearch.trim().toLowerCase();
   const shownMappings = [...mappings]
     .sort((a, b) => a.input.channel - b.input.channel || (TYPE_ORDER[a.input.type] ?? 9) - (TYPE_ORDER[b.input.type] ?? 9) || a.input.number - b.input.number || a.id.localeCompare(b.id))

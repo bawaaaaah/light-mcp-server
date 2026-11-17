@@ -60,6 +60,8 @@ describe("motion lock from a MIDI mapping (T26)", () => {
     }
     expect(build({ ...newMapping(), mode: "trigger", input: note }, "freeze", "")).to.deep.include({ on: { command: "motion.freeze", args: { toggle: true } }, off: undefined });
     expect(build({ ...newMapping(), mode: "trigger", input: cc }, "freeze", "")).to.deep.include({ on: { command: "motion.freeze", args: {} }, off: undefined });
+    // a pitch bend answers every value above its threshold, like a CC: it only freezes
+    expect(build({ ...newMapping(), mode: "trigger", input: { type: "pitchbend", channel: 1, number: 0 } }, "freeze", "")).to.deep.include({ on: { command: "motion.freeze", args: {} }, off: undefined });
     // a mapping written by hand keeps its fixtures and its level
     const hand = { ...newMapping(), mode: "latch" as const, on: { command: "motion.freeze", args: { fixtures: ["spot"], level: "hard" } } };
     expect(build(hand, "freeze", "")).to.deep.include({ on: { command: "motion.freeze", args: { fixtures: ["spot"], level: "hard" } }, off: { command: "motion.unfreeze", args: { fixtures: ["spot"] } } });

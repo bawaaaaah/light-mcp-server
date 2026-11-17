@@ -25,6 +25,12 @@ export interface MappingDraft {
   levelArg?: string;
   feedback: "none" | "note" | "cc";
 }
+/** The input types a mapping answers (midi/mapping.ts `MappingSchema`). */
+export const MIDI_TYPES = ["note", "cc", "programchange", "pitchbend"] as const satisfies readonly MappingDraft["input"]["type"][];
+
+/** A CC or a pitch bend answers every value above its threshold, like a fader (midi/mapping.ts); a note or a program change is a press. */
+export const answersEveryValue = (type: MappingDraft["input"]["type"]): boolean => type === "cc" || type === "pitchbend";
+
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
 export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position", "colour"] as const;
 export type Action = (typeof ACTIONS)[number];
@@ -91,8 +97,8 @@ export function build(m: MappingDraft, action: Action, target: string, colourGro
       const level = prev.level === "hard" ? { level: "hard" } : {};
       if (m.mode === "trigger") {
         // a note (or a program change) in « Déclencher »: each press switches (the server's toggle); a CC answers every
-        // value above its threshold, a toggle would flicker the lock: a CC only freezes (decision I3)
-        return { ...base, on: { command: "motion.freeze", args: { ...scope, ...level, ...(m.input.type === "cc" ? {} : { toggle: true }) } } };
+        // value above its threshold (a pitch bend too), a toggle would flicker the lock: a CC only freezes (decision I3)
+        return { ...base, on: { command: "motion.freeze", args: { ...scope, ...level, ...(answersEveryValue(m.input.type) ? {} : { toggle: true }) } } };
       }
       // « Bascule », « Marche / arrêt », « Momentané »: freeze when it turns on, unfreeze when it turns off (the mapping
       // engine alternates on and off); from MIDI the unfreeze loosens only a soft lock (decision V1)

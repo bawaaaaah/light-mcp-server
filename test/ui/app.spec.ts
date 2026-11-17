@@ -6606,6 +6606,29 @@ test("MIDI mapping: learn a note, assign a look, the note starts it", async ({ p
   expect(errors).toEqual([]);
 });
 
+test("MIDI mapping: a pitch bend written by an AI client opens as one and saves as one", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "midi.mapping.put", { mapping: { id: "ui-bend", label: "Molette", input: { type: "pitchbend", channel: 3, number: 0 }, threshold: 64, on: { command: "look.go", args: { id: "hole" } } } });
+  try {
+    await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+    await page.getByRole("button", { name: "Modifier Molette" }).click();
+    const editor = page.locator(".mapping-editor");
+    await expect(editor.getByRole("combobox", { name: "Type", exact: true })).toHaveValue("pitchbend");
+    await expect(editor.getByRole("combobox", { name: "Type", exact: true }).locator("option:checked")).toHaveText("pitch bend");
+    await expect(editor.getByLabel("Note / CC")).toHaveCount(0); // the wheel has no number
+    await expect(editor).toContainText("n'a pas de numéro");
+    await expect(editor.getByLabel("Canal")).toHaveValue("3");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    const saved = ((await api(page, "midi.mapping.list")) as { id: string; input: { type: string; channel: number }; threshold: number }[]).find((m) => m.id === "ui-bend");
+    expect(saved).toMatchObject({ input: { type: "pitchbend", channel: 3 }, threshold: 64 });
+  } finally {
+    await api(page, "midi.mapping.delete", { id: "ui-bend" });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("channel fader: on a dashboard, it drives its channels", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

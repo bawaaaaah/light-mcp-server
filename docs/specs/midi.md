@@ -64,7 +64,7 @@ Un mapping associe une **entrée** (type note/CC/PC/pitch bend/aftertouch/NRPN, 
 
 ### Dans l'interface (v1, page MIDI)
 - **Entrées surveillées** : une case par port détecté (enregistrée dans le profil actif ; les motifs reconnaissent les noms par sous-chaîne, par exemple « IAC ») et la **sortie de retour**.
-- **Mappings** : créer, modifier, supprimer ; entrée note, CC ou program change avec **« Apprendre »** (le prochain message reçu, 15 s) ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, **activer un programme de règles** (ou aucun), section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
+- **Mappings** : créer, modifier, supprimer ; entrée note, CC, program change ou pitch bend (sans numéro : la molette du canal) avec **« Apprendre »** (le prochain message reçu, 15 s ; un pitch bend ne s'apprend pas, il se choisit dans « Type ») ; mode ; action : lancer un look, niveau d'un DCA (fader, CC), flash d'un DCA, lancer une section, **activer un programme de règles** (ou aucun), section ou chant suivant/précédent, tout arrêter, tap tempo, Panic neutre, Blackout ; retour note ou CC.
 
 ### Diagnostic (v1, 2026-10-22)
 Une note qui « ne marche pas » se lit, au lieu de se deviner (l'utilisateur soupçonnait Node et pensait à un back en Rust ; décision : mesurer d'abord) :
