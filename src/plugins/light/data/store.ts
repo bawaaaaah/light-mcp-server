@@ -72,9 +72,14 @@ export class Collection<T extends { id: string }> {
     private readonly store: FolderStore,
     readonly name: string,
     /** Its schema, given at its first opening (FolderStore.collection). */
-    readonly schema: ZodType<T, unknown>,
+    private readonly schema: ZodType<T, unknown>,
   ) {
     this.reload();
+  }
+
+  /** Whether it was opened with this very schema (the reopening guard of FolderStore.collection). */
+  hasSchema(schema: ZodType<unknown, unknown>): boolean {
+    return this.schema === schema;
   }
 
   /** A value as this collection would store it (defaults filled in), or the schema's error: nothing written. */
@@ -235,7 +240,7 @@ export class FolderStore {
     const existing = this.collections.get(name);
     if (existing) {
       // one schema per collection name: the same schema object, so its T is the caller's
-      if (existing.schema !== schema) throw new Error(`collection ${name} reopened with another schema than its first one`);
+      if (!existing.hasSchema(schema)) throw new Error(`collection ${name} reopened with another schema than its first one`);
       return existing as Collection<T>;
     }
     const c = new Collection<T>(this, name, schema);

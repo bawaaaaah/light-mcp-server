@@ -42,7 +42,7 @@ import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
 import { FolderStore, ID_RE } from "./data/store.js";
 import type { MidiHub } from "./midi/hub.js";
-import { MappingSchema, MidiMapper } from "./midi/mapping.js";
+import { MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
 import type { Os2lServer } from "./os2l/server.js";
 import type { AbleSetClient } from "./ableset/ableset.js";
@@ -307,7 +307,7 @@ export class LightPlugin implements McpPlugin {
     this.migrateLoaded();
     this.venue.reload(); // an archive restored may hold model overrides under an old key
     this.runtime.reloadSettings();
-    this.mapper.setMappings(this.show.collection("mappings", MappingSchema).list());
+    this.mapper.setMappings(this.midi.mappings.list()); // the guarded collection, re-read by reloadAll
     this.engine.requestFrame();
     this.publish("state", this.state());
   }
